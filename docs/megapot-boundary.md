@@ -28,7 +28,10 @@ using a quote below the sponsor's immutable maximum token spend. Approval is
 limited to that quote and reset after purchase. USDC has six decimals; the
 fixture price is one million atomic units, while the pool has no hardcoded
 one-USDC price assumption. Unused initial ticket funding remains a sponsor
-liability and is not included in the winnings split.
+liability and is not included in the winnings split. A pool with no purchase
+can refund prefunding to its sponsor after the entry cutoff; this path cannot
+touch a purchased pool or its allocations. A purchased drawing still depends
+on upstream finality, with no local emergency cancellation path.
 
 The mock is independently written. It simulates ownership, mint callbacks,
 burning, pricing and final drawing state through these selectors. Its prize

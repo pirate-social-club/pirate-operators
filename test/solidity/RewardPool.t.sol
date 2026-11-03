@@ -288,4 +288,30 @@ contract RewardPoolTest {
         pool.withdraw(alice);
         require(token.balanceOf(alice) == 12);
     }
+
+    function testUnpurchasedFundingReturnsOnlyAfterCutoffToSponsor() public {
+        pool.commitEntries(bytes32(0), 0, POLICY);
+        vm.expectRevert();
+        pool.refundUnpurchased(address(this));
+        vm.warp(1800000100);
+        vm.expectRevert();
+        vm.prank(alice);
+        pool.refundUnpurchased(alice);
+        pool.refundUnpurchased(address(this));
+        require(token.balanceOf(address(this)) == 1_000_000 && token.balanceOf(address(pool)) == 0);
+    }
+
+    function testRefundCannotTakePurchasedOrAllocatedFunds() public {
+        win(11);
+        register(alice, leaf(bob), bytes32(uint256(1)));
+        vm.expectRevert();
+        pool.refundUnpurchased(address(this));
+        vm.warp(pool.deadline());
+        pool.finalize();
+        vm.expectRevert();
+        pool.refundUnpurchased(address(this));
+        vm.prank(alice);
+        pool.withdraw(alice);
+        require(token.balanceOf(alice) == 11);
+    }
 }

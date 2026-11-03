@@ -227,6 +227,11 @@ contract RewardPool {
         emit Withdrawn(msg.sender, to, share);
     }
 
+    function refundUnpurchased(address to) external nonReentrant {
+        require(msg.sender == sponsor && !purchased && block.timestamp >= cutoff && to != address(0), "refund_refused");
+        require(asset.transfer(to, asset.balanceOf(address(this))), "transfer_failed");
+    }
+
     function withdrawSponsor(address to) external nonReentrant {
         require(finalized && msg.sender == sponsor && to != address(0), "sponsor_refused");
         uint256 amount = sponsorBalance;

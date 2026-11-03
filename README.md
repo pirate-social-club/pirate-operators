@@ -113,7 +113,11 @@ withdraw to its own or another address, and a failed transfer preserves the
 allocation for retry. Losing the signing key can leave the money locked
 indefinitely. The sponsor receives only its unused ticket funding, rounding
 dust, or winnings when nobody registered; it cannot take a participant's
-unwithdrawn allocation. Transaction submission and gas sponsorship are separate
+unwithdrawn allocation. If no tickets were purchased, the sponsor can recover
+prefunding after the entry cutoff, when purchase is permanently closed.
+Once tickets are purchased, a stalled provider still blocks settlement; the
+local pool has no cancellation or emergency redemption path for that case.
+Transaction submission and gas sponsorship are separate
 from the allocation and are not established by this local demonstration.
 
 ## Remaining M1 work
