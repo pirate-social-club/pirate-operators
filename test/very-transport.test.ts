@@ -86,7 +86,7 @@ test("hosted verifier rejects status, HTTP, timeout and oversized responses with
 
 test("pending bridge results wait; unknown states and unsafe session handles fail", async () => {
   const key = randomBytes(32);
-  for (const status of ["pending", "received", "processing"]) {
+  for (const status of ["initialized", "pending", "received", "processing"]) {
     assert.equal(
       await hostedProvider(async () => Response.json({ status })).poll(
         { id: "fixture" },

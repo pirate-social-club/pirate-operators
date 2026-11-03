@@ -18,6 +18,8 @@ Open the printed loopback URL on this computer. The process binds only to
 Start, then polls the bridge and independently asks the hosted verifier to
 check the completed proof. No API secret is requested. Do not create another
 enrollment to run this experiment. Use the same existing enrollment throughout.
+An optional `--port` keeps the URL stable across restarts; the previous process
+must release that port first. A restart still discards its in-memory comparisons.
 
 Complete the four requests in order using the Very app. Each QR expires after
 five minutes. A failed request can be retried; clearing the run discards all
@@ -93,6 +95,9 @@ fixed session endpoint, and POST `{proof: <JSON string>}` to the fixed verifier.
 Only a successful HTTP response with top-level status `valid` is accepted.
 Redirects, oversized responses and unknown states fail closed. Provider errors
 are replaced with fixed messages so handles and proof bodies cannot enter logs.
+The bridge's normal pre-scan status is `initialized`, observed in an unscanned
+transport-only diagnostic on 2026-11-03. It is a waiting state alongside
+`pending`, `received` and `processing`; none establishes a verified observation.
 
 The loopback page requires the exact Host, Origin and a random CSRF token for
 every action. It loads no remote scripts, images or fonts. Provider URLs cannot

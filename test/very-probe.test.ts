@@ -1,7 +1,62 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Probe, TTL_MS } from "../harness/very/probe.ts";
+import { encrypt, hostedProvider } from "../harness/very/transport.ts";
 import { deferred, fakeProvider, proofFixture } from "./very-fixture.ts";
+
+test("initialized bridge polling preserves the QR and key until verified completion", async () => {
+  let launch!: { scope: string; binding: string; key: Buffer };
+  let polls = 0;
+  let verifications = 0;
+  let now = 0;
+  const hosted = hostedProvider(async (url) => {
+    if (String(url).endsWith("/sessions"))
+      return Response.json({ sessionId: "fixture-session" });
+    if (String(url).includes("/session/")) {
+      polls++;
+      if (polls <= 3) return Response.json({ status: "initialized" });
+      if (polls === 4) return Response.json({ status: "received" });
+      return Response.json({
+        status: "completed",
+        response: encrypt(
+          proofFixture(launch.scope, launch.binding),
+          launch.key,
+        ),
+      });
+    }
+    verifications++;
+    return Response.json({ status: "valid" });
+  });
+  const probe = new Probe(
+    {
+      ...hosted,
+      async open(appId, scope, binding, key) {
+        launch = { scope, binding, key };
+        return hosted.open(appId, scope, binding, key);
+      },
+    },
+    "fixture-app",
+    "fixture",
+    () => now,
+  );
+  await probe.start();
+  const originalQr = probe.view().launch;
+  assert.ok(originalQr);
+  for (let i = 0; i < 4; i++) {
+    now += 3000;
+    await probe.poll();
+    assert.equal(probe.view().state, "waiting");
+    assert.equal(probe.view().launch, originalQr);
+    assert.ok(launch.key.some((byte) => byte !== 0));
+    assert.equal(probe.report().observations.length, 0);
+  }
+  assert.equal(verifications, 0);
+  await probe.poll();
+  assert.equal(verifications, 1);
+  assert.equal(probe.report().observations.length, 1);
+  assert.equal(probe.view().launch, null);
+  assert.ok(launch.key.every((byte) => byte === 0));
+});
 
 test("four verified observations compare subjects and redact persistent output", async () => {
   const fake = fakeProvider();

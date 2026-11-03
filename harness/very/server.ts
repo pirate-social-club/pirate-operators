@@ -4,7 +4,9 @@ import QRCode from "qrcode";
 import { page } from "./page.ts";
 import type { Probe } from "./probe.ts";
 
-export async function serveProbe(probe: Probe) {
+export async function serveProbe(probe: Probe, port = 0) {
+  if (!Number.isInteger(port) || port < 0 || port > 65535)
+    throw new Error("invalid_loopback_port");
   const csrf = randomBytes(32).toString("hex");
   const nonce = randomBytes(24).toString("base64");
   let origin = "";
@@ -56,7 +58,7 @@ export async function serveProbe(probe: Probe) {
   server.headersTimeout = 10_000;
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+    server.listen(port, "127.0.0.1", resolve);
   });
   const address = server.address();
   if (!address || typeof address === "string")

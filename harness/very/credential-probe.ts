@@ -8,12 +8,13 @@ async function main() {
     options: {
       live: { type: "boolean" },
       "app-id": { type: "string" },
+      port: { type: "string" },
       help: { type: "boolean" },
     },
   });
   if (values.help) {
     console.log(
-      "npm run very:probe -- --live --app-id <existing-public-app-id>",
+      "npm run very:probe -- --live --app-id <existing-public-app-id> [--port <loopback-port>]",
     );
     return;
   }
@@ -26,6 +27,7 @@ async function main() {
     throw new Error("live_mode_and_public_app_id_required");
   const server = await serveProbe(
     new Probe(hostedProvider(), values["app-id"]!, "live"),
+    values.port === undefined ? 0 : Number(values.port),
   );
   console.log(`Very diagnostic: ${server.url}`);
   console.log(

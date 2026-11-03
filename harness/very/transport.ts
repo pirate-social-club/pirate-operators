@@ -114,7 +114,11 @@ export function hostedProvider(fetcher: typeof fetch = fetch): Provider {
       const result = await request(
         `${BRIDGE}/session/${encodeURIComponent(session.id)}`,
       );
-      if (["pending", "received", "processing"].includes(String(result.status)))
+      if (
+        ["initialized", "pending", "received", "processing"].includes(
+          String(result.status),
+        )
+      )
         return null;
       if (result.status !== "completed") throw new Error("bridge_failed");
       return decrypt(result.response, key);

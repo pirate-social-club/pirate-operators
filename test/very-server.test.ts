@@ -5,6 +5,29 @@ import { Probe } from "../harness/very/probe.ts";
 import { serveProbe } from "../harness/very/server.ts";
 import { fakeProvider } from "./very-fixture.ts";
 
+test("an explicit loopback port can keep the same URL across a process restart", async () => {
+  const first = await serveProbe(
+    new Probe(fakeProvider().provider, "app", "fixture"),
+  );
+  const url = first.url;
+  await first.close();
+  const second = await serveProbe(
+    new Probe(fakeProvider().provider, "app", "fixture"),
+    Number(new URL(url).port),
+  );
+  try {
+    assert.equal(second.url, url);
+    assert.equal((await fetch(url)).status, 200);
+  } finally {
+    await second.close();
+  }
+  for (const port of [-1, 65536, 1.5, NaN])
+    await assert.rejects(
+      serveProbe(new Probe(fakeProvider().provider, "app", "fixture"), port),
+      /invalid_loopback_port/,
+    );
+});
+
 test("loopback UI requires exact Host, Origin and CSRF for every action", async () => {
   const fake = fakeProvider();
   const probe = new Probe(fake.provider, "app", "fixture");
