@@ -19,6 +19,7 @@ import {
   type Result,
 } from "../packages/protocol/index.ts";
 import { performance } from "../packages/scoring/fixture-score.ts";
+import { rewardPoolScope } from "../packages/protocol/very-reward-scope.ts";
 
 export interface PoolChain {
   token: Address;
@@ -228,6 +229,14 @@ export async function runFlow({
   await write(pool, "RewardPool", "settle");
   assert.equal(await read(pool, "RewardPool", "winnings"), 10000001n);
   const scope = (await read(pool, "RewardPool", "scope")) as Hex;
+  assert.equal(
+    scope,
+    rewardPoolScope({
+      chainId: BigInt(runtime.chainId),
+      pool,
+      drawingId: (await read(pool, "RewardPool", "drawingId")) as bigint,
+    }),
+  );
   const registrations = [];
   for (let i = 0; i < entries.length; i++) {
     const permit = (await fetcher("very", "/attest", {
