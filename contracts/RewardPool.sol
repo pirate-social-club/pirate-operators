@@ -223,7 +223,7 @@ contract RewardPool {
         require(
             settled && !cancelled && winnings > 0 && !finalized && block.timestamp < deadline, "registration_closed"
         );
-        require(claimant.code.length == 0 && recipient != address(0), "unsupported_wallet_or_recipient");
+        require(_supportedClaimant(claimant) && recipient != address(0), "unsupported_wallet_or_recipient");
         require(
             !registered[claimant] && !usedNullifiers[nullifier] && registeredCount < entryCount,
             "duplicate_registration"
@@ -247,6 +247,13 @@ contract RewardPool {
         usedNullifiers[nullifier] = true;
         registeredCount++;
         emit Registered(claimant, nullifier);
+    }
+
+    function _supportedClaimant(address claimant) internal view returns (bool) {
+        uint256 size = claimant.code.length;
+        // EIP-7702 stores exactly 0xef0100 followed by a 20-byte delegate address.
+        // Read the marker only; sponsored authorization still recovers the EOA key.
+        return size == 0 || (size == 23 && bytes3(claimant.code) == hex"ef0100");
     }
 
     function _recover(bytes32 body, bytes calldata signature) internal view returns (address) {

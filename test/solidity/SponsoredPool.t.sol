@@ -167,6 +167,63 @@ contract SponsoredPoolTest is PoolFixture {
         pool.register(ATTEMPT, r.proof, r.nullifier, r.expiresAt, r.attestation);
     }
 
+    function testDelegatedWalletCanRegisterDirectly() public {
+        win(10);
+        RewardPool.Registration memory r = request(false, participantA);
+        vm.etch(participantA, abi.encodePacked(hex"ef0100", address(0x1234)));
+        vm.prank(participantA);
+        pool.register(ATTEMPT, r.proof, r.nullifier, r.expiresAt, r.attestation);
+        require(pool.registered(participantA) && pool.payoutRecipient(participantA) == participantA);
+    }
+
+    function testDelegatedWalletCanRegisterInSponsoredBatch() public {
+        win(11);
+        RewardPool.Registration[] memory rows = new RewardPool.Registration[](2);
+        rows[0] = request(false, participantB);
+        rows[1] = request(true, participantB);
+        vm.etch(participantA, abi.encodePacked(hex"ef0100", address(0x1234)));
+        vm.etch(participantB, abi.encodePacked(hex"ef0100", address(0x5678)));
+        vm.prank(address(0x999));
+        bool[] memory result = pool.registerBatch(rows);
+        require(result[0] && result[1] && pool.registeredCount() == 2);
+        require(pool.payoutRecipient(participantA) == participantB);
+    }
+
+    function testDelegationMarkerDoesNotReplaceOriginalSigner() public {
+        win(10);
+        vm.etch(participantA, abi.encodePacked(hex"ef0100", address(0x1234)));
+        RewardPool.Registration memory r = request(false, participantB);
+        signRequest(r, 7);
+        vm.expectRevert();
+        pool.registerFor(r);
+        require(!pool.registered(participantA) && !pool.usedNullifiers(r.nullifier));
+        signRequest(r, 6);
+        pool.registerFor(r);
+        require(pool.registered(participantA));
+    }
+
+    function testOtherCodeLengthsAndPrefixesAreRefused() public {
+        win(10);
+        RewardPool.Registration memory r = request(false, participantB);
+        // The VM itself refuses ef01-prefixed code with the wrong size or version.
+        // Exercise other bytecode sizes and a near-miss marker prefix.
+        bytes[] memory unsupported = new bytes[](5);
+        unsupported[0] = hex"000000";
+        unsupported[1] = abi.encodePacked(hex"000000", bytes19(0));
+        unsupported[2] = abi.encodePacked(hex"000000", bytes21(0));
+        unsupported[3] = abi.encodePacked(hex"ee0100", address(0x1234));
+        unsupported[4] = abi.encodePacked(hex"000000", address(0x1234));
+        for (uint256 i; i < unsupported.length; i++) {
+            vm.etch(participantA, unsupported[i]);
+            vm.expectRevert();
+            pool.registerFor(r);
+            vm.expectRevert();
+            vm.prank(participantA);
+            pool.register(ATTEMPT, r.proof, r.nullifier, r.expiresAt, r.attestation);
+        }
+        require(pool.registeredCount() == 0 && !pool.usedNullifiers(r.nullifier));
+    }
+
     function testSameVerySubjectCannotEnterThroughOtherWallet() public {
         win(10);
         pool.registerFor(request(false, participantA));
