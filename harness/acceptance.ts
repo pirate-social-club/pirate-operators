@@ -139,15 +139,17 @@ try {
   const pool = await deploy("RewardPool", [
     token,
     jackpot,
+    accounts[8].address,
     accounts[1].address,
     accounts[4].address,
     1n,
     1800000100n,
     60n,
     1n,
+    1000000n,
     digest({ policy: "local-fixture/0", minimum: 7000 }),
   ]);
-  await write(token, "TestUSDC", "mint", [pool, 1n]);
+  await write(token, "TestUSDC", "mint", [pool, 1000000n]);
   const leaves = entries.map((e) =>
     keccak256(
       encodeAbiParameters(
@@ -173,7 +175,19 @@ try {
     [root, 3n, digest({ policy: "local-fixture/0", minimum: 7000 })],
     1,
   );
-  await write(pool, "RewardPool", "purchase");
+  await write(
+    pool,
+    "RewardPool",
+    "purchase",
+    [[{ normals: [1, 2, 3, 4, 5], bonusball: 1 }]],
+    8,
+  );
+  assert.equal(await read(pool, "RewardPool", "ticketSpend"), 1000000n);
+  log("ticket_purchase", {
+    tokenUnits: "1000000",
+    owner: "reward_pool",
+    executor: "separate",
+  });
   log("entry_commitment", { root, entries: 3 });
   await clock(1800000100);
   await write(jackpot, "MockJackpot", "draw", [1n, 10000001n]);

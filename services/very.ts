@@ -21,8 +21,8 @@ export async function attest(request: Request, env: Env, store: Store) {
   const expiresAt = BigInt(store.now() + 600);
   const signature = await privateKeyToAccount(env.PRIVATE_KEY).signTypedData({
     domain: {
-      name: "PirateRewardPool",
-      version: "0",
+      name: "Pirate Reward Pool",
+      version: "1",
       chainId: 31337,
       verifyingContract: pool,
     },

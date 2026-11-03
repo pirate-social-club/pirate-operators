@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.30;
+import {IMegapot, ITicketOwnership} from "./interfaces/IMegapot.sol";
 
 interface Token {
     function balanceOf(address) external view returns (uint256);
@@ -7,16 +8,17 @@ interface Token {
     function approve(address, uint256) external returns (bool);
 }
 
-interface Jackpot {
-    function buy(uint256 drawing, uint256 count) external;
-    function claim(uint256 drawing) external;
-}
-
 /// @notice Local experiment: one immutable pool and drawing, no upgradeability.
-/// @dev Jackpot is a simulated interface, not a claim of Megapot compatibility.
+/// @dev V2 wire-shaped local provider; no deployed Megapot compatibility is asserted.
 contract RewardPool {
     Token public immutable asset;
-    Jackpot public immutable jackpot;
+    IMegapot public immutable jackpot;
+    address public immutable ticketNFT;
+    address public immutable executor;
+    uint256 public immutable maxTicketSpend;
+    uint256 public ticketSpend;
+    uint256[] public ticketIds;
+    bool private entered;
     address public immutable sponsor;
     address public immutable verifier;
     address public immutable attester;
@@ -51,21 +53,31 @@ contract RewardPool {
     constructor(
         address asset_,
         address jackpot_,
+        address executor_,
         address verifier_,
         address attester_,
         uint256 drawing_,
         uint256 cutoff_,
         uint256 window_,
         uint256 tickets_,
+        uint256 maxTicketSpend_,
         bytes32 policy_
     ) {
         require(
-            asset_ != address(0) && jackpot_ != address(0) && verifier_ != address(0) && attester_ != address(0),
+            asset_ != address(0) && jackpot_ != address(0) && executor_ != address(0) && verifier_ != address(0)
+                && attester_ != address(0),
             "zero_address"
         );
-        require(cutoff_ > block.timestamp && window_ > 0 && tickets_ > 0, "invalid_configuration");
+        require(
+            cutoff_ > block.timestamp && window_ > 0 && tickets_ > 0 && maxTicketSpend_ > 0, "invalid_configuration"
+        );
         asset = Token(asset_);
-        jackpot = Jackpot(jackpot_);
+        jackpot = IMegapot(jackpot_);
+        require(jackpot.usdc() == asset_, "wrong_asset");
+        ticketNFT = jackpot.jackpotNFT();
+        require(ticketNFT.code.length > 0, "invalid_ticket_nft");
+        executor = executor_;
+        maxTicketSpend = maxTicketSpend_;
         sponsor = msg.sender;
         verifier = verifier_;
         attester = attester_;
@@ -77,8 +89,8 @@ contract RewardPool {
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-                keccak256("PirateRewardPool"),
-                keccak256("0"),
+                keccak256("Pirate Reward Pool"),
+                keccak256("1"),
                 block.chainid,
                 address(this)
             )
@@ -98,21 +110,62 @@ contract RewardPool {
         emit EntriesCommitted(root_, count);
     }
 
-    function purchase() external {
-        require(
-            msg.sender == sponsor && committed && !purchased && entryCount > 0 && block.timestamp < cutoff,
-            "purchase_refused"
-        );
-        purchased = true;
-        require(asset.approve(address(jackpot), tickets), "approve_failed");
-        jackpot.buy(drawingId, tickets);
+    modifier nonReentrant() {
+        require(!entered, "reentrant_call");
+        entered = true;
+        _;
+        entered = false;
     }
 
-    function settle() external {
+    function purchase(IMegapot.Ticket[] calldata selections) external nonReentrant {
+        require(
+            msg.sender == executor && committed && !purchased && entryCount > 0 && block.timestamp < cutoff,
+            "purchase_refused"
+        );
+        require(
+            selections.length == tickets && jackpot.currentDrawingId() == drawingId && jackpot.allowTicketPurchases(),
+            "drawing_unavailable"
+        );
+        IMegapot.DrawingState memory state = jackpot.getDrawingState(drawingId);
+        require(!state.jackpotLock && state.ticketPrice > 0, "invalid_ticket_quote");
+        uint256 cost = state.ticketPrice * tickets;
+        require(cost <= maxTicketSpend, "ticket_budget_exceeded");
+        uint256 beforeBalance = asset.balanceOf(address(this));
+        require(beforeBalance >= cost, "insufficient_ticket_funding");
+        purchased = true;
+        require(asset.approve(address(jackpot), cost), "approve_failed");
+        uint256[] memory ids = jackpot.buyTickets(
+            selections, address(this), new address[](0), new uint256[](0), bytes32("pirate-operators")
+        );
+        require(ids.length == tickets, "invalid_ticket_receipt");
+        for (uint256 i; i < ids.length; i++) {
+            require(ITicketOwnership(ticketNFT).ownerOf(ids[i]) == address(this), "ticket_not_owned");
+            for (uint256 j; j < i; j++) {
+                require(ids[j] != ids[i], "duplicate_ticket_id");
+            }
+        }
+        require(jackpot.currentDrawingId() == drawingId, "drawing_changed");
+        require(beforeBalance - asset.balanceOf(address(this)) == cost, "ticket_spend_mismatch");
+        require(asset.approve(address(jackpot), 0), "approval_reset_failed");
+        ticketIds = ids;
+        ticketSpend = cost;
+        sponsorBalance = beforeBalance - cost;
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
+        require(msg.sender == ticketNFT && purchased && !settled, "unexpected_nft");
+        return this.onERC721Received.selector;
+    }
+
+    function settle() external nonReentrant {
         require(purchased && !settled && block.timestamp >= cutoff, "settlement_refused");
+        require(
+            jackpot.currentDrawingId() > drawingId && jackpot.getDrawingState(drawingId).winningTicket != 0,
+            "drawing_not_final"
+        );
         settled = true;
         uint256 beforeBalance = asset.balanceOf(address(this));
-        jackpot.claim(drawingId);
+        jackpot.claimWinnings(ticketIds);
         winnings = asset.balanceOf(address(this)) - beforeBalance;
         deadline = block.timestamp + window;
         emit Settled(winnings, deadline);
@@ -159,22 +212,27 @@ contract RewardPool {
         emit Registered(msg.sender, nullifier);
     }
 
-    function finalize() external {
+    function finalize() external nonReentrant {
         require(settled && !finalized && block.timestamp >= deadline, "finalization_refused");
         finalized = true;
         share = registeredCount == 0 ? 0 : winnings / registeredCount;
-        sponsorBalance = winnings - share * registeredCount;
+        sponsorBalance += winnings - share * registeredCount;
         emit Finalized(registeredCount, share, sponsorBalance);
     }
 
-    function withdraw(address to) external {
+    function withdraw(address to) external nonReentrant {
         require(finalized && registered[msg.sender] && !withdrawn[msg.sender] && to != address(0), "withdrawal_refused");
         withdrawn[msg.sender] = true;
         require(asset.transfer(to, share), "transfer_failed");
         emit Withdrawn(msg.sender, to, share);
     }
 
-    function withdrawSponsor(address to) external {
+    function refundUnpurchased(address to) external nonReentrant {
+        require(msg.sender == sponsor && !purchased && block.timestamp >= cutoff && to != address(0), "refund_refused");
+        require(asset.transfer(to, asset.balanceOf(address(this))), "transfer_failed");
+    }
+
+    function withdrawSponsor(address to) external nonReentrant {
         require(finalized && msg.sender == sponsor && to != address(0), "sponsor_refused");
         uint256 amount = sponsorBalance;
         sponsorBalance = 0;
