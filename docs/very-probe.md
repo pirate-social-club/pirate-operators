@@ -2,8 +2,25 @@
 
 This manual probe prepares the next identity experiment. It does not replace
 the fake reward attester, issue a reward attestation, authenticate a wallet or
-call a chain. No real proof observation has been recorded by this change. M3
-remains incomplete.
+call a chain. One live four-request run passed on 2026-11-03, as recorded below.
+M3 remains incomplete.
+
+## Observed live result
+
+The [redacted observation](evidence/very-probe-2026-11-03.json) records a run of
+source `7b8a4eb702ab21fe125f34702385d1fac3033d7c` with one existing enrollment.
+All four proofs matched the requested fields and received `valid` from Very's
+hosted verifier. The candidate nullifier stayed the same across the first three
+requests, including the changed participant binding, and differed in the fourth
+request's other scope. No raw proof, nullifier, application ID or bridge secret
+is included in the artifact.
+
+This is an unsigned operator observation, not a cryptographically replayable
+proof transcript. It supports the tested credential's stability and scope
+separation. It does not establish unique enrollment per person, cross-device
+or recovery behavior, real-wallet authentication, production pool-scope
+derivation or direct verification on Base. The real reward attester is still
+unimplemented, and the pool continues to use the fake credential in its harness.
 
 ## Run
 
@@ -67,12 +84,12 @@ No Very-specific Base verifier, verifying key or equivalent issuer/revocation
 policy has been established from the reviewed sources. A generic Groth16 or
 Galxe Solidity verifier is not sufficient evidence of that compatibility.
 
-If the diagnostic observations support the expected semantics, the next work
-is a real attester: authenticate the claimant, derive the full chain/pool/drawing
+The observed run supports proceeding to a real attester: authenticate the
+claimant, derive the full chain/pool/drawing
 scope, bind a one-use challenge to that claimant and request, verify Very, then
 sign only that exact scoped registration. The RewardPool already trusts an
-attester key; this probe deliberately has no such key. The nullifier and scope
-mapping must be confirmed before implementing that service.
+attester key; this probe deliberately has no such key. The production scope
+mapping must be specified and tested when implementing that service.
 
 ## Proof and transport boundary
 

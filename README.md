@@ -166,6 +166,9 @@ A manual [Very credential probe](docs/very-probe.md) prepares four live requests
 to test nullifier stability and scope separation. It uses the hosted verifier,
 issues no reward attestations and leaves the fake attester unchanged. Its
 offline fixtures are not evidence of Very's real uniqueness behavior.
+A live run with one enrollment passed all four requests and three comparisons
+on 2026-11-03. The redacted observation supports that enrollment's scoped
+nullifier behavior; it does not establish one enrollment per human or complete M3.
 
 The experiment decisions are: standalone ownership; initial operators run by
 Pirate; testnets for later integrations; community-local accounts; one reward

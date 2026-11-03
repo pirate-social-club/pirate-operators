@@ -1,0 +1,46 @@
+{
+  "schema": "pirate-very-live-observation-v1",
+  "runtimeCommit": "7b8a4eb702ab21fe125f34702385d1fac3033d7c",
+  "collectedAtUtc": "2026-11-03T19:18:08.607184+00:00",
+  "evidenceKind": "unsigned-redacted-operator-observation",
+  "report": {
+    "schema": "pirate-very-diagnostic-v1",
+    "mode": "live",
+    "complete": true,
+    "observations": [
+      {
+        "case": 1,
+        "label": "Participant A, scope A",
+        "hostedVerifier": "valid"
+      },
+      {
+        "case": 2,
+        "label": "Participant A, scope A again",
+        "hostedVerifier": "valid"
+      },
+      {
+        "case": 3,
+        "label": "Participant B, scope A",
+        "hostedVerifier": "valid"
+      },
+      {
+        "case": 4,
+        "label": "Participant A, scope B",
+        "hostedVerifier": "valid"
+      }
+    ],
+    "comparisons": {
+      "repeatStable": true,
+      "changedBindingStable": true,
+      "changedScopeSeparated": true
+    },
+    "limits": [
+      "One enrolled credential, as asserted by the operator; not one-human assurance.",
+      "Participant labels with fresh 128-bit challenges; no wallet authentication or literal wallet pseudonym test.",
+      "Diagnostic scopes only; production pool scope derivation remains unimplemented.",
+      "Hosted verifier trusted; no Very-specific Base verifier established.",
+      "Timestamp format probe, not fresh liveness, revocation or re-enrollment testing.",
+      "No reward attestation issued and no funds moved."
+    ]
+  }
+}
