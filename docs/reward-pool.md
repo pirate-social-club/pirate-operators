@@ -24,6 +24,11 @@ consumes that claimant and nullifier for this pool, preventing a replay without
 introducing a second nonce registry. Authorization and registration must both
 remain unexpired when submitted. Signatures are canonical 65-byte ECDSA.
 
+The [Very scope protocol](very-reward-scope.md) specifies the separate numeric
+scope sent to Very, the expected proof signal and the contract-facing nullifier.
+It keeps this contract's full bytes32 scope unchanged and pins frozen vectors.
+The real attester is not implemented; the harness still uses a fake subject.
+
 Any address can call registerFor. The community service is the initial relayer,
 but another relayer or the participant can submit exactly the same authorization
 if it becomes unavailable. Claimants may have empty code or the exact 23-byte

@@ -85,11 +85,13 @@ policy has been established from the reviewed sources. A generic Groth16 or
 Galxe Solidity verifier is not sufficient evidence of that compatibility.
 
 The observed run supports proceeding to a real attester: authenticate the
-claimant, derive the full chain/pool/drawing
-scope, bind a one-use challenge to that claimant and request, verify Very, then
+claimant, apply the [versioned chain/pool/drawing mapping](very-reward-scope.md),
+bind a one-use challenge to that claimant and request, verify Very, then
 sign only that exact scoped registration. The RewardPool already trusts an
-attester key; this probe deliberately has no such key. The production scope
-mapping must be specified and tested when implementing that service.
+attester key; this probe deliberately has no such key. The mapping has frozen
+vectors but still needs provider acceptance in the real registration flow.
+The [assurance notes](very-assurance.md) separate this result from freshness,
+liveness and enrollment deduplication, with a controlled test plan.
 
 ## Proof and transport boundary
 
