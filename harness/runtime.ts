@@ -74,5 +74,5 @@ export async function workers(
     })),
   });
   await mf.ready;
-  return { mf, persist };
+  return { mf, persist, chainId: options.chainId ?? 31337 };
 }

@@ -7,6 +7,11 @@ contract TestUSDC {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     mapping(address => bool) public blocked;
+    mapping(address => bool) public gasBurner;
+
+    function setGasBurner(address to, bool value) external {
+        gasBurner[to] = value;
+    }
 
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
@@ -34,6 +39,9 @@ contract TestUSDC {
     }
 
     function _transfer(address from, address to, uint256 amount) internal {
+        if (gasBurner[to]) {
+            assembly { invalid() }
+        }
         require(!blocked[to] && balanceOf[from] >= amount, "transfer_failed");
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
@@ -47,6 +55,13 @@ contract MockJackpot is IMegapot {
     bool public allowTicketPurchases = true;
     bool public earlyClaimReturnsZero;
     bool public failClaim;
+    bool public emergencyMode;
+    bool public failRefund;
+
+    function setEmergency(bool value, bool fail) external {
+        emergencyMode = value;
+        failRefund = fail;
+    }
     bool public reenterFinalize;
     bool public finalizeSucceeded;
     uint256 public claimCalls;
@@ -108,7 +123,7 @@ contract MockJackpot is IMegapot {
         uint256[] calldata,
         bytes32
     ) external returns (uint256[] memory ids) {
-        require(allowTicketPurchases && !states[currentDrawingId].jackpotLock, "purchases_closed");
+        require(!emergencyMode && allowTicketPurchases && !states[currentDrawingId].jackpotLock, "purchases_closed");
         require(asset.transferFrom(msg.sender, address(this), selections.length * states[currentDrawingId].ticketPrice));
         ids = new uint256[](selections.length);
         for (uint256 i; i < selections.length; i++) {
@@ -139,6 +154,18 @@ contract MockJackpot is IMegapot {
         states[id].winningTicket = 1;
         if (currentDrawingId <= id) currentDrawingId = id + 1;
         asset.mint(address(this), win);
+    }
+
+    function emergencyRefundTickets(uint256[] calldata ids) external {
+        require(emergencyMode && !failRefund, "refund_unavailable");
+        uint256 amount;
+        for (uint256 i; i < ids.length; i++) {
+            uint256 id = ids[i];
+            require(ticketDrawing[id] == currentDrawingId && owners[id] == msg.sender, "not_refundable");
+            delete owners[id];
+            amount += states[currentDrawingId].ticketPrice;
+        }
+        require(asset.transfer(msg.sender, amount));
     }
 
     function claimWinnings(uint256[] calldata ids) external {

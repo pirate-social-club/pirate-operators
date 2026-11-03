@@ -31,10 +31,11 @@ sponsor address and balance; that address needs Base Sepolia faucet ETH.
 The observed run used 0.01 test ETH. Public fixture keys are refused. Mainnet
 chain IDs are refused. Testnet scripts are never called by default CI.
 
-The full run tops up the verifier, executor and three participant wallets with
-small amounts of test ETH so ordinary signed transactions can be tested. Gas
-sponsorship, relayed registration and automatic payouts are separate choices.
-There is no basis here for a fixed dollar gas quote. Receipts include execution
+The current harness tops up only the verifier and executor with small amounts
+of test ETH. Participants sign registration authorizations; the verifier pays
+for registration and payout batches. No participant gas top-up is needed. This
+revised flow is verified locally and on a fork, but has not been rerun on the
+public testnets. There is no basis here for a fixed dollar gas quote. Receipts include execution
 gas and available L1 fee fields. The harness stops on an observed execution-fee
 threshold; that is not a production spending policy or a total-fee estimate.
 
@@ -66,14 +67,17 @@ That uses simulated operator payments. A Tempo-only run makes two distinct
 paid calls plus an idempotent repeat and closes the shared channel. The combined
 run performs the complete sign-in-to-withdrawal scenario with both networks.
 These are integration spikes before full M1; they do not mark M1, M2 or M3
-complete. Off-Tempo passkeys, real Very delivery, real Megapot compatibility,
+complete. Off-Tempo passkeys, real Very delivery, live Megapot oracle delivery,
 channel headroom billing, credit limits and the complete fault matrix remain
-unverified.
+unverified. The separate [fork suite](megapot-fork.md) checks pinned real
+Megapot code without broadcasting any transaction.
 
 ## Inspect the observed run
 
 The [receipt bundle](evidence/moderato-base-sepolia-2026-11-03.json) records a
-successful combined run during adapter implementation. The accompanying
+successful combined run before sponsored registration was implemented. Those
+historical receipts used participant-sent transactions and fixture gas top-ups;
+they do not attest to this revision. They are intentionally unchanged. The accompanying
 manifest identifies expected actors and the raw trace digest. It is an
 observation, not a deployed-source attestation. No private keys are included.
 

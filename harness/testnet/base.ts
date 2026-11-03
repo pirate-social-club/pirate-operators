@@ -51,9 +51,8 @@ export async function baseChain(
     );
     return result;
   };
-  // Ordinary claims for this spike: provision participants and executor with
-  // test ETH. This does not establish sponsored production transactions.
-  for (const i of [1, 5, 6, 7, 8]) {
+  // Fund the community relayer and executor; participants only sign authorizations.
+  for (const i of [1, 8]) {
     const current = await base.getBalance({ address: accounts[i].address });
     const target = parseEther("0.00005");
     if (current < target)

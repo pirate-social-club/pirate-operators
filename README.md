@@ -78,8 +78,9 @@ The pool currently handles one immutable drawing. It reads a per-drawing
 ticket price, enforces an immutable token spending cap, buys under a separate
 executor role, and holds the resulting ticket NFTs itself. Settlement requires
 both advancement beyond its drawing ID and a nonzero finalized winning ticket.
-The local provider now implements the minimal Megapot V2 call shapes used by
-the pool; this does not establish compatibility with any deployed contract.
+The local provider implements the minimal Megapot V2 call shapes used by
+the pool. A separate pinned Base mainnet fork exercises the deployed provider
+for wins, losses and emergency recovery; it does not test live oracle delivery.
 See [the boundary review](docs/megapot-boundary.md) for source pins and limits.
 The headless executor builds the entry root and submits it using the community
 verifier's fixture key. Moving root preparation and chain submission behind
@@ -96,32 +97,47 @@ contract. The treasury sponsors tickets; the Tempo operating wallet pays
 operators. Neither receives the participants' allocated winnings.
 
 The registration window starts when a finalized winning drawing is settled
-into the pool. Its duration is immutable and disclosed before participation;
-the local fixture uses 60 seconds, and no real duration has been chosen.
-Registration must occur strictly before the deadline. At or after it, anyone
-can finalize the split among accepted registrations. Missing registration
-means no allocation; with zero registrations, winnings go to the sponsor.
+into the pool. Passing zero for the constructor duration selects seven days;
+a positive duration explicitly overrides it, including 60 seconds in the local
+fixture and 30 seconds in the public-testnet fixture. This is a default, not an
+enforced seven-day minimum. The immutable duration must be disclosed before
+participation. Registration is strictly before the deadline; at or after it,
+anyone can finalize. Missing registration means no allocation. If nobody
+registers, winnings become sponsor credit.
 
-An accepted registration needs the entry wallet and a valid scoped Very
-attestation. Provider unavailability fails closed, with no alternate provider
-or automatic extension. The contract has no administrator deadline-extension
-or sweep function. The local constructor requires a positive duration but
-sets no product minimum or maximum; practical duration policy is remaining work.
+The participant signs an EIP-712 registration fixing their payout address.
+Anyone can submit it with the qualifying entry proof and scoped Very
+attestation, paying Base gas for them. Anyone can later pay out that allocation
+to the signed address. The headless flow batches both steps through the
+community relayer; participant wallets sign but send no transactions.
+Claimants must be ordinary ECDSA wallets without deployed code. ERC-1271,
+delegated accounts and Tempo passkeys are not supported by this revision.
+Provider unavailability fails closed, with no alternate provider or extension.
+The pool has no administrator deadline-extension or allocation-sweep function.
 
-After finalization, an allocation never expires. The registered wallet can
-withdraw to its own or another address on the pool's chain, and a failed
-transfer preserves the allocation for retry. A Base pool pays Base USDC;
-choosing an address does not bridge funds to Tempo or establish control of
-a Tempo-native account on Base. Cross-chain routing and off-Tempo passkey
-compatibility remain separate work. Losing the signing key can leave the money locked
-indefinitely. The sponsor receives only its unused ticket funding, rounding
-dust, or winnings when nobody registered; it cannot take a participant's
-unwithdrawn allocation. If no tickets were purchased, the sponsor can recover
-prefunding after the entry cutoff, when purchase is permanently closed.
-Once tickets are purchased, a stalled provider still blocks settlement; the
-local pool has no cancellation or emergency redemption path for that case.
-Transaction submission and gas sponsorship are separate
-from the allocation and are not established by this local demonstration.
+Batches contain at most 32 items and isolate each operation with a 300,000-gas
+allowance. A bad signature, duplicate proof, blocked transfer or exhausted item
+can fail while the other items complete. The transaction still needs enough
+gas for the whole bounded batch. These limits do not replace a relayer's
+operating budget. See [the signed-claim protocol](docs/reward-pool.md).
+
+After finalization, allocations never expire. Failed transfers preserve them
+for retry. The claimant also retains direct registration and an authenticated
+withdrawal to another address as fallback; a relayer cannot choose a new
+recipient. Losing the claimant key after registration does not stop anyone
+paying the fixed recipient, but access to that receiving wallet still matters.
+A Base pool pays Base USDC. A payout address does not bridge funds to Tempo or
+establish control of a Tempo-native account on Base.
+
+The sponsor receives only unused ticket funding, rounding dust, winnings when
+nobody registered, or an upstream emergency ticket refund. It cannot take
+participants' unwithdrawn allocations. Before purchase, prefunding can be
+recovered after the entry cutoff. After purchase, anyone can recover tickets
+only if Megapot enables emergency mode for the pool's current unfinished
+drawing. Recovery closes that pool and credits the sponsor, who can withdraw
+separately and retry a failed transfer. An older completed drawing still
+settles normally. A stalled drawing without upstream emergency mode remains
+dependent on Megapot; there is no arbitrary local timeout cancellation.
 
 ## Remaining M1 work
 
@@ -133,15 +149,17 @@ gate enforcement, ERC-1271/passkey compatibility, bound segment manifests,
 ticket expiry alarms and synchronized timer draining, service-owned entry
 commitments, the complete adversarial matrix and broader lifecycle invariants. The pool
 now has stateful Foundry checks for token conservation, finality, allocations
-and duplicate prevention, alongside the focused failure cases.
+and duplicate prevention, plus emergency sponsor recovery and the focused
+sponsored-registration failure cases.
 The static client and operator container conformance test also follow this run.
 
 A separate [testnet spike](docs/testnets.md) now runs real MPP sessions on
 Moderato and the same pool flow on Base Sepolia with simulated providers.
 M2 still requires the complete payment failure matrix. M3 requires real Very
-and verified Megapot integration; neither milestone is complete. Very nullifier stability,
-Tempo voucher headroom charging, and real Megapot contract-held tickets remain
-integration questions. No one-person assurance follows from the fake credential.
+and live Megapot integration; neither milestone is complete. The fork proves
+contract-held tickets against pinned deployed code. Live drawing delivery,
+Very nullifier stability and Tempo voucher headroom charging remain integration
+questions. No one-person assurance follows from the fake credential.
 
 The experiment decisions are: standalone ownership; initial operators run by
 Pirate; testnets for later integrations; community-local accounts; one reward

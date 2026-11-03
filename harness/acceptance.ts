@@ -9,6 +9,7 @@ try {
   await runFlow({
     runtime,
     accounts,
+    windowSeconds: 60,
     evm: {
       ...running,
       timestamp: async () =>

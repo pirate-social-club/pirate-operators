@@ -17,7 +17,8 @@
     "testnet:tempo": "node harness/testnet/acceptance.ts tempo",
     "testnet:base": "node harness/testnet/acceptance.ts base",
     "testnet:e2e": "node harness/testnet/acceptance.ts e2e",
-    "testnet:verify": "node harness/testnet/acceptance.ts verify"
+    "testnet:verify": "node harness/testnet/acceptance.ts verify",
+    "test:fork": "FOUNDRY_PROFILE=fork forge test --offline -vv"
   },
   "dependencies": {
     "mppx": "0.17.0",
