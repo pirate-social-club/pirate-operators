@@ -1,15 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { decrypt, encrypt, hostedProvider } from "../harness/very/transport.ts";
-import { CONTEXT, MAX_BYTES } from "../harness/very/proof.ts";
+import {
+  decrypt,
+  encrypt,
+  hostedProvider,
+} from "../packages/very/transport.ts";
+import { CONTEXT, MAX_BYTES } from "../packages/very/proof.ts";
 
 test("published bridge encryption and hosted verification wire shapes", async () => {
   const key = randomBytes(32);
   const calls: string[] = [];
   const provider = hostedProvider(async (url, init) => {
     calls.push(String(url));
-    assert.equal(init?.redirect, "error");
+    assert.equal(init?.redirect, "manual");
     assert.ok(init?.signal);
     if (String(url).endsWith("/sessions")) {
       const launch = JSON.parse(decrypt(JSON.parse(String(init?.body)), key));
@@ -70,6 +74,11 @@ test("hosted verifier rejects status, HTTP, timeout and oversized responses with
     async () => Response.json({ status: "invalid", reason: "private-proof" }),
     async () => Response.json({ result: { status: "valid" } }),
     async () => new Response("private-proof", { status: 503 }),
+    async () =>
+      new Response('{"status":"valid"}', {
+        status: 302,
+        headers: { Location: "https://untrusted.invalid" },
+      }),
     async () => {
       throw new DOMException("private-proof", "TimeoutError");
     },

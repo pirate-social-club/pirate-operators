@@ -1,10 +1,16 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import QRCode from "qrcode";
 import { page } from "./page.ts";
-import type { Probe } from "./probe.ts";
+export interface ProbeSurface {
+  start(): Promise<void>;
+  poll(): Promise<void>;
+  reset(): void;
+  drain?(): Promise<void>;
+  view(): { launch: string | null };
+}
 
-export async function serveProbe(probe: Probe, port = 0) {
+export async function serveProbe(probe: ProbeSurface, port = 0, render = page) {
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new Error("invalid_loopback_port");
   const csrf = randomBytes(32).toString("hex");
@@ -26,15 +32,18 @@ export async function serveProbe(probe: Probe, port = 0) {
     if (req.headers.host !== new URL(origin).host) return fail(403);
     if (req.method === "GET" && req.url === "/") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(page(csrf, nonce));
+      res.end(render(csrf, nonce));
       return;
     }
     if (!new Set(["/start", "/poll", "/state", "/reset"]).has(req.url ?? ""))
       return fail(404);
     if (req.method !== "POST") return fail(405);
+    const token = req.headers["x-probe-csrf"];
     if (
       req.headers.origin !== origin ||
-      req.headers["x-probe-csrf"] !== csrf ||
+      typeof token !== "string" ||
+      !/^[0-9a-f]{64}$/.test(token) ||
+      !timingSafeEqual(Buffer.from(token), Buffer.from(csrf)) ||
       req.headers["transfer-encoding"] ||
       (req.headers["content-length"] && req.headers["content-length"] !== "0")
     )
@@ -72,6 +81,7 @@ export async function serveProbe(probe: Probe, port = 0) {
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
+      await probe.drain?.();
     },
   };
 }

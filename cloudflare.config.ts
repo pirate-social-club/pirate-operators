@@ -8,7 +8,10 @@ export default defineConfig({
     compatibilityDate: "2026-11-03",
     compatibilityFlags: ["nodejs_compat"],
     entrypoint,
-    exports: { ServiceState: exports.durableObject({ storage: "sqlite" }) },
+    exports: {
+      ServiceState: exports.durableObject({ storage: "sqlite" }),
+      VeryAttesterState: exports.durableObject({ storage: "sqlite" }),
+    },
     env: {
       LOCAL_ONLY: bindings.text("disabled"),
       STATE: bindings.durableObject({

@@ -4,7 +4,7 @@ import {
   BASE_FIELD,
   SCALAR_FIELD,
   boundSubject,
-} from "../harness/very/proof.ts";
+} from "../packages/very/proof.ts";
 import { proofFixture } from "./very-fixture.ts";
 
 test("Very proof shape and every request-bound signal fail closed", () => {

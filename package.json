@@ -19,7 +19,8 @@
     "testnet:e2e": "node harness/testnet/acceptance.ts e2e",
     "testnet:verify": "node harness/testnet/acceptance.ts verify",
     "test:fork": "FOUNDRY_PROFILE=fork forge test --offline -vv",
-    "very:probe": "node harness/very/credential-probe.ts"
+    "very:probe": "node harness/very/credential-probe.ts",
+    "very:reward": "node harness/very/reward-testnet.ts"
   },
   "dependencies": {
     "mppx": "0.17.0",

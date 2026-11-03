@@ -1,7 +1,7 @@
 import { parseArgs } from "node:util";
 import { Probe } from "./probe.ts";
 import { serveProbe } from "./server.ts";
-import { hostedProvider } from "./transport.ts";
+import { hostedProvider } from "../../packages/very/transport.ts";
 
 async function main() {
   const { values } = parseArgs({

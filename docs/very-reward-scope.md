@@ -77,6 +77,13 @@ both versions in an existing pool could bypass duplicate prevention. Key
 rotation must not alter the mapping. The fake adapter's fixture-subject hash
 is not a second accepted real-credential format.
 
+Pin one Very app ID and the query/context policy per pool for the pool's whole
+life. The attester must refuse configuration drift after restart and must not
+accept client-selected app IDs. This pins our launch configuration; it does not
+establish provider-enforced app binding. The observed proof format exposes no
+app-ID signal, so cross-app subject derivation and substitution remain unproven.
+See the [app-scope assurance limits](very-assurance.md#app-scope-and-linking).
+
 ## Attester requirements
 
 The attester selects a configured chain and pool, confirms the RPC chain ID,

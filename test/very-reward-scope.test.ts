@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { Address, Hex } from "viem";
-import { scopeSignal } from "../harness/very/proof.ts";
+import { scopeSignal } from "../packages/very/proof.ts";
 import {
   VERY_SCALAR_FIELD,
   expectedVeryScopeSignal,

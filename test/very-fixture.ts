@@ -1,5 +1,5 @@
-import { CONTEXT_ID, FROM, TO, scopeSignal } from "../harness/very/proof.ts";
-import type { Provider } from "../harness/very/transport.ts";
+import { CONTEXT_ID, FROM, TO, scopeSignal } from "../packages/very/proof.ts";
+import type { Provider } from "../packages/very/transport.ts";
 
 // Deliberately invalid cryptography: only an injected fake verifier accepts it.
 export function proofFixture(

@@ -48,6 +48,7 @@ test("loopback UI requires exact Host, Origin and CSRF for every action", async 
       { Origin: server.url },
       { "X-Probe-CSRF": csrf },
       { Origin: "https://foreign.invalid", "X-Probe-CSRF": csrf },
+      { Origin: server.url, "X-Probe-CSRF": "é".repeat(64) },
     ];
     for (const headers of refusedHeaders) {
       assert.equal(

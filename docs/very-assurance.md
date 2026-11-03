@@ -75,8 +75,41 @@ accuracy or the absence of duplicate enrollments.
 5. Which issuer keys and revocation policy does the hosted verifier enforce?
    Is there a supported circuit/verifying-key package and equivalent verification
    path for Base, including issuer/revocation checks?
+6. For the same enrollment and external scope, does signal 2 depend on the
+   requesting app ID? Which proof signal or authenticated verifier response lets
+   a backend verify that app ID? Can a proof generated through another app satisfy
+   our scope and pseudonym checks? An app ID in a launch request is not enough to
+   establish app binding in a returned proof.
 
-No real-money rollout follows from the diagnostic result. The next bounded
-implementation is an attester using the [versioned scope mapping](very-reward-scope.md),
-followed by a Base Sepolia flow with explicit test credentials/tokens and the
-remaining provider assumptions stated plainly.
+## App scope and linking
+
+The attester pins one configured app ID per pool for its lifetime, alongside
+the mapping and query policy. Changing it requires a new pool. Its durable
+configuration pin prevents accidental changes across restarts. This remains an
+operator rule: the reward contract trusts the signer, and cannot inspect the
+app ID or detect an operator replacing its database.
+
+The ten public signals in the observed proof format contain no explicit app-ID
+field. The hosted verification response we check reports validity without an
+app-ID assertion. Until Very explains the binding, configuration pinning alone
+does not establish that a submitted proof was generated for that app. If app
+IDs change the subject identifier, this leaves a possible cross-app substitution
+route that the current attester cannot prove closed. The integration therefore
+remains a testnet experiment with this assurance explicitly unproven.
+
+If identifiers are app-independent, another app that obtains a person's proof
+for the same publicly derivable scope may compute the version-1 reward identifier
+and match it to public registration activity. This requires obtaining a suitable
+proof; it is not something an observer can infer from the chain alone. We make
+no cross-app unlinkability promise.
+
+A keyed derivation could prevent that offline computation by an app without the
+key. It would change the frozen mapping and require a new version and new pools,
+permanent secret recovery, and a policy for operators sharing the key. It would
+not hide activity from the attester or automatically stop an attacker using the
+attester as a linking oracle. It also would not fix app-dependent duplicate
+identifiers. No such secret is introduced in this experiment.
+
+No real-money rollout follows from the diagnostic result. The bounded attester
+uses the [versioned scope mapping](very-reward-scope.md); its Base Sepolia flow
+must state the remaining provider assumptions and use test wallets and tokens.

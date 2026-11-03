@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Probe, TTL_MS } from "../harness/very/probe.ts";
-import { encrypt, hostedProvider } from "../harness/very/transport.ts";
+import { encrypt, hostedProvider } from "../packages/very/transport.ts";
 import { deferred, fakeProvider, proofFixture } from "./very-fixture.ts";
 
 test("initialized bridge polling preserves the QR and key until verified completion", async () => {

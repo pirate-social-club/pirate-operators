@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { boundSubject } from "./proof.ts";
-import type { Provider, Session } from "./transport.ts";
+import { boundSubject } from "../../packages/very/proof.ts";
+import type { Provider, Session } from "../../packages/very/transport.ts";
 
 // Diagnostic labels and scopes only. No authenticated wallets or pool addresses.
 export const CASES = [

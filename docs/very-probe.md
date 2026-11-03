@@ -19,8 +19,9 @@ This is an unsigned operator observation, not a cryptographically replayable
 proof transcript. It supports the tested credential's stability and scope
 separation. It does not establish unique enrollment per person, cross-device
 or recovery behavior, real-wallet authentication, production pool-scope
-derivation or direct verification on Base. The real reward attester is still
-unimplemented, and the pool continues to use the fake credential in its harness.
+derivation or direct verification on Base. The reward attester is now
+implemented separately in the [testnet attester](very-attester.md); the default
+offline harness continues to use the fake credential.
 
 ## Run
 
