@@ -110,8 +110,9 @@ Anyone can submit it with the qualifying entry proof and scoped Very
 attestation, paying Base gas for them. Anyone can later pay out that allocation
 to the signed address. The headless flow batches both steps through the
 community relayer; participant wallets sign but send no transactions.
-Claimants must be ordinary ECDSA wallets without deployed code. ERC-1271,
-delegated accounts and Tempo passkeys are not supported by this revision.
+Sponsored registrations use the claimant's original ECDSA key. Empty-code EOAs
+and EOAs carrying an exact EIP-7702 delegation marker are accepted. Other
+contract wallets, ERC-1271 signatures and Tempo passkeys are not supported.
 Provider unavailability fails closed, with no alternate provider or extension.
 The pool has no administrator deadline-extension or allocation-sweep function.
 

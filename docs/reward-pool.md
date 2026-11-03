@@ -26,11 +26,22 @@ remain unexpired when submitted. Signatures are canonical 65-byte ECDSA.
 
 Any address can call registerFor. The community service is the initial relayer,
 but another relayer or the participant can submit exactly the same authorization
-if it becomes unavailable. Claimants with deployed code are refused, including
-delegated EOA accounts. ERC-1271 and Tempo-native passkey verification on Base
-remain separate compatibility work. Recipients can have code; they must be
+if it becomes unavailable. Claimants may have empty code or the exact 23-byte
+[EIP-7702 delegation indicator](https://eips.ethereum.org/EIPS/eip-7702#delegation-indicator):
+`0xef0100` followed by a 20-byte address. Other nonempty code is refused. This
+shared check applies to direct registration and every sponsored batch item.
+Sponsored signatures still recover the original EOA key; the pool never calls
+the delegated implementation to validate them. Delegated session-key and
+ERC-1271 signatures, other contract wallets and Tempo-native passkeys remain
+outside this compatibility scope. Recipients can have code; they must be
 able to receive the pool's token. Direct register remains available to the
 claimant and fixes its own address as recipient.
+
+Regression tests install marker bytes in local EVM state, then exercise direct
+registration, sponsored batches and rejection of a wrong signing key or other
+bytecode lengths and prefixes. They do not exercise a wallet upgrade UI or a
+type-4 authorization-list transaction. The test VM itself refuses malformed
+delegation sizes and versions before that code can be installed.
 
 The constructor's zero duration means seven days. Positive durations remain
 explicit overrides for fixtures or a disclosed pool configuration; there is no
