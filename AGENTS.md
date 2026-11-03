@@ -10,6 +10,13 @@ No production deployment, provider credentials, funded operations or mainnet
 activity belongs to the local skeleton. Fixture private keys are public test
 keys and must never be funded outside a disposable local chain.
 
+The separate testnet harness was authorized on 2026-11-03. It may use
+dedicated random keys stored privately outside the repository, Moderato faucet
+tokens and Base Sepolia test ETH, and deploy test-only contracts there. Refuse
+mainnet chain IDs and the public local fixture keys. Public-chain scripts are
+manual opt-in and never run in default CI. This does not authorize production,
+mainnet funds, existing managed-key exports or real provider credentials.
+
 Keep provider simulations explicit and run the actual handlers, cryptography,
 WebSockets, storage and pool locally. The local protocol subset must be named;
 do not claim full revision 5 or M1 conformance from the skeleton.

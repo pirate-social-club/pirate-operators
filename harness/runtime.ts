@@ -21,6 +21,13 @@ export const roles = [
 ] as const;
 export async function workers(
   persist = mkdtempSync(join(tmpdir(), "pirate-operators-")),
+  options: {
+    keys?: readonly Hex[];
+    chainId?: 31337 | 84532;
+    now?: number;
+    cutoff?: number;
+    paymentProvider?: (request: Request) => Promise<Response>;
+  } = {},
 ) {
   const bundle = await build({
     entryPoints: ["services/runtime.ts"],
@@ -45,19 +52,22 @@ export async function workers(
       bindings: {
         ROLE: role,
         LOCAL_ONLY: "pirate-local-skeleton",
-        PRIVATE_KEY: keys[i + 1],
-        ISSUER: accounts[1].address,
-        OPERATOR_ADDRESS: accounts[2].address,
+        PRIVATE_KEY: (options.keys ?? keys)[i + 1],
+        ISSUER: privateKeyToAccount((options.keys ?? keys)[1]).address,
+        OPERATOR_ADDRESS: privateKeyToAccount((options.keys ?? keys)[2])
+          .address,
         COMMUNITY_ID: "fixture-community",
         COMMUNITY_DOMAIN: "community.localhost",
-        CUTOFF: "1800000100",
+        CUTOFF: String(options.cutoff ?? 1800000100),
+        INITIAL_NOW: String(options.now ?? 1800000000),
+        SIGNATURE_CHAIN_ID: String(options.chainId ?? 31337),
       },
       durableObjects: { STATE: { className: "ServiceState", useSQLite: true } },
       serviceBindings: {
         COMMUNITY: "community",
         OPERATOR: "operator",
         PAYER: "payer",
-        PROVIDER: "provider",
+        PROVIDER: options.paymentProvider ?? "provider",
       },
       outboundService: () =>
         new Response("external_network_disabled", { status: 403 }),

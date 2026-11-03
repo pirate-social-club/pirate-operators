@@ -52,10 +52,11 @@ export async function sign<T>(
   kind: string,
   body: T,
   key: Hex,
+  chainId: number = domain.chainId,
 ): Promise<Signed<T>> {
   const account = privateKeyToAccount(key);
   const signature = await account.signTypedData({
-    domain,
+    domain: { ...domain, chainId },
     types,
     primaryType: "Envelope",
     message: { kind, bodyHash: digest(body) },
@@ -66,6 +67,7 @@ export async function verify<T>(
   record: Signed<T>,
   kind: string,
   signer: Address,
+  chainId: number = domain.chainId,
 ): Promise<T> {
   check(
     record.kind === kind &&
@@ -75,7 +77,7 @@ export async function verify<T>(
   check(
     await verifyTypedData({
       address: signer,
-      domain,
+      domain: { ...domain, chainId },
       types,
       primaryType: "Envelope",
       message: { kind, bodyHash: digest(record.body) },

@@ -13,7 +13,13 @@ import {
 } from "../packages/protocol/index.ts";
 import { score } from "../packages/scoring/fixture-score.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
-import { body, call, type Env, type Store } from "./runtime.ts";
+import {
+  body,
+  call,
+  type Env,
+  type Store,
+  signatureChainId,
+} from "./runtime.ts";
 
 export async function operator(
   request: Request,
@@ -49,6 +55,7 @@ export async function operator(
             expiresAt: store.now() + 3600,
           },
           env.PRIVATE_KEY,
+          signatureChainId(env),
         ),
       ),
     );
@@ -58,7 +65,12 @@ export async function operator(
   }
   if (url.pathname === "/prepare") {
     const record = await body<Signed<Ticket>>(request);
-    const ticket = await verify(record, "ticket", env.ISSUER);
+    const ticket = await verify(
+      record,
+      "ticket",
+      env.ISSUER,
+      signatureChainId(env),
+    );
     check(
       ticket.communityId === env.COMMUNITY_ID &&
         ticket.operator === env.OPERATOR_ADDRESS &&
@@ -157,6 +169,7 @@ export async function onPerformance(
       charged,
     },
     env.PRIVATE_KEY,
+    signatureChainId(env),
   );
   store.set(`result:${ticketId}`, record);
   store.set(`attempt:${ticketId}`, {
