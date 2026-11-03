@@ -3,7 +3,11 @@ import solc from "solc";
 import type { Abi, Hex } from "viem";
 
 export function compile() {
-  const names = ["contracts/RewardPool.sol", "contracts/test/Providers.sol"];
+  const names = [
+    "contracts/RewardPool.sol",
+    "contracts/test/Providers.sol",
+    "contracts/interfaces/IMegapot.sol",
+  ];
   const sources = Object.fromEntries(
     names.map((name) => [name, { content: readFileSync(name, "utf8") }]),
   );

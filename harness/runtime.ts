@@ -8,7 +8,7 @@ import type { Hex } from "viem";
 
 // Public fixture keys. These accounts exist only on the disposable local chain.
 export const keys = Array.from(
-  { length: 8 },
+  { length: 9 },
   (_, i) => `0x${(i + 1).toString(16).padStart(64, "0")}` as Hex,
 );
 export const accounts = keys.map((key) => privateKeyToAccount(key));

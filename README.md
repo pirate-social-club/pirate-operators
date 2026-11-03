@@ -34,7 +34,9 @@ artifacts are written under .local/artifacts. Nothing is deployed remotely.
 The fixture win is 10,000,001 test USDC units: three participants each withdraw
 3,333,333, the sponsor receives two units of dust, and the pool ends at zero.
 This example does not promise that pools generally empty; allocations never
-expire. Admission costs two simulated units and each attempt costs two.
+expire. The fixture ticket costs 1,000,000 token units (one test USDC), with the same
+amount as its spending cap; the pool reads the quote rather than hardcoding it.
+Admission costs two simulated units and each attempt costs two.
 
 On Linux, enforce the offline boundary rather than relying on configuration:
 
@@ -59,7 +61,8 @@ deployment and service authentication are later work. No Wrangler file is used.
 
 ## Protocol subset
 
-Local skeleton version 0 intentionally names its own signature domains.
+The service-envelope skeleton remains version 0. The reward attestation domain
+is `Pirate Reward Pool`, version `1`, as specified.
 Evidence, tickets and results use EIP-712 envelopes with canonical JSON hashes.
 Audio evidence hashes the actual uploaded MP3 bytes. Pool reward attestations
 bind the chain, pool, drawing scope, claimant and expiry. Test subjects produce
@@ -71,15 +74,47 @@ from its configured operator and applies score, coverage and cutoff rules.
 The pool trusts the community verifier's entry commitment and the configured
 Very attester. It cannot establish whether a provider was actually called.
 
-The pool currently handles one immutable drawing. The mock Jackpot interface
-is explicitly simulated and has not been established as Megapot-compatible.
+The pool currently handles one immutable drawing. It reads a per-drawing
+ticket price, enforces an immutable token spending cap, buys under a separate
+executor role, and holds the resulting ticket NFTs itself. Settlement requires
+both advancement beyond its drawing ID and a nonzero finalized winning ticket.
+The local provider now implements the minimal Megapot V2 call shapes used by
+the pool; this does not establish compatibility with any deployed contract.
+See [the boundary review](docs/megapot-boundary.md) for source pins and limits.
 The headless executor builds the entry root and submits it using the community
 verifier's fixture key. Moving root preparation and chain submission behind
 the community service is remaining M1 work.
 
-Public fixture keys are derived from the integers one through eight. They must
+Public fixture keys are derived from the integers one through nine. They must
 never hold assets outside a disposable local chain. The local-only handlers,
 debug routes and fake attester are not suitable for hosted operation.
+
+## Winnings, registration and withdrawal
+
+Megapot winnings are claimed by the reward pool and transferred into that
+contract. The treasury sponsors tickets; the Tempo operating wallet pays
+operators. Neither receives the participants' allocated winnings.
+
+The registration window starts when a finalized winning drawing is settled
+into the pool. Its duration is immutable and disclosed before participation;
+the local fixture uses 60 seconds, and no real duration has been chosen.
+Registration must occur strictly before the deadline. At or after it, anyone
+can finalize the split among accepted registrations. Missing registration
+means no allocation; with zero registrations, winnings go to the sponsor.
+
+An accepted registration needs the entry wallet and a valid scoped Very
+attestation. Provider unavailability fails closed, with no alternate provider
+or automatic extension. The contract has no administrator deadline-extension
+or sweep function. The local constructor requires a positive duration but
+sets no product minimum or maximum; practical duration policy is remaining work.
+
+After finalization, an allocation never expires. The registered wallet can
+withdraw to its own or another address, and a failed transfer preserves the
+allocation for retry. Losing the signing key can leave the money locked
+indefinitely. The sponsor receives only its unused ticket funding, rounding
+dust, or winnings when nobody registered; it cannot take a participant's
+unwithdrawn allocation. Transaction submission and gas sponsorship are separate
+from the allocation and are not established by this local demonstration.
 
 ## Remaining M1 work
 
@@ -89,7 +124,9 @@ complete entity state machines and vectors, streaming consumption and channel
 voucher/credit/close accounting, credential sponsorship buckets, membership
 gate enforcement, ERC-1271/passkey compatibility, bound segment manifests,
 ticket expiry alarms and synchronized timer draining, service-owned entry
-commitments, the complete adversarial matrix and Foundry invariant handlers.
+commitments, the complete adversarial matrix and broader lifecycle invariants. The pool
+now has stateful Foundry checks for token conservation, finality, allocations
+and duplicate prevention, alongside the focused failure cases.
 The static client and operator container conformance test also follow this run.
 
 M2 replaces simulated transport with Tempo on Moderato. M3 exercises Very and
