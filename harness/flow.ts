@@ -12,6 +12,7 @@ import type { PrivateKeyAccount } from "viem/accounts";
 
 import {
   digest,
+  registrationTypes,
   type Song,
   type Signed,
   type Ticket,
@@ -44,7 +45,7 @@ export async function runFlow({
   evm,
   accounts,
   cutoff = 1800000100,
-  windowSeconds = 60,
+  windowSeconds = 0,
   billing = "simulated",
   auditCharges,
   log,
@@ -227,6 +228,7 @@ export async function runFlow({
   await write(pool, "RewardPool", "settle");
   assert.equal(await read(pool, "RewardPool", "winnings"), 10000001n);
   const scope = (await read(pool, "RewardPool", "scope")) as Hex;
+  const registrations = [];
   for (let i = 0; i < entries.length; i++) {
     const permit = (await fetcher("very", "/attest", {
       pool,
@@ -234,20 +236,34 @@ export async function runFlow({
       claimant: entries[i].participant,
       subject: i + 1,
     })) as { nullifier: Hex; expiresAt: string; signature: Hex };
-    await write(
-      pool,
-      "RewardPool",
-      "register",
-      [
-        entries[i].attemptId,
-        proofs[i],
-        permit.nullifier,
-        BigInt(permit.expiresAt),
-        permit.signature,
-      ],
-      5 + i,
-    );
+    const registration = {
+      scope,
+      claimant: entries[i].participant,
+      recipient: entries[i].participant,
+      attemptId: entries[i].attemptId as Hex,
+      nullifier: permit.nullifier,
+      expiresAt: BigInt(permit.expiresAt),
+    };
+    const authorization = await accounts[5 + i].signTypedData({
+      domain: {
+        name: "Pirate Reward Pool",
+        version: "1",
+        chainId: runtime.chainId,
+        verifyingContract: pool,
+      },
+      types: registrationTypes,
+      primaryType: "Registration",
+      message: registration,
+    });
+    registrations.push({
+      ...registration,
+      proof: proofs[i],
+      attestation: permit.signature,
+      authorization,
+    });
   }
+  await write(pool, "RewardPool", "registerBatch", [registrations], 1);
+  assert.equal(await read(pool, "RewardPool", "registeredCount"), 3n);
   log("registration", {
     registered: Number(await read(pool, "RewardPool", "registeredCount")),
     winnings: "10000001",
@@ -256,8 +272,14 @@ export async function runFlow({
   await write(pool, "RewardPool", "finalize");
   assert.equal(await read(pool, "RewardPool", "share"), 3333333n);
   assert.equal(await read(pool, "RewardPool", "sponsorBalance"), 2n);
+  await write(
+    pool,
+    "RewardPool",
+    "withdrawBatch",
+    [accounts.slice(5, 8).map((a) => a.address)],
+    1,
+  );
   for (let i = 5; i < 8; i++) {
-    await write(pool, "RewardPool", "withdraw", [accounts[i].address], i);
     assert.equal(
       await read(token, "TestUSDC", "balanceOf", [accounts[i].address]),
       3333333n,

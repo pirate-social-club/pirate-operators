@@ -16,8 +16,8 @@ contract PoolHandler {
     MockJackpot public immutable jackpot;
     TestUSDC public immutable token;
     address public immutable sponsor;
-    address public immutable alice;
-    address public immutable bob;
+    address public immutable participantA;
+    address public immutable participantB;
     bytes32 constant ATTEMPT = keccak256("attempt");
     uint256 public ghostWin;
     uint256 public ghostRegistrations;
@@ -32,15 +32,15 @@ contract PoolHandler {
         MockJackpot jackpot_,
         TestUSDC token_,
         address sponsor_,
-        address alice_,
-        address bob_
+        address participantA_,
+        address participantB_
     ) {
         pool = pool_;
         jackpot = jackpot_;
         token = token_;
         sponsor = sponsor_;
-        alice = alice_;
-        bob = bob_;
+        participantA = participantA_;
+        participantB = participantB_;
     }
 
     function advance(uint32 seconds_) external {
@@ -48,11 +48,17 @@ contract PoolHandler {
     }
 
     function draw(uint96 amount, bool callback) external {
-        if (jackpot.drawn(1)) return;
+        if (jackpot.drawn(1) || pool.cancelled()) return;
         vm.warp(block.timestamp < pool.cutoff() ? pool.cutoff() : block.timestamp);
         ghostWin = uint256(amount) % 100_000_001;
         jackpot.setReenterFinalize(callback);
         jackpot.draw(1, ghostWin);
+    }
+
+    function emergency() external {
+        jackpot.setEmergency(true, false);
+        (bool ok,) = address(pool).call(abi.encodeCall(pool.recoverEmergency, ()));
+        ok;
     }
 
     function settle() external {
@@ -65,7 +71,7 @@ contract PoolHandler {
     }
 
     function register(bool second, bool sameSubject) external {
-        address user = second ? bob : alice;
+        address user = second ? participantB : participantA;
         bytes32 nullifier = keccak256(abi.encode(second && !sameSubject ? uint256(2) : uint256(1), pool.scope()));
         bool open = pool.settled() && !pool.finalized() && ghostWin > 0 && block.timestamp < pool.deadline();
         bytes32 body =
@@ -73,7 +79,7 @@ contract PoolHandler {
         (uint8 v, bytes32 r, bytes32 s) =
             vm.sign(5, keccak256(abi.encodePacked("\x19\x01", pool.DOMAIN_SEPARATOR(), body)));
         bytes32[] memory proof = new bytes32[](1);
-        proof[0] = leaf(second ? alice : bob);
+        proof[0] = leaf(second ? participantA : participantB);
         bytes memory data =
             abi.encodeCall(pool.register, (ATTEMPT, proof, nullifier, type(uint256).max, abi.encodePacked(r, s, v)));
         vm.prank(user);
@@ -92,7 +98,7 @@ contract PoolHandler {
     }
 
     function withdraw(bool second, bool blockTransfer) external {
-        address user = second ? bob : alice;
+        address user = second ? participantB : participantA;
         token.blockRecipient(user, blockTransfer);
         vm.prank(user);
         (bool ok,) = address(pool).call(abi.encodeCall(pool.withdraw, (user)));

@@ -36,6 +36,8 @@ interface IMegapot {
         uint256[] calldata referralSplit,
         bytes32 source
     ) external returns (uint256[] memory ids);
+    function emergencyMode() external view returns (bool);
+    function emergencyRefundTickets(uint256[] calldata ids) external;
     function claimWinnings(uint256[] calldata ids) external;
 }
 

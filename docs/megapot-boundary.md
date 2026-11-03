@@ -1,17 +1,20 @@
 # Reward-pool settlement boundary
 
-This local M1 follow-up replaces the count-based simulated buy/claim functions
-with the minimal Megapot V2 wire surface actually used by the pool. It does
-not establish a deployed integration, choose a chain address, or transfer
-real funds. No upstream contract implementation is vendored.
+The pool uses the minimal Megapot V2 wire surface in IMegapot.sol. Its local
+mock exercises failure modes independently. A separate pinned mainnet fork now
+checks actual purchase ownership, winning and losing claims and emergency
+refunds against deployed provider code. No public transaction is sent and no
+upstream contract implementation is vendored.
 
-The primary source is the published V2 audit snapshot at commit
+The initial interface research used the published V2 audit snapshot at commit
 538649e8a05b07efa706083d1158c65f640cb823:
 [Jackpot.sol](https://github.com/code-423n4/2025-11-megapot/blob/538649e8a05b07efa706083d1158c65f640cb823/contracts/Jackpot.sol).
-The official [starter kit](https://github.com/coordinationlabs/megapot-starter-kit)
-also exposes per-drawing state and distinguishes awaiting, settling and settled
-rounds. These sources describe V2, not a promise that an older Megapot deployment
-has the same interface or that any listed address has been verified here.
+The current deployments differ from that snapshot. The verified mainnet and
+Sepolia source was subsequently compared with live runtime code, and the
+selectors and drawing-state tuple used by the pool match both deployments.
+See [fork verification](megapot-fork.md) for exact addresses, hashes, source
+links and the limits of that comparison. Audit-snapshot provenance alone is
+not proof of deployed compatibility.
 
 The relevant boundary facts are independently represented in IMegapot.sol:
 purchase takes numbered ticket selections and a recipient and returns ticket
@@ -30,23 +33,27 @@ fixture price is one million atomic units, while the pool has no hardcoded
 one-USDC price assumption. Unused initial ticket funding remains a sponsor
 liability and is not included in the winnings split. A pool with no purchase
 can refund prefunding to its sponsor after the entry cutoff; this path cannot
-touch a purchased pool or its allocations. A purchased drawing still depends
-on upstream finality, with no local emergency cancellation path.
+touch a purchased pool or its allocations. Purchased current-drawing tickets
+can instead be recovered when upstream emergency mode is enabled. That path
+credits the actual refund to the sponsor and cancels the pool. It cannot touch
+a completed drawing or participant allocations. A stalled provider with no
+emergency flag still blocks settlement.
 
 The mock is independently written. It simulates ownership, mint callbacks,
 burning, pricing and final drawing state through these selectors. Its prize
 calculation assigns one total fixture outcome to the pool's tickets. It does
 not reproduce number validation, tier payouts, referral accounting, entropy,
-emergency recovery, a complete ERC-721 implementation or provider upgrade
-behavior. Adversarial modes include a successful zero claim before finality,
+referral-adjusted emergency amounts, a complete ERC-721 implementation or
+provider upgrade behavior. It implements a separate current-drawing emergency
+refund model for failure and accounting tests. Adversarial modes include a successful zero claim before finality,
 an advanced drawing ID without results, claim failure and a finalization
 callback during settlement.
 
-Before any real integration, pin the intended chain, deployment and code;
-verify token and NFT wiring; exercise actual purchase ownership, finality and
-winning and losing claims; check per-ticket aggregate net payouts and any
-emergency or upgrade path. The audit snapshot is research provenance rather
-than proof of live bytecode compatibility.
+The fork supplies a pinned deployment, token and NFT wiring, actual ownership,
+finality, one winning tier, loss and emergency recovery. Live oracle delivery,
+other winning tiers and public operation remain outside that proof. Refresh
+deployment evidence before a live integration instead of assuming these
+historical pins still describe the intended target.
 
 Focused tests cover quoted cost, approval reset, separate executor permissions,
 price-cap refusal, early settlement, missing results, loss, rollback/retry,

@@ -98,7 +98,7 @@ export async function run(mode: "tempo" | "base" | "e2e") {
       },
       simulated: ["identification", "Very", "Jackpot", "test-USDC"],
       bridge: "not_exercised",
-      claims: "wallet_signed",
+      claims: "sponsored_wallet_authorization",
       actors: Object.fromEntries(
         [
           ["sponsor", 0],

@@ -14,13 +14,13 @@ contract PoolInvariants {
     MockJackpot jackpot;
     RewardPool pool;
     PoolHandler handler;
-    address alice;
-    address bob;
+    address participantA;
+    address participantB;
 
     function setUp() public {
         vm.warp(1800000000);
-        alice = vm.addr(6);
-        bob = vm.addr(7);
+        participantA = vm.addr(6);
+        participantB = vm.addr(7);
         token = new TestUSDC();
         jackpot = new MockJackpot(address(token));
         bytes32 policy = keccak256("invariant-policy");
@@ -38,9 +38,9 @@ contract PoolInvariants {
             policy
         );
         token.mint(address(pool), 1_000_000);
-        handler = new PoolHandler(pool, jackpot, token, address(this), alice, bob);
-        bytes32 a = handler.leaf(alice);
-        bytes32 b = handler.leaf(bob);
+        handler = new PoolHandler(pool, jackpot, token, address(this), participantA, participantB);
+        bytes32 a = handler.leaf(participantA);
+        bytes32 b = handler.leaf(participantB);
         pool.commitEntries(a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a)), 2, policy);
         uint8[] memory numbers = new uint8[](5);
         for (uint8 i; i < 5; i++) {
@@ -59,8 +59,8 @@ contract PoolInvariants {
     }
 
     function invariant_conservationOfMintedTokens() public view {
-        uint256 total = token.balanceOf(address(pool)) + token.balanceOf(address(jackpot)) + token.balanceOf(alice)
-            + token.balanceOf(bob) + token.balanceOf(address(this));
+        uint256 total = token.balanceOf(address(pool)) + token.balanceOf(address(jackpot))
+            + token.balanceOf(participantA) + token.balanceOf(participantB) + token.balanceOf(address(this));
         require(total == 1_000_000 + handler.ghostWin(), "money_not_conserved");
     }
 
@@ -72,10 +72,22 @@ contract PoolInvariants {
         require(!jackpot.finalizeSucceeded(), "reentrant_finalization");
     }
 
+    function invariant_cancellationPreservesSponsorCapital() public view {
+        if (!pool.cancelled()) return;
+        require(!pool.settled() && !pool.finalized() && pool.registeredCount() == 0 && pool.share() == 0);
+        require(pool.sponsorBalance() + handler.ghostSponsorPaid() == 1_000_000);
+        require(token.balanceOf(address(pool)) == pool.sponsorBalance());
+    }
+
     function invariant_registrationAndWithdrawalHappenOnce() public view {
         require(!handler.violation(), "eligibility_violation");
-        require(handler.registrations(alice) <= 1 && handler.registrations(bob) <= 1, "duplicate_registration");
-        require(handler.withdrawals(alice) <= 1 && handler.withdrawals(bob) <= 1, "duplicate_withdrawal");
+        require(
+            handler.registrations(participantA) <= 1 && handler.registrations(participantB) <= 1,
+            "duplicate_registration"
+        );
+        require(
+            handler.withdrawals(participantA) <= 1 && handler.withdrawals(participantB) <= 1, "duplicate_withdrawal"
+        );
         require(pool.registeredCount() == handler.ghostRegistrations(), "registration_count_mismatch");
     }
 
@@ -84,7 +96,7 @@ contract PoolInvariants {
         uint256 count = handler.ghostRegistrations();
         uint256 expectedShare = count == 0 ? 0 : handler.ghostWin() / count;
         require(pool.share() == expectedShare, "incorrect_split");
-        uint256 remaining = count - handler.withdrawals(alice) - handler.withdrawals(bob);
+        uint256 remaining = count - handler.withdrawals(participantA) - handler.withdrawals(participantB);
         require(
             token.balanceOf(address(pool)) == remaining * expectedShare + pool.sponsorBalance(), "unbacked_allocation"
         );
@@ -104,7 +116,10 @@ contract PoolInvariants {
         handler.withdraw(false, false);
         handler.withdraw(true, false);
         handler.withdrawSponsor();
-        require(handler.ghostRegistrations() == 2 && token.balanceOf(alice) == 5 && token.balanceOf(bob) == 5);
+        require(
+            handler.ghostRegistrations() == 2 && token.balanceOf(participantA) == 5
+                && token.balanceOf(participantB) == 5
+        );
         invariant_conservationOfMintedTokens();
         invariant_allocationsRemainFullyBacked();
     }

@@ -9,7 +9,7 @@ interface Token {
 }
 
 /// @notice Local experiment: one immutable pool and drawing, no upgradeability.
-/// @dev V2 wire-shaped local provider; no deployed Megapot compatibility is asserted.
+/// @dev Pinned V2 fork conformance is tested; this is not a production-audited pool.
 contract RewardPool {
     Token public immutable asset;
     IMegapot public immutable jackpot;
@@ -19,6 +19,28 @@ contract RewardPool {
     uint256 public ticketSpend;
     uint256[] public ticketIds;
     bool private entered;
+    bool public cancelled;
+    uint256 public constant DEFAULT_WINDOW = 7 days;
+    uint256 public constant MAX_BATCH = 32;
+    uint256 public constant ITEM_GAS = 300_000;
+    mapping(address => address) public payoutRecipient;
+    bytes32 public constant REGISTRATION_TYPEHASH = keccak256(
+        "Registration(bytes32 scope,address claimant,address recipient,bytes32 attemptId,bytes32 nullifier,uint256 expiresAt)"
+    );
+
+    struct Registration {
+        address claimant;
+        address recipient;
+        bytes32 attemptId;
+        bytes32 nullifier;
+        uint256 expiresAt;
+        bytes32[] proof;
+        bytes attestation;
+        bytes authorization;
+    }
+    event BatchItem(uint256 indexed index, address indexed claimant, bool success);
+    event Cancelled(uint256 recovered);
+
     address public immutable sponsor;
     address public immutable verifier;
     address public immutable attester;
@@ -68,9 +90,7 @@ contract RewardPool {
                 && attester_ != address(0),
             "zero_address"
         );
-        require(
-            cutoff_ > block.timestamp && window_ > 0 && tickets_ > 0 && maxTicketSpend_ > 0, "invalid_configuration"
-        );
+        require(cutoff_ > block.timestamp && tickets_ > 0 && maxTicketSpend_ > 0, "invalid_configuration");
         asset = Token(asset_);
         jackpot = IMegapot(jackpot_);
         require(jackpot.usdc() == asset_, "wrong_asset");
@@ -83,7 +103,7 @@ contract RewardPool {
         attester = attester_;
         drawingId = drawing_;
         cutoff = cutoff_;
-        window = window_;
+        window = window_ == 0 ? DEFAULT_WINDOW : window_;
         tickets = tickets_;
         policyHash = policy_;
         DOMAIN_SEPARATOR = keccak256(
@@ -158,7 +178,7 @@ contract RewardPool {
     }
 
     function settle() external nonReentrant {
-        require(purchased && !settled && block.timestamp >= cutoff, "settlement_refused");
+        require(purchased && !settled && !cancelled && block.timestamp >= cutoff, "settlement_refused");
         require(
             jackpot.currentDrawingId() > drawingId && jackpot.getDrawingState(drawingId).winningTicket != 0,
             "drawing_not_final"
@@ -171,28 +191,66 @@ contract RewardPool {
         emit Settled(winnings, deadline);
     }
 
+    // Direct registration authenticates the claimant through their transaction.
     function register(
         bytes32 attemptId,
         bytes32[] calldata proof,
         bytes32 nullifier,
         uint256 expiresAt,
         bytes calldata signature
-    ) external {
-        require(settled && winnings > 0 && !finalized && block.timestamp < deadline, "registration_closed");
+    ) external nonReentrant {
+        _register(msg.sender, msg.sender, attemptId, proof, nullifier, expiresAt, signature);
+    }
+
+    // A relayer is never trusted to choose the claimant or payout recipient.
+    function registerFor(Registration calldata r) external nonReentrant {
+        bytes32 body = keccak256(
+            abi.encode(REGISTRATION_TYPEHASH, scope(), r.claimant, r.recipient, r.attemptId, r.nullifier, r.expiresAt)
+        );
+        require(_recover(body, r.authorization) == r.claimant && r.claimant != address(0), "bad_authorization");
+        _register(r.claimant, r.recipient, r.attemptId, r.proof, r.nullifier, r.expiresAt, r.attestation);
+    }
+
+    function _register(
+        address claimant,
+        address recipient,
+        bytes32 attemptId,
+        bytes32[] calldata proof,
+        bytes32 nullifier,
+        uint256 expiresAt,
+        bytes calldata signature
+    ) internal {
         require(
-            !registered[msg.sender] && !usedNullifiers[nullifier] && registeredCount < entryCount,
+            settled && !cancelled && winnings > 0 && !finalized && block.timestamp < deadline, "registration_closed"
+        );
+        require(claimant.code.length == 0 && recipient != address(0), "unsupported_wallet_or_recipient");
+        require(
+            !registered[claimant] && !usedNullifiers[nullifier] && registeredCount < entryCount,
             "duplicate_registration"
         );
-        bytes32 leaf = keccak256(abi.encode(address(this), drawingId, msg.sender, attemptId));
+        require(proof.length <= 64, "proof_too_long");
+        bytes32 leaf = keccak256(abi.encode(address(this), drawingId, claimant, attemptId));
         for (uint256 i; i < proof.length; i++) {
             leaf = leaf < proof[i]
                 ? keccak256(abi.encodePacked(leaf, proof[i]))
                 : keccak256(abi.encodePacked(proof[i], leaf));
         }
         require(leaf == root, "bad_merkle_proof");
-        require(block.timestamp < expiresAt && signature.length == 65, "bad_attestation");
-        bytes32 body = keccak256(abi.encode(ATTESTATION_TYPEHASH, scope(), nullifier, msg.sender, expiresAt));
-        bytes32 message = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, body));
+        require(block.timestamp < expiresAt, "expired_attestation");
+        require(
+            _recover(keccak256(abi.encode(ATTESTATION_TYPEHASH, scope(), nullifier, claimant, expiresAt)), signature)
+                == attester,
+            "untrusted_attester"
+        );
+        registered[claimant] = true;
+        payoutRecipient[claimant] = recipient;
+        usedNullifiers[nullifier] = true;
+        registeredCount++;
+        emit Registered(claimant, nullifier);
+    }
+
+    function _recover(bytes32 body, bytes calldata signature) internal view returns (address) {
+        require(signature.length == 65, "bad_signature_length");
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -205,15 +263,40 @@ contract RewardPool {
             uint256(s) <= 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0 && (v == 27 || v == 28),
             "noncanonical_signature"
         );
-        require(ecrecover(message, v, r, s) == attester, "untrusted_attester");
-        registered[msg.sender] = true;
-        usedNullifiers[nullifier] = true;
-        registeredCount++;
-        emit Registered(msg.sender, nullifier);
+        return ecrecover(keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, body)), v, r, s);
+    }
+
+    // Individual self-calls roll back independently, including out-of-gas items.
+    // Callers still need enough gas for the bounded outer loop and calldata.
+    function registerBatch(Registration[] calldata rows) external returns (bool[] memory results) {
+        _batchSize(rows.length);
+        results = new bool[](rows.length);
+        for (uint256 i; i < rows.length; i++) {
+            if (rows[i].proof.length > 64 || rows[i].attestation.length != 65 || rows[i].authorization.length != 65) {
+                emit BatchItem(i, rows[i].claimant, false);
+                continue;
+            }
+            (results[i],) = address(this).call{gas: ITEM_GAS}(abi.encodeCall(this.registerFor, (rows[i])));
+            emit BatchItem(i, rows[i].claimant, results[i]);
+        }
+    }
+
+    function withdrawBatch(address[] calldata claimants) external returns (bool[] memory results) {
+        _batchSize(claimants.length);
+        results = new bool[](claimants.length);
+        for (uint256 i; i < claimants.length; i++) {
+            (results[i],) = address(this).call{gas: ITEM_GAS}(abi.encodeCall(this.withdrawFor, (claimants[i])));
+            emit BatchItem(i, claimants[i], results[i]);
+        }
+    }
+
+    function _batchSize(uint256 count) internal view {
+        require(count > 0 && count <= MAX_BATCH, "invalid_batch_size");
+        require(gasleft() >= count * (ITEM_GAS + 70_000) + 50_000, "insufficient_batch_gas");
     }
 
     function finalize() external nonReentrant {
-        require(settled && !finalized && block.timestamp >= deadline, "finalization_refused");
+        require(settled && !cancelled && !finalized && block.timestamp >= deadline, "finalization_refused");
         finalized = true;
         share = registeredCount == 0 ? 0 : winnings / registeredCount;
         sponsorBalance += winnings - share * registeredCount;
@@ -221,10 +304,37 @@ contract RewardPool {
     }
 
     function withdraw(address to) external nonReentrant {
-        require(finalized && registered[msg.sender] && !withdrawn[msg.sender] && to != address(0), "withdrawal_refused");
-        withdrawn[msg.sender] = true;
+        // The claimant retains their existing direct, authenticated recovery path.
+        _withdraw(msg.sender, to);
+    }
+
+    function withdrawFor(address claimant) external nonReentrant {
+        _withdraw(claimant, payoutRecipient[claimant]);
+    }
+
+    function _withdraw(address claimant, address to) internal {
+        require(
+            finalized && !cancelled && registered[claimant] && !withdrawn[claimant] && to != address(0),
+            "withdrawal_refused"
+        );
+        withdrawn[claimant] = true;
         require(asset.transfer(to, share), "transfer_failed");
-        emit Withdrawn(msg.sender, to, share);
+        emit Withdrawn(claimant, to, share);
+    }
+
+    function recoverEmergency() external nonReentrant {
+        require(purchased && !settled && !cancelled && jackpot.emergencyMode(), "emergency_refused");
+        require(
+            jackpot.currentDrawingId() == drawingId && jackpot.getDrawingState(drawingId).winningTicket == 0,
+            "drawing_not_refundable"
+        );
+        uint256 beforeBalance = asset.balanceOf(address(this));
+        jackpot.emergencyRefundTickets(ticketIds);
+        uint256 recovered = asset.balanceOf(address(this)) - beforeBalance;
+        // Pull-based sponsor credit makes a failed sponsor transfer retryable.
+        sponsorBalance += recovered;
+        cancelled = true;
+        emit Cancelled(recovered);
     }
 
     function refundUnpurchased(address to) external nonReentrant {
@@ -233,7 +343,7 @@ contract RewardPool {
     }
 
     function withdrawSponsor(address to) external nonReentrant {
-        require(finalized && msg.sender == sponsor && to != address(0), "sponsor_refused");
+        require((finalized || cancelled) && msg.sender == sponsor && to != address(0), "sponsor_refused");
         uint256 amount = sponsorBalance;
         sponsorBalance = 0;
         require(asset.transfer(to, amount), "transfer_failed");

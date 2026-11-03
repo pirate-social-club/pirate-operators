@@ -180,3 +180,14 @@ export const attestationTypes = {
     { name: "expiresAt", type: "uint256" },
   ],
 } as const;
+
+export const registrationTypes = {
+  Registration: [
+    { name: "scope", type: "bytes32" },
+    { name: "claimant", type: "address" },
+    { name: "recipient", type: "address" },
+    { name: "attemptId", type: "bytes32" },
+    { name: "nullifier", type: "bytes32" },
+    { name: "expiresAt", type: "uint256" },
+  ],
+} as const;
