@@ -13,7 +13,13 @@ import {
   type Ticket,
   type Result,
 } from "../packages/protocol/index.ts";
-import { body, call, type Env, type Store } from "./runtime.ts";
+import {
+  body,
+  call,
+  type Env,
+  type Store,
+  signatureChainId,
+} from "./runtime.ts";
 
 export async function community(request: Request, env: Env, store: Store) {
   const path = new URL(request.url).pathname;
@@ -23,7 +29,7 @@ export async function community(request: Request, env: Env, store: Store) {
     const nonce = crypto.randomUUID().replaceAll("-", "");
     const message = createSiweMessage({
       address: wallet,
-      chainId: 31337,
+      chainId: signatureChainId(env),
       domain: env.COMMUNITY_DOMAIN,
       uri: `http://${env.COMMUNITY_DOMAIN}`,
       version: "1",
@@ -80,7 +86,7 @@ export async function community(request: Request, env: Env, store: Store) {
     });
     const records = await Promise.all(
       evidence.map((record) =>
-        verify(record, "evidence", env.OPERATOR_ADDRESS),
+        verify(record, "evidence", env.OPERATOR_ADDRESS, signatureChainId(env)),
       ),
     );
     const status = gate(song, records, store.now());
@@ -122,13 +128,19 @@ export async function community(request: Request, env: Env, store: Store) {
         expiresAt: store.now() + 60,
       },
       env.PRIVATE_KEY,
+      signatureChainId(env),
     );
     store.set(`ticket:${ticketId}`, ticket);
     return Response.json(ticket);
   }
   if (path === "/qualify") {
     const { result } = await body<{ result: Signed<Result> }>(request);
-    const data = await verify(result, "result", env.OPERATOR_ADDRESS);
+    const data = await verify(
+      result,
+      "result",
+      env.OPERATOR_ADDRESS,
+      signatureChainId(env),
+    );
     const ticket = store.get<Signed<Ticket>>(`ticket:${data.ticketId}`)?.body;
     check(
       ticket &&

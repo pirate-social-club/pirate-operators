@@ -136,8 +136,10 @@ now has stateful Foundry checks for token conservation, finality, allocations
 and duplicate prevention, alongside the focused failure cases.
 The static client and operator container conformance test also follow this run.
 
-M2 replaces simulated transport with Tempo on Moderato. M3 exercises Very and
-the pool on Base Sepolia. Neither has been run. Very nullifier stability,
+A separate [testnet spike](docs/testnets.md) now runs real MPP sessions on
+Moderato and the same pool flow on Base Sepolia with simulated providers.
+M2 still requires the complete payment failure matrix. M3 requires real Very
+and verified Megapot integration; neither milestone is complete. Very nullifier stability,
 Tempo voucher headroom charging, and real Megapot contract-held tickets remain
 integration questions. No one-person assurance follows from the fake credential.
 

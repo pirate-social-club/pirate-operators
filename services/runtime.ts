@@ -20,9 +20,14 @@ export interface Env {
   COMMUNITY_ID: string;
   COMMUNITY_DOMAIN: string;
   CUTOFF: string;
+  SIGNATURE_CHAIN_ID?: string;
+  INITIAL_NOW?: string;
 }
 export class Store {
-  constructor(readonly sql: SqlStorage) {
+  constructor(
+    readonly sql: SqlStorage,
+    readonly initialNow = 1800000000,
+  ) {
     sql.exec(
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
@@ -53,7 +58,7 @@ export class Store {
       .map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
   }
   now() {
-    return this.get<number>("clock") ?? 1800000000;
+    return this.get<number>("clock") ?? this.initialNow;
   }
 }
 export async function call<T>(
@@ -79,7 +84,10 @@ export class ServiceState extends DurableObject<Env> {
   readonly store: Store;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.store = new Store(ctx.storage.sql);
+    this.store = new Store(
+      ctx.storage.sql,
+      Number(env.INITIAL_NOW ?? 1800000000),
+    );
   }
   async fetch(request: Request): Promise<Response> {
     try {
@@ -142,3 +150,9 @@ export default {
     );
   },
 };
+
+export function signatureChainId(env: Env) {
+  const chainId = Number(env.SIGNATURE_CHAIN_ID ?? 31337);
+  check([31337, 84532].includes(chainId), "unsupported_signature_chain");
+  return chainId;
+}

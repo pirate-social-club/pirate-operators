@@ -1,7 +1,7 @@
 import { keccak256, encodeAbiParameters, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { attestationTypes, check } from "../packages/protocol/index.ts";
-import { body, type Env, type Store } from "./runtime.ts";
+import { body, type Env, type Store, signatureChainId } from "./runtime.ts";
 
 export async function attest(request: Request, env: Env, store: Store) {
   check(new URL(request.url).pathname === "/attest", "unknown_attester_method");
@@ -23,7 +23,7 @@ export async function attest(request: Request, env: Env, store: Store) {
     domain: {
       name: "Pirate Reward Pool",
       version: "1",
-      chainId: 31337,
+      chainId: signatureChainId(env),
       verifyingContract: pool,
     },
     types: attestationTypes,
