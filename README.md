@@ -109,8 +109,11 @@ or sweep function. The local constructor requires a positive duration but
 sets no product minimum or maximum; practical duration policy is remaining work.
 
 After finalization, an allocation never expires. The registered wallet can
-withdraw to its own or another address, and a failed transfer preserves the
-allocation for retry. Losing the signing key can leave the money locked
+withdraw to its own or another address on the pool's chain, and a failed
+transfer preserves the allocation for retry. A Base pool pays Base USDC;
+choosing an address does not bridge funds to Tempo or establish control of
+a Tempo-native account on Base. Cross-chain routing and off-Tempo passkey
+compatibility remain separate work. Losing the signing key can leave the money locked
 indefinitely. The sponsor receives only its unused ticket funding, rounding
 dust, or winnings when nobody registered; it cannot take a participant's
 unwithdrawn allocation. If no tickets were purchased, the sponsor can recover
