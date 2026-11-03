@@ -24,6 +24,24 @@ type Comparisons = {
   changedScopeSeparated: boolean;
 };
 
+function failureCode(error: unknown): string {
+  const codes = new Set([
+    "provider_unavailable_or_invalid",
+    "invalid_session",
+    "bridge_failed",
+    "invalid_envelope",
+    "invalid_shape",
+    "invalid_field",
+    "invalid_protocol",
+    "proof_too_large",
+    "proof_binding_mismatch",
+    "verifier_rejected",
+  ]);
+  return error instanceof Error && codes.has(error.message)
+    ? error.message
+    : "unexpected_failure";
+}
+
 export class Probe {
   private epoch = 0;
   private busy = false;
@@ -98,12 +116,11 @@ export class Probe {
         active.key,
       );
       if (this.current(epoch, active)) this.state = "waiting";
-    } catch {
+    } catch (error) {
       if (this.current(epoch, active)) {
         this.clearActive();
         this.state = "failed";
-        this.error =
-          "Could not open the Very request. No observation recorded.";
+        this.error = `Could not open the Very request (${failureCode(error)}). No observation recorded.`;
       }
     } finally {
       if (epoch === this.epoch) this.busy = false;
@@ -116,15 +133,18 @@ export class Probe {
     if (!active || !this.current(epoch, active) || this.busy || !active.session)
       return;
     this.busy = true;
+    let stage = "bridge response";
     try {
       const raw = await this.provider.poll(active.session, active.key);
       if (!this.current(epoch, active) || raw === null) return;
+      stage = "proof shape or request binding";
       const subject = boundSubject(
         raw,
         CASES[active.index].scope,
         active.binding,
       );
       this.state = "verifying";
+      stage = "hosted verification";
       await this.provider.verify(raw);
       if (!this.current(epoch, active)) return;
       this.subjects.push(subject);
@@ -145,12 +165,11 @@ export class Probe {
         this.subjects = [];
         this.state = "complete";
       }
-    } catch {
+    } catch (error) {
       if (this.current(epoch, active)) {
         this.clearActive();
         this.state = "failed";
-        this.error =
-          "Proof, binding, bridge or hosted verification failed. No observation recorded.";
+        this.error = `Failed at ${stage} (${failureCode(error)}). No observation recorded. Retry this case; earlier results are preserved.`;
       }
     } finally {
       if (epoch === this.epoch) this.busy = false;

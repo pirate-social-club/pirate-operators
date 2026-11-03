@@ -26,6 +26,13 @@ QR includes a temporary AES key, so scan privately and do not share it.
 Download the redacted report after all four requests finish, then stop the
 process. The tool writes no proof files or browser storage.
 
+The Start button is disabled while a request is pending. Interrupted browser
+polling retries automatically, including after a reload during verification.
+Refreshing preserves the running process's observations; clearing or stopping
+the process does not. Failure messages identify the failed stage and a fixed
+error code, without displaying provider bodies or proof values. Phone success
+alone does not mean the server accepted that request.
+
 The cases are the same participant and scope twice, another participant label
 in the same scope, and the original participant label in another scope. These
 are diagnostic labels, not connected or authenticated wallets. All four

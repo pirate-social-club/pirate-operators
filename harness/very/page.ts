@@ -30,9 +30,9 @@ async function call(path){
  if(requestBusy)return;
  requestBusy=true;
  try{
-  const response=await fetch(path,{method:'POST',headers:{'X-Probe-CSRF':csrf}});
+  const response=await fetch(path,{method:'POST',headers:{'X-Probe-CSRF':csrf},signal:AbortSignal.timeout(35000)});
   if(!response.ok)throw new Error();
-  const v=await response.json();report=v.report;waiting=v.state==='waiting';
+  const v=await response.json();report=v.report;waiting=v.busy||['waiting','verifying','starting'].includes(v.state);
   el('mode').textContent=v.report.mode==='live'?'LIVE PROVIDER MODE':'FIXTURE MODE — simulated provider';
   el('next').textContent=v.next||'Four requests complete';
   el('status').textContent='State: '+v.state;
@@ -42,7 +42,7 @@ async function call(path){
   el('qr').innerHTML=v.qr||'';
   el('launch').hidden=!v.launch;if(v.launch)el('launch').href=v.launch;else el('launch').removeAttribute('href');
   el('report').textContent=JSON.stringify(report,null,2);el('download').disabled=!report.complete;
- }catch{waiting=false;el('error').textContent='Local probe unavailable. Reload or restart it.';el('qr').replaceChildren();el('launch').hidden=true;}
+ }catch{waiting=true;el('start').disabled=true;el('status').textContent='Connection interrupted — retrying';el('error').textContent='Trying to recover this request. Refreshing the page preserves completed results; clearing the run does not.';el('qr').replaceChildren();el('launch').hidden=true;el('launch').removeAttribute('href');}
  finally{requestBusy=false;}
 }
 el('start').onclick=()=>call('/start');el('reset').onclick=()=>call('/reset');

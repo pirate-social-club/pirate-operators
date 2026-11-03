@@ -68,6 +68,10 @@ test("mismatched proof never reaches verifier; rejected verification records not
   await probe.poll();
   assert.equal(fake.verifies, 0);
   assert.equal(probe.view().state, "failed");
+  assert.match(
+    probe.view().error!,
+    /proof shape or request binding \(invalid_field\)/,
+  );
   fake.provider.poll = async () => {
     const r = fake.requests.at(-1)!;
     return proofFixture(r.scope, r.binding);
@@ -78,6 +82,10 @@ test("mismatched proof never reaches verifier; rejected verification records not
   await probe.start();
   await probe.poll();
   assert.deepEqual(probe.report().observations, []);
+  assert.match(
+    probe.view().error!,
+    /hosted verification \(unexpected_failure\)/,
+  );
   assert.ok(!JSON.stringify(probe.view()).includes("secret-provider-body"));
 });
 
