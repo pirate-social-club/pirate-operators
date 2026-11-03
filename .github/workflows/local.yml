@@ -1,0 +1,40 @@
+name: Local acceptance
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+      - name: Bootstrap dependencies and Solidity compiler
+        run: |
+          npm ci --ignore-scripts
+          forge build
+      - name: Validate Worker packaging
+        run: npm run build
+      - name: Run with external networking unavailable
+        run: |
+          sudo --preserve-env=PATH,HOME unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            npm run check
+            node harness/acceptance.ts > .local/trace-first.jsonl
+            node harness/acceptance.ts > .local/trace-second.jsonl
+            cmp .local/trace-first.jsonl .local/trace-second.jsonl
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-traces
+          path: .local/trace-*.jsonl

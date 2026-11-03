@@ -1,0 +1,8 @@
+{"step":"sign_in","state":{"participants":3,"community":"fixture-community"}}
+{"step":"admission","state":{"songHash":"0x9506849223be2f2b5fec3a8c9fe29b17de8bb97d58b08e923f8f2c6d8fb257ef","status":"published","hashes":{"audio":"0xa82f1191cc6530ac7b216a726ca75d4d5a43d9e5799067ca676f1c9a4590551d","title":"0x12c0d13edc18913cc073d55bca3a7a6d1ba395c863434b2980dd6e5bd30a368c","lyrics":"0x96be60a2fadc50e31b2ae18be8ab3603294def4b7c74a2b06d1618e04450437e","artwork":"0xc1c19d88280c98881f8b883114e8f9803bf0493f1ea1dd3c6deb6bebadc2de9a"}}}
+{"step":"karaoke_and_qualification","state":[{"participant":"0xE57bFE9F44b819898F47BF37E5AF72a0783e1141","score":9550,"charged":2},{"participant":"0xd41c057fd1c78805AAC12B0A94a405c0461A6FBb","score":9550,"charged":2},{"participant":"0xF1F6619B38A98d6De0800F1DefC0a6399eB6d30C","score":9550,"charged":2}]}
+{"step":"entry_commitment","state":{"root":"0x081c4e9b55ba6f944c5747033581f970259f4b1d6464852e69c21ce55251140f","entries":3}}
+{"step":"registration","state":{"registered":3,"winnings":"10000001"}}
+{"step":"withdrawal","state":{"participantUnits":"3333333","sponsorDust":"2","poolBalance":"0"}}
+{"step":"accounting","state":{"charges":4,"total":8,"unit":"simulated"}}
+{"step":"acceptance","state":{"status":"passed","scope":"local-skeleton/0"}}

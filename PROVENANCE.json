@@ -1,0 +1,19 @@
+{
+  "repository": "pirate-social-club/api-next",
+  "commit": "a5c63b8db01d4359344d33c31d294a00fbeadb20",
+  "changes": "Scoring imports and re-export point to the locally owned phonetics module. Algorithm unchanged.",
+  "files": [
+    {
+      "source": "packages/application/src/karaoke-runtime/scoring.ts",
+      "sourceSha256": "9dfabc88cbed5516db50d04638a906baa0641adfb90deb92db3c8b35f8cc5f5e",
+      "destination": "packages/scoring/scoring.ts",
+      "sha256": "96a4f274b400419e2320abca1d0897665a0f4629e9cbbadc05a57e59ead26808"
+    },
+    {
+      "source": "packages/domain/src/study/english-phonetics.ts",
+      "sourceSha256": "d844bb7065dfa9c6d6e0055d45e33afc25d4480a3fe4e15b89d8304bba382f9d",
+      "destination": "packages/scoring/english-phonetics.ts",
+      "sha256": "d844bb7065dfa9c6d6e0055d45e33afc25d4480a3fe4e15b89d8304bba382f9d"
+    }
+  ]
+}

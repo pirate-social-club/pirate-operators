@@ -1,0 +1,9 @@
+node_modules/
+.local/
+.cf/
+.cloudflare/
+dist/
+out/
+cache/
+.env*
+!.env.example
