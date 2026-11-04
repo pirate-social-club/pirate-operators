@@ -1,0 +1,46 @@
+{
+  "schema": "pirate.first-song-setup-evidence/1",
+  "at": "2026-11-04T21:09:34.665Z",
+  "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+  "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+  "inventory": [
+    {
+      "kind": "Worker",
+      "name": "pirate-first-song-20261105",
+      "id": "a29dd318429e42eda7846ea4997ad999"
+    },
+    {
+      "kind": "D1",
+      "name": "pirate-first-song-20261105-db",
+      "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+    },
+    {
+      "kind": "R2",
+      "name": "pirate-first-song-20261105-media",
+      "id": "pirate-first-song-20261105-media"
+    },
+    {
+      "kind": "Queue",
+      "name": "pirate-first-song-20261105-jobs",
+      "id": "fe031cd96fbb47579585eb10154f785d"
+    }
+  ],
+  "health": {
+    "schema": "pirate.community-setup/1",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "infrastructure": "provisioned",
+    "firstSong": "not_ready"
+  },
+  "launcher": {
+    "real": true,
+    "mode": "cf-login",
+    "startupMs": 5050,
+    "applyObservedMs": 30037,
+    "privateState": "/home/t42/.local/state/pirate-first-song-managed-20261105",
+    "shutdown": "clean; runner lock released after apply settled"
+  },
+  "scope": "provisioning only; application integration remains pending",
+  "registry": null,
+  "privateStateScan": "passed for actual runner password and refreshed Cloudflare credential",
+  "completedAt": "2026-11-04T21:12:37.395Z"
+}
