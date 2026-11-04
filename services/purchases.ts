@@ -88,6 +88,21 @@ async function resolve(env: Env, store: Store, unit: Hex) {
   store.set(`redemption:${unit}`, next);
   return next;
 }
+/**
+ * Refreshes every unresolved redemption of a ticket from contract state, so
+ * rules that read purchase state never act on a stale submitted row.
+ */
+export async function refreshRedemptions(
+  env: Env,
+  store: Store,
+  ticket: Ticket,
+  manifest: KaraokeManifest,
+) {
+  for (const segment of manifest.segments) {
+    const unit = unitHash(segmentUnit(ticket.ticketId, segment.segmentId, 0));
+    if (redemptionRow(store, unit)?.state === "submitted") await resolve(env, store, unit);
+  }
+}
 const outcome = (row: RedemptionRow) => {
   if (row.state === "confirmed") return { state: row.state, segmentId: row.segmentId };
   throw new Error(

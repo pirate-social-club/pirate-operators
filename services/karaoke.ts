@@ -27,6 +27,7 @@ import {
   operatorQuote,
   reconcile,
   redemptionRow,
+  refreshRedemptions,
 } from "./purchases.ts";
 import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
@@ -38,9 +39,20 @@ const load = (store: Store, ticketId: string) => {
   return { ticket, manifest, attempt };
 };
 type Status = NonNullable<Attempt["ended"]>["status"];
+/**
+ * `endedAt` is when the operator decides; `performanceEndedAt` is when singing
+ * stopped, which is the disconnect time if the learner never returned.
+ */
 function end(attempt: Attempt, endedAt: number, status: Status) {
-  if (!attempt.ended)
-    attempt.ended = { endedAt, status, paymentDeadline: endedAt + PAYMENT_GRACE_S };
+  if (attempt.ended) return;
+  const performanceEndedAt =
+    attempt.disconnectedAt === null ? endedAt : Math.min(endedAt, attempt.disconnectedAt);
+  attempt.ended = {
+    endedAt,
+    performanceEndedAt,
+    status,
+    paymentDeadline: endedAt + PAYMENT_GRACE_S,
+  };
 }
 /** For the unpaid-run stop: a purchase received and still being redeemed counts. */
 const purchaseReceived = (store: Store, ticketId: Hex, segmentId: string) => {
@@ -88,6 +100,10 @@ function settle(store: Store, env: Env, ticketId: string) {
 
 /** Closes the ticket on chain, reconciles at the closure block, then signs. */
 async function advance(env: Env, store: Store, ticketId: string) {
+  const loaded = load(store, ticketId);
+  // Purchase state comes from the contract before the stop rule reads it.
+  if (loaded.ticket && loaded.manifest && loaded.attempt && !loaded.attempt.ended)
+    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest);
   const attempt = settle(store, env, ticketId);
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);

@@ -182,6 +182,12 @@ export function validateManifest(manifest: KaraokeManifest, maxSegmentMs: number
 }
 export const songEndMs = (manifest: KaraokeManifest) =>
   manifest.segments[manifest.segments.length - 1].endMs;
+/**
+ * A line is reached when it begins before the performance cutoff, measured
+ * from `startedAt`. The result builder and the verifier share this rule.
+ */
+export const lineReached = (line: ManifestLine, startedAt: number, performanceEndedAt: number) =>
+  line.startMs < (performanceEndedAt - startedAt) * 1000;
 
 /** Section 5.4: "early", "open", or "closed" once the segment has passed. */
 export function paymentWindow(
@@ -251,6 +257,9 @@ export interface KaraokeResultBody {
   revision: number;
   startedAt: number;
   lastAudioAt: number | null;
+  /** When singing stopped: the cutoff for reachability, never after endedAt. */
+  performanceEndedAt: number;
+  /** When the operator decided the attempt was over; payment grace runs from here. */
   endedAt: number;
   closedAtBlock: number;
   summary: { scoreBps: number; coverageBps: number; scoringVersion: number };
@@ -275,11 +284,26 @@ export function verifyKaraokeResult(
   check(digest(manifest) === result.manifestSha256, "manifest_mismatch");
   check(quoteIdOf(quote) === result.quoteId, "quote_mismatch");
   check(result.lines.length === manifest.lines.length, "line_list_mismatch");
+  check(
+    Number.isSafeInteger(result.startedAt) &&
+      Number.isSafeInteger(result.performanceEndedAt) &&
+      Number.isSafeInteger(result.endedAt) &&
+      result.startedAt <= result.performanceEndedAt &&
+      result.performanceEndedAt <= result.endedAt &&
+      result.performanceEndedAt - result.startedAt <= Math.ceil(songEndMs(manifest) / 1000),
+    "invalid_timing",
+  );
   result.lines.forEach((line, i) => {
     const expected = manifest.lines[i];
     check(
       line.lineId === expected.lineId && line.lineVersion === expected.lineVersion,
       "line_list_mismatch",
+    );
+    // Exactly the lines that begin after the cutoff are unattempted.
+    check(
+      lineReached(expected, result.startedAt, result.performanceEndedAt) ===
+        (line.status !== "unattempted"),
+      "reachability_mismatch",
     );
     check(
       ["assessed", "silent", "unpaid", "unmeasured", "unattempted"].includes(line.status) &&

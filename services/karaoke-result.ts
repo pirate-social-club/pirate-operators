@@ -1,6 +1,7 @@
 import type { Address, Hex } from "viem";
 import { digest, type Ticket } from "../packages/protocol/index.ts";
 import {
+  lineReached,
   rewardScore,
   songEndMs,
   type BillingEntry,
@@ -30,6 +31,8 @@ export interface Attempt {
   failedLineIds: string[];
   ended: null | {
     endedAt: number;
+    /** When singing stopped; the disconnect time if the learner never returned. */
+    performanceEndedAt: number;
     status: KaraokeResultBody["status"];
     paymentDeadline: number;
   };
@@ -86,7 +89,7 @@ export function resultBody(
   );
   const reached = new Set(
     manifest.lines
-      .filter((line) => line.startMs < (ended.endedAt - attempt.startedAt) * 1000)
+      .filter((line) => lineReached(line, attempt.startedAt, ended.performanceEndedAt))
       .map((line) => line.lineId),
   );
   const paidScores = buckets
@@ -95,8 +98,6 @@ export function resultBody(
   const compensated = new Map(
     applyTimingOffsetCompensation(paidScores).lineScores.map((s) => [s.lineId, s]),
   );
-  // A line that begins at or after the attempt's end was never reached.
-  const elapsedMs = (ended.endedAt - attempt.startedAt) * 1000;
   const lines: LineOutcome[] = manifest.lines.map((line) => {
     const score = compensated.get(line.lineId);
     const outcome = (status: LineOutcome["status"], scoreBps: number | null) => ({
@@ -105,7 +106,7 @@ export function resultBody(
       status,
       scoreBps,
     });
-    if (line.startMs >= elapsedMs) return outcome("unattempted", null);
+    if (!reached.has(line.lineId)) return outcome("unattempted", null);
     if (!score) return outcome("unpaid", null);
     if (score.uncertain) return outcome("unmeasured", null);
     if (score.recognizedWords.length === 0) return outcome("silent", null);
@@ -140,6 +141,7 @@ export function resultBody(
     revision: 1,
     startedAt: attempt.startedAt,
     lastAudioAt: attempt.lastAudioAt,
+    performanceEndedAt: ended.performanceEndedAt,
     endedAt: ended.endedAt,
     closedAtBlock,
     summary,

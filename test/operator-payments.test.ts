@@ -473,3 +473,62 @@ test("closing a superseded socket never disconnects its replacement", async () =
     await c.dispose();
   }
 });
+
+// Regressions from the e7c39c2 review: the reachability cutoff on disconnect,
+// and recovery reconciling failed redemptions before the unpaid-run stop.
+test("a disconnect cuts off reachability at the disconnect, not at the later decision", async () => {
+  const c = await community(evm, "disconnect-cutoff");
+  try {
+    const a = await c.attempt();
+    await payAll(c, a);
+    a.socket.send({ type: "words", words: c.sung(a.manifest, { lineIds: ["line-01", "line-02", "line-03"] }) });
+    const disconnectAt = a.start.body.startedAt + 6;
+    await c.at(disconnectAt);
+    a.socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await c.at(disconnectAt + 30);
+    await c.at(c.now() + PAYMENT_GRACE_S);
+    const result = (await c.result(a.ticket.body.ticketId)).value.body;
+    assert.equal(result.status, "abandoned");
+    assert.equal(result.performanceEndedAt, disconnectAt);
+    assert.ok(result.endedAt > result.performanceEndedAt);
+    assert.deepEqual(result.lines.map((l) => l.status), ["assessed", "assessed", "assessed", "unattempted"]);
+    const { verifyKaraokeResult } = await import("../packages/protocol/payments.ts");
+    const quote = (await import("../harness/karaoke-client.ts").then(({ post }) =>
+      post<{ body: import("../packages/protocol/payments.ts").OperatorQuote }>(c.runtime.mf, "operator", "/quote", {}),
+    )).value.body;
+    assert.equal(verifyKaraokeResult(result, a.manifest, quote).rewardScoreBps, result.rewardScoreBps);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("recovery reconciles reverted redemptions so the unpaid-run stop sees them without a client retry", async () => {
+  const c = await community(evm, "reverted-redemptions");
+  const community_ = accounts[3].address;
+  let withdrawn = 0n;
+  try {
+    const a = await c.attempt();
+    for (const segmentId of ["seg-01", "seg-02"]) {
+      await c.fault("operator", "fault:crash-before-broadcast", true);
+      const { answer } = await pay(c, a, segmentId);
+      assert.equal(answer.code, "simulated_crash_before_broadcast");
+    }
+    withdrawn = (await evm.read(evm.paymentsContract, "OperatorPayments", "balance", [community_, evm.paymentToken])) as bigint;
+    await evm.write(evm.paymentsContract, "OperatorPayments", "withdraw", [evm.paymentToken, withdrawn, community_], 3);
+    await c.runtime.mf
+      .getWorker("operator")
+      .then((w) => w.fetch("http://operator.localhost/recover", { method: "POST", body: "{}" }));
+    const rows = (await c.state("operator", "redemption:")).map((r) => (r.value as { state: string }).state);
+    assert.deepEqual(rows.sort(), ["confirmed", "failed", "failed"]);
+    await c.at(a.start.body.startedAt + 8);
+    await c.at(c.now() + PAYMENT_GRACE_S);
+    const result = (await c.result(a.ticket.body.ticketId)).value.body;
+    assert.equal(result.status, "payment_missing");
+    assert.equal(result.performanceEndedAt, a.start.body.startedAt + 5);
+  } finally {
+    if (withdrawn > 0n)
+      await evm.write(evm.paymentsContract, "OperatorPayments", "deposit", [community_, evm.paymentToken, withdrawn], 3);
+    await c.dispose();
+  }
+});

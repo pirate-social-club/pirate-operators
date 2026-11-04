@@ -93,7 +93,8 @@ test("the verifier refuses omitted, duplicated or invented lines and a zero deno
     },
   }));
   const summary = { scoreBps: 8000, coverageBps: 10000, scoringVersion: 5 };
-  const make = (outcomes: LineOutcome[]): KaraokeResultBody => ({
+  // The fixture song's last line starts at 20 s, so a 21 s cutoff reaches every line.
+  const make = (outcomes: LineOutcome[], cutoff = 21): KaraokeResultBody => ({
     attemptId: digest(ticketId) as Hex,
     ticketId,
     communityId: "fixture-community",
@@ -108,7 +109,8 @@ test("the verifier refuses omitted, duplicated or invented lines and a zero deno
     revision: 1,
     startedAt: 0,
     lastAudioAt: 0,
-    endedAt: 1,
+    performanceEndedAt: cutoff,
+    endedAt: cutoff,
     closedAtBlock: 1,
     summary,
     summaryHash: digest(summary) as Hex,
@@ -136,7 +138,12 @@ test("the verifier refuses omitted, duplicated or invented lines and a zero deno
   );
   // A line the attempt never reached is unattempted, paid or not, and counts zero.
   const reachedThree = [...lines.slice(0, 3), line("line-04", "unattempted", null)];
-  assert.equal(verifyKaraokeResult(make(reachedThree), manifest, quote).rewardScoreBps, 6000);
+  assert.equal(verifyKaraokeResult(make(reachedThree, 8), manifest, quote).rewardScoreBps, 6000);
+  // Reachability is enforced: a one-second performance cannot claim later lines,
+  // and an unreached line cannot hide a reached one.
+  assert.throws(() => verifyKaraokeResult(make(lines, 1), manifest, quote), /reachability_mismatch/);
+  assert.throws(() => verifyKaraokeResult(make(reachedThree, 21), manifest, quote), /reachability_mismatch/);
+  assert.throws(() => verifyKaraokeResult(make(lines, 60), manifest, quote), /invalid_timing/);
   const unmeasured = manifest.lines.map((l) => line(l.lineId, "unmeasured", null));
   const zero = make(unmeasured);
   assert.equal(verifyKaraokeResult(zero, manifest, quote).rewardScoreBps, null);
