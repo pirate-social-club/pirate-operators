@@ -15,8 +15,8 @@ explicit chain/deployment manifest before deploying.
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `factories`  | Nonempty list of distinct contracts, each reporting a deployed implementation. Pins both code hashes and the standard clone runtime hash. | Verify the exact RegistryFactory and SLDRegistry artifacts, initialization/label rules and addresses on the target chain. Never approve an upgradeable or arbitrary factory based only on its getters. |
 | `verifier`   | Address with code, distinct from listing.                                                                                                 | A governance account with signer rotation and independent recovery; prove the actual account's authority and recovery. Code presence alone does not prove governance semantics.                        |
-| `listing`    | Address with code, distinct from verifier.                                                                                                | A separate governance account and operational listing policy.                                                                                                                                          |
-| `maximumAge` | Nonzero uint64 seconds; bounds the complete observedAt-to-validUntil interval.                                                            | Choose the observation freshness and refresh service budget. The fixture's one-day bound is a test parameter, not a selected production policy.                                                        |
+| `listing`    | Address with code, distinct from verifier.                                                                                                | A bounded listing authority under a separate recoverable Safe, with a delist-only emergency key; qualify actual incident response.                                                                     |
+| `maximumAge` | Nonzero uint64 seconds; bounds the complete observedAt-to-validUntil interval.                                                            | Choose the false-evidence security ceiling and prove refresh/reader budgets fit. The fixture's one-day bound is not a selected deployment policy.                                                      |
 
 `CommunityPostsV1(directoryAddress)` requires a directory address with code and
 stores it immutably. Deployment acceptance must verify that address and its
@@ -30,13 +30,22 @@ is read-only evidence about candidate governance infrastructure.
 The recommended `verifier` input is the stable address of
 [NamespaceVerifierAuthorityV1](namespace-verifier-authority.md), administered by
 a recoverable Safe with a rotatable service key restricted to verification.
-It is a proposed new dependency, not implemented by this PR. The directory ABI
-already accepts its contract address; the existing governance fixture does not
-prove its behavior. Implement/review the authority and pass local integration
-before deploying the directory. In the admitted deployment, bind the actual
-directory and prove signing, recovery and refresh before enabling listings.
-Even an initially unlisted test community must not cause the immutable verifier
-slot to be filled with an arbitrary placeholder.
+The `listing` input is a distinct
+[CommunityListingAuthorityV1](community-listing-authority.md): its own governance
+Safe controls normal listings and a separate emergency key can only delist.
+Both are proposed new dependencies, not implemented by this PR. The directory
+ABI already accepts their contract addresses; the existing governance fixture
+does not prove their behavior.
+
+Implement/review both authorities and pass local integration before deploying
+the directory. Create them unbound, deploy the directory with their addresses,
+then let each governance Safe bind its authority once. In the admitted deployment,
+prove signing, key revocation/recovery, emergency delisting, reader suppression
+and refresh before enabling live listings. An initially unlisted test community
+must not cause either immutable authority slot to be filled with a placeholder.
+Select maximumAge as the immutable security bound described in the
+[age policy](namespace-verifier-authority.md#evidence-age-as-a-security-bound),
+not solely to match an affordable renewal schedule.
 
 ## On-chain enforcement
 

@@ -10,7 +10,9 @@ continues to require HNS evidence for Pirate discovery.
 
 NamespaceVerifierAuthorityV1 is a small, non-upgradeable authority contract. The
 directory fixes its address as `namespaceVerifier`. A separate recoverable
-governance Safe administers it; the listing Safe remains a different address.
+governance Safe administers it; a separate
+[listing authority](community-listing-authority.md) has its own governance Safe
+and an emergency key restricted to delisting.
 Use the [governance account profile](governance-accounts.md) to qualify that Safe.
 This delegates routine attestation to a service key while retaining independent
 key administration and recovery. It does not make routine evidence multisig-verified.
@@ -55,15 +57,17 @@ is stolen. No key, gas funding or secret-store change is authorized by this spec
 Before deploying a directory, implement and review this authority, qualify its
 governance recovery, and pass local integration tests using the actual directory
 artifact. Select the deployment manifest, namespace observation/confirmation
-policy, maximum evidence age, refresh cadence and retry budget. The fixture's
-one-day age is not a production choice. This design changes the verifier input's
+policy, the [evidence-age security ceiling](#evidence-age-as-a-security-bound),
+refresh cadence and retry/reader-suppression budgets. The fixture's one-day age
+is not a production choice. This design changes the verifier input's
 implementation profile without changing the existing directory/post ABI.
 
-In a separately admitted deployment, create the authority disabled and unbound,
-then deploy the directory with that authority's address and a separate listing
-account. Governance verifies and binds the actual directory once. Read the
-binding back, then enable the selected service account through governance. No
-predicted address or replaceable placeholder is needed to break this dependency.
+In a separately admitted deployment, create both verifier and listing authorities
+disabled and unbound, then deploy the directory with those distinct addresses.
+Each governance Safe verifies and binds its authority to that directory once.
+Read both bindings back, then enable the selected service and emergency keys
+through their respective governance accounts. No predicted address or replaceable
+placeholder is needed to break this dependency.
 Do not enable listings or declare deployment accepted until actual signing,
 rotation, disable/re-enable, freshness and recovery checks pass. Those checks
 follow binding; they cannot be claimed before the directory exists.
@@ -76,6 +80,53 @@ canonical recovery after a reorg. Rotate through the actual governance account
 after simulating loss of an operational signer; preserve authority, directory
 and post addresses and prove the retired service key is refused. A generic
 governance fixture or a successful compile does not establish these properties.
+
+## Evidence age as a security bound
+
+`maxVerificationAge` is an immutable security setting in the directory. Select
+it from the tolerated lifetime of false namespace evidence as well as the
+service's refresh capacity. Record the chosen value, risk rationale, incident
+detection/revocation assumptions and reader-suppression budget in the deployment
+manifest. A low-cost refresh schedule alone is not sufficient justification;
+the fixture's one-day value is not an approved deployment setting.
+
+Let M be `maxVerificationAge` and T the canonical block timestamp accepting an
+attestation. The directory requires `observedAt <= T < validUntil` and
+`validUntil - observedAt <= M`, so `validUntil <= T + M`, including for a forged
+attestation. At `validUntil`, that record no longer satisfies `isDiscoverable`.
+After the last forged submission at Tlast, residual on-chain validity is at
+most M. If key revocation remains canonical at timestamp R and no further
+forgeries are accepted, previously submitted records expire no later than R + M.
+
+This is not a bound on the total duration of an active compromise. Before key
+revocation, an attacker can keep submitting fresh forgeries and move the expiry
+forward indefinitely. Detection delay and the time needed to revoke the key
+are additional exposure. Emergency delisting can suppress affected communities
+sooner without waiting for revocation, because fresh verification does not
+restore a false listing bit. Neither expiry nor a submitted delisting transaction
+is proof that a stale index/cache has stopped showing the community.
+
+Select the security ceiling first. Then prove the observation, signing, inclusion,
+confirmation and retry budget fits inside it with refresh headroom. Account
+separately for index lag, cache lifetime and incident-response latency. Readers
+must check expiry at query time and withhold a claim of current discoverability
+when they cannot establish sufficiently fresh chain state. If the service cannot
+meet the selected bound, let discovery expire and repair service capacity; do
+not silently enlarge the risk window to save refresh cost. Community publication
+remains independent of discovery.
+
+The directory has no setter to reduce M later. Honest attestations may use a
+shorter validity window, but a stolen key can still request the full on-chain
+maximum. A required change to that hard bound after deployment needs a new
+directory and the explicit migration policy; an off-chain setting cannot claim
+to change its enforcement.
+
+Acceptance must include a forged attestation using the full allowed age, rejection
+above M, the exact expiry boundary, repeated forged renewal while the key is
+active, and expiry of the last accepted forgery after revocation. Also test
+emergency delisting while verification remains unexpired, renewal that cannot
+relist, reader/cache suppression, and loss of refresh/RPC access. These are
+required tests for the proposed authorities/service, not new coverage in this PR.
 
 ## Refresh service and incident handling
 
@@ -100,12 +151,17 @@ operations; it does not prove the truth of evidence or equal two independent
 signers. The service also needs protected credentials, retained evidence and
 monitoring under its separate operational acceptance.
 
-On compromise, governance disables or rotates the operator. This stops new
-calls from the old key but does not invalidate existing attestations. The
-independent listing authority must delist affected communities promptly; otherwise
-an unexpired false attestation can remain discoverable. Revalidate from fresh
-trusted observations, submit a new valid attestation where justified and make
+On compromise, the separate [emergency delisting key](community-listing-authority.md)
+can suppress affected communities without waiting for a governance threshold.
+The verifier governance Safe still disables or rotates the operator. This stops
+new calls from the old key but does not invalidate existing attestations; without
+canonical delisting or expiry, a false attestation can remain discoverable.
+Verification refresh cannot undo a delisting. If the emergency key is compromised,
+its governance must disable or rotate it before restoring any listings.
+Revalidate from fresh trusted observations, submit a new valid attestation where justified and make
 a separate listing decision. For invalid namespace bindings, remain delisted;
 do not write a fake "revoked" attestation into the HNS fields. Keep incident and
-verification receipts so readers can reconstruct canonical state. Expiry remains
-the fallback when timely delisting is unavailable.
+verification receipts so readers can reconstruct canonical state. Once new
+forgeries are stopped, the security ceiling bounds the remaining on-chain
+validity when timely delisting is unavailable. It does not cap an attacker's
+ability to renew while the verifier key remains authorized.

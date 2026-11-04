@@ -71,7 +71,13 @@ Namespace freshness must also be evaluated at query time or through expiry jobs:
 an unexpired record can become expired without emitting another event. Reorgs,
 config changes, expiry and delisting update feed visibility. Historical post
 records remain available as history rather than being mistaken for active
-directory entries. Explicit future hide/restore events need corresponding
+directory entries. A canonical emergency delisting must invalidate directory,
+aggregate-feed and cached discovery results; a later NamespaceVerified event
+cannot restore the listing bit. Record and test index/cache suppression delay
+against the [security budget](namespace-verifier-authority.md#evidence-age-as-a-security-bound).
+Stale chain/index state must not be presented as current discoverability, and
+cached discovery responses must respect expiry as well as delisting. These
+rules do not disable the community's independent publication/feed path. Explicit future hide/restore events need corresponding
 projection rules when their authorization model is added.
 
 ## Publisher-recovery projection

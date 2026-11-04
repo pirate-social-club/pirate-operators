@@ -39,9 +39,13 @@ override or automatic history migration.
 
 The proposed [namespace verifier authority](namespace-verifier-authority.md)
 separates a rotatable automated service key from its recoverable governance Safe.
-Only typed verification to one directory is delegated. This new contract is
-specified but not implemented here and is a prerequisite before directory
-deployment; it does not change the current directory/post ABIs.
+Only typed verification to one directory is delegated. The proposed
+[listing authority](community-listing-authority.md) gives its governance Safe
+normal listing control and a separate emergency key only delisting power.
+Both contracts are specified but unimplemented prerequisites before directory
+deployment; they do not change the current directory/post ABIs. Maximum evidence
+age is a security ceiling per attestation, not a bound on an active attacker
+who keeps renewing false evidence.
 
 ## Content and read path
 

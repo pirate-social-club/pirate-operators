@@ -12,10 +12,10 @@ Safe is a candidate that does not depend on MOSS recovery. A proposed testnet
 profile is SafeL2 1.4.1 through that version's canonical SafeProxyFactory on
 MegaETH 6343. This is a profile to qualify, not a selected live deployment or
 permission to create keys, fund gas or deploy accounts. The same profile could
-serve the community controller, Pirate's listing account and the separate
-governance account administering the verifier authority. Do not collapse those
-authorities into one shared address. The directory's verifier address is the
-proposed bounded contract described below, not its governance Safe.
+serve the community controller and separate governance accounts administering
+the verifier and listing authorities. Do not collapse those authorities into
+one shared address. The directory's verifier and listing addresses are the
+proposed bounded contracts described below, not their governance Safes.
 
 Safe owners can replace an owner through a transaction authorized by the current
 threshold. Our proposed 2-of-3 profile uses three independently controlled
@@ -29,8 +29,8 @@ owner act alone. See Safe's [account and owner model](https://docs.safe.global/a
 and [owner replacement](https://docs.safe.global/reference-smart-account/owners/swapOwner).
 
 This profile uses ordinary threshold-authorized account transactions for
-controller, listing and verifier-governance changes. It does not require a
-recovery module, unrestricted session key or guard. Confirm a working transaction
+controller and authority-governance changes, including normal listing decisions.
+It does not require a recovery module, unrestricted session key or guard. Confirm a working transaction
 preparation, signing and submission path on MegaETH rather than inferring Safe
 Wallet UI or transaction-service support from code presence.
 
@@ -54,6 +54,23 @@ binding, rotation, pause, freshness and incident handling precede directory
 deployment. Actual account and service acceptance follows the one-time binding
 and precedes live listings. A direct Safe or the current governance fixture is
 not a substitute for this automated acceptance.
+
+## Emergency listing authority
+
+The proposed [CommunityListingAuthorityV1](community-listing-authority.md) holds
+that fixed directory role. Its governance Safe may list or delist, bind the
+directory once and rotate/disable a separate emergency key. The emergency key
+can only forward a typed delisting with literal false; it cannot add listings,
+change config, verify namespaces or gain Safe owner/module authority. This is
+another contract to implement and review, not a deployed capability.
+
+The emergency path avoids waiting for two Safe signers to remove a suspicious
+community. The key must be independent of the verifier service key. A stolen
+emergency key can disrupt discovery across all communities, so governance must
+revoke or rotate it before restoration. Verification refresh alone cannot undo
+a delisting. Actual account recovery, emergency submission and feed invalidation
+must pass acceptance before live listings; neither a direct Safe nor a generic
+fixture establishes this path.
 
 ## Testnet code observation
 

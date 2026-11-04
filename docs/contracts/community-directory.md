@@ -70,8 +70,10 @@ unbounded super-admin or directory upgrade path is implied. Both authority
 addresses must be stable governance-controlled contracts with signer rotation
 and a defined, tested recovery path. The recommended verifier is a
 [bounded authority contract](namespace-verifier-authority.md) whose service key
-is rotated by a recoverable governance Safe; listing uses a separate governance
-account. Do not bind either directory role directly to a single hot EOA. Deployment
+is rotated by a recoverable governance Safe. A separate
+[listing authority contract](community-listing-authority.md) lets its governance
+Safe manage listings and an independent emergency key only remove them. Do not
+bind either directory role directly to a single hot EOA. Deployment
 acceptance must revoke/replace an operational signer while preserving the
 account, directory and posts addresses, configuration and all post IDs. The
 recovery authority must survive loss of an operational signer; it is not a
@@ -317,7 +319,11 @@ and `observedAt <= block.timestamp < validUntil`; expiry must satisfy a bounded
 maximum age fixed by the deployment profile. Evidence must be no older than
 the previous observation. A profile without a selected freshness bound is not
 deployable. Key compromise can forge these attestations; this is Pirate's
-explicit namespace-verification trust boundary.
+explicit namespace-verification trust boundary. Treat maxVerificationAge as
+an immutable security ceiling, with a selected risk rationale and a measured
+refresh/reader-suppression budget. It bounds each record's lifetime, not an
+ongoing attacker who keeps renewing it; see the
+[evidence-age security rule](namespace-verifier-authority.md#evidence-age-as-a-security-bound).
 
 The [verifier authority design](namespace-verifier-authority.md) separates
 automated attestation from governance signer recovery. Its implementation and
@@ -325,10 +331,13 @@ local integration are prerequisites to deployment; actual binding and refresh
 acceptance precede live listings. None is established by the current directory
 tests. Rotating or pausing its service key does not
 invalidate already recorded attestations; incident response also requires the
-separate listing authority to delist affected communities.
+separate listing authority to delist affected communities. Its emergency key
+can do so without waiting for Safe signers, but cannot restore a listing.
 
 Only the separate listing authority calls `setListed`, using an exact listing
-revision. It may list, delist and record a public reason digest. It cannot edit
+revision. Its governance Safe may list/delist; its restricted emergency path
+may only delist and record a public incident-reason digest. After any delisting,
+only a new governance-authorized listing can restore discovery. It cannot edit
 config, controller, publisher or content. `isDiscoverable` is true only for an
 existing, listed entry with a current, unexpired verification bound to its
 current config. Listing=true requires that predicate except the listing bit.

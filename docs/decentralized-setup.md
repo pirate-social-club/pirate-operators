@@ -99,9 +99,13 @@ ETH balance or account code is not that proof. See the
 [directory bootstrap boundary](contracts/community-directory.md#operator-bootstrap-and-recovery).
 The verifier's recurring writes use the proposed
 [bounded authority profile](contracts/namespace-verifier-authority.md), under
-recoverable governance. Implement it and pass local integration before directory
-deployment, then prove actual binding and refresh before enabling listings.
-A direct 2-of-3 Safe is not the automated signer for this profile.
+recoverable governance. A separate
+[listing authority](contracts/community-listing-authority.md) lets its Safe
+manage listings and an independent emergency key only delist. Implement both
+and pass local integration before directory deployment, then prove actual
+binding, refresh and emergency removal before enabling listings. Select maximum
+evidence age as a security limit and measure the reader-suppression delay.
+A direct 2-of-3 Safe alone supplies neither automated path.
 These are proposed integration requirements, not completed directory/wizard
 acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.
