@@ -5,17 +5,34 @@ confirmed D1 through D6 and authorized public repository creation on 2026-11-03.
 The initial coordinator bootstrap publishes main after local checks. Later
 changes use named branches and pull requests under the workspace lifecycle.
 
-Use cf for Cloudflare tooling. Do not introduce Wrangler configuration.
+The workspace_owner selected Alchemy.run to own community Cloudflare
+provisioning: Workers, D1, R2, jobs and bindings. Use cf for diagnostics and
+account inspection without independently changing Alchemy-owned resources.
+Infisical is the service-secret source. Do not introduce Wrangler configuration.
+The first delivery is operator setup through first-song publication; sponsored
+customer name buying is later work. This direction authorizes documentation
+and the admitted implementation lanes, not an unscoped deployment or key action.
 No production deployment, provider credentials, funded operations or mainnet
 activity belongs to the local skeleton. Fixture private keys are public test
 keys and must never be funded outside a disposable local chain.
 
-Our contracts target MegaETH testnet (chain 6343) only, with Anvil as the
-local chain. Public testnet work needs its own authorization, dedicated random
-keys stored privately outside the repository and test tokens only. Refuse
-mainnet chain IDs and the public local fixture keys. Public-chain scripts are
-manual opt-in and never run in default CI. Nothing here authorizes production,
-mainnet funds, existing managed-key exports or real provider credentials.
+The current application-contract target is MegaETH testnet 6343; local tests
+use anvil. Use dedicated test keys only under an explicitly admitted testnet
+task. No new Pirate contract deployment belongs on another EVM application
+chain. External Megapot's Base deployment is a provider dependency, not our
+deployment target. Local fork inspection remains distinct from public writes.
+The creator-wallet design has its own Sui/Ika and Aeneid testnet scope; this
+instruction does not authorize that integration, new credentials or transactions.
+Refuse mainnet chain IDs and public local fixture keys. Public-chain scripts
+are manual opt-in, use test tokens only and never run in default CI. Mainnet
+activity and managed production-key exports remain excluded.
+
+Spaces support is deferred beyond the decentralized community MVP. Wizard v1
+starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.
+The wizard may show Spaces only as disabled Coming soon
+information; do not implement or provision Spaces or generalize the directory
+for it as an MVP gate. Cloudflare Containers are a later candidate to qualify,
+not an accepted deployment target for the current Spaces stack.
 
 Keep provider simulations explicit and run the actual handlers, cryptography,
 WebSockets, storage and pool locally. The local protocol subset must be named;

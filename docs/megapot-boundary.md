@@ -1,5 +1,9 @@
 # Reward-pool settlement boundary
 
+This document covers local contract/provider experiments. External Megapot is
+on Base; it does not authorize Pirate contracts there. The reward funding and
+production payout route remain undecided. See the [current setup overview](decentralized-setup.md).
+
 The pool uses the minimal Megapot V2 wire surface in IMegapot.sol. Its local
 mock exercises failure modes independently. A separate pinned mainnet fork now
 checks actual purchase ownership, winning and losing claims and emergency

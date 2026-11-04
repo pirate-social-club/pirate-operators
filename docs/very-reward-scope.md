@@ -100,7 +100,7 @@ the recipient and attempt as well. Expiry must not exceed the accepted
 challenge, credential/policy limit or pool registration deadline. The pool
 cannot tell whether the attester actually called Very; this remains a trusted
 attestation design. Ordinary ECDSA and the supported EIP-7702 case remain the
-wallet boundary; this work adds no passkey or ERC-1271 compatibility.
+wallet boundary; this work adds no ERC-1271 compatibility.
 
 ## Frozen vectors and conformance
 
@@ -116,4 +116,4 @@ RewardPool's `scope()` before requesting its simulated attestation.
 
 These checks prove deterministic agreement in the experiment. They do not
 establish provider support for the derived values, freshness, enrollment
-deduplication or a completed real MegaETH testnet registration.
+deduplication or completed production reward registration.

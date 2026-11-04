@@ -12,19 +12,33 @@ credential; wallet authority is resolved for each capability that needs it.
 MOSS remains the first sign-in integration. This is a design amendment, not
 an implemented session migration or an additional onboarding step.
 
-It supersedes the original experiment draft's section 15.1 paragraph on the
-static client (lane M), which coupled static hosting to bearer sessions and
-hash routing. It completes the draft's section 7 sign-in and section 8.2
-karaoke ticket rules for browsers, without changing the ticket fields or the
-pool. A separate MOSS and MegaETH MVP plan, not yet recorded in this
-repository, owns the wallet spike, the registry purchase, the simulated payout
-and Telegram attachment. This contract applies to whichever wallet that plan
-proves.
+The [restored operator protocol](operator-protocol.md) supplies section 7
+sign-in and section 8.2 ticket requirements. This document completes their
+browser cookie and handshake behavior. The current payment contract owns
+payment fields and does not change the browser key boundary. The
+[current setup overview](decentralized-setup.md) owns the provisioning direction:
+Alchemy.run, Infisical, MegaETH and the first song on ordinary HTTPS. Native
+app.tld acceptance, customer name purchase and Telegram attachment follow
+separately. OperatorPayments purchases replace the original payment fields;
+the current payment specification owns them. Browser session and handshake
+rules here remain.
 
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
 cookies; public reading never depends on login; IPFS mirrors are read-only.
-Mirror authentication is a future extension.
+Mirror authentication is a future extension. This is a deliberate origin and
+session boundary, not a limitation of IPFS hosting: static JavaScript can call
+live APIs, but this version does not authorize cross-origin browser sessions.
+
+Spaces is deferred beyond the decentralized community MVP. Wizard v1 starts
+on ordinary HTTPS, with HNS as an optional follow-up. A namespace picker may
+show a disabled "Spaces — Coming
+soon" option, with no promised date, setup form or provisioning action. It must
+not request Spaces keys or funds or block supported setup. The
+[MVP namespace scope](decentralized-setup.md#mvp-namespace-scope) also requires
+the configuration/API boundary to reject unsupported Spaces setup before any
+external effect. Cloudflare Containers feasibility is later engineering work,
+not part of the wizard's customer-facing deployment choices.
 
 ## 1. Sessions and sign-in
 
@@ -101,7 +115,7 @@ accepted origins, session audience, refresh, revocation and wallet behaviour.
 
 ## 2. Karaoke attempt connection
 
-Section 8.2 of the draft stays the authority: an issuer-signed ticket naming
+Section 8.2 of the restored operator protocol stays the authority: an issuer-signed ticket naming
 the participant, the operator and a per-attempt browser key, and a signed
 response to the operator's connection challenge. Browser WebSockets cannot
 attach an `Authorization` header, and a cookie for the community origin is
@@ -411,7 +425,7 @@ Routing uses paths. Requests for generated documents are served from storage.
 `/api/*` goes to the community service. Any other path without a file falls
 back to the client shell. Cloudflare Workers Static Assets supports this
 pattern, a single-page-application fallback with selected paths routed to the
-Worker first. Cloudflare is the first host, using `cf`, but the artifact
+Worker first. Cloudflare is the first host, provisioned by Alchemy.run, but the artifact
 remains plain static files that any static server can serve. Hash routing is
 an opt-in build only for a read-only mirror whose gateway cannot rewrite deep
 links. Such a mirror cannot serve per-post preview pages, because the

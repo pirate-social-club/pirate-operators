@@ -19,7 +19,7 @@ This is an unsigned operator observation, not a cryptographically replayable
 proof transcript. It supports the tested credential's stability and scope
 separation. It does not establish unique enrollment per person, cross-device
 or recovery behavior, real-wallet authentication, production pool-scope
-derivation or direct verification on MegaETH. The real reward attester is still
+derivation or direct on-chain verification. The real reward attester is still
 unimplemented, and the pool continues to use the fake credential in its harness.
 
 ## Run
@@ -80,8 +80,8 @@ liveness requirement. The operator's assertion that one enrollment was used
 is not independently verified by this tool.
 
 Very's hosted verifier remains trusted for proof validity and issuer policy.
-No Very-specific MegaETH verifier, verifying key or equivalent issuer/revocation
-policy has been established from the reviewed sources. A generic Groth16 or
+This probe establishes no on-chain verifier, verifying key or equivalent
+issuer/revocation policy for the MegaETH application. A generic Groth16 or
 Galxe Solidity verifier is not sufficient evidence of that compatibility.
 
 The observed run supports proceeding to a real attester: authenticate the

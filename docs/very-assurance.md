@@ -76,7 +76,7 @@ accuracy or the absence of duplicate enrollments.
    Is there a supported circuit/verifying-key package and equivalent verification
    path for MegaETH, including issuer/revocation checks?
 
-No real-money rollout follows from the diagnostic result. The next bounded
-implementation is an attester using the [versioned scope mapping](very-reward-scope.md),
-followed by a MegaETH testnet flow with explicit test credentials/tokens and the
-remaining provider assumptions stated plainly.
+No real-money rollout follows from the diagnostic result. An attester uses the
+[versioned scope mapping](very-reward-scope.md). The reward prize source and
+production route remain undecided; the diagnostic does not establish either.
+Any new integration follows the MegaETH application boundary and its own task.

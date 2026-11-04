@@ -1,5 +1,9 @@
 # Pinned Megapot fork verification
 
+This document covers local contract/provider experiments. External Megapot is
+on Base; it does not authorize Pirate contracts there. The reward funding and
+production payout route remain undecided. See the [current setup overview](decentralized-setup.md).
+
 Run `npm run test:fork` after bootstrap. This suite reads historical Base state
 from the public RPC and executes mutations only inside Foundry's local fork.
 It requires network access for uncached state and is intentionally excluded
