@@ -42,8 +42,11 @@ function end(attempt: Attempt, endedAt: number, status: Status) {
   if (!attempt.ended)
     attempt.ended = { endedAt, status, paymentDeadline: endedAt + PAYMENT_GRACE_S };
 }
-const paidSegment = (store: Store, ticketId: Hex, segmentId: string) =>
-  redemptionRow(store, unitHash(segmentUnit(ticketId, segmentId, 0)))?.state === "confirmed";
+/** For the unpaid-run stop: a purchase received and still being redeemed counts. */
+const purchaseReceived = (store: Store, ticketId: Hex, segmentId: string) => {
+  const state = redemptionRow(store, unitHash(segmentUnit(ticketId, segmentId, 0)))?.state;
+  return state === "confirmed" || state === "submitted";
+};
 
 /**
  * Synchronous timer evaluation: ends the attempt at the first terminal event
@@ -69,7 +72,7 @@ function settle(store: Store, env: Env, ticketId: string) {
     for (const segment of manifest.segments) {
       const segmentEnd = attempt.startedAt + Math.ceil(segment.endMs / 1000);
       if (segmentEnd > now) break;
-      run = paidSegment(store, ticket.ticketId, segment.segmentId) ? 0 : run + 1;
+      run = purchaseReceived(store, ticket.ticketId, segment.segmentId) ? 0 : run + 1;
       if (run >= operatorQuote(env).maxUnpaidRun) {
         events.push([segmentEnd, "payment_missing"]);
         break;

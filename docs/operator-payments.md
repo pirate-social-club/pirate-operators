@@ -336,8 +336,10 @@ request boundary, so the operator may send audio that spans lines to its
 transcription provider. It may process audio before the purchase is
 redeemed, at its own risk, but it delivers no numeric score for a line,
 provisional or final, on the socket or in any record, until that line is
-paid. If `maxUnpaidRun` consecutive segments end unpaid, it may stop the
-attempt with `payment_missing`.
+paid. If `maxUnpaidRun` consecutive segments end with no purchase received,
+it may stop the attempt with `payment_missing`. A purchase received and still
+being redeemed counts as received, so a slow redemption never stops an
+attempt.
 
 At finalization each scored line takes one status:
 
@@ -347,6 +349,13 @@ At finalization each scored line takes one status:
 | `silent` | paid and measured, nothing recognized | none | zero |
 | `unpaid` | its segment had no confirmed redemption | none | zero |
 | `unmeasured` | paid, but the measurement failed | none | excluded, within the policy's limit |
+| `unattempted` | the line began at or after the attempt ended, paid or not | none | zero |
+
+A line is reached when it begins before `endedAt`, measured as time since
+`startedAt`. Only reached lines are scored or enter the timing compensation.
+An unattempted line stays distinct from silence during a reached line, a
+missing payment and a measurement failure. Any purchase made for it remains
+visible in `OperatorPayments`.
 
 The educational score is nullable. An absent assessment is never published
 as a numeric zero, so no other application can read it as demonstrated
@@ -381,7 +390,7 @@ supersede it explicitly, and it gains:
 ```text
 pirate.karaoke.lines/1 [
   { lineId, lineVersion,
-    status: "assessed" | "silent" | "unpaid" | "unmeasured",
+    status: "assessed" | "silent" | "unpaid" | "unmeasured" | "unattempted",
     scoreBps: integer | null } ]
 
 pirate.karaoke.billing/1 [
@@ -436,8 +445,9 @@ Section 10 stands, with these changes:
    10,000 or null as its status requires, and exactly one billing entry per
    segment with that segment's `lineIds`.
 5. It recomputes `linesHash`, `billingHash`, `linesTotal`, `unmeasuredCount`
-   and `rewardScoreBps`. It checks that lines with a score-bearing or
-   measured status belong to paid segments and `unpaid` lines to unpaid ones,
+   and `rewardScoreBps`. It checks that no line of a paid segment is
+   `unpaid` and that every line of an unpaid segment is `unpaid` or
+   `unattempted`,
    that `paidCount` counts the paid segments and that `paidAmount` equals
    `paidCount × segmentPrice`. It may confirm each paid segment against the
    contract: `redemption(community, unit)` equals the listed digest, and the
@@ -506,7 +516,7 @@ redemptions is an optimization, not a requirement.
 
 | Case | Outcome |
 |---|---|
-| The learner sends `finish` | `completed`. Lines bought ahead but not reached are `silent`; nothing is refunded. |
+| The learner sends `finish` | `completed`. Lines not yet reached are `unattempted`, including any bought ahead; nothing is refunded. |
 | The socket drops and the learner returns in time | The same attempt resumes; bought lines stay paid. |
 | The socket drops and the learner does not return | `abandoned` when the reconnect window ends. |
 | A redemption confirms after the deadline but before the closure | It counts; reconciliation reads it from the contract. |

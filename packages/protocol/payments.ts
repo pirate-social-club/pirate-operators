@@ -196,7 +196,11 @@ export function paymentWindow(
   return now <= start + segment.endMs ? "open" : "closed";
 }
 
-export type LineStatus = "assessed" | "silent" | "unpaid" | "unmeasured";
+/**
+ * `unattempted`: the attempt ended before the line began, whether or not it
+ * was paid ahead. It carries no score and counts zero toward the reward.
+ */
+export type LineStatus = "assessed" | "silent" | "unpaid" | "unmeasured" | "unattempted";
 /** The educational record: a score exists only for paid, measured, recognized singing. */
 export interface LineOutcome {
   lineId: string;
@@ -218,7 +222,7 @@ export interface BillingEntry {
   redemption: RedemptionRef | null;
 }
 
-/** Reward accounting: unpaid and silent count zero, unmeasured leaves the denominator. */
+/** Reward accounting: unpaid, silent and unattempted count zero; unmeasured leaves the denominator. */
 export function rewardScore(lines: readonly LineOutcome[]) {
   const linesTotal = lines.length;
   const unmeasuredCount = lines.filter((l) => l.status === "unmeasured").length;
@@ -278,7 +282,7 @@ export function verifyKaraokeResult(
       "line_list_mismatch",
     );
     check(
-      ["assessed", "silent", "unpaid", "unmeasured"].includes(line.status) &&
+      ["assessed", "silent", "unpaid", "unmeasured", "unattempted"].includes(line.status) &&
         (line.status === "assessed"
           ? Number.isSafeInteger(line.scoreBps) &&
             line.scoreBps! >= 0 &&
@@ -311,9 +315,12 @@ export function verifyKaraokeResult(
       );
       digests.add(r.digest);
     }
+    // A paid line is never unpaid; an unpaid line is unpaid or unattempted.
     for (const lineId of segment.lineIds)
       check(
-        r ? status.get(lineId) !== "unpaid" : status.get(lineId) === "unpaid",
+        r
+          ? status.get(lineId) !== "unpaid"
+          : status.get(lineId) === "unpaid" || status.get(lineId) === "unattempted",
         "line_payment_mismatch",
       );
   });

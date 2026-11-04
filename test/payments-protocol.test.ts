@@ -134,6 +134,9 @@ test("the verifier refuses omitted, duplicated or invented lines and a zero deno
     () => verifyKaraokeResult(make([...lines.slice(0, 3), line("line-04", "unpaid", 0)]), manifest, quote),
     /invalid_line_outcome/,
   );
+  // A line the attempt never reached is unattempted, paid or not, and counts zero.
+  const reachedThree = [...lines.slice(0, 3), line("line-04", "unattempted", null)];
+  assert.equal(verifyKaraokeResult(make(reachedThree), manifest, quote).rewardScoreBps, 6000);
   const unmeasured = manifest.lines.map((l) => line(l.lineId, "unmeasured", null));
   const zero = make(unmeasured);
   assert.equal(verifyKaraokeResult(zero, manifest, quote).rewardScoreBps, null);

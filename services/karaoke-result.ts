@@ -84,12 +84,19 @@ export function resultBody(
       ? { ...bucket, finalizedReason: "provider_failed" as const }
       : bucket,
   );
+  const reached = new Set(
+    manifest.lines
+      .filter((line) => line.startMs < (ended.endedAt - attempt.startedAt) * 1000)
+      .map((line) => line.lineId),
+  );
   const paidScores = buckets
-    .filter((bucket) => paidLines.has(bucket.lineId))
+    .filter((bucket) => paidLines.has(bucket.lineId) && reached.has(bucket.lineId))
     .map((bucket) => scoreKaraokeLine({ bucket }));
   const compensated = new Map(
     applyTimingOffsetCompensation(paidScores).lineScores.map((s) => [s.lineId, s]),
   );
+  // A line that begins at or after the attempt's end was never reached.
+  const elapsedMs = (ended.endedAt - attempt.startedAt) * 1000;
   const lines: LineOutcome[] = manifest.lines.map((line) => {
     const score = compensated.get(line.lineId);
     const outcome = (status: LineOutcome["status"], scoreBps: number | null) => ({
@@ -98,6 +105,7 @@ export function resultBody(
       status,
       scoreBps,
     });
+    if (line.startMs >= elapsedMs) return outcome("unattempted", null);
     if (!score) return outcome("unpaid", null);
     if (score.uncertain) return outcome("unmeasured", null);
     if (score.recognizedWords.length === 0) return outcome("silent", null);

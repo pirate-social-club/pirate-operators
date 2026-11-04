@@ -14,6 +14,7 @@ import {
   segmentUnit,
   unitHash,
   PAYMENT_GRACE_S,
+  songEndMs,
   type Purchase,
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
@@ -44,6 +45,8 @@ async function payAll(c: C, a: A, skip: string[] = []) {
   }
 }
 async function finish(c: C, a: A) {
+  // One second before the song ends, so every line has been reached.
+  await c.at(a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000) - 1);
   a.socket.send({ type: "words", words: c.sung(a.manifest) });
   a.socket.send({ type: "finish" });
   await c.at(c.now() + PAYMENT_GRACE_S);
@@ -182,6 +185,7 @@ test("a purchase still being verified at the deadline is refused, and the closed
   try {
     const a = await c.attempt();
     await payAll(c, a, ["seg-03", "seg-04"]);
+    await c.at(a.start.body.startedAt + 3);
     a.socket.send({ type: "finish" });
     const late = (await c.purchase(a.session, a.ticket.body.ticketId, "seg-03")).value as SignedPurchase;
     await c.fault("operator", "fault:clock-after-verify", c.now() + PAYMENT_GRACE_S);
@@ -189,7 +193,9 @@ test("a purchase still being verified at the deadline is refused, and the closed
     assert.deepEqual([answer.type, answer.code], ["error", "attempt_closed"]);
     await c.at(c.now() + PAYMENT_GRACE_S);
     const result = (await c.result(a.ticket.body.ticketId)).value.body;
-    assert.equal(result.lines.find((l) => l.lineId === "line-03")!.status, "unpaid");
+    // The late purchase was never redeemed or counted; the line began after the end.
+    assert.equal(result.billing.find((b) => b.segmentId === "seg-03")!.redemption, null);
+    assert.equal(result.lines.find((l) => l.lineId === "line-03")!.status, "unattempted");
     await assert.rejects(redeemDirectly(late));
   } finally {
     await c.dispose();
@@ -203,6 +209,7 @@ test("a third-party redemption just before closure is counted after a crash befo
     await payAll(c, a, ["seg-03", "seg-04"]);
     const unseen = (await c.purchase(a.session, a.ticket.body.ticketId, "seg-03")).value as SignedPurchase;
     await redeemDirectly(unseen, 7);
+    await c.at(a.start.body.startedAt + 8);
     a.socket.send({ type: "words", words: c.sung(a.manifest) });
     a.socket.send({ type: "finish" });
     await c.fault("operator", "fault:crash-before-result", true);
@@ -214,7 +221,7 @@ test("a third-party redemption just before closure is counted after a crash befo
       "line-01": "assessed",
       "line-02": "assessed",
       "line-03": "assessed",
-      "line-04": "unpaid",
+      "line-04": "unattempted",
     });
   } finally {
     await c.dispose();
@@ -229,12 +236,13 @@ test("a crash before broadcast followed by expiry still resolves the nonce, so t
     await c.fault("operator", "fault:crash-before-broadcast", true);
     const crashed = await pay(c, a, "seg-02");
     assert.deepEqual([crashed.answer.type, crashed.answer.code], ["error", "simulated_crash_before_broadcast"]);
+    await c.at(a.start.body.startedAt + 8);
     a.socket.send({ type: "finish" });
     await c.at(crashed.signed.purchase.expiresAt + 5);
     assert.equal((await c.result(a.ticket.body.ticketId)).value.error, "result_not_final");
     await c.runtime.mf.getWorker("operator").then((w) => w.fetch("http://operator.localhost/recover", { method: "POST", body: "{}" }));
     const result = (await c.result(a.ticket.body.ticketId)).value.body;
-    assert.deepEqual(result.lines.map((l) => l.status), ["silent", "unpaid", "unpaid", "unpaid"]);
+    assert.deepEqual(result.lines.map((l) => l.status), ["silent", "unpaid", "unpaid", "unattempted"]);
     const transactions = (await c.state("operator", "tx:")).map((r) => r.value as { kind: string; mined: { status: string } | null });
     assert.ok(transactions.every((t) => t.mined));
     assert.deepEqual(
@@ -256,6 +264,7 @@ test("a third party redeeming a purchase stuck behind a crashed broadcast confir
     const crashed = await pay(c, a, "seg-02");
     assert.equal(crashed.answer.code, "simulated_crash_before_broadcast");
     await redeemDirectly(crashed.signed, 7);
+    await c.at(a.start.body.startedAt + 8);
     a.socket.send({ type: "words", words: c.sung(a.manifest) });
     a.socket.send({ type: "finish" });
     await c.at(c.now() + PAYMENT_GRACE_S);
@@ -264,7 +273,7 @@ test("a third party redeeming a purchase stuck behind a crashed broadcast confir
       .getWorker("operator")
       .then((w) => w.fetch("http://operator.localhost/recover", { method: "POST", body: "{}" }));
     const result = (await c.result(a.ticket.body.ticketId)).value.body;
-    assert.deepEqual(result.lines.map((l) => l.status), ["assessed", "assessed", "unpaid", "unpaid"]);
+    assert.deepEqual(result.lines.map((l) => l.status), ["assessed", "assessed", "unpaid", "unattempted"]);
     const transactions = (await c.state("operator", "tx:")).map(
       (r) => r.value as { kind: string; mined: { status: string } | null },
     );

@@ -19,7 +19,7 @@ import {
   type Result,
 } from "../packages/protocol/index.ts";
 import { rewardPoolScope } from "../packages/protocol/very-reward-scope.ts";
-import { PAYMENT_GRACE_S } from "../packages/protocol/payments.ts";
+import { PAYMENT_GRACE_S, songEndMs } from "../packages/protocol/payments.ts";
 import { fixtureLyrics, fixtureManifest, sungWords } from "./karaoke-fixture.ts";
 import { openAttempt, post, requestPurchase, type Attempt } from "./karaoke-client.ts";
 
@@ -158,6 +158,8 @@ export async function runFlow({
       const bound = await attempt.pay(signed.value);
       assert.equal(bound.type, "paid", JSON.stringify(bound));
     }
+    // Sing through the song: finishing one second before its end reaches every line.
+    await serviceClock(startedAt + Math.ceil(songEndMs(manifest) / 1000) - 1);
     attempt.send({ type: "words", words: sungWords(manifest) });
     attempt.send({ type: "finish" });
     const echo = await post(runtime.mf, "operator", "/result", { ticketId });
