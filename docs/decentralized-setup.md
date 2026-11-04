@@ -174,8 +174,9 @@ resolving. Monitor and renew both SLD and HNS TLD. Admin controls future sale
 policy and treasury; the app holder or appointed record manager controls its
 records. TLD ownership can still repoint delegation and orphan old names.
 
-HNS app.tld is a required acceptance target, not shorthand for a workers.dev
-URL. Cloudflare custom domains require an active zone; publishing HNS records
+For the later native-address milestone, app.tld is a required acceptance target,
+separate from ordinary-HTTPS first-song proof. Cloudflare custom domains require
+an active zone; publishing HNS records
 does not itself establish a Cloudflare zone, ordinary DNS resolution or trusted
 TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
 secure-origin/session behavior. Keep an ordinary HTTPS origin available for
