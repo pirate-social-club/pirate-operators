@@ -1,0 +1,176 @@
+{
+  "kind": "megaeth-operator-service-run",
+  "recordedAt": "2026-11-04T15:44:41.010Z",
+  "chainId": 6343,
+  "rpc": "https://carrot.megaeth.com/rpc",
+  "runtime": "actual community and operator services in the local Workers runtime; outbound limited to the RPC",
+  "contracts": {
+    "operatorPayments": "0x98a5242f80ecc9e01295e03a18712b4256d9f071",
+    "learningRecords": "0x0eae432258c5954cf3d06e707acb3490a2f20a12",
+    "token": "0xC5321666F425812D1C12F44dA7BFe08CEB00044B"
+  },
+  "community": "0xBF85a150114d3df8B90A7793C0Ea4B2F4bB8C319",
+  "purchaseSigner": "0xa67aC40Bc3d5e1b25D7da5CA2e8585f335A37329",
+  "operator": "0x14B90A55657D9695A727254EAec5E0e32D20d602",
+  "learner": "0x908552236E8a4358506a46E1520968ca8F8Fc9D6",
+  "learnerKey": "ephemeral, generated in memory, never stored",
+  "song": {
+    "title": "MegaETH operator run 1793807033",
+    "songHash": "0xf5284d8fab46418ab4b1f56f29eab52b238e8939df57931af96794e546f40e09",
+    "manifestSha256": "0x24014b96a394bc3eb42776c12ba9b8fcb47bff700ef553ccd1ab741b92eebeb5",
+    "fixture": true
+  },
+  "ticketId": "0x71fac0469029c71cc49f0e7a4e046e6e416d1108c69f3d1c853e629796c0f615",
+  "attemptId": "0xc6782b88bc218370705b2dcb189b9c885643b2d60f8d97ead12c6c45a1b06919",
+  "result": {
+    "status": "completed",
+    "startedAt": 1793807036,
+    "performanceEndedAt": 1793807058,
+    "endedAt": 1793807058,
+    "closedAtBlock": 34096614,
+    "lines": [
+      {
+        "lineId": "line-01",
+        "lineVersion": 1,
+        "status": "assessed",
+        "scoreBps": 10000
+      },
+      {
+        "lineId": "line-02",
+        "lineVersion": 1,
+        "status": "assessed",
+        "scoreBps": 10000
+      },
+      {
+        "lineId": "line-03",
+        "lineVersion": 1,
+        "status": "assessed",
+        "scoreBps": 10000
+      },
+      {
+        "lineId": "line-04",
+        "lineVersion": 1,
+        "status": "assessed",
+        "scoreBps": 10000
+      }
+    ],
+    "rewardScoreBps": 10000,
+    "paidCount": 4,
+    "paidAmount": "4000"
+  },
+  "paid": {
+    "depositBefore": "499991000",
+    "depositAfter": "499985000",
+    "operatorReceived": "6000"
+  },
+  "transactions": [
+    {
+      "nonce": 165,
+      "kind": "redeem",
+      "hash": "0xcf07ba0fb7e4f571fb228a2de62e518778438a60a26bb94d07362ec2e0a82cf4",
+      "status": "success",
+      "gasUsed": "219518",
+      "block": "34096580"
+    },
+    {
+      "nonce": 166,
+      "kind": "redeem",
+      "hash": "0x3964b77026a59d2b8f3de77b74e9e8b2a5fca25a7e420159e87fca39056aafa2",
+      "status": "success",
+      "gasUsed": "226455",
+      "block": "34096582"
+    },
+    {
+      "nonce": 167,
+      "kind": "redeem",
+      "hash": "0x7be4e70b155c54b8831c5ad8066f438c801b02151224d9bc14dbb70df89253c7",
+      "status": "success",
+      "gasUsed": "226472",
+      "block": "34096584"
+    },
+    {
+      "nonce": 168,
+      "kind": "redeem",
+      "hash": "0x7f7c2ebf5a0536b3ec907c08483cabaa8c9ab19c601721f13fda95cc90838ac1",
+      "status": "success",
+      "gasUsed": "226472",
+      "block": "34096586"
+    },
+    {
+      "nonce": 169,
+      "kind": "redeem",
+      "hash": "0x330e013526c201a300fed20164f8f27b0d24a1072573fe68aba856f5467510e1",
+      "status": "success",
+      "gasUsed": "226455",
+      "block": "34096588"
+    },
+    {
+      "nonce": 170,
+      "kind": "close",
+      "hash": "0x16b30dfb37248c72c7e811d4c7e717b29aa87ab83dc60a8c3064ac641cc556a8",
+      "status": "success",
+      "gasUsed": "110022",
+      "block": "34096614"
+    },
+    {
+      "nonce": 171,
+      "kind": "record_open",
+      "hash": "0x985538ca94dd56eabc74d9082370249c863c439fe1776d02cf99524f14e480e4",
+      "status": "success",
+      "gasUsed": "380170",
+      "block": "34096619"
+    },
+    {
+      "nonce": 172,
+      "kind": "record_line",
+      "hash": "0x231de973ac7623f61d9a3fbe3e3afca599a40476309c253cae5985f7b95a337d",
+      "status": "success",
+      "gasUsed": "208868",
+      "block": "34096620"
+    },
+    {
+      "nonce": 173,
+      "kind": "record_line",
+      "hash": "0x35dd40036311f728905affcdd71142d31b9c55823ee2b546ed0ed041704f4736",
+      "status": "success",
+      "gasUsed": "208878",
+      "block": "34096621"
+    },
+    {
+      "nonce": 174,
+      "kind": "record_line",
+      "hash": "0xfd68cc62ed77be9fca184cd370923d4c620809854da8e4b7c60ae492f4254ad9",
+      "status": "success",
+      "gasUsed": "208868",
+      "block": "34096622"
+    },
+    {
+      "nonce": 175,
+      "kind": "record_line",
+      "hash": "0xbde46a31407830d7b91693e9d162963e3dd6770373825492d004f6b71db53a12",
+      "status": "success",
+      "gasUsed": "208858",
+      "block": "34096623"
+    },
+    {
+      "nonce": 176,
+      "kind": "record_complete",
+      "hash": "0xbef8af1663211186961b20a6f7f588db0fe1e66198655ecef1f3baea60631050",
+      "status": "success",
+      "gasUsed": "181658",
+      "block": "34096623"
+    }
+  ],
+  "verified": {
+    "readerVerified": true,
+    "readerMatchesResult": true,
+    "readerRecomputedReward": true,
+    "completedAtIsPerformanceEnd": true,
+    "completedWithEveryLineAssessed": true,
+    "everySegmentRedeemed": true,
+    "ticketClosed": true,
+    "everyTransactionSucceeded": true,
+    "operatorPaid": true
+  },
+  "operatorEthSpent": "0.000002632694000964"
+}

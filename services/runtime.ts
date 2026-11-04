@@ -34,6 +34,9 @@ export interface Env {
   REALTIME_RPC?: string;
   /** LearningRecords on the payment chain; publication is off without it. */
   RECORDS_CONTRACT?: string;
+  /** The operator quote's validity window, in seconds. */
+  QUOTE_VALID_FROM?: string;
+  QUOTE_VALID_UNTIL?: string;
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }

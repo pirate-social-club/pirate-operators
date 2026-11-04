@@ -78,10 +78,53 @@ count. Its 40-line figures were within 2,000 gas of the table, but a 500-line
 completion would have cost about 31 million gas more. The contract now
 preallocates the buffer, and a Foundry test bounds a 500-line completion.
 
+## The operator service on MegaETH
+
+On 2026-11-04 the actual community and operator services ran against both
+deployed contracts, recorded in
+[`evidence/megaeth-operator-run-2026-11-04.json`](evidence/megaeth-operator-run-2026-11-04.json).
+They ran in the local Workers runtime with outbound access limited to the
+MegaETH RPC, and their clocks followed the chain's block time. The learner was
+an ephemeral key that only signed sign-in, the session and consent.
+
+The community admitted the fixture song, issued a ticket and signed each
+segment purchase. The operator redeemed the admission and all four segments,
+closed the ticket and built the signed result. All four lines were assessed at
+10,000. It then published the consented result: it opened the attempt, wrote
+four line records and completed it at `performanceEndedAt`. Its twelve
+transactions used consecutive nonces and all succeeded. The deposit fell by
+6,000 units, and the operator received exactly 6,000. The independent reader
+rebuilt the attempt from the logs and the manifest, and recomputed the reward.
+`cast` reads confirmed the closure and the completion.
+
+| Operator transaction | Gas |
+|---|---|
+| Redeem the admission | 219,518 |
+| Redeem a segment | 226,455 to 226,472 |
+| Close the ticket | 110,022 |
+| Open the attempt | 380,170 |
+| Record one line | 208,858 to 208,878 |
+| Complete a 4-line attempt | 181,658 |
+
+The run needed one service change. The operator's quote window was fixed at
+the local fixture clock, from 1800000000, which is in 2027. It is now operator
+configuration (`QUOTE_VALID_FROM` and `QUOTE_VALID_UNTIL`), with the old values
+as defaults.
+
+Two earlier runs that day stopped short and left public traces. The first
+stopped at the first segment purchase, because the harness had not advanced
+the service clocks before opening the attempt. It left an admitted fixture
+song and an open ticket with no segment redemptions. The second ran to
+publication, but the harness sent the words after the song had ended, so the
+operator rejected them. That published a completed attempt with all four lines
+`silent`. Both used ephemeral learners. The harness now advances the clocks
+before opening, streams words during the song, and requires every line to be
+assessed.
+
 ## Running it again
 
-`npm run megaeth:payments` and `npm run megaeth:records` are manual and never
-run in CI. They refuse any chain other than 6343. They read dedicated keys from
+`npm run megaeth:payments`, `npm run megaeth:records` and
+`npm run megaeth:operator-run` are manual and never run in CI. They refuse any chain other than 6343. They read dedicated keys from
 `~/.config/pirate-operators/megaeth-testnet/keys.json`, outside the
 repository, with roles `communityAdmin`, `purchaseSigner` and `operator`, and
 never print them. The community admin needs test ETH from the MegaETH faucet
