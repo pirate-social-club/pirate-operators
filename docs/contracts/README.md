@@ -1,9 +1,11 @@
 # Decentralized contract boundaries
 
-Proposed interface slice, 2026-11-04. The workspace_owner requested explicit
-contract boundaries and confirmed human Dance review. This slice defines the
-first-song directory and post ABIs, content publication and feed projection.
-It does not implement or deploy those contracts. The existing
+Contract boundaries and local directory/post implementation, 2026-11-04.
+The workspace_owner requested explicit contracts and confirmed human Dance
+review. The directory and shared post index now implement the reviewed V1 ABIs
+with local authorization, revision and event tests. See the
+[implementation profile](community-implementation.md) for constructor inputs,
+URI checks and remaining acceptance. No deployment or real first song is claimed. The existing
 [setup plan](../decentralized-setup.md) and [operator protocol](../operator-protocol.md)
 retain their admission, creator activation and registration gates.
 
@@ -12,9 +14,9 @@ retain their admission, creator activation and registration gates.
 | Area                       | Authority and responsibility                                                                                               | Inspected state / next boundary                                                                                                                                                                             |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SLD naming                 | TLD owner delegates through HNS; registry admin controls sale policy; SLD holder or record manager controls app records.   | `pirate-registry` implements SLDRegistry and RegistryFactory. Testnet rehearsal exists. Factory provenance does not prove TLD ownership.                                                                    |
-| Community directory        | Registry admin self-registers; community controls config/publisher. Pirate verifies namespaces and selects listings.       | [Directory ABI and authorization](community-directory.md) proposed here; no implementation.                                                                                                                 |
+| Community directory        | Registry admin self-registers; community controls config/publisher. Pirate verifies namespaces and selects listings.       | [Directory authorization](community-directory.md) implemented locally; real namespace and account acceptance remain.                                                                                        |
 | Rules and roles            | Community controls admission policy; LearningRecords owns public qualification-policy activation and grader authorization. | No separate governance contract required for first song. Future delegated roles belong to community authority, not Pirate's listing administrator.                                                          |
-| Song and video publication | Community publisher submits admitted, immutable content references under a scoped author ID and pays gas.                  | [Post ABI](community-posts.md) proposed here; video admission still needs its own policy. No media in contract storage.                                                                                     |
+| Song and video publication | Community publisher submits admitted, immutable content references under a scoped author ID and pays gas.                  | [Post index](community-posts.md) implemented locally; video admission still needs its own policy. No media in contract storage.                                                                             |
 | Comments                   | Community-local author and content policy.                                                                                 | On-chain representation remains open. No comment ABI or automatic public pinning is introduced.                                                                                                             |
 | Operator work payments     | Community purchase authority buys bounded operator work.                                                                   | OperatorPayments and per-line accounting live on the active segment-payments branch; not reimplemented here.                                                                                                |
 | Study, Karaoke and Dance   | Typed assessment records; distinct graders, including human owner review for Dance.                                        | [LearningRecords draft](learning-records.md) and [assessment adapters](assessments-rewards.md); wallet identity and Dance review-day credit are proposed defaults; no grade-contract implementation exists. |
@@ -56,8 +58,8 @@ prove HNS control, grade a performance or enforce eligibility for Pirate funds.
 
 ## Order of implementation
 
-First implement and test directory authorization and post publication; connect
-the creator flow, upload/seal/admission jobs, real providers, DATA testnet
+Directory authorization and post publication now have local implementations and
+tests. Next connect the creator flow, upload/seal/admission jobs, real providers, DATA testnet
 registration and feed reads. The separately admitted wizard v1 starts on
 ordinary HTTPS; HNS is an optional follow-up for that slice and Spaces is
 post-MVP. An EOA operator can bootstrap the directory without waiting for a

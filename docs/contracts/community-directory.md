@@ -1,9 +1,11 @@
 # Community directory V1
 
-This is the proposed contract for
-[ICommunityDirectoryV1](../../contracts/interfaces/community/ICommunityDirectoryV1.sol).
-An interface does not enforce these rules. Implementation and adversarial tests
-are required before deployment.
+[CommunityDirectoryV1](../../contracts/community/CommunityDirectoryV1.sol)
+implements [ICommunityDirectoryV1](../../contracts/interfaces/community/ICommunityDirectoryV1.sol)
+locally. The [implementation profile](community-implementation.md) defines its
+constructor and URI checks. Local adversarial tests cover on-chain behavior;
+namespace verification, governance/MOSS account acceptance and deployment are
+separate gates.
 
 ## Identity and state
 
@@ -124,8 +126,8 @@ specified above; this operator bootstrap does not relax that requirement.
 
 The wizard should offer the EOA bootstrap without requiring MOSS readiness.
 This describes the contract integration path, not a proven first-song journey:
-the directory/posts are still interfaces and the real wizard transaction flow
-needs acceptance. It does not replace MOSS as the selected ordinary participant
+the directory/posts have local implementations, but the real wizard transaction
+flow still needs acceptance. It does not replace MOSS as the selected ordinary participant
 wallet or the separate Sui/Ika creator activation flow.
 
 The November 4 MOSS test account's first transaction was not demonstrated: it

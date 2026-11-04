@@ -1,7 +1,9 @@
 # Community post index V1
 
-This is the proposed contract for
-[ICommunityPostsV1](../../contracts/interfaces/community/ICommunityPostsV1.sol).
+[CommunityPostsV1](../../contracts/community/CommunityPostsV1.sol) implements
+[ICommunityPostsV1](../../contracts/interfaces/community/ICommunityPostsV1.sol)
+locally. See the [implementation profile](community-implementation.md) for its
+constructor, reference checks and remaining service/deployment acceptance.
 One shared MegaETH contract can index many communities. It refers to one fixed
 directory deployment. A per-community deployment remains possible through the
 same ABI, but the selected first implementation is the shared index.
