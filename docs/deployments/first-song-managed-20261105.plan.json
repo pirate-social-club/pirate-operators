@@ -52,16 +52,66 @@
   "runner": {
     "stateDirectory": "/home/t42/.local/state/pirate-first-song-managed-20261105",
     "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
-    "environment": "dev",
+    "environment": "staging",
     "secretPath": "/communities/first-song-20261105-runner",
-    "mode": "api-token",
+    "mode": "cf-login",
     "existingCredentialSource": "/communities/c22-wizard-staging-runner",
-    "credentialAction": "copy existing runner token and state password to separate folder; no generated or rotated credentials"
+    "credentialAction": "copy existing state password to separate staging folder; Cloudflare uses existing cf profile at launch; no generated or rotated credentials",
+    "cfProfile": "default"
   },
   "limits": {
     "setupResources": 4,
     "megaethChainId": 6343,
     "megaethTotalGasFeeCeilingWei": "10000000000000000",
     "providerCalls": "not enabled by this setup plan"
+  },
+  "inventory": {
+    "at": "2026-11-04T21:04:33.827Z",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "method": "cf existing default profile, read only",
+    "resources": [
+      {
+        "kind": "Worker",
+        "target": "pirate-first-song-20261105",
+        "totalReturned": 25,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "D1",
+        "target": "pirate-first-song-20261105-db",
+        "totalReturned": 0,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "R2",
+        "target": "pirate-first-song-20261105-media",
+        "totalReturned": 0,
+        "resultShape": [
+          "buckets"
+        ],
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "Queue",
+        "target": "pirate-first-song-20261105-jobs",
+        "totalReturned": 11,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      }
+    ]
+  },
+  "execution": {
+    "ownerRole": "workspace_coordinator",
+    "launcherDeadlineSeconds": 60,
+    "applyDeadlineSeconds": 900,
+    "observationIntervalSeconds": 20,
+    "recovery": "On deadline stop new writes, inspect runner and child processes, retain encrypted diagnostics/state and exact task-owned resource inventory; reconcile before retry. No lock removal while a child is live.",
+    "c22Mutation": false
   }
 }
