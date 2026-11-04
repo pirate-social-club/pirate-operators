@@ -78,9 +78,18 @@ failing API, an older snapshot or a lagging source cannot bring removed or
 superseded content back. Navigation renders the stored record at once and
 replaces it only when a newer revision arrives. A generated community or post
 page is replaced after mount only when the current record is newer than the
-page's `data-revision`. Content that no source could return shows an
+page's `data-revision`. Every view follows changes to its record in the
+store, whichever read delivered them, and an unchanged view is not rebuilt,
+so focus survives. Content that no source could return shows an
 "unavailable" state rather than "not found". The API's 404 counts as
-authoritative; the snapshot's does not. Mirror action links are built on the
+authoritative and is remembered, so the snapshot's copy cannot reappear
+during a later outage; the snapshot's 404 is not authoritative.
+
+One limit is deliberate. On the canonical origin a post removed after
+publication can show its snapshot body until the API answers, up to the
+four-second bound, which is the same exposure the generated page itself has
+until the client reconciles it. Reads join the caller's abort signal and the
+timeout by hand, so no browser needs `AbortSignal.any`. Mirror action links are built on the
 canonical origin with any leading slashes or backslashes collapsed, so a
 `//other.example` path cannot redirect them. The read interface is in
 [src/model.ts](src/model.ts). Sign-in buttons are present but disabled:

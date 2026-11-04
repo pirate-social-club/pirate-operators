@@ -1,6 +1,6 @@
 // Pure client decisions: deployment mode, routes, the public record store and
 // the data source.
-import { clientRoutes, isSlug, paths, type CommunityConfig, type PostRecord, type PublicCommunity } from "../model.ts";
+import { clientRoutes, isSlug, paths, type CommunityConfig, type PostRecord, type PublicCommunity, type PublicPost } from "../model.ts";
 
 export type Mode = "canonical" | "mirror";
 
@@ -55,47 +55,116 @@ export function isPostRecord(value: unknown, slug: string): value is PostRecord 
   return record.kind === "removed" || (record.kind === "post" && typeof record.title === "string" && typeof record.body === "string");
 }
 
+/** Store keys: the community, and one per post slug. */
+export const recordKey = { community: "community", post: (slug: string) => `post:${slug}` } as const;
+
+interface Slot {
+  readonly record?: { readonly revision: number };
+  /** An authoritative source answered 404. */
+  readonly missing: boolean;
+}
+
 /**
  * The newest public records this page has seen, from any source. Revisions
  * only move forward: a removal is itself a revision, so an older snapshot or
- * a lagging source can never bring removed or superseded content back.
+ * a lagging source can never bring removed or superseded content back. An
+ * authoritative 404 is remembered too, and only an authoritative record
+ * clears it. Every change is announced to subscribers, so whichever read
+ * delivers a record, every view waiting for it updates.
  */
 export class PublicRecords {
-  #community: PublicCommunity | undefined;
-  readonly #posts = new Map<string, PostRecord>();
-  onCommunity: ((community: PublicCommunity) => void) | undefined;
+  readonly #slots = new Map<string, Slot>();
+  readonly #listeners = new Set<(key: string) => void>();
 
   community(): PublicCommunity | undefined {
-    return this.#community;
+    const slot = this.#slots.get(recordKey.community);
+    return slot?.missing ? undefined : slot?.record as PublicCommunity | undefined;
   }
 
   post(slug: string): PostRecord | undefined {
-    return this.#posts.get(slug);
+    const slot = this.#slots.get(recordKey.post(slug));
+    return slot?.missing ? undefined : slot?.record as PostRecord | undefined;
   }
 
-  /** Returns true when the record is newer than the one held. */
-  acceptCommunity(next: PublicCommunity): boolean {
-    if (this.#community !== undefined && next.revision <= this.#community.revision) return false;
-    this.#community = next;
-    this.onCommunity?.(next);
+  isMissing(key: string): boolean {
+    return this.#slots.get(key)?.missing === true;
+  }
+
+  /** Returns true when the store changed. */
+  accept(key: string, record: { readonly revision: number }, authoritative: boolean): boolean {
+    const slot = this.#slots.get(key);
+    if (slot?.missing) {
+      if (!authoritative) return false;
+    } else if (slot?.record !== undefined && record.revision <= slot.record.revision) {
+      return false;
+    }
+    this.#slots.set(key, { record, missing: false });
+    this.#announce(key);
     return true;
   }
 
-  acceptPost(next: PostRecord): boolean {
-    const held = this.#posts.get(next.slug);
-    if (held !== undefined && next.revision <= held.revision) return false;
-    this.#posts.set(next.slug, next);
-    return true;
+  markMissing(key: string): void {
+    if (this.#slots.get(key)?.missing) return;
+    this.#slots.set(key, { missing: true });
+    this.#announce(key);
   }
+
+  subscribe(listener: (key: string) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #announce(key: string) {
+    for (const listener of [...this.#listeners]) listener(key);
+  }
+}
+
+export type View =
+  | { readonly kind: "loading" }
+  | { readonly kind: "community"; readonly community: PublicCommunity }
+  | { readonly kind: "post"; readonly post: PublicPost; readonly updated: boolean }
+  | { readonly kind: "about"; readonly community: PublicCommunity | null }
+  | { readonly kind: "removed" }
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "not-found" };
+
+/** The view the stored records give a route, or undefined while unknown. */
+export function viewFor(route: Route, records: PublicRecords, updated: boolean): View | undefined {
+  switch (route.kind) {
+    case "community": {
+      if (records.isMissing(recordKey.community)) return { kind: "not-found" };
+      const community = records.community();
+      return community === undefined ? undefined : { kind: "community", community };
+    }
+    case "about":
+      return { kind: "about", community: records.community() ?? null };
+    case "post": {
+      if (records.isMissing(recordKey.post(route.slug))) return { kind: "not-found" };
+      const record = records.post(route.slug);
+      if (record === undefined) return undefined;
+      return record.kind === "removed" ? { kind: "removed" } : { kind: "post", post: record, updated };
+    }
+    case "not-found":
+      return { kind: "not-found" };
+  }
+}
+
+/** Same view over the same records: re-rendering would only lose DOM state and focus. */
+export function sameView(a: View, b: View): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "community" && b.kind === "community") return a.community === b.community;
+  if (a.kind === "about" && b.kind === "about") return a.community === b.community;
+  if (a.kind === "post" && b.kind === "post") return a.post === b.post && a.updated === b.updated;
+  return true;
 }
 
 export type ReadStatus = "found" | "missing" | "unavailable";
 
 export interface DataSource {
   readonly records: PublicRecords;
-  /** Reads every source; reports each record that advances the store. */
-  readonly refreshCommunity: (signal: AbortSignal, onAdvance: (community: PublicCommunity) => void) => Promise<ReadStatus>;
-  readonly refreshPost: (slug: string, signal: AbortSignal, onAdvance: (record: PostRecord) => void) => Promise<ReadStatus>;
+  /** Reads every source for the record; results reach views through the store. */
+  readonly refreshCommunity: (signal: AbortSignal) => Promise<ReadStatus>;
+  readonly refreshPost: (slug: string, signal: AbortSignal) => Promise<ReadStatus>;
 }
 
 type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -103,15 +172,25 @@ type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 /** Upper bound for any public read; navigation also aborts reads it supersedes. */
 export const READ_TIMEOUT_MS = 4000;
 
+/**
+ * One bounded read. The caller's signal and the timeout are joined by hand:
+ * AbortSignal.any is missing from Safari before 17.4 and Firefox before 124.
+ */
 async function readJson(fetcher: Fetch, url: string, signal: AbortSignal, timeoutMs: number): Promise<unknown> {
-  const response = await fetcher(url, {
-    headers: { accept: "application/json" },
-    credentials: "same-origin",
-    signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-  });
-  if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`read_failed:${response.status}`);
-  return await response.json();
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
+  try {
+    const response = await fetcher(url, { headers: { accept: "application/json" }, credentials: "same-origin", signal: controller.signal });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`read_failed:${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abort);
+  }
 }
 
 interface Read {
@@ -120,37 +199,36 @@ interface Read {
   readonly url: string;
 }
 
-async function refresh<T>(
+async function refresh(
   fetcher: Fetch,
+  records: PublicRecords,
+  key: string,
   reads: readonly Read[],
   signal: AbortSignal,
   timeoutMs: number,
-  valid: (value: unknown) => value is T,
-  accept: (record: T) => boolean,
-  held: () => T | undefined,
-  onAdvance: (record: T) => void,
+  valid: (value: unknown) => value is { readonly revision: number },
 ): Promise<ReadStatus> {
-  let missing = false;
   let failed = false;
   await Promise.all(reads.map(async read => {
     try {
       const value = await readJson(fetcher, read.url, signal, timeoutMs);
       if (signal.aborted) return;
       if (value === null) {
-        if (read.authoritative) missing = true;
+        if (read.authoritative) records.markMissing(key);
         return;
       }
       if (!valid(value)) {
         failed = true;
         return;
       }
-      if (accept(value)) onAdvance(value);
+      records.accept(key, value, read.authoritative);
     } catch {
       failed = true;
     }
   }));
-  if (missing) return "missing";
-  if (held() !== undefined) return "found";
+  if (records.isMissing(key)) return "missing";
+  const held = key === recordKey.community ? records.community() : records.post(key.slice("post:".length));
+  if (held !== undefined) return "found";
   return failed ? "unavailable" : "missing";
 }
 
@@ -174,13 +252,10 @@ export function createDataSource(
     : [{ authoritative: true, url: paths.api.post(slug) }, { authoritative: false, url: paths.snapshot.post(slug) }];
   return {
     records,
-    refreshCommunity: (signal, onAdvance) => refresh(
-      fetcher, communityReads, signal, timeoutMs, isPublicCommunity,
-      record => records.acceptCommunity(record), () => records.community(), onAdvance,
-    ),
-    refreshPost: (slug, signal, onAdvance) => refresh(
-      fetcher, postReads(slug), signal, timeoutMs, (value): value is PostRecord => isPostRecord(value, slug),
-      record => records.acceptPost(record), () => records.post(slug), onAdvance,
+    refreshCommunity: signal => refresh(fetcher, records, recordKey.community, communityReads, signal, timeoutMs, isPublicCommunity),
+    refreshPost: (slug, signal) => refresh(
+      fetcher, records, recordKey.post(slug), postReads(slug), signal, timeoutMs,
+      (value): value is PostRecord => isPostRecord(value, slug),
     ),
   };
 }

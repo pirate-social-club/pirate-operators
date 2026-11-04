@@ -106,9 +106,70 @@ test("a fresher community record replaces the generated landing page", async ({ 
   await expect(page.locator('#public-content a[href="/posts/arabic-note/"]')).toHaveCount(1);
 });
 
-test("an older or equal API record leaves the generated page in place", async ({ page }) => {
-  await page.route("**/api/public/community", route => route.fulfill({ json: { ...fixtureCommunity, revision: 0, name: "Older name" } }));
+for (const revision of [0, 1]) {
+  test(`an API record at revision ${revision} leaves the revision 1 page in place`, async ({ page }) => {
+    await page.route("**/api/public/community", route => route.fulfill({ json: { ...fixtureCommunity, revision, name: "Not newer" } }));
+    const answered = page.waitForResponse("**/api/public/community");
+    await page.goto(`${origin}/`);
+    await answered;
+    await page.waitForTimeout(300);
+    await expect(page.locator("#public-content")).toHaveAttribute("data-revision", "1");
+    await expect(page.locator("#public-content h1")).toHaveText("Fixture Community");
+  });
+}
+
+// Regressions from the independent review of 77cc4c9.
+
+test("post actions appear after client navigation to a post not yet stored", async ({ page }) => {
   await page.goto(`${origin}/`);
-  await expect(page.locator("#public-content")).toHaveAttribute("data-revision", "1");
-  await expect(page.locator("#public-content h1")).toHaveText("Fixture Community");
+  await page.locator('#public-content a[href="/posts/first-song/"]').click();
+  await expect(page.locator('[data-content="post"][data-slug="first-song"]')).toBeVisible();
+  await expect(page.locator('button[data-action="reply"]')).toHaveCount(1);
+});
+
+test("a record stored by another read updates a waiting view", async ({ page }) => {
+  await page.route("**/public/data/community.json", async route => {
+    await new Promise(resolve => setTimeout(resolve, 700));
+    await route.continue();
+  });
+  const releases: Array<() => void> = [];
+  await page.route("**/api/public/**", async route => {
+    await new Promise<void>(resolve => releases.push(resolve));
+    await route.abort().catch(() => undefined);
+  });
+  try {
+    await page.goto(`${origin}/posts/first-song/`);
+    await page.locator('header nav a[href="/"]').click();
+    await expect(page.locator("#public-content h1")).toHaveText("Fixture Community", { timeout: 1500 });
+  } finally {
+    for (const release of releases) release();
+  }
+});
+
+test("an authoritative 404 is remembered when the API later fails", async ({ page }) => {
+  let api = 404;
+  await page.route("**/api/public/posts/first-song", route => route.fulfill({ status: api, json: { error: "fixture" } }));
+  await page.goto(`${origin}/`);
+  await page.locator('#public-content a[href="/posts/first-song/"]').click();
+  await expect(page.locator('[data-content="not-found"]')).toBeVisible();
+  api = 503;
+  await page.locator('header nav a[href="/"]').click();
+  await expect(page.locator('[data-content="community"]')).toBeVisible();
+  await page.locator('#public-content a[href="/posts/first-song/"]').click();
+  await expect(page.locator('[data-content="not-found"]')).toBeVisible();
+  await expect(page.locator("#public-content")).not.toContainText("This post exists only");
+});
+
+test("focus survives the read timeout when nothing changed", async ({ page }) => {
+  await page.goto(`${origin}/posts/first-song/`);
+  await expect(page.locator('header nav a[href="/"]')).toHaveText("Fixture Community");
+  await page.route("**/api/public/**", async route => {
+    await new Promise(resolve => setTimeout(resolve, 6000));
+    await route.abort().catch(() => undefined);
+  });
+  await page.locator('header nav a[href="/"]').click();
+  const link = page.locator('#public-content a[href="/posts/arabic-note/"]');
+  await link.focus();
+  await page.waitForTimeout(4500);
+  expect(await page.evaluate(() => (document.activeElement as HTMLAnchorElement | null)?.getAttribute("href"))).toBe("/posts/arabic-note/");
 });

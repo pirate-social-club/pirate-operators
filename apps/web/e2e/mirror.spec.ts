@@ -70,8 +70,10 @@ test("mirror mode reads the snapshot only, offers no sign-in and links actions t
   await expect(page.locator('[data-content="post"][data-slug="arabic-note"]')).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/posts/arabic-note/");
   expect(await page.evaluate(() => (window as unknown as { __stay?: number }).__stay)).toBe(1);
+  await expect(page.locator('a[data-action="reply"]')).toHaveAttribute("href", `${FIXTURE_CANONICAL_ORIGIN}/posts/arabic-note/`);
   await page.goBack();
   await expect(page.locator('[data-content="community"]')).toBeVisible();
+  await expect(page.locator('a[data-action="reply"]')).toHaveCount(0);
 
   const offOrigin = seen.requests.filter(url => !url.startsWith(origin()));
   expect(offOrigin).toEqual([]);

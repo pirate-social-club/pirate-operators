@@ -5,18 +5,21 @@ import { render } from "@solidjs/web";
 import { createSignal, Show, type Accessor } from "solid-js";
 import { CommunityContent, NotFoundContent, PostContent, RemovedContent, type ContentLabels } from "../document/content.tsx";
 import { catalogFor, message, type MessageKey } from "../locale.ts";
-import { paths, PROTOCOL_VERSION, type CommunityConfig, type PostRecord, type PublicCommunity, type PublicPost } from "../model.ts";
-import { canonicalHref, createDataSource, matchRoute, readSession, resolveMode, type Mode, type Route, type SessionState } from "./navigation.ts";
+import { paths, PROTOCOL_VERSION, type CommunityConfig } from "../model.ts";
+import {
+  canonicalHref,
+  createDataSource,
+  matchRoute,
+  readSession,
+  recordKey,
+  resolveMode,
+  sameView,
+  viewFor,
+  type Mode,
+  type SessionState,
+  type View,
+} from "./navigation.ts";
 import "../styles/client.css";
-
-type View =
-  | { readonly kind: "loading" }
-  | { readonly kind: "community"; readonly community: PublicCommunity }
-  | { readonly kind: "post"; readonly post: PublicPost; readonly updated: boolean }
-  | { readonly kind: "about"; readonly community: PublicCommunity | null }
-  | { readonly kind: "removed" }
-  | { readonly kind: "unavailable" }
-  | { readonly kind: "not-found" };
 
 const catalog = catalogFor(document.documentElement.lang);
 const t = (key: MessageKey, values?: Record<string, string>) => message(catalog, key, values);
@@ -131,17 +134,6 @@ async function readConfig(): Promise<CommunityConfig | null> {
   }
 }
 
-/** The view a record gives a route; `updated` marks a replaced generated page. */
-function viewOf(route: Route, community: PublicCommunity | undefined, post: PostRecord | undefined, updated: boolean): View | undefined {
-  if (route.kind === "community") return community === undefined ? undefined : { kind: "community", community };
-  if (route.kind === "about") return { kind: "about", community: community ?? null };
-  if (route.kind === "post") {
-    if (post === undefined) return undefined;
-    return post.kind === "removed" ? { kind: "removed" } : { kind: "post", post, updated };
-  }
-  return { kind: "not-found" };
-}
-
 async function main() {
   const shellRoot = document.getElementById("app-shell-root");
   const actionsRoot = document.getElementById("app-actions-root");
@@ -161,7 +153,9 @@ async function main() {
   const [session, setSession] = createSignal<SessionState>("checking");
   const entrySlug = entryPage === "post" ? content.dataset.slug ?? null : null;
   const [actionSlug, setActionSlug] = createSignal<string | null>(entrySlug);
-  records.onCommunity = community => setCommunityName(community.name);
+  records.subscribe(key => {
+    if (key === recordKey.community) setCommunityName(records.community()?.name ?? "");
+  });
 
   render(() => <Shell config={config} mode={mode} communityName={communityName} session={session} path={path} />, shellRoot);
   render(() => <PostActions config={config} mode={mode} slug={actionSlug} />, actionsRoot);
@@ -178,48 +172,51 @@ async function main() {
 
   let generation = 0;
   let inflight: AbortController | undefined;
+  let unsubscribe: (() => void) | undefined;
   /**
-   * Show a route. Cached records render at once; every source then refreshes
-   * in parallel, bounded and aborted when superseded, and only newer revisions
-   * replace what is shown. For the generated entry page, `published` is the
-   * page's revision: the client takes over only when a newer record arrives.
+   * Show a route. Stored records render at once, and the view follows every
+   * later change to its record, whichever read delivers it. All sources then
+   * refresh in parallel, bounded and aborted when superseded. For the
+   * generated entry page, `published` is the page's revision: the client takes
+   * over only for a strictly newer record or an authoritative 404.
    */
   const show = async (pathname: string, published?: number) => {
     inflight?.abort();
+    unsubscribe?.();
     const controller = new AbortController();
     inflight = controller;
     const issued = ++generation;
     const route = matchRoute(pathname);
     setPath(pathname);
-    setActionSlug(route.kind === "post" ? route.slug : null);
+    const key = route.kind === "post" ? recordKey.post(route.slug)
+      : route.kind === "community" || route.kind === "about" ? recordKey.community
+      : undefined;
     const apply = (next: View) => {
       if (issued !== generation) return;
+      // An unchanged view keeps its DOM, so focus and selection survive.
+      if (owned && sameView(view(), next)) return;
       takeOver();
       setView(next);
-      if (next.kind !== "post") setActionSlug(null);
+      setActionSlug(next.kind === "post" ? next.post.slug : null);
     };
-    const current = (updated: boolean) => viewOf(
-      route, records.community(), route.kind === "post" ? records.post(route.slug) : undefined, updated,
-    );
-    const fresher = (revision: number) => published === undefined || revision > published;
-    if (published === undefined) apply(current(false) ?? { kind: "loading" });
-    if (route.kind === "not-found") return;
+    const update = () => {
+      if (published === undefined) return apply(viewFor(route, records, false) ?? { kind: "loading" });
+      if (key === undefined) return;
+      if (records.isMissing(key)) return apply({ kind: "not-found" });
+      const held = route.kind === "post" ? records.post(route.slug) : records.community();
+      if (held !== undefined && held.revision > published) apply(viewFor(route, records, true) ?? { kind: "unavailable" });
+    };
+    if (key !== undefined) unsubscribe = records.subscribe(changed => { if (changed === key) update(); });
+    update();
+    if (key === undefined) return;
 
     const status = route.kind === "post"
-      ? await source.refreshPost(route.slug, controller.signal, record => {
-          if (fresher(record.revision)) apply(current(published !== undefined) ?? { kind: "loading" });
-        })
-      : await source.refreshCommunity(controller.signal, community => {
-          if (fresher(community.revision)) apply(current(false) ?? { kind: "loading" });
-        });
+      ? await source.refreshPost(route.slug, controller.signal)
+      : await source.refreshCommunity(controller.signal);
     if (issued !== generation) return;
-    if (status === "missing") return apply({ kind: "not-found" });
-    const held = route.kind === "post" ? records.post(route.slug) : records.community();
-    if (held === undefined) {
-      if (published === undefined) apply({ kind: "unavailable" });
-      return;
+    if (status === "unavailable" && published === undefined && viewFor(route, records, false) === undefined) {
+      apply({ kind: "unavailable" });
     }
-    if (fresher(held.revision)) apply(current(published !== undefined) ?? { kind: "unavailable" });
   };
 
   document.addEventListener("click", event => {
@@ -239,7 +236,7 @@ async function main() {
   // itself, so only other pages start a separate, unaborted read.
   const entryRoute = matchRoute(location.pathname);
   if (entryRoute.kind !== "community" && entryRoute.kind !== "about") {
-    void source.refreshCommunity(new AbortController().signal, () => undefined);
+    void source.refreshCommunity(new AbortController().signal);
   }
 
   if (entryPage === "shell") {
