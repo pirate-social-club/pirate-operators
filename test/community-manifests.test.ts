@@ -109,6 +109,11 @@ function post() {
   };
 }
 test("public manifests accept the frozen schemas and reject private or unrecognized metadata", () => {
+  assert.throws(() => hashJson({ value: "\ud800" }), /invalid_unicode/);
+  assert.throws(
+    () => validatePost({ ...post(), title: "\udc00" }),
+    /invalid_unicode/,
+  );
   assert.equal(validateConfig(config()).communityId, id);
   assert.equal(validatePost(post()).registration.chainId, 1315);
   assert.throws(

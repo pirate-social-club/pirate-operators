@@ -1,8 +1,31 @@
-import { canonical } from "../protocol/index.ts";
+import { canonical as serializeCanonical } from "../protocol/index.ts";
 import { sha256, stringToHex, type Hex } from "viem";
 import { timingSafeEqual } from "node:crypto";
 
-export { canonical };
+function validUnicode(value: string) {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(++i);
+      insist(next >= 0xdc00 && next <= 0xdfff, "invalid_unicode");
+    } else insist(code < 0xdc00 || code > 0xdfff, "invalid_unicode");
+  }
+}
+function canonicalStrings(value: unknown, depth = 0) {
+  insist(depth <= 64, "json_too_deep");
+  if (typeof value === "string") validUnicode(value);
+  else if (Array.isArray(value))
+    for (const item of value) canonicalStrings(item, depth + 1);
+  else if (value !== null && typeof value === "object")
+    for (const [key, item] of Object.entries(value)) {
+      validUnicode(key);
+      canonicalStrings(item, depth + 1);
+    }
+}
+export function canonical(value: unknown): string {
+  canonicalStrings(value);
+  return serializeCanonical(value);
+}
 export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 export class CommunityError extends Error {
   readonly code: string;
@@ -40,6 +63,7 @@ export function text(value: unknown, max = 4096): string {
     typeof value === "string" && value.length <= max && !value.includes("\0"),
     "invalid_text",
   );
+  validUnicode(value);
   return value;
 }
 export function integer(value: unknown, min: number, max: number): number {
@@ -74,7 +98,10 @@ export function token(): string {
   ).join("");
 }
 export const publicId = (): Hex => `0x${token()}`;
-export const hashText = (value: string): Hex => sha256(stringToHex(value));
+export const hashText = (value: string): Hex => {
+  validUnicode(value);
+  return sha256(stringToHex(value));
+};
 export const hashJson = (value: unknown): Hex => hashText(canonical(value));
 export const equalTokens = (a: string, b: string) =>
   timingSafeEqual(
