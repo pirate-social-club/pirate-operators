@@ -30,7 +30,9 @@ for Alchemy-owned resources. Existing Wrangler projects retain their own tool.
 
 1. Authenticate the community-local user and authorize a submission. For a
    song release, complete the existing creator Sui/Ika activation and recipient
-   binding before enabling upload. Reserve storage/provider budget and allocate
+   binding before enabling upload. Use the selected capped operator-funded setup
+   with no creator checkout; prove the current allowance before spending. Reserve
+   storage/provider budget and allocate
    submissionId, revision, postId and idempotency key in D1.
 2. Issue a short-lived upload capability for a unique private R2 staging key.
    Use a bounded Worker upload or a server-generated S3 presigned PUT with
@@ -66,9 +68,11 @@ for Alchemy-owned resources. Existing Wrangler projects retain their own tool.
    publication complete. A separate registration failure state never becomes
    registered merely because an upload succeeded.
 8. Index the event, verify manifest and asset references, and make the admitted
-   release readable in the community and aggregate feeds. Verify app.tld playback
-   after reload through the selected gateway/session path. Track pin health and
-   renew or replicate under the operator's retained storage budget.
+   release readable in its direct community feed. For the disposable first-song
+   test, verify playback after reload on ordinary HTTPS. The community remains
+   permanently unlisted; aggregate discovery and app.tld are separate acceptance
+   on a deployment that can verify/list communities. Track pin health and renew
+   or replicate under the operator's retained storage budget.
 
 D1 records separate upload, sealing, admission, pinning, registration, chain
 publication and indexing states. There is no atomic transaction across those
@@ -77,6 +81,27 @@ before retrying and keep uncertain effects pending. Retries must not double
 charge, mint, publish or assign a new post ID. Orphan pins and expired staging
 objects need retention-aware cleanup; never delete a referenced sealed object
 just because a queue message timed out.
+
+## First-song identity and lyric boundary
+
+Freeze the reviewed community-account format before persistent account state:
+the private account ID and its wallet binding are distinct from the public
+community-scoped author ID. A signed wallet operation retains its captured
+wallet authority across retries; a later session does not redirect it.
+
+Freeze the versioned lyric-manifest format and stable line/occurrence identities
+at publication. Use the existing occurrence-based `lineId` and `lineVersion`;
+repeated chorus lines retain separate identities. First-song completion does
+not require line/word timings, forced alignment or a speech provider. Missing
+timing data means karaoke is not ready.
+Add validated timings through a later post revision while retaining
+`(chainId, postsContract, communityId, postId)` as the song key. Do not replace
+occurrence IDs merely because timing data or an external registration changes.
+
+Use the [disposable deployment profile](disposable-first-song.md) for the
+permanently unlisted HTTPS test. Creator activation, capped setup funding,
+real admission, registration, idempotent recovery and fresh-browser playback
+remain required. This document does not claim that any of them has passed.
 
 ## Public and private content
 

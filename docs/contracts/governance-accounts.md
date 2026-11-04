@@ -2,9 +2,12 @@
 
 The community controller may use an EOA for the testnet first-song milestone.
 The wizard still tracks recovery readiness and must establish it before mainnet
-or real-user onboarding. Pirate's verifier and listing roles require separate,
-stable governance-controlled addresses from deployment; the EOA bootstrap allowance
-does not apply to those roles. See the [directory boundary](community-directory.md#operator-bootstrap-and-recovery).
+or real-user onboarding. A directory intended to support Pirate listings requires
+separate, stable governance-controlled authorities from deployment. The explicitly
+[disposable first-song profile](disposable-first-song.md) instead uses two distinct
+inert contracts and can never enable listings. It does not require Safe custody,
+service keys or real authority implementation for its permanently unlisted test.
+See the [directory boundary](community-directory.md#operator-bootstrap-and-recovery).
 
 ## Safe candidate and recovery threshold
 
@@ -50,8 +53,8 @@ general Safe module. Safe documents that modules can execute transactions throug
 the account outside its ordinary owner-signature path; accepting one would add
 another execution authority to qualify. See [Safe modules](https://docs.safe.global/advanced/smart-account-modules).
 The bounded verifier is new code still to implement and review. Local tests of
-binding, rotation, pause, freshness and incident handling precede directory
-deployment. Actual account and service acceptance follows the one-time binding
+binding, rotation, pause, freshness and incident handling precede deployment
+of a directory intended to support listings. Actual account and service acceptance follows the one-time binding
 and precedes live listings. A direct Safe or the current governance fixture is
 not a substitute for this automated acceptance.
 

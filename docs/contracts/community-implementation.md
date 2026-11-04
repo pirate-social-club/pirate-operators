@@ -37,13 +37,20 @@ Both are proposed new dependencies, not implemented by this PR. The directory
 ABI already accepts their contract addresses; the existing governance fixture
 does not prove their behavior.
 
-Implement/review both authorities and pass local integration before deploying
-the directory. Create them unbound, deploy the directory with their addresses,
-then let each governance Safe bind its authority once. In the admitted deployment,
-prove signing, key revocation/recovery, emergency delisting, reader suppression
-and refresh before enabling live listings. An initially unlisted test community
-must not cause either immutable authority slot to be filled with a placeholder.
-Select maximumAge as the immutable security bound described in the
+For a deployment intended to support listings, implement/review both authorities
+and pass local integration before deploying the directory. Create them unbound,
+deploy the directory with their addresses, then let each governance Safe bind
+its authority once. Prove signing, key revocation/recovery, emergency delisting,
+reader suppression and refresh before enabling live listings.
+
+The separately labelled [disposable first-song profile](disposable-first-song.md)
+uses two distinct inert authority contracts instead. It can never verify or list
+communities, and it does not wait for Safe custody or the real authority contracts.
+This is a permanent restriction, not a placeholder upgrade path. A later
+listing-capable deployment has a different posts address and different song keys.
+The governance acceptance column above applies to that later profile.
+For that listing-capable deployment, select maximumAge as the immutable security
+bound described in the
 [age policy](namespace-verifier-authority.md#evidence-age-as-a-security-bound),
 not solely to match an affordable renewal schedule.
 
@@ -123,6 +130,12 @@ publication control, immutable post identities, community isolation and URI
 bounds. Independent log reductions reconstruct the directory and latest post
 and compare them with contract getters. Fuzz cases exercise stale revisions,
 late acceptance, unauthorized publishers, arbitrary post IDs and control bytes.
+
+The disposable-profile tests use the actual empty authority contract twice and
+the existing registry identity fixture. They prove publication and publisher
+rotation while undiscoverable, controller handoff without listing authority,
+and rejection of arbitrary callers and calldata. They do not prove a real
+registry deployment, provider admission or live first-song playback.
 
 The test factory deploys actual standard clone runtime with a deliberately
 simplified identity implementation. It is not the full naming registry. The

@@ -54,9 +54,12 @@ is stolen. No key, gas funding or secret-store change is authorized by this spec
 
 ## Deployment and acceptance order
 
-Before deploying a directory, implement and review this authority, qualify its
-governance recovery, and pass local integration tests using the actual directory
-artifact. Select the deployment manifest, namespace observation/confirmation
+Before deploying a directory intended to support listings, implement and review
+this authority, qualify its governance recovery, and pass local integration tests
+using the actual directory artifact. The separate
+[disposable first-song profile](disposable-first-song.md) permanently disables
+discovery with inert authorities and is exempt from this dependency. It cannot
+later accept this authority or enable listings. Select the deployment manifest, namespace observation/confirmation
 policy, the [evidence-age security ceiling](#evidence-age-as-a-security-bound),
 refresh cadence and retry/reader-suppression budgets. The fixture's one-day age
 is not a production choice. This design changes the verifier input's

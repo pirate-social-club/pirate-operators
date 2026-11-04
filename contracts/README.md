@@ -10,6 +10,13 @@ implement them locally. Their authorization, revision and event tests live in
 records constructor inputs and remaining deployment/service acceptance. No
 public-chain deployment or real first-song acceptance is claimed.
 
+`testnet/DisabledDiscoveryAuthority.sol` is the inert authority used twice by
+the [disposable first-song profile](../docs/contracts/disposable-first-song.md).
+It has no forwarding, administration or upgrade capability. The directory
+using those two instances can never verify or list communities; a later
+listing-capable deployment requires new directory/posts addresses. Its local
+tests live in `test/solidity/community/DisabledDiscovery.t.sol`.
+
 `RewardPool.sol`, `interfaces/IMegapot.sol` and `test/Providers.sol` remain the
 existing local reward experiment. The separate segment-payments branch owns
 `OperatorPayments.sol`. Nothing is relocated while those lanes are active.

@@ -83,7 +83,10 @@ delist through its normal threshold path.
 ## Deployment and acceptance
 
 Implement, review and locally test both authority contracts before deploying
-the directory. In a separately admitted deployment, create both unbound, deploy
+a directory intended to support listings. The separate
+[disposable first-song profile](disposable-first-song.md) uses inert authorities,
+can never enable listings and does not depend on these contracts or real Safe
+custody. This exception is not an upgrade path for a future listing deployment. In a separately admitted deployment, create both unbound, deploy
 the directory with those fixed addresses, then let each governance Safe bind its
 authority once. Verify both bindings before enabling service/emergency keys.
 Qualify actual account recovery, the emergency submission path and reader

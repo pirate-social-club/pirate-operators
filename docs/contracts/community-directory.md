@@ -66,8 +66,9 @@ the contract cannot fetch JSON. Every URI is a bounded immutable `ipfs://`
 reference, at most 512 UTF-8 bytes, with no query or fragment. Require nonzero
 controller, publisher and content hash. The deployment fixes the supported
 factory set and the namespace-verifier and listing-authority accounts; no
-unbounded super-admin or directory upgrade path is implied. Both authority
-addresses must be stable governance-controlled contracts with signer rotation
+unbounded super-admin or directory upgrade path is implied. For a deployment
+intended to support listings, both authority addresses must be stable
+governance-controlled contracts with signer rotation
 and a defined, tested recovery path. The recommended verifier is a
 [bounded authority contract](namespace-verifier-authority.md) whose service key
 is rotated by a recoverable governance Safe. A separate
@@ -80,6 +81,11 @@ recovery authority must survive loss of an operational signer; it is not a
 claim that an account can recover after every recovery credential is lost.
 The interface defines no Pirate override of community control and no
 lost-community-key recovery bypass.
+
+The approved [disposable first-song profile](disposable-first-song.md) instead
+uses two distinct inert contracts and permanently disables verification/listing.
+It does not need governance custody or these real authority implementations.
+It cannot later install them; enabling listings requires a new deployment.
 
 ## Configuration publication lifecycle
 
@@ -196,8 +202,11 @@ execute acceptance. Keep the EOA controller until acceptance is confirmed; a fai
 initialization or expired proposal must not surrender control. Registry-admin transfer, publisher changes
 and community-controller transfer are separate authorities; transferring this
 directory entry alone does not move the registry admin or service credentials.
-Pirate's verifier/listing roles still require the stable governance-controlled contracts
-specified above; this operator bootstrap does not relax that requirement.
+A directory intended to support Pirate listings still requires the stable
+controlled authorities specified above. The separate
+[disposable first-song profile](disposable-first-song.md) uses two inert contracts
+and permanently disables verification/listing, without Safe or service-key setup.
+It cannot later enable discovery; replacing it changes the posts address and song keys.
 
 An EOA has no protocol key-reset or recovery mechanism. If its private key is
 lost without a usable backup, or an attacker has taken control and no trusted
@@ -292,12 +301,17 @@ discovery. An HTTPS origin or domain-control challenge does not satisfy
 `verifyNamespace`; never manufacture HNS evidence or insert a dummy hnsBlockHash
 to list an HTTPS-only community. Raw indexing does not grant discovery status.
 
-An existing entry can become discoverable later only when the verifier proves
+On a deployment with working authorities, an existing entry can become
+discoverable later only when the verifier proves
 the matching HNS TLD's binding to that same registry/current config and the
 listing authority lists it. Its publication identity then stays unchanged. If
 the matching namespace cannot be established, a different TLD cannot overwrite
 this entry's immutable tldHash; a new registry creates a new communityId. No
 automatic history migration is implied.
+
+This later-listing path does not exist on the disposable profile: both immutable
+authorities are inert, even if HNS evidence becomes available. Its replacement
+also changes the posts address and song keys.
 
 HTTPS-only discovery is not a V1 verification type. If that becomes a launch
 requirement, revise the verification model and ABI before deployment, including
@@ -317,9 +331,11 @@ contract stores an attestation, not an on-chain HNS light-client proof.
 and requires the current config revision. Require nonzero evidence/block hashes
 and `observedAt <= block.timestamp < validUntil`; expiry must satisfy a bounded
 maximum age fixed by the deployment profile. Evidence must be no older than
-the previous observation. A profile without a selected freshness bound is not
-deployable. Key compromise can forge these attestations; this is Pirate's
-explicit namespace-verification trust boundary. Treat maxVerificationAge as
+the previous observation. A listing-capable profile without a selected freshness
+bound is not deployable. The disposable profile records a nonzero constructor
+value but cannot attest at all; it does not establish a production age policy.
+Key compromise can forge attestations on a deployment with working authorities;
+this is Pirate's explicit namespace-verification trust boundary. Treat maxVerificationAge as
 an immutable security ceiling, with a selected risk rationale and a measured
 refresh/reader-suppression budget. It bounds each record's lifetime, not an
 ongoing attacker who keeps renewing it; see the
@@ -327,8 +343,8 @@ ongoing attacker who keeps renewing it; see the
 
 The [verifier authority design](namespace-verifier-authority.md) separates
 automated attestation from governance signer recovery. Its implementation and
-local integration are prerequisites to deployment; actual binding and refresh
-acceptance precede live listings. None is established by the current directory
+local integration are prerequisites to a listing-capable deployment; actual
+binding and refresh acceptance precede live listings. None is established by the current directory
 tests. Rotating or pausing its service key does not
 invalidate already recorded attestations; incident response also requires the
 separate listing authority to delist affected communities. Its emergency key

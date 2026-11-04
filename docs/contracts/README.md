@@ -42,8 +42,10 @@ separates a rotatable automated service key from its recoverable governance Safe
 Only typed verification to one directory is delegated. The proposed
 [listing authority](community-listing-authority.md) gives its governance Safe
 normal listing control and a separate emergency key only delisting power.
-Both contracts are specified but unimplemented prerequisites before directory
-deployment; they do not change the current directory/post ABIs. Maximum evidence
+Both contracts are specified but unimplemented prerequisites before a directory
+deployment intended to support listings. The permanently unlisted
+[disposable profile](disposable-first-song.md) instead uses inert authorities;
+neither profile changes the current directory/post ABIs. Maximum evidence
 age is a security ceiling per attestation, not a bound on an active attacker
 who keeps renewing false evidence.
 
@@ -76,9 +78,17 @@ prove HNS control, grade a performance or enforce eligibility for Pirate funds.
 
 ## Order of implementation
 
-Directory authorization and post publication now have local implementations and
-tests. Next connect the creator flow, upload/seal/admission jobs, real providers, DATA testnet
-registration and feed reads. The separately admitted wizard v1 starts on
+Directory authorization and post publication are implemented and pushed on draft
+[PR 17](https://github.com/pirate-social-club/pirate-operators/pull/17). Next connect
+MOSS-to-Ika creator activation and capped operator-funded setup before upload,
+then upload/seal/admission jobs, real providers, DATA testnet registration and
+feed reads. The [disposable first-song profile](disposable-first-song.md) uses
+two inert authority contracts and stays permanently unlisted. Real authority
+implementation and Safe custody gate the later listing-capable deployment.
+Freeze the community-account and lyric-manifest formats before storing state.
+Initial lyrics preserve line/occurrence identities; timings and alignment are
+later karaoke work, added through a post revision that retains the song key.
+The separately admitted wizard v1 starts on
 ordinary HTTPS; HNS is an optional follow-up for that slice and Spaces is
 post-MVP. An EOA operator can bootstrap the directory without waiting for a
 MOSS first transaction. These are integration paths, not acceptance already run.
