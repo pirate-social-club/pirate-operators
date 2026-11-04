@@ -100,7 +100,7 @@ the purchase remains independently visible in `OperatorPayments`.
 AttemptCompleted {
   community, learner, attemptId, songKey, contentRevision, activity,
   grader, scoringPolicy, qualificationPolicy,
-  completedAt         // Study/Karaoke: signed endedAt; Dance adapter: first final owner decision block time
+  completedAt         // Karaoke: signed performanceEndedAt; Study: signed endedAt; Dance adapter: first final owner decision block time
   status              // "completed" | "abandoned" | "expired" | "payment_missing"
   linesHash           // JCS hash of the final line revisions that make up the attempt
   linesTotal, unmeasuredCount, rewardScoreBps
@@ -224,15 +224,42 @@ published.
   completion at 2026-11-04 16:59:59 UTC is period 2 and one at 17:00:00 UTC is
   period 3. Earlier timestamps are outside this version's streak clock;
   implementations must not allow unsigned subtraction to wrap.
-- Study and Karaoke belong to the period containing their signed endedAt,
-  stored as completedAt. Delayed publication does not move that day.
+- Karaoke belongs to the period containing its signed `performanceEndedAt`,
+  stored as completedAt: when singing stopped, not when abandonment was
+  decided. A performance ending at 16:59:58 UTC belongs to the earlier period
+  even if the operator decides abandonment at 17:00:20 UTC. The operator's
+  `endedAt` remains the operator decision/payment-lifecycle clock. Study belongs
+  to the period containing its signed endedAt. Delayed publication moves neither
+  learning day. This mapping does not change the separate reward entry window,
+  which currently checks endedAt and acceptance time.
+  The signed performanceEndedAt field and its validation are defined in the
+  payment specification at 412c098; the repository's payment source manifest
+  pins the exact documentation copy. That runtime branch remains unpublished
+  at this observation. Implementations must consume and validate this field;
+  substituting lastAudioAt or endedAt would change the rule.
 - Proposed Dance rule: the first final owner decision records reviewedAt using
   the canonical transaction block timestamp, and sets completedAt=reviewedAt.
   A passing decision earns credit for that period, never for the upload day.
   A failing decision earns none. Submission time remains provenance and cannot
-  backdate credit. The UI shows pending review and explains that review speed
-  affects the credited day. The contract validates owner authority and the
-  account-level self-review exclusion before accepting the decision.
+  backdate credit. Both review delay and publication delay affect the credited
+  day: an owner approval at 16:59 whose transaction lands at 17:01 counts in
+  the next period. A service backlog, wallet/gas failure or chain outage can
+  therefore break a streak even after a timely off-chain approval. The UI
+  distinguishes awaiting owner review from approved but awaiting publication,
+  shows the 17:00 UTC boundary, and explains that credit starts at canonical
+  inclusion. This proposal provides no outage grace period or backdating.
+  The contract checks owner authority and rejects a reviewer account address
+  equal to the learner wallet. It cannot establish account-level self-review
+  exclusion across different addresses.
+- The community service enforces account-level self-review exclusion before
+  accepting/publishing a Dance decision, using its private account-to-wallet
+  associations. It rejects the owner reviewing submissions from any wallet
+  linked to the owner's account. No public wallet linkage is introduced. A
+  second wallet not linked to that account can evade this service check; a
+  direct owner contract call can also bypass the service gate. The on-chain
+  address check is not proof that two people are distinct. Pirate-funded Dance
+  eligibility must separately specify trusted review/account assurance and its
+  enforcement; this draft does not grant that eligibility.
 - A Dance correction retains the first final decision's completedAt and policy. A
   corrected pass can repair that review period; repeated corrections cannot
   manufacture days. A new performance needs a new attempt. Delayed submission
@@ -305,7 +332,10 @@ rows or reduction code with the other.
 The shared fixtures include an Aeneid registration replaced by a Sui reference
 without splitting the same local songKey's streak; identical postId values on
 different communities/deployments remaining distinct; an upload before 17:00
-with a passing Dance decision after 17:00 earning the later period; a failed
+with a passing Dance decision after 17:00 earning the later period; singing
+ending at 16:59:58 with payment decision/finalization after 17:00 retaining the
+earlier Karaoke period; off-chain Dance approval at 16:59 with publication at
+17:01 earning the later period, including publishing backlog/outage; a failed
 Dance decision corrected without changing its original review period; and
 repeated attempts in one period; five songs
 earning five song days but one community day; completions at 16:59:59 and
@@ -343,6 +373,12 @@ Qualification is derived initially;
 storing leaderboard calculations on chain is not required. Events publish the
 full history, with contract storage driven by enforcement and identified
 contract readers as section 4 specifies.
+
+Dance acceptance must separately test same-address rejection on chain and
+linked alternate-wallet rejection in the service. Include the distinct-address
+case the contract cannot reject and the direct-call bypass of service checks;
+do not report either as account-level on-chain enforcement. These are required
+implementation tests, not tests run for this document.
 
 The MOSS integration must demonstrate learner-controlled consent verification
 on chain, through a supported account signature or an account transaction.

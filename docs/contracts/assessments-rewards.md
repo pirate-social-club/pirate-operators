@@ -19,14 +19,21 @@ because Study also includes audio input.
 | Karaoke                   | Timed per-line scoring and separate reward accounting.                                        | Below three lines/eight matched words, timing is uncalibrated but line scoring continues with neutral timing 0.85. This does not make it Study's grader.   |
 | Dance                     | Human community-owner review, categorical pass/fail.                                          | V1 retains account-level self-review exclusion. No general moderator/transfer API or invented numeric grade follows from this ruling.                      |
 
-At inspected payment source `0dec600`, Karaoke had four statuses: `assessed`,
-`silent`, `unpaid`, `unmeasured`. The active payment lane has since added
-`unattempted` at `e7c39c2` to align with LearningRecords: an unreached line has
-no score whether paid ahead or not. Only assessed has a numeric score. Silent,
-unpaid and unattempted count zero in reward accounting; unmeasured is removed
-from the denominator with a separate maximum-unmeasured threshold. The payment
-lane owns exact billing, complete-line coverage and hashes. Its successor is
-not silently treated as merged into this specification branch.
+The [payment specification](../operator-payments.md), copied exactly from
+`412c098` with [provenance](../payment-specification-source.json), defines five
+Karaoke statuses: `assessed`, `silent`, `unpaid`, `unmeasured`, `unattempted`.
+Only assessed has a numeric score. An unreached line is unattempted whether paid
+ahead or not. Silent, unpaid and unattempted count zero in reward accounting;
+unmeasured is removed from the denominator with its own maximum threshold.
+The payment lane owns billing, complete-line coverage, timing validation and
+hashes. The copy publishes its field definitions; its runtime is still on the
+separate unpublished branch at this observation.
+
+Karaoke learning credit uses signed performanceEndedAt, when singing stopped,
+not lastAudioAt or endedAt. The latter remains the operator decision/payment
+clock. A performance ending at 16:59:58 keeps the earlier learning day if payment
+finalization occurs after 17:00. This does not alter the existing reward entry
+window's separate endedAt and acceptance-time checks.
 
 The [LearningRecords draft 3](learning-records.md) preserves the actual earlier
 approval: the shared learning clock, prospective policy activation and terminal
@@ -57,7 +64,20 @@ that block time, a pass earns credit then, and a failure earns none. Submission
 time cannot backdate ordinary review credit. An explicit correction retains
 the first review period and its policy; it cannot create another day. This
 chooses deterministic review-day accounting over submission-day attribution and
-makes review latency visible to learners. It is separate from the prize cutoff.
+makes both review and publication latency visible to learners. An off-chain
+approval at 16:59 published at 17:01 earns the next day; publishing backlog,
+wallet/gas failure or chain outage can break a streak. The UI distinguishes
+pending review from approved but awaiting publication and discloses this rule.
+There is no implicit outage grace or backdating. It is separate from the prize cutoff.
+
+The Dance contract checks owner authority and reviewer-address inequality with
+the learner wallet. The community service enforces account-level self-review
+exclusion with private account-to-wallet associations, rejecting every linked
+owner wallet before accepting/publishing a decision. Unlinked alternate wallets
+and direct owner calls bypassing that service remain a trust limitation; on-chain
+address inequality does not prove distinct people. Keep the private mapping out
+of public posts and grades. A Pirate-funded policy would need separately accepted
+review/account assurance and enforcement; owner authorization alone is insufficient.
 
 The copied draft and its [source digest](learning-records-source.json) preserve
 the three approved clarifications and label the new recommendations separately.
@@ -90,8 +110,10 @@ may select educational assessors, but it cannot authorize its own assessor to
 draw Pirate funds. A Pirate-funded policy independently approves the verifier,
 assessors and allowed objectives. Dance eligibility for those drawings is
 unresolved even though human owner review is confirmed. Preserve owner/account
-self-review exclusion if Dance becomes eligible, including accounts linked to
-the reviewing owner under the accepted account model.
+self-review exclusion if Dance becomes eligible, including wallets linked to
+the reviewing owner under the accepted account model. Specify the service/trusted
+verifier enforcement and assurance limits; the contract's address check alone
+cannot establish account-level exclusion.
 
 Separate the entry cutoff, chosen MegaETH confirmation requirement and Base
 ticket-purchase deadline. Measured testnet safe lag of 111–171 seconds and

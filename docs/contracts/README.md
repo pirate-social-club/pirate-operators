@@ -56,12 +56,19 @@ prove HNS control, grade a performance or enforce eligibility for Pirate funds.
 
 ## Order of implementation
 
-First implement and test directory authorization, namespace verification and
-post publication; connect the existing creator flow, upload/seal/admission
-jobs, real providers, DATA testnet registration and feed reads. Prove setup,
+First implement and test directory authorization and post publication; connect
+the creator flow, upload/seal/admission jobs, real providers, DATA testnet
+registration and feed reads. The separately admitted wizard v1 starts on
+ordinary HTTPS; HNS is an optional follow-up for that slice and Spaces is
+post-MVP. An EOA operator can bootstrap the directory without waiting for a
+MOSS first transaction. These are integration paths, not acceptance already run.
+
+The broader first-song milestone still requires verified directory discovery,
 app.tld login, interrupted resume and one real admitted song playing after
-reload. This is the first milestone. Admission here means pre-publication
-evidence and the publication gate, not a new moderator dashboard.
+reload under the setup plan. Independent unverified publication and ordinary
+HTTPS provisioning do not by themselves prove that broader milestone. Admission
+means real pre-publication evidence and the publication gate, not a new
+moderator dashboard.
 
 Then implement LearningRecords with actual graders, learner consent, an accepted
 public-identity policy and the agreed shared learning clock. Its manifest
@@ -83,14 +90,20 @@ public record emission. These later choices do not block writing or implementing
 This slice starts from operators guidance `3d44fd8`, with the restored protocol.
 It also inspected payment source `0dec600`, registry source `296c97d`, static
 client `388018f` and creator design `9c7899b`. These are separate lanes and
-maturity levels. The branch integrates guidance successor `f8f8d17` before
-publication. LearningRecords draft 3 is copied byte-for-byte from the revised staging source,
+maturity levels. The branch now integrates guidance through `ba36312`, preserving
+published branch history. LearningRecords draft 3 is copied byte-for-byte from
+the revised staging source at this handback,
 with a [source digest](learning-records-source.json) and predecessor provenance.
 It corrects the identity approval claim and local song key, and proposes an
 explicit Dance review clock. The earlier task approved three clarifications;
-it is not broad approval of every draft field. Payment successor `e7c39c2`
-adds unattempted on its separate active lane. A branch SHA is not
-evidence that GitHub reviewed or tested it.
+it is not broad approval of every draft field. The latest correction also
+separates Dance address/service enforcement and publication delays. Payment
+specification `412c098` is included as an exact documentation copy: it defines
+unattempted and performanceEndedAt, with the latter setting Karaoke's learning
+day. Its runtime remains on its separate unpublished lane. Protocol section
+12.1 records the reiterated Very-only joining direction; membership, sponsorship
+and claim scopes remain separate. A branch SHA is not evidence that GitHub
+reviewed or tested it.
 
 New ABI source is under `contracts/interfaces/community/`; the
 [source index](../../contracts/README.md) records existing ownership. Existing

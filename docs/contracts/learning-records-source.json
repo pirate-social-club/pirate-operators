@@ -1,12 +1,16 @@
 {
   "sourcePackage": "learning-records-2026-11-04/learning-records.md",
   "sourceTask": "pirate-community-contract-boundaries-20261104",
-  "sourceSha256": "f71e1d3953e0397dceebc71b97f88e545f1daee947462e68b5b2542694e3afe2",
+  "sourceSha256": "8b1daf271204916c41c1090fd05053b3657d23ca292c15a53a3fa0854a010bb6",
   "copy": "learning-records.md",
   "copyMode": "byte-identical",
   "status": "draft 3; three earlier approved clarifications retained; wallet identity and Dance review-day credit are proposed v1 defaults; no runtime implementation",
   "revision": 3,
-  "previousSourceTask": "pirate-learning-records-draft-review-20261104",
-  "previousSourceSha256": "907daaa8621e1a0d729c3e887aa2219652b3aa08cf086cde4f6fad0114453b97",
-  "previousRepositoryCommit": "5dde2c0c46fd1bc65873b23d6ffda4af570ad59a"
+  "previousSourceTask": "pirate-community-contract-boundaries-20261104",
+  "previousSourceSha256": "f71e1d3953e0397dceebc71b97f88e545f1daee947462e68b5b2542694e3afe2",
+  "previousRepositoryCommit": "1721cef7bdf89cacabf6f11f8b93120c7721971d",
+  "stagedCorrectionInputSha256": "c22544e5e55b8787ef5564194f6f081a1a271d46cb94bb84897b036d157cc757",
+  "sourceCaptureDate": "2026-11-04",
+  "paymentSpecificationCommit": "412c098e5da2fd79896688e87ba390f3246c3074",
+  "captureNote": "Draft 3 amended: preserve staged performanceEndedAt correction, separate address/service self-review checks and disclose Dance publication delays. The digest identifies this captured revision; later staging edits require another synchronized copy and manifest update."
 }

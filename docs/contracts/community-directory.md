@@ -109,7 +109,30 @@ it does not increment the revision again. A repeated raw contract call reverts
 on its consumed revision/registration/proposal. Uncertain receipts remain pending
 until reconciled against canonical state.
 
-## MOSS first-account acceptance
+## Operator bootstrap and MOSS acceptance
+
+The registry admin and community controller need not be MOSS accounts. V1
+supports an ordinary operator EOA making registration/configuration transactions
+with its own bounded gas budget. Later it can propose a controller transfer to
+a MOSS account, and that receiving account must execute acceptance. Keep the
+EOA controller until acceptance is confirmed; a failed initialization or expired
+proposal must not surrender control. Registry-admin transfer, publisher changes
+and community-controller transfer are separate authorities; transferring this
+directory entry alone does not move the registry admin or service credentials.
+Pirate's verifier/listing roles still require the stable governance accounts
+specified above; this operator bootstrap does not relax that requirement.
+
+The wizard should offer the EOA bootstrap without requiring MOSS readiness.
+This describes the contract integration path, not a proven first-song journey:
+the directory/posts are still interfaces and the real wizard transaction flow
+needs acceptance. It does not replace MOSS as the selected ordinary participant
+wallet or the separate Sui/Ika creator activation flow.
+
+The November 4 MOSS test account's first transaction was not demonstrated: it
+held ETH but no USDm, while the inspected CLI defaulted to USDm fees. Before
+selecting MOSS for setup or transfer, prove the actual fee asset, funding and
+successful account execution on the target chain. ETH balance alone is not
+that proof; no gas sponsorship or funded wallet operation follows from this doc.
 
 The pinned official wallet CLI v0.1.6 bundles Porto 0.2.37 and viem 2.54.6.
 Porto's `core/internal/erc8010.ts` wraps an authorization, initialization data
@@ -187,6 +210,8 @@ bootstrap validation.
 Prove an unlisted community can publish from its first registered revision,
 listing expiry/stale-config filtering, delisting without config mutation,
 governance signer rotation without address/identity changes, and deterministic
-ID/event reconstruction. MOSS acceptance is the actual empty-account flow above;
+ID/event reconstruction. Prove EOA registration and continued controller access
+when a proposed MOSS transfer fails or expires, then acceptance by the correctly
+initialized receiving account. MOSS acceptance is the actual empty-account flow above;
 an ECDSA fixture or a successful compile is not that test. HNS authority and
 browser/gateway acceptance require the independent verifier integration.
