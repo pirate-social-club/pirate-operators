@@ -17,7 +17,19 @@ simulated payout is required. Browser session and handshake rules here remain.
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
 cookies; public reading never depends on login; IPFS mirrors are read-only.
-Mirror authentication is a future extension.
+Mirror authentication is a future extension. This is a deliberate origin and
+session boundary, not a limitation of IPFS hosting: static JavaScript can call
+live APIs, but this version does not authorize cross-origin browser sessions.
+
+Spaces is deferred beyond the decentralized community MVP. Wizard v1 starts
+on ordinary HTTPS, with HNS as an optional follow-up. A namespace picker may
+show a disabled "Spaces — Coming
+soon" option, with no promised date, setup form or provisioning action. It must
+not request Spaces keys or funds or block supported setup. The
+[MVP namespace scope](decentralized-setup.md#mvp-namespace-scope) also requires
+the configuration/API boundary to reject unsupported Spaces setup before any
+external effect. Cloudflare Containers feasibility is later engineering work,
+not part of the wizard's customer-facing deployment choices.
 
 ## 1. Sessions and sign-in
 

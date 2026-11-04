@@ -9,8 +9,15 @@ Sponsored customer name purchases are later work. The recovered
 Its [payment specification](docs/operator-payments.md) is a published copy of
 the active payment lane's design; that document's implementation-state section
 describes the source branch recorded in its provenance, not this runtime.
-[HNS ingress](docs/hns-community-ingress.md) reuses the existing gateway design
-and distinguishes prior phone proof from the new setup acceptance.
+[HNS resolution and ingress](docs/hns-community-ingress.md) puts actual HIP-5
+client support before transport selection. It retains prior gateway evidence
+and requires a separate instance if that HTTPS route is chosen.
+
+Spaces support is deferred beyond the decentralized community MVP. The wizard
+may show "Spaces — Coming soon" as a disabled option. Wizard v1 starts on
+ordinary HTTPS, with HNS as an optional follow-up. Spaces infrastructure and a
+possible Cloudflare Containers port
+are later work under the [namespace scope](docs/decentralized-setup.md#mvp-namespace-scope).
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits
