@@ -10,7 +10,9 @@ interface IERC1271 {
 /// assessments and attempt completions for learners who consented to that
 /// attempt; the controller activates qualification policies and publishes
 /// eligibility changes. Storage holds only what the rules need; events carry
-/// the full public history from which indexers rebuild boards.
+/// the full public history from which indexers rebuild boards. Completion
+/// summaries (reward score, unmeasured count) are the grader's claims; readers
+/// recompute them from the covered line records.
 contract LearningRecords {
     uint256 public constant EPOCH_START = 1793552400; // 2026-11-01 17:00 UTC
     uint256 public constant PERIOD_SECONDS = 86400;
@@ -59,7 +61,8 @@ contract LearningRecords {
         uint32 completionRevision;
         uint64 completedAt;
         bytes32 qualificationPolicy;
-        bytes32 linesHash;
+        /// keccak256 over the covered final record hashes in ordinal order
+        bytes32 recordsHash;
     }
     struct LineState {
         uint32 revision;
@@ -130,7 +133,7 @@ contract LearningRecords {
         uint64 periodId,
         bytes32 qualificationPolicy,
         uint8 status,
-        bytes32 linesHash,
+        bytes32 recordsHash,
         uint16 linesTotal,
         uint16 unmeasuredCount,
         bool hasRewardScore,
@@ -258,7 +261,7 @@ contract LearningRecords {
             completionRevision: 0,
             completedAt: 0,
             qualificationPolicy: bytes32(0),
-            linesHash: bytes32(0)
+            recordsHash: bytes32(0)
         });
         emit AttemptOpened(
             c.attemptId, c.learner, c.songKey, song, c.activity, c.grader, c.scoringPolicy, c.contentRevision, c.linesRoot, c.linesTotal
@@ -270,7 +273,8 @@ contract LearningRecords {
     function assessLines(bytes32 attemptId, LineInput[] calldata inputs) external {
         Attempt storage a = attempts[attemptId];
         require(a.learner != address(0), "unknown_attempt");
-        require(msg.sender == a.grader, "not_attempt_grader");
+        // The attempt's own grader, still authorized for its activity now.
+        require(msg.sender == a.grader && graders[a.grader][a.activity], "not_attempt_grader");
         for (uint256 i = 0; i < inputs.length; i++) _assess(attemptId, a, inputs[i]);
     }
 
@@ -303,7 +307,7 @@ contract LearningRecords {
     function completeAttempt(bytes32 attemptId, Completion calldata c) external {
         Attempt storage a = attempts[attemptId];
         require(a.learner != address(0), "unknown_attempt");
-        require(msg.sender == a.grader, "not_attempt_grader");
+        require(msg.sender == a.grader && graders[a.grader][a.activity], "not_attempt_grader");
         require(a.finalCount == a.linesTotal, "lines_not_final");
         require(c.status >= 1 && c.status <= 4, "invalid_completion_status");
         require(c.hasRewardScore ? c.rewardScoreBps <= 10000 : c.rewardScoreBps == 0, "invalid_reward_score");
@@ -318,7 +322,7 @@ contract LearningRecords {
         bytes memory packed;
         for (uint16 ordinal = 1; ordinal <= a.linesTotal; ordinal++)
             packed = bytes.concat(packed, lines[attemptId][ordinal].recordHash);
-        a.linesHash = keccak256(packed);
+        a.recordsHash = keccak256(packed);
         a.completionRevision += 1;
         emit AttemptCompleted(
             attemptId,
@@ -329,7 +333,7 @@ contract LearningRecords {
             periodOf(a.completedAt),
             a.qualificationPolicy,
             c.status,
-            a.linesHash,
+            a.recordsHash,
             a.linesTotal,
             c.unmeasuredCount,
             c.hasRewardScore,

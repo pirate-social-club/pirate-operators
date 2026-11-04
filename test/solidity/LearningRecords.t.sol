@@ -136,7 +136,7 @@ contract LearningRecordsTest {
             (, , bytes32 h) = records.lines(id, o);
             packed = bytes.concat(packed, h);
         }
-        require(a.linesHash == keccak256(packed), "lines hash");
+        require(a.recordsHash == keccak256(packed), "records hash");
     }
 
     function testConsentMustBeTheLearnersAndTheGradersOwn() public {
@@ -254,5 +254,53 @@ contract LearningRecordsTest {
         vm.prank(grader);
         records.openAttempt(c, hex"00", song);
         require(records.attempt(id).learner == address(wallet), "opened");
+    }
+
+    /// Review finding: a revoked grader can no longer change existing attempts.
+    function testRevokedGraderCannotAssessCompleteOrCorrect() public {
+        bytes32 id = keccak256("attempt-8");
+        _open(id);
+        _assessAll(id);
+        records.setGrader(grader, KARAOKE, false);
+        vm.prank(grader);
+        vm.expectRevert(bytes("not_attempt_grader"));
+        records.completeAttempt(id, _completion(uint64(block.timestamp)));
+        records.setGrader(grader, KARAOKE, true);
+        vm.prank(grader);
+        records.completeAttempt(id, _completion(uint64(block.timestamp)));
+        records.setGrader(grader, KARAOKE, false);
+        LearningRecords.LineInput[] memory one = new LearningRecords.LineInput[](1);
+        one[0] = _line(1, 1, 9500, true);
+        vm.prank(grader);
+        vm.expectRevert(bytes("not_attempt_grader"));
+        records.assessLines(id, one);
+    }
+
+    /// Frozen encodings: fixtures/learning-records-v1.json, computed with cast.
+    function testFrozenEncodingVectors() public {
+        require(root == 0x307f78ef4bd386a2dec53316e75f678f689bb009e935b531f2f0fe44ae632c07, "lines root");
+        LearningRecords.SongKey memory vectorSong = LearningRecords.SongKey({
+            chainId: 6343,
+            posts: address(0),
+            communityId: 0x5962ebcfbac306c856b583ed5dcb74c5e873f37f407ab0c1c1269c7d37a9b082,
+            postId: 0x1e7b5e81875ce71d2f823fbc16592b5c3b83e7ab0ada5fd3cb21bc7172cca479
+        });
+        require(records.songKeyOf(vectorSong) == 0xc85c5c3e7f9b79f5aaa327aa2ee018d17f249e71799b228e6c09360fec82f30a, "song key");
+        bytes32 id = 0x09f53dc283d107cf9719fdbf201f7025424dbe697813f1d5c9feb0b53f5ba0db;
+        _open(id);
+        _assessAll(id);
+        bytes32[4] memory expected = [
+            bytes32(0xaa4144f9cbe11dad0155e5578413ab422701333ba377a416176f485a27079521),
+            0xde0da6e4308648c14f3a854ccaed86162bec760ce8f1fe3675dc9bd2c48807fe,
+            0xf38ef0f4234cb7ce1b4b2e6b04131421c4d32301b609090e05607e4e9bbb5715,
+            0x399f7620bc0d415463b888f58d743a83258e0167c413e60513577ced3cd24644
+        ];
+        for (uint16 o = 1; o <= 4; o++) {
+            (, , bytes32 h) = records.lines(id, o);
+            require(h == expected[o - 1], "record hash");
+        }
+        vm.prank(grader);
+        records.completeAttempt(id, _completion(uint64(block.timestamp)));
+        require(records.attempt(id).recordsHash == 0x1c8fffc397653a54d6f38265005f5c732b677b1247e0826a22ae64a0b8452bc7, "records hash");
     }
 }
