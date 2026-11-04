@@ -26,7 +26,7 @@ export default Alchemy.Stack(
     });
     const app = yield* Cloudflare.Worker("App", {
       name: prefix,
-      main: "./worker.mjs",
+      main: "./worker/worker.mjs",
       bundle: false,
       compatibility: { date: "2026-11-04", flags: ["nodejs_compat"] },
       workersDev: { enabled: true, previewsEnabled: false },

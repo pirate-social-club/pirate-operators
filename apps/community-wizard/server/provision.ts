@@ -33,6 +33,55 @@ const sources = [
   "server/infisical-auth.ts",
   "server/setup.ts",
 ];
+// Regenerate code and dependencies beside the existing Alchemy state.
+export async function prepareDeploymentFiles(directory: string) {
+  const cwd = join(directory, "deployment");
+  await privateDirectory(cwd);
+  await privateDirectory(join(cwd, "migrations"));
+  // Alchemy's prebuilt collector walks the entry directory recursively.
+  // Keep uploadable modules separate from dependencies, migrations and state.
+  await privateDirectory(join(cwd, "worker"));
+  await writeFile(
+    join(cwd, "package.json"),
+    '{"private":true,"type":"module"}\n',
+    { mode: 0o600 },
+  );
+  await copyFile(
+    join(root, "infra/alchemy.run.ts"),
+    join(cwd, "alchemy.run.ts"),
+  );
+  await copyFile(
+    join(root, "infra/migrations/0001_setup.sql"),
+    join(cwd, "migrations/0001_setup.sql"),
+  );
+  await copyFile(
+    join(root, "community/worker.mjs"),
+    join(cwd, "worker/worker.mjs"),
+  );
+  for (const file of ["encrypted-state.ts", "protected-data.ts"]) {
+    await copyFile(join(root, "infra", file), join(cwd, file));
+  }
+  const modules = join(cwd, "node_modules");
+  try {
+    if (!(await lstat(modules)).isSymbolicLink())
+      throw new Error("Unexpected deployment dependencies");
+    await unlink(modules);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  try {
+    await symlink(join(root, "node_modules"), modules, "dir");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  if (
+    !(await lstat(modules)).isSymbolicLink() ||
+    (await realpath(modules)) !== (await realpath(join(root, "node_modules")))
+  )
+    throw new Error("Unexpected deployment dependencies");
+  return cwd;
+}
+
 export function provisioner(directory: string): Provisioner {
   return {
     async digest() {
@@ -50,48 +99,7 @@ export function provisioner(directory: string): Provisioner {
       const password = statePassword();
       if (!process.env.CLOUDFLARE_API_TOKEN)
         throw new Error("Cloudflare token missing");
-      const cwd = join(directory, "deployment");
-      await privateDirectory(cwd);
-      await privateDirectory(join(cwd, "migrations"));
-      await writeFile(
-        join(cwd, "package.json"),
-        '{"private":true,"type":"module"}\n',
-        { mode: 0o600 },
-      );
-      await copyFile(
-        join(root, "infra/alchemy.run.ts"),
-        join(cwd, "alchemy.run.ts"),
-      );
-      await copyFile(
-        join(root, "infra/migrations/0001_setup.sql"),
-        join(cwd, "migrations/0001_setup.sql"),
-      );
-      await copyFile(
-        join(root, "community/worker.mjs"),
-        join(cwd, "worker.mjs"),
-      );
-      for (const file of ["encrypted-state.ts", "protected-data.ts"]) {
-        await copyFile(join(root, "infra", file), join(cwd, file));
-      }
-      const modules = join(cwd, "node_modules");
-      try {
-        if (!(await lstat(modules)).isSymbolicLink())
-          throw new Error("Unexpected deployment dependencies");
-        await unlink(modules);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      }
-      try {
-        await symlink(join(root, "node_modules"), modules, "dir");
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      }
-      if (
-        !(await lstat(modules)).isSymbolicLink() ||
-        (await realpath(modules)) !==
-          (await realpath(join(root, "node_modules")))
-      )
-        throw new Error("Unexpected deployment dependencies");
+      const cwd = await prepareDeploymentFiles(directory);
       const env: NodeJS.ProcessEnv = {
         PATH: process.env.PATH,
         HOME: process.env.HOME,

@@ -184,6 +184,26 @@ session continuity or custom-domain migration.
 
 ## Protected state, diagnostics and recovery
 
+The first independent-mode live run at `f7e289d` verified CLI authentication,
+folder creation and exact readback of three placeholder provider values. Alchemy
+created D1, R2 and the queue, but Worker upload failed with
+`ScriptStartupError: multipart: message too large`. With `bundle: false`, the
+pinned provider collected dependency modules beside the generated entry.
+
+The repaired layout puts the entry in `deployment/worker/worker.mjs`, away from
+`node_modules`, migrations and `.alchemy`. Only that directory is collected for
+upload. The stack, stage, resource names and encrypted-state location are unchanged.
+A retry regenerates code without clearing state; an old root-level `worker.mjs`
+is outside the upload directory and need not be removed to resume.
+
+To retry that partial deployment, stop the previous runner and Alchemy child,
+install the reviewed repair, and start with the same state directory, managed
+password and settings. Reconnect Infisical and review a new plan because source
+has changed. Preserve the saved resource state so Alchemy can reconcile the
+existing D1, R2 and queue; do not start an empty state folder against their names.
+Worker creation, health, live redeployment and cross-folder recovery still need
+acceptance. Placeholder readback does not test moderation providers.
+
 The runner is trusted. Loopback Host/Origin checks, CSRF, bounded bodies and CSP
 protect its web interface, but a compromised local machine or extension can
 still read runtime credentials. No HNS or registry-admin private key is collected.
@@ -281,6 +301,9 @@ It never sweeps directories from another session. Tests include actual pinned Al
 Infisical SDK paths with fake credentials/HTTP, private CLI subprocess behavior,
 folder retries, exact secret readback and reconnection after restart; no live
 provider is implied. The CLI session is never a Cloudflare Worker binding.
+Packaging tests run the pinned provider's real prebuilt collector against the
+generated stack entry. Fresh and failed-layout retries must each collect exactly
+the Worker, with byte-identical contents, while preserving existing state files.
 The root repository check and full dependency audit remain required.
 
 The stack pattern originates in creator-spike `a9810cc`; no sibling checkout is
