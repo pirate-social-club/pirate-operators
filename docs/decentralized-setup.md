@@ -68,7 +68,13 @@ existing work instead of duplicating deployments, jobs or transfers.
 
 Operator login is part of posting. It does not require proving customer name
 buying, deploying a MOSS gas sponsor or completing a rewarded Telegram journey.
-The first operator can pay its own bounded setup gas. Normal user onboarding,
+The first operator can pay its own bounded setup gas. An ordinary EOA may be
+the registry admin and bootstrap the community directory; the controller can
+later propose a handoff that the receiving MOSS account accepts. MOSS first-
+transaction fee funding and execution must be proven before that handoff, not
+assumed from an ETH balance. See the [directory bootstrap boundary](contracts/community-directory.md).
+These are proposed integration requirements, not completed directory/wizard
+acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.
 
 ## Alchemy, Cloudflare and Infisical
@@ -251,10 +257,12 @@ operator-first implementation order or requests a new general decision.
 ## Observed source and acceptance
 
 Inspected operators main 9f2217e, registry PR 2 at 296c97d, frontend branch
-388018f, creator PR 10 at 9c7899b and payment branch 0dec600 (successor to
-d635d46). The [payment specification](operator-payments.md) is included with exact source
-provenance. Its implementation is committed locally and remains unpublished
-at this observation; the documentation copy does not publish its runtime.
+388018f and creator PR 10 at 9c7899b. The payment documentation copy is now
+refreshed from 0dec600 to 412c098, defining performanceEndedAt and unattempted.
+The [payment specification](operator-payments.md) is included with exact
+[source provenance](payment-specification-source.json). Its implementation is
+published separately in [PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
+at 412c098; the documentation copy does not include that runtime.
 No Alchemy provisioner, Infisical setup wizard, shared community directory or complete
 first-song acceptance exists in these inspected sources.
 
