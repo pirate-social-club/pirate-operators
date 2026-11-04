@@ -33,6 +33,14 @@ interface ICommunityDirectoryV1 {
         bool listed;
     }
 
+    struct ControllerTransfer {
+        uint64 proposalId;
+        uint64 baseRevision;
+        uint64 deadline;
+        address proposedController;
+        bytes32 configurationHash;
+    }
+
     event CommunityRegistered(bytes32 indexed communityId, address indexed registry, bytes32 tldHash);
     event ConfigurationPublished(
         bytes32 indexed communityId,
@@ -44,6 +52,8 @@ interface ICommunityDirectoryV1 {
         bytes32 sha256Digest,
         string uri
     );
+    event ControllerTransferProposed(bytes32 indexed communityId, ControllerTransfer proposal);
+    event ControllerTransferCleared(bytes32 indexed communityId, uint64 proposalId);
     event NamespaceVerified(
         bytes32 indexed communityId, uint64 verificationRevision, NamespaceVerification verification
     );
@@ -52,46 +62,55 @@ interface ICommunityDirectoryV1 {
     error Unauthorized();
     error UnknownCommunity();
     error AlreadyRegistered();
+    error InvalidRegistry();
     error StaleRevision();
     error InvalidConfiguration();
-    error InvalidConsent();
+    error InvalidControllerTransfer();
     error InvalidVerification();
 
-    /// @dev Only the namespace verifier; requires initial controller consent.
-    /// Registration creates revision 1, emits ConfigurationPublished and starts unlisted.
-    function registerCommunity(
-        address registry,
-        bytes32 tldHash,
-        Configuration calldata configuration,
-        uint64 consentDeadline,
-        bytes calldata controllerConsent
-    ) external returns (bytes32 communityId);
+    /// @dev Current registry.admin() calls from its own account, also the initial controller.
+    /// Checks approved factory provenance and derives tldHash on chain; no Pirate consent.
+    /// Creates config revision 1 and starts unverified and unlisted.
+    function registerCommunity(address registry, Configuration calldata configuration)
+        external
+        returns (bytes32 communityId);
 
-    /// @dev Only the current controller. A new controller must additionally consent.
-    /// The expected revision is consumed once; configuration changes stale verification.
-    function configure(
+    /// @dev Only the current controller; this call cannot change the controller address.
+    /// Consumes the expected revision and clears a pending transfer. Verification becomes stale.
+    function configure(bytes32 communityId, uint64 expectedRevision, Configuration calldata configuration) external;
+
+    /// @dev Current controller commits exact next config at current revision, with an expiry.
+    /// Returns a monotonically increasing proposal ID; replacing a proposal invalidates the old one.
+    function proposeControllerTransfer(
         bytes32 communityId,
         uint64 expectedRevision,
         Configuration calldata configuration,
-        uint64 consentDeadline,
-        bytes calldata newControllerConsent
-    ) external;
+        uint64 deadline
+    ) external returns (uint64 proposalId);
 
-    /// @dev Only the namespace verifier; binds evidence to the exact current config.
+    /// @dev Only the proposed controller, by account transaction; no detached signature parsing.
+    /// Requires unexpired proposal ID, unchanged base revision and exact proposed config hash.
+    function acceptControllerTransfer(bytes32 communityId, uint64 proposalId, Configuration calldata configuration)
+        external;
+
+    function cancelControllerTransfer(bytes32 communityId, uint64 proposalId) external;
+    function getControllerTransfer(bytes32 communityId) external view returns (ControllerTransfer memory);
+
+    /// @dev Only the namespace-verifier governance account; binds exact current config.
     function verifyNamespace(
         bytes32 communityId,
         uint64 expectedVerificationRevision,
         NamespaceVerification calldata verification
     ) external;
 
-    /// @dev Only Pirate's listing authority. Cannot change community configuration.
+    /// @dev Only Pirate's listing governance account. Cannot change community configuration.
     function setListed(bytes32 communityId, uint64 expectedRevision, bool listed, bytes32 reasonSha256) external;
 
     /// @dev keccak256(abi.encode(block.chainid, registry)); not proof of HNS ownership.
     function communityIdFor(address registry) external view returns (bytes32);
     function getCommunity(bytes32 communityId) external view returns (Community memory);
 
-    /// @dev Discovery status only; never the authorization to publish a community post.
+    /// @dev Discovery status only; never the authorization to register or publish.
     function isDiscoverable(bytes32 communityId) external view returns (bool);
     function namespaceVerifier() external view returns (address);
     function listingAuthority() external view returns (address);

@@ -86,9 +86,10 @@ uploads, provider details, signed capabilities and session/account data remain
 access-controlled. A public Dance post is a separate consented publication;
 human review does not itself imply that its video should go to IPFS.
 
-The LearningRecords draft selects public wallet-linked assessments with
-per-attempt consent; that does not authorize public pinning of their raw
-recordings or evidence. IPFS unpinning does not guarantee
+LearningRecords draft 3 recommends public wallet-linked assessments with
+per-attempt consent. That recommendation is separate from the earlier three-item
+approval. Public grades do not authorize public pinning of raw recordings or
+provider evidence. IPFS unpinning does not guarantee
 erasure of copies held by others. Content removal changes discovery and serving
 policy; it cannot retract a CID already disclosed. Avoid irreversible public
 pinning of material still awaiting admission or a publicity decision.

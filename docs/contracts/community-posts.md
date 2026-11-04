@@ -19,8 +19,13 @@ after authorization and admission. The contract verifies the current publisher
 and current directory config revision on every call. It does not independently
 prove that the account behind authorId requested publication. A compromised
 publisher can forge attribution and publication; the controller can rotate it.
-User consent and signed admission records remain service audit evidence. This
-design makes that trust explicit rather than claiming trustless authorship.
+A registry admin can self-register an unverified directory entry and publish
+through its configured publisher before Pirate verifies or lists it. Only
+Pirate discovery requires that verification; an independent community feed can
+read its explicit deployment/community ID. Unverified namespace claims must
+remain labelled as such. User consent and signed admission records remain
+service audit evidence. The publisher remains trusted for attribution and
+admission; the contract cannot independently prove either.
 
 A shared publisher does not guarantee anonymity: content, timing, creator IP
 registration and later reward evidence may identify or link people. In
@@ -34,6 +39,13 @@ job, before sending a transaction. `expectedRevision=0` creates revision 1;
 an edit must supply the current revision and creates its successor. authorId
 and kind are immutable. A different author or kind requires a new post ID.
 There is no transaction sender field used as the author.
+
+The same immutable tuple is the local song streak key. External Aeneid/DATA/Sui
+registration references and content revisions may change without changing it.
+Optional cross-community grouping uses an explicit registration/alias policy.
+Ordinary verifier/listing signer rotation must preserve their governance account
+addresses and the directory/posts deployments; replacing a deployment is a
+separate identity migration, not ordinary key rotation.
 
 The latest state contains the manifest URI and SHA-256, revision, author, kind
 and directory configuration revision under which it was published. Events

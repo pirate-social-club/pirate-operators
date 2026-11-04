@@ -40,47 +40,101 @@ the contract cannot fetch JSON. Every URI is a bounded immutable `ipfs://`
 reference, at most 512 UTF-8 bytes, with no query or fragment. Require nonzero
 controller, publisher and content hash. The deployment fixes the supported
 factory set and the namespace-verifier and listing-authority accounts; no
-unbounded super-admin or upgrade path is implied. Use governance accounts with
-their own key recovery if needed. The interface defines no Pirate override of
-community control and no lost-community-key recovery bypass.
+unbounded super-admin or directory upgrade path is implied. Both authority
+addresses must be governance smart accounts with signer rotation and a defined,
+tested recovery path. Do not bind either role to a single hot EOA. Deployment
+acceptance must revoke/replace an operational signer while preserving the
+account, directory and posts addresses, configuration and all post IDs. The
+recovery authority must survive loss of an operational signer; it is not a
+claim that an account can recover after every recovery credential is lost.
+The interface defines no Pirate override of community control and no
+lost-community-key recovery bypass.
 
 ## Authorization and replay protection
 
-Only the configured namespace verifier may register an entry, after independently
-checking current HNS authority, app control and the proposed configuration.
-The initial controller must also consent to that exact record. Registration is
-once per community ID, creates config revision 1, emits both registration and
-configuration events, and starts with listing=false, listingRevision=0 and
-verificationRevision=0. Registration is not an active listing.
+The current `registry.admin()` registers its own entry by an account transaction.
+Require `msg.sender == registry.admin()` and `configuration.controller == msg.sender`.
+The contract derives tldHash from the registry's canonical `tld()`, checks its
+`factory()` against the deployment's fixed approved factory set, and checks that
+factory's `isRegistry(registry)`. Check the expected clone/implementation profile;
+arbitrary contracts cannot establish provenance just by returning familiar values.
+No Pirate signature, HNS verification or listing approval is needed to register.
 
-Only `msg.sender == current controller` can call `configure`. That is a
-community-authorized on-chain transaction, including calls from its smart
-account. A Pirate verifier, listing key, publisher or arbitrary relayer cannot
-rewrite config. Relayed config updates are not part of V1. `expectedRevision`
-must equal the stored config revision, then the transaction increments it once.
-The current controller can replace the publisher without Pirate's consent.
+Registration is once per community ID, creates config revision 1, emits both
+registration and configuration events, and starts with listing=false,
+listingRevision=0 and verificationRevision=0. A factory clone of a claimed TLD
+is not its official namespace. Anyone able to create a genuine factory registry
+and act as its admin can self-register and publish under that registry's ID;
+Pirate discovery still requires independent HNS verification and listing.
+This supports independent publication without treating unverified claims as
+discoverable. The fixed factory profile remains a protocol compatibility limit,
+not a per-community approval queue.
 
-Changing the controller additionally requires consent from the new controller.
-Initial and transfer consent use EIP-712 domain name `Pirate Community Directory`,
-version `1`, the actual chainId and directory verifyingContract. The exact type is:
+Only `msg.sender == current controller` can call `configure`. The submitted
+controller must remain the current one. The expected config revision must match,
+then it increments once. Publisher/address/config changes clear any pending
+controller transfer and stale namespace verification. Registry admin authority
+is used only for bootstrap: a later registry-admin change cannot seize an existing
+directory entry. A deliberate community-controller transfer is separate.
 
-```text
-ConfigurationConsent(bytes32 communityId,address registry,bytes32 tldHash,uint64 revision,address controller,address publisher,address operatorPayments,address learningRecords,bytes32 sha256Digest,bytes32 uriHash,uint64 deadline)
-```
+Controller transfer uses two account transactions. The current controller calls
+`proposeControllerTransfer` with the exact next configuration, its current
+revision and a future deadline. Require a nonzero, different next controller.
+Store a per-community, strictly increasing proposalId, baseRevision, deadline,
+proposedController and `configurationHash = keccak256(abi.encode(configuration))`.
+This ABI hash commits every field, including the URI; the inner sha256Digest
+still binds the JCS manifest bytes. Replacing a proposal emits a cleared event
+for the previous proposal and consumes a new ID. IDs never reset after clearing.
 
-`uriHash` is `keccak256(bytes(uri))` for EIP-712 string binding; it is not the
-SHA-256 manifest digest. The consent covers revision 1 on registration or
-expectedRevision+1 on transfer. Require `block.timestamp <= deadline`, a valid
-low-s ECDSA signature or ERC-1271 result from the proposed controller, and all
-fields equal to the submitted configuration and immutable binding. An unchanged
-controller update requires empty consent and deadline=0. Reject cross-chain,
-cross-directory, stale-revision and expired consent. Guard external signature
-validation against reentrancy before mutating any state.
+The proposed controller calls `acceptControllerTransfer` from its account with
+the proposal ID and exact configuration. Require its sender, the stored hash,
+unchanged base revision and `block.timestamp <= deadline`. Acceptance increments
+the config revision, installs the configuration, clears the proposal and emits
+ConfigurationPublished. Only the current controller may cancel a specific
+proposal. Clearing on cancellation, replacement, acceptance or configure emits
+ControllerTransferCleared; a getter reports proposalId=0 when none is pending.
+Old, expired or replaced proposals cannot be accepted. Every failed call leaves
+directory state unchanged. There is no Pirate recovery override.
+
+These are calls from the authorized account, not necessarily transactions whose
+outer sender is that account. A smart wallet may execute them through its own
+validated call path. Check `msg.sender`, never `tx.origin`, a relay address or
+an address supplied in calldata. The wallet transaction binds chain, destination
+and calldata; revisions/proposal IDs protect application-level retries. A relay
+calling the directory directly has no authority. The directory accepts no
+detached ECDSA/ERC-1271/ERC-8010 consent blob in V1.
 
 An exact retry after success returns the retained receipt through the service;
-it does not increment the revision again. A raw repeated contract transaction
-reverts on the consumed revision. If its receipt is uncertain, reconcile the
-canonical event and current state before constructing another update.
+it does not increment the revision again. A repeated raw contract call reverts
+on its consumed revision/registration/proposal. Uncertain receipts remain pending
+until reconciled against canonical state.
+
+## MOSS first-account acceptance
+
+The pinned official wallet CLI v0.1.6 bundles Porto 0.2.37 and viem 2.54.6.
+Porto's `core/internal/erc8010.ts` wraps an authorization, initialization data
+and the account signature. Viem's `actions/public/verifyHash.ts` unwraps it and
+uses an authorization-list simulation for an undelegated account, or ERC-1271
+with the inner signature when matching delegation exists. This source evidence
+does not prove the actual browser SDK's output or successful wallet acceptance.
+
+A zero-code account cannot be assumed to verify a passkey through ERC-1271,
+and a wrapped account signature is not a plain ECDSA signature. V1 therefore
+uses account transactions for both bootstrap and transfer acceptance. The wizard
+must prove the selected MOSS account can execute the required call: delegation
+and initialization may occur in that transaction, or in a confirmed setup
+transaction beforehand if that wallet requires it. A successful RPC simulation
+alone is insufficient. Do not claim an arbitrary first transaction or stripping
+a wrapper establishes correct account consent. No wallet/key operation ran here.
+
+The bootstrap test must start from actual empty code, register through the
+account and observe the intended directory sender/config. Repeat with an already
+activated account and a fresh receiving account for controller transfer. Verify
+wrong chain, target, calldata, account and unauthorized delegated-key refusal,
+plus failed/retried initialization. EIP-7702 delegation can persist even when
+later transaction execution reverts, so re-read account state on retry.
+See the pinned [CLI source](https://github.com/megaeth-labs/wallet-cli/tree/8c53ee64797ff0f451a8e8bda315d4e744d439b4)
+and [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702).
 
 ## Verification and listing are separate
 
@@ -115,11 +169,24 @@ community to draw Pirate-funded rewards.
 
 ## Required implementation tests
 
-Prove unauthorized registration/config/listing/verification rejection; fake
-factory refusal; initial controller consent; EOA and contract-controller
-consent; revision and domain replay refusal; rotation invalidating old publisher
-calls; listing expiry and stale-config filtering; delisting without config
-mutation; controller transfer with both authorities; and deterministic ID/event
-reconstruction. Test malicious ERC-1271 callbacks and failed transactions leaving
-all revisions unchanged. HNS ownership and gateway acceptance require a real
-verifier integration beyond the Solidity tests.
+Prove only the current genuine registry admin can bootstrap, the initial
+controller must equal that account, and no caller can overwrite an existing
+entry. Refuse fake factories, self-reported provenance and invalid registry
+profiles. A genuine unverified clone may register and publish but must remain
+undiscoverable; a lookalike TLD must not displace the verified community.
+
+Prove an arbitrary or former controller/publisher cannot change config or
+publish; config revisions cannot replay; and old registry admins have no
+recovery override. Exercise transfer proposal replacement, expiry, cancellation,
+config changes during a proposal, wrong account/hash/revision and duplicate
+acceptance. Verify successful acceptance changes exactly one config revision
+and invalidates old publisher authority. All failed directory calls preserve
+state. Exercise hostile external registry getters and reentrancy during
+bootstrap validation.
+
+Prove an unlisted community can publish from its first registered revision,
+listing expiry/stale-config filtering, delisting without config mutation,
+governance signer rotation without address/identity changes, and deterministic
+ID/event reconstruction. MOSS acceptance is the actual empty-account flow above;
+an ECDSA fixture or a successful compile is not that test. HNS authority and
+browser/gateway acceptance require the independent verifier integration.

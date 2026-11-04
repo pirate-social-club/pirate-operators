@@ -1,4 +1,4 @@
-# Public learning records and streak boards, draft 2
+# Public learning records and streak boards, draft 3
 
 This draft specifies the public records from which anyone can rebuild a
 community's learning history and its streak leaderboards, without calling a
@@ -9,21 +9,27 @@ activities, becomes public and how boards derive from it.
 
 Status: staged specification, not implemented. It follows the owner's
 direction for public per-line grades on MegaETH and an aggregator whose
-database is a rebuildable index. Draft 2 records the owner-approved review
-clarifications of 2026-11-04. Section 9 distinguishes settled rules from the
-remaining implementation checks.
+database is a rebuildable index. The recorded approval on 2026-11-04 covered
+the shared epoch, prospective
+policy activation and terminal records for abandoned attempts. It did not
+separately settle wallet identity or Dance streak timing. After review, the
+owner asked for the simplest identity and most robust timing. Draft 3 recommends
+wallet-linked records with per-attempt consent and first on-chain owner-review
+time for Dance. These are proposed v1 defaults, not additional historical owner
+rulings or authorization to publish live grades. Section 9 separates these
+recommendations from settled rules and implementation checks.
 
 ## 1. Where each fact lives
 
-| Data | Authoritative home |
-|---|---|
-| Community identity, controllers and contract addresses | the shared community registry |
-| Deposits, purchases and ticket closure | the community's `OperatorPayments` |
-| Per-line assessments, attempt completions, eligibility changes | the community's `LearningRecords` contract on MegaETH |
-| Lyrics, translations, timings and other substantial content | content-addressed manifests, through the data protocol and IPFS, referenced by hash |
-| Qualification and streak policies | public content-addressed documents, with activation hash, locator and effective period recorded by `LearningRecords` |
-| Sessions, jobs, pending transactions, temporary processing state | the community's and operator's operational databases |
-| Leaderboard rows, current and best streaks, search, feeds | a rebuildable indexer database; a community may cache them in D1 |
+| Data                                                             | Authoritative home                                                                                                   |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Community identity, controllers and contract addresses           | the shared community registry                                                                                        |
+| Deposits, purchases and ticket closure                           | the community's `OperatorPayments`                                                                                   |
+| Per-line assessments, attempt completions, eligibility changes   | the community's `LearningRecords` contract on MegaETH                                                                |
+| Lyrics, translations, timings and other substantial content      | content-addressed media/manifests on IPFS; DATA registration remains a separate referenced receipt                   |
+| Qualification and streak policies                                | public content-addressed documents, with activation hash, locator and effective period recorded by `LearningRecords` |
+| Sessions, jobs, pending transactions, temporary processing state | the community's and operator's operational databases                                                                 |
+| Leaderboard rows, current and best streaks, search, feeds        | a rebuildable indexer database; a community may cache them in D1                                                     |
 
 Provider credentials live in deployment secrets and never in a record. No
 database may hold the only copy of a fact from which a board is built.
@@ -34,13 +40,21 @@ to its controller and its `OperatorPayments` and `LearningRecords` addresses.
 
 ## 2. Identities
 
-- Learner: the wallet address the learner uses in that community. Publishing
-  links that address's history across every application that reads the
-  chain; that is the interoperability chosen, and section 8 covers consent.
-- Song: `songId`, the data-protocol asset identity, which survives metadata
-  edits. The community's publication ID and the content revision are separate
-  fields. The local skeleton's `songHash`, a digest of the whole song object,
-  is not a stable identity: editing a title would reset its streaks.
+- Learner: proposed v1 identity is the wallet used in that community. It matches
+  consent and rewards without a second identity mapping. Its public history can
+  be linked across applications and communities that use the same wallet.
+  Section 8 defines the consequence and consent; the earlier approval of three
+  other clarifications must not be cited as approval of this identity choice.
+- Song: the stable local publication identity
+  `songKey = (chainId, postsContract, communityId, postId)`. A community song
+  streak uses this tuple across metadata edits and external registration changes.
+  `communityId` and `postId` alone are its shorthand within a pinned chain and
+  posts deployment. Aeneid, DATA or Sui asset IDs are optional grouping references
+  with protocol/network namespaces, never the local streak primary key. Keep
+  directory/posts addresses stable during ordinary signer rotation. A future
+  contract or namespace migration needs an explicit authenticated alias/history
+  migration; this draft does not promise IDs survive arbitrary redeployment.
+  The local skeleton's `songHash` is a content revision digest, not song identity.
 - Content revision: the manifest hash the attempt was scored against.
 - Line: the occurrence ID and version from that manifest.
 - Attempt: `attemptId`, as in the operator's result.
@@ -56,8 +70,8 @@ minimal state needed to enforce the rules in section 4.
 
 ```text
 LineAssessed {
-  community, learner, attemptId, songId, contentRevision,
-  activity            // "karaoke", "study" or "dance"
+  community, learner, attemptId, songKey, contentRevision,
+  activity            // line-based karaoke or study; Dance uses its categorical adapter
   lineId, lineVersion,
   grader, scoringPolicy,
   status              // "assessed" | "silent" | "unpaid" | "unmeasured" | "unattempted"
@@ -80,13 +94,13 @@ operator-failure exclusion from the reward denominator. For this public
 record, an unreached line is `unattempted` even if it was paid ahead of time;
 the purchase remains independently visible in `OperatorPayments`.
 
-### 3.2 Attempt completion
+### 3.2 Line-based attempt completion
 
 ```text
 AttemptCompleted {
-  community, learner, attemptId, songId, contentRevision, activity,
+  community, learner, attemptId, songKey, contentRevision, activity,
   grader, scoringPolicy, qualificationPolicy,
-  completedAt         // the operator's endedAt, pinned on first completion
+  completedAt         // Study/Karaoke: signed endedAt; Dance adapter: first final owner decision block time
   status              // "completed" | "abandoned" | "expired" | "payment_missing"
   linesHash           // JCS hash of the final line revisions that make up the attempt
   linesTotal, unmeasuredCount, rewardScoreBps
@@ -148,12 +162,22 @@ completion must match that policy hash, or be empty if no policy covers the
 period. This differs from `scoringPolicy`, which identifies how the grader
 produced its assessments.
 
-Delayed publication uses the policy covering `completedAt`, not the policy
-active when the transaction lands. Grade corrections retain the original
+Delayed Study/Karaoke publication uses the policy covering `completedAt`, not
+the policy active when the transaction lands. Dance's first on-chain decision
+sets completedAt and selects that review period's policy. Grade corrections
+retain the original
 `completedAt` and `qualificationPolicy`, so they recompute the original
 period under its original rules. Time corrections are outside this version.
 A purchase receipt never qualifies anything: buying lines proves spending,
 not singing.
+
+Dance's categorical review needs an activity-specific assessment/terminal
+record with owner, pass/fail, submission reference and contract-recorded review
+time. It must not fabricate numeric line grades or apply a karaoke linesHash
+coverage check to a video. Non-line Study also needs its own adapter. The
+line-coverage rules below apply to line-based activities; freeze and test the
+other typed record shapes before their implementation. The clock/identity
+rules apply to all of them.
 
 ## 4. Write rules
 
@@ -166,7 +190,9 @@ not singing.
 - A completion is refused unless every manifest line has a final record, and
   its `linesHash` matches those records.
 - The first completion binds `completedAt` and the qualification policy
-  selected from the on-chain activation history. Later grade revisions
+  selected from the on-chain activation history. For Dance, the contract sets
+  completedAt from the first on-chain owner decision; it does not trust a
+  client-supplied timestamp for that field. Later grade revisions
   cannot change either. A terminal status never substitutes for missing line
   records.
 - Corrections supersede explicitly; nothing is rewritten in place. A reward
@@ -198,9 +224,21 @@ published.
   completion at 2026-11-04 16:59:59 UTC is period 2 and one at 17:00:00 UTC is
   period 3. Earlier timestamps are outside this version's streak clock;
   implementations must not allow unsigned subtraction to wrap.
-- An attempt belongs to the period containing its signed `completedAt`.
-  Transaction inclusion time never decides it, so a delayed publication does
-  not move the day.
+- Study and Karaoke belong to the period containing their signed endedAt,
+  stored as completedAt. Delayed publication does not move that day.
+- Proposed Dance rule: the first final owner decision records reviewedAt using
+  the canonical transaction block timestamp, and sets completedAt=reviewedAt.
+  A passing decision earns credit for that period, never for the upload day.
+  A failing decision earns none. Submission time remains provenance and cannot
+  backdate credit. The UI shows pending review and explains that review speed
+  affects the credited day. The contract validates owner authority and the
+  account-level self-review exclusion before accepting the decision.
+- A Dance correction retains the first final decision's completedAt and policy. A
+  corrected pass can repair that review period; repeated corrections cannot
+  manufacture days. A new performance needs a new attempt. Delayed submission
+  of a signed review counts only when its first decision lands on chain, so
+  there is no separate trusted off-chain approval timestamp to reconcile.
+  A reorg rolls back the orphaned decision before the canonical one is applied.
 - The boundary follows Megapot's scheduled time, not its actual drawing
   transaction, so a delayed drawing neither stretches a learning day nor
   breaks streaks. Version 1 stays at 17:00 UTC even if Megapot changes its
@@ -231,10 +269,18 @@ enters a drawing that has already closed.
 
 ## 6. Cross-community song boards
 
-A song board spanning communities groups by `songId`. It needs an explicit
-policy listing the communities, graders and qualification policies it
-accepts, published by whoever runs the board. Absent that policy, boards are
-per community.
+Local boards group by the immutable songKey publication tuple. A registration
+change, a second registration or a migration from Aeneid to another network
+must not create a new local streak. A distinct repost has a distinct postId
+and is a different local streak unless a future explicit merge policy says so.
+
+A board spanning communities may group selected songKeys through optional
+external asset references or an explicit alias set. Its public, versioned
+policy identifies accepted protocols/networks, registration receipts, aliases,
+communities, graders and qualification policies. Never infer that two assets
+are the same merely because their title or media hash matches. A registration
+migration changes that grouping only through a published alias/policy update;
+local period sets remain unchanged. Absent that policy, boards stay per community.
 
 ## 7. Indexer contract
 
@@ -256,7 +302,12 @@ comparison sorts rows by board identity and learner, without breaking shared
 ranks. Neither reducer calls a community's private API or shares derived
 rows or reduction code with the other.
 
-The shared fixtures include repeated attempts in one period; five songs
+The shared fixtures include an Aeneid registration replaced by a Sui reference
+without splitting the same local songKey's streak; identical postId values on
+different communities/deployments remaining distinct; an upload before 17:00
+with a passing Dance decision after 17:00 earning the later period; a failed
+Dance decision corrected without changing its original review period; and
+repeated attempts in one period; five songs
 earning five song days but one community day; completions at 16:59:59 and
 17:00:00 UTC; publication after a policy change; a provisional grade replaced
 by a final grade; a later correction that repairs a prior streak under its
@@ -269,7 +320,10 @@ These are implementation acceptance requirements, not tests already run.
 
 ## 8. Privacy
 
-Records are public and permanent, linked to the learner's address. Unpaid,
+Under the proposed wallet-identity default, records are public and permanent,
+linked to the learner's address. This is the simplest interoperability model,
+not a privacy-preserving one. The existing reward flow separately exposes
+claimant wallets; private grades would not make those entries private. Unpaid,
 silent, unmeasured and unattempted lines carry no score, so missing data never
 reads as inability. Recordings are never published. A Telegram guest's
 attempts are published only after the learner attaches a wallet and consents.
@@ -279,7 +333,13 @@ mainnet.
 ## 9. Remaining implementation checks
 
 The protocol-wide clock, on-chain policy activation and publication of failed
-and abandoned attempts are decided. Qualification is derived initially;
+and abandoned attempts are decided. Wallet-linked learning identity and Dance
+credit on first on-chain review day are the recommendations in this revision,
+responding to the owner's request for simplicity and robustness. They are not
+relabelled as part of the earlier three-item approval. No real public records
+may be emitted merely because this draft exists; implementation must establish
+its accepted publicity policy and actual per-attempt learner consent.
+Qualification is derived initially;
 storing leaderboard calculations on chain is not required. Events publish the
 full history, with contract storage driven by enforcement and identified
 contract readers as section 4 specifies.

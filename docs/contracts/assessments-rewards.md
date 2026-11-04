@@ -19,22 +19,25 @@ because Study also includes audio input.
 | Karaoke                   | Timed per-line scoring and separate reward accounting.                                        | Below three lines/eight matched words, timing is uncalibrated but line scoring continues with neutral timing 0.85. This does not make it Study's grader.   |
 | Dance                     | Human community-owner review, categorical pass/fail.                                          | V1 retains account-level self-review exclusion. No general moderator/transfer API or invented numeric grade follows from this ruling.                      |
 
-Karaoke has four statuses: `assessed`, `silent`, `unpaid`, `unmeasured`.
-Only assessed has a numeric score; do not publish a paid-looking score for an
-unpaid line or turn unavailable measurement into a genuine zero. Existing
-payment source counts silent/unpaid as zero in reward accounting and removes
-unmeasured from the denominator, with a separate maximum-unmeasured threshold.
-The payment implementation owns exact billing, line completeness and hash rules.
+At inspected payment source `0dec600`, Karaoke had four statuses: `assessed`,
+`silent`, `unpaid`, `unmeasured`. The active payment lane has since added
+`unattempted` at `e7c39c2` to align with LearningRecords: an unreached line has
+no score whether paid ahead or not. Only assessed has a numeric score. Silent,
+unpaid and unattempted count zero in reward accounting; unmeasured is removed
+from the denominator with a separate maximum-unmeasured threshold. The payment
+lane owns exact billing, complete-line coverage and hashes. Its successor is
+not silently treated as merged into this specification branch.
 
-The newer [LearningRecords draft 2](learning-records.md) settles wallet-linked
-public learning history, completion and policy-activation events, derived
-qualification and reproducible streak boards. It adds `unattempted` for unreached
-lines in the public record, without silently changing the payment result's four
-statuses. Unattempted has no score and is not a measurement-failure exclusion
-from the reward denominator. The payment-to-public-record adapter must prove
-this mapping and reconcile complete manifest coverage before implementation.
+The [LearningRecords draft 3](learning-records.md) preserves the actual earlier
+approval: the shared learning clock, prospective policy activation and terminal
+records for abandoned attempts. That approval did not separately settle the
+learner's public identity. In response to the owner's request for the simplest
+approach, this revision recommends wallet-linked records with per-attempt
+consent. It labels that as a proposed default, not an earlier owner ruling or
+permission to emit public grades. The public field/status model and real consent
+verification still need implementation acceptance.
 
-Public learning records and public posts intentionally use different identities:
+Under that proposal, public learning records and posts use different identities:
 learner wallet and community-scoped authorId respectively. Raw recordings and
 provider evidence remain private. Per-attempt learner consent must bind chain,
 contract, learner, community, source, grader and scoring policy; actual MOSS
@@ -48,12 +51,24 @@ delayed completions and corrections retain their original completion period
 and policy. Two independent reducers must agree at a pinned chain head and
 evaluation time. That clock does not replace the reward drawing cutoff.
 
+For Dance streaks, the recommended rule is the period of the first final
+owner decision recorded on chain. The contract sets reviewedAt/completedAt to
+that block time, a pass earns credit then, and a failure earns none. Submission
+time cannot backdate ordinary review credit. An explicit correction retains
+the first review period and its policy; it cannot create another day. This
+chooses deterministic review-day accounting over submission-day attribution and
+makes review latency visible to learners. It is separate from the prize cutoff.
+
 The copied draft and its [source digest](learning-records-source.json) preserve
-the owner-approved clarifications without claiming an implemented contract.
+the three approved clarifications and label the new recommendations separately.
+No LearningRecords implementation exists.
 Its generic `community` field must bind the directory's bytes32 communityId;
 the payment account address is a separate field, not an interchangeable ID.
-Stable songId must be namespaced by registration protocol/network, separate
-from postId and content revision. Before a LearningRecords ABI is frozen,
+Local song streaks use songKey=(chainId, postsContract, communityId, postId),
+so an external registration migration cannot split them. Registration references
+are optional protocol/network-qualified grouping keys for cross-community
+boards, under an explicit alias policy. Content revisions do not change songKey.
+Before a LearningRecords ABI is frozen,
 resolve manifest membership/coverage proofs, stored fields and readers, the
 payment mapping, categorical Dance and non-line Study result adapters, and
 on-chain learner consent. A generic line-score shape alone cannot express

@@ -53,7 +53,9 @@ the evidence needed to undo an orphaned event.
 
 The projection stores Community, ConfigurationRevision, NamespaceVerification,
 ListingRevision, Post and PostRevision entities, plus hydration status. Query
-per community or across currently discoverable communities. Use a stable cursor
+per explicit community ID independently of listing; Pirate aggregate discovery
+includes only currently discoverable communities. Unverified claims must not
+appear as verified TLD communities. Use a stable cursor
 containing canonical ordering keys and post identity; define a snapshot height
 and restart behavior if a reorg invalidates the cursor. Expose provisional versus
 confirmed ingestion status and a last-processed block, not a false finality claim.
@@ -92,7 +94,12 @@ The separate [LearningRecords draft](learning-records.md) adds public assessment
 completion, eligibility and prospective policy-activation events for streak
 boards. Discover its and OperatorPayments' addresses through directory config,
 retaining address history. Keep board qualification separate from Pirate-funded
-drawing eligibility. Public history plus referenced policies must be sufficient
+drawing eligibility. Local song boards use stable publication tuples, with
+external registrations
+only as policy-controlled cross-community grouping references. The proposed
+Dance clock uses the first final owner decision's canonical block time; late
+reviews do not take their upload period. Public history plus referenced
+policies must be sufficient
 to rebuild a board without a private API. Its two-independent-reducer acceptance
 at an identical head/evaluation time is required later; a working post feed
 does not establish that acceptance.
