@@ -153,6 +153,10 @@ now has stateful Foundry checks for token conservation, finality, allocations
 and duplicate prevention, plus emergency sponsor recovery and the focused
 sponsored-registration failure cases.
 The static client and operator container conformance test also follow this run.
+The [community web client and deployment contract](docs/community-web-client.md)
+specifies that client, its cookie sessions, the karaoke socket handshake,
+publication-time public pages, localization and deployment modes. None of it
+is implemented yet.
 
 A separate [testnet spike](docs/testnets.md) now runs real MPP sessions on
 Moderato and the same pool flow on Base Sepolia with simulated providers.
