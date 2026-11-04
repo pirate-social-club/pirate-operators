@@ -1,12 +1,22 @@
-# Creator wallet and song registration, version 2
+# Creator wallet and song registration, version 3
 
-Status: approved design, 2026-11-04. Implementation and device acceptance are
-pending. This contract specifies a testnet integration, not a production launch.
+Status: owner-selected design, 2026-11-04. The browser pilot demonstrated
+activation, reopening and a verified signature. Full acceptance, billing and
+song registration remain incomplete. This is a testnet integration, not a
+production launch.
 
 Version 2 follows the owner's simplification: use saved passkey access and a
 normal reopen-and-sign check. The separate recovery key, multisig account,
 standalone recovery client and device/site-outage drills from version 1 are
 deferred. They are not MVP prerequisites.
+
+Version 3 adds the [payment and wizard contract](creator-wallet-payments.md):
+the registration operator pays native chain fees, while the creator pays an
+upfront quote or the community explicitly sponsors the action. That contract
+owns payer selection, service pairing, billing and readiness. It supersedes
+version 2's implication that operator-submitted setup must be free to creators
+and its optional-Infisical wording for the owner-selected wizard. The saved
+passkey and cryptographic verification requirements remain unchanged.
 
 ## Scope and authority
 
@@ -52,16 +62,20 @@ this wallet proof does not authorize registering arbitrary copyrighted media.
 | Creator | Controls passkey and Ika encryption material; approves account linking and verified acceptance. |
 | Community | Authenticates its local account, requests a bounded setup authorization, records the creator recipient binding and submits admitted releases. |
 | Wallet site | Runs creator cryptography in the browser and presents the requesting community and intended action. Never sends secrets to either server. |
-| Registration operator | Pays setup fees, submits transactions, reconciles results and mints test assets to the verified creator recipient. |
+| Registration operator | Supplies native fee tokens, enforces the selected billing/allowance policy, submits transactions, reconciles results and mints test assets to the verified creator recipient. |
 | Ika/Sui and Aeneid | Supply their respective execution, public state and finality. Their availability remains an external dependency. |
 
-Pirate runs the default registration operator. Communities selecting it need
+Pirate is the default registration-operator choice. Communities selecting it need
 no SUI, IKA, DATA signer or creator-wallet treasury. An independent operator
-must provision its own test treasury and registration signer.
+must provision its own test treasury and registration signer. Both need a
+verified service connection and explicit payer policy before enabling releases;
+the default choice does not claim a commercial service is already available.
 
 The operator pays IKA protocol fees, SUI protocol reimbursements and Sui
-transaction gas for setup, plus Aeneid gas for registration. A creator starts
-with no coins and sees no faucet, token purchase or deposit screen. Ordinary
+transaction gas for setup, plus Aeneid gas for registration. A creator needs
+no native SUI or IKA and sees no faucet or native-token deposit screen. In
+`creator_upfront` mode the creator instead pays one approved checkout quote;
+in `community_sponsored` mode a verified community allowance covers it. Ordinary
 Sui gas sponsorship does not itself supply IKA; here the operator is the
 transaction sender for the creation stages and supplies the fee coins.
 
@@ -75,30 +89,20 @@ separate fees. Their production sponsorship is not part of this flow.
 
 ## Community operator wizard
 
-The creator-wallet step extends the community provisioning wizard as follows:
+Follow the [wizard contract](creator-wallet-payments.md#wizard-contract).
+Select and pair the registration service, explicitly confirm creator payment
+or community sponsorship, connect its billing profile or allowance, and verify
+the capability before enabling releases. Creator payment is the recommended
+choice, not an automatic charge. Independent operators additionally configure
+their service signer, SUI/IKA inventory, registration gas and finite budgets.
+Direct creator SUI/IKA self-funding is deferred, not a v1 option.
 
-1. Select the registration operator, defaulting to Pirate's testnet operator.
-   Show the supported networks, sponsorship limits and operator availability.
-   Do not ask for its provider API keys or treasury keys.
-2. Select the published wallet-site configuration. Pin its canonical HTTPS
-   origin and RP ID, protocol version, operator identity and permitted return
-   origin for this community. Do not create a wallet site per community.
-3. Establish the community's authenticated operator connection through the
-   provisioner's secret workflow. Publish only public capabilities and origin
-   configuration. Install service credentials only in server secret bindings.
-4. Check the operator's network/package manifest, sponsorship readiness and
-   return-origin configuration using a read-only preflight. An unavailable
-   registration operator disables song release, while ordinary participation
-   remains available.
-5. Display testnet song registration as a distinct optional capability. Turn it
-   on for the pilot only after the acceptance evidence below is complete.
-
-An operator choosing independent hosting additionally supplies dedicated test
-signer references, IKA/SUI fee balances, Aeneid gas and explicit budgets.
-Infisical may supply those operator secrets at deployment; it is optional for
-self-hosters and must never store creators' plaintext secrets. Existing
-provider keys such as ElevenLabs remain with the operator calling that service.
-This spec adds no infrastructure framework, secret sync or custom fee contract.
+The owner-selected wizard requires Infisical for service/operator secrets;
+creator plaintext secrets never enter it. Alchemy remains the provisioning
+owner. Use ordinary HTTPS first, with HNS optional later and Spaces deferred.
+An incomplete release capability does not block site provisioning or ordinary
+MOSS participation. Show activation and song-registration readiness separately,
+and require the relevant acceptance evidence before enabling either live path.
 
 ## Creator onboarding
 
@@ -108,15 +112,19 @@ This spec adds no infrastructure framework, secret sync or custom fee contract.
    separate creator wallet and saved passkey access.
 2. Open the dedicated wallet site as a top-level popup from that user action.
    Use a top-level redirect when popups are unavailable. Display the community,
-   testnet status, creator ownership and operator-paid setup. Create no media
+   testnet status, creator ownership and the actual payer/price policy. Create no media
    draft or upload while setup is pending.
 3. Create and save the creator passkey. Derive its native Sui account address
    locally; this needs no chain transaction or fee. Persist the PRF-wrapped
-   Ika seed and public wallet metadata described below before requesting DKG.
+   Ika seed and public wallet metadata described below before charging or DKG.
+   Obtain the bounded activation quote, then verify its payment or reserve
+   the community allowance under the payment contract. No paid chain stage
+   starts before that authorization and the following creator consent.
 4. Obtain an authenticated setup intent from the operator. It binds the
    requesting account and community, attempt ID, nonce, expiry, exact Sui
    control address, encryption public key, curve, package/network manifest,
-   operator sender and maximum fees.
+   operator sender and maximum fees. It also binds the quote, payer policy
+   and verified payment or allowance authorization.
    The wallet checks these against its locally derived account and selected
    manifest, then signs domain-separated consent with that Sui passkey
    account. The operator verifies the signature, account binding, nonce and
@@ -158,7 +166,8 @@ stale or transferred wallet is not silently reused.
 The required order is:
 
 ```text
-saved passkey + encrypted wallet record -> operator-bound DKG preparation
+saved passkey + encrypted wallet record -> bounded quote + verified payment/allowance
+-> creator consent to setup intent -> operator-bound DKG preparation
 -> confirmed DKG + atomic cap transfer to creator
 -> browser ownership/result verification -> creator acceptance signature
 -> successful acceptance transaction + confirmed Active
@@ -274,7 +283,7 @@ before retrying. A network timeout is not evidence that the operation failed.
 Polls and duplicate requests return the existing attempt; they must not
 purchase another DKG.
 
-There is one activated operator-funded wallet per local account and proof
+There is one activated operator-submitted wallet per local account and proof
 network. Reserve at most one in-flight attempt for that account atomically.
 This is an account limit, not a one-human guarantee; unrelated communities
 may have different accounts.
@@ -303,6 +312,10 @@ verified material remains available is not a new DKG.
 
 These ledger and encrypted wallet records are required security/accounting
 state. They do not create saved media drafts or a song-composer resume feature.
+Link financial receipts and refunds to the same attempt under the
+[payment contract](creator-wallet-payments.md#retries-refunds-and-native-funding).
+Do not charge again for polling, a lost return callback or an existing Active
+wallet. Reconcile a paid attempt before allowing a newly priced retry.
 
 ## Storage and chain boundaries
 
@@ -324,8 +337,10 @@ store. Public IPFS copies are retrievable by others; unpinning a copy does not
 recall theirs.
 
 No new Pirate wallet-ownership contract, mapping registry or fee contract is
-required for this slice. Use Sui's native account authentication and Ika's
-existing capability. Keep generic registration receipts with network/chain
+required for the wallet proof. Upfront billing still needs an implemented,
+reviewed settlement/refund adapter; native sponsorship does not supply one.
+Use Sui's native account authentication and Ika's existing capability.
+Keep generic registration receipts with network/chain
 identifier, registry, asset ID, owner, transaction, confirmation reference and
 media/metadata digests. Receipt types must accommodate Sui identifiers without
 pretending a future migration adapter already exists.
@@ -333,7 +348,9 @@ pretending a future migration adapter already exists.
 ## Build order and acceptance
 
 Start with the sponsored wallet and first-song integration. Existing post
-index work can proceed independently; this slice needs no new contract.
+index work can proceed independently; the wallet proof needs no new contract.
+The sponsored test grant is explicit. Creator-paid operation additionally
+requires the payment contract's acceptance gates before taking payment.
 Complete these steps in order:
 
 1. Freeze the test manifest: wallet origin/RP ID, SDK/WASM versions/hashes,
@@ -352,7 +369,7 @@ Complete these steps in order:
 | ID | Required evidence |
 | --- | --- |
 | C1 | Ordinary sign-in, karaoke, study and dance paths create no creator wallet, send no Ika requests and load no Ika WASM. |
-| C2 | An unfunded creator completes setup with every creation stage submitted and paid by the operator. |
+| C2 | A creator holding no native SUI/IKA completes setup with every creation stage submitted and paid by the operator, backed by the selected payment or sponsorship policy. |
 | C3 | DKG and cap transfer are in the same successful transaction; creator ownership is verified before acceptance signing. |
 | C4 | Wrong cap owner, sender/network, key/share ID, operator-swapped output and mismatched local public output each prevent acceptance signing. |
 | C5 | Acceptance signed but unsubmitted, failed or unknown leaves upload and registration disabled; confirmed Active enables them. |
@@ -365,9 +382,15 @@ Complete these steps in order:
 | C12 | Mainnets and local public fixture keys are refused; no private material appears in API payloads, logs, URLs, D1 or public pins. Encrypted records reject tampering and wrong-context decryption. |
 | C13 | Encrypted seed persistence is verified before paid setup and wallet identifiers are saved before upload; missing PRF, failed persistence and incompatible signatures fail without a weaker fallback. |
 
-All C1–C13 are pending. Documentation review, a local mock, a successful
-acceptance signature or an existing centralized testnet mint cannot mark them
-passed. A device limitation stops that part of the proof and is reported
+The 2026-11-04 browser pilot demonstrated activation and the core C10 reopen
+and same-address signing behavior. Its verified signature transaction is
+`5FkKRCZvr6hVjqdyUPLWQf1Rc9eLfr7vuubZFJUaf9w3`; implementation and evidence
+are recorded in [PR 13](https://github.com/pirate-social-club/pirate-operators/pull/13).
+The device/browser/provider matrix was not recorded, and no song upload or
+Aeneid mint was exercised. This does not mark the complete C1–C13 suite passed.
+Billing gates P1–P12 in the payment contract remain pending. Documentation
+review, a local mock or an existing centralized mint cannot substitute for
+those checks. A device limitation stops that part of the proof and is reported
 explicitly; it does not reopen custody or silently enable shared mode.
 
 Production needs a separate supported DATA deployment/migration decision and

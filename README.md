@@ -146,12 +146,16 @@ dependent on Megapot; there is no arbitrary local timeout cancellation.
 ## Remaining M1 work
 
 The [creator-wallet and song-registration contract](docs/creator-wallet.md)
-specifies the separate, operator-funded Ika testnet proof for first song
+specifies the separate Ika testnet proof for first song
 release. Ordinary MOSS participation does not create a creator wallet. The
 creator owns the control capability. Saved passkey access and confirmed
 on-chain activation are required before upload and Aeneid registration.
-This is approved design with acceptance still pending, not a production DATA
-integration or an implemented extension of the local skeleton.
+The real browser spike demonstrated activation and reopen-and-sign access;
+full acceptance and first-song registration remain incomplete. The
+[payment and wizard contract](docs/creator-wallet-payments.md) separates the
+operator's native fee funding from creator upfront payment or explicit community
+sponsorship. Billing and wizard integration are specified, not implemented by
+the spike. This is not a production DATA integration.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,
