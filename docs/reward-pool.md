@@ -1,5 +1,9 @@
 # Sponsored reward registration and recovery
 
+This document covers local contract/provider experiments. External Megapot is
+on Base; it does not authorize Pirate contracts there. The reward funding and
+production payout route remain undecided. See the [current setup overview](decentralized-setup.md).
+
 One immutable RewardPool holds one drawing's tickets and winnings on Base.
 The community verifier commits the qualifying entries. The configured Very
 attester establishes credential eligibility. A participant authorizes their
@@ -37,7 +41,7 @@ if it becomes unavailable. Claimants may have empty code or the exact 23-byte
 shared check applies to direct registration and every sponsored batch item.
 Sponsored signatures still recover the original EOA key; the pool never calls
 the delegated implementation to validate them. Delegated session-key and
-ERC-1271 signatures, other contract wallets and Tempo-native passkeys remain
+ERC-1271 signatures and other contract wallets remain
 outside this compatibility scope. Recipients can have code; they must be
 able to receive the pool's token. Direct register remains available to the
 claimant and fixes its own address as recipient.

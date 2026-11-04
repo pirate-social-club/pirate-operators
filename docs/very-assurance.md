@@ -74,9 +74,9 @@ accuracy or the absence of duplicate enrollments.
    signal-3 transform for this circuit/version?
 5. Which issuer keys and revocation policy does the hosted verifier enforce?
    Is there a supported circuit/verifying-key package and equivalent verification
-   path for Base, including issuer/revocation checks?
+   path for MegaETH, including issuer/revocation checks?
 
-No real-money rollout follows from the diagnostic result. The next bounded
-implementation is an attester using the [versioned scope mapping](very-reward-scope.md),
-followed by a Base Sepolia flow with explicit test credentials/tokens and the
-remaining provider assumptions stated plainly.
+No real-money rollout follows from the diagnostic result. An attester uses the
+[versioned scope mapping](very-reward-scope.md). The reward prize source and
+production route remain undecided; the diagnostic does not establish either.
+Any new integration follows the MegaETH application boundary and its own task.

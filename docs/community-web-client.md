@@ -9,10 +9,11 @@ It supersedes the original experiment draft's section 15.1 paragraph on the
 static client (lane M), which coupled static hosting to bearer sessions and
 hash routing. It completes the draft's section 7 sign-in and section 8.2
 karaoke ticket rules for browsers, without changing the ticket fields or the
-pool. A separate MOSS and MegaETH MVP plan, not yet recorded in this
-repository, owns the wallet spike, the registry purchase, the simulated payout
-and Telegram attachment. This contract applies to whichever wallet that plan
-proves.
+pool. The [current setup overview](decentralized-setup.md) owns the chain and
+provisioning direction: MOSS, MegaETH, registry purchases and later Telegram
+attachment. OperatorPayments purchases replace the original draft payment
+fields; the active payment specification owns those fields. No cross-chain
+simulated payout is required. Browser session and handshake rules here remain.
 
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
