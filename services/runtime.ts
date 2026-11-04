@@ -38,11 +38,13 @@ export interface Env {
   DB?: D1Database;
 }
 export class Store {
+  readonly sql: SqlStorage;
   constructor(
-    readonly sql: SqlStorage,
+    private readonly storage: DurableObjectStorage,
     readonly initialNow = 1800000000,
   ) {
-    sql.exec(
+    this.sql = storage.sql;
+    this.sql.exec(
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
   }
@@ -74,6 +76,10 @@ export class Store {
   now() {
     return this.get<number>("clock") ?? this.initialNow;
   }
+  /** Runs every write in `fn` as one SQLite transaction: all of them land, or none. */
+  transaction<T>(fn: () => T): T {
+    return this.storage.transactionSync(fn);
+  }
 }
 export async function call<T>(
   binding: Fetcher,
@@ -99,7 +105,7 @@ export class ServiceState extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.store = new Store(
-      ctx.storage.sql,
+      ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
     );
   }

@@ -208,9 +208,8 @@ export async function karaokeRoute(
   if (url.pathname === "/__correct") {
     // Local control, like /__fault: production corrections need an
     // authenticated operator path that does not exist yet.
-    const input = await body<Parameters<typeof correct>[2]>(request);
-    const corrected = await correct(env, store, input);
-    await publish(env, store, input.ticketId).catch(() => undefined);
+    // The correction is recorded here; operator ticks publish it.
+    const corrected = await correct(env, store, await body<Parameters<typeof correct>[2]>(request));
     return Response.json({ revision: corrected.revision });
   }
   if (url.pathname === "/result") {

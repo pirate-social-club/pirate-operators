@@ -184,11 +184,21 @@ const completeData = (result: KaraokeResultBody) =>
     ],
   });
 
-function failed(store: Store, ticketId: string, publication: Publication, reason: string) {
-  const next = { ...publication, state: "failed" as const, reason };
-  store.set(publicationKey(ticketId), next);
-  return next;
+/**
+ * Ends the publication this publisher started with, but only if it is still
+ * the current one. A publisher resumes after awaiting the chain, and by then a
+ * correction may have replaced its revision; that newer state must stand.
+ */
+function settle(store: Store, ticketId: string, from: Publication, next: Publication) {
+  return store.transaction(() => {
+    const current = publicationOf(store, ticketId);
+    if (current?.revision !== from.revision || current.state !== "pending") return current;
+    store.set(publicationKey(ticketId), next);
+    return next;
+  });
 }
+const failed = (store: Store, ticketId: string, publication: Publication, reason: string) =>
+  settle(store, ticketId, publication, { ...publication, state: "failed", reason });
 /** Dispatches one intent; undefined while its outcome is unknown, false if it reverted. */
 async function step(env: Env, store: Store, kind: TxKind, ref: string) {
   const row = await dispatch(env, store, kind, ref);
@@ -214,6 +224,8 @@ export async function publish(env: Env, store: Store, ticketId: string) {
     store.set(publicationKey(ticketId), publication);
   }
   if (publication.state !== "pending") return publication;
+  // The result and its publication change together, so they always agree here.
+  check(publication.revision === result.revision, "publication_revision_mismatch");
   const attemptId = stored.consent.attemptId;
 
   if (!intentOf(store, "record_open", attemptId) && stored.consent.expiresAt <= store.now())
@@ -249,14 +261,12 @@ export async function publish(env: Env, store: Store, ticketId: string) {
   const completed = await step(env, store, "record_complete", completeRef);
   if (completed === undefined) return publication;
   if (!completed) return failed(store, ticketId, publication, "complete_reverted");
-  const done = { ...publication, state: "published" as const };
-  store.set(publicationKey(ticketId), done);
-  return done;
+  return settle(store, ticketId, publication, { ...publication, state: "published" });
 }
 
 /**
  * Corrects one line of a published result. The corrected result is a new
- * signed revision checked by the same verifier, and it publishes a final
+ * signed revision checked by the same verifier; the next ticks publish a final
  * correction for that line followed by a new completion.
  */
 export async function correct(
@@ -286,17 +296,23 @@ export async function correct(
   const quote = operatorQuote(env);
   verifyKaraokeResult(next, manifest, quote);
   const signedNext = await sign("result", next, env.PRIVATE_KEY, signatureChainId(env));
-  // Signing yields; a concurrent correction that landed first wins.
-  check(
-    store.get<Signed<KaraokeResultBody>>(`result:${input.ticketId}`)?.body.revision === previous.revision,
-    "correction_conflict",
-  );
-  store.set(`resultRevision:${input.ticketId}:${previous.revision}`, signed);
-  store.set(`result:${input.ticketId}`, signedNext);
-  store.set(publicationKey(input.ticketId), {
-    revision: next.revision,
-    ordinals: [index + 1],
-    state: "pending",
-  } satisfies Publication);
+  // Signing yields, so the state read above is checked again; the new result
+  // and its pending publication then land together or not at all.
+  store.transaction(() => {
+    const current = publicationOf(store, input.ticketId);
+    check(
+      store.get<Signed<KaraokeResultBody>>(`result:${input.ticketId}`)?.body.revision === previous.revision &&
+        current?.revision === previous.revision &&
+        current.state === "published",
+      "correction_conflict",
+    );
+    store.set(`resultRevision:${input.ticketId}:${previous.revision}`, signed);
+    store.set(`result:${input.ticketId}`, signedNext);
+    store.set(publicationKey(input.ticketId), {
+      revision: next.revision,
+      ordinals: [index + 1],
+      state: "pending",
+    } satisfies Publication);
+  });
   return next;
 }

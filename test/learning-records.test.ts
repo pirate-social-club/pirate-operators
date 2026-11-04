@@ -2,7 +2,9 @@
 // the independent reader (docs/learning-records-contract.md), on local anvil.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
 import { rmSync } from "node:fs";
+import { createServer } from "node:http";
 import { encodeEventTopics, type Hex } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
 import { accounts } from "../harness/runtime.ts";
@@ -204,6 +206,7 @@ test("a correction after completion supersedes one line, and the reader recomput
     });
     assert.equal(corrected.status, 200, JSON.stringify(corrected.value));
     assert.equal(corrected.value.revision, 2);
+    await c.at(c.now() + 1);
     const latest = (await c.result(a.ticket.body.ticketId)).value.body;
     assert.equal(latest.revision, 2);
     assert.equal(latest.unmeasuredCount, 1);
@@ -271,5 +274,109 @@ test("the reader refuses records whose manifest is missing or does not match", a
     assert.equal(mismatched?.grade, null);
   } finally {
     await c.dispose();
+  }
+});
+
+const opNonce = async (c: C) => (await c.state("operator", "op:nonce"))[0]?.value as number;
+
+test("a failed nonce allocation rolls back, so the operator's queue never skips a nonce", async () => {
+  const c = await community(evm, "records-allocation");
+  try {
+    const a = await start(c);
+    await payAll(c, a);
+    const result = await finish(c, a);
+    const before = await opNonce(c);
+    // The allocation fails after advancing the nonce, before its row and link are saved.
+    await c.fault("operator", "fault:fail-allocation", true);
+    assert.equal((await consent(a)).type, "consented");
+    await c.at(c.now() + 1);
+    assert.equal(await opNonce(c), before);
+    assert.deepEqual(
+      (await c.state("operator", "intent:record_open:")).map((r) => (r.value as { nonce: number | null }).nonce),
+      [null],
+    );
+    assert.deepEqual(await c.state("operator", `tx:${String(before).padStart(10, "0")}`), []);
+
+    await c.at(c.now() + 1);
+    const published = await read(result.attemptId);
+    assert.ok(published?.grade, JSON.stringify(published));
+    assert.deepEqual(await eventCounts(result.attemptId), { AttemptOpened: 1, LineAssessed: 4, AttemptCompleted: 1 });
+    const nonces = (await c.state("operator", "tx:")).map((r) => r.value as { nonce: number; mined: { status: string } | null });
+    assert.ok(nonces.every((row, i) => row.nonce === nonces[0].nonce + i && row.mined?.status === "success"));
+    const chainNonce = Number(BigInt((await evm.rpc("eth_getTransactionCount", [accounts[2].address, "latest"])) as string));
+    assert.equal(chainNonce, await opNonce(c));
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a delayed publisher cannot erase a correction saved after another publisher finished", async () => {
+  // An RPC proxy that holds the first completion receipt until released.
+  const completed = encodeEventTopics({ abi: recordsAbi, eventName: "AttemptCompleted" })[0];
+  let armed = false;
+  let held!: () => void;
+  const holding = new Promise<void>((resolve) => (held = resolve));
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  const proxy = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const text = await (
+      await fetch(evm.rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body })
+    ).text();
+    if (armed && JSON.parse(body).method === "eth_getTransactionReceipt") {
+      const receipt = JSON.parse(text).result as { logs: { topics: Hex[] }[] } | null;
+      if (receipt?.logs.some((log) => log.topics[0] === completed)) {
+        armed = false;
+        held();
+        await released;
+      }
+    }
+    res.setHeader("Content-Type", "application/json");
+    res.end(text);
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const port = (proxy.address() as { port: number }).port;
+  const c = await community({ ...evm, rpcUrl: `http://127.0.0.1:${port}` }, "records-stale");
+  try {
+    const a = await start(c);
+    assert.equal((await consent(a)).type, "consented");
+    await payAll(c, a);
+    await c.at(a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000) - 1);
+    a.socket.send({ type: "words", words: c.sung(a.manifest) });
+    a.socket.send({ type: "finish" });
+
+    // Publisher A finalizes and publishes, then waits on its completion receipt.
+    armed = true;
+    const first = c.at(c.now() + PAYMENT_GRACE_S);
+    await holding;
+    // Publisher B finds the completion mined and marks revision 1 published.
+    assert.equal((await post(c.runtime.mf, "operator", "/recover", {})).status, 200);
+    assert.deepEqual((await publication(c)).map((p) => [p.revision, p.state]), [[1, "published"]]);
+    const corrected = await post<{ revision: number }>(c.runtime.mf, "operator", "/__correct", {
+      ticketId: a.ticket.body.ticketId,
+      lineId: "line-02",
+      status: "unmeasured",
+      scoreBps: null,
+    });
+    assert.equal(corrected.status, 200, JSON.stringify(corrected.value));
+    assert.deepEqual((await publication(c)).map((p) => [p.revision, p.state]), [[2, "pending"]]);
+
+    // A resumes with revision 1 and must leave revision 2 pending.
+    release();
+    await first;
+    assert.deepEqual((await publication(c)).map((p) => [p.revision, p.state]), [[2, "pending"]]);
+    await c.at(c.now() + 1);
+    assert.deepEqual((await publication(c)).map((p) => [p.revision, p.state]), [[2, "published"]]);
+    const attemptId = (await c.result(a.ticket.body.ticketId)).value.body.attemptId;
+    const r = await read(attemptId);
+    assert.ok(r?.verified, JSON.stringify(r?.problems));
+    assert.deepEqual(r.completions.map((x) => x.revision), [1, 2]);
+    assert.deepEqual(r.grade?.lines.map((l) => [l.status, l.revision])[1], ["unmeasured", 2]);
+  } finally {
+    release();
+    await c.dispose();
+    await new Promise((resolve) => proxy.close(resolve));
   }
 });

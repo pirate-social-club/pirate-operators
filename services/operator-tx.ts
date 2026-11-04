@@ -90,25 +90,33 @@ export async function dispatch(env: Env, store: Store, kind: TxKind, ref: string
       const nonce = await pendingNonce(env.RPC_URL, privateKeyToAccount(env.PRIVATE_KEY).address);
       if (store.get("op:nonce") === undefined) store.set("op:nonce", nonce);
     }
-    // Synchronous: a concurrent dispatch that got here first already allocated.
-    intent = intentOf(store, kind, ref)!;
-    if (intent.nonce === null) {
+    // Local fault injection: fails the allocation after the nonce advances.
+    const failAllocation = store.get("fault:fail-allocation") === true;
+    if (failAllocation) store.delete("fault:fail-allocation");
+    // Synchronous, so a concurrent dispatch that got here first already
+    // allocated; and atomic, so the nonce never advances without its
+    // transaction row and the intent's link to it.
+    intent = store.transaction(() => {
+      const current = intentOf(store, kind, ref)!;
+      if (current.nonce !== null) return current;
       const nonce = store.get<number>("op:nonce")!;
       store.set("op:nonce", nonce + 1);
+      if (failAllocation) throw new Error("simulated_allocation_failure");
       store.set(txKey(nonce), {
         nonce,
         kind,
         ref,
         chainId: Number(env.PAYMENT_CHAIN_ID),
-        to: intent.to,
-        data: intent.data,
-        gas: intent.gas,
+        to: current.to,
+        data: current.data,
+        gas: current.gas,
         gasPrice: fee.toString(),
         mined: null,
       } satisfies TxRow);
-      intent = { ...intent, nonce };
-      store.set(intentKey(kind, ref), intent);
-    }
+      const allocated = { ...current, nonce };
+      store.set(intentKey(kind, ref), allocated);
+      return allocated;
+    });
   }
   const row = await signed(env, store, intent.nonce!);
   if (row.mined) return row;

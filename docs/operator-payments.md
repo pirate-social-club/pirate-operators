@@ -519,8 +519,10 @@ with an expired authorization means failed.
 Accepted work is persisted as a transaction intent, keyed by kind and
 reference, in the same synchronous step that records the redemption, before
 any RPC call. Ticket closures are intents too. Dispatching an intent
-allocates its nonce exactly once and stores the signed transaction before any
-broadcast. An RPC failure before allocation leaves the intent in place, and a
+allocates its nonce exactly once. Advancing the next nonce, writing that
+nonce's transaction row and linking the intent to it are one atomic storage
+transaction, so a failed write never leaves a nonce without its row. The
+signed transaction is stored before any broadcast. An RPC failure before allocation leaves the intent in place, and a
 retry of the same purchase or recovery dispatches it. The sender keeps one
 row per nonce. A transaction row stays
 tracked until its nonce is consumed on chain, even after its purchase has
@@ -530,7 +532,8 @@ every unresolved nonce. A redemption that has become moot then reverts
 harmlessly and consumes its nonce. Recovery never signs a new transaction for
 an allocated nonce, because a duplicate costs gas and a stuck nonce blocks
 every later submission from the operator's key. This is an ordinary durable
-queue and transaction sender; it needs no Durable Object.
+queue and transaction sender; it needs atomic multi-key writes, not a Durable
+Object.
 The operator pays redemption gas and prices it into its quote; batching
 redemptions is an optimization, not a requirement.
 

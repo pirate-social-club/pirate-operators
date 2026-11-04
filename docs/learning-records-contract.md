@@ -203,8 +203,16 @@ after the previous one is mined, and recovery never sends record intents
 itself, so their nonces stay in order. A write that reverts marks the
 publication `failed` with the stage that reverted.
 
+Several publishers can run at once, because a tick, a recovery and a socket
+message may all reach the same attempt. A publisher ends its publication,
+`published` or `failed`, only if the stored publication is still the revision
+it started with and still pending. A publisher that resumes after a slow
+receipt therefore cannot overwrite a correction saved in the meantime.
+
 A correction is a new signed result revision, checked by the same verifier as
-the original. It publishes a final correction for the changed line, then a new
+the original. It is accepted only once the previous revision is published. The
+new result and its pending publication are saved in one transaction, and the
+following ticks publish a final correction for the changed line, then a new
 completion. The local skeleton exposes corrections only at `/__correct`, a
 local control route like `/__fault`. A production correction needs an
 authenticated operator path, which does not exist yet.
