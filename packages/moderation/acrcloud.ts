@@ -120,6 +120,8 @@ export function parseAcrResponse(response: ProviderResponse): AcrResult {
       kind: string;
       record: Record<string, unknown>;
     }[] = [];
+  const seen = new Set<string>();
+  let excluded = 0;
   for (const kind of ["music", "custom_files"]) {
     const values = metadata[kind] ?? [];
     insist(
@@ -131,28 +133,36 @@ export function parseAcrResponse(response: ProviderResponse): AcrResult {
       const record = object(value),
         id = text(record.acrid, 128);
       insist(id.length > 0, "acrcloud_invalid_match", 503);
+      insist(!seen.has(id), "acrcloud_duplicate_match", 503);
+      seen.add(id);
       const custom =
         record.user_defined === undefined || record.user_defined === null
           ? {}
           : object(record.user_defined);
+      insist(
+        custom.content_type === undefined ||
+          typeof custom.content_type === "string",
+        "acrcloud_invalid_match",
+        503,
+      );
       // Preserve the reviewed retained-reference rule: excluded video_audio
       // candidates do not turn a music upload into an identified reference.
-      if (custom.content_type === "video_audio") continue;
+      if (custom.content_type === "video_audio") {
+        excluded++;
+        continue;
+      }
       candidates.push({ id, kind, record });
     }
   }
-  insist(
-    new Set(candidates.map((c) => c.id)).size === candidates.length,
-    "acrcloud_duplicate_match",
-    503,
-  );
   const match = candidates[0];
-  if (!match)
+  if (!match) {
+    insist(excluded > 0, "acrcloud_success_without_candidates", 503);
     return {
       code: 1001,
       providerId: response.requestId ?? hashText(response.body),
       details: { ...details, allCandidatesExcluded: true },
     };
+  }
   details.match = {
     id: match.id,
     kind: match.kind,

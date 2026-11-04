@@ -137,6 +137,34 @@ test("ACR sends one fixed-region signed raw MP3 request and retains its response
 });
 
 test("ACR preserves matches, exclusions and inconclusive results without treating provider failure as no-match", () => {
+  for (const metadata of [
+    {},
+    { music: [] },
+    { custom_files: [] },
+    { unsupported_provider_kind: [{ acrid: "unknown" }] },
+  ]) {
+    assert.throws(
+      () => parseAcrResponse(response({ status: { code: 0 }, metadata })),
+      /acrcloud_success_without_candidates/,
+    );
+  }
+  assert.equal(
+    parseAcrResponse(
+      response({
+        status: { code: 0 },
+        metadata: {
+          custom_files: [
+            {
+              acrid: "excluded-video",
+              user_defined: { content_type: "video_audio" },
+            },
+          ],
+          music: [{ acrid: "retained-song" }],
+        },
+      }),
+    ).code,
+    0,
+  );
   assert.equal(
     parseAcrResponse(response({ status: { code: 2004 } })).code,
     2004,
