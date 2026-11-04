@@ -34,6 +34,7 @@ export interface ProviderCall {
     | "lyrics_classification";
   request: Record<string, unknown>;
   budgets: BudgetKey[];
+  authorize(): Promise<void>;
   // Receipt persistence must finish before parsing or returning the response.
   send(
     received: (response: ProviderResponse) => Promise<void>,
@@ -88,6 +89,7 @@ export async function journaledProviderCall(
     return object(JSON.parse(row.result_json));
   }
   if (row.state === "planned") {
+    await call.authorize();
     await reserveBudget(db, id, requestHash, call.budgets, "1");
     const execution = token();
     const claimed = await db

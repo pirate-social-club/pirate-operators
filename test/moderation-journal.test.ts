@@ -47,6 +47,7 @@ async function fixture() {
     let sends = 0,
       time = 1000;
     const call: ProviderCall = {
+      async authorize() {}, // Explicit simulated current-authority fixture.
       kind: "acr_primary",
       request: { audioHash: hashText("fixture-source") },
       budgets,

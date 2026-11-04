@@ -52,3 +52,25 @@ duplicate wakeups, each persisted interruption boundary and unresolved provider
 results. These tests establish storage/orchestration behavior. Live managed
 moderation, actual registration/publication and browser playback have separate
 acceptance evidence.
+
+The managed processor has a server-to-server HTTP boundary, a private D1
+admission journal and private R2 input and sample retention. Every action
+requires a publisher signature and a fresh canonical configuration check under
+the independently configured community pairing. Before each new provider
+purchase, it checks current authority again. Inputs are bounded capabilities
+on the paired community origin and are verified by SHA-256 and byte length.
+Renewing their transport tokens preserves the immutable job inputs.
+
+Provider calls reserve both service and community request quotas and durably
+enter running before sending once. Raw responses are retained before parsing;
+recovery interprets those receipts without repurchasing them. An unknown send
+retains its reservation and remains uncertain through authenticated resumes.
+Held work may be explicitly resumed to recheck readiness, with all retained
+provider intents and receipts preserved. Quotas count provider requests, not
+currency; the selected classifier also has a fixed output-token bound.
+
+The processor's local composition tests exercise actual HTTP authorization,
+D1, R2, MP3 extraction, provider receipt handling, signatures and the release
+gate with explicit simulated providers. They establish admission, rejection,
+holds, capability renewal, changed-authority refusal and uncertain-response
+recovery. They do not establish live provider acceptance or service deployment.
