@@ -23,7 +23,9 @@ stores it immutably. Deployment acceptance must verify that address and its
 reviewed bytecode/profile; code presence does not prove the intended interface.
 Neither constructor creates an account, deploys a registry, funds gas or enables
 any rewards. The application target remains MegaETH testnet 6343; tests use the
-local chain. This slice includes no deployment script or public-chain operation.
+local chain. This slice includes no deployment script or public-chain write. The
+separate [Safe code observation](governance-accounts.md#testnet-code-observation)
+is read-only evidence about candidate governance infrastructure.
 
 ## On-chain enforcement
 
@@ -63,13 +65,15 @@ the latest on-chain revision. The replacement publisher restores content by
 appending to that counter. The event-reduction tests in this PR establish raw
 state reconstruction, not this manifest-aware recovery projection.
 
-An EOA controller is acceptable for labelled testnet bootstrap, but has no
+An EOA controller is acceptable for testnet first-song completion, but has no
 protocol recovery after unrecoverable key loss or takeover. The wizard must
-track a handoff to a demonstrably recoverable account before declaring
-controller setup complete. Code presence or a wallet brand does not prove that
-property. A new registry/communityId is the per-community replacement route
+track a handoff and require verified recovery before mainnet or real-user
+onboarding, separately from testnet completion. Code presence or a wallet brand
+does not prove that property. A new registry/communityId is the per-community replacement route
 within the current shared deployment, with no automatic post/streak migration.
-See the [bootstrap and recovery requirements](community-directory.md#operator-bootstrap-and-moss-acceptance).
+See the [bootstrap and recovery requirements](community-directory.md#operator-bootstrap-and-recovery)
+and [Safe candidate](governance-accounts.md). Pin and verify every config body
+before its transaction under the [publication lifecycle](community-directory.md#configuration-publication-lifecycle).
 No ABI or runtime change is implied by these operational requirements.
 
 ## Reference profile

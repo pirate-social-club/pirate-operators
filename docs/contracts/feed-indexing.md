@@ -98,6 +98,13 @@ Expose confirmation/rollback state rather than treating an orphaned rotation as
 completed recovery. A missing historical manifest prevents a trusted replay;
 retain and replicate these public config bodies, not just their current URI.
 
+The [configuration publication lifecycle](community-directory.md#configuration-publication-lifecycle)
+requires pinning and verified consumer-path retrieval before each config-changing
+transaction, with a fresh check before transfer acceptance. This also applies to
+routine publisher rotations or contract-address additions. Preflight reduces
+avoidable feed outages; it does not allow a reader to skip validation or serve
+stale policy when a previously available body disappears.
+
 Two independent feed reducers must agree at the same canonical head, current
 policy revision and confirmation policy on quarantined revisions and displayed
 content. Test duplicate/out-of-order delivery, a revocation published long after

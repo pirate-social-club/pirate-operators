@@ -113,6 +113,8 @@ This procedure assumes the community controller remains trusted and usable.
 It requires no new ABI: the controller's `configure` transaction both replaces
 the publisher and commits a JCS config manifest containing the cumulative
 `publisherRevocations` array defined in the [directory spec](community-directory.md).
+Pin, retrieve and verify that config before submitting the rotation, following
+the [configuration publication lifecycle](community-directory.md#configuration-publication-lifecycle).
 Use a different publisher account address. Rotating a signer inside the same
 publisher address does not end an address-based revocation. Refresh namespace
 verification separately because any configuration change stales it.

@@ -76,6 +76,47 @@ claim that an account can recover after every recovery credential is lost.
 The interface defines no Pirate override of community control and no
 lost-community-key recovery bypass.
 
+## Configuration publication lifecycle
+
+Pin and verify configuration manifests before publishing their references, just
+as for [post manifests](media-publication.md). This applies to initial
+`registerCommunity`, every `configure` (including routine address changes and
+incident rotation), and `acceptControllerTransfer`. A missing current config
+withholds the community's whole compliant feed, not just one post.
+
+The operator service first reads canonical directory state and prepares the exact
+next configuration. Validate the complete schema, chain/community identity,
+controller/publisher and contract addresses, plus cumulative revocations against
+the retained canonical history. Serialize JCS once, compute SHA-256 over those
+exact bytes, and durably pin the immutable IPFS object. Confirm pin completion,
+then retrieve through the configured consumer retrieval path and verify the CID,
+exact byte digest, schema and chain bindings. An upload response or a hash of
+local bytes alone is insufficient. Retain the CID, digest, pin status and
+retrieval result with the publication job; never record private credentials.
+
+Only then submit the matching URI/hash and expected revision. Reconcile canonical
+state immediately before submission. If a concurrent change invalidates the
+prepared configuration, rebuild and repeat validation rather than updating only
+the expected revision. A failed pin, unavailable body or mismatch holds the
+transaction for retry; incident urgency does not bypass this order.
+
+For a transfer, complete the same preparation before `proposeControllerTransfer`
+so the receiving account can review the exact committed body. Before acceptance,
+the receiving account's client independently retrieves and verifies that same
+URI/hash and checks the live proposal ID, base revision, expiry and full
+configuration hash. Do not rely on the proposer's earlier availability check.
+If content cannot be verified, do not accept. Changed bytes or configuration
+require a replacement proposal; they cannot be substituted under the old ID.
+
+Keep current and historical config objects pinned and available for replay;
+rotation or transfer must not unpin the previous revision. Monitor availability
+and retry verified retrieval through another configured IPFS gateway as needed.
+A successful preflight is point-in-time evidence, not a perpetual availability
+guarantee. If content later disappears, the feed still follows its fail-closed
+policy until verified retrieval succeeds. These are service/client acceptance
+requirements; the directory cannot fetch JSON, and this PR adds no uploader,
+availability monitor or manifest validator.
+
 ## Authorization and replay protection
 
 The current `registry.admin()` registers its own entry by an account transaction.
@@ -135,16 +176,18 @@ it does not increment the revision again. A repeated raw contract call reverts
 on its consumed revision/registration/proposal. Uncertain receipts remain pending
 until reconciled against canonical state.
 
-## Operator bootstrap and MOSS acceptance
+## Operator bootstrap and recovery
 
 The registry admin and community controller need not be MOSS accounts. V1
 supports an ordinary operator EOA making testnet bootstrap transactions with
 its own bounded gas budget. Treat that account as temporary: the wizard must
-track handoff to a controller account with demonstrated independent recovery,
-not describe it as an optional later improvement. MOSS is suitable only if the
-selected account profile passes that recovery acceptance; successful execution
-or code presence alone is insufficient. The receiving account must execute
-acceptance. Keep the EOA controller until acceptance is confirmed; a failed
+track handoff to a controller account with demonstrated independent recovery
+before mainnet or real-user onboarding. Testnet first-song acceptance can count
+with the EOA; recovery readiness is a separate tracked result. A
+[Safe governance account](governance-accounts.md) is another candidate alongside
+MOSS. Each selected profile must pass its own recovery acceptance; successful
+execution or code presence alone is insufficient. The receiving account must
+execute acceptance. Keep the EOA controller until acceptance is confirmed; a failed
 initialization or expired proposal must not surrender control. Registry-admin transfer, publisher changes
 and community-controller transfer are separate authorities; transferring this
 directory entry alone does not move the registry admin or service credentials.
@@ -169,8 +212,9 @@ or streak migration. Any successor link or migration needs its own explicit
 policy and authority checks. Replacing shared contracts is a different deployment
 migration, not a per-community recovery override.
 
-The wizard may allow an explicitly labelled EOA testnet rehearsal without
-waiting for MOSS readiness, while showing controller recovery as incomplete.
+The wizard may complete the testnet first-song milestone with an EOA without
+waiting for MOSS or Safe recovery acceptance. Its receipt must identify testnet,
+the controller address/type and incomplete recovery; it is not production readiness.
 Its controller step must track `bootstrap-only`, `handoff-proposed`,
 `acceptance-pending`, `recovery-pending` and `recovery-verified`. Save the target account/profile,
 proposal ID, base revision, expiry and transaction receipts without secrets.
@@ -190,15 +234,18 @@ unless the account profile establishes it. Merely rotating a
 still-accessible signer, simulating a call, possessing a second copy of the same
 key or enrolling a passkey does not prove independent recovery.
 
-Recovery-verified is required for declaring the controller setup complete.
-Ordinary HTTPS provisioning and labelled testnet first-song rehearsal can
-proceed independently, but must not be presented as recoverable community
-setup. Loss of every recovery credential remains outside the guarantee. This
-is a wizard acceptance requirement, not a new on-chain controller-type check.
+Recovery-verified is required before mainnet or real-user onboarding, not for
+the testnet first-song completion result. Track it separately from publication
+and playback acceptance so an EOA test run can pass without being described as
+recoverable setup. A pending recovery step remains visible after that run.
+Loss of every recovery credential remains outside the guarantee. This is a
+wizard acceptance requirement, not a new on-chain controller-type check.
 This describes the contract integration path, not a proven first-song journey:
 the directory/posts have local implementations, but the real wizard transaction
 flow still needs acceptance. It does not replace MOSS as the selected ordinary participant
 wallet or the separate Sui/Ika creator activation flow.
+
+### MOSS-specific acceptance
 
 The November 4 MOSS test account's first transaction was not demonstrated: it
 held ETH but no USDm, while the inspected CLI defaulted to USDm fees. Before
@@ -287,3 +334,11 @@ when a proposed MOSS transfer fails or expires, then acceptance by the correctly
 initialized receiving account. MOSS acceptance is the actual empty-account flow above;
 an ECDSA fixture or a successful compile is not that test. HNS authority and
 browser/gateway acceptance require the independent verifier integration.
+
+Service acceptance must also prove that failed pinning, unavailable retrieval,
+hash/schema mismatch and a stale configuration prevent registration/configure
+submission. Exercise transfer content becoming unavailable between proposal and
+acceptance, replacement of a changed proposal, retained historical pins and a
+routine address update whose config becomes unavailable after submission. The
+last case must withhold the feed until verified retrieval succeeds. These checks
+are not covered by the existing Solidity suite.

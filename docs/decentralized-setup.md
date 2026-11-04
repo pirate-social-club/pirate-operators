@@ -1,12 +1,12 @@
 # Community setup to first song
 
-Owner direction, 2026-11-04: the first milestone is an operator bringing a
+Product direction, 2026-11-04: the full setup path is an operator bringing a
 community online at app.tld, appearing in Pirate's community directory and
 posting its first song. Sponsored customer name purchases are lower priority.
 Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
 source of service secrets. These are requirements, not optional tooling choices.
 
-The wizard is not implemented. Existing pieces are the testnet HNS name
+This branch does not implement the wizard. Existing pieces are the testnet HNS name
 registry, local operator services and a fixture static client. The maintained
 centralized HNS gateway also has prior phone acceptance; its new-registry
 adapter and repeatable community setup are not built. The sequence
@@ -18,8 +18,12 @@ infrastructure as an explicit part of the decentralized community product.
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
 community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
 HNS configuration and verification are an optional follow-up for that slice.
-This deferral adds no HNS prerequisite to wizard v1. The broader first-song
-and native-address acceptance requirements below retain their own scope. Native
+The testnet first-song milestone can count with a genuine unverified test
+registry, ordinary HTTPS and an EOA controller. Real admission, registration,
+interrupted resume and playback after reload are still required. HNS verification
+gates Pirate discovery; discovery and app.tld browser acceptance below are
+separate follow-ups. Controller recovery is tracked separately and must be
+verified before mainnet or real-user onboarding. Native
 Spaces community bindings, handle resolution/issuance and their deployment
 integration are later work, not first-song acceptance gates. The current
 HNS-specific registry/directory design need not be generalized for Spaces to
@@ -68,19 +72,23 @@ existing work instead of duplicating deployments, jobs or transfers.
 
 Operator login is part of posting. It does not require proving customer name
 buying, deploying a MOSS gas sponsor or completing a rewarded Telegram journey.
-The first operator can pay its own bounded setup gas. An ordinary EOA may be
-the registry admin for explicitly labelled testnet bootstrap. The wizard must
-track the required handoff to an account with demonstrated independent recovery;
+The testnet setup uses the separately scoped capped operator gas budget. An
+ordinary EOA may be the registry admin and controller for first-song acceptance.
+The wizard must track the required handoff to an account with demonstrated
+independent recovery before mainnet or real-user onboarding;
 EOA key loss or takeover has no registry-admin or Pirate recovery override.
 Use bootstrap-only, handoff-proposed, acceptance-pending, recovery-pending and
 recovery-verified states, reconciling proposal expiry and canonical receipts
 on resume. An accepted handoff with an outstanding recovery check remains
-incomplete, with the new account already controlling the entry. Do not
-mark controller setup complete before acceptance and the real recovery check.
-HTTPS provisioning and labelled first-song rehearsal may proceed while this
-step is pending. MOSS first-transaction funding, execution and the selected
-account's recovery path must each be proven; an ETH balance or account code
-is not that proof. See the [directory bootstrap boundary](contracts/community-directory.md).
+recovery-pending, with the new account already controlling the entry. Record
+testnet first-song completion independently of that recovery status; an EOA run
+can count and must show the controller address/type and outstanding handoff.
+Verified recovery is a prerequisite for mainnet or real-user onboarding.
+[Safe governance accounts](contracts/governance-accounts.md) offer another
+candidate alongside MOSS, subject to actual account acceptance. If MOSS is used,
+its first-transaction funding, execution and recovery must each be proven; an
+ETH balance or account code is not that proof. See the
+[directory bootstrap boundary](contracts/community-directory.md#operator-bootstrap-and-recovery).
 These are proposed integration requirements, not completed directory/wizard
 acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.

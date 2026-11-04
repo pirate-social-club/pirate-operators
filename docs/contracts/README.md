@@ -30,9 +30,12 @@ There must remain one current config revision, not competing policy pointers
 owned by Pirate and the community. Delisting changes discovery only.
 Controller-authorized publisher revocations in that manifest govern feed
 quarantine after compromise; rotation alone does not repair forged revisions.
-EOA control is temporary testnet bootstrap, with a tracked handoff to an account
-whose recovery is proven before controller setup is declared complete. Neither
-rule adds an on-chain recovery override or automatic history migration.
+Every config body must be pinned, retrieved and verified before its transaction.
+An EOA controller can complete the testnet first-song milestone, with a tracked
+handoff and verified recovery required before mainnet or real-user onboarding.
+[Safe](governance-accounts.md) is a candidate alongside MOSS; account acceptance
+remains separate from code verification. These rules add no on-chain recovery
+override or automatic history migration.
 
 ## Content and read path
 
@@ -70,12 +73,13 @@ ordinary HTTPS; HNS is an optional follow-up for that slice and Spaces is
 post-MVP. An EOA operator can bootstrap the directory without waiting for a
 MOSS first transaction. These are integration paths, not acceptance already run.
 
-The broader first-song milestone still requires verified directory discovery,
-app.tld login, interrupted resume and one real admitted song playing after
-reload under the setup plan. Independent unverified publication and ordinary
-HTTPS provisioning do not by themselves prove that broader milestone. Admission
-means real pre-publication evidence and the publication gate, not a new
-moderator dashboard.
+The first-song testnet milestone uses a genuine unverified test registry and
+ordinary HTTPS, with real admission, registration, interrupted resume and a
+song that plays after reload. HNS verification gates Pirate discovery; verified
+discovery and app.tld browser acceptance remain separate follow-ups under the
+setup plan. EOA control does not downgrade a successful test run to a rehearsal,
+but its receipt must show incomplete recovery. Admission means real
+pre-publication evidence and the publication gate, not a new moderator dashboard.
 
 Then implement LearningRecords with actual graders, learner consent, an accepted
 public-identity policy and the agreed shared learning clock. Its manifest
