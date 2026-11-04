@@ -10,6 +10,11 @@ export interface AsyncStore {
   /** Deletes and returns in one statement, so only one caller can consume a value. */
   take<T>(key: string): Promise<T | undefined>;
   insertIfAbsent(key: string, value: unknown): Promise<boolean>;
+  /**
+   * Inserts only while fewer than `limit` keys share `prefix`, in one
+   * statement, so the count check and the insert cannot be separated.
+   */
+  insertIfCountBelow(key: string, value: unknown, prefix: string, limit: number): Promise<boolean>;
   /** Applies `next` with compare-and-set on the stored text, retrying on races. */
   update<T>(key: string, next: (current: T | undefined) => T): Promise<T>;
   entries(prefix: string): Promise<{ key: string; value: unknown }[]>;
@@ -67,6 +72,16 @@ export class D1Store implements AsyncStore {
       .run();
     return result.meta.changes === 1;
   }
+  async insertIfCountBelow(key: string, value: unknown, prefix: string, limit: number) {
+    await this.init();
+    const result = await this.db
+      .prepare(
+        "INSERT INTO records (key, value) SELECT ?1, ?2 WHERE (SELECT COUNT(*) FROM records WHERE substr(key, 1, length(?3)) = ?3) < ?4 ON CONFLICT(key) DO NOTHING",
+      )
+      .bind(key, JSON.stringify(value), prefix, limit)
+      .run();
+    return result.meta.changes === 1;
+  }
   async update<T>(key: string, next: (current: T | undefined) => T) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const before = await this.raw(key);
@@ -89,8 +104,9 @@ export class D1Store implements AsyncStore {
   async entries(prefix: string) {
     await this.init();
     const rows = await this.db
-      .prepare("SELECT key, value FROM records WHERE key LIKE ? ORDER BY key")
-      .bind(`${prefix}%`)
+      // Prefix match without LIKE: D1 refuses long LIKE patterns.
+      .prepare("SELECT key, value FROM records WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key")
+      .bind(prefix)
       .all<{ key: string; value: string }>();
     return rows.results.map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
   }

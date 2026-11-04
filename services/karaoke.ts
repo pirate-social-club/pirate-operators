@@ -23,13 +23,12 @@ import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import { resultBody, type Attempt } from "./karaoke-result.ts";
 import {
   acceptPurchase,
-  closeNonceOf,
   closeTicketData,
   operatorQuote,
   reconcile,
   redemptionRow,
 } from "./purchases.ts";
-import { recoverTransactions, refresh, send } from "./operator-tx.ts";
+import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
 const load = (store: Store, ticketId: string) => {
@@ -79,40 +78,27 @@ function settle(store: Store, env: Env, ticketId: string) {
     const due = events.filter(([at]) => at <= now).sort((a, b) => a[0] - b[0])[0];
     if (due) end(attempt, due[0], due[1]);
   }
-  if (attempt.ended && now >= attempt.ended.paymentDeadline)
-    attempt.closing = { submitting: false, nonce: null, block: null };
+  if (attempt.ended && now >= attempt.ended.paymentDeadline) attempt.closing = { block: null };
   store.set(`attempt:${ticketId}`, attempt);
   return attempt;
 }
 
 /** Closes the ticket on chain, reconciles at the closure block, then signs. */
 async function advance(env: Env, store: Store, ticketId: string) {
-  let attempt = settle(store, env, ticketId);
+  const attempt = settle(store, env, ticketId);
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
   if (!ticket || !manifest) return;
-  if (attempt.closing.nonce === null) {
-    const adopted = closeNonceOf(store, ticketId);
-    if (adopted !== null) attempt.closing.nonce = adopted;
-    else if (!attempt.closing.submitting) {
-      attempt.closing.submitting = true;
-      store.set(`attempt:${ticketId}`, attempt);
-      const quote = operatorQuote(env);
-      const { nonce } = await send(
-        env,
-        store,
-        "close",
-        ticketId,
-        quote.payments,
-        closeTicketData(ticket.community, ticket.ticketId),
-        100_000n,
-      );
-      attempt = store.get<Attempt>(`attempt:${ticketId}`)!;
-      attempt.closing!.nonce = nonce;
-    } else return;
-    store.set(`attempt:${ticketId}`, attempt);
-  }
-  const close = await refresh(env, store, attempt.closing!.nonce!);
+  // The closure is an intent like any redemption: persisted first, sent once.
+  enqueue(
+    store,
+    "close",
+    ticketId,
+    operatorQuote(env).payments,
+    closeTicketData(ticket.community, ticket.ticketId),
+    100_000n,
+  );
+  const close = await dispatch(env, store, "close", ticketId);
   if (!close?.mined) return;
   check(close.mined.status === "success", "closure_reverted");
   const block = close.mined.block;
@@ -147,13 +133,6 @@ export async function tick(env: Env, store: Store) {
 /** Recovers unresolved nonces first, so closures behind them can execute. */
 export async function recover(env: Env, store: Store) {
   const transactions = await recoverTransactions(env, store);
-  for (const { key, value } of store.entries("attempt:")) {
-    const attempt = value as Attempt;
-    // A closure that failed before its transaction row existed is retried.
-    if (attempt.closing?.submitting && attempt.closing.nonce === null)
-      if (closeNonceOf(store, key.slice("attempt:".length)) === null)
-        store.set(key, { ...attempt, closing: { ...attempt.closing, submitting: false } });
-  }
   await tick(env, store);
   return transactions;
 }
@@ -224,8 +203,12 @@ export async function karaokeRoute(
   check(!attempt?.ended, "attempt_closed");
   check(request.headers.get("Upgrade")?.toLowerCase() === "websocket", "upgrade_required");
   const resumed = attempt !== undefined;
+  // Only the newest connection is live: older sockets for this ticket close,
+  // and their later messages or close events are ignored.
+  const generation = (attempt?.generation ?? 0) + 1;
+  for (const old of ctx.getWebSockets(ticketId)) old.close(4409, "superseded");
   const next: Attempt = attempt
-    ? { ...attempt, connected: true, disconnectedAt: null }
+    ? { ...attempt, connected: true, disconnectedAt: null, generation }
     : {
         ticketId: ticket.ticketId,
         attemptId: digest(ticket.ticketId),
@@ -237,6 +220,7 @@ export async function karaokeRoute(
         ended: null,
         closing: null,
         finalized: false,
+        generation,
       };
   store.set(`attempt:${ticketId}`, next);
   if (!resumed)
@@ -250,8 +234,8 @@ export async function karaokeRoute(
       ),
     );
   const pair = new WebSocketPair();
-  pair[1].serializeAttachment({ ticketId });
-  ctx.acceptWebSocket(pair[1]);
+  pair[1].serializeAttachment({ ticketId, generation });
+  ctx.acceptWebSocket(pair[1], [ticketId]);
   pair[1].send(
     JSON.stringify({
       type: "ready",
@@ -269,7 +253,14 @@ type Frame =
   | { type: "provider_failed"; lineIds: string[] }
   | { type: "finish" };
 export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: Store) {
-  const { ticketId } = ws.deserializeAttachment() as { ticketId: string };
+  const { ticketId, generation } = ws.deserializeAttachment() as {
+    ticketId: string;
+    generation: number;
+  };
+  if (store.get<Attempt>(`attempt:${ticketId}`)?.generation !== generation) {
+    ws.send(JSON.stringify({ type: "error", code: "stale_connection" }));
+    return;
+  }
   await advance(env, store, ticketId);
   if (frame.type === "purchase") {
     try {
@@ -314,9 +305,13 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
   store.set(`attempt:${ticketId}`, attempt);
 }
 export function onClose(ws: WebSocket, store: Store) {
-  const { ticketId } = (ws.deserializeAttachment() ?? {}) as { ticketId?: string };
+  const { ticketId, generation } = (ws.deserializeAttachment() ?? {}) as {
+    ticketId?: string;
+    generation?: number;
+  };
   const attempt = ticketId ? store.get<Attempt>(`attempt:${ticketId}`) : undefined;
-  if (attempt && !attempt.ended) {
+  // A superseded socket closing never disconnects its replacement.
+  if (attempt && !attempt.ended && attempt.generation === generation) {
     attempt.connected = false;
     attempt.disconnectedAt = store.now();
     store.set(`attempt:${ticketId}`, attempt);

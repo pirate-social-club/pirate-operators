@@ -28,7 +28,7 @@ import {
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
 import { getLogs, readPayments } from "./chain.ts";
-import { refresh, send } from "./operator-tx.ts";
+import { dispatch, enqueue, intentOf, refresh } from "./operator-tx.ts";
 import type { Env, Store } from "./runtime.ts";
 
 export function operatorQuote(env: Env): OperatorQuote {
@@ -55,7 +55,6 @@ export interface RedemptionRow {
   purchase: Purchase;
   signature: Hex;
   state: "submitted" | "confirmed" | "already_paid" | "failed";
-  nonce: number | null;
   segmentId: string | null;
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -75,7 +74,8 @@ async function resolve(env: Env, store: Store, unit: Hex) {
     row.purchase.community,
     unit,
   ]);
-  const tx = row.nonce === null ? undefined : await refresh(env, store, row.nonce);
+  const intent = intentOf(store, "redeem", unit);
+  const tx = intent?.nonce == null ? undefined : await refresh(env, store, intent.nonce);
   const state: RedemptionRow["state"] =
     onChain === row.digest
       ? "confirmed"
@@ -167,6 +167,10 @@ export async function acceptPurchase(
   const existing = redemptionRow(store, p.unit);
   if (existing) {
     check(existing.digest === digest, "already_paid");
+    // A retry pushes accepted work forward, including an intent that an RPC
+    // failure left without a nonce.
+    if (existing.state === "submitted")
+      await dispatch(env, store, "redeem", p.unit).catch(() => undefined);
     return outcome(await resolve(env, store, p.unit));
   }
   const onChain = await readPayments<Hex>(env.RPC_URL, quote.payments, "redemption", [
@@ -200,12 +204,11 @@ export async function acceptPurchase(
     purchase: p,
     signature: input.signature,
     state: onChain === digest ? "confirmed" : "submitted",
-    nonce: null,
     segmentId,
   } satisfies RedemptionRow);
-  if (onChain === ZERO_BYTES32) {
-    const { nonce } = await send(
-      env,
+  // Persisted in the same synchronous step as the row, before any RPC call.
+  if (onChain === ZERO_BYTES32)
+    enqueue(
       store,
       "redeem",
       p.unit,
@@ -217,21 +220,12 @@ export async function acceptPurchase(
       }),
       300_000n,
     );
-    store.set(key, { ...redemptionRow(store, p.unit)!, nonce });
-  }
+  if (onChain === ZERO_BYTES32) await dispatch(env, store, "redeem", p.unit);
   return outcome(await resolve(env, store, p.unit));
 }
 
 export const closeTicketData = (community: Address, ticketId: Hex) =>
   encodeFunctionData({ abi: paymentsAbi, functionName: "closeTicket", args: [community, ticketId] });
-export const closeNonceOf = (store: Store, ticketId: string) => {
-  for (const { value } of store.entries("tx:")) {
-    const row = value as { kind: string; ref: string; nonce: number };
-    if (row.kind === "close" && row.ref === ticketId) return row.nonce;
-  }
-  return null;
-};
-
 /**
  * Reconciles every segment from contract state at the closure block: a
  * segment is paid when its stored digest matches a Purchased event that names

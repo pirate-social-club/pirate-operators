@@ -2,6 +2,8 @@
 // OperatorPayments redemptions, the community on D1, the operator's queue.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { privateKeyToAccount } from "viem/accounts";
 import { accounts, keys } from "../harness/runtime.ts";
 import { openAttempt, type Attempt } from "../harness/karaoke-client.ts";
@@ -332,11 +334,132 @@ test("withheld lines carry no score, the reward score counts them as zero, and u
       post(c.runtime.mf, "community", "/qualify", { result: signed }, a.session),
     );
     assert.equal(qualified.status, 200, JSON.stringify(qualified.value));
-    const wallet = (await c.state("community", `wallet:${accounts[5].address}`))[0].value as {
-      usage: string;
-      openTicket: string | null;
-    };
-    assert.deepEqual(wallet, { ...wallet, usage: "3000", openTicket: null });
+    const wallet = (await c.state("community", `wallet:${accounts[5].address}`))[0].value;
+    assert.deepEqual(wallet, { usage: "3000", sequence: 1, open: null });
+  } finally {
+    await c.dispose();
+  }
+});
+
+// Regressions from the d635d46 review: interrupted writes, RPC failure before
+// nonce allocation, and a superseded socket closing.
+const abortWrites = async (c: C, name: string, when: string) => {
+  const db = await c.runtime.mf.getD1Database("DB", "community");
+  await db
+    .prepare(`CREATE TRIGGER ${name} ${when} BEGIN SELECT RAISE(ABORT, 'test_storage_failure'); END`)
+    .run();
+  return () => db.prepare(`DROP TRIGGER ${name}`).run();
+};
+type WalletRow = { usage: string; open: { ticketId: string } | null };
+const walletOf = async (c: C) =>
+  (await c.state("community", `wallet:${accounts[5].address}`))[0].value as WalletRow;
+
+test("an interrupted ticket write is retried into the same ticket without a second reservation", async () => {
+  const c = await community(evm, "ticket-write");
+  try {
+    const session = await c.signIn();
+    const song = await c.publish(session);
+    const restore = await abortWrites(c, "abort_ticket", "BEFORE INSERT ON records WHEN NEW.key LIKE 'ticket:%'");
+    assert.equal((await c.ticket(session, song.songHash)).status, 400);
+    await restore();
+    const retry = await c.ticket(session, song.songHash);
+    assert.equal(retry.status, 200, JSON.stringify(retry.value));
+    const wallet = await walletOf(c);
+    assert.deepEqual([wallet.usage, wallet.open?.ticketId], ["4000", retry.value.body.ticketId]);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("an interrupted purchase insert consumes no purchase slot", async () => {
+  const c = await community(evm, "purchase-write");
+  try {
+    const a = await c.attempt();
+    const restore = await abortWrites(c, "abort_purchase", "BEFORE INSERT ON records WHEN NEW.key LIKE 'purchase:%'");
+    assert.equal((await c.purchase(a.session, a.ticket.body.ticketId, "seg-01", a.start)).status, 400);
+    await restore();
+    await payAll(c, a);
+    const rows = await c.state("community", `purchase:${a.ticket.body.ticketId}:`);
+    assert.equal(rows.length, 4);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("an interrupted settlement runs again and releases the unused reservation once", async () => {
+  const c = await community(evm, "settle-write");
+  try {
+    const a = await c.attempt();
+    await payAll(c, a, ["seg-02"]);
+    await finish(c, a);
+    const signed = (await c.result(a.ticket.body.ticketId)).value;
+    const { post } = await import("../harness/karaoke-client.ts");
+    const restore = await abortWrites(c, "abort_settle", "BEFORE UPDATE ON records WHEN NEW.key LIKE 'wallet:%'");
+    assert.equal((await post(c.runtime.mf, "community", "/qualify", { result: signed }, a.session)).status, 400);
+    assert.deepEqual([(await walletOf(c)).usage], ["4000"]);
+    await restore();
+    const qualified = await post(c.runtime.mf, "community", "/qualify", { result: signed }, a.session);
+    assert.equal(qualified.status, 200, JSON.stringify(qualified.value));
+    assert.deepEqual(await walletOf(c), { usage: "3000", sequence: 1, open: null } as WalletRow);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("an RPC failure before nonce allocation leaves an intent that the retry sends once", async () => {
+  let failGasPrice = false;
+  const proxy = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const text = Buffer.concat(chunks).toString();
+    const value = JSON.parse(text) as { id: number; method: string };
+    res.setHeader("Content-Type", "application/json");
+    if (failGasPrice && value.method === "eth_gasPrice") {
+      failGasPrice = false;
+      res.end(JSON.stringify({ jsonrpc: "2.0", id: value.id, error: { code: -32000, message: "test_rpc_failure" } }));
+      return;
+    }
+    const answer = await fetch(evm.rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+    res.end(await answer.text());
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const port = (proxy.address() as { port: number }).port;
+  const c = await community({ ...evm, rpcUrl: `http://127.0.0.1:${port}` }, "rpc-failure");
+  try {
+    const a = await c.attempt();
+    const signed = (await c.purchase(a.session, a.ticket.body.ticketId, "seg-01", a.start)).value as SignedPurchase;
+    failGasPrice = true;
+    const first = await a.socket.pay(signed);
+    assert.deepEqual([first.type, first.code], ["error", "test_rpc_failure"]);
+    const retry = await a.socket.pay(signed);
+    assert.equal(retry.type, "paid", JSON.stringify(retry));
+    const sent = (await c.state("operator", "tx:")).filter(
+      (r) => (r.value as { ref: string }).ref === signed.purchase.unit,
+    );
+    assert.equal(sent.length, 1);
+  } finally {
+    await c.dispose();
+    await new Promise((resolve) => proxy.close(resolve));
+  }
+});
+
+test("closing a superseded socket never disconnects its replacement", async () => {
+  const c = await community(evm, "generations");
+  try {
+    const a = await c.attempt();
+    const replacement = (await openAttempt(c.runtime.mf, a.ticket.body.ticketId, accounts[5])) as Attempt;
+    assert.equal(replacement.ready.resumed, true);
+    try {
+      a.socket.close();
+    } catch {
+      // The operator may already have closed the superseded socket.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const attempt = (await c.state("operator", "attempt:"))[0].value as { connected: boolean; generation: number };
+    assert.deepEqual([attempt.connected, attempt.generation], [true, 2]);
+    assert.equal((await pay(c, a, "seg-01", replacement)).answer.type, "paid");
+    replacement.close();
   } finally {
     await c.dispose();
   }

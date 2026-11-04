@@ -24,11 +24,11 @@ import {
 } from "../packages/protocol/payments.ts";
 import {
   communityTick,
-  markTicketEnded,
-  reserveTicket,
+  ensureTicket,
+  openTicket,
+  settleTicket,
   signAdmissionPurchase,
   signSegmentPurchase,
-  type TicketState,
 } from "./community-purchases.ts";
 import { body, call, type Env, signatureChainId } from "./runtime.ts";
 import type { AsyncStore } from "./storage.ts";
@@ -133,61 +133,32 @@ export async function community(request: Request, env: Env, store: AsyncStore) {
     );
     const now = await store.now();
     check(now < Number(env.CUTOFF), "entry_closed");
-    const wallet = await store.get<{ openTicket: Hex | null }>(`wallet:${session.wallet}`);
-    if (wallet?.openTicket) {
-      const previous = (await store.get<Signed<Ticket>>(`ticket:${wallet.openTicket}`))!;
-      check(previous.body.songHash === songHash, "open_ticket_exists");
-      check(previous.body.sessionKey === sessionKey, "different_session_key");
-      return Response.json(previous);
-    }
     const quote = await trustedQuote(env, store);
-    const quoteId = quoteIdOf(quote);
     const manifestSha256 = await store.get<Hex>(`manifestFor:${songHash}`);
     const manifest =
       manifestSha256 && (await store.get<KaraokeManifest>(`manifest:${manifestSha256}`));
     check(manifest && manifestSha256, "manifest_missing");
     validateManifest(manifest, quote.maxSegmentMs);
-    const maxPaidSegments = manifest.segments.length;
-    const max = BigInt(maxPaidSegments) * BigInt(quote.segmentPrice);
-    const ticketId = await reserveTicket(
+    const lastEndMs = manifest.segments[manifest.segments.length - 1].endMs;
+    // One compare-and-set on the wallet record; a retry returns the same ticket.
+    const open = await openTicket(
       store,
       session.wallet,
+      {
+        songHash,
+        sessionKey,
+        quoteId: quoteIdOf(quote),
+        manifestSha256,
+        maxPaidSegments: manifest.segments.length,
+        maxAmount: (BigInt(manifest.segments.length) * BigInt(quote.segmentPrice)).toString(),
+        maxDurationMs: lastEndMs + 5000,
+        issuedAt: now,
+        expiresAt: now + Math.ceil(lastEndMs / 1000) + 120,
+      },
       (sequence) =>
         digest({ community: env.COMMUNITY_ID, participant: session.wallet, songHash, sequence }),
-      max,
     );
-    const lastEndMs = manifest.segments[manifest.segments.length - 1].endMs;
-    const body_: Ticket = {
-      ticketId,
-      communityId: env.COMMUNITY_ID,
-      participant: session.wallet,
-      songHash,
-      manifestSha256,
-      sessionKey,
-      operator: env.OPERATOR_ADDRESS,
-      quoteId,
-      community: env.COMMUNITY_ADDRESS as Address,
-      mode: "performance",
-      maxPaidSegments,
-      maxDurationMs: lastEndMs + 5000,
-      issuedAt: now,
-      expiresAt: now + Math.ceil(lastEndMs / 1000) + 120,
-    };
-    await store.set(`kt:${ticketId}`, {
-      ticketId,
-      wallet: session.wallet,
-      maxAmount: max.toString(),
-      maxPaidSegments,
-      authorizedUnits: [],
-      startedAt: null,
-      ended: false,
-      settled: false,
-      expiresAt: body_.expiresAt,
-    } satisfies TicketState);
-    const ticket = await sign("ticket", body_, env.PRIVATE_KEY, signatureChainId(env));
-    await store.set(`ticket:${ticketId}`, ticket);
-    await call(env.OPERATOR, "/prepare", { ticket, manifest });
-    return Response.json(ticket);
+    return Response.json(await ensureTicket(env, store, session.wallet, open));
   }
   if (path === "/karaoke/purchases") {
     const input = await body<{
@@ -221,7 +192,7 @@ export async function community(request: Request, env: Env, store: AsyncStore) {
       (await store.get<OperatorQuote>(`quote:${ticket.quoteId}`))!,
     );
     // A signed result means the operator closed the ticket on chain.
-    await markTicketEnded(env, store, data.ticketId);
+    await settleTicket(env, store, session.wallet, data.ticketId, true);
     check(qualifies(data, rewardPolicy) && data.summary.scoringVersion === 5, "not_qualified");
     const now = await store.now();
     check(data.endedAt <= now && data.endedAt < Number(env.CUTOFF) && now < Number(env.CUTOFF), "late_entry");

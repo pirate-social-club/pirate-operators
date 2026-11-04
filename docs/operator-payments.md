@@ -228,21 +228,21 @@ It gains:
 
 Everything else stays, including the per-attempt browser key in `sessionKey`.
 
-The community counts, per ticket, the purchases it has authorized. It never
-authorizes more than `maxPaidSegments`. At issuance it adds the ticket's
-maximum, `maxPaidSegments × segmentPrice`, to the wallet's and the
-community's sponsorship usage for the period (section 9.7), once. After the
-ticket has ended and its last authorization has expired, it replaces that
-maximum with the amount actually redeemed, which it reads from the contract.
-A wallet may hold one open performance ticket at a time.
+The community never authorizes more than `maxPaidSegments` purchases per
+ticket. At issuance it adds the ticket's maximum,
+`maxPaidSegments × segmentPrice`, to the wallet's sponsorship usage for the
+period (section 9.7), once. Once the ticket's purchases can no longer be
+redeemed, it replaces that maximum with the amount the contract actually paid
+for those exact purchases. A wallet may hold one open performance ticket at a
+time. Community-wide spending is capped by the deposit in the contract, which
+the community funds only up to its period budget.
 
 ### 5.3 Attempt timing
 
 The operator's first `ready` for an attempt carries a signed
 `AttemptStart { ticketId, attemptId, startedAt }`. A resumed connection
 carries the original. In performance mode playback has no pause or seek:
-the song position is the time since `startedAt`. A learner who wants to
-repeat or skip a line uses practice mode.
+the song position is the time since `startedAt`.
 
 The attempt records `lastAudioAt`, when the operator last received audio,
 and `endedAt`, when the operator decides the attempt is over, at the first of
@@ -257,7 +257,10 @@ these terminal events:
 
 A socket that closes without `finish` is a disconnect, not a terminal event.
 The attempt waits `reconnectWindowMs` (default 30 seconds) for the same ticket
-and key to reconnect, unless another terminal event comes first.
+and key to reconnect, unless another terminal event comes first. Only the
+newest connection is live: each accepted connection increments the attempt's
+generation, older sockets for the ticket are closed, and a superseded socket's
+messages and close are ignored, so it can never disconnect its replacement.
 
 `paymentDeadline` is `endedAt + paymentGraceMs` (default 10 seconds). The
 operator accepts authorizations for the attempt until then. Acceptance and
@@ -305,9 +308,12 @@ that have already passed. Total spending is bounded by the ticket's maximum,
 one open performance ticket per wallet, the wallet's sponsorship allowance
 and, finally, the deposit in the contract.
 
-### 5.5 Practice mode
+### 5.5 Practice mode, an optional proposal
 
-The learner chooses a line and may repeat it. Each take of a segment is its
+Practice mode is a proposal from an earlier draft, not an agreed requirement.
+Per-line performance billing and grading do not depend on it, and it is not
+built. If adopted, it works as follows. The learner chooses a line and may
+repeat it. Each take of a segment is its
 own unit, and `take` counts from 0 for each segment. Practice has no
 `startedAt` window. The community authorizes one take at a time. It
 authorizes the next take only after one of these:
@@ -442,14 +448,18 @@ The community holds a signing key and a deposit, and sends a transaction
 only to set its signer, deposit or withdraw. Its per-line work is to check
 limits and sign. It keeps:
 
-- one authorization row per unit, unique on the unit key;
-- per ticket, the authorized count and amount, `startedAt` and whether it
-  has ended;
-- sponsorship usage per wallet and for the community.
+- one purchase row per unit, keyed under its ticket;
+- per wallet, one record holding its sponsorship usage and its open ticket's
+  reservation, including `startedAt`.
 
-Each new authorization is one atomic write that checks the limits and
-inserts the row, a conditional SQL statement or a transaction, so the
-community never signs two purchases for one unit. A compromised signing key
+Each state change that must happen together lives in one record. Issuing a
+ticket is one compare-and-set on the wallet record, and the signed ticket is
+rebuilt from that reservation, so an interrupted issuance retries into the
+same ticket. A new purchase is one conditional insert that also enforces the
+ticket's purchase count, so an interrupted insert consumes no slot and the
+community never signs two purchases for one unit. Settlement is one
+compare-and-set that releases the unused reservation and closes the ticket,
+so it simply runs again if interrupted. A compromised signing key
 can spend up to the deposit, so the community funds the contract only up to
 its period budget and rotates the signer if the key is exposed. Funding the
 deposit and the signer's custody are the community's operating concerns;
@@ -472,9 +482,13 @@ contract state. `redemption(community, unit)` equal to the row's digest means
 confirmed, whoever redeemed it; another digest means `already_paid`; zero
 with an expired authorization means failed.
 
-The operator's transaction sender keeps its own rows, one per nonce, for
-redemptions and ticket closures alike. Allocating a nonce and storing the
-signed transaction happen before any broadcast. A transaction row stays
+Accepted work is persisted as a transaction intent, keyed by kind and
+reference, in the same synchronous step that records the redemption, before
+any RPC call. Ticket closures are intents too. Dispatching an intent
+allocates its nonce exactly once and stores the signed transaction before any
+broadcast. An RPC failure before allocation leaves the intent in place, and a
+retry of the same purchase or recovery dispatches it. The sender keeps one
+row per nonce. A transaction row stays
 tracked until its nonce is consumed on chain, even after its purchase has
 become confirmed or failed, because a later closure cannot execute while an
 earlier nonce is unresolved. Recovery rebroadcasts the stored transaction for
@@ -562,35 +576,39 @@ What exists, all local and loopback only:
 - The community runs in its Worker on D1, with no Durable Object
   (`services/storage.ts`, `services/community.ts`,
   `services/community-purchases.ts`). It signs admission and segment purchases
-  deterministically, applies the ticket, pacing and allowance limits with
-  compare-and-set writes, and settles usage from contract state.
+  deterministically and keeps each atomic step to one record or one
+  conditional statement, as section 7 describes.
 - The operator verifies and redeems purchases (`services/purchases.ts`)
-  through a durable transaction sender that tracks nonces separately from
-  purchase status (`services/operator-tx.ts`). It closes each ticket at the
-  deadline, reconciles at the closure block and signs the result
-  (`services/karaoke.ts`, `services/karaoke-result.ts`). Its live karaoke
-  session still runs on a Durable Object, which section 1 allows.
+  through a durable sender that persists intents before any RPC call and
+  tracks nonces separately from purchase status (`services/operator-tx.ts`).
+  It closes each ticket at the deadline, reconciles at the closure block and
+  signs the result (`services/karaoke.ts`, `services/karaoke-result.ts`). Its
+  live karaoke session runs on a Durable Object, which section 1 allows.
 - `harness/acceptance.ts` runs the full local flow on anvil: admission and
   every line paid through the contract, three performances, qualification and
-  the reward pool. `test/operator-payments.test.ts` has twelve integration
-  tests for the section 10 cases on anvil, and `test/payments-protocol.test.ts`
-  covers the chain allowlist, the reward score, manifest rules and the
-  verifier's list checks. Two gaps remain: case 1 varies recipient, amount and
-  token but not chain or contract, which change the signing domain and so
-  surface as a bad signature; and case 8's grouping half is checked only at
-  the reward-score level, not with a grouped manifest end to end.
+  the reward pool. `test/operator-payments.test.ts` has seventeen integration
+  tests on anvil, covering the section 10 cases and regressions for an
+  interrupted ticket write, purchase insert and settlement, an RPC failure
+  before nonce allocation, and a superseded socket closing.
+  `test/payments-protocol.test.ts` covers the chain allowlist, the reward
+  score, manifest rules and the verifier's list checks.
+
+Two test gaps remain. Case 1 varies recipient, amount and token but not chain
+or contract, which change the signing domain and so surface as a bad
+signature. Case 8's grouping half is checked at the reward-score level, not
+with a grouped manifest end to end.
 
 Not yet built:
 
-- practice mode and `TakeResult`;
 - the public grade-record contract that consumes the result;
 - the MegaETH testnet run, including `realtime_sendRawTransaction`, which the
   local sender supports but anvil cannot exercise;
 - the per-credential sponsorship buckets of section 9.7; only the per-wallet
-  allowance and the community budget are enforced;
+  allowance and the contract deposit bound spending;
 - a plain SQLite store for self-hosting beside D1;
 - the web client's P-256 socket handshake; the socket still uses the
   skeleton's session-key proof, as `docs/community-web-client.md` records.
 
+Practice mode (section 5.5) is an optional proposal and is not built.
 Transcription is simulated: the local operator receives recognized words in
 `words` frames and scores them with the real scorer.

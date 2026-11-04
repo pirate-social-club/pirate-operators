@@ -149,8 +149,8 @@ dependent on Megapot; there is no arbitrary local timeout cancellation.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,
-complete entity state machines and vectors, karaoke practice mode, public
-grade records, credential sponsorship buckets, membership gate enforcement,
+complete entity state machines and vectors, public grade records,
+credential sponsorship buckets, membership gate enforcement,
 ERC-1271/passkey compatibility, scheduled operator ticks, service-owned entry
 commitments, the complete adversarial matrix and broader lifecycle invariants. The pool
 now has stateful Foundry checks for token conservation, finality, allocations

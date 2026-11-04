@@ -33,9 +33,11 @@ export interface Attempt {
     status: KaraokeResultBody["status"];
     paymentDeadline: number;
   };
-  /** Set at the payment deadline; the closure's nonce and block once known. */
-  closing: null | { submitting: boolean; nonce: number | null; block: number | null };
+  /** Set at the payment deadline; the closure's block once it is mined. */
+  closing: null | { block: number | null };
   finalized: boolean;
+  /** Increments with each accepted connection; only the newest is live. */
+  generation: number;
 }
 
 /**

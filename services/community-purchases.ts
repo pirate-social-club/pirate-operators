@@ -1,16 +1,19 @@
 // Community side of OperatorPayments purchases (docs/operator-payments.md 5, 7).
-// The community signs purchases and sends no per-line transaction.
+// The community signs purchases and sends no per-line transaction. Every
+// state change that must happen together lives in one record: a wallet's
+// open ticket and usage share its wallet record, and a purchase row is
+// inserted by one statement that also enforces the ticket's purchase count.
 import type { Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { check, verify, type Signed, type Ticket } from "../packages/protocol/index.ts";
+import { check, sign, verify, type Signed, type Ticket } from "../packages/protocol/index.ts";
 import {
   admissionUnit,
   paymentWindow,
-  quoteIdOf,
   purchaseDigestOf,
   purchaseDomain,
   purchaseMessage,
   purchaseTypes,
+  quoteIdOf,
   segmentUnit,
   unitHash,
   CLOCK_SKEW_S,
@@ -22,59 +25,90 @@ import {
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
 import { readPayments } from "./chain.ts";
-import { signatureChainId, type Env } from "./runtime.ts";
+import { call, signatureChainId, type Env } from "./runtime.ts";
 import type { AsyncStore } from "./storage.ts";
 
-export const COMMUNITY_BUDGET = 1_000_000n;
+/** Per-wallet sponsorship allowance. The contract deposit caps the community. */
 export const WALLET_ALLOWANCE = 100_000n;
 
-export interface TicketState {
+/** Everything a ticket is built from, so its signed body can always be rebuilt. */
+export interface Reservation {
   ticketId: Hex;
-  wallet: Address;
-  maxAmount: string;
+  songHash: Hex;
+  sessionKey: Address;
+  quoteId: Hex;
+  manifestSha256: Hex;
   maxPaidSegments: number;
-  authorizedUnits: Hex[];
-  startedAt: number | null;
-  ended: boolean;
-  settled: boolean;
+  maxAmount: string;
+  maxDurationMs: number;
+  issuedAt: number;
   expiresAt: number;
+  startedAt: number | null;
 }
-interface WalletState {
-  openTicket: Hex | null;
+export interface WalletState {
   usage: string;
   sequence: number;
+  open: Reservation | null;
 }
+const walletKey = (wallet: Address) => `wallet:${wallet}`;
+const purchasePrefix = (ticketId: Hex) => `purchase:${ticketId}:`;
 const add = (a: string, b: bigint) => (BigInt(a) + b).toString();
 
-/** Reserves a ticket's maximum once, at issuance, with one open ticket per wallet. */
-export async function reserveTicket(
+/**
+ * One compare-and-set reserves the ticket's maximum and records the open
+ * ticket. A retry with the same song and key returns the same reservation.
+ */
+export async function openTicket(
   store: AsyncStore,
   wallet: Address,
+  spec: Omit<Reservation, "ticketId" | "startedAt">,
   ticketIdFor: (sequence: number) => Hex,
-  max: bigint,
 ) {
-  let ticketId: Hex | undefined;
-  await store.update<WalletState>(`wallet:${wallet}`, (current) => {
-    const state = current ?? { openTicket: null, usage: "0", sequence: 0 };
-    check(!state.openTicket, "open_ticket_exists");
-    check(BigInt(state.usage) + max <= WALLET_ALLOWANCE, "wallet_allowance_exhausted");
-    ticketId = ticketIdFor(state.sequence);
-    return { openTicket: ticketId, usage: add(state.usage, max), sequence: state.sequence + 1 };
+  const state = await store.update<WalletState>(walletKey(wallet), (current) => {
+    const w = current ?? { usage: "0", sequence: 0, open: null };
+    if (w.open) {
+      check(w.open.songHash === spec.songHash, "open_ticket_exists");
+      check(w.open.sessionKey === spec.sessionKey, "different_session_key");
+      return w;
+    }
+    check(BigInt(w.usage) + BigInt(spec.maxAmount) <= WALLET_ALLOWANCE, "wallet_allowance_exhausted");
+    return {
+      usage: add(w.usage, BigInt(spec.maxAmount)),
+      sequence: w.sequence + 1,
+      open: { ...spec, ticketId: ticketIdFor(w.sequence), startedAt: null },
+    };
   });
-  try {
-    await store.update<string>("usage:community", (current) => {
-      check(BigInt(current ?? "0") + max <= COMMUNITY_BUDGET, "community_budget_exhausted");
-      return add(current ?? "0", max);
-    });
-  } catch (error) {
-    await store.update<WalletState>(`wallet:${wallet}`, (state) => ({
-      ...state!,
-      openTicket: null,
-      usage: add(state!.usage, -max),
-    }));
-    throw error;
-  }
-  return ticketId!;
+  return state.open!;
+}
+
+/** Rebuilds, signs and delivers the ticket; deterministic, so safe to repeat. */
+export async function ensureTicket(
+  env: Env,
+  store: AsyncStore,
+  wallet: Address,
+  open: Reservation,
+) {
+  const manifest = (await store.get<KaraokeManifest>(`manifest:${open.manifestSha256}`))!;
+  const body: Ticket = {
+    ticketId: open.ticketId,
+    communityId: env.COMMUNITY_ID,
+    participant: wallet,
+    songHash: open.songHash,
+    manifestSha256: open.manifestSha256,
+    sessionKey: open.sessionKey,
+    operator: env.OPERATOR_ADDRESS,
+    quoteId: open.quoteId,
+    community: env.COMMUNITY_ADDRESS as Address,
+    mode: "performance",
+    maxPaidSegments: open.maxPaidSegments,
+    maxDurationMs: open.maxDurationMs,
+    issuedAt: open.issuedAt,
+    expiresAt: open.expiresAt,
+  };
+  const ticket = await sign("ticket", body, env.PRIVATE_KEY, signatureChainId(env));
+  await store.set(`ticket:${open.ticketId}`, ticket);
+  await call(env.OPERATOR, "/prepare", { ticket, manifest });
+  return ticket;
 }
 
 const signPurchase = (env: Env, quote: OperatorQuote, purchase: Purchase) =>
@@ -84,17 +118,11 @@ const signPurchase = (env: Env, quote: OperatorQuote, purchase: Purchase) =>
     primaryType: "Purchase",
     message: purchaseMessage(purchase),
   });
-const context = async (store: AsyncStore, ticketId: string) => {
-  const ticket = (await store.get<Signed<Ticket>>(`ticket:${ticketId}`))?.body;
-  check(ticket, "ticket_not_found");
-  const quote = (await store.get<OperatorQuote>(`quote:${ticket.quoteId}`))!;
-  const manifest = (await store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`))!;
-  return { ticket, quote, manifest };
-};
 
 /**
- * Section 5.4: authenticates, returns an existing purchase before any limit,
- * and otherwise applies the limits atomically before signing.
+ * Section 5.4: returns an existing purchase before any limit, otherwise checks
+ * the limits and inserts the purchase in one statement that also enforces the
+ * ticket's purchase count.
  */
 export async function signSegmentPurchase(
   env: Env,
@@ -102,62 +130,65 @@ export async function signSegmentPurchase(
   wallet: Address,
   input: { ticketId: Hex; segmentId: string; take: number; attemptStart?: Signed<AttemptStart> },
 ): Promise<SignedPurchase> {
-  const { ticket, quote, manifest } = await context(store, input.ticketId);
-  check(ticket.participant === wallet, "ticket_not_found");
+  check(Number.isSafeInteger(input.take) && input.take >= 0, "unknown_segment");
+  const key = `${purchasePrefix(input.ticketId)}${unitHash(segmentUnit(input.ticketId, input.segmentId, input.take))}`;
+  const existing = await store.get<SignedPurchase>(key);
+  if (existing) {
+    const owner = await store.get<Signed<Ticket>>(`ticket:${input.ticketId}`);
+    check(owner?.body.participant === wallet, "ticket_not_found");
+    return existing;
+  }
+  let open = (await store.get<WalletState>(walletKey(wallet)))?.open;
+  check(open && open.ticketId === input.ticketId, "ticket_closed");
+  const manifest = (await store.get<KaraokeManifest>(`manifest:${open.manifestSha256}`))!;
+  const quote = (await store.get<OperatorQuote>(`quote:${open.quoteId}`))!;
   const segment = manifest.segments.find((s) => s.segmentId === input.segmentId);
-  check(segment && Number.isSafeInteger(input.take) && input.take >= 0, "unknown_segment");
-  const unit = unitHash(segmentUnit(ticket.ticketId, segment.segmentId, input.take));
-  const existing = await store.get<SignedPurchase>(`purchase:${unit}`);
-  if (existing) return existing;
-  if (input.attemptStart) {
+  check(segment, "unknown_segment");
+  if (input.attemptStart && open.startedAt === null) {
     const start = await verify(
       input.attemptStart,
       "attempt_start",
       env.OPERATOR_ADDRESS,
       signatureChainId(env),
     );
-    check(start.ticketId === ticket.ticketId, "attempt_start_mismatch");
-    await store.update<TicketState>(`kt:${ticket.ticketId}`, (state) => ({
-      ...state!,
-      startedAt: state!.startedAt ?? start.startedAt,
-    }));
+    check(start.ticketId === open.ticketId, "attempt_start_mismatch");
+    const state = await store.update<WalletState>(walletKey(wallet), (w) =>
+      w?.open?.ticketId === open!.ticketId && w.open.startedAt === null
+        ? { ...w, open: { ...w.open, startedAt: start.startedAt } }
+        : w!,
+    );
+    open = state.open;
+    check(open && open.ticketId === input.ticketId, "ticket_closed");
   }
+  check(open.startedAt !== null, "attempt_not_started");
   const now = await store.now();
-  await store.update<TicketState>(`kt:${ticket.ticketId}`, (state) => {
-    check(state && state.startedAt !== null, "attempt_not_started");
-    const window = paymentWindow(state.startedAt, segment, now);
-    check(window !== "early", "purchase_window_not_open");
-    check(window === "open", "purchase_window_closed");
-    check(!state.ended && now < state.expiresAt, "ticket_closed");
-    check(input.take === 0, "invalid_take");
-    check(state.authorizedUnits.length < state.maxPaidSegments, "purchase_limit_reached");
-    return { ...state, authorizedUnits: [...state.authorizedUnits, unit] };
-  });
+  const window = paymentWindow(open.startedAt, segment, now);
+  check(window !== "early", "purchase_window_not_open");
+  check(window === "open", "purchase_window_closed");
+  check(now < open.expiresAt, "ticket_closed");
+  check(input.take === 0, "invalid_take");
   // Deterministic: the same unit always yields the same purchase and signature.
   const purchase: Purchase = {
-    community: ticket.community,
-    unit,
-    ticketId: ticket.ticketId,
-    quoteId: ticket.quoteId,
+    community: env.COMMUNITY_ADDRESS as Address,
+    unit: unitHash(segmentUnit(open.ticketId, segment.segmentId, input.take)),
+    ticketId: open.ticketId,
+    quoteId: open.quoteId,
     operator: quote.operator,
     recipient: quote.recipient,
     token: quote.token,
     amount: quote.segmentPrice,
-    validAfter: ticket.issuedAt - CLOCK_SKEW_S,
-    expiresAt: ticket.expiresAt,
+    validAfter: open.issuedAt - CLOCK_SKEW_S,
+    expiresAt: open.expiresAt,
   };
   const signed = { purchase, signature: await signPurchase(env, quote, purchase) };
-  if (!(await store.insertIfAbsent(`purchase:${unit}`, signed))) {
-    await store.update<TicketState>(`kt:${ticket.ticketId}`, (state) => ({
-      ...state!,
-      authorizedUnits: state!.authorizedUnits.filter((u, i, all) => u !== unit || all.indexOf(u) !== i),
-    }));
-    return (await store.get<SignedPurchase>(`purchase:${unit}`))!;
-  }
-  return signed;
+  if (await store.insertIfCountBelow(key, signed, purchasePrefix(open.ticketId), open.maxPaidSegments))
+    return signed;
+  const raced = await store.get<SignedPurchase>(key);
+  check(raced, "purchase_limit_reached");
+  return raced;
 }
 
-/** Section 4: one purchase per song revision, counted against the community budget. */
+/** Section 4: one purchase per song revision, bounded by the contract deposit. */
 export async function signAdmissionPurchase(
   env: Env,
   store: AsyncStore,
@@ -165,13 +196,9 @@ export async function signAdmissionPurchase(
   jobId: Hex,
 ) {
   const unit = unitHash(admissionUnit(jobId));
-  const existing = await store.get<SignedPurchase>(`purchase:${unit}`);
+  const key = `purchase:admission:${unit}`;
+  const existing = await store.get<SignedPurchase>(key);
   if (existing) return existing;
-  const price = BigInt(quote.admissionPrice);
-  await store.update<string>("usage:community", (current) => {
-    check(BigInt(current ?? "0") + price <= COMMUNITY_BUDGET, "community_budget_exhausted");
-    return add(current ?? "0", price);
-  });
   const now = await store.now();
   const purchase: Purchase = {
     community: env.COMMUNITY_ADDRESS as Address,
@@ -186,57 +213,49 @@ export async function signAdmissionPurchase(
     expiresAt: now + 600,
   };
   const signed = { purchase, signature: await signPurchase(env, quote, purchase) };
-  if (!(await store.insertIfAbsent(`purchase:${unit}`, signed))) {
-    await store.update<string>("usage:community", (current) => add(current ?? "0", -price));
-    return (await store.get<SignedPurchase>(`purchase:${unit}`))!;
-  }
-  return signed;
+  if (await store.insertIfAbsent(key, signed)) return signed;
+  return (await store.get<SignedPurchase>(key))!;
 }
 
-export async function markTicketEnded(env: Env, store: AsyncStore, ticketId: string) {
-  await store.update<TicketState>(`kt:${ticketId}`, (state) => ({ ...state!, ended: true }));
-  await settleTicket(env, store, ticketId);
-}
 /**
  * Once a ticket's purchases can no longer be redeemed, because its result was
- * signed after closure or its purchases expired, the reserved maximum is
- * replaced by what the contract actually paid for those exact purchases.
+ * signed after closure or its purchases expired, one compare-and-set replaces
+ * its reserved maximum with what the contract paid for its exact purchases
+ * and closes it. Interrupted, it simply runs again.
  */
-export async function settleTicket(env: Env, store: AsyncStore, ticketId: string) {
-  const state = await store.get<TicketState>(`kt:${ticketId}`);
-  if (!state || state.settled) return;
-  if (!state.ended && (await store.now()) < state.expiresAt) return;
-  const { ticket, quote } = await context(store, ticketId);
+export async function settleTicket(
+  env: Env,
+  store: AsyncStore,
+  wallet: Address,
+  ticketId: Hex,
+  ended: boolean,
+) {
+  const open = (await store.get<WalletState>(walletKey(wallet)))?.open;
+  if (!open || open.ticketId !== ticketId) return;
+  if (!ended && (await store.now()) < open.expiresAt) return;
+  const quote = (await store.get<OperatorQuote>(`quote:${open.quoteId}`))!;
   let paid = 0n;
-  for (const unit of state.authorizedUnits) {
-    const signed = await store.get<SignedPurchase>(`purchase:${unit}`);
-    if (!signed) continue;
+  for (const { value } of await store.entries(purchasePrefix(ticketId))) {
+    const signed = value as SignedPurchase;
     const onChain = await readPayments<Hex>(env.RPC_URL, quote.payments, "redemption", [
-      ticket.community,
-      unit,
+      signed.purchase.community,
+      signed.purchase.unit,
     ]);
     if (onChain === purchaseDigestOf(signed.purchase, quote.chainId, quote.payments))
       paid += BigInt(signed.purchase.amount);
   }
-  const released = BigInt(state.maxAmount) - paid;
-  // The settled flag is the compare-and-set gate, so usage is released once.
-  try {
-    await store.update<TicketState>(`kt:${ticketId}`, (current) => {
-      check(!current!.settled, "already_settled");
-      return { ...current!, settled: true };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "already_settled") return;
-    throw error;
-  }
-  await store.update<string>("usage:community", (current) => add(current ?? "0", -released));
-  await store.update<WalletState>(`wallet:${state.wallet}`, (wallet) => ({
-    ...wallet!,
-    usage: add(wallet!.usage, -released),
-    openTicket: wallet!.openTicket === ticketId ? null : wallet!.openTicket,
-  }));
+  await store.update<WalletState>(walletKey(wallet), (w) =>
+    w?.open?.ticketId === ticketId
+      ? { ...w, usage: add(w.usage, paid - BigInt(w.open.maxAmount)), open: null }
+      : w!,
+  );
 }
 export async function communityTick(env: Env, store: AsyncStore) {
   if (!env.RPC_URL) return;
-  for (const { key } of await store.entries("kt:")) await settleTicket(env, store, key.slice(3));
+  const now = await store.now();
+  for (const { key, value } of await store.entries("wallet:")) {
+    const open = (value as WalletState).open;
+    if (open && now >= open.expiresAt)
+      await settleTicket(env, store, key.slice("wallet:".length) as Address, open.ticketId, false);
+  }
 }
