@@ -12,6 +12,7 @@ import { createWizardServer } from "./http.ts";
 import { createSetup } from "./setup.ts";
 import { infisicalConfigured, infisicalStore } from "./secrets.ts";
 import { provisioner } from "./provision.ts";
+import { statePassword } from "../infra/protected-data.ts";
 import { privateDirectory } from "./state.ts";
 
 process.umask(0o077);
@@ -51,6 +52,14 @@ const server = createWizardServer(
   {
     infisical: infisicalConfigured(),
     cloudflare: Boolean(process.env.CLOUDFLARE_API_TOKEN),
+    stateProtection: (() => {
+      try {
+        statePassword();
+        return true;
+      } catch {
+        return false;
+      }
+    })(),
   },
 );
 const port = Number(process.env.PIRATE_WIZARD_PORT ?? 8789);

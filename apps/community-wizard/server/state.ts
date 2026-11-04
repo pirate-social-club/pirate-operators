@@ -31,6 +31,12 @@ export async function loadState(directory: string): Promise<SetupState> {
     !Array.isArray(state.secrets)
   )
     throw new Error("Unsupported setup state. Preserve it before migration.");
+  if (state.settings && state.settings.moderationMode === undefined) {
+    state.settings = { ...state.settings, moderationMode: "independent" };
+    state.revision++;
+    state.plan = undefined;
+    if (state.attempted) state.deployment = "update_pending";
+  }
   if (state.deployment === "running") {
     state.deployment = "interrupted";
     state.message =

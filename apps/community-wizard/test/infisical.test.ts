@@ -32,6 +32,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     acrHost: "identify-eu-west-1.acrcloud.com",
     cloudconvert: false,
     tld: "",
+    moderationMode: "independent",
   };
   const saved: Record<string, string> = {};
   const writes: string[] = [];

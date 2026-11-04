@@ -10,7 +10,8 @@
     "build": "vite build",
     "start": "tsx server/start.ts",
     "check": "tsc --noEmit && tsx --test test/*.test.ts && npm run build",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "diagnostic": "tsx server/read-diagnostic.ts"
   },
   "dependencies": {
     "@infisical/sdk": "5.0.2",

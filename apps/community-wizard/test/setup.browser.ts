@@ -9,16 +9,12 @@ test("operator configures HTTPS without HNS, reviews responsibilities and resume
   await page
     .getByLabel("workers.dev subdomain", { exact: true })
     .fill("example");
-  await page
-    .getByLabel("Project UUID", { exact: true })
-    .fill("00000000-0000-0000-0000-000000000001");
+  await expect(page.getByLabel("Project UUID", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Save & continue" }).click();
   await expect(
-    page.getByRole("heading", { name: "Connect your providers" }),
+    page.getByRole("heading", { name: "Your services" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Save to Infisical" }),
-  ).toBeDisabled();
+  await expect(page.getByLabel("OpenAI API key")).toHaveCount(0);
   await page.getByRole("button", { name: "Review deployment" }).click();
   await expect(
     page.getByText("https://pirate-night-garden.example.workers.dev", {

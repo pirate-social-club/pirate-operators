@@ -14,6 +14,7 @@ export default defineConfig({
       INFISICAL_CLIENT_ID: "",
       INFISICAL_CLIENT_SECRET: "",
       CLOUDFLARE_API_TOKEN: "",
+      PIRATE_WIZARD_STATE_PASSWORD: "",
     },
     gracefulShutdown: { signal: "SIGTERM", timeout: 5000 },
   },

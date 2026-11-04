@@ -53,6 +53,11 @@ function scope(s: Settings) {
 }
 export const infisicalStore: SecretStore = {
   async save(s, values) {
+    if (s.moderationMode !== "independent")
+      throw new SetupError(
+        "Managed moderation keeps provider keys in the operator service, not this community.",
+        409,
+      );
     const sdk = await client();
     const existing = await sdk
       .secrets()
@@ -68,6 +73,7 @@ export const infisicalStore: SecretStore = {
     return Object.keys(readback) as SecretName[];
   },
   async read(s) {
+    if (!requiredSecrets(s).length) return {};
     const sdk = await client();
     const result: Record<string, string> = {};
     for (const name of requiredSecrets(s)) {

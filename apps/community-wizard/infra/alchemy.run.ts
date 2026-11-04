@@ -1,6 +1,6 @@
 // Stack/provider pattern follows creator-spike a9810cc; this stack owns its resources independently.
 import * as Alchemy from "alchemy";
-import { localState } from "alchemy/State";
+import { encryptedLocalState } from "./encrypted-state.ts";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
@@ -11,7 +11,7 @@ if (!/^[a-z][a-z0-9-]{1,28}[a-z0-9]$/.test(slug))
 const prefix = `pirate-${slug}`;
 export default Alchemy.Stack(
   prefix,
-  { providers: Cloudflare.providers(), state: localState() },
+  { providers: Cloudflare.providers(), state: encryptedLocalState() },
   Effect.gen(function* () {
     const DB = yield* Cloudflare.D1.Database("Database", {
       name: `${prefix}-db`,
@@ -40,12 +40,20 @@ export default Alchemy.Stack(
         JOBS,
         COMMUNITY_NAME: process.env.COMMUNITY_NAME!,
         PLAN_ID: process.env.PLAN_ID!,
-        ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!,
-        OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),
-        ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
-        ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
-        ...(process.env.CLOUDCONVERT_API_KEY
-          ? { CLOUDCONVERT_API_KEY: Config.Redacted("CLOUDCONVERT_API_KEY") }
+        ...(process.env.MODERATION_MODE === "independent"
+          ? {
+              ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!,
+              OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),
+              ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
+              ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
+              ...(process.env.CLOUDCONVERT_API_KEY
+                ? {
+                    CLOUDCONVERT_API_KEY: Config.Redacted(
+                      "CLOUDCONVERT_API_KEY",
+                    ),
+                  }
+                : {}),
+            }
           : {}),
       },
     });

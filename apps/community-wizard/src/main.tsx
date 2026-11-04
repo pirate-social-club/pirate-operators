@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import type { Settings, SecretName } from "../server/model.ts";
 import type { Snapshot } from "./types.ts";
+import { ManagedServices } from "./managed-services.tsx";
 import { Readiness } from "./readiness.tsx";
 import "./style.css";
 
@@ -16,6 +17,7 @@ const blank: Settings = {
   acrHost: "identify-eu-west-1.acrcloud.com",
   cloudconvert: false,
   tld: "",
+  moderationMode: "pirate",
 };
 const providers: { key: SecretName; label: string; hint: string }[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API key", hint: "Moderation" },
@@ -144,12 +146,7 @@ function App() {
           </p>
           <nav aria-label="Setup steps">
             <For
-              each={[
-                "Community",
-                "Credentials",
-                "Review & deploy",
-                "Readiness",
-              ]}
+              each={["Community", "Services", "Review & deploy", "Readiness"]}
             >
               {(title, i) => (
                 <button
@@ -167,8 +164,8 @@ function App() {
           <div class="resume">
             <span class="dot" /> Progress stays on this device.
             <p>
-              Provider secrets are saved to your Infisical project. They are
-              never saved in this browser.
+              Independent operator keys belong in that operator’s Infisical
+              scope. Managed communities do not supply provider keys.
             </p>
           </div>
         </aside>
@@ -235,44 +232,68 @@ function App() {
                   </div>
                 </div>
                 <div class="card">
-                  <h3>Infisical</h3>
+                  <h3>Moderation</h3>
                   <p>
-                    Choose a dedicated, existing folder accessible to your
-                    runner’s machine identity.
+                    Pirate-operated moderation with the existing publication
+                    defaults. Explicit lyrics are allowed. Connection
+                    verification is still pending.
                   </p>
-                  {input(
-                    "projectId",
-                    "Project UUID",
-                    "Project ID from Infisical settings",
-                  )}
-                  <div class="grid">
-                    {input("environment", "Environment", "dev")}
-                    {input(
-                      "secretPath",
-                      "Secret folder",
-                      "/communities/my-community",
-                    )}
-                  </div>
-                </div>
-                <div class="card">
-                  <h3>Moderation providers</h3>
-                  {input(
-                    "acrHost",
-                    "ACRCloud identify host",
-                    "identify-eu-west-1.acrcloud.com",
-                  )}
                   <label class="check">
                     <input
                       type="checkbox"
-                      checked={settings().cloudconvert}
+                      checked={settings().moderationMode === "independent"}
                       disabled={busy() || state()?.attempted}
                       onChange={(e) =>
-                        setting("cloudconvert", e.currentTarget.checked)
+                        setting(
+                          "moderationMode",
+                          e.currentTarget.checked ? "independent" : "pirate",
+                        )
                       }
                     />
-                    <span>Use CloudConvert for media conversion</span>
+                    <span>Advanced: operate moderation myself</span>
                   </label>
                 </div>
+                <Show when={settings().moderationMode === "independent"}>
+                  <div class="card">
+                    <h3>Infisical</h3>
+                    <p>
+                      Choose a dedicated, existing folder accessible to your
+                      runner’s machine identity.
+                    </p>
+                    {input(
+                      "projectId",
+                      "Project UUID",
+                      "Project ID from Infisical settings",
+                    )}
+                    <div class="grid">
+                      {input("environment", "Environment", "dev")}
+                      {input(
+                        "secretPath",
+                        "Secret folder",
+                        "/communities/my-community",
+                      )}
+                    </div>
+                  </div>
+                  <div class="card">
+                    <h3>Moderation providers</h3>
+                    {input(
+                      "acrHost",
+                      "ACRCloud identify host",
+                      "identify-eu-west-1.acrcloud.com",
+                    )}
+                    <label class="check">
+                      <input
+                        type="checkbox"
+                        checked={settings().cloudconvert}
+                        disabled={busy() || state()?.attempted}
+                        onChange={(e) =>
+                          setting("cloudconvert", e.currentTarget.checked)
+                        }
+                      />
+                      <span>Use CloudConvert for media conversion</span>
+                    </label>
+                  </div>
+                </Show>
                 <div class="actions">
                   <span>Settings contain no provider keys.</span>
                   <button class="primary" disabled={busy()} type="submit">
@@ -282,94 +303,101 @@ function App() {
               </form>
             </Show>
             <Show when={step() === 1}>
-              <h2>Connect your providers</h2>
-              <p class="lede">
-                Your keys go through the local runner to Infisical. Saved
-                credentials are a setup step; real moderation still needs to be
-                verified.
-              </p>
-              <div class="connection">
-                <span
-                  classList={{
-                    dot: true,
-                    off: !state()?.capabilities.infisical,
-                  }}
-                />
-                {state()?.capabilities.infisical
-                  ? "Infisical identity configured on the runner"
-                  : "Infisical identity needed on the runner"}
-              </div>
-              <Show when={!state()?.settings}>
-                <p class="alert">Save your community settings first.</p>
+              <Show when={state()?.settings?.moderationMode === "pirate"}>
+                <ManagedServices />
               </Show>
-              <form
-                autocomplete="off"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const values = { ...credentials() };
-                  setCredentials({});
-                  void action("secrets", values, () =>
-                    setNotice(
-                      "Required provider credentials are saved in Infisical. Provider checks remain pending.",
-                    ),
-                  );
-                }}
-              >
-                <div class="card">
-                  <For
-                    each={providers.filter(
-                      (p) =>
-                        p.key !== "CLOUDCONVERT_API_KEY" ||
-                        state()?.settings?.cloudconvert,
-                    )}
-                  >
-                    {(provider) => (
-                      <label class="field">
-                        <span>
-                          {provider.label}
-                          <Show when={state()?.secrets.includes(provider.key)}>
-                            <em>Saved</em>
-                          </Show>
-                        </span>
-                        <input
-                          type="password"
-                          autocomplete="new-password"
-                          spellcheck={false}
-                          value={credentials()[provider.key] ?? ""}
-                          placeholder={
-                            state()?.secrets.includes(provider.key)
-                              ? "Leave blank to keep saved value"
-                              : "Paste credential"
-                          }
-                          disabled={busy()}
-                          onInput={(e) => {
-                            const value = e.currentTarget.value;
-                            setCredentials((current) => {
-                              const next = { ...current };
-                              if (value) next[provider.key] = value;
-                              else delete next[provider.key];
-                              return next;
-                            });
-                          }}
-                        />
-                        <small>{provider.hint}</small>
-                      </label>
-                    )}
-                  </For>
-                  <button
-                    class="secondary"
-                    type="submit"
-                    disabled={
-                      busy() ||
-                      !state()?.settings ||
-                      !state()?.capabilities.infisical ||
-                      !Object.keys(credentials()).length
-                    }
-                  >
-                    Save to Infisical
-                  </button>
+              <Show when={state()?.settings?.moderationMode !== "pirate"}>
+                <h2>Connect your providers</h2>
+                <p class="lede">
+                  Your keys go through the local runner to Infisical. Saved
+                  credentials are a setup step; real moderation still needs to
+                  be verified.
+                </p>
+                <div class="connection">
+                  <span
+                    classList={{
+                      dot: true,
+                      off: !state()?.capabilities.infisical,
+                    }}
+                  />
+                  {state()?.capabilities.infisical
+                    ? "Infisical identity configured on the runner"
+                    : "Infisical identity needed on the runner"}
                 </div>
-              </form>
+                <Show when={!state()?.settings}>
+                  <p class="alert">Save your community settings first.</p>
+                </Show>
+                <form
+                  autocomplete="off"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const values = { ...credentials() };
+                    setCredentials({});
+                    void action("secrets", values, () =>
+                      setNotice(
+                        "Required provider credentials are saved in Infisical. Provider checks remain pending.",
+                      ),
+                    );
+                  }}
+                >
+                  <div class="card">
+                    <For
+                      each={providers.filter(
+                        (p) =>
+                          p.key !== "CLOUDCONVERT_API_KEY" ||
+                          state()?.settings?.cloudconvert,
+                      )}
+                    >
+                      {(provider) => (
+                        <label class="field">
+                          <span>
+                            {provider.label}
+                            <Show
+                              when={state()?.secrets.includes(provider.key)}
+                            >
+                              <em>Saved</em>
+                            </Show>
+                          </span>
+                          <input
+                            type="password"
+                            autocomplete="new-password"
+                            spellcheck={false}
+                            value={credentials()[provider.key] ?? ""}
+                            placeholder={
+                              state()?.secrets.includes(provider.key)
+                                ? "Leave blank to keep saved value"
+                                : "Paste credential"
+                            }
+                            disabled={busy()}
+                            onInput={(e) => {
+                              const value = e.currentTarget.value;
+                              setCredentials((current) => {
+                                const next = { ...current };
+                                if (value) next[provider.key] = value;
+                                else delete next[provider.key];
+                                return next;
+                              });
+                            }}
+                          />
+                          <small>{provider.hint}</small>
+                        </label>
+                      )}
+                    </For>
+                    <button
+                      class="secondary"
+                      type="submit"
+                      disabled={
+                        busy() ||
+                        !state()?.settings ||
+                        !state()?.capabilities.infisical ||
+                        !Object.keys(credentials()).length
+                      }
+                    >
+                      Save to Infisical
+                    </button>
+                  </div>
+                </form>
+              </Show>
               <div class="note">
                 <h3>Keep the first release focused</h3>
                 <p>
@@ -486,12 +514,15 @@ function App() {
                 <Show
                   when={
                     !state()?.capabilities.cloudflare ||
-                    !state()?.capabilities.infisical
+                    !state()?.capabilities.stateProtection ||
+                    (state()?.settings?.moderationMode === "independent" &&
+                      !state()?.capabilities.infisical)
                   }
                 >
                   <p class="fine">
-                    Deployment needs a Cloudflare API token and scoped Infisical
-                    identity on the local runner.
+                    Deployment needs Cloudflare access and a state protection
+                    password on the local runner. Independent moderation also
+                    needs its scoped Infisical identity.
                   </p>
                 </Show>
                 <div class="actions">
@@ -510,8 +541,12 @@ function App() {
                       busy() ||
                       !approved() ||
                       !state()?.capabilities.cloudflare ||
-                      !state()?.capabilities.infisical ||
-                      state()?.readiness[0].state !== "saved"
+                      !state()?.capabilities.stateProtection ||
+                      (state()?.settings?.moderationMode === "independent" &&
+                        !state()?.capabilities.infisical) ||
+                      !["saved", "managed"].includes(
+                        state()?.readiness[0].state ?? "",
+                      )
                     }
                     onClick={() =>
                       void action(
@@ -524,9 +559,11 @@ function App() {
                       )
                     }
                   >
-                    {state()?.attempted
-                      ? "Retry provisioning"
-                      : "Deploy infrastructure"}{" "}
+                    {state()?.deployment === "health_pending"
+                      ? "Check HTTPS again"
+                      : state()?.attempted
+                        ? "Retry provisioning"
+                        : "Deploy infrastructure"}{" "}
                     →
                   </button>
                 </div>

@@ -30,7 +30,11 @@ async function body(req: IncomingMessage) {
 export function createWizardServer(
   setup: Setup,
   dist: string,
-  capabilities: { infisical: boolean; cloudflare: boolean },
+  capabilities: {
+    infisical: boolean;
+    cloudflare: boolean;
+    stateProtection?: boolean;
+  },
 ) {
   const csrf = randomBytes(32).toString("hex");
   const server = createServer(async (req, res) => {
@@ -82,9 +86,14 @@ export function createWizardServer(
         else if (path === "/api/secrets") await setup.saveSecrets(input);
         else if (path === "/api/plan") await setup.review();
         else if (path === "/api/deploy") {
-          if (!capabilities.cloudflare || !capabilities.infisical)
+          if (
+            !capabilities.cloudflare ||
+            !capabilities.stateProtection ||
+            (setup.snapshot().settings?.moderationMode === "independent" &&
+              !capabilities.infisical)
+          )
             throw new SetupError(
-              "Start the runner with the Cloudflare token and scoped Infisical identity.",
+              "Configure Cloudflare access and state protection on the runner. Independent moderation also requires its scoped Infisical identity.",
               409,
             );
           await setup.deploy(input);

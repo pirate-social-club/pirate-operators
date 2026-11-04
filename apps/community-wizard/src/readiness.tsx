@@ -47,7 +47,8 @@ export function Readiness(props: { state: Snapshot; onRetry: () => void }) {
       <Show
         when={
           props.state.deployment === "failed" ||
-          props.state.deployment === "interrupted"
+          props.state.deployment === "interrupted" ||
+          props.state.deployment === "health_pending"
         }
       >
         <button class="primary" onClick={() => props.onRetry()}>
@@ -55,10 +56,12 @@ export function Readiness(props: { state: Snapshot; onRetry: () => void }) {
         </button>
       </Show>
       <div class="note">
-        <h3>Handshake comes next</h3>
+        <h3>Handshake is separate</h3>
         <p>
-          Connect app.{props.state.settings?.tld || "your-tld"} after HTTPS
-          setup. Sponsored name purchases are a later milestone.
+          Song tests use ordinary HTTPS without HNS delegation. Verified Pirate
+          discovery needs delegation and namespace verification. Opening app.
+          {props.state.settings?.tld || "your-tld"} is a separate transport
+          check.
         </p>
       </div>
     </>

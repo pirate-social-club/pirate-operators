@@ -6,19 +6,29 @@ import {
   lstat,
   realpath,
   writeFile,
+  unlink,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { statePassword } from "../infra/protected-data.ts";
+import { runWithDiagnostics } from "./diagnostics.ts";
+import { waitForHealth } from "./health.ts";
+import { inspectPrivateFiles } from "./state-inspection.ts";
 import type { Provisioner } from "./setup.ts";
 import { privateDirectory } from "./state.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sources = [
   "infra/alchemy.run.ts",
+  "infra/encrypted-state.ts",
+  "infra/protected-data.ts",
   "infra/migrations/0001_setup.sql",
   "community/worker.mjs",
   "package-lock.json",
+  "server/provision.ts",
+  "server/diagnostics.ts",
+  "server/state-inspection.ts",
+  "server/health.ts",
 ];
 export function provisioner(directory: string): Provisioner {
   return {
@@ -30,7 +40,11 @@ export function provisioner(directory: string): Provisioner {
       }
       return hash.digest("hex");
     },
+    async health(plan) {
+      await waitForHealth(plan.origin, plan.id);
+    },
     async deploy(settings, plan, secrets) {
+      const password = statePassword();
       if (!process.env.CLOUDFLARE_API_TOKEN)
         throw new Error("Cloudflare token missing");
       const cwd = join(directory, "deployment");
@@ -53,7 +67,17 @@ export function provisioner(directory: string): Provisioner {
         join(root, "community/worker.mjs"),
         join(cwd, "worker.mjs"),
       );
+      for (const file of ["encrypted-state.ts", "protected-data.ts"]) {
+        await copyFile(join(root, "infra", file), join(cwd, file));
+      }
       const modules = join(cwd, "node_modules");
+      try {
+        if (!(await lstat(modules)).isSymbolicLink())
+          throw new Error("Unexpected deployment dependencies");
+        await unlink(modules);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       try {
         await symlink(join(root, "node_modules"), modules, "dir");
       } catch (error) {
@@ -78,61 +102,35 @@ export function provisioner(directory: string): Provisioner {
         COMMUNITY_NAME: settings.name,
         ACRCLOUD_HOST: settings.acrHost,
         PLAN_ID: plan.id,
+        MODERATION_MODE: settings.moderationMode,
+        PIRATE_WIZARD_STATE_PASSWORD: password,
         ...secrets,
       };
-      // A fixed executable and argv; browser input never becomes shell code.
-      // Provider output may contain secrets. Do not stream it to the browser or logs.
+      await inspectPrivateFiles(cwd, [
+        password,
+        process.env.CLOUDFLARE_API_TOKEN!,
+        ...Object.values(secrets),
+      ]);
+      // Only the runner passes credentials; raw output is encrypted, never sent to the browser.
       for (const command of ["plan", "deploy"]) {
-        await new Promise<void>((resolve, reject) => {
-          const child = spawn(
-            join(root, "node_modules/.bin/alchemy"),
-            [
-              command,
-              "--stage",
-              "setup",
-              "--no-input",
-              ...(command === "deploy" ? ["--yes"] : []),
-            ],
-            { cwd, env, stdio: "ignore" },
-          );
-          child.on("error", () => reject(new Error("Alchemy could not start")));
-          child.on("exit", (code) =>
-            code === 0
-              ? resolve()
-              : reject(new Error("Alchemy did not complete")),
-          );
-        });
+        await runWithDiagnostics(
+          join(root, "node_modules/.bin/alchemy"),
+          [
+            command,
+            "--stage",
+            "setup",
+            "--no-input",
+            ...(command === "deploy" ? ["--yes"] : []),
+          ],
+          { cwd, env, directory, password, phase: command },
+        );
+        await inspectPrivateFiles(cwd, [
+          password,
+          process.env.CLOUDFLARE_API_TOKEN!,
+          ...Object.values(secrets),
+        ]);
       }
-      // No arbitrary probe URL. It must match the reviewed workers.dev origin.
-      const response = await fetch(`${plan.origin}/health`, {
-        redirect: "error",
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!response.ok) throw new Error("Deployed endpoint is not ready");
-      const contentLength = Number(response.headers.get("content-length") ?? 0);
-      if (contentLength > 4096) throw new Error("Unexpected health response");
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("Missing health response");
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          length += value.length;
-          if (length > 4096) throw new Error("Unexpected health response");
-          chunks.push(value);
-        }
-      } finally {
-        await reader.cancel();
-      }
-      const health = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      if (
-        health.schema !== "pirate.community-setup/1" ||
-        health.planId !== plan.id ||
-        health.infrastructure !== "provisioned"
-      )
-        throw new Error("Deployment receipt mismatch");
+      await waitForHealth(plan.origin, plan.id);
     },
   };
 }

@@ -1,16 +1,42 @@
 # Community wizard v1
 
-This is the first runnable setup slice: a Solid browser wizard backed by a
-trusted local Node runner. It saves nonsecret settings, writes provider keys
-to Infisical, reviews a fixed resource plan, and invokes Alchemy for an ordinary
-HTTPS setup page, D1, private R2 and a job queue. HNS is optional follow-up.
+This is the runnable provisioning slice: a Solid browser wizard backed by a
+trusted local Node runner. It reviews a fixed resource plan and invokes Alchemy
+for an ordinary HTTPS setup page, D1, private R2 and a queue. It does not yet
+provide the completed login, upload, moderation or first-song application.
 
-It is not the completed first-song application. The deployed page is a setup
-page, not a login or upload client. The queue has no moderation consumer yet.
-Real moderation, creator activation, registration, media publication and
-directory/post transactions remain integration work. The readiness screen
-keeps them incomplete even after a successful deployment. Spaces, sponsored
-name purchases, ElevenLabs, OpenRouter and Telegram are outside this slice.
+## First-song test scope
+
+The owner confirmed on November 4 that song contracts and flows must be testable
+without waiting for Handshake. A genuine test registry and its admin can create
+an unverified directory entry and publish through the selected publisher. HNS
+delegation and a fresh namespace attestation gate verified Pirate discovery;
+opening app.tld is a separate browser/transport check. Neither gates the first
+song test. A factory event alone does not establish namespace ownership.
+
+The wizard defaults to Pirate-operated moderation. Communities using that
+service do not supply OpenAI/ACRCloud keys and those keys never enter their
+Workers. Policy settings are deferred; existing publication rules apply,
+including allowing explicit lyrics. Service pairing, authorized operator
+identity, signed results and the actual checks still require integration.
+Choosing a service is not evidence that it works. The advanced independent
+operator path retains provider intake into that operator's Infisical scope.
+Co-locating keys in its Worker does not by itself establish operator signing
+identity; that is another release requirement.
+
+The owner explicitly chose a capped operator budget for first-song test creator
+activation, with no creator payment screen. Native Sui/Ika fees are paid by the
+registration operator. Communities using Pirate's registration service do not
+supply its treasury secrets. Creator checkout, pricing and refunds are deferred;
+this test choice does not claim a permanent commercial pricing policy. The
+service's balances, finite budgets and activation limits must be checked before
+releases. No new funds, credentials or fee transactions were created here.
+
+The queue has no moderation consumer. Creator activation/registration, sealed
+media, public IPFS publication, directory/post transactions and reload/playback
+remain integration work. First-song readiness stays incomplete after successful
+infrastructure provisioning. Spaces, sponsored name purchases, ElevenLabs,
+OpenRouter and Telegram remain outside this slice.
 
 ## Run locally
 
@@ -22,119 +48,149 @@ npm run check
 npm start
 ```
 
-Open the printed `http://127.0.0.1:8789` URL. Without service credentials you
-can save settings, review resources and inspect readiness. The browser keeps
-no localStorage state. Restarting the runner restores nonsecret progress from
-`~/.local/state/pirate-community-wizard`. Set `PIRATE_WIZARD_STATE_DIR` to an
-absolute private directory for a different community and `PIRATE_WIZARD_PORT`
-to a different port if needed. Do not use a repository or shared directory.
+Open `http://127.0.0.1:8789`. Without runner credentials you can save settings,
+review resources and inspect readiness. State defaults to
+`~/.local/state/pirate-community-wizard`; `PIRATE_WIZARD_STATE_DIR` selects a
+private directory for another community and `PIRATE_WIZARD_PORT` selects its
+port. Repository state directories are refused. The browser uses no
+localStorage and stores no provider keys. Older saved configurations without a
+moderation mode retain independent operation and require a new reviewed plan;
+they are never silently converted to managed service.
 
-## Service access and deployment
+## Runner access and deployment
 
-An operator prepares an existing Cloudflare account with workers.dev enabled
-and access to Workers, D1, R2 and Queues. Supply `CLOUDFLARE_API_TOKEN` to the
-runner through the operator's established secret injection workflow; the
-account ID and workers.dev subdomain are entered in the wizard. Use `cf` for
-login/account diagnostics. Alchemy alone manages the resources; there is no
-Wrangler configuration, automatic adoption or destroy action here.
+Prepare an existing Cloudflare account with workers.dev enabled and access to
+Workers, D1, R2 and Queues. Inject `CLOUDFLARE_API_TOKEN` and
+`PIRATE_WIZARD_STATE_PASSWORD` through an approved secret workflow, preferably
+Infisical. The state password must contain at least 32 bytes and must be retained
+in the approved secret store for recovery. The runner does not generate it or
+write it to disk. Enter the nonsecret account ID and existing workers.dev
+subdomain in the wizard. Use cf for diagnostics; Alchemy alone reconciles the
+resources. There is no automatic adoption or destroy action.
 
-Prepare an existing Infisical project, environment and dedicated folder.
-Inject `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET` for a machine identity
-scoped to that folder with read/create/update permissions. The runner defaults
-to `https://app.infisical.com`; a trusted operator may set
-`INFISICAL_SITE_URL` to their own HTTPS origin. The browser cannot change it.
-Imports and secret-reference expansion are disabled. The runner creates or
-updates only the named OpenAI, ACRCloud and optional CloudConvert secrets.
-It creates no provider account, API key, Infisical identity or permission.
+Only independent moderation needs provider credential intake. Prepare an
+existing Infisical project/environment/dedicated folder and inject its scoped
+machine identity as `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`, with
+read/create/update access to that folder. The default site is
+`https://app.infisical.com`; a trusted runner may set `INFISICAL_SITE_URL` to
+its own HTTPS origin. Imports and reference expansion are disabled. The adapter
+updates only named OpenAI, ACRCloud and optional CloudConvert secrets. Managed
+mode rejects this intake and never reads those provider secrets.
 
-Saving keys performs Infisical operations, not provider moderation calls. A
-partial failure can leave some keys saved; retrying updates the same names.
-The saved indicator appears only after all required names can be read back.
-No provider credential value is returned to the browser or included in setup
-JSON, resource plans or status messages. Password fields clear on submission.
+Saving keys is an Infisical operation, not a moderation test. Partial writes can
+be retried at the same names. Saved status requires readback of every required
+name. Values never return to the browser or enter setup JSON/status messages.
 
-Review the account and resource names, then invoke deployment explicitly. The
-review is a deterministic intended-resource plan, not a Cloudflare diff. Its
-hash binds settings, revision, stack, migration, Worker source and lockfile.
-Alchemy runs `plan` followed by `deploy --stage setup --no-input --yes` using
-fixed arguments. It may incur charges in the reviewed account. This source
-task did not execute either command against a live account.
+The intended resource plan binds settings, source, deployment helpers and the
+lockfile. It is not a Cloudflare diff. Explicit deployment runs Alchemy `plan`,
+then `deploy --stage setup --no-input --yes` using fixed arguments. Account
+charges can apply. No live plan/deploy was executed in this source repair.
 
-The deployment runner passes only the required provider values to Alchemy,
-which installs Worker secrets. Infisical remains the source of those values.
-Alchemy success plus a matching HTTPS health receipt and installed D1 schema
-marks infrastructure provisioned. It does not test provider access, media
-storage round trips, job execution, authentication or first-song playback.
+After apply, the runner polls the exact reviewed HTTPS origin for up to three
+minutes, with per-request timeouts and bounded backoff. It accepts only a receipt
+with the expected plan ID and installed D1 schema. A slow endpoint becomes
+`health_pending`, not a failed apply; an unchanged-plan retry only checks HTTPS.
+Changing source or credentials requires a reviewed redeployment. Infrastructure
+success does not prove storage round trips, job processing or first-song playback.
 
-## Contracts are a separate lane
+workers.dev is a staging origin owned by the Cloudflare account. Choose the
+community's canonical origin before production login: changing it requires
+reauthentication and origin/allowlist updates. This slice promises no automatic
+session continuity or custom-domain migration.
 
-The contracts agent owns implementation, tests and deployment artifacts. This
-wizard implements no blockchain ABI, contract or transaction. Its integration
-must consume reviewed deployment manifests from that lane, including chain,
-addresses, ABI versions, code provenance and start blocks.
+## Protected state, diagnostics and recovery
 
-| Component                               | Intended responsibility                                                                                                                                       |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Registry factory/implementation         | Shared Pirate deployment, already developed in pirate-registry.                                                                                               |
-| Per-TLD registry                        | Operator creates it through the factory, controls sale policy and signs the HNS delegation.                                                                   |
-| Community directory and song-post index | Shared Pirate deployments; the operator registers and controls the community's config/publisher. Pirate verification and listing govern discovery separately. |
-| OperatorPayments                        | Shared-contract direction with separate community accounts; the contracts/payment lane must confirm deployment profile and spending controls.                 |
-| Learning/rewards                        | Later work, not a provisioning gate.                                                                                                                          |
+The runner is trusted. Loopback Host/Origin checks, CSRF, bounded bodies and CSP
+protect its web interface, but a compromised local machine or extension can
+still read runtime credentials. No HNS or registry-admin private key is collected.
 
-The directory/post handoff is currently specification and interfaces in
-[PR 12](https://github.com/pirate-social-club/pirate-operators/pull/12), not a
-deployment. The directory can require a real registry even while app access
-uses ordinary HTTPS. Optional HNS access does not imply verified namespace
-ownership or discovery. This wizard does not mark either as complete.
+The pinned Alchemy v2 encoder stores underlying Redacted values in JSON. Its
+local store does not implement the v1 `ALCHEMY_PASSWORD` behavior. This stack
+wraps that actual store's file I/O with AES-256-GCM and scrypt, encrypting whole
+resource and output files before Alchemy's atomic writes. Authentication binds
+each record to its logical stack/stage/file path, while allowing relocation of
+the state directory. Wrong passwords, tampering and plaintext files fail closed.
+Do not delete state to bypass a decryption error. Existing plaintext deployments
+need an explicit migration; this repair does not silently convert or destroy them.
 
-## Trust, persistence and recovery
+The runner uses 0700 directories and 0600 files with umask 077. After each Alchemy
+phase it inspects generated deployment files for the actual supplied credential
+bytes, excluding the generated dependency symlink. Unexpected symlinks, excessive
+state size or plaintext matches stop the workflow. This inspection also runs on
+the first real deployment; the offline encrypted-store proof is not evidence
+that a live provider has emitted no other sensitive files.
 
-Run this on the operator's trusted computer. The runner binds only loopback,
-checks the exact Host and Origin, uses a session CSRF token, rejects cross-site
-requests, limits request bodies and exposes no CORS. The UI serves local
-assets with a restrictive CSP. Local administrators, malicious extensions or
-compromise of this machine can still read credentials in memory; loopback
-is not protection from them. No registry-admin or HNS private key is collected.
+Completed commands retain up to 1 MiB of combined output in encrypted private
+`diagnostics/*.enc` files. Failures expose a log ID and exit status, never the
+provider output. On a trusted private terminal, an operator can explicitly use:
 
-Setup JSON is mode 0600 in a 0700 state directory. Alchemy's working directory
-and state live under its private `deployment` child with umask 077. Alchemy
-state may contain secret values: treat the whole directory as sensitive and
-back it up only through the operator's approved encrypted backup workflow.
-Provider raw output and error bodies are not streamed or saved in logs. This
-limits diagnostics; use scoped account/credential diagnostics without exporting
-Alchemy state or provider errors into a bug report.
+```sh
+npm run diagnostic -- <log-id> --show-sensitive
+```
 
-Keep this directory for retries. Once a deployment has been attempted its
-settings are locked; a new community uses a different state directory. The
-runner serializes operations and holds `runner.lock` across the deployment.
-Normal shutdown waits for the child operation. After a crash, confirm both the
-old runner and any Alchemy child have stopped before manually removing that
-lock. Never remove it just because the browser disconnected. A resumed
-in-progress record is interrupted, not successful. Review and retry the same
-resource identities; no automatic rollback deletes existing resources.
+Decoded output can contain credentials. Do not paste it into chat or public
+reports. A runner crash can lose the current in-memory command log; previous
+completed logs and atomic state remain. Diagnostic decryption uses the same
+managed state password and prints no output without the explicit flag.
 
-## Verification and provenance
+For recovery on another machine, first stop the original runner and confirm no
+Alchemy child remains. Back up `setup.json`, `deployment/.alchemy/` and
+`diagnostics/` with a verified file inventory/digest through the approved backup
+workflow. Keep the state password separately in the approved secret store. Do
+not copy `runner.lock` or `deployment/node_modules`. Restore into a private
+state directory, check the inventory/digest, install the same reviewed source and
+lockfile, and inject the same password and scoped service access. The runner
+regenerates its code/dependency links and retains resource identities. Recheck
+the plan before resuming. Only one restored copy may deploy; this is not a
+multi-machine locking system. Local tests cover the actual store's cross-path
+round trip, not a live second-machine Cloudflare recovery.
 
-`npm run check` runs TypeScript (including the Alchemy stack), boundary and
-recovery tests, then builds the Solid UI. `npm run test:browser` runs a real
-Chromium journey from settings to review and mobile readiness, including
-reload/resume. Tests use explicitly fake provider/provisioner ports and do not
-prove live Infisical, Cloudflare, chain or moderation behavior. The repository
-root's `npm run check` remains required. CI runs both suites separately.
+After a crash, remove `runner.lock` only after confirming the old runner and any
+Alchemy process have stopped. Interrupted status never counts as success. No
+automatic rollback deletes resources. Settings remain fixed after the first
+attempt; preserve the state when investigating errors.
 
-The Alchemy stack pattern follows the independently owned creator-spike
-source at `a9810cc`; no sibling checkout is a build or runtime dependency.
-Provider APIs were checked against pinned package types and the official
+## Contracts and evidence boundaries
+
+The separate contracts agent owns implementation, tests and deployment
+artifacts. This wizard consumes reviewed manifests; it implements no contract
+or blockchain transaction. Shared Pirate infrastructure consists of the naming
+factory/implementation and the intended directory/post deployments. The
+operator controls its per-TLD registry, configuration and publisher. Verification
+and listing remain separate from publication authority.
+
+[PR 12](https://github.com/pirate-social-club/pirate-operators/pull/12) contains
+the directory/post interfaces. Their implementation now has a dedicated active
+task. The deployed OperatorPayments test fixture at
+`0x98a5242f80ecc9e01295e03a18712b4256d9f071` is disposable test evidence, not a
+community deployment default: it precedes the admin-controlled recipient and
+spending restrictions. This wizard neither adopts it nor requests deposits.
+Learning records and karaoke payments do not gate this first-song integration.
+
+[PR 13](https://github.com/pirate-social-club/pirate-operators/pull/13) records
+the completed owner browser activation/reopen/sign pilot and public transaction.
+Its older README/software-smoke evidence has not yet been reconciled by this
+lane. Device, OS and passkey-provider provenance and Android/Telegram coverage
+remain incomplete. Neither that pilot nor a chain receipt proves the full
+community upload/registration/publication journey.
+
+## Verification and review
+
+`npm run check` type-checks the stack/runner, runs tests and builds the UI.
+`npm run test:browser` exercises the desktop/mobile managed setup and resume
+journey. Tests include actual pinned Alchemy state persistence and actual
+Infisical SDK paths with fake credentials/HTTP; no live provider is implied.
+The root repository check and full dependency audit remain required.
+
+The stack pattern originates in creator-spike `a9810cc`; no sibling checkout is
+a dependency. Provider APIs were checked against pinned source and official
 [Alchemy Worker](https://alchemy.run/cloudflare/compute/workers/),
 [R2](https://alchemy.run/cloudflare/data/r2/) and
-[Queues](https://alchemy.run/cloudflare/messaging/queues/) documentation.
-Infisical CRUD uses the pinned official `@infisical/sdk` rather than guessed
-HTTP endpoints. No frontend build or managed credential was copied from another
-community.
+[Queues](https://alchemy.run/cloudflare/messaging/queues/) documentation. The
+SDK's Zod override is qualified only for the authentication and CRUD paths used
+here. State encryption is our wrapper around the pinned v2 local store, not a
+claim of native Alchemy encryption support.
 
-The SDK's transitive Zod dependency is overridden to 4.6.7 for its collection
-validation security fix. The actual SDK authentication, scoped list/get and
-create/update paths used here are exercised against simulated HTTP responses,
-including retry after a partial write. Other SDK surfaces are not used or
-qualified by this override. The full dependency audit, including deployment
-tooling, must remain clean before publication.
+PR 15 remains stacked on PR 11. Both can be reviewed as a stack; merge PR 11
+before PR 15. Passing CI and this author's repair checks are not an independent
+review. No self-reviewed merge is performed.

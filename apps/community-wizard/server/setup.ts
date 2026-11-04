@@ -1,3 +1,5 @@
+import { HealthPending } from "./health.ts";
+import { DeploymentFailure } from "./diagnostics.ts";
 import {
   makePlan,
   object,
@@ -15,6 +17,7 @@ import type { SecretStore } from "./secrets.ts";
 
 export interface Provisioner {
   digest(): Promise<string>;
+  health(plan: Plan): Promise<void>;
   deploy(
     settings: Settings,
     plan: Plan,
@@ -80,6 +83,11 @@ export async function createSetup(
       return locked(async () => {
         if (!state.settings)
           throw new SetupError("Save community settings first.");
+        if (state.settings.moderationMode !== "independent")
+          throw new SetupError(
+            "Provider keys belong to the managed operator, not this community.",
+            409,
+          );
         const values = secretsFrom(input);
         state.plan = undefined;
         state.revision++;
@@ -103,7 +111,7 @@ export async function createSetup(
           state.revision,
           await provisioner.digest(),
         );
-        if (state.deployment === "provisioned" && plan.id !== state.plan?.id) {
+        if (state.attempted && state.plan && plan.id !== state.plan.id) {
           state.deployment = "update_pending";
           state.message =
             "The reviewed source changed. Deploy this plan to update the existing resources.";
@@ -137,22 +145,33 @@ export async function createSetup(
             409,
           );
         const settings = state.settings;
+        const healthOnly = state.deployment === "health_pending";
         state.attempted = true;
         state.deployment = "running";
-        state.message =
-          "Reading scoped Infisical credentials and reconciling the reviewed resources with Alchemy.";
+        state.message = healthOnly
+          ? "Waiting for the expected HTTPS deployment receipt; infrastructure will not be recreated."
+          : "Reconciling the reviewed resources with Alchemy and the selected service configuration.";
         await persist();
         job = (async () => {
           try {
-            const values = await secrets.read(settings);
-            await provisioner.deploy(settings, plan, values);
+            if (healthOnly) await provisioner.health(plan);
+            else {
+              const values = requiredSecrets(settings).length
+                ? await secrets.read(settings)
+                : {};
+              await provisioner.deploy(settings, plan, values);
+            }
             state.deployment = "provisioned";
             state.message =
               "Alchemy completed. The setup page is provisioned; first-song integrations remain pending.";
-          } catch {
-            state.deployment = "failed";
+          } catch (error) {
+            state.deployment =
+              error instanceof HealthPending ? "health_pending" : "failed";
             state.message =
-              "Provisioning did not complete. Check account access, Infisical scope and the private Alchemy state. Retry the same plan; existing resources are preserved.";
+              error instanceof HealthPending ||
+              error instanceof DeploymentFailure
+                ? error.message
+                : "Provisioning did not complete. Check account access, Infisical scope and the private Alchemy state. Retry the same plan; existing resources are preserved.";
           }
           await persist();
         })().finally(() => {

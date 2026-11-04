@@ -26,6 +26,7 @@ export interface Settings {
   acrHost: string;
   cloudconvert: boolean;
   tld: string;
+  moderationMode: "pirate" | "independent";
 }
 export interface Plan {
   id: string;
@@ -44,6 +45,7 @@ export interface SetupState {
   deployment:
     | "not_started"
     | "running"
+    | "health_pending"
     | "interrupted"
     | "failed"
     | "update_pending"
@@ -75,7 +77,7 @@ function field(
   return value;
 }
 export function settingsFrom(value: unknown): Settings {
-  const input = object(value);
+  const input = { ...object(value) };
   const fields = [
     "name",
     "slug",
@@ -87,6 +89,7 @@ export function settingsFrom(value: unknown): Settings {
     "acrHost",
     "cloudconvert",
     "tld",
+    "moderationMode",
   ];
   if (Object.keys(input).some((key) => !fields.includes(key)))
     throw new SetupError(
@@ -94,7 +97,21 @@ export function settingsFrom(value: unknown): Settings {
     );
   if (typeof input.cloudconvert !== "boolean")
     throw new SetupError("Choose whether CloudConvert is needed.");
+  if (
+    input.moderationMode !== "pirate" &&
+    input.moderationMode !== "independent"
+  )
+    throw new SetupError("Choose a moderation service.");
+  if (input.moderationMode === "pirate") {
+    input.projectId = "";
+    input.environment = "";
+    input.secretPath = "";
+    input.acrHost = "";
+    input.cloudconvert = false;
+  }
+  const independent = input.moderationMode === "independent";
   return {
+    moderationMode: input.moderationMode,
     name: field(
       input,
       "name",
@@ -119,31 +136,39 @@ export function settingsFrom(value: unknown): Settings {
       /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
       "Enter your existing workers.dev account subdomain.",
     ),
-    projectId: field(
-      input,
-      "projectId",
-      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i,
-      "Enter the Infisical project UUID.",
-    ),
-    environment: field(
-      input,
-      "environment",
-      /^[a-z][a-z0-9-]{0,30}$/,
-      "Enter the Infisical environment slug.",
-    ),
-    secretPath: field(
-      input,
-      "secretPath",
-      /^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/,
-      "Use a dedicated existing Infisical folder, such as /communities/c22.",
-    ),
-    acrHost: field(
-      input,
-      "acrHost",
-      /^identify-[a-z0-9-]+\.acrcloud\.com$/,
-      "Enter your ACRCloud identify host, without https://.",
-    ),
-    cloudconvert: input.cloudconvert,
+    projectId: !independent
+      ? ""
+      : field(
+          input,
+          "projectId",
+          /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i,
+          "Enter the Infisical project UUID.",
+        ),
+    environment: !independent
+      ? ""
+      : field(
+          input,
+          "environment",
+          /^[a-z][a-z0-9-]{0,30}$/,
+          "Enter the Infisical environment slug.",
+        ),
+    secretPath: !independent
+      ? ""
+      : field(
+          input,
+          "secretPath",
+          /^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/,
+          "Use a dedicated existing Infisical folder, such as /communities/c22.",
+        ),
+    acrHost: !independent
+      ? ""
+      : field(
+          input,
+          "acrHost",
+          /^identify-[a-z0-9-]+\.acrcloud\.com$/,
+          "Enter your ACRCloud identify host, without https://.",
+        ),
+    cloudconvert: independent && input.cloudconvert === true,
     tld: field(
       input,
       "tld",
@@ -153,6 +178,7 @@ export function settingsFrom(value: unknown): Settings {
   };
 }
 export function requiredSecrets(s: Settings): SecretName[] {
+  if (s.moderationMode === "pirate") return [];
   return [
     ...secretNames.filter((name) => name !== "CLOUDCONVERT_API_KEY"),
     ...(s.cloudconvert ? ["CLOUDCONVERT_API_KEY" as const] : []),
@@ -217,13 +243,23 @@ export function makePlan(
 export function readiness(state: SetupState) {
   return [
     {
-      title: "Provider credentials",
+      title:
+        state.settings?.moderationMode === "pirate"
+          ? "Moderation service"
+          : "Provider credentials",
       state:
-        state.settings &&
-        requiredSecrets(state.settings).every((k) => state.secrets.includes(k))
-          ? "saved"
-          : "needed",
-      detail: "Stored in Infisical. Real provider checks are still required.",
+        state.settings?.moderationMode === "pirate"
+          ? "managed"
+          : state.settings &&
+              requiredSecrets(state.settings).every((k) =>
+                state.secrets.includes(k),
+              )
+            ? "saved"
+            : "needed",
+      detail:
+        state.settings?.moderationMode === "pirate"
+          ? "Pirate-operated moderation selected. Service pairing and signed results still need verification; no provider keys belong in this community."
+          : "Independent operator credentials saved to its Infisical scope. Service identity and provider checks still need verification.",
     },
     {
       title: "Cloudflare infrastructure",
@@ -241,13 +277,19 @@ export function readiness(state: SetupState) {
       title: "Creator activation",
       state: "integration_pending",
       detail:
-        "Connect the creator-wallet pilot and confirmed registration before upload.",
+        "Operator-sponsored test setup with a capped budget; no creator checkout. Connect the wallet and confirmed registration before upload.",
     },
     {
       title: "Community directory and song posts",
       state: "contracts_pending",
       detail:
-        "Configure shared directory and post contracts, then register this community and its publisher.",
+        "Use a genuine test registry and unverified directory entry to exercise publishing over HTTPS. HNS verification is not a song-test gate.",
+    },
+    {
+      title: "Verified Pirate discovery · optional for tests",
+      state: "unverified",
+      detail:
+        "HNS delegation and a fresh namespace attestation gate verified listing. Opening app.tld is a separate browser/transport check.",
     },
     {
       title: "First song",

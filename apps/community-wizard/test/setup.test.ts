@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createSetup, type Provisioner } from "../server/setup.ts";
 import { createWizardServer } from "../server/http.ts";
+import { HealthPending } from "../server/health.ts";
 import {
   settingsFrom,
   secretsFrom,
@@ -25,6 +26,7 @@ const settings: Settings = {
   acrHost: "identify-eu-west-1.acrcloud.com",
   cloudconvert: false,
   tld: "",
+  moderationMode: "independent",
 };
 const credentials = {
   OPENAI_API_KEY: "fixture-openai-not-a-real-key",
@@ -46,6 +48,7 @@ async function fixture(t: TestContext, options: Partial<Provisioner> = {}) {
     },
   };
   const provision: Provisioner = {
+    async health() {},
     async digest() {
       return "source-v1";
     },
@@ -251,4 +254,56 @@ test("saved credential changes and a new source plan require redeployment", asyn
   f.provision.digest = async () => "new-source";
   await f.setup.review();
   assert.equal(f.setup.snapshot().deployment, "update_pending");
+});
+
+test("managed default provisions without HNS or community provider keys while release and discovery stay pending", async (t) => {
+  const f = await fixture(t);
+  let reads = 0;
+  f.secrets.read = async () => {
+    reads++;
+    throw new Error("Managed mode must not request provider keys");
+  };
+  await f.setup.configure({ ...settings, moderationMode: "pirate", tld: "" });
+  assert.equal(f.setup.snapshot().settings?.projectId, "");
+  await assert.rejects(
+    () => f.setup.saveSecrets(credentials),
+    /managed operator/,
+  );
+  await f.setup.review();
+  await f.setup.deploy({ planId: f.setup.snapshot().plan!.id });
+  await f.setup.settled();
+  assert.equal(reads, 0);
+  assert.equal(f.calls(), 1);
+  assert.equal(f.setup.snapshot().deployment, "provisioned");
+  assert.equal(f.setup.snapshot().readiness.at(-1)?.state, "not_ready");
+  assert.equal(
+    f.setup
+      .snapshot()
+      .readiness.find((item) => item.title.includes("discovery"))?.state,
+    "unverified",
+  );
+});
+test("a completed apply with pending HTTPS retries only the health probe", async (t) => {
+  let applies = 0,
+    probes = 0;
+  const f = await fixture(t, {
+    async deploy() {
+      applies++;
+      throw new HealthPending();
+    },
+    async health() {
+      probes++;
+    },
+  });
+  await f.setup.configure({ ...settings, moderationMode: "pirate" });
+  await f.setup.review();
+  const planId = f.setup.snapshot().plan!.id;
+  await f.setup.deploy({ planId });
+  await f.setup.settled();
+  assert.equal(f.setup.snapshot().deployment, "health_pending");
+  await f.setup.deploy({ planId });
+  await f.setup.settled();
+  assert.equal(f.setup.snapshot().deployment, "provisioned");
+  assert.equal(applies, 1);
+  assert.equal(probes, 1);
 });
