@@ -4,7 +4,7 @@ This document covers local contract/provider experiments. External Megapot is
 on Base; it does not authorize Pirate contracts there. The reward funding and
 production payout route remain undecided. See the [current setup overview](decentralized-setup.md).
 
-One immutable RewardPool holds one drawing's tickets and winnings on Base.
+The local immutable RewardPool models one drawing's tickets and winnings.
 The community verifier commits the qualifying entries. The configured Very
 attester establishes credential eligibility. A participant authorizes their
 payout address; a relayer pays gas without acquiring custody of the allocation.
