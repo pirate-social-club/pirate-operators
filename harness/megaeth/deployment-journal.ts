@@ -39,6 +39,12 @@ interface JournalState {
   chainId: number;
   signer: Address;
   transactions: Record<string, StoredTransaction>;
+  executions?: {
+    startedAt: string;
+    deadlineAt: string;
+    pid: number;
+    ownerRole: string;
+  }[];
 }
 export interface DeploymentIntent {
   to?: Address;
@@ -54,8 +60,18 @@ export async function deploymentJournal(
     chainId: 6343 | 31337;
     maximumGasPrice: bigint;
     maximumTotalFee: bigint;
+    maximumExecutionMs?: number;
   },
 ) {
+  const startedAt = Date.now(),
+    executionMs = limits.maximumExecutionMs ?? 600000,
+    deadline = startedAt + executionMs;
+  insist(
+    Number.isSafeInteger(executionMs) &&
+      executionMs > 0 &&
+      executionMs <= 900000,
+    "invalid_deployment_execution_bound",
+  );
   directory = resolve(directory);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   insist(
@@ -88,6 +104,7 @@ export async function deploymentJournal(
         chainId: limits.chainId,
         maximumGasPrice: limits.maximumGasPrice.toString(),
         maximumTotalFee: limits.maximumTotalFee.toString(),
+        maximumExecutionMs: executionMs,
       },
     });
   let state: JournalState;
@@ -137,6 +154,14 @@ export async function deploymentJournal(
         state.signer === account.address,
       "deployment_profile_changed",
     );
+    state.executions ??= [];
+    state.executions.push({
+      startedAt: new Date(startedAt).toISOString(),
+      deadlineAt: new Date(deadline).toISOString(),
+      pid: process.pid,
+      ownerRole: "workspace_coordinator",
+    });
+    await persist();
     return {
       snapshot: () => structuredClone(state),
       async send(
@@ -147,6 +172,10 @@ export async function deploymentJournal(
         insist(!sending, "deployment_send_already_running", 409);
         sending = true;
         try {
+          insist(
+            Date.now() < deadline,
+            "deployment_execution_deadline_reached",
+          );
           insist(
             /^[a-z_]{1,64}$/.test(step) && intent.gas > 0n,
             "invalid_deployment_step",
@@ -225,6 +254,10 @@ export async function deploymentJournal(
               return null;
             });
           if (!receipt && !stored.receipt) {
+            insist(
+              Date.now() < deadline,
+              "deployment_execution_deadline_reached",
+            );
             // Reuse the signed bytes even if a previous send response was lost.
             // No replacement nonce, fee bump or separately signed deployment.
             await client
@@ -240,6 +273,21 @@ export async function deploymentJournal(
             });
           }
           insist(receipt, "deployment_receipt_uncertain");
+          // A recovered receipt has the same confirmation requirement as a
+          // freshly broadcast transaction. Re-read after waiting for depth.
+          const confirmed = await client.waitForTransactionReceipt({
+            hash: stored.hash,
+            confirmations: 2,
+            timeout: 60000,
+            pollingInterval: 1000,
+            checkReplacement: false,
+          });
+          receipt = await client.getTransactionReceipt({ hash: stored.hash });
+          insist(
+            receipt.blockHash === confirmed.blockHash &&
+              receipt.blockNumber === confirmed.blockNumber,
+            "deployment_receipt_changed_during_confirmation",
+          );
           const block = await client.getBlock({
             blockNumber: receipt.blockNumber,
           });

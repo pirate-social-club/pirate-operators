@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x308f7d8f5d8727e7b3f323f2c98c2ebde7dfcc3a08118be28acb5f291d22f474",
+  "profileHash": "0x93e0511d88fdb5f8d37091706191cfda2e46a290c488350587a9c485f069a5ee",
   "profile": {
     "schema": "pirate.disposable-contract-plan/1",
     "chainId": 6343,
@@ -47,9 +47,9 @@
     "artifactDigest": "0xecf48fcaf131d7da0a21504b09591c0ac5f5d10df9b216031cd6b5b2785ac5df",
     "sourceDigests": {
       "harness/compile-community.ts": "0x20e48b13774dbc6f3610b5c6728503bd4d7baab43ed861bdfad3bc34f6f020c2",
-      "harness/megaeth/deployment-journal.ts": "0x2ec497a88696bf8a3a577892799472aae0ead3dd408ab589a7135a52da0f5f79",
+      "harness/megaeth/deployment-journal.ts": "0x4bc6aa87fae48f21cb27fd591ee6a36cdca83a0df82e6fdc4ae8cc58f3340f54",
       "harness/megaeth/verify-community.ts": "0x719fec25e57b9fe5ef65352af9a379d1f1f5dcf7c845f54022b1ab73d91bc394",
-      "harness/megaeth/setup-community.ts": "0x357a0647ee2e2b4d9d01094c7ed50d678a1d2bd74a89725786ac178394a65f0d",
+      "harness/megaeth/setup-community.ts": "0x0bd244127b589a33c5d59b46e908ad9cc3aa70a482e9cc5ae145ae7da2bef3fc",
       "package-lock.json": "0x4d3f9cf5ad995fe0f6ed8f5bd95b76de4d382dd7d4d991718498b356591174a1"
     },
     "gas": {
@@ -60,6 +60,10 @@
     },
     "maximumGasPrice": "1000000000",
     "maximumTotalFee": "10000000000000000",
+    "executionWindowSeconds": 600,
+    "executionOwnerRole": "workspace_coordinator",
+    "signerCustody": "exclusive for this bounded run; no other implementation agents or signing workflows use this operator",
+    "recovery": "retain signed-transaction journal and reconcile hashes/nonces before retry; no replacement deployment or new nonce for uncertain steps",
     "profile": "two-distinct-disabled-authorities-permanently-unlisted",
     "registryAnnualPrice": "0",
     "maximumVerificationAge": "86400"

@@ -117,6 +117,40 @@ test("a locally signed deployment resumes after persistence or broadcast without
       /deployment_step_changed/,
     );
     await assert.rejects(
+      journal.send(
+        "one_confirmation",
+        { data: artifact.bytecode, gas: 100000n },
+        async (phase) => {
+          if (phase === "broadcast")
+            throw new Error("fixture interruption at one confirmation");
+        },
+      ),
+      /fixture interruption at one confirmation/,
+    );
+    await journal.close();
+    journal = await deploymentJournal(
+      directory,
+      profile,
+      evm.publicClient,
+      operator,
+      limits,
+    );
+    let finished = false;
+    const recovering = journal
+      .send("one_confirmation", { data: artifact.bytecode, gas: 100000n })
+      .then((receipt) => {
+        finished = true;
+        return receipt;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      finished,
+      false,
+      "a recovered one-confirmation receipt must wait",
+    );
+    await mine();
+    await recovering;
+    await assert.rejects(
       deploymentJournal(directory, profile, evm.publicClient, operator, limits),
     );
     await journal.close();

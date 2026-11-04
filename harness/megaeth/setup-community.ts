@@ -43,6 +43,7 @@ const limits = {
   chainId: 6343 as const,
   maximumGasPrice: 1000000000n,
   maximumTotalFee: 10000000000000000n,
+  maximumExecutionMs: 600000,
 };
 async function main() {
   const { values } = parseArgs({
@@ -136,6 +137,12 @@ async function main() {
     ),
     maximumGasPrice: limits.maximumGasPrice.toString(),
     maximumTotalFee: limits.maximumTotalFee.toString(),
+    executionWindowSeconds: 600,
+    executionOwnerRole: "workspace_coordinator",
+    signerCustody:
+      "exclusive for this bounded run; no other implementation agents or signing workflows use this operator",
+    recovery:
+      "retain signed-transaction journal and reconcile hashes/nonces before retry; no replacement deployment or new nonce for uncertain steps",
     profile: "two-distinct-disabled-authorities-permanently-unlisted",
     registryAnnualPrice: "0",
     maximumVerificationAge: "86400",
