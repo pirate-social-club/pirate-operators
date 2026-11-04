@@ -25,8 +25,9 @@ The creator-wallet design has its own Sui/Ika and Aeneid testnet scope; this
 instruction does not authorize that integration, new credentials or transactions.
 Mainnet activity and managed production-key exports remain excluded.
 
-Spaces support is deferred beyond the decentralized community MVP. Keep HNS as
-the MVP namespace path. The wizard may show Spaces only as disabled Coming soon
+Spaces support is deferred beyond the decentralized community MVP. Wizard v1
+starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.
+The wizard may show Spaces only as disabled Coming soon
 information; do not implement or provision Spaces or generalize the directory
 for it as an MVP gate. Cloudflare Containers are a later candidate to qualify,
 not an accepted deployment target for the current Spaces stack.

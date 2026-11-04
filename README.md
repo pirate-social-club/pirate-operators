@@ -14,8 +14,9 @@ client support before transport selection. It retains prior gateway evidence
 and requires a separate instance if that HTTPS route is chosen.
 
 Spaces support is deferred beyond the decentralized community MVP. The wizard
-may show "Spaces — Coming soon" as a disabled option. HNS remains the MVP
-namespace path; Spaces infrastructure and a possible Cloudflare Containers port
+may show "Spaces — Coming soon" as a disabled option. Wizard v1 starts on
+ordinary HTTPS, with HNS as an optional follow-up. Spaces infrastructure and a
+possible Cloudflare Containers port
 are later work under the [namespace scope](docs/decentralized-setup.md#mvp-namespace-scope).
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access

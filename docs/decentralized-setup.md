@@ -16,7 +16,10 @@ infrastructure as an explicit part of the decentralized community product.
 ## MVP namespace scope
 
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
-community MVP. HNS is the only namespace setup path in this milestone. Native
+community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
+HNS configuration and verification are an optional follow-up for that slice.
+This deferral adds no HNS prerequisite to wizard v1. The broader first-song
+and native-address acceptance requirements below retain their own scope. Native
 Spaces community bindings, handle resolution/issuance and their deployment
 integration are later work, not first-song acceptance gates. The current
 HNS-specific registry/directory design need not be generalized for Spaces to
@@ -27,7 +30,7 @@ The wizard may display a disabled "Spaces — Coming soon" option with the copy
 accept Spaces setup inputs, request keys or funding, or provision Spaces
 services. Configuration/API requests selecting Spaces must return an explicit
 unsupported-namespace result before external effects. MVP acceptance must
-show that this unavailable option cannot block the HNS setup path. This is a
+show that this unavailable option cannot block supported setup. This is a
 wizard requirement, not a claim that the wizard is implemented.
 
 Cloudflare Containers are a candidate for the later Spaces service deployment,

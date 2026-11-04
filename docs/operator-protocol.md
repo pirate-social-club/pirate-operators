@@ -24,8 +24,9 @@ The first complete delivery is community setup followed by a real admitted
 song appearing and playing at app.tld. Customer name buying, gas sponsorship,
 karaoke rewards and Telegram are later work.
 
-Spaces support is deferred beyond the decentralized community MVP. HNS is the
-MVP namespace setup path; the wizard may mention Spaces only as unavailable
+Spaces support is deferred beyond the decentralized community MVP. Wizard v1
+starts on ordinary HTTPS, with HNS as an optional follow-up for that slice;
+the wizard may mention Spaces only as unavailable
 "Coming soon" information. Spaces services, issuance and a Cloudflare Containers
 port are not prerequisites for first-song delivery. The setup plan owns this
 scope and the later deployment qualification; existing central Spaces services
