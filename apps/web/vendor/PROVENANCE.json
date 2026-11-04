@@ -1,0 +1,46 @@
+{
+  "schema": "pirate.vendor-provenance/1",
+  "rebuild": "scripts/vendor-solid-ui.sh <pirate-web-solid checkout> c7cb87835a1858a1955c820b03d566365e6d42db",
+  "packages": [
+    {
+      "name": "@pirate/web-solid-ui",
+      "tarball": "pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
+      "sha512": "sha512-NV89BdU89SLPnsi26I6vAmrld+5Sqiz1JPWF2Ij/OkzVI2hPDPV/qr5N08V39O3ruNTTp2AoEyRaP/t/6ZNShg==",
+      "source": {
+        "repository": "https://github.com/pirate-social-club/pirate-web-solid",
+        "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+        "path": "packages/solid-ui",
+        "method": "git archive of tracked files at the commit"
+      },
+      "transformations": [
+        "package.json gains \"version\": \"0.0.0-git.c7cb8783\" because npm requires a version; no other byte changes",
+        "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
+      ],
+      "consumerRequirements": [
+        "The package exports raw TSX source. vite-plugin-solid compiles it from node_modules.",
+        "Components import the package's own @/ alias; vite.shared.ts maps @/ to the package src directory.",
+        "Its @kobalte/core dependency is the upstream file:../../vendor specifier; package.json overrides redirect it to the copied Kobalte tarball.",
+        "Tailwind classes are found by explicit @source paths into the package in src/styles/*.css.",
+        "Only the barrel is exported. src/ui.ts imports the three modules used by path through @/, so the barrel's other modules and their assets are never loaded."
+      ]
+    },
+    {
+      "name": "@kobalte/core",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
+      "sha512": "sha512-v9XINIA0drKlKNi31GhTg8NIr9jsyP9txTq0BajSGIplZgvbyAY/CgnrPMe5rKd5CkPxsAgh1Hj9RWsLPinImA==",
+      "source": {
+        "repository": "https://github.com/pirate-social-club/pirate-web-solid",
+        "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+        "path": "vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
+        "method": "byte copy; its own build provenance is kobalte-core-provenance.json"
+      },
+      "transformations": []
+    }
+  ],
+  "dependencyAlignment": {
+    "reference": "pirate-web-solid bun.lock at c7cb87835a1858a1955c820b03d566365e6d42db",
+    "tool": "scripts/align-upstream-lock.ts",
+    "scope": "Solid runtime and signals, compiler chain, Kobalte and solid-primitives, floating-ui, internationalized, cva, tailwind-merge, Tailwind, lightningcss, Vite and rolldown",
+    "reason": "npm resolved the design system's caret ranges to newer releases than the tested set, including @solidjs/signals 2.0.0-rc.21 under solid-js 2.0.0-rc.0 and @solidjs/vite-plugin 3.0.0-next.56 under vite-plugin-solid 3.0.0-next.27. The overrides in package.json pin every overlapping package in that scope to the upstream resolution. Other overlapping packages (Babel internals, browser data) are reported, not overridden, because upstream nests older majors of some of them."
+  }
+}

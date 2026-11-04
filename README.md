@@ -140,6 +140,16 @@ separately and retry a failed transfer. An older completed drawing still
 settles normally. A stalled drawing without upstream emergency mode remains
 dependent on Megapot; there is no arbitrary local timeout cancellation.
 
+## Web client
+
+[apps/web](apps/web/README.md) is the first slice of the browser client from
+[docs/community-web-client.md](docs/community-web-client.md): one static
+release plus a public-page snapshot for a fixture community, packed into a
+deterministic CAR and tested through an offline IPFS subdomain gateway and a
+local fixture canonical host. It is a separate npm project with its own
+lockfile and CI workflow. The root install and `npm run check` do not include
+it. It has no sign-in, provider upload or registry record yet.
+
 ## Remaining M1 work
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.

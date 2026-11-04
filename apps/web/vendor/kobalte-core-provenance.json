@@ -1,0 +1,20 @@
+{
+  "name": "@kobalte/core",
+  "version": "2.0.0-alpha.0",
+  "source": {
+    "repository": "https://github.com/kobaltedev/kobalte.git",
+    "commit": "a892187065cf7e0d07e91db02310bd28a5619236",
+    "branch": "solid2",
+    "packagePath": "packages/core"
+  },
+  "build": {
+    "command": "pnpm install --frozen-lockfile --filter @kobalte/core... && pnpm --filter @kobalte/core build && git apply --whitespace=nowarn < packages/solid-ui/patches/@kobalte%2Fcore@2.0.0-alpha.0.patch && pnpm pack --pack-destination <output>",
+    "packageManager": "pnpm@11.20.0",
+    "patch": {
+      "path": "packages/solid-ui/patches/@kobalte%2Fcore@2.0.0-alpha.0.patch",
+      "sha512": "c08545f0578ffdb1fac6fb268077557846eaca4aa182dfc80df9bc81518debadf7f7708d12d99e7e70a75c319096b04404eb1f9648573ef61a587e8464f53c30"
+    },
+    "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
+    "sha512": "bfd5c834803476b2a528d8b7d4685383c348afd8ecc8ff6dc53ab405a8d2188a65660bdbc8063f0a09eb3cc7b9aca7790a43f1b00821d478fd456b0b3e29c898"
+  }
+}

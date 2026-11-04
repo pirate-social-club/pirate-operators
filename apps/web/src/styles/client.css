@@ -1,0 +1,13 @@
+/*
+ * Release stylesheet for client-mounted UI (shell, actions, client views).
+ * It is hashed with the release and never restyles generated markup: base
+ * styles and document classes come from /public/document-v1.css.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "@pirate/web-solid-ui/styles/tokens.css";
+
+@source "../client";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/feedback/spinner";
