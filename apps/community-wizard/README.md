@@ -98,14 +98,68 @@ write it to disk. Enter the nonsecret account ID and existing workers.dev
 subdomain in the wizard. Use cf for diagnostics; Alchemy alone reconciles the
 resources. There is no automatic adoption or destroy action.
 
-Only independent moderation needs provider credential intake. Prepare an
-existing Infisical project/environment/dedicated folder and inject its scoped
-machine identity as `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`, with
-read/create/update access to that folder. The default site is
-`https://app.infisical.com`; a trusted runner may set `INFISICAL_SITE_URL` to
-its own HTTPS origin. Imports and reference expansion are disabled. The adapter
-updates only named OpenAI, ACRCloud and optional CloudConvert secrets. Managed
-mode rejects this intake and never reads those provider secrets.
+Independent moderation uses guided Infisical onboarding. Managed moderation
+has no community provider keys and does not exercise this connection. The first
+disposable provisioning test therefore selects independent mode before deployment.
+The current workers.dev-only slice remains disposable staging, not a lasting
+community installation.
+
+Create an Infisical account and a Secrets Management project, or choose an
+existing project. Select its environment in Infisical. Copy the project UUID
+from Project Settings and the environment slug into Community. The wizard
+suggests `/communities/<deployment-id>` as its dedicated folder. Check this
+scope before connecting; existing secrets at the same names are updated on save.
+
+Install the official [Infisical CLI](https://infisical.com/docs/cli/overview)
+on the runner computer, then sign in through its normal browser login:
+
+```sh
+infisical login --domain https://app.infisical.com
+```
+
+CLI login is the default when machine credentials are absent. The implementation
+was qualified against CLI 0.44.14's `login status --json` and `user get token
+--plain` contracts, and SDK 5.0.2. In Services, use Connect & prepare folder.
+The runner checks the selected user session and actual instance, pins that profile
+for token retrieval, and uses the SDK to create missing path folders and verify
+folder access. The token is captured privately by the runner; do not print it,
+paste it into the wizard, or put it in an environment file. A prepared folder is
+not proof of secret write access: saving keys verifies their exact readback.
+
+The default instance is `https://app.infisical.com`. For EU or self-hosting, set
+`INFISICAL_SITE_URL` to the trusted HTTPS origin on the runner and sign in to
+that same instance. An optional `INFISICAL_PROFILE` selects an existing CLI
+profile; sign in to that profile outside the wizard. The browser cannot choose
+a token destination. Missing, expired, ambiguous or wrong-instance sessions fail
+closed with a reconnect instruction. Authentication is checked for each operation;
+a later CLI login is picked up without restarting the wizard. The first successful
+connection binds the instance to `setup.json` and invalidates any previous plan.
+Switching that instance after binding is a custom secret-store migration.
+
+The local runner is trusted with the operator's existing account permissions.
+Selecting a folder constrains this adapter's requests; it does not narrow the
+login token's authority. The runner does not cache or persist the retrieved token,
+return it to the browser, or forward it to Alchemy. The CLI retains its own
+normal login state and may refresh it. Do not run this personal-login mode as
+an unattended hosted service. The private CLI subprocess has bounded output and
+time, no shell, and no provider or machine credentials in its environment.
+
+For unattended use, configure `INFISICAL_AUTH_MODE=machine` with an existing
+scoped `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET`. Providing either
+machine credential also selects that mode for existing installations; both are
+required, and failure never falls back to a personal login. Set
+`INFISICAL_AUTH_MODE=cli` explicitly to select personal login instead. Machine
+access needs secret read/create/update in an existing final folder. Prepare the
+folder first with the operator login; machine mode checks its exact leaf scope
+and does not list or create ancestors, preserving narrow existing permissions. Creating a new machine identity or changing its
+permissions remains an explicit operator action; the wizard does neither.
+
+Imports and reference expansion are disabled. The adapter reads/writes only
+named OpenAI, ACRCloud and optional CloudConvert secrets in the exact scope.
+Managed mode rejects intake and never requests a CLI session or those secrets.
+Existing Alchemy ownership of Cloudflare bindings is unchanged: the runner reads
+Infisical and supplies only the required provider values to Alchemy. No second
+secret synchronizer or Alchemy Infisical plugin is introduced.
 
 Saving keys is an Infisical operation, not a moderation test. Partial writes can
 be retried at the same names. Saved status requires readback of every required
@@ -168,6 +222,13 @@ reports. A runner crash can lose the current in-memory command log; previous
 completed logs and atomic state remain. Diagnostic decryption uses the same
 managed state password and prints no output without the explicit flag.
 
+For recovery on another machine, sign in to the same Infisical instance and
+project with an authorized account, or configure the existing scoped machine
+identity. Connect the saved folder again: connection readiness is memory-only
+and is never trusted from a backup. Keep the bound instance and settings; only
+session/credential access is refreshed. Deployment reads the current provider
+values from Infisical rather than a saved browser form.
+
 For recovery on another machine, first stop the original runner and confirm no
 Alchemy child remains. Back up `setup.json`, `deployment/.alchemy/` and
 `diagnostics/` with a verified file inventory/digest through the approved backup
@@ -214,10 +275,12 @@ community upload/registration/publication journey.
 
 `npm run check` type-checks the stack/runner, runs tests and builds the UI.
 `npm run test:browser` exercises the desktop/mobile managed setup and resume
-journey. Its launcher creates one random temporary directory per invocation and
+journey, plus independent-mode guidance and refusal before an Infisical connection. Its launcher creates one random temporary directory per invocation and
 removes only that directory after the child exits, including a failed test run.
 It never sweeps directories from another session. Tests include actual pinned Alchemy state persistence and actual
-Infisical SDK paths with fake credentials/HTTP; no live provider is implied.
+Infisical SDK paths with fake credentials/HTTP, private CLI subprocess behavior,
+folder retries, exact secret readback and reconnection after restart; no live
+provider is implied. The CLI session is never a Cloudflare Worker binding.
 The root repository check and full dependency audit remain required.
 
 The stack pattern originates in creator-spike `a9810cc`; no sibling checkout is

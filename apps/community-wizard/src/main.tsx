@@ -4,6 +4,7 @@ import type { Settings, SecretName } from "../server/model.ts";
 import type { Snapshot } from "./types.ts";
 import { ManagedServices } from "./managed-services.tsx";
 import { Readiness } from "./readiness.tsx";
+import { InfisicalConnection } from "./infisical-connection.tsx";
 import "./style.css";
 
 const blank: Settings = {
@@ -94,7 +95,15 @@ function App() {
     }
   }
   const setting = (key: keyof Settings, value: string | boolean) => {
-    setSettings((s) => ({ ...s, [key]: value }));
+    setSettings((s) => ({
+      ...s,
+      [key]: value,
+      ...(key === "slug" &&
+      (s.secretPath === "/communities/my-community" ||
+        s.secretPath === `/communities/${s.slug}`)
+        ? { secretPath: `/communities/${value}` }
+        : {}),
+    }));
     setApproved(false);
   };
   const input = (
@@ -257,8 +266,21 @@ function App() {
                   <div class="card">
                     <h3>Infisical</h3>
                     <p>
-                      Choose a dedicated, existing folder accessible to your
-                      runner’s machine identity.
+                      Create or select your Infisical project and environment.
+                      Choose a dedicated folder for this community. The next
+                      step guides CLI login and prepares the folder.
+                    </p>
+                    <p>
+                      <a
+                        href={state()?.infisical?.siteUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Open Infisical
+                      </a>{" "}
+                      to create an account or sign in. In your Secrets
+                      Management project, copy its ID from Project Settings and
+                      choose the environment slug shown in Secrets.
                     </p>
                     {input(
                       "projectId",
@@ -313,17 +335,17 @@ function App() {
                   credentials are a setup step; real moderation still needs to
                   be verified.
                 </p>
-                <div class="connection">
-                  <span
-                    classList={{
-                      dot: true,
-                      off: !state()?.capabilities.infisical,
-                    }}
-                  />
-                  {state()?.capabilities.infisical
-                    ? "Infisical identity configured on the runner"
-                    : "Infisical identity needed on the runner"}
-                </div>
+                <InfisicalConnection
+                  state={state()!}
+                  busy={busy()}
+                  onConnect={() =>
+                    void action("infisical/connect", {}, () =>
+                      setNotice(
+                        "Infisical folder checked. You can now save provider keys.",
+                      ),
+                    )
+                  }
+                />
                 <Show when={!state()?.settings}>
                   <p class="alert">Save your community settings first.</p>
                 </Show>
@@ -389,7 +411,7 @@ function App() {
                       disabled={
                         busy() ||
                         !state()?.settings ||
-                        !state()?.capabilities.infisical ||
+                        !state()?.infisical?.connected ||
                         !Object.keys(credentials()).length
                       }
                     >
@@ -516,13 +538,13 @@ function App() {
                     !state()?.capabilities.cloudflare ||
                     !state()?.capabilities.stateProtection ||
                     (state()?.settings?.moderationMode === "independent" &&
-                      !state()?.capabilities.infisical)
+                      !state()?.infisical?.connected)
                   }
                 >
                   <p class="fine">
                     Deployment needs Cloudflare access and a state protection
                     password on the local runner. Independent moderation also
-                    needs its scoped Infisical identity.
+                    needs a connection to its selected Infisical folder.
                   </p>
                 </Show>
                 <div class="actions">
@@ -543,7 +565,8 @@ function App() {
                       !state()?.capabilities.cloudflare ||
                       !state()?.capabilities.stateProtection ||
                       (state()?.settings?.moderationMode === "independent" &&
-                        !state()?.capabilities.infisical) ||
+                        !state()?.infisical?.connected &&
+                        state()?.deployment !== "health_pending") ||
                       !["saved", "managed"].includes(
                         state()?.readiness[0].state ?? "",
                       )

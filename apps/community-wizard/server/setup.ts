@@ -32,6 +32,26 @@ export async function createSetup(
   let state = await loadState(directory);
   let busy = false;
   let job: Promise<void> | undefined;
+  let connected = false;
+  function checkSecretSite() {
+    if (!secrets.connection) return;
+    if (
+      state.secretStoreSite &&
+      state.secretStoreSite !== secrets.connection.siteUrl
+    )
+      throw new SetupError(
+        "This setup is bound to another Infisical instance. Restore the original runner configuration; changing stores requires a custom migration.",
+        409,
+      );
+  }
+  function requireConnection() {
+    checkSecretSite();
+    if (secrets.connection && (!connected || !state.secretStoreSite))
+      throw new SetupError(
+        "Connect Infisical for the saved project and folder first.",
+        409,
+      );
+  }
   const persist = () => saveState(directory, state);
   const locked = async <T>(fn: () => Promise<T>): Promise<T> => {
     if (busy)
@@ -48,7 +68,14 @@ export async function createSetup(
   };
   return {
     snapshot() {
-      return structuredClone({ ...state, busy, readiness: readiness(state) });
+      return structuredClone({
+        ...state,
+        busy,
+        readiness: readiness(state),
+        infisical: secrets.connection
+          ? { ...secrets.connection, connected }
+          : undefined,
+      });
     },
     async configure(input: unknown) {
       return locked(async () => {
@@ -69,14 +96,40 @@ export async function createSetup(
           old.projectId === settings.projectId &&
           old.environment === settings.environment &&
           old.secretPath === settings.secretPath;
+        if (!sameScope) connected = false;
         state = {
           ...state,
           settings,
           secrets: sameScope ? state.secrets : [],
+          secretStoreSite: sameScope ? state.secretStoreSite : undefined,
           revision: state.revision + 1,
           plan: undefined,
         };
         await persist();
+      });
+    },
+    async connectSecrets() {
+      return locked(async () => {
+        if (!state.settings || state.settings.moderationMode !== "independent")
+          throw new SetupError(
+            "Save independent-mode settings before connecting Infisical.",
+            409,
+          );
+        if (!secrets.prepare || !secrets.connection)
+          throw new SetupError(
+            "Infisical connection is unavailable on this runner.",
+            409,
+          );
+        connected = false;
+        checkSecretSite();
+        await secrets.prepare(state.settings);
+        if (!state.secretStoreSite) {
+          state.secretStoreSite = secrets.connection.siteUrl;
+          state.revision++;
+          state.plan = undefined;
+        }
+        await persist();
+        connected = true;
       });
     },
     async saveSecrets(input: unknown) {
@@ -89,6 +142,7 @@ export async function createSetup(
             409,
           );
         const values = secretsFrom(input);
+        requireConnection();
         state.plan = undefined;
         state.revision++;
         state.secrets = [];
@@ -98,7 +152,12 @@ export async function createSetup(
             "Credential changes need a reviewed redeployment before they reach the Worker.";
         }
         await persist();
-        state.secrets = await secrets.save(state.settings, values);
+        try {
+          state.secrets = await secrets.save(state.settings, values);
+        } catch (error) {
+          connected = false;
+          throw error;
+        }
         await persist();
       });
     },
@@ -146,6 +205,8 @@ export async function createSetup(
           );
         const settings = state.settings;
         const healthOnly = state.deployment === "health_pending";
+        if (!healthOnly && requiredSecrets(settings).length)
+          requireConnection();
         state.attempted = true;
         state.deployment = "running";
         state.message = healthOnly
@@ -165,6 +226,7 @@ export async function createSetup(
             state.message =
               "Alchemy completed. The setup page is provisioned; first-song integrations remain pending.";
           } catch (error) {
+            connected = false;
             state.deployment =
               error instanceof HealthPending ? "health_pending" : "failed";
             state.message =

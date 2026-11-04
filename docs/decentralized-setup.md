@@ -83,9 +83,19 @@ credentials automatically authenticate Alchemy. Pin the selected Alchemy release
 and its state/authentication behavior before implementation; current upstream
 includes a v2 API and older examples must not be copied blindly.
 
-The provisioner authenticates to Infisical through a scoped machine identity,
-reads only the selected operator/community environment, and supplies secrets
-to Alchemy's protected secret bindings. Infisical is the recoverable source of
+The local wizard guides the operator to create or select an Infisical account,
+Secrets Management project and environment, then sign in using the Infisical CLI.
+It uses that existing user session inside the trusted runner by default, prepares
+the selected dedicated folder and verifies secret write/readback. The session
+retains the account's permissions; the adapter's exact folder scope does not
+restrict the token itself. Session tokens never enter the browser, setup files,
+Alchemy child or Worker. A scoped existing machine identity is an advanced
+unattended option, not an onboarding prerequisite. The wizard does not create
+machine identities or change permissions. Missing or expired login requires
+reconnection; it never switches to another authentication source silently.
+
+The provisioner reads only the selected operator/community environment and
+folder and supplies secrets to Alchemy's protected secret bindings. Infisical is the recoverable source of
 truth; Worker bindings are runtime copies. Use one installation path rather
 than an independent automatic sync overwriting Alchemy's bindings. Verify
 rotation and a redeploy from stored secrets. Do not attempt to recover secrets
@@ -197,7 +207,7 @@ upload, would change the existing product contract and is not done here.
 | --- | --- | --- |
 | HNS TLD key | Operator's HNS wallet; its own recovery procedure. Never a Worker secret. | Repoint or lose the namespace, affecting all names beneath it. |
 | Registry admin and app holder | Operator-controlled wallet; separate from provider/payment keys. | Admin can change future sales/treasury; app holder/record manager can redirect app records. |
-| Cloudflare deploy and Infisical machine authority | Scoped operator provisioning identity; protected bootstrap/rotation procedure. | Read accessible secrets or replace infrastructure/frontend within granted scope. |
+| Cloudflare deploy and Infisical access | Trusted local CLI login by default; scoped machine identity for unattended use. Protected bootstrap/rotation procedure. | Read accessible secrets or replace infrastructure/frontend within granted scope. |
 | HNS gateway TLS and forwarding authority | The selected gateway operator holds TLS/forwarding keys under its own protected recovery procedure. | Can inspect and alter requests, sessions and served code for traffic it terminates. Independent community Workers do not remove this trust. |
 | OperatorPayments purchase signer | Scoped server secret in Infisical, installed only in the purchasing service. | Current contract permits arbitrary signed recipient/amount: the entire funded deposit is exposed. |
 | Ticket, evidence and feed signing keys | Infisical-backed service keys with key IDs, rotation and restore checks. | Forge that service's tickets, verdicts or feed/config records. |

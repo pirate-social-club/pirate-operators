@@ -574,3 +574,8 @@ footer span {
     font-size: 8px;
   }
 }
+pre.command {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}

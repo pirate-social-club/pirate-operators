@@ -38,6 +38,7 @@ export interface Plan {
 }
 export interface SetupState {
   version: 1;
+  secretStoreSite?: string;
   revision: number;
   settings?: Settings;
   secrets: SecretName[];
@@ -157,8 +158,8 @@ export function settingsFrom(value: unknown): Settings {
       : field(
           input,
           "secretPath",
-          /^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/,
-          "Use a dedicated existing Infisical folder, such as /communities/c22.",
+          /^\/(?=.{1,240}$)(?:[a-zA-Z0-9_-]+\/){0,7}[a-zA-Z0-9_-]+$/,
+          "Choose a dedicated Infisical folder with up to eight path segments, such as /communities/c22.",
         ),
     acrHost: !independent
       ? ""

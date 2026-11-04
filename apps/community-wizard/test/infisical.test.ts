@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { infisicalStore } from "../server/secrets.ts";
+import { createInfisicalStore } from "../server/secrets.ts";
 import type { Settings } from "../server/model.ts";
 
 test("official SDK adapter uses exact scope, disables imports and retries partial secret saves", async (t) => {
@@ -9,6 +9,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     "INFISICAL_CLIENT_ID",
     "INFISICAL_CLIENT_SECRET",
     "INFISICAL_SITE_URL",
+    "INFISICAL_AUTH_MODE",
   ];
   const originalEnv = names.map((name) => process.env[name]);
   t.after(() => {
@@ -21,6 +22,8 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
   process.env.INFISICAL_CLIENT_ID = "fixture-machine";
   process.env.INFISICAL_CLIENT_SECRET = "fixture-secret";
   process.env.INFISICAL_SITE_URL = "https://infisical.invalid";
+  process.env.INFISICAL_AUTH_MODE = "machine";
+  const infisicalStore = createInfisicalStore();
   const settings: Settings = {
     name: "Fixture",
     slug: "fixture",
@@ -86,6 +89,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     ACRCLOUD_ACCESS_KEY: "fixture-acr",
     ACRCLOUD_ACCESS_SECRET: "fixture-acr-secret",
   };
+  await infisicalStore.prepare!(settings);
   await assert.rejects(() => infisicalStore.save(settings, values));
   assert.equal(saved.OPENAI_API_KEY, "fixture-openai");
   fail = false;

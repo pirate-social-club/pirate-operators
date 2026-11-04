@@ -10,12 +10,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createWizardServer } from "./http.ts";
 import { createSetup } from "./setup.ts";
-import { infisicalConfigured, infisicalStore } from "./secrets.ts";
+import { createInfisicalStore } from "./secrets.ts";
 import { provisioner } from "./provision.ts";
 import { statePassword } from "../infra/protected-data.ts";
 import { privateDirectory } from "./state.ts";
 
 process.umask(0o077);
+const secretStore = createInfisicalStore();
 const directory = resolve(
   process.env.PIRATE_WIZARD_STATE_DIR ??
     join(homedir(), ".local/state/pirate-community-wizard"),
@@ -41,16 +42,12 @@ try {
   process.exit(1);
 }
 await lock.writeFile(String(process.pid) + "\n");
-const setup = await createSetup(
-  directory,
-  infisicalStore,
-  provisioner(directory),
-);
+const setup = await createSetup(directory, secretStore, provisioner(directory));
 const server = createWizardServer(
   setup,
   resolve(dirname(fileURLToPath(import.meta.url)), "../dist"),
   {
-    infisical: infisicalConfigured(),
+    infisical: true,
     cloudflare: Boolean(process.env.CLOUDFLARE_API_TOKEN),
     stateProtection: (() => {
       try {

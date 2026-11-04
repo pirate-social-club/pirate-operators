@@ -29,6 +29,9 @@ const sources = [
   "server/diagnostics.ts",
   "server/state-inspection.ts",
   "server/health.ts",
+  "server/secrets.ts",
+  "server/infisical-auth.ts",
+  "server/setup.ts",
 ];
 export function provisioner(directory: string): Provisioner {
   return {

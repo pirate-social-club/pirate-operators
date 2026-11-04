@@ -83,6 +83,8 @@ export function createWizardServer(
           throw new SetupError("Setup session expired. Reload the page.", 403);
         const input = await body(req);
         if (path === "/api/settings") await setup.configure(input);
+        else if (path === "/api/infisical/connect")
+          await setup.connectSecrets();
         else if (path === "/api/secrets") await setup.saveSecrets(input);
         else if (path === "/api/plan") await setup.review();
         else if (path === "/api/deploy") {
@@ -93,7 +95,7 @@ export function createWizardServer(
               !capabilities.infisical)
           )
             throw new SetupError(
-              "Configure Cloudflare access and state protection on the runner. Independent moderation also requires its scoped Infisical identity.",
+              "Configure Cloudflare access and state protection on the runner. Independent moderation also requires an Infisical connection.",
               409,
             );
           await setup.deploy(input);
