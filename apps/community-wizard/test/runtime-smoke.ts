@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -10,6 +11,12 @@ import { setTimeout as delay } from "node:timers/promises";
 process.env.COMMUNITY_SLUG = "runtime-fixture";
 await import("../infra/alchemy.run.ts");
 await import("@effect/platform-node/NodeFileSystem");
+const operatorHelp = await promisify(execFile)(
+  process.execPath,
+  ["--import", "tsx", "server/start-operator.ts", "--help"],
+  { env: { PATH: process.env.PATH }, timeout: 15000, maxBuffer: 16384 },
+);
+assert.match(operatorHelp.stdout, /Usage: npm run start:operator/);
 const probe = createServer();
 await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const address = probe.address();
@@ -67,7 +74,7 @@ try {
   assert.equal(page.status, 200);
   assert.match(await page.text(), /<html/);
   console.log(
-    "Runtime stack imports, loopback runner and built UI passed without provider credentials.",
+    "Runtime stack imports, operator launcher help, loopback runner and built UI passed without provider credentials.",
   );
 } finally {
   if (!closed) child.kill("SIGTERM");

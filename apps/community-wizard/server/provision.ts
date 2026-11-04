@@ -32,6 +32,8 @@ const sources = [
   "server/secrets.ts",
   "server/infisical-auth.ts",
   "server/setup.ts",
+  "server/operator.ts",
+  "server/start-operator.ts",
 ];
 // Regenerate code and dependencies beside the existing Alchemy state.
 export async function prepareDeploymentFiles(directory: string) {

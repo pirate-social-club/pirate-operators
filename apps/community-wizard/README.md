@@ -98,6 +98,95 @@ write it to disk. Enter the nonsecret account ID and existing workers.dev
 subdomain in the wizard. Use cf for diagnostics; Alchemy alone reconciles the
 resources. There is no automatic adoption or destroy action.
 
+### Supported operator launcher
+
+`npm run start:operator` replaces the temporary live-test launcher. It requires
+Node 24 on a POSIX system, the Infisical CLI and an explicit existing private
+state directory. Save initial settings with `npm start` first, then stop that
+runner. The launcher reads those nonsecret settings, never creates replacement
+state, never removes a lock, and never deploys. Install with `npm ci` and build
+with `npm run build` before starting from a source checkout. A runtime package
+can instead include the built `dist/` and install with `npm ci --omit=dev`.
+
+Use a separate trusted Infisical runner folder containing only
+`PIRATE_WIZARD_STATE_PASSWORD` and, for the default API-token mode,
+`CLOUDFLARE_API_TOKEN`. The password must be the existing state's password.
+Do not put provider keys or executable configuration such as `NODE_OPTIONS` in
+that folder: `infisical run` injects its contents into a Node bootstrap before
+the bootstrap filters the environment passed to the runner. Folder write
+access is therefore trusted operator access. No credential is created by this
+launcher, and it ignores ambient credentials instead of silently reusing them.
+
+```sh
+npm run start:operator -- \
+  --state-dir "$HOME/.local/state/community-example" \
+  --runner-secrets-path /communities/example-runner \
+  --check
+```
+
+`--check` only validates nonsecret configuration; it does not authenticate,
+refresh a login, retrieve secrets or start a process. Remove it to start the
+runner. The project and environment default to saved independent-mode settings.
+Use `--project-id <UUID> --environment <slug>` for a separate runner project or
+for managed communities, which have no provider-secret scope. This does not
+change the saved service mode or provider-key location. An optional
+`--infisical-profile` selects a CLI login, and `--infisical-site` selects the
+trusted instance; a bound state refuses another instance.
+
+The launcher calls `infisical run` with imports, expansion, subfolder recursion
+and personal-secret overrides disabled. API-token mode requires the injected
+Cloudflare token and never falls back to a personal login. The optional
+`--cloudflare-auth cf-login --cf-profile default` path refreshes the explicitly
+selected existing cf login using `cf auth whoami`. It requires authenticated,
+valid JSON status for the saved Cloudflare account, then reads the reported
+private profile file and checks token expiry. Failed refresh, expired login,
+wrong account or malformed output stops startup without forwarding CLI output.
+Tokens and the state password stay out of command arguments and wizard files.
+This launcher uses an operator's Infisical CLI login. The advanced unattended
+machine-identity path continues to use `npm start` with its existing managed
+environment; `start:operator` does not silently borrow machine credentials.
+An OAuth token is refreshed at launch, not continuously; if it expires while
+the runner is open, stop and relaunch with the same state before retrying.
+
+The installed contracts inspected for this path were cf `1.0.0-beta.5` and
+Infisical `0.44.14`. The cf JSON profile format is a CLI-owned beta interface;
+an incompatible change must fail closed and be qualified before use. Alchemy
+still owns provisioning; this launcher uses cf only for authentication.
+
+For the existing c22 disposable community, use the restored state only:
+
+```sh
+npm run start:operator -- \
+  --state-dir "$HOME/.local/state/pirate-community-wizard-c22-staging-restored" \
+  --runner-secrets-path /communities/c22-wizard-staging-runner \
+  --cloudflare-auth cf-login --cf-profile default --port 8795
+```
+
+Its saved project/environment identify the existing runner-secret scope; no
+temporary script or hardcoded checkout path is needed. Add `--check` first to
+inspect the selection without fetching credentials. Do not launch from
+`pirate-community-wizard-c22-staging-pre-restore`: that is the reference copy.
+Only one state copy may operate the resources. Keep independent mode, reconnect
+Infisical in the browser, and review any source-changed plan before deploying.
+The launcher itself neither changes settings nor presses Deploy.
+
+### Cloudflare credential scope
+
+The accepted c22 run used the operator's personal cf login with write access
+across the Cloudflare account, including production resources. The owner
+approved sharing that account for this disposable test. The community prefix
+and Alchemy state do not constrain the credential's permissions.
+
+For lasting installations, the default is an API token restricted to the
+selected account and the permissions required for Workers, D1, R2 and Queues,
+including any read permissions required by the pinned provider. Review its
+actual scope when creating it; the launcher cannot infer permissions from the
+token string. Account/product permissions may still reach other resources of
+those types in that account. A community name prefix is not an authorization
+boundary. See Cloudflare's [token guidance](https://developers.cloudflare.com/cf/ci/)
+and [token creation documentation](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
+No token creation or permission change was performed for this source update.
+
 Independent moderation uses guided Infisical onboarding. Managed moderation
 has no community provider keys and does not exercise this connection. The first
 disposable provisioning test therefore selects independent mode before deployment.
@@ -202,11 +291,28 @@ password and settings. Reconnect Infisical and review a new plan because source
 has changed. Preserve the saved resource state so Alchemy can reconcile the
 existing D1, R2 and queue; do not start an empty state folder against their names.
 Worker creation, health, live redeployment and cross-folder recovery still need
-acceptance. Placeholder readback does not test moderation providers.
+acceptance when qualifying another deployment. On November 4, the independent
+executor passed all four checks for c22 at `445576a`, including interruption
+recovery and a restored-folder plan with no changes. Its runner is stopped and
+the restored folder named above is the sole deployment copy. Placeholder
+readback does not test moderation providers or storage/job round trips.
 
 The runner is trusted. Loopback Host/Origin checks, CSRF, bounded bodies and CSP
 protect its web interface, but a compromised local machine or extension can
 still read runtime credentials. No HNS or registry-admin private key is collected.
+
+The secret inventory includes Infisical's remote runner/provider folders,
+in-memory process environments, the cf CLI's own OAuth profile when selected,
+and the CLI's normal login/keyring state. In the qualified Infisical `0.44.14`
+run, `infisical run` also retained an encrypted offline copy of its injected
+runner secrets under `~/.infisical/secrets-backup/`, protected by the system
+keyring. That includes the state password, and may include a Cloudflare API
+token when the runner folder contains one. It is not plaintext and is not the
+wizard's encrypted Alchemy state, but it is another local secret copy. Include
+it and keyring custody in machine backup/retirement decisions. The wizard does
+not delete or rotate CLI-owned backups, profiles or keys. A copied backup
+directory alone is not a portable keyring or a replacement for access to the
+managed secret store.
 
 The pinned Alchemy v2 encoder stores underlying Redacted values in JSON. Its
 local store does not implement the v1 `ALCHEMY_PASSWORD` behavior. This stack
@@ -304,6 +410,12 @@ provider is implied. The CLI session is never a Cloudflare Worker binding.
 Packaging tests run the pinned provider's real prebuilt collector against the
 generated stack entry. Fresh and failed-layout retries must each collect exactly
 the Worker, with byte-identical contents, while preserving existing state files.
+Operator-launcher tests use fake CLIs and fixture credentials to start the real
+loopback runner in both credential modes, verify argument/environment boundaries,
+graceful shutdown and refusal of bad login/secret/state selections. They do not
+refresh the actual operator login or retrieve the live state password. The
+previous live deployment used the temporary launcher, so this supported launcher
+still needs independent review and its first live startup qualification.
 The root repository check and full dependency audit remain required.
 
 The stack pattern originates in creator-spike `a9810cc`; no sibling checkout is

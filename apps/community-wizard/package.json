@@ -9,6 +9,7 @@
   "scripts": {
     "build": "vite build",
     "start": "tsx server/start.ts",
+    "start:operator": "node --import tsx server/start-operator.ts",
     "check": "tsc --noEmit && tsx --test test/*.test.ts && npm run build",
     "test:browser": "node test/run-browser.mjs",
     "diagnostic": "tsx server/read-diagnostic.ts",
