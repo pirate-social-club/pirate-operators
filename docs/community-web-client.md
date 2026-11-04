@@ -17,7 +17,9 @@ simulated payout is required. Browser session and handshake rules here remain.
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
 cookies; public reading never depends on login; IPFS mirrors are read-only.
-Mirror authentication is a future extension.
+Mirror authentication is a future extension. This is a deliberate origin and
+session boundary, not a limitation of IPFS hosting: static JavaScript can call
+live APIs, but this version does not authorize cross-origin browser sessions.
 
 ## 1. Sessions and sign-in
 

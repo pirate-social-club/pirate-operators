@@ -20,7 +20,7 @@ infrastructure as an explicit part of the decentralized community product.
 | 1. Select namespace and operator | Verify current TLD control, select community ID and public origins, and choose Pirate-hosted or independent service operation. | Bound TLD/operator identity and explicit deployment account; no secrets in public configuration. |
 | 2. Prepare the name registry | Reuse a verified MegaETH factory; create the TLD registry with NOT_FOR_SALE, reserve app to its intended holder, set app's premium to zero, register it, and configure other selected names. | Verified code and receipt, app owned by the intended holder, selected reservations/prices read back. |
 | 3. Save secrets and provision services | Save required provider/service credentials to the right Infisical scope. Alchemy provisions Workers, D1/migrations, R2, job transport, bindings and public ingress. | Secret versions installed without logging values, migrations applied, health and storage checks pass. |
-| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, have the TLD owner sign the HNS delegation/update, and configure the selected HNS gateway using the existing DANE design. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
+| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, have the TLD owner sign the HIP-5 delegation/update, and qualify the actual client's registry lookup and chosen HTTPS/content transport. Use an isolated gateway only if that transport needs one. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
 | 5. Update Pirate's community registry | Submit/update the community record, verify namespace authority independently, and expose the verified entry through the directory/index. | The correct community and app link appear; a forged factory announcement is not accepted as ownership. |
 | 6. Configure real admission | Select trusted operators and policy, validate the required provider connections and enable durable admission/publication jobs. | The restored evidence and publication gate run against real inputs; failures hold rather than publish. |
 | 7. Post the first song | Authenticate the operator/creator, run the applicable creator activation flow, upload sealed media, perform admission, publish the post and complete the configured registration step. | The post appears and plays after reload, its page and media are retrievable, and retries do not duplicate publication or registration. |
@@ -41,7 +41,8 @@ name sales, gas sponsorship, karaoke and rewards follow this milestone.
 
 Alchemy.run is the sole infrastructure reconciler for this stack. It owns the
 Workers, D1, R2, required Queues/Workflows, bindings and ordinary HTTPS ingress.
-The HNS TLS gateway is a separate deployed service with its own operator and keys.
+If HTTPS ingress uses an HNS TLS gateway, it is a separate service with its own
+operator and keys; its necessity depends on the chosen client/transport.
 Use cf for relevant diagnostics and account inspection, not a second deployer
 that independently changes Alchemy-owned resources. Do not assume cf login
 credentials automatically authenticate Alchemy. Pin the selected Alchemy release
@@ -121,11 +122,13 @@ TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
 secure-origin/session behavior. Keep an ordinary HTTPS origin available for
 ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
 proves navigation only; it must not be reported as same-origin app.tld operation.
-Start from the [existing gateway and acceptance evidence](hns-community-ingress.md).
-Its DNSSEC/DANE ingress and proxy design already served app.8s28 on a phone.
-The open work is adapting authority lookup to the new registry/directory,
-packaging the gateway choice, and proving this Worker/session/upload path.
-The earlier phone run is not fresh acceptance of the new stack.
+Start with the [HIP-5 client and transport proof](hns-community-ingress.md).
+The contract holds app records; a compatible resolver must read the custom
+`._evm` delegation before any transport can use them. Current typed resolver
+support does not yet include TLSA or return contenthash. The existing DANE
+gateway is reusable for an HTTPS option, in a separate milestone instance.
+Its earlier phone run used a signed DNS zone, not this contract path.
+Do not modify the production gateway to qualify the new authority adapter.
 
 ## First-song publication and DATA
 
@@ -192,8 +195,11 @@ The fixture frontend currently builds a deterministic IPFS CAR. Preserve its
 UnixFS root CID when importing it into independently controlled providers and
 verify retrieval before publishing the content pointer. Primary browser access
 retains the configured canonical session/API origin; alternate gateways are
-read-only snapshots. Gateways serving executable code remain trusted unless
-an independent loader verifies it.
+read-only snapshots under the current browser contract. IPFS-hosted JavaScript
+can use live APIs; the restriction here is the selected origin/authentication
+policy, not an IPFS limitation. Any interactive content-addressed route needs
+its own client/origin acceptance without weakening that policy. Gateways serving
+executable code remain trusted unless an independent loader verifies it.
 
 Filecoin/Synapse is outside the first frontend implementation task, not rejected
 as a product option. A later adapter can import the same CAR, but still needs
@@ -219,7 +225,8 @@ No Alchemy provisioner, Infisical setup wizard, shared community directory or co
 first-song acceptance exists in these inspected sources.
 
 The critical integration dependencies are the real ACRCloud/OpenAI adapters,
-the selected HNS gateway with the new authority/session path, and the creator
+a client that resolves the custom HIP-5 records and supports the selected
+transport/session path (including an isolated gateway if needed), and the creator
 wallet site plus Sui/Ika/Aeneid testnet flow. CloudConvert joins this list only
 if selected for conversion. Verify readiness independently, then prove them
 together; substituting a fake verdict or a pending-registration bypass does
