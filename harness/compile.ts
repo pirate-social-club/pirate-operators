@@ -8,6 +8,7 @@ export function compile() {
     "contracts/test/Providers.sol",
     "contracts/test/PaymentToken.sol",
     "contracts/OperatorPayments.sol",
+    "contracts/LearningRecords.sol",
     "contracts/interfaces/IMegapot.sol",
   ];
   const sources = Object.fromEntries(

@@ -637,8 +637,10 @@ with a grouped manifest end to end.
 Not yet built:
 
 - the public grade-record contract that consumes the result;
-- the MegaETH testnet run, including `realtime_sendRawTransaction`, which the
-  local sender supports but anvil cannot exercise;
+- the community and operator services against MegaETH testnet. The contract
+  itself is deployed there and passed a smoke purchase, redemption and closure
+  ([MegaETH testnet deployment](megaeth-testnet.md)); `realtime_sendRawTransaction`
+  is still unexercised;
 - configurable sponsorship limits: the per-credential buckets of section 9.7
   and a community-wide per-period limit. Only the per-wallet allowance and the
   funds currently deposited bound spending;

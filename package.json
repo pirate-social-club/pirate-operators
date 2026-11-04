@@ -14,7 +14,8 @@
     "dev": "cf dev",
     "build": "cf build",
     "test:fork": "FOUNDRY_PROFILE=fork forge test --offline -vv",
-    "very:probe": "node harness/very/credential-probe.ts"
+    "very:probe": "node harness/very/credential-probe.ts",
+    "megaeth:payments": "node harness/megaeth/deploy-payments.ts"
   },
   "dependencies": {
     "viem": "2.57.16"
