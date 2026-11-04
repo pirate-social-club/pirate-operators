@@ -37,6 +37,30 @@ must be verified. Indexers retain address history and start blocks across
 changes; changing a pointer does not erase prior records. Private provider credentials,
 wallet-to-author mappings and deployment state do not belong in it.
 
+The V1 manifest must include `publisherRevocations`, initially an empty array.
+This is community-controller-authorized feed policy, committed by the manifest's
+on-chain hash; it is not a new Solidity field. Each entry contains a nonzero
+`postsContract`, a nonzero `publisher` (both lowercase 0x-prefixed 20-byte hex),
+and `fromBlock` (canonical unsigned decimal string, no leading zero except "0",
+within uint256 and no later than the configuration event's block). The publisher
+must occur in this community's earlier canonical configuration history. The
+entry applies only to this manifest's chain/directory/community and the named
+post deployment, never other communities using the same publisher.
+
+Entries are cumulative across canonical config revisions. Later manifests must
+retain every entry unchanged; they may add entries, including an earlier cutoff
+for the same account/deployment. Matching entries combine by the earliest
+fromBlock. The resulting publisher must differ from every revoked publisher for
+the community's covered post deployments. A missing array, removed/altered entry,
+future cutoff, or reselected revoked publisher makes the manifest invalid for
+the compliant feed. The contract still accepts only a URI/hash and does not
+parse or enforce this policy. A client that ignores the policy is not a recovery-
+aware feed. No live JSON validator is supplied by these docs.
+
+See [publisher recovery](community-posts.md#publisher-compromise-and-recovery)
+for the inclusive block rule, restoration and trust limits. Ordinary publisher
+rotation retains the array and does not retroactively distrust old publications.
+
 The service and verifier check redundant manifest fields against chain state;
 the contract cannot fetch JSON. Every URI is a bounded immutable `ipfs://`
 reference, at most 512 UTF-8 bytes, with no query or fragment. Require nonzero
@@ -114,17 +138,63 @@ until reconciled against canonical state.
 ## Operator bootstrap and MOSS acceptance
 
 The registry admin and community controller need not be MOSS accounts. V1
-supports an ordinary operator EOA making registration/configuration transactions
-with its own bounded gas budget. Later it can propose a controller transfer to
-a MOSS account, and that receiving account must execute acceptance. Keep the
-EOA controller until acceptance is confirmed; a failed initialization or expired
-proposal must not surrender control. Registry-admin transfer, publisher changes
+supports an ordinary operator EOA making testnet bootstrap transactions with
+its own bounded gas budget. Treat that account as temporary: the wizard must
+track handoff to a controller account with demonstrated independent recovery,
+not describe it as an optional later improvement. MOSS is suitable only if the
+selected account profile passes that recovery acceptance; successful execution
+or code presence alone is insufficient. The receiving account must execute
+acceptance. Keep the EOA controller until acceptance is confirmed; a failed
+initialization or expired proposal must not surrender control. Registry-admin transfer, publisher changes
 and community-controller transfer are separate authorities; transferring this
 directory entry alone does not move the registry admin or service credentials.
 Pirate's verifier/listing roles still require the stable governance accounts
 specified above; this operator bootstrap does not relax that requirement.
 
-The wizard should offer the EOA bootstrap without requiring MOSS readiness.
+An EOA has no protocol key-reset or recovery mechanism. If its private key is
+lost without a usable backup, or an attacker has taken control and no trusted
+handoff can be completed, neither the registry admin nor Pirate can recover the
+directory entry. A registry-admin transfer cannot overwrite an existing entry.
+A still-authorized publisher might continue writing under the old config, but
+that does not restore controller authority or the ability to rotate it safely.
+If access remains, a legitimate handoff may contain a compromise; this two-step
+protocol does not guarantee winning a race against a stolen controller key.
+
+Within the existing shared directory/posts deployment, restoring community
+control then requires a new registry and registration, producing a new
+communityId. The old community and post history remain on chain; they are not
+moved or erased. Even reusing a postId under the replacement community yields a
+different publication/streak key. There is no automatic history, author, grade
+or streak migration. Any successor link or migration needs its own explicit
+policy and authority checks. Replacing shared contracts is a different deployment
+migration, not a per-community recovery override.
+
+The wizard may allow an explicitly labelled EOA testnet rehearsal without
+waiting for MOSS readiness, while showing controller recovery as incomplete.
+Its controller step must track `bootstrap-only`, `handoff-proposed`,
+`acceptance-pending`, `recovery-pending` and `recovery-verified`. Save the target account/profile,
+proposal ID, base revision, expiry and transaction receipts without secrets.
+On resume, re-read canonical directory state; an expired/replaced/cancelled
+proposal returns to bootstrap-only if the EOA still controls the entry. Reconcile
+any other completed handoff instead of trusting cached workflow state. An
+orphaned acceptance loses completion.
+An accepted handoff whose recovery check is still outstanding is recovery-pending:
+the new account already controls the entry, and the EOA no longer has authority.
+Verify the selected account's recovery before accepting wherever possible.
+Mark recovery-verified only after the chosen confirmation policy establishes
+the receiving controller and an actual signer-loss/independent-recovery check
+for that account has passed without changing its address. Record which credential
+losses/compromises that profile covers and prove the retired operational signer's
+requests are refused. Do not promise recovery from a stolen root/delegation key
+unless the account profile establishes it. Merely rotating a
+still-accessible signer, simulating a call, possessing a second copy of the same
+key or enrolling a passkey does not prove independent recovery.
+
+Recovery-verified is required for declaring the controller setup complete.
+Ordinary HTTPS provisioning and labelled testnet first-song rehearsal can
+proceed independently, but must not be presented as recoverable community
+setup. Loss of every recovery credential remains outside the guarantee. This
+is a wizard acceptance requirement, not a new on-chain controller-type check.
 This describes the contract integration path, not a proven first-song journey:
 the directory/posts have local implementations, but the real wizard transaction
 flow still needs acceptance. It does not replace MOSS as the selected ordinary participant

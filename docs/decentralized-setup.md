@@ -69,10 +69,18 @@ existing work instead of duplicating deployments, jobs or transfers.
 Operator login is part of posting. It does not require proving customer name
 buying, deploying a MOSS gas sponsor or completing a rewarded Telegram journey.
 The first operator can pay its own bounded setup gas. An ordinary EOA may be
-the registry admin and bootstrap the community directory; the controller can
-later propose a handoff that the receiving MOSS account accepts. MOSS first-
-transaction fee funding and execution must be proven before that handoff, not
-assumed from an ETH balance. See the [directory bootstrap boundary](contracts/community-directory.md).
+the registry admin for explicitly labelled testnet bootstrap. The wizard must
+track the required handoff to an account with demonstrated independent recovery;
+EOA key loss or takeover has no registry-admin or Pirate recovery override.
+Use bootstrap-only, handoff-proposed, acceptance-pending, recovery-pending and
+recovery-verified states, reconciling proposal expiry and canonical receipts
+on resume. An accepted handoff with an outstanding recovery check remains
+incomplete, with the new account already controlling the entry. Do not
+mark controller setup complete before acceptance and the real recovery check.
+HTTPS provisioning and labelled first-song rehearsal may proceed while this
+step is pending. MOSS first-transaction funding, execution and the selected
+account's recovery path must each be proven; an ETH balance or account code
+is not that proof. See the [directory bootstrap boundary](contracts/community-directory.md).
 These are proposed integration requirements, not completed directory/wizard
 acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.

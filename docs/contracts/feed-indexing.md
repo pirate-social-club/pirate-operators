@@ -41,7 +41,9 @@ Directory events identify a community and registry, every config revision and
 URI/hash, namespace verification and expiry, and each listing revision. Post
 events include communityId, postId, scoped authorId, kind, post revision,
 configuration revision and manifest URI/hash. Both proposed interfaces expose
-these fields without fetching transaction sender as the author.
+these fields without fetching transaction sender as the author. For compromise
+recovery, retain the publisher for each configuration revision as well; it is
+not emitted as a field of the post event.
 
 Retain raw logs keyed by chainId, contract address, blockHash, transactionHash
 and logIndex. Retain block number, transaction index and canonicality so order
@@ -66,6 +68,43 @@ config changes, expiry and delisting update feed visibility. Historical post
 records remain available as history rather than being mistaken for active
 directory entries. Explicit future hide/restore events need corresponding
 projection rules when their authorization model is added.
+
+## Publisher-recovery projection
+
+Implement the [publisher recovery rule](community-posts.md#publisher-compromise-and-recovery)
+for community feeds, aggregate feeds and direct post pages. Goldsky's raw events
+or an ABI-generated subgraph alone do not apply it. Store PublisherRevocation
+records scoped by chain, directory, community, post deployment and publisher,
+with inclusive fromBlock and the authorizing config revision. Keep chain latest
+revision distinct from displayed trusted revision and expose quarantine status.
+
+After each canonical configuration event, validate its manifest/hash and the
+cumulative revocation rules before exposing that community's post projection.
+If the new config body is missing, unsupported or invalid, show recovery/policy
+pending and withhold normal post content; do not serve a stale policy as current.
+Resolve the publisher through each post's historical configuration revision,
+classify the event, then hydrate only trusted post manifests. Audit tooling may
+retain flagged references but must not auto-play quarantined content.
+
+Recompute affected posts and invalidate page/feed/media caches when an incident
+is added, including pages previously hydrated under the older policy. Further
+configs must carry the existing entries unchanged; removal or narrowing fails
+validation. Rebuild from canonical config and post history after a reorg,
+rolling back orphaned events and their policy changes. Re-evaluate inclusive
+block heights on that canonical history. A block cutoff is not a forensic
+identity of a transaction; if reorgs or incident evidence make the safe boundary
+uncertain, the controller must add a more conservative cutoff (including "0").
+Expose confirmation/rollback state rather than treating an orphaned rotation as
+completed recovery. A missing historical manifest prevents a trusted replay;
+retain and replicate these public config bodies, not just their current URI.
+
+Two independent feed reducers must agree at the same canonical head, current
+policy revision and confirmation policy on quarantined revisions and displayed
+content. Test duplicate/out-of-order delivery, a revocation published long after
+a forged edit, rotation and publication in the same block, a later config trying
+to drop a rule, missing config bodies, a reorg removing the incident or a forged
+post, and a new publisher restoring currentRevision+1. This is required feed
+acceptance, not implemented indexer behavior in the current contract PR.
 
 ## Manifest hydration
 

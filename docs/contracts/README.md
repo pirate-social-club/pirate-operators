@@ -28,6 +28,11 @@ not editable copies of every rule. A later community governance contract may
 become its controller; it would authorize updates through the same interface.
 There must remain one current config revision, not competing policy pointers
 owned by Pirate and the community. Delisting changes discovery only.
+Controller-authorized publisher revocations in that manifest govern feed
+quarantine after compromise; rotation alone does not repair forged revisions.
+EOA control is temporary testnet bootstrap, with a tracked handoff to an account
+whose recovery is proven before controller setup is declared complete. Neither
+rule adds an on-chain recovery override or automatic history migration.
 
 ## Content and read path
 

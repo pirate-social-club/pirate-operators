@@ -52,6 +52,26 @@ No JSON, media, author-wallet mapping, grades or reward funding is stored here.
 Both Song and Video enum values are accepted structurally; the publisher must
 still refuse Video until its admission policy is approved.
 
+## Recovery boundaries
+
+A publisher can append forged revisions to every existing post, as well as
+create forged posts. Rotation only stops future authority. The config-manifest
+[revocation policy](community-posts.md#publisher-compromise-and-recovery) tells
+readers which historical publisher/block ranges to quarantine. It is enforced
+by the feed/publication service, not these contracts: `getPost` still returns
+the latest on-chain revision. The replacement publisher restores content by
+appending to that counter. The event-reduction tests in this PR establish raw
+state reconstruction, not this manifest-aware recovery projection.
+
+An EOA controller is acceptable for labelled testnet bootstrap, but has no
+protocol recovery after unrecoverable key loss or takeover. The wizard must
+track a handoff to a demonstrably recoverable account before declaring
+controller setup complete. Code presence or a wallet brand does not prove that
+property. A new registry/communityId is the per-community replacement route
+within the current shared deployment, with no automatic post/streak migration.
+See the [bootstrap and recovery requirements](community-directory.md#operator-bootstrap-and-moss-acceptance).
+No ABI or runtime change is implied by these operational requirements.
+
 ## Reference profile
 
 The shared validator accepts at most 512 bytes with the exact `ipfs://` scheme,
