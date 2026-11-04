@@ -6,6 +6,8 @@ export function compile() {
   const names = [
     "contracts/RewardPool.sol",
     "contracts/test/Providers.sol",
+    "contracts/test/PaymentToken.sol",
+    "contracts/OperatorPayments.sol",
     "contracts/interfaces/IMegapot.sol",
   ];
   const sources = Object.fromEntries(

@@ -6,6 +6,7 @@ import {
   type Address,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import type { KaraokeResultBody } from "./payments.ts";
 
 export function check(value: unknown, reason: string): asserts value {
   if (!value) throw new Error(reason);
@@ -31,6 +32,15 @@ export function canonical(value: unknown): string {
 }
 export const digest = (value: unknown): Hex =>
   sha256(stringToHex(canonical(value)));
+/** Our contracts and payments run on local anvil and MegaETH testnet only. */
+export const SUPPORTED_CHAINS = [31337, 6343] as const;
+export function supportedChain(chainId: number) {
+  check(
+    (SUPPORTED_CHAINS as readonly number[]).includes(chainId),
+    "unsupported_chain",
+  );
+  return chainId;
+}
 export const domain = {
   name: "PirateOperatorsLocal",
   version: "0",
@@ -146,14 +156,25 @@ export function gate(
   if (audio.outcome === "match") return "blocked";
   return audio.outcome === "no_match" && song.original ? "published" : "hold";
 }
+/**
+ * Karaoke attempt ticket. Payment terms come from the pinned operator quote
+ * (docs/operator-payments.md section 5.2), so the ticket carries no ceiling.
+ */
 export interface Ticket {
-  ticketId: string;
+  ticketId: Hex;
   communityId: string;
   participant: Address;
   songHash: Hex;
+  manifestSha256: Hex;
   sessionKey: Address;
   operator: Address;
-  ceiling: number;
+  quoteId: Hex;
+  /** The community's address in OperatorPayments. */
+  community: Address;
+  mode: "performance";
+  maxPaidSegments: number;
+  maxDurationMs: number;
+  issuedAt: number;
   expiresAt: number;
 }
 export interface Summary {
@@ -161,17 +182,7 @@ export interface Summary {
   coverageBps: number;
   scoringVersion: number;
 }
-export interface Result {
-  attemptId: string;
-  ticketId: string;
-  communityId: string;
-  participant: Address;
-  songHash: Hex;
-  summary: Summary;
-  summaryHash: Hex;
-  endedAt: number;
-  charged: number;
-}
+export type Result = KaraokeResultBody;
 export const attestationTypes = {
   RewardAttestation: [
     { name: "scope", type: "bytes32" },
