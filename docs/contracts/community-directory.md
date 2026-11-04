@@ -24,16 +24,23 @@ binding. A directory migration also requires an explicit deployment manifest.
 Configuration contains the controller, publication account, OperatorPayments
 and LearningRecords contract addresses, URI and SHA-256
 digest of the exact JCS bytes at that URI. The public manifest identifies schema
-`pirate.community-config/1`, chain/directory/community/registry/TLD, app label
-and token generation, canonical session/API origin, ordinary HTTPS alias if
-used, HNS ingress choice, public feed endpoint/signing-key ID, controller,
+`pirate.community-config/2` under the [optional domain amendment](../community-signup-and-domains.md#4-wizard-and-alchemy-domain-management),
+chain/directory/community/registry/TLD, app label and token generation,
+accessMode, preferredOrigin, verified applicationOrigins with web2/hns kinds,
+same-origin API base (/api), HNS ingress choice when selected,
+public feed endpoint/signing-key ID, controller,
 publisher, those contract addresses, and versioned policy references. The two
 later contract addresses may be zero during first-song setup; clients must
 disable the corresponding operation rather than infer a deployment. Nonzero
 addresses must have code on this chain and their selected deployment/interface
 must be verified. Indexers retain address history and start blocks across
 changes; changing a pointer does not erase prior records. Private provider credentials,
-wallet-to-author mappings and deployment state do not belong in it.
+wallet-to-author mappings and deployment state do not belong in it. Web2 is
+optional: HNS-only configuration has no web2 origin. Both origins share this
+community ID and state. The existing URI/hash/revision fields bind the new
+manifest without changing the directory ABI. Origin control and authenticated
+routing must be verified by the service; a manifest or feed signature alone
+cannot authorize a hostname. Clients lacking schema-v2 support remain read-only.
 
 The service and verifier check redundant manifest fields against chain state;
 the contract cannot fetch JSON. Every URI is a bounded immutable `ipfs://`

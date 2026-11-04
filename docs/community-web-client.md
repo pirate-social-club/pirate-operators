@@ -1,4 +1,4 @@
-# Community web client and deployment contract, version 1
+# Community web client and deployment contract, version 2
 
 This document specifies the browser client for an independently operated
 community and the way it is deployed. It is a design contract for later
@@ -12,17 +12,23 @@ payment fields and does not change the browser key boundary. The [current setup 
 provisioning direction: Alchemy.run, Infisical, MegaETH, app.tld and the
 operator's first song. Customer name purchase and Telegram attachment are later. OperatorPayments purchases replace the original draft payment
 fields; the active payment specification owns those fields. No cross-chain
-simulated payout is required. Browser session and handshake rules here remain.
+simulated payout is required. Browser session and handshake rules follow this
+version-2 amendment.
 
-The following are settled for this version: Solid renders the client; each
-community has one stable canonical origin; sessions are community-local
-cookies; public reading never depends on login; IPFS mirrors are read-only.
-Mirror authentication is a future extension. This is a deliberate origin and
-session boundary, not a limitation of IPFS hosting: static JavaScript can call
-live APIs, but this version does not authorize cross-origin browser sessions.
+The [signup and domains amendment](community-signup-and-domains.md) permits
+Web2 only, HNS only, or both. Web2 is optional. Solid renders the client; every
+enabled verified application origin serves its own same-origin API and
+host-bound session over the same community data. Public reading never depends
+on login. Generic IPFS mirrors remain read-only; this revision does not enable
+credentialed cross-origin browser sessions. A preferred origin is a sharing
+preference, not a forced redirect from another enabled origin.
 
 Spaces is deferred beyond the decentralized community MVP. Wizard v1 starts
-on ordinary HTTPS, with HNS as an optional follow-up. A namespace picker may
+on ordinary HTTPS as an engineering slice. HNS implementation is separate work,
+not a v1 promise to attach HNS later. Choose the namespace, access mode and domains
+upfront; later changes are custom unsupported migrations. Web2 is optional product
+configuration, not a prerequisite for HNS-only communities.
+A namespace picker may
 show a disabled "Spaces — Coming
 soon" option, with no promised date, setup form or provisioning action. It must
 not request Spaces keys or funds or block supported setup. The
@@ -33,7 +39,7 @@ not part of the wizard's customer-facing deployment choices.
 
 ## 1. Sessions and sign-in
 
-In the primary deployment the application and its API share one origin,
+At each enabled application origin the application and its API share
 `https://<community-host>`, with the API under `/api`. Static hosting does not
 require bearer tokens. The browser session is a cookie:
 
@@ -44,7 +50,10 @@ Set-Cookie: __Host-community_session=<opaque>; Path=/; Max-Age=<seconds>; Secure
 The `__Host-` prefix makes the browser refuse the cookie unless it is Secure,
 has `Path=/` and has no `Domain`, so it stays host-only. The value is 256
 random bits. The server stores only its SHA-256 and the session record:
-wallet, community, creation time and expiry.
+wallet, community, exact application origin, creation time and expiry. Session
+lookup checks that origin as well as the community. A valid cookie copied from
+another enabled origin is refused. The trusted ingress route map supplies the
+public origin; unknown hosts and untrusted forwarding headers are rejected.
 
 - Lifetime follows the draft's 30 days. The cookie always carries `Max-Age`.
   Without `Max-Age` or `Expires` it would be a browser-session cookie, deleted
@@ -62,8 +71,9 @@ wallet, community, creation time and expiry.
 - An expired or unknown session returns 401 `session_required`. The client
   switches to its signed-out state. Public content stays on screen.
 - Every request with a method other than GET, HEAD or OPTIONS must carry an
-  `Origin` header exactly equal to the canonical origin, and a JSON content
-  type. A missing or different Origin is refused with 403 `origin_refused`.
+  `Origin` header exactly equal to this request's validated public origin,
+  and a JSON content type. A missing or different Origin is refused with
+  403 `origin_refused`.
   When `Sec-Fetch-Site` is present it must be `same-origin`. SameSite=Lax is a
   second layer, not the CSRF defence.
 - The API never answers credentialed cross-origin requests:
@@ -83,22 +93,32 @@ the cookie.
 Sign-in binds the signature to the page's real origin. With Sign-In with
 Ethereum (EIP-4361), `domain` is the host of the page origin and `uri` is that
 origin with the `https` scheme. EIP-4361 asks wallets to compare `domain`
-with the origin that requested the signature. A page on another origin
-therefore cannot obtain a valid sign-in for the community. The server checks
-`domain` and `uri` against its canonical origin as well, and refuses any
-mismatch. The nonce comes from the server, is single-use and expires after
-five minutes. The same origin rule applies to the challenge format the MOSS
-wallet uses; the MOSS spike establishes that exact format.
+with the origin that requested the signature. The server checks `domain` and
+`uri` against this request's validated enabled origin and refuses any mismatch.
+The nonce is bound to that origin and community, is single-use and expires
+after five minutes. A nonce or signature from another enabled host is not valid
+here. Sign in independently at each origin to reach the same wallet/community
+persona; do not transport a cookie or login token between domains. The same
+origin rule applies to the challenge format the MOSS wallet uses; the MOSS
+spike establishes that exact format. HNS-only excludes a forced redirect to the
+community's own Web2 alias. It still uses MOSS at https://account.megaeth.com and
+the separate Pirate creator-wallet HTTPS site. Embedded MOSS passkeys and the
+creator-wallet's own RP/passkey flow need acceptance in the actual HNS client;
+neither is established by ordinary-HTTPS pilot evidence. See the
+[external-wallet boundary](community-signup-and-domains.md#3-optional-access-modes).
 
 The local skeleton differs. It builds SIWE with an `http://` URI, which is
 acceptable only on loopback. It returns a bearer token in the JSON response
 body, and later requests send that token in the `Authorization` header. A
 hosted deployment replaces both.
 
-A mirror (section 6) never offers sign-in. Each authenticated action is a link
-to the same path on the canonical origin, which it reads from the community
-configuration. Authenticated mirrors would need their own design covering
-accepted origins, session audience, refresh, revocation and wallet behaviour.
+A generic IPFS mirror (section 6) never offers sign-in. Each authenticated
+action links to the same path on an enabled application origin from the
+community configuration; in HNS-only mode that is the HNS origin. An explicitly
+verified HNS application origin is not classified as a mirror. Other interactive
+content-addressed origins still require their own accepted-origin, wallet and
+session design. Revoking an application origin invalidates its sessions, login
+nonces and sockets; the other origin and community records remain intact.
 
 ## 2. Karaoke attempt connection
 
@@ -367,9 +387,9 @@ benchmark suite.
 
 | Mode | Operated by | Origin | Sign-in | Data |
 |---|---|---|---|---|
-| Primary community deployment | the community, or Pirate for a community it hosts | the community's canonical HTTPS origin | community cookie session | the community's API, storage and keys |
-| Independent installation | another operator, from the same release format | its own canonical origin | that community's own boundary | its own API, storage, keys and configuration |
-| IPFS mirror | anyone pinning a release | a gateway origin | none; links to the canonical origin | a snapshot of public pages |
+| Community deployment | the community, or Pirate for a community it hosts | verified Web2, HNS or both application origins | separate host-bound cookie sessions | the same community API, storage and keys |
+| Independent installation | another operator, from the same release format | its own selected application origins | that community's origin-bound sessions | its own API, storage, keys and configuration |
+| IPFS mirror | anyone pinning a release | a gateway origin | none; links to an enabled application origin | a snapshot of public pages |
 
 An application release consists of:
 
@@ -380,10 +400,13 @@ An application release consists of:
 - build instructions pinned to the lockfile and toolchain, so the same commit
   rebuilds to the same asset hashes.
 
-Community configuration is served at `/.well-known/pirate-community.json` from
-the canonical origin. It holds:
+The same signed community configuration is served at
+`/.well-known/pirate-community.json` from every enabled application origin.
+Version 2 uses `pirate.community-config/2` as specified in the
+[origin configuration amendment](community-signup-and-domains.md#4-wizard-and-alchemy-domain-management).
+It holds:
 
-- the community ID, canonical origin and API base (`/api`);
+- the community ID, access mode, preferred origin, exact typed application origins and same-origin API base (`/api`);
 - supported protocol versions;
 - the default and supported languages;
 - chain IDs and contract addresses;
@@ -391,13 +414,14 @@ the canonical origin. It holds:
 - the origins operators accept for this community;
 - known mirrors.
 
-In this version HTTPS to the canonical origin is the trust source for the
-configuration. The document is also signed with the community's feed signing
-key, so the aggregator and mirrors can check copies. The record that binds
-that key to the namespace belongs to the discovery and feed interface, which
-the MOSS and MegaETH MVP plan schedules separately. When the client and the
-configuration share no protocol version, the client shows public content
-read-only and explains that the community needs a newer client.
+Authenticated transport to a verified application origin delivers the
+configuration, whose bytes and revision must match the controller-authorized
+directory reference. The community feed key signs it for aggregators and
+mirrors. A manifest alone cannot authorize a new origin or its own signer.
+HNS origin authentication follows the [ingress contract](hns-community-ingress.md).
+When the client does not support configuration v2 or shares no protocol version,
+it shows public content read-only and explains that a newer client is required.
+Do not interpret v2 as a v1 canonical-origin manifest for authentication.
 
 Each release's hashed assets are retained for at least 30 days after it is
 superseded, for tabs that are already open. Generated pages do not depend on
@@ -418,7 +442,7 @@ an opt-in build only for a read-only mirror whose gateway cannot rewrite deep
 links. Such a mirror cannot serve per-post preview pages, because the
 fragment never reaches the server.
 
-The primary deployment sends these security headers:
+Every enabled application origin sends these security headers:
 
 - `Content-Security-Policy`:
   - `default-src 'self'`;
@@ -514,8 +538,11 @@ These checks belong to the implementation tasks that follow. None has run.
 | A2 | An unsafe request with a missing or foreign Origin is refused with 403 `origin_refused` | automated |
 | A3 | Logout ends the session in every tab and clears the cookie with `Max-Age=0`; an expired session shows public content signed out | automated browser |
 | A4 | After sign-in, no credential appears in localStorage, sessionStorage, IndexedDB or the Cache API | automated browser |
-| A5 | A sign-in message whose `domain` or `uri` differs from the canonical origin is refused, and the nonce is single-use | automated |
-| A6 | A mirror shows no sign-in and links authenticated actions to the canonical origin | automated against a mirror build |
+| A5 | A sign-in message whose domain or URI differs from the request's verified origin is refused; a nonce, signature or copied cookie from the other enabled origin is refused | automated |
+| A6 | A mirror shows no sign-in and links authenticated actions to an enabled application origin, including HNS in HNS-only mode | automated against a mirror build |
+| A7 | Both enabled origins share one community/persona/content state with independent sessions; unknown hosts and spoofed forwarding headers fail | automated browser and trusted ingress |
+| A8 | HNS-only setup requires no community ICANN domain or public Web2 alias and no forced login redirect to that alias; the actual HNS client completes MOSS embedded-passkey and external creator-wallet flows | wizard and actual client acceptance |
+| A9 | Revoking an origin ends its sessions/nonces/sockets without changing the NFT or the other origin; unsupported config v2 stays read-only | automated |
 | K1 | The handshake reaches `ready`, and a reconnect with the same key resumes | automated, real WebSocket |
 | K2 | A missing `hello`, a replayed challenge signature, a wrong key, an expired ticket or a conflicting ticket closes with the listed code | automated |
 | K3 | An Origin outside the allowlist gets 403 before upgrade. An allowed Origin without a valid ticket is refused. An Origin allowed only for community A that presents community B's ticket closes with `origin_mismatch` | automated |
