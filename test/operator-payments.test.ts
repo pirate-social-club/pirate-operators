@@ -532,3 +532,60 @@ test("recovery reconciles reverted redemptions so the unpaid-run stop sees them 
     await c.dispose();
   }
 });
+
+// Regression from the c038487 review: capture and finish must not wait on,
+// or fail with, the payment chain.
+test("words and the original finish survive an RPC outage with a purchase still pending", async () => {
+  let failing = false;
+  const proxy = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const text = Buffer.concat(chunks).toString();
+    res.setHeader("Content-Type", "application/json");
+    if (failing) {
+      const { id } = JSON.parse(text) as { id: number };
+      res.end(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message: "test_rpc_outage" } }));
+      return;
+    }
+    const answer = await fetch(evm.rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: text });
+    res.end(await answer.text());
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const port = (proxy.address() as { port: number }).port;
+  const c = await community({ ...evm, rpcUrl: `http://127.0.0.1:${port}` }, "rpc-outage");
+  try {
+    const a = await c.attempt();
+    const ticketId = a.ticket.body.ticketId;
+    assert.equal((await pay(c, a, "seg-01")).answer.type, "paid");
+    await c.fault("operator", "fault:crash-before-broadcast", true);
+    assert.equal((await pay(c, a, "seg-02")).answer.code, "simulated_crash_before_broadcast");
+    const finishAt = a.start.body.startedAt + 8;
+    await c.at(finishAt);
+    failing = true;
+    a.socket.send({ type: "words", words: c.sung(a.manifest) });
+    a.socket.send({ type: "finish" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    failing = false;
+    const words = await c.state("operator", `words:${ticketId}`);
+    assert.ok((words[0]?.value as unknown[] | undefined)?.length, "words were stored");
+    const attempt = (await c.state("operator", `attempt:${ticketId}`))[0].value as {
+      ended: { endedAt: number; performanceEndedAt: number; status: string } | null;
+    };
+    assert.deepEqual(attempt.ended && [attempt.ended.status, attempt.ended.endedAt, attempt.ended.performanceEndedAt], [
+      "completed",
+      finishAt,
+      finishAt,
+    ]);
+    // Scores stay withheld until payment is confirmed; recovery confirms it.
+    await c.runtime.mf
+      .getWorker("operator")
+      .then((w) => w.fetch("http://operator.localhost/recover", { method: "POST", body: "{}" }));
+    await c.at(finishAt + PAYMENT_GRACE_S);
+    const result = (await c.result(ticketId)).value.body;
+    assert.deepEqual(result.lines.map((l) => l.status), ["assessed", "assessed", "unpaid", "unattempted"]);
+  } finally {
+    await c.dispose();
+    await new Promise((resolve) => proxy.close(resolve));
+  }
+});

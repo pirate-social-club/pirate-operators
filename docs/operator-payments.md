@@ -266,7 +266,16 @@ reconnect window, payment grace and finalization. `performanceEndedAt` is
 when singing stopped and governs reachability: it equals `endedAt`, except that
 an attempt ending while disconnected stops at the disconnect time. A learner
 who disconnects at second 6 and never returns has reached only the lines that
-began before second 6, although the attempt is decided later. Only the
+began before second 6, although the attempt is decided later. For public
+learning records, a karaoke attempt's completion time is its
+`performanceEndedAt`.
+
+Capture and finish never wait on the payment chain. A `words` or `finish`
+frame is applied on arrival, after only the attempt's synchronous timers, so
+the finish keeps its arrival time. Refreshing purchases from the contract runs
+afterwards and on each tick; if the RPC fails or is slow, purchases stay
+pending for the next attempt, and scores stay withheld until payment is
+confirmed. Only the
 newest connection is live: each accepted connection increments the attempt's
 generation, older sockets for the ticket are closed, and a superseded socket's
 messages and close are ignored, so it can never disconnect its replacement.
@@ -611,11 +620,12 @@ What exists, all local and loopback only:
   live karaoke session runs on a Durable Object, which section 1 allows.
 - `harness/acceptance.ts` runs the full local flow on anvil: admission and
   every line paid through the contract, three performances, qualification and
-  the reward pool. `test/operator-payments.test.ts` has nineteen integration
+  the reward pool. `test/operator-payments.test.ts` has twenty integration
   tests on anvil, covering the section 10 cases and regressions for an
   interrupted ticket write, purchase insert and settlement, an RPC failure
   before nonce allocation, a superseded socket closing, the reachability
-  cutoff on disconnect and recovery reconciling reverted redemptions.
+  cutoff on disconnect, recovery reconciling reverted redemptions, and words
+  and finish surviving an RPC outage.
   `test/payments-protocol.test.ts` covers the chain allowlist, the reward
   score, manifest rules and the verifier's list checks.
 

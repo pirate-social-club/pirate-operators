@@ -101,9 +101,11 @@ function settle(store: Store, env: Env, ticketId: string) {
 /** Closes the ticket on chain, reconciles at the closure block, then signs. */
 async function advance(env: Env, store: Store, ticketId: string) {
   const loaded = load(store, ticketId);
-  // Purchase state comes from the contract before the stop rule reads it.
+  // Purchase state comes from the contract before the stop rule reads it. A
+  // failed or slow refresh leaves purchases pending for the next tick; it never
+  // blocks timers, capture or finalization.
   if (loaded.ticket && loaded.manifest && loaded.attempt && !loaded.attempt.ended)
-    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest);
+    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest).catch(() => undefined);
   const attempt = settle(store, env, ticketId);
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
@@ -280,8 +282,8 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     ws.send(JSON.stringify({ type: "error", code: "stale_connection" }));
     return;
   }
-  await advance(env, store, ticketId);
   if (frame.type === "purchase") {
+    await advance(env, store, ticketId);
     try {
       const paid = await acceptSegment(env, store, frame, ticketId);
       ws.send(JSON.stringify({ type: "paid", segmentId: paid.segmentId, take: 0 }));
@@ -295,7 +297,9 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     }
     return;
   }
-  const attempt = store.get<Attempt>(`attempt:${ticketId}`);
+  // Capture and finish are applied on arrival, after only the synchronous
+  // timers, so neither waits on or fails with the payment chain.
+  const attempt = settle(store, env, ticketId);
   check(attempt && !attempt.ended, "attempt_closed");
   if (frame.type === "finish") end(attempt, store.now(), "completed");
   else if (frame.type === "provider_failed") {
@@ -322,6 +326,7 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     attempt.lastAudioAt = store.now();
   } else throw new Error("protocol_error");
   store.set(`attempt:${ticketId}`, attempt);
+  await advance(env, store, ticketId).catch(() => undefined);
 }
 export function onClose(ws: WebSocket, store: Store) {
   const { ticketId, generation } = (ws.deserializeAttachment() ?? {}) as {
