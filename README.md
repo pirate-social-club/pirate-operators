@@ -68,8 +68,11 @@ Audio evidence hashes the actual uploaded MP3 bytes. Pool reward attestations
 bind the chain, pool, drawing scope, claimant and expiry. Test subjects produce
 one nullifier per scope independently of their wallet.
 
-Community sessions use signed EIP-4361 messages and single-use nonces. Session
-tokens stay in the headless client process. The community accepts only results
+Community sessions use signed EIP-4361 messages and single-use nonces. The
+headless client holds a bearer token; the skeleton also persists its raw value
+in the community session key. Hashed session storage and atomic nonce
+consumption are required before the planned D1 migration. The community
+accepts only results
 from its configured operator and applies score, coverage and cutoff rules.
 The pool trusts the community verifier's entry commitment and the configured
 Very attester. It cannot establish whether a provider was actually called.
@@ -141,6 +144,14 @@ settles normally. A stalled drawing without upstream emergency mode remains
 dependent on Megapot; there is no arbitrary local timeout cancellation.
 
 ## Remaining M1 work
+
+The [creator-wallet and song-registration contract](docs/creator-wallet.md)
+specifies the separate, operator-funded Ika testnet proof for first song
+release. Ordinary MOSS participation does not create a creator wallet. The
+creator owns the control capability; independent recovery and confirmed
+on-chain activation are required before upload and Aeneid registration.
+This is approved design with acceptance still pending, not a production DATA
+integration or an implemented extension of the local skeleton.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,
