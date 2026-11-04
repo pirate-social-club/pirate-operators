@@ -1,7 +1,12 @@
-# Creator wallet and song registration, version 1
+# Creator wallet and song registration, version 2
 
 Status: approved design, 2026-11-04. Implementation and device acceptance are
-pending. This contract specifies a testnet proof, not a production launch.
+pending. This contract specifies a testnet integration, not a production launch.
+
+Version 2 follows the owner's simplification: use saved passkey access and a
+normal reopen-and-sign check. The separate recovery key, multisig account,
+standalone recovery client and device/site-outage drills from version 1 are
+deferred. They are not MVP prerequisites.
 
 ## Scope and authority
 
@@ -44,11 +49,11 @@ this wallet proof does not authorize registering arbitrary copyrighted media.
 
 | Role | Responsibility |
 | --- | --- |
-| Creator | Controls passkey, recovery secret and Ika encryption material; approves account linking and verified acceptance. |
+| Creator | Controls passkey and Ika encryption material; approves account linking and verified acceptance. |
 | Community | Authenticates its local account, requests a bounded setup authorization, records the creator recipient binding and submits admitted releases. |
 | Wallet site | Runs creator cryptography in the browser and presents the requesting community and intended action. Never sends secrets to either server. |
 | Registration operator | Pays setup fees, submits transactions, reconciles results and mints test assets to the verified creator recipient. |
-| Ika/Sui and Aeneid | Supply their respective execution, public state and finality. Their availability is not replaced by recovery backups. |
+| Ika/Sui and Aeneid | Supply their respective execution, public state and finality. Their availability remains an external dependency. |
 
 Pirate runs the default registration operator. Communities selecting it need
 no SUI, IKA, DATA signer or creator-wallet treasury. An independent operator
@@ -100,20 +105,20 @@ This spec adds no infrastructure framework, secret sync or custom fee contract.
 1. The signed-in user selects “Release a song”. Before opening the upload
    control, look up an existing activated creator binding. Reuse it after
    verifying the selected network and recipient; otherwise explain the
-   separate creator wallet and its recovery step.
+   separate creator wallet and saved passkey access.
 2. Open the dedicated wallet site as a top-level popup from that user action.
    Use a top-level redirect when popups are unavailable. Display the community,
    testnet status, creator ownership and operator-paid setup. Create no media
    draft or upload while setup is pending.
-3. Create the creator passkey and independent recovery material described
-   below. Derive the Sui multisig address locally; deriving an address needs no
-   chain transaction or fee. Verify the recovery backup before requesting DKG.
+3. Create and save the creator passkey. Derive its native Sui account address
+   locally; this needs no chain transaction or fee. Persist the PRF-wrapped
+   Ika seed and public wallet metadata described below before requesting DKG.
 4. Obtain an authenticated setup intent from the operator. It binds the
    requesting account and community, attempt ID, nonce, expiry, exact Sui
    control address, encryption public key, curve, package/network manifest,
    operator sender and maximum fees.
    The wallet checks these against its locally derived account and selected
-   manifest, then signs domain-separated consent with that Sui multisig
+   manifest, then signs domain-separated consent with that Sui passkey
    account. The operator verifies the signature, account binding, nonce and
    expiry before spending; a community session alone cannot choose another
    creator's control address.
@@ -122,7 +127,7 @@ This spec adds no infrastructure framework, secret sync or custom fee contract.
    own output in memory for the acceptance check. The creator signs the
    encryption-key registration material locally; the operator submits it.
 6. The operator submits the DKG transaction and pays its fees. Transfer the
-   returned DWalletCap to the creator's exact Sui multisig address in that
+   returned DWalletCap to the creator's exact Sui passkey address in that
    same transaction. The operator must never retain the cap for acceptance.
 7. Before producing an acceptance signature, the browser reads confirmed
    chain state through the configured Sui client. Check transaction success,
@@ -135,7 +140,7 @@ This spec adds no infrastructure framework, secret sync or custom fee contract.
    screen until the chain confirms the dWallet is Active.
 9. Both browser and operator verify Active and cap ownership. Derive the EVM
    recipient from the verified secp256k1 public key and finalize the account
-   binding and portable recovery bundle. Recheck its integrity before returning.
+   binding and saved encrypted wallet record. Verify its persistence before returning.
 10. Return a single-use result to the originating community. The community
     validates it and independently verifies activation before enabling upload.
     Upload, admission and an idempotent Aeneid registration job follow. The
@@ -153,7 +158,7 @@ stale or transferred wallet is not silently reused.
 The required order is:
 
 ```text
-local recovery verification -> operator-bound DKG preparation
+saved passkey + encrypted wallet record -> operator-bound DKG preparation
 -> confirmed DKG + atomic cap transfer to creator
 -> browser ownership/result verification -> creator acceptance signature
 -> successful acceptance transaction + confirmed Active
@@ -185,70 +190,52 @@ unknown submission and inspect its receipt before allocating another mint;
 an RPC timeout must not create a second asset. A failed registration leaves
 the release pending with a recorded retryable job, never falsely registered.
 
-## Passkey and independent recovery
+## Saved passkey access
 
 The wallet service is hosted by Pirate on one dedicated stable HTTPS origin.
 Choose and record the actual origin and RP ID before creating persistent pilot
-credentials. It is a deployment parameter, not a community-selected alias.
-Communities connect to that origin; normal passkey use depends on its continued
-availability and integrity. Use a minimal wallet application without analytics
-or third-party script execution.
+credentials. Communities connect to that origin. Use a native Sui passkey
+account as the DWalletCap owner; no multisig or separate recovery key is
+required for this MVP.
 
-Create a Sui multisig with two members of weight 1 and threshold 1: the native
-Sui passkey public key and an independent recovery signing public key. Either
-can authorize alone. A 2-of-2 policy would fail the requirement to recover
-without the wallet site. Confirm native passkey multisig support on the pinned
-SDK and testnet before DKG. Membership, ordering, weights and threshold determine
-the address; they are not editable recovery settings on that same address.
+Use a cryptographically random 32-byte Ika encryption root seed, encrypted
+under a WebAuthn PRF-derived key. Persist that ciphertext and the public wallet
+record at the wallet service, retrievable after passkey authentication. The
+record includes the credential identifier, public key/address, RP ID, PRF salt,
+versioned derivation/encryption parameters, Ika network/package identifiers,
+dWallet/cap/share IDs and verified EVM public key/address. Update it as setup
+assigns the on-chain identifiers. Save only ciphertext and public metadata;
+the service never receives the plaintext seed or decrypted user share.
 
-Use a cryptographically random 32-byte Ika encryption root seed. Wrap it under a
-WebAuthn PRF-derived key for normal use and independently under a key derived
-from the recovery secret. This avoids making the only copy of the seed
-reproducible solely at the Pirate origin. A passkey authentication without a
-working PRF result is insufficient. No silent password, server-held seed or
-shared-mode fallback is allowed.
+A saved passkey supplies the authenticator credential. Ika's zero-trust user
+share still needs its encryption seed. Our integration connects those using
+PRF and the persisted encrypted record. An authenticated session or a seed
+held only in the current tab is insufficient. Use reviewed authenticated
+encryption, fresh nonces and context binding. Verify the record was durably
+saved before paid setup and its final identifiers before enabling upload.
 
-For the proof, use a creator-held high-entropy recovery secret. Derive distinct
-Sui recovery signing and backup-encryption keys with versioned, domain-separated
-derivation. Use reviewed library primitives, authenticated encryption, fresh
-nonces and explicit context binding; freeze the encoding and test vectors in
-the implementation before issuing credentials. Do not treat a signing key as
-an encryption API or use a human-chosen password as the recovery secret.
+Keep plaintext seed/share material in short-lived browser memory and clear it
+on completion, cancellation and logout. It must not enter community D1,
+operator logs, URLs, source control or public storage. Missing PRF or an
+unreadable encrypted record stops setup/access without a silent weaker mode.
 
-Export a versioned portable bundle containing the encrypted seed wraps, public
-multisig descriptor and address, passkey credential identifier/RP ID/PRF salt,
-derivation parameters, Ika network and package identifiers, dWallet/cap/share
-IDs and verified EVM public key/address. Keep the recovery secret separately.
-Re-export when setup assigns on-chain identifiers. Verify the saved bundle
-decrypts locally and reproduces the public keys before proceeding.
+The access check is ordinary integration acceptance: create and activate a
+wallet, close it and clear its in-memory secrets, then reopen using the saved
+passkey, load the stored record, decrypt the Ika share and produce one valid
+EVM test signature for the same address. Run it on the selected Android
+browser. It checks that our app saved and reloads the required material;
+it is not an investigation of Ika's MPC protocol.
 
-The wallet service may retain the encrypted normal-recovery bundle for
-passkey-synced devices; that copy is not the independent backup. The creator
-must hold an accessible copy outside Pirate infrastructure. No seed, recovery
-secret, plaintext user share or session credential goes into community D1,
-operator logs, URLs, source control or public storage. Browser cryptographic
-material is short-lived memory; clear it on cancellation, logout and completion.
+For that signature, the test fee payer supplies the required presign and fee
+coins to the cap-owning account and sponsors its Sui gas. The creator signs
+the cap-using transaction. Record this signing cost separately from setup and
+minting; this test funding does not define production signing sponsorship.
 
-Two recovery tests are mandatory. On a second Android device, the synced
-passkey must unlock the same seed and authorize the same Sui control account.
-Separately, with the Pirate wallet site and API unavailable, a pinned
-standalone recovery client must import the portable bundle and recovery
-secret, recover cap control, decrypt the on-chain user share and complete one
-verifiable EVM test signature through Ika. Use direct testnet RPC access and
-a dedicated test fee payer for the latter, without a Pirate login or service.
-
-For these signature tests, the test fee payer supplies any required presign
-and fee coins to the cap-owning multisig and sponsors its Sui gas. The creator
-authorizes the cap-using transaction with the tested signer; sponsorship does
-not transfer cap ownership. Record those signing costs separately from setup
-and minting. This test funding is not a production signing-fee service.
-
-Domain-independent recovery still requires Ika and the selected chains to
-operate. It does not recover the full EVM private key or remove MPC dependence.
-Loss or compromise of the recovery secret has real consequences because it
-can independently control the account and decrypt the seed. A later recovery
-member change requires a new Sui control address and explicit capability/asset
-migration; it cannot be presented as an in-place key edit.
+The MVP relies on the wallet origin, encrypted-record storage and the user's
+passkey provider remaining available. Passkey sync follows the provider's
+normal behavior; saving a device-bound credential does not make it synced.
+Cross-device and site-independent recovery are later work, with no custom
+recovery ceremony or standalone recovery tool in the MVP setup.
 
 ## Cross-community connection
 
@@ -314,7 +301,7 @@ If it activated, recover that wallet and complete its binding instead of
 funding a replacement. Retrying the same valid acceptance while the original
 verified material remains available is not a new DKG.
 
-These ledger and wallet-backup records are required security/accounting
+These ledger and encrypted wallet records are required security/accounting
 state. They do not create saved media drafts or a song-composer resume feature.
 
 ## Storage and chain boundaries
@@ -322,10 +309,9 @@ state. They do not create saved media drafts or a song-composer resume feature.
 | State | Location |
 | --- | --- |
 | Passkey private key | Creator's authenticator/sync provider. |
-| Recovery secret and independent encrypted bundle | Creator-controlled storage outside Pirate. |
-| PRF-wrapped normal-recovery bundle | Wallet service, encrypted; authenticated retrieval only. |
+| PRF-wrapped Ika seed and public wallet record | Wallet service, encrypted seed; authenticated retrieval only. |
 | Setup attempts, quotas, fees, private account bindings and registration jobs | Operator/community database with restricted access and retention policy. |
-| DWalletCap and Sui ownership | Sui testnet; owned directly by the creator's multisig address. |
+| DWalletCap and Sui ownership | Sui testnet; owned directly by the creator's native Sui passkey address. |
 | Encrypted Ika share and activation state | Ika's selected on-chain protocol state. |
 | Song media, metadata and previews | Existing publication/storage boundary; no secret material in public pins. |
 | IP asset and owner/registration receipt | Aeneid registry plus verified application receipt. |
@@ -346,22 +332,22 @@ pretending a future migration adapter already exists.
 
 ## Build order and acceptance
 
-Start with the wallet and recovery proof, not a new contract. Existing post
-index work can proceed independently. Complete these steps in order:
+Start with the sponsored wallet and first-song integration. Existing post
+index work can proceed independently; this slice needs no new contract.
+Complete these steps in order:
 
-1. Freeze the test manifest: wallet origin/RP ID, SDK/WASM and recovery-client
-   versions/hashes, Sui network, Ika package/objects/curve, Aeneid RPC chain
-   check and registry/collection, operator sender and finite fee budgets.
-   Verify the selected testnet entrypoints and native passkey multisig.
-2. Build the top-level connection, 1-of-2 control account and dual encrypted
-   backup. Prove PRF and both Sui signer paths before paying for DKG.
+1. Freeze the test manifest: wallet origin/RP ID, SDK/WASM versions/hashes,
+   Sui network, Ika package/objects/curve, Aeneid RPC chain check and
+   registry/collection, operator sender and finite fee budgets.
+2. Build the top-level connection, native Sui passkey account and persisted
+   PRF-wrapped seed. Check that the selected browser supplies PRF before DKG.
 3. Build the durable sponsorship/attempt state machine and browser DKG checks.
    Exercise failure cases locally, then perform the bounded testnet setup.
-4. Prove both recovery paths through an Ika EVM test signature and mint one
-   admitted test song to the recovered creator address on Aeneid.
-5. Publish a redacted acceptance report with exact source/manifest hashes,
-   device/browser versions, transaction/object references, ownership/Active
-   reads, actual fees, stage timings, prompt count and lazy-loaded byte sizes.
+4. Reopen the activated wallet with its saved passkey, produce one EVM test
+   signature and mint an admitted test song to that creator address on Aeneid.
+5. Record source/manifest hashes, device/browser versions, transaction/object
+   references, ownership/Active reads, actual fees, timings, prompt count and
+   lazy-loaded byte sizes. Do not build a separate recovery test programme.
 
 | ID | Required evidence |
 | --- | --- |
@@ -374,13 +360,12 @@ index work can proceed independently. Complete these steps in order:
 | C7 | Concurrent attempts and cross-community traffic respect the in-flight reservation, activated-wallet limit, failed-attempt limits and global budget. |
 | C8 | Two community origins connect through the same wallet site; replayed codes and wrong origin/account/verifier are refused. |
 | C9 | Android Chrome and Telegram's chosen popup/redirect flow complete; any required external-browser step and return are recorded. |
-| C10 | Synced passkey on a second Android device controls the same Sui account, decrypts the same Ika seed and completes a verifiable test signature. |
-| C11 | Independent recovery works with Pirate domains blocked, using only the saved bundle, recovery secret, standalone client and testnet services/fee payer. It controls the cap and completes a verifiable Ika EVM signature. |
-| C12 | Aeneid mint confirms the exact creator recipient and matching asset digest. Timeout/retry cannot create an untracked duplicate registration. |
-| C13 | Mainnets and local public fixture keys are refused; no private material appears in API payloads, logs, URLs, D1 or public pins. Encrypted bundles are tested for tampering and wrong-context failure. |
-| C14 | Recovery export is verified before paid setup and finalized before upload; missing PRF, lost backup and incompatible signatures fail without a weaker fallback. |
+| C10 | After closing and clearing in-memory secrets, the saved passkey reopens the same Sui account, reloads the encrypted record, decrypts the Ika share and completes a verifiable EVM test signature for the same address. |
+| C11 | Aeneid mint confirms the exact creator recipient and matching asset digest. Timeout/retry cannot create an untracked duplicate registration. |
+| C12 | Mainnets and local public fixture keys are refused; no private material appears in API payloads, logs, URLs, D1 or public pins. Encrypted records reject tampering and wrong-context decryption. |
+| C13 | Encrypted seed persistence is verified before paid setup and wallet identifiers are saved before upload; missing PRF, failed persistence and incompatible signatures fail without a weaker fallback. |
 
-All C1–C14 are pending. Documentation review, a local mock, a successful
+All C1–C13 are pending. Documentation review, a local mock, a successful
 acceptance signature or an existing centralized testnet mint cannot mark them
 passed. A device limitation stops that part of the proof and is reported
 explicitly; it does not reopen custody or silently enable shared mode.
@@ -403,8 +388,7 @@ not a deployed-bytecode audit or an executed testnet proof.
 Ika documents the [zero-trust flow](https://docs.ika.xyz/docs/sdk/ika-transaction/zero-trust),
 [user encryption keys](https://docs.ika.xyz/docs/sdk/user-share-encryption-keys)
 and [fee handling](https://docs.ika.xyz/docs/move-integration/core-concepts/payment-handling).
-Sui documents [passkey origin binding and multisig use](https://docs.sui.io/develop/cryptography/passkeys),
-[multisig policy](https://sdk.mystenlabs.com/sui/cryptography/signers/multisig)
+Sui documents [passkey origin binding](https://docs.sui.io/develop/cryptography/passkeys)
 and [gas sponsorship](https://docs.sui.io/develop/transaction-payment/sponsor-txn).
 Web platform references cover [PRF](https://developer.mozilla.org/en-US/docs/Web/API/Web_Authentication_API/WebAuthn_extensions#prf)
 and [cross-origin iframe compatibility](https://web.dev/articles/webauthn-within-iframe).

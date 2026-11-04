@@ -148,7 +148,7 @@ dependent on Megapot; there is no arbitrary local timeout cancellation.
 The [creator-wallet and song-registration contract](docs/creator-wallet.md)
 specifies the separate, operator-funded Ika testnet proof for first song
 release. Ordinary MOSS participation does not create a creator wallet. The
-creator owns the control capability; independent recovery and confirmed
+creator owns the control capability. Saved passkey access and confirmed
 on-chain activation are required before upload and Aeneid registration.
 This is approved design with acceptance still pending, not a production DATA
 integration or an implemented extension of the local skeleton.

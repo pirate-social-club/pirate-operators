@@ -17,11 +17,11 @@ proves.
 The [creator-wallet contract](creator-wallet.md) owns the additional first-song
 release flow. It is an operator-funded, testnet-only Ika exception to the
 earlier MOSS plan's blanket exclusion. It requires a separate creator passkey,
-independent recovery, verified cap ownership before acceptance signing and
+persisted passkey-backed access, verified cap ownership before acceptance signing and
 confirmed on-chain activation before upload or registration. Ordinary sign-in,
 karaoke, study and dance posts retain this document's session flow. Creator
 setup opens the dedicated wallet site by popup or redirect, not an iframe.
-The creator's encrypted wallet backup is distinct from community session
+The creator's encrypted wallet record is distinct from community session
 storage and does not introduce saved song drafts.
 
 The following are settled for this version: Solid renders the client; each
