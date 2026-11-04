@@ -1,0 +1,32 @@
+{
+  "kind": "moss-activation-rehearsal",
+  "recordedAt": "2026-11-04T16:58:32.244Z",
+  "network": "local anvil fork of MegaETH testnet; nothing sent to the real chain",
+  "forkBlock": "34101037",
+  "records": "0x0eae432258c5954cf3d06e707acb3490a2f20a12",
+  "learner": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+  "attemptId": "0xb2cd06f4d6495ee3cf9963edd0699d8739eef7dda7057e6aec43bf09c51ae452",
+  "erc8010": {
+    "delegate": "0xf655611abe392f35cbb36181d920a302c4df2284",
+    "authorizationChainId": 0,
+    "authorizationNonce": 0,
+    "initializer": "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
+    "initDataBytes": 932,
+    "innerSignatureBytes": 609
+  },
+  "codeBefore": "0x",
+  "openBeforeActivation": "reverts: invalid_consent.",
+  "activation": {
+    "status": "success",
+    "gasUsed": "182952"
+  },
+  "codeAfter": "0xef0100f655611abe392f35cbb36181d920a302c4df2284",
+  "delegatedToMossProxy": true,
+  "openAfterActivationWithInnerSignature": "would_succeed",
+  "openAfterActivationWithWrappedSignature": "reverts: invalid_consent.",
+  "opened": {
+    "status": "success",
+    "gasUsed": "260823",
+    "attemptLearner": "0xa1FFB1ae235aA526188F6faCdc34eEf1AB4fDAe3"
+  }
+}

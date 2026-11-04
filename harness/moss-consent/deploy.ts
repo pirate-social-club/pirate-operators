@@ -41,7 +41,14 @@ $("go").onclick = async () => {
     if (message.status !== "success" || !message.signature) throw new Error(JSON.stringify(message));
     stage("Message signed", "ok");
     at = "signData";
-    const signed = await mega.signData({ data: { domain: request.domain, types: request.types, value: request.message } });
+    // MOSS validates the typed data itself and needs primaryType. The standard
+    // shape names the payload "message"; the SDK README calls it "value".
+    const typed = { domain: request.domain, types: request.types, primaryType: "Consent" };
+    let signed = await mega.signData({ data: { ...typed, message: request.message } });
+    if (signed.status === "error") {
+      stage("Consent with message key", "rejected", signed.error);
+      signed = await mega.signData({ data: { ...typed, value: request.message } });
+    }
     if (signed.status !== "success" || !signed.signature) throw new Error(JSON.stringify(signed));
     stage("Consent signed", "ok");
     at = "analyse";
