@@ -5,8 +5,8 @@ import { render } from "@solidjs/web";
 import { createSignal, Show, type Accessor } from "solid-js";
 import { CommunityContent, NotFoundContent, PostContent, RemovedContent, type ContentLabels } from "../document/content.tsx";
 import { catalogFor, message, type MessageKey } from "../locale.ts";
-import { paths, PROTOCOL_VERSION, type CommunityConfig, type PublicCommunity, type PublicPost } from "../model.ts";
-import { canonicalHref, createDataSource, matchRoute, readSession, resolveMode, type Mode, type SessionState } from "./navigation.ts";
+import { paths, PROTOCOL_VERSION, type CommunityConfig, type PostRecord, type PublicCommunity, type PublicPost } from "../model.ts";
+import { canonicalHref, createDataSource, matchRoute, readSession, resolveMode, type Mode, type Route, type SessionState } from "./navigation.ts";
 import "../styles/client.css";
 
 type View =
@@ -15,6 +15,7 @@ type View =
   | { readonly kind: "post"; readonly post: PublicPost; readonly updated: boolean }
   | { readonly kind: "about"; readonly community: PublicCommunity | null }
   | { readonly kind: "removed" }
+  | { readonly kind: "unavailable" }
   | { readonly kind: "not-found" };
 
 const catalog = catalogFor(document.documentElement.lang);
@@ -104,6 +105,13 @@ function RouteView(props: { readonly view: Accessor<View> }) {
             );
           case "removed":
             return <RemovedContent message={t("removed")} homeLabel={t("backHome")} />;
+          case "unavailable":
+            return (
+              <section class="mx-auto w-full max-w-2xl px-4 py-8" data-content="unavailable">
+                <p>{t("unavailable")}</p>
+                <a class="mt-4 inline-block underline-offset-4 hover:underline" href={paths.page.community}>{t("backHome")}</a>
+              </section>
+            );
           case "not-found":
             return <NotFoundContent message={t("notFound")} homeLabel={t("backHome")} />;
         }
@@ -123,6 +131,17 @@ async function readConfig(): Promise<CommunityConfig | null> {
   }
 }
 
+/** The view a record gives a route; `updated` marks a replaced generated page. */
+function viewOf(route: Route, community: PublicCommunity | undefined, post: PostRecord | undefined, updated: boolean): View | undefined {
+  if (route.kind === "community") return community === undefined ? undefined : { kind: "community", community };
+  if (route.kind === "about") return { kind: "about", community: community ?? null };
+  if (route.kind === "post") {
+    if (post === undefined) return undefined;
+    return post.kind === "removed" ? { kind: "removed" } : { kind: "post", post, updated };
+  }
+  return { kind: "not-found" };
+}
+
 async function main() {
   const shellRoot = document.getElementById("app-shell-root");
   const actionsRoot = document.getElementById("app-actions-root");
@@ -134,6 +153,7 @@ async function main() {
   if (config === null) return;
   const mode = resolveMode(location.origin, config);
   const source = createDataSource(mode);
+  const records = source.records;
   const entryPage = document.body.dataset.page;
   const [path, setPath] = createSignal(location.pathname);
   const [view, setView] = createSignal<View>({ kind: "loading" });
@@ -141,10 +161,10 @@ async function main() {
   const [session, setSession] = createSignal<SessionState>("checking");
   const entrySlug = entryPage === "post" ? content.dataset.slug ?? null : null;
   const [actionSlug, setActionSlug] = createSignal<string | null>(entrySlug);
+  records.onCommunity = community => setCommunityName(community.name);
 
   render(() => <Shell config={config} mode={mode} communityName={communityName} session={session} path={path} />, shellRoot);
   render(() => <PostActions config={config} mode={mode} slug={actionSlug} />, actionsRoot);
-  void source.community().then(community => setCommunityName(community?.name ?? "")).catch(() => undefined);
   if (mode === "canonical") void readSession(fetch.bind(globalThis)).then(setSession);
 
   let owned = false;
@@ -157,32 +177,49 @@ async function main() {
   };
 
   let generation = 0;
-  const show = async (pathname: string) => {
+  let inflight: AbortController | undefined;
+  /**
+   * Show a route. Cached records render at once; every source then refreshes
+   * in parallel, bounded and aborted when superseded, and only newer revisions
+   * replace what is shown. For the generated entry page, `published` is the
+   * page's revision: the client takes over only when a newer record arrives.
+   */
+  const show = async (pathname: string, published?: number) => {
+    inflight?.abort();
+    const controller = new AbortController();
+    inflight = controller;
     const issued = ++generation;
     const route = matchRoute(pathname);
     setPath(pathname);
     setActionSlug(route.kind === "post" ? route.slug : null);
-    takeOver();
-    setView({ kind: "loading" });
-    let next: View;
-    try {
-      if (route.kind === "community") {
-        const community = await source.community();
-        next = community === null ? { kind: "not-found" } : { kind: "community", community };
-      } else if (route.kind === "post") {
-        const record = await source.post(route.slug);
-        next = record === null ? { kind: "not-found" } : record.kind === "removed" ? { kind: "removed" } : { kind: "post", post: record, updated: false };
-      } else if (route.kind === "about") {
-        next = { kind: "about", community: await source.community() };
-      } else {
-        next = { kind: "not-found" };
-      }
-    } catch {
-      next = { kind: "not-found" };
-    }
+    const apply = (next: View) => {
+      if (issued !== generation) return;
+      takeOver();
+      setView(next);
+      if (next.kind !== "post") setActionSlug(null);
+    };
+    const current = (updated: boolean) => viewOf(
+      route, records.community(), route.kind === "post" ? records.post(route.slug) : undefined, updated,
+    );
+    const fresher = (revision: number) => published === undefined || revision > published;
+    if (published === undefined) apply(current(false) ?? { kind: "loading" });
+    if (route.kind === "not-found") return;
+
+    const status = route.kind === "post"
+      ? await source.refreshPost(route.slug, controller.signal, record => {
+          if (fresher(record.revision)) apply(current(published !== undefined) ?? { kind: "loading" });
+        })
+      : await source.refreshCommunity(controller.signal, community => {
+          if (fresher(community.revision)) apply(current(false) ?? { kind: "loading" });
+        });
     if (issued !== generation) return;
-    setView(next);
-    if (next.kind === "removed") setActionSlug(null);
+    if (status === "missing") return apply({ kind: "not-found" });
+    const held = route.kind === "post" ? records.post(route.slug) : records.community();
+    if (held === undefined) {
+      if (published === undefined) apply({ kind: "unavailable" });
+      return;
+    }
+    if (fresher(held.revision)) apply(current(published !== undefined) ?? { kind: "unavailable" });
   };
 
   document.addEventListener("click", event => {
@@ -198,29 +235,18 @@ async function main() {
   });
   window.addEventListener("popstate", () => void show(location.pathname));
 
-  if (entryPage === "shell") {
-    void show(location.pathname);
-    return;
+  // The header needs the community on every page; a community route reads it
+  // itself, so only other pages start a separate, unaborted read.
+  const entryRoute = matchRoute(location.pathname);
+  if (entryRoute.kind !== "community" && entryRoute.kind !== "about") {
+    void source.refreshCommunity(new AbortController().signal, () => undefined);
   }
 
-  // A generated post page may be older than the record: replace it with the
-  // current view, or a removal notice, once the current record is known.
-  if (entryPage === "post" && entrySlug !== null) {
-    const published = Number(content.dataset.revision);
-    const issued = generation;
-    const record = await source.post(entrySlug).catch(() => undefined);
-    if (record === undefined || issued !== generation || owned) return;
-    if (record === null) {
-      takeOver();
-      setView({ kind: "not-found" });
-    } else if (record.kind === "removed") {
-      takeOver();
-      setActionSlug(null);
-      setView({ kind: "removed" });
-    } else if (record.revision !== published) {
-      takeOver();
-      setView({ kind: "post", post: record, updated: true });
-    }
+  if (entryPage === "shell") {
+    void show(location.pathname);
+  } else if (entryPage === "post" || entryPage === "community") {
+    // A generated page may be older than the current record: reconcile it.
+    void show(location.pathname, Number(content.dataset.revision));
   }
 }
 

@@ -31,6 +31,7 @@ const en = {
   updated: "This post changed after this page was published.",
   removed: "This post was removed.",
   notFound: "Page not found.",
+  unavailable: "This content is unavailable right now.",
   backHome: "Back to the community",
   noscript: "This page needs JavaScript. Published posts work without it.",
 } as const;
@@ -58,6 +59,7 @@ const ar: Catalog = {
   updated: "تغيّر هذا المنشور بعد نشر هذه الصفحة.",
   removed: "أُزيل هذا المنشور.",
   notFound: "الصفحة غير موجودة.",
+  unavailable: "هذا المحتوى غير متاح حاليًا.",
   backHome: "العودة إلى المجتمع",
   noscript: "تحتاج هذه الصفحة إلى JavaScript. تعمل المنشورات المنشورة بدونه.",
 };

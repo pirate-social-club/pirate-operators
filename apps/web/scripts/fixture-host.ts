@@ -87,7 +87,9 @@ async function api(path: string, res: ServerResponse) {
 }
 
 const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+  // Concatenate rather than resolve: a request path starting with // must stay
+  // a path, not become another authority.
+  const url = new URL(`http://localhost:${port}${req.url ?? "/"}`);
   const path = decodeURIComponent(url.pathname);
   if (path === "/__fixture/scenario" && req.method === "POST") {
     scenario = (url.searchParams.get("name") ?? "normal") as Scenario;

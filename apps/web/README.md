@@ -66,10 +66,24 @@ the mirror tests use Kubo's subdomain gateway, not a path gateway.
 The client is canonical only on the configured canonical origin. On any other
 origin it is a read-only mirror. It reads only the snapshot, makes no session
 or mutation request, and links sign-in and actions to the same path on the
-canonical origin. In canonical mode it reads `/api/public/*`. When the API
-fails it falls back to the snapshot shipped with the same release, and it
-checks `/api/session` without delaying public content. The read interface is
-in [src/model.ts](src/model.ts). Sign-in buttons are present but disabled:
+canonical origin. In canonical mode it reads `/api/public/*` and the
+snapshot shipped with the same release in parallel. Each read is bounded to
+four seconds and aborted when navigation moves on, so a stalled API never
+blanks the page. It also checks `/api/session` without delaying public
+content.
+
+A per-page record store keeps the newest revision of the community and of
+each post, whichever source delivered it. A removal is itself a revision, so a
+failing API, an older snapshot or a lagging source cannot bring removed or
+superseded content back. Navigation renders the stored record at once and
+replaces it only when a newer revision arrives. A generated community or post
+page is replaced after mount only when the current record is newer than the
+page's `data-revision`. Content that no source could return shows an
+"unavailable" state rather than "not found". The API's 404 counts as
+authoritative; the snapshot's does not. Mirror action links are built on the
+canonical origin with any leading slashes or backslashes collapsed, so a
+`//other.example` path cannot redirect them. The read interface is in
+[src/model.ts](src/model.ts). Sign-in buttons are present but disabled:
 cookie sessions belong to the community service, which this slice does not
 change.
 
@@ -96,8 +110,9 @@ This slice exercises, against fixture data and local hosts only:
 
 - P1: a generated post page shows its content and preview metadata with
   JavaScript disabled.
-- P3: a stale page is replaced after mount, and so is a post removed after
-  publication.
+- P3: a stale post or community page is replaced after mount, and so is a
+  post removed after publication. A known removal survives a later API
+  outage, and an older or equal record leaves the generated page in place.
 - P4, structurally: the client build and the page generation are separate
   outputs. It is not a separately deployed publisher.
 - A6: a mirror offers no sign-in and links actions to the canonical origin.

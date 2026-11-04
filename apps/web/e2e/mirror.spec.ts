@@ -89,3 +89,19 @@ test("interface language is resolved before mount and content keeps its own dire
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl"); // saved preference
   await expect(page.locator('#public-content article')).toHaveAttribute("dir", "rtl");
 });
+
+// Regression from the 2026-11-04 review: a mirror's action links must point at
+// the canonical origin whatever path the mirror host preserves. Kubo
+// normalizes repeated slashes; the alternate host (the fixture host reached
+// on 127.0.0.1, a different origin) does not.
+for (const variant of ["kubo", "alternate-host"] as const) {
+  for (const path of ["//outside.invalid/path", "/\\outside.invalid/path"]) {
+    test(`mirror action links stay on the canonical origin (${variant}, ${JSON.stringify(path)})`, async ({ page }) => {
+      const base = variant === "kubo" ? origin() : "http://127.0.0.1:4173";
+      await page.goto(`${base}${path}`);
+      const action = page.locator('a[data-action="sign-in"]');
+      await expect(action).toBeVisible();
+      expect(new URL((await action.getAttribute("href"))!).origin).toBe(FIXTURE_CANONICAL_ORIGIN);
+    });
+  }
+}
