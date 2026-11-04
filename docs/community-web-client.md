@@ -225,22 +225,43 @@ through these steps in order:
 
 1. Publish the new version's stylesheet.
 2. Release a client that supports both the old and the new version.
-3. Regenerate every published page under the new version.
-4. Remove the old version from later releases.
+3. Set the publisher's target document version to the new version. From then
+   on every publication, edit and removal generates under it.
+4. Run a migration: one job for each published page still on the old version.
+5. Remove the old version from later releases once no published page uses it.
 
 The old stylesheet stays until no published page refers to it.
 
 Publication rules:
 
-- Generation is an idempotent job keyed by community, post and revision. It
-  runs after the post record commits. The post is visible in the client
-  immediately; the public page follows.
-- A write replaces a stored document only when its revision is newer. A failed
-  job leaves the previous document in place and retries with backoff.
+- Generation is an idempotent job keyed by community, post, content revision
+  and document version. A content job runs after the post record commits and
+  uses the publisher's current target version. A migration job comes only
+  from a migration run in step 4. It names the page's current content revision
+  and the new target version. The post is visible in the client immediately;
+  the public page follows.
+- A removal is itself a content revision, and its document is a tombstone.
+- Each stored document carries its content revision and document version. A
+  write replaces it only when the job's pair is newer:
+  - either the content revision is higher;
+  - or the revision is the same and the job is a migration job with a higher
+    document version.
+
+  A job with a lower revision, or a lower or equal document version at the
+  same revision, is stale or a duplicate. It is dropped without writing.
+- Before rendering, a migration job re-reads the post record. If the revision
+  has moved past the one it names, the job is stale and is dropped. The newer
+  content job renders that revision under the target version.
+- The comparison and the write are one atomic conditional update on the
+  stored document, for example a conditional put on its ETag. On a conflict
+  the job re-reads and re-evaluates. Newer content or a tombstone can
+  therefore never be overwritten by an older migration.
+- A failed job leaves the previous document in place and retries with backoff.
 - An edit regenerates the page under its new revision and purges cached copies.
 - A removal replaces the page with a minimal 410 tombstone that carries none of
   the removed content or metadata, purges cached copies and updates the
-  community page.
+  community page. A migration also moves tombstones to the new version,
+  under the same rules.
 - Each page records `data-revision` and `data-generated-at`. After mounting,
   the client reads the current post record. If the revision differs, or the
   post was removed, it replaces `#public-content` with the current view or a
@@ -491,6 +512,7 @@ These checks belong to the implementation tasks that follow. None has run.
 | P2 | An edit regenerates the page, a removal serves the 410 tombstone, and a failed job keeps the previous page | automated |
 | P3 | A stale page is replaced by the current view after mount | automated browser |
 | P4 | A content publish does not rebuild the client, and a client release does not regenerate content | automated |
+| P5 | A post at revision 7 on document v1 migrates to v2 without a content change. With the migration job for (7, v2) racing an edit to revision 8, and racing a removal, in both orders, the stored document ends as revision 8 under v2: the edited page or the tombstone. A repeated (7, v2) job, a (7, v1) job after migration and a (7, v2) job after revision 8 are all dropped without writing | automated |
 | L1 | An Arabic interface has `dir="rtl"` before the first paint; English content inside it keeps its own direction | automated browser |
 | L2 | Plural and select messages are correct in Arabic for 0, 1, 2, 3, 11 and 100 | unit |
 | L3 | Changing the interface language does not change the song or scoring language | automated |
