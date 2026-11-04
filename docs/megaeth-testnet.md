@@ -32,12 +32,59 @@ Measured gas at the run's effective price of 0.001 gwei:
 One redemption therefore cost about 2.4 × 10⁻⁷ test ETH, or about 10⁻⁵ for a
 40-line song. These are testnet prices, not a production estimate.
 
+## LearningRecords
+
+`LearningRecords` runs on MegaETH testnet at
+`0x0eae432258c5954cf3d06e707acb3490a2f20a12`, deployed on 2026-11-04 and
+recorded in
+[`evidence/megaeth-learning-records-2026-11-04.json`](evidence/megaeth-learning-records-2026-11-04.json).
+The community admin above is its controller, and the operator is its karaoke
+grader. The learner was an ephemeral key, generated in memory, that only
+signed consent. The records are synthetic, for a 40-line fixture manifest.
+
+The run opened one attempt and published it as the operator's publisher does,
+one transaction per line, then completed it. It corrected one line and
+completed it again. It then published a second attempt with the same lines,
+in batches of ten. The independent reader (`packages/records/reader.ts`)
+rebuilt both attempts from the logs and the manifest alone. It verified every
+record and recomputed both rewards, including the corrected one. `cast` reads
+of the controller, the grader, the corrected attempt and its corrected line
+agreed.
+
+| Step | Gas |
+|---|---|
+| Deploy `LearningRecords` | 110,488,100 |
+| Open an attempt | 380,170 |
+| Record one line, in its own transaction | 219,881 to 232,672 |
+| Complete a 40-line attempt | 281,143 |
+| Correct one line | 194,813 |
+| Complete again after the correction | 261,075 |
+| Record ten lines in one transaction | 1,457,456 to 1,556,346 |
+| Publish 40 lines, one transaction per line | 9,864,137 |
+| Publish 40 lines, in batches of ten | 6,786,159 |
+
+At 0.001 gwei, publishing a 40-line attempt line by line cost about
+10⁻⁵ test ETH, about as much as redeeming its 40 segments. Batches of ten
+used 31 percent less gas.
+
+Two earlier deployments that day are superseded. The first failed one reader
+check, the batched attempt's reward. Its address was not recorded, so the cause
+could not be confirmed; the likeliest is that the reader ran before the last
+completion's log appeared. The script now waits for that log and prints what
+it read if a check fails. The second, at
+`0x3ead04d3935b9f5eee7a577da55983c1b424c0be`, used a completion that copied
+its buffer once per line, so its memory cost grew with the square of the line
+count. Its 40-line figures were within 2,000 gas of the table, but a 500-line
+completion would have cost about 31 million gas more. The contract now
+preallocates the buffer, and a Foundry test bounds a 500-line completion.
+
 ## Running it again
 
-`npm run megaeth:payments` is manual and never runs in CI. It refuses any chain
-other than 6343. It reads dedicated keys from
+`npm run megaeth:payments` and `npm run megaeth:records` are manual and never
+run in CI. They refuse any chain other than 6343. They read dedicated keys from
 `~/.config/pirate-operators/megaeth-testnet/keys.json`, outside the
-repository, with roles `communityAdmin`, `purchaseSigner` and `operator`; it
-never prints them. The community admin needs test ETH from the MegaETH faucet
+repository, with roles `communityAdmin`, `purchaseSigner` and `operator`, and
+never print them. The community admin needs test ETH from the MegaETH faucet
 and forwards gas to the operator itself. Each run deploys a fresh contract and
-writes a new evidence file.
+writes a new evidence file for that day. The records script uses only the
+`communityAdmin` and `operator` keys.

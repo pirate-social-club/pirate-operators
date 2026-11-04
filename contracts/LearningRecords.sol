@@ -319,10 +319,11 @@ contract LearningRecords {
         } else {
             require(c.completedAt == a.completedAt, "completion_time_fixed");
         }
-        bytes memory packed;
+        // One preallocated buffer: memory stays linear in linesTotal.
+        bytes32[] memory hashes = new bytes32[](a.linesTotal);
         for (uint16 ordinal = 1; ordinal <= a.linesTotal; ordinal++)
-            packed = bytes.concat(packed, lines[attemptId][ordinal].recordHash);
-        a.recordsHash = keccak256(packed);
+            hashes[ordinal - 1] = lines[attemptId][ordinal].recordHash;
+        a.recordsHash = keccak256(abi.encodePacked(hashes));
         a.completionRevision += 1;
         emit AttemptCompleted(
             attemptId,

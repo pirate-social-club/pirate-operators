@@ -9,6 +9,7 @@ import {
 import { foundry } from "viem/chains";
 import { accounts } from "./runtime.ts";
 import { compile } from "./compile.ts";
+import { ACTIVITY_KARAOKE } from "../packages/protocol/records.ts";
 
 export async function chain(port = 18545) {
   const child = spawn(
@@ -122,10 +123,15 @@ export async function chain(port = 18545) {
       [accounts[3].address, paymentToken, 100_000_000n],
       3,
     );
+    // The community also controls LearningRecords and authorizes the operator
+    // (account 2) as its karaoke grader.
+    const recordsContract = await deploy("LearningRecords", [accounts[3].address]);
+    await write(recordsContract, "LearningRecords", "setGrader", [accounts[2].address, ACTIVITY_KARAOKE, true], 3);
     return {
       rpcUrl: `http://127.0.0.1:${port}`,
       paymentToken,
       paymentsContract,
+      recordsContract,
       child,
       rpc,
       publicClient,

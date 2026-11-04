@@ -303,4 +303,63 @@ contract LearningRecordsTest {
         records.completeAttempt(id, _completion(uint64(block.timestamp)));
         require(records.attempt(id).recordsHash == 0x1c8fffc397653a54d6f38265005f5c732b677b1247e0826a22ae64a0b8452bc7, "records hash");
     }
+
+    /// The largest manifest completes in bounded gas: recordsHash memory is linear.
+    function testMaxLinesCompletionStaysBounded() public {
+        uint16 n = records.MAX_LINES();
+        bytes32[] memory level = new bytes32[](n);
+        for (uint256 i = 0; i < n; i++) level[i] = keccak256(abi.encode(i + 1, keccak256(abi.encode(i + 1)), uint256(1)));
+        bytes32[][] memory levels = new bytes32[][](10);
+        uint256 depth = 0;
+        levels[0] = level;
+        while (levels[depth].length > 1) {
+            bytes32[] memory current = levels[depth];
+            bytes32[] memory next = new bytes32[]((current.length + 1) / 2);
+            for (uint256 i = 0; i < current.length; i += 2)
+                next[i / 2] = i + 1 < current.length ? _pair(current[i], current[i + 1]) : current[i];
+            levels[++depth] = next;
+        }
+        bytes32 id = keccak256("max-lines");
+        LearningRecords.Consent memory c = _consent(id, learner);
+        c.linesRoot = levels[depth][0];
+        c.linesTotal = n;
+        bytes memory sig = _signed(c, LEARNER_KEY);
+        vm.prank(grader);
+        records.openAttempt(c, sig, song);
+        for (uint256 first = 0; first < n; first += 50) {
+            LearningRecords.LineInput[] memory batch = new LearningRecords.LineInput[](50);
+            for (uint256 k = 0; k < 50; k++) {
+                uint256 index = first + k;
+                bytes32[] memory proof = new bytes32[](depth);
+                uint256 used = 0;
+                uint256 at = index;
+                for (uint256 d = 0; d < depth; d++) {
+                    if ((at ^ 1) < levels[d].length) proof[used++] = levels[d][at ^ 1];
+                    at >>= 1;
+                }
+                assembly {
+                    mstore(proof, used)
+                }
+                batch[k] = LearningRecords.LineInput({
+                    ordinal: uint16(index + 1),
+                    lineKey: keccak256(abi.encode(index + 1)),
+                    lineVersion: 1,
+                    status: 1,
+                    scoreBps: 8000,
+                    final_: true,
+                    proof: proof
+                });
+            }
+            vm.prank(grader);
+            records.assessLines(id, batch);
+        }
+        LearningRecords.Completion memory done = _completion(uint64(block.timestamp));
+        done.rewardScoreBps = 8000;
+        vm.prank(grader);
+        uint256 before = gasleft();
+        records.completeAttempt(id, done);
+        uint256 used_ = before - gasleft();
+        require(records.attempt(id).completionRevision == 1, "completed");
+        require(used_ < 1_500_000, "completion gas");
+    }
 }

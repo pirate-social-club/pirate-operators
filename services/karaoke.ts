@@ -30,6 +30,7 @@ import {
   refreshRedemptions,
 } from "./purchases.ts";
 import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
+import { acceptConsent, consentRequest, correct, publish } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
 const load = (store: Store, ticketId: string) => {
@@ -117,7 +118,8 @@ async function advance(env: Env, store: Store, ticketId: string) {
     ticketId,
     operatorQuote(env).payments,
     closeTicketData(ticket.community, ticket.ticketId),
-    100_000n,
+    // MegaETH testnet measured 110,022, above the former 100,000 limit.
+    300_000n,
   );
   const close = await dispatch(env, store, "close", ticketId);
   if (!close?.mined) return;
@@ -144,8 +146,10 @@ async function advance(env: Env, store: Store, ticketId: string) {
 }
 export async function tick(env: Env, store: Store) {
   for (const { key } of store.entries("attempt:")) {
+    const ticketId = key.slice("attempt:".length);
     try {
-      await advance(env, store, key.slice("attempt:".length));
+      await advance(env, store, ticketId);
+      await publish(env, store, ticketId);
     } catch {
       // Left for the next tick or recovery; one attempt never blocks the rest.
     }
@@ -201,6 +205,14 @@ export async function karaokeRoute(
     return Response.json({ paid: await acceptSegment(env, store, input) });
   }
   if (url.pathname === "/recover") return Response.json(await recover(env, store));
+  if (url.pathname === "/__correct") {
+    // Local control, like /__fault: production corrections need an
+    // authenticated operator path that does not exist yet.
+    const input = await body<Parameters<typeof correct>[2]>(request);
+    const corrected = await correct(env, store, input);
+    await publish(env, store, input.ticketId).catch(() => undefined);
+    return Response.json({ revision: corrected.revision });
+  }
   if (url.pathname === "/result") {
     const { ticketId } = await body<{ ticketId: string }>(request);
     await advance(env, store, ticketId);
@@ -263,6 +275,7 @@ export async function karaokeRoute(
       attemptId: next.attemptId,
       resumed,
       attemptStart: store.get(`attemptStart:${ticketId}`),
+      consent: consentRequest(env, store, ticketId, next.attemptId, next.startedAt),
     }),
   );
   return new Response(null, { status: 101, webSocket: pair[0] });
@@ -272,7 +285,8 @@ type Frame =
   | ({ type: "purchase" } & SignedPurchase)
   | { type: "words"; words: KaraokeRecognizedWord[] }
   | { type: "provider_failed"; lineIds: string[] }
-  | { type: "finish" };
+  | { type: "finish" }
+  | { type: "consent"; signature: Hex };
 export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: Store) {
   const { ticketId, generation } = ws.deserializeAttachment() as {
     ticketId: string;
@@ -294,6 +308,17 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
           code: error instanceof Error ? error.message : "invalid_purchase",
         }),
       );
+    }
+    return;
+  }
+  if (frame.type === "consent") {
+    // Accepted at any point on the live socket, even after the attempt ends.
+    const attempt = store.get<Attempt>(`attempt:${ticketId}`)!;
+    try {
+      await acceptConsent(env, store, ticketId, attempt, frame.signature);
+      ws.send(JSON.stringify({ type: "consented", attemptId: attempt.attemptId }));
+    } catch (error) {
+      ws.send(JSON.stringify({ type: "error", code: error instanceof Error ? error.message : "invalid_consent" }));
     }
     return;
   }

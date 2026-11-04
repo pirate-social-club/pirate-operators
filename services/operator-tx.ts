@@ -9,7 +9,8 @@ import { receiptSucceeded, type Receipt } from "../packages/protocol/payments.ts
 import { gasPrice, pendingNonce, receiptOf, sendRaw } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
 
-export type TxKind = "redeem" | "close";
+/** Record intents are sent in order by the publisher (services/records.ts), never by recovery. */
+export type TxKind = "redeem" | "close" | "record_open" | "record_line" | "record_complete";
 export interface Intent {
   kind: TxKind;
   ref: string;
@@ -123,7 +124,7 @@ export async function dispatch(env: Env, store: Store, kind: TxKind, ref: string
 }
 
 /**
- * Dispatches intents that never got a nonce, then resolves every unmined
+ * Dispatches payment intents that never got a nonce, then resolves every unmined
  * nonce in order by rebroadcasting its stored bytes. A redemption that became
  * moot reverts and still consumes its nonce, so a later closure can execute.
  */
@@ -131,7 +132,7 @@ export async function recoverTransactions(env: Env, store: Store) {
   let resolved = 0;
   for (const { value } of store.entries("intent:")) {
     const intent = value as Intent;
-    if (intent.nonce === null)
+    if (intent.nonce === null && !intent.kind.startsWith("record_"))
       await dispatch(env, store, intent.kind, intent.ref).catch(() => undefined);
   }
   for (const { value } of store.entries("tx:")) {

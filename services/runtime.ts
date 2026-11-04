@@ -32,6 +32,8 @@ export interface Env {
   COMMUNITY_ADDRESS?: string;
   SEGMENT_PRICE?: string;
   REALTIME_RPC?: string;
+  /** LearningRecords on the payment chain; publication is off without it. */
+  RECORDS_CONTRACT?: string;
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }

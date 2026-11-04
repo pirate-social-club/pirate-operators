@@ -174,3 +174,37 @@ Line records written after the latest completion are corrections that have not
 been completed yet. A reader reports them, but does not count them as grades.
 
 `packages/records/reader.ts` implements these checks.
+
+## 9. The operator's publisher
+
+`services/records.ts` publishes karaoke results, and only when the learner
+consented. When LearningRecords is configured, the socket's `ready` message
+carries a `consent` object with the EIP-712 domain and the consent message.
+The client signs it with the learner's wallet and sends
+`{ "type": "consent", "signature": … }`. The operator answers `consented` or
+`invalid_consent`. Consent is accepted at any time on the live socket,
+including after the attempt ends. Its `expiresAt` is the attempt's start plus
+seven days.
+
+The operator checks consent locally before storing it. It accepts only a
+low-s ECDSA signature that recovers to the ticket's participant. The contract
+also accepts ERC-1271 signatures from contract accounts, but the operator does
+not check those yet. That includes a MOSS account, which is an EIP-7702
+account with code. A learner's MOSS account authorizing this consent is
+therefore still unproven.
+
+Once a consented result is final, each operator tick moves its publication
+forward through three ordered stages. It opens the attempt, writes every line
+as its own final record, and then completes the attempt with `completedAt` set
+to `performanceEndedAt`. Every write is an intent in the operator's durable
+sender (`services/operator-tx.ts`), persisted before any RPC call, so a crash
+or an RPC outage resumes at the first write not yet mined. A stage starts only
+after the previous one is mined, and recovery never sends record intents
+itself, so their nonces stay in order. A write that reverts marks the
+publication `failed` with the stage that reverted.
+
+A correction is a new signed result revision, checked by the same verifier as
+the original. It publishes a final correction for the changed line, then a new
+completion. The local skeleton exposes corrections only at `/__correct`, a
+local control route like `/__fault`. A production correction needs an
+authenticated operator path, which does not exist yet.
