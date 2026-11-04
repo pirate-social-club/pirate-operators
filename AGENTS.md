@@ -5,7 +5,13 @@ confirmed D1 through D6 and authorized public repository creation on 2026-11-03.
 The initial coordinator bootstrap publishes main after local checks. Later
 changes use named branches and pull requests under the workspace lifecycle.
 
-Use cf for Cloudflare tooling. Do not introduce Wrangler configuration.
+The workspace_owner selected Alchemy.run to own community Cloudflare
+provisioning: Workers, D1, R2, jobs and bindings. Use cf for diagnostics and
+account inspection without independently changing Alchemy-owned resources.
+Infisical is the service-secret source. Do not introduce Wrangler configuration.
+The first delivery is operator setup through first-song publication; sponsored
+customer name buying is later work. This direction authorizes documentation
+and the admitted implementation lanes, not an unscoped deployment or key action.
 No production deployment, provider credentials, funded operations or mainnet
 activity belongs to the local skeleton. Fixture private keys are public test
 keys and must never be funded outside a disposable local chain.

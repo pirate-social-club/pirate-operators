@@ -1,198 +1,221 @@
-# Decentralized community setup
+# Community setup to first song
 
-Reviewed 2026-11-04. This describes the current direction and separates it from
-implemented behavior. The setup wizard is not implemented. The decentralized
-experiment is independent of the centralized application.
+Owner direction, 2026-11-04: the first milestone is an operator bringing a
+community online at app.tld, appearing in Pirate's community directory and
+posting its first song. Sponsored customer name purchases are lower priority.
+Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
+source of service secrets. These are requirements, not optional tooling choices.
 
-## Architecture and current state
+The wizard is not implemented. Existing pieces are the testnet HNS name
+registry, local operator services and a fixture static client. The sequence
+below is the missing end-to-end integration. It keeps centralized hosted
+infrastructure as an explicit part of the decentralized community product.
 
-Each community controls its namespace, HTTPS origin, application sessions,
-records, deployment and operating budget. Pirate can supply hosted operators,
-a creator-wallet site and a public aggregator. Those are explicit dependencies;
-independent name ownership does not make all application services trustless.
+## The happy path
 
-| Component | Current state |
-| --- | --- |
-| HNS name registry | Factory, per-TLD ERC-721 registries, CLI and independent lookup exist. Registry PR 2 adds MegaETH testnet and sale policy; testnet deployment/rehearsal are recorded. It is not a production release. |
-| Operator services | Main has a working local harness with simulated providers. The segment-payments branch is replacing the payment runtime with MegaETH contract purchases and community D1 storage. Hosted service acceptance is pending. |
-| Frontend | PR 9 contains a fixture-backed static Solid client, generated public pages, deterministic CAR and local IPFS mirror tests. It is not a complete independent installation. |
-| Ordinary wallet | MOSS is selected for MegaETH. CLI account connection/funding is recorded; delegated approval and real community browser-login acceptance remain unfinished. |
-| Creator wallet | PR 10 specifies sponsored Sui/Ika creation and saved passkey access. Implementation and device acceptance are pending. |
-| Discovery and posts | Contract-backed posts and a Pirate-funded Goldsky aggregator index are the direction. The publication/discovery contract and complete indexing interface still need implementation. |
-| Wizard | Proposed CLI orchestration, no working end-to-end installer. |
+| Step | Wizard responsibility | Completion evidence |
+| --- | --- | --- |
+| 1. Select namespace and operator | Verify current TLD control, select community ID and public origins, and choose Pirate-hosted or independent service operation. | Bound TLD/operator identity and explicit deployment account; no secrets in public configuration. |
+| 2. Prepare the name registry | Reuse a verified MegaETH factory; create the TLD registry with NOT_FOR_SALE, reserve app to its intended holder, set app's premium to zero, register it, and configure other selected names. | Verified code and receipt, app owned by the intended holder, selected reservations/prices read back. |
+| 3. Save secrets and provision services | Save required provider/service credentials to the right Infisical scope. Alchemy provisions Workers, D1/migrations, R2, job transport, bindings and public ingress. | Secret versions installed without logging values, migrations applied, health and storage checks pass. |
+| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, and have the TLD owner sign the HNS delegation/update. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
+| 5. Update Pirate's community registry | Submit/update the community record, verify namespace authority independently, and expose the verified entry through the directory/index. | The correct community and app link appear; a forged factory announcement is not accepted as ownership. |
+| 6. Configure real admission | Select trusted operators and policy, validate the required provider connections and enable durable admission/publication jobs. | The restored evidence and publication gate run against real inputs; failures hold rather than publish. |
+| 7. Post the first song | Authenticate the operator/creator, run the applicable creator activation flow, upload sealed media, perform admission, publish the post and complete the configured registration step. | The post appears and plays after reload, its page and media are retrievable, and retries do not duplicate publication or registration. |
 
-These observations use operators main 9f2217e, registry PR 2 at 296c97d,
-frontend PR 9 branch at 388018f and creator specification PR 10 at 9c7899b.
-Task records remain the authority for later changes. Reported test results in
-those records were not rerun as part of this architectural inspection.
+These steps are a resumable dependency graph. Infrastructure may be prepared
+before HNS records change. The directory can hold a provisioning record, but
+must not mark the community active before reachability and required admission
+checks pass. The wizard saves nonsecret resource IDs, input/config hashes and
+transaction receipts before/after external effects. Re-running it reconciles
+existing work instead of duplicating deployments, jobs or transfers.
 
-## Provisioning and credentials
+Operator login is part of posting. It does not require proving customer name
+buying, deploying a MOSS gas sponsor or completing a rewarded Telegram journey.
+The first operator can pay its own bounded setup gas. Normal user onboarding,
+name sales, gas sponsorship, karaoke and rewards follow this milestone.
 
-Use cf for Cloudflare build and deployment. Start with a CLI wizard and a
-versioned nonsecret setup manifest, recording each external operation and its
-receipt. Resume by reconciling actual state; applying twice must not create a
-second registry, duplicate funding or a second community. Proposed plan,
-apply, status and doctor commands are not available yet.
+## Alchemy, Cloudflare and Infisical
 
-Alchemy.run is optional infrastructure orchestration, not an implemented
-requirement. Introducing it requires a deliberate ownership boundary: cf and
-Alchemy must not independently manage the same resource. The current repository
-uses cf and has no Alchemy stack. A browser UI can drive a local or hosted
-provisioning runner; it cannot directly execute the native cf CLI. A hosted
-runner would become a custodian of deployment authority and needs explicit
-credential scope and isolation.
+Alchemy.run is the sole infrastructure reconciler for this stack. It owns the
+Workers, D1, R2, required Queues/Workflows, bindings and deployable ingress.
+Use cf for relevant diagnostics and account inspection, not a second deployer
+that independently changes Alchemy-owned resources. Do not assume cf login
+credentials automatically authenticate Alchemy. Pin the selected Alchemy release
+and its state/authentication behavior before implementation; current upstream
+includes a v2 API and older examples must not be copied blindly.
 
-First choose hosted operators or independent operation. A community using
-Pirate's operators supplies connection credentials, not Pirate's vendor or
-wallet secrets. An independent operator supplies only the keys required by its
-enabled services: ElevenLabs for selected speech work, OpenRouter for exercise
-generation, OpenAI for moderation, CloudConvert for selected media processing,
-and any required audio-matching provider. These are desired integrations, not
-completed decentralized adapters. A Telegram bot token is optional until the
-Telegram Study/guest flow is enabled. It need not block a web community.
+The provisioner authenticates to Infisical through a scoped machine identity,
+reads only the selected operator/community environment, and supplies secrets
+to Alchemy's protected secret bindings. Infisical is the recoverable source of
+truth; Worker bindings are runtime copies. Use one installation path rather
+than an independent automatic sync overwriting Alchemy's bindings. Verify
+rotation and a redeploy from stored secrets. Do not attempt to recover secrets
+by reading Worker bindings back. Back up D1 and retained objects separately.
 
-Community hosting needs its own Cloudflare authorization, D1 and object/media
-storage, session and signing configuration, public HTTPS origin and backups.
-Provider secrets belong to the service that calls the provider. Infisical is
-an optional operator secret source; inject narrow credentials into server
-secret bindings. No provider, sponsor or deployment key belongs in the static
-bundle, public community configuration or IPFS. Never copy centralized keys
-into independent communities.
+Keep Alchemy state, state-store credentials and any required encryption material
+under explicit access control and backup. Secret redaction alone does not prove
+state is encrypted. Inspect the pinned provider's serialized state during the
+first deployment. A browser wizard can use a trusted local or hosted runner;
+provider credentials must not become part of the static client or its public
+configuration. A hosted runner has deployment authority and is a security
+boundary. Unattended operation needs signing authority, but not necessarily a
+plaintext long-lived private key on a local disk.
 
-The local runtime is not a deployable production template: its fixture clock,
-debug endpoints, local guard and harness transports need a hosted profile,
-real time, authentication and persistent jobs. Do not expose it by merely
-removing LOCAL_ONLY. Admission, media processing, publication, registration and
-retry/reconciliation need defined ownership even if they share one Worker.
+For Pirate-hosted operators, their provider keys live in Pirate's operator
+Infisical scope. Independently operated services use the operator's own scope.
+The wizard saves each supplied key to its actual owning service; it must not
+copy shared provider credentials into every community Worker.
 
-## Names and contracts
+ACRCloud configuration is required by the current audio-identification policy.
+OpenAI supplies the selected text/artwork moderation adapter. ElevenLabs is
+needed only for enabled speech/transcription work; OpenRouter exercise generation
+and Telegram bot credentials are not prerequisites for posting a song.
+CloudConvert is required when selected media conversion uses it. Preserve the
+specific MP3 frame-window rule for identification; a generic transcoded sample
+does not satisfy that rule. No simulated allow verdict counts as configuration.
 
-The namespace owner supplies an HNS TLD and publishes its delegation to the
-verified MegaETH registry. HNS ownership/delegation is separate from obtaining
-ordinary browser DNS and HTTPS. Keep the HNS root key in its owner's wallet.
+## Namespace and directory authority
 
-Reuse a verified ownerless factory and deploy one registry clone per TLD.
-Factory deployment does not make a registry authoritative: the current HNS
-record does. There is no central Pirate contract that must approve every
-community, and no implemented authoritative community-directory contract was
-identified. The aggregator must not become an ownership authority merely
-because it lists a community. Do not update unrelated centralized contracts.
+The per-TLD SLDRegistry and Pirate's shared registry of communities are different
+systems. The former exists in pirate-registry. The latter is required for this
+happy path and is not implemented yet. Its deployment/update interface must be
+built; this requirement is not dismissed because HNS already owns name authority.
 
-The registry PR supports annual prices by label length, an individual premium
-price such as king.TLD, and reservation to one recipient address. It explicitly
-has no general wallet allowlist or voucher system. Closing ordinary sales and
-opening individual premium labels can approximate a label catalogue, but is
-not an account allowlist. A requirement to whitelist buyers needs its own
-contract policy. Reservation does not waive the sale price or mint the name.
+The initial directory is Pirate-maintained, with a shared MegaETH community
+registry/index interface. Define the community ID, TLD, chain and SLD-registry
+address, app identity/origin, public configuration URI/hash, feed signer and
+lifecycle state. Specify authorized updates and a revision so retries cannot
+create duplicate communities. The public-post contract is a separate interface
+for publishing and indexing posts; a directory entry does not implement it.
+These are minimum interface requirements, not claims of deployed contracts.
 
-Offer editable infrastructure reservations such as app, www, api, admin, auth,
-login, wallet, status, support and docs. Offer optional premium candidates such
-as king, queen, vip, music and short labels. These are suggestions, not a
-mandatory global list. Reserve labels before enabling their sale price. The
-operator must actually register app and maintain its term before setting its
-content record; registry admin alone has no right to edit a holder's records.
+Before listing an active community, Pirate's verifier checks current Handshake
+delegation, registry code/manifest, TLD match, app ownership and configured
+endpoint/signing authority. Goldsky may index chain events; an event alone
+cannot prove HNS control. The verifier records the observed height/hash/time
+and refreshes after delegation or ownership changes and expiry. Reorgs and
+stale verification must not leave an old registry advertised as current.
+The directory is a discovery service, not power to rewrite HNS ownership.
 
-A registration's annual price is locked for its generation, including renewals
-and transfers. A premium is therefore recurring annual pricing, not a one-time
-auction surcharge. Admin controls future sales, not arbitrary confiscation or
-holder-record edits. The HNS TLD owner can still repoint delegation and orphan
-the old registry's names. Both TLD and SLD expiry need monitoring.
+Create a new registry with every ordinary name closed before any public
+transaction can buy app. Then reserve app, set its explicit zero price and
+register it to the intended holder. Apply premiums and reservations before
+opening general sales. The contract supports a label catalogue exactly: keep
+all length tiers closed and enable only explicitly priced labels. It has no
+buyer-address allowlist. Premium prices are annual, not one-time surcharges.
 
-OperatorPayments is the separate MegaETH payment-contract build. Communities
-fund their own deposit and designate a purchase signer; operators redeem signed
-purchases for an admission job or karaoke segment take. A signed purchase is
-revocable and may be unfunded. Confirmation of redemption, not the signature
-alone, establishes payment. The shared-versus-per-community deployment policy
-for this contract is not yet a completed wizard interface.
+Reservations persist after expiry until changed by the admin. A reserved app
+cannot be registered by another recipient, but an expired app still stops
+resolving. Monitor and renew both SLD and HNS TLD. Admin controls future sale
+policy and treasury; the app holder or appointed record manager controls its
+records. TLD ownership can still repoint delegation and orphan old names.
 
-## Funding
+HNS app.tld is a required acceptance target, not shorthand for a workers.dev
+URL. Cloudflare custom domains require an active zone; publishing HNS records
+does not itself establish a Cloudflare zone, ordinary DNS resolution or trusted
+TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
+secure-origin/session behavior. Keep an ordinary HTTPS origin available for
+ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
+proves navigation only; it must not be reported as same-origin app.tld operation.
+The exact HNS ingress/certificate mapping remains an integration gap.
 
-Do not present one undifferentiated gas deposit. Show the purpose, asset,
-network, spending authority, cap and remaining balance separately.
+## First-song publication and DATA
 
-| Purpose | Current plan |
-| --- | --- |
-| MegaETH execution and user sponsorship | Test ETH for transaction gas and a bounded funded sponsor; actual MOSS sponsorship acceptance remains pending. |
-| Names and operator work | MegaETH testnet PirateTestUSD, ptUSD, six decimals, with no real value. Name purchase price and OperatorPayments deposits are distinct from gas. Production payment asset is undecided. |
-| Creator-wallet setup | Registration operator pays IKA protocol fees, SUI reimbursements and Sui gas. |
-| Song IP registration | Test proof uses DATA/Story Aeneid, chain 1315, with gas paid by the registration operator. Production DATA deployment and migration are unresolved. |
-| Cloud and providers | Hosting, inference, media conversion and pinning bills belong to the operating service. They are not chain gas. |
-| Rewards | Prize source and production payout route remain undecided. External Megapot operates on Base; Pirate does not deploy contracts there. A local reward experiment is not a production reward route. |
+[operator-protocol.md](operator-protocol.md) restores the evidence envelope,
+input hashing, MP3 windows, admission request, publication gate, authentication,
+ticket and sponsorship requirements. Its encoding, evidence and publication
+sections are byte-identical to the recovered source. In the current release,
+identified audio blocks, an unidentified original proceeds to other checks,
+and inconclusive identification or another declared song type holds. Artwork
+controls cover display, not the rating. Missing/invalid evidence never publishes.
 
-Use MegaETH testnet 6343 for our application contracts and local anvil for local
-tests. Song registration invokes the selected external protocol; its distinct
-Sui/Ika and Aeneid testnet proof does not authorize our own Base deployment or
-a production migration. No production stablecoin, automatic bridge or reward
-funding guarantee is selected by this document.
+The existing creator design still requires confirmed Sui/Ika activation before
+song-release upload. Do not bypass that requirement under the phrase first song.
+Its current proof uses Sui/Ika testnet and DATA/Story Aeneid 1315 with an
+operator-funded creator account and registration. This is part of the testnet
+first-release work when that flow is enabled, not a production DATA launch.
+Posting, admission and IP registration retain distinct durable states and
+receipts. The UI must not label a post registered without a confirmed receipt.
 
-The creator design already selects operator-paid setup rather than asking
-creators to acquire coins. With Pirate's registration operator, a community
-needs no SUI/IKA treasury or DATA signer. An independent registration operator
-funds those itself. Who ultimately reimburses the operator is a commercial
-policy still to specify; the creator-facing setup remains sponsored.
+Production DATA/Sui registration and migration remain unresolved. The concrete
+work is to finish the supported testnet creator/registration adapter while
+building the community publication path against explicit network profiles.
+Do not invent migration rights, royalties or a production contract. Selecting
+local publication without registration, or moving creator activation after
+upload, would change the existing product contract and is not done here.
 
-Only first song release creates the creator wallet. The creator owns the native
-Sui passkey account and Ika control capability; zero-trust Ika supplies EVM
-signing. Persist the PRF-encrypted Ika seed and public metadata, verify reopening
-and signing, and wait for confirmed activation before upload/registration.
-Ordinary reading, Study, karaoke and dance posts do not create this wallet.
-Ika signing support does not migrate DATA assets, licences or royalties to Sui.
+## Secret custody and spending exposure
 
-## Frontend publication and browsers
+| Authority or state | Custody and recovery | Exposure if compromised |
+| --- | --- | --- |
+| HNS TLD key | Operator's HNS wallet; its own recovery procedure. Never a Worker secret. | Repoint or lose the namespace, affecting all names beneath it. |
+| Registry admin and app holder | Operator-controlled wallet; separate from provider/payment keys. | Admin can change future sales/treasury; app holder/record manager can redirect app records. |
+| Cloudflare deploy and Infisical machine authority | Scoped operator provisioning identity; protected bootstrap/rotation procedure. | Read accessible secrets or replace infrastructure/frontend within granted scope. |
+| OperatorPayments purchase signer | Scoped server secret in Infisical, installed only in the purchasing service. | Current contract permits arbitrary signed recipient/amount: the entire funded deposit is exposed. |
+| Ticket, evidence and feed signing keys | Infisical-backed service keys with key IDs, rotation and restore checks. | Forge that service's tickets, verdicts or feed/config records. |
+| Community sessions | Random opaque cookies; only token hashes/session records in D1, with backup/invalidation policy. | A stolen valid token impersonates its session; database/server compromise has wider authority. No extra session-signing key is assumed. |
+| AI, conversion and pinning keys | Owning operator's Infisical scope; provider quota and rotation. | Spend provider budget, access permitted data or change retained pins. |
+| MOSS gas sponsor, if added later | Separate bounded sponsor service/treasury. | Spend sponsor authority/balance; it is not needed for the operator-first setup milestone. |
+| Creator passkey and Ika seed | Authenticator plus PRF-encrypted seed record at the wallet site; never plaintext in Infisical. | Loss of passkey or unavailable encrypted record/site can make registrations inaccessible. Independent recovery is deferred, not proven. |
 
-The current frontend task uses ordinary IPFS and excludes Filecoin/Synapse.
-Build one deterministic UnixFS/CAR release containing the client and public
-snapshot. Import the same CAR into independently controlled pinning services
-or nodes, verify the same website root CID, and test retrieval through two
-gateways before updating the holder-authorized contenthash. Filebase can be
-one provider; another provider or node supplies redundancy. Pinning a CAR as
-an ordinary file is not importing the site's DAG.
+At inspected payment commit d635d46, _redeem accepts the signed recipient and
+amount without an independently enforced operator allowlist or spending cap.
+Small deposits bound loss. A stronger change must have the community admin,
+not the hot signer, authorize operators, immutable/versioned recipients and
+amount/period limits. A global operator-to-recipient registration alone is
+insufficient if an attacker can register itself and the signer can select it.
+Even approved recipients can consume the allowance through fabricated work;
+software quotas are not containment once the signing key is stolen. This is
+a source-review finding for the payment lane, not a contract fix in this PR.
+Do not fund it materially before that policy is reviewed.
 
-The primary app uses one stable community-controlled HTTPS origin with /api
-on that origin and Secure, HttpOnly host-only cookie sessions. IPFS mirrors
-are read-only snapshots and link sign-in/actions to the canonical origin.
-IPFS stores bytes; Workers still handle private sessions, jobs and services.
-An ordinary HTTPS gateway is trusted to serve correct browser code unless an
-independent loader verifies it. HNS reachability, ordinary HTTPS and Telegram
-in-app browsing require separate acceptance.
+Test ETH covers MegaETH gas; ptUSD currently prices test names and operator
+work. HNS wallet operations have their own fees. Creator setup needs operator
+IKA/SUI and Aeneid gas. Production assets are undecided. The USDm idea concerns
+later buyer UX and needs actual wallet/network support verification; it does
+not delay community setup or eliminate the need to acquire a purchase token.
 
-If Filecoin is reconsidered later, use a publisher-side adapter such as
-filecoin-pin for IPFS/CAR integration over Synapse. Filecoin storage payments
-and gas add another funding system. Raw treasury-key export is not necessary:
-filecoin-pin supports wallet-approved scoped session keys. Such a delegate can
-still consume funded storage allowance, so expiry, revocation and budgets
-matter. It does not belong in a public site bundle. This is an optional future
-adapter, not a current setup prerequisite.
+## Publication and later work
 
-## Security assumptions and next delivery
+The fixture frontend currently builds a deterministic IPFS CAR. Preserve its
+UnixFS root CID when importing it into independently controlled providers and
+verify retrieval before publishing the content pointer. Primary browser access
+retains the configured canonical session/API origin; alternate gateways are
+read-only snapshots. Gateways serving executable code remain trusted unless
+an independent loader verifies it.
 
-Community operators control their server, moderation policy, private records
-and served JavaScript. They can censor, misreport results or disclose data they
-receive. Operator signatures prove who signed a verdict, not that an AI provider
-was called or that a score is honest. Provider services receive the submitted
-content. Small budgets and selected trusted operators bound this exposure;
-the prototype is not a trustless moderation system.
+Filecoin/Synapse is outside the first frontend implementation task, not rejected
+as a product option. A later adapter can import the same CAR, but still needs
+payment authorization, provider/IPNI/retrieval checks, budgeting and renewal;
+an upload response alone is not acceptance. Session keys reduce treasury
+exposure but can consume prepaid allowance. Do not put them in a public bundle.
 
-A separate wallet origin and creator-held capability limit community custody,
-but wallet-site code, the passkey provider, saved encrypted material and Ika/Sui
-availability remain dependencies. Compromised wallet code can misuse material
-while it is decrypted. The simplified MVP defers independent recovery machinery;
-it does not establish recovery during a wallet-site outage. Infisical protects
-secret distribution, not a compromised runtime using its authorized key.
+Name sales and sponsored buyer transactions, USDm payment decisions, exercise
+generation, Telegram, rewards and additional storage adapters follow the core
+setup-to-first-song path. MOSS testnet work remains authorized by the owner;
+commercial SDK/service permission must be established separately before a
+commercial dependency is launched. No licensing finding changes today's
+operator-first implementation order or requests a new general decision.
 
-The next complete demonstration is MOSS login on a fresh HTTPS origin,
-independent challenge verification, a sponsored MegaETH name purchase and
-record update, followed by resumable cf provisioning of a second community.
-Finish actual provider admission and sponsored first-song proof separately.
-Telegram Study/guest attachment follows the web path. Complete the public-post
-contract/index interface and independent pinning before describing an autonomous
-community release as ready. No new general architecture decision is needed to
-continue the already authorized isolated implementation lanes.
+## Observed source and acceptance
 
-## References
+Inspected operators main 9f2217e, registry PR 2 at 296c97d, frontend branch
+388018f, creator PR 10 at 9c7899b and payment branch d635d46. The payment source
+is now committed locally, not merely uncommitted. It is not on main. No Alchemy
+provisioner, Infisical setup wizard, shared community directory or complete
+first-song acceptance exists in these inspected sources.
 
-[Registry PR 2](https://github.com/pirate-social-club/pirate-registry/pull/2),
-[static frontend PR 9](https://github.com/pirate-social-club/pirate-operators/pull/9),
-[creator-wallet PR 10](https://github.com/pirate-social-club/pirate-operators/pull/10),
-[community browser contract](community-web-client.md), and
-[Filecoin Pin session permissions](https://github.com/filecoin-project/filecoin-pin#session-key-permissions).
+The implementation must prove one real run through steps 1-7, safe interrupted
+resume, no duplicate community/post/registration, provider failure refusal,
+retrieval after reload, and restoration of its configuration from Infisical.
+A local fixture run, a registry rehearsal, a published static shell or a passing
+CLI wallet delegation is not that result. This document is the corrected plan;
+it performs no deployment or provider/key operation.
+
+Current primary references:
+[Alchemy Cloudflare](https://alchemy.run/cloudflare/),
+[Alchemy secrets](https://alchemy.run/cloudflare/security/secrets-env),
+[Cloudflare custom-domain requirements](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
+[Infisical secrets management](https://infisical.com/platform/secrets-management),
+and [Filecoin Pin](https://github.com/filecoin-project/filecoin-pin).

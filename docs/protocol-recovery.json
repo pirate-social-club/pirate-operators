@@ -1,0 +1,24 @@
+{
+  "source": "protocol revision 5, 2026-11-03; read-only editor-history recovery",
+  "sourceSha256": "3f725f43774c8deae776a3e0332d4006aa247b46807a5ca7f7bf6bc659c80c90",
+  "restoredDocument": "operator-protocol.md",
+  "exactSectionsSha256": {
+    "## 3. Encoding conventions": "0726e1a0e5f0c0e5353364ba3a7ca5d349bb08cf289b2668eb5839cef5ce9888",
+    "## 4. Evidence records": "a61198744f8019c436215dc3d22bf5f4dae6f23b9be80c77767dfe9fbc177ee6",
+    "## 5. Publication gate": "f4355daa134e09599937e0547188046289fc598c089bc2ac1d381fb327e64e84"
+  },
+  "hashMethod": "UTF-8 section from named heading to next same-level heading, trailing whitespace removed; SHA-256",
+  "reconciliation": {
+    "1-2": "Current first-song priority and role/payment boundaries replace obsolete scope.",
+    "3-5": "Restored exactly.",
+    "6": "Retained admission payload, capability checks and idempotency; current work-purchase label and sponsorship reference.",
+    "7": "Retained community login; current browser contract and MOSS replace obsolete wallet paragraph.",
+    "8": "Retained issuance, input binding, browser key, manifest and reconnect; current purchase fields/result owner replace metered fields.",
+    "9": "Old payment transports deleted; full original 9.7 sponsorship policy retained as section 9 with current accounting notes.",
+    "10": "Retained qualification and commitment; current payment specification section 6 replaces score fields.",
+    "11": "Existing versioned reward-pool.md owns local settlement; no new reward deployment priority.",
+    "12": "Retained evidence-per-action; current very-reward-scope.md owns adapter mapping.",
+    "13": "Retained admission, auth, ticket, sponsorship and qualification verification; current payment tests replace voucher tests.",
+    "14-17": "Obsolete execution order and deployment guidance deleted; decentralized-setup.md owns current first-song sequence."
+  }
+}

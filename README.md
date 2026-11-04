@@ -1,8 +1,11 @@
 # Pirate operators
 
 A standalone experiment for independently operated communities, song admission,
-karaoke and operator payments. The [setup overview](docs/decentralized-setup.md)
-explains the architecture, implemented pieces and remaining decisions.
+karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
+explains the required happy path: TLD/app records, community directory,
+Alchemy.run provisioning, Infisical secrets, real moderation and first post.
+Sponsored customer name purchases are later work. The recovered
+[operator protocol](docs/operator-protocol.md) owns admission/publication rules.
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits
@@ -39,7 +42,8 @@ providers are explicitly simulated. Its synthetic audio and public fixture
 keys are test material, never credentials for a public deployment. Local tests
 exercise behavior; they do not prove hosted security or real provider results.
 
-`npm run build` packages the Worker using cf. cloudflare.config.ts is a disabled
+`npm run build` currently packages the local Worker using cf. The planned
+community stack is provisioned by Alchemy.run. cloudflare.config.ts is a disabled
 packaging template, not a production deployment. The harness supplies isolated
 local runtime configurations. Hosted authentication, real clocks, removal of
 debug routes, provider secrets and durable job reconciliation remain work.

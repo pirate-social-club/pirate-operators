@@ -5,13 +5,12 @@ community and the way it is deployed. It is a design contract for later
 implementation. Nothing described here is built yet, apart from the local
 behaviour recorded as current state.
 
-It supersedes the original experiment draft's section 15.1 paragraph on the
-static client (lane M), which coupled static hosting to bearer sessions and
-hash routing. It completes the draft's section 7 sign-in and section 8.2
-karaoke ticket rules for browsers, without changing the ticket fields or the
-pool. The [current setup overview](decentralized-setup.md) owns the chain and
-provisioning direction: MOSS, MegaETH, registry purchases and later Telegram
-attachment. OperatorPayments purchases replace the original draft payment
+The [restored operator protocol](operator-protocol.md) supplies section 7
+sign-in and section 8.2 ticket requirements. This document completes their
+browser cookie and handshake behavior. The current payment contract owns
+payment fields and does not change the browser key boundary. The [current setup overview](decentralized-setup.md) owns the chain and
+provisioning direction: Alchemy.run, Infisical, MegaETH, app.tld and the
+operator's first song. Customer name purchase and Telegram attachment are later. OperatorPayments purchases replace the original draft payment
 fields; the active payment specification owns those fields. No cross-chain
 simulated payout is required. Browser session and handshake rules here remain.
 
@@ -91,7 +90,7 @@ accepted origins, session audience, refresh, revocation and wallet behaviour.
 
 ## 2. Karaoke attempt connection
 
-Section 8.2 of the draft stays the authority: an issuer-signed ticket naming
+Section 8.2 of the restored operator protocol stays the authority: an issuer-signed ticket naming
 the participant, the operator and a per-attempt browser key, and a signed
 response to the operator's connection challenge. Browser WebSockets cannot
 attach an `Authorization` header, and a cookie for the community origin is
@@ -401,7 +400,7 @@ Routing uses paths. Requests for generated documents are served from storage.
 `/api/*` goes to the community service. Any other path without a file falls
 back to the client shell. Cloudflare Workers Static Assets supports this
 pattern, a single-page-application fallback with selected paths routed to the
-Worker first. Cloudflare is the first host, using `cf`, but the artifact
+Worker first. Cloudflare is the first host, provisioned by Alchemy.run, but the artifact
 remains plain static files that any static server can serve. Hash routing is
 an opt-in build only for a read-only mirror whose gateway cannot rewrite deep
 links. Such a mirror cannot serve per-post preview pages, because the
