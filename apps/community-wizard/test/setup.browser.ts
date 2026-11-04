@@ -1,10 +1,14 @@
 import { test, expect } from "@playwright/test";
-test("operator configures HTTPS without HNS, reviews responsibilities and resumes on mobile", async ({
+test("operator chooses a fixed namespace, configures HTTPS without delegation and resumes on mobile", async ({
   page,
 }) => {
   await page.goto("/");
   await page.getByLabel("Community name", { exact: true }).fill("Night Garden");
   await page.getByLabel("Deployment ID", { exact: true }).fill("night-garden");
+  await expect(
+    page.getByLabel("Community TLD", { exact: true }),
+  ).toHaveAttribute("required", "");
+  await page.getByLabel("Community TLD", { exact: true }).fill("c22");
   await page.getByLabel("Account ID", { exact: true }).fill("a".repeat(32));
   await page
     .getByLabel("workers.dev subdomain", { exact: true })
@@ -35,6 +39,9 @@ test("operator configures HTTPS without HNS, reviews responsibilities and resume
   await page.reload();
   await expect(page.getByLabel("Community name", { exact: true })).toHaveValue(
     "Night Garden",
+  );
+  await expect(page.getByLabel("Community TLD", { exact: true })).toHaveValue(
+    "c22",
   );
   expect(await page.evaluate(() => localStorage.length)).toBe(0);
   await page.setViewportSize({ width: 390, height: 844 });

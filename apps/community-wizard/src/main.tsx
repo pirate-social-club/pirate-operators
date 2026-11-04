@@ -110,7 +110,7 @@ function App() {
         aria-describedby={help ? `help-${key}` : undefined}
         value={settings()[key]}
         placeholder={placeholder}
-        required={key !== "tld"}
+        required
         disabled={busy() || state()?.attempted}
         onInput={(e) => setting(key, e.currentTarget.value)}
       />
@@ -141,8 +141,8 @@ function App() {
             Your home.
           </h1>
           <p class="intro">
-            Start with your own HTTPS app. Connect your Handshake name when
-            you’re ready.
+            Choose your community setup upfront. Domain changes after deployment
+            require a custom migration.
           </p>
           <nav aria-label="Setup steps">
             <For
@@ -191,8 +191,8 @@ function App() {
             <Show when={step() === 0}>
               <h2>A home for your community</h2>
               <p class="lede">
-                Choose its name and where its infrastructure will live. You can
-                review everything before deployment.
+                Choose its name, namespace and hosting before deployment. V1
+                keeps these settings fixed after the first deployment attempt.
               </p>
               <form
                 onSubmit={(e) => {
@@ -215,9 +215,9 @@ function App() {
                     )}
                     {input(
                       "tld",
-                      "Handshake TLD · optional",
+                      "Community TLD",
                       "c22",
-                      "No delegation or HNS transaction runs in this wizard slice.",
+                      "Choose the namespace now. Handshake delegation can remain unverified; no HNS or registry transaction runs here.",
                     )}
                   </div>
                 </div>

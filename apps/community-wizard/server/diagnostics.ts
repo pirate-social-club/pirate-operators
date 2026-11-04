@@ -34,12 +34,23 @@ export async function runWithDiagnostics(
   let size = 0,
     truncated = false;
   const capture = (chunk: Buffer) => {
-    const room = 1024 * 1024 - size;
-    if (chunk.length > room) truncated = true;
-    if (room > 0) {
-      const part = Buffer.from(chunk.subarray(0, room));
-      chunks.push(part);
-      size += part.length;
+    const limit = 1024 * 1024;
+    if (size + chunk.length > limit) truncated = true;
+    if (chunk.length >= limit) {
+      chunks.length = 0;
+      chunks.push(Buffer.from(chunk.subarray(chunk.length - limit)));
+      size = limit;
+      return;
+    }
+    chunks.push(Buffer.from(chunk));
+    size += chunk.length;
+    while (size > limit) {
+      const first = chunks.shift()!;
+      const excess = size - limit;
+      if (first.length > excess) {
+        chunks.unshift(Buffer.from(first.subarray(excess)));
+        size -= excess;
+      } else size -= first.length;
     }
   };
   const result = await new Promise<{ code: number | null; started: boolean }>(

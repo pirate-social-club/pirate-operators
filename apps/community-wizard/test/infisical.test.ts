@@ -31,7 +31,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     secretPath: "/communities/fixture",
     acrHost: "identify-eu-west-1.acrcloud.com",
     cloudconvert: false,
-    tld: "",
+    tld: "c22",
     moderationMode: "independent",
   };
   const saved: Record<string, string> = {};

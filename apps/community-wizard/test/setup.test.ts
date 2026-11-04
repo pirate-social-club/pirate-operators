@@ -25,7 +25,7 @@ const settings: Settings = {
   secretPath: "/communities/local-test",
   acrHost: "identify-eu-west-1.acrcloud.com",
   cloudconvert: false,
-  tld: "",
+  tld: "c22",
   moderationMode: "independent",
 };
 const credentials = {
@@ -256,14 +256,18 @@ test("saved credential changes and a new source plan require redeployment", asyn
   assert.equal(f.setup.snapshot().deployment, "update_pending");
 });
 
-test("managed default provisions without HNS or community provider keys while release and discovery stay pending", async (t) => {
+test("managed default provisions with a chosen TLD but no HNS verification or community provider keys", async (t) => {
   const f = await fixture(t);
   let reads = 0;
   f.secrets.read = async () => {
     reads++;
     throw new Error("Managed mode must not request provider keys");
   };
-  await f.setup.configure({ ...settings, moderationMode: "pirate", tld: "" });
+  await f.setup.configure({
+    ...settings,
+    moderationMode: "pirate",
+    tld: "c22",
+  });
   assert.equal(f.setup.snapshot().settings?.projectId, "");
   await assert.rejects(
     () => f.setup.saveSecrets(credentials),
@@ -306,4 +310,46 @@ test("a completed apply with pending HTTPS retries only the health probe", async
   assert.equal(f.setup.snapshot().deployment, "provisioned");
   assert.equal(applies, 1);
   assert.equal(probes, 1);
+});
+
+test("namespace is required before planning and all setup choices stay fixed after deployment", async (t) => {
+  const f = await fixture(t);
+  for (const tld of ["", "a".repeat(64), "xn--name", "Uppercase", "bad.tld"]) {
+    await assert.rejects(
+      () => f.setup.configure({ ...settings, tld }),
+      /Choose the community TLD/,
+    );
+  }
+  await f.setup.configure({ ...settings, moderationMode: "pirate" });
+  await f.setup.review();
+  await f.setup.deploy({ planId: f.setup.snapshot().plan!.id });
+  await f.setup.settled();
+  const fixed = f.setup.snapshot();
+  for (const patch of [
+    { name: "Renamed" },
+    { tld: "another" },
+    { slug: "another" },
+    { accountId: "b".repeat(32) },
+    { subdomain: "another" },
+    { moderationMode: "independent" },
+  ]) {
+    await assert.rejects(
+      () =>
+        f.setup.configure({ ...settings, moderationMode: "pirate", ...patch }),
+      /V1 setup is fixed/,
+    );
+    assert.deepEqual(f.setup.snapshot(), fixed);
+  }
+  // An older persisted blank-TLD setup cannot bypass the new plan boundary.
+  await writeFile(
+    join(f.directory, "setup.json"),
+    JSON.stringify({ ...fixed, settings: { ...fixed.settings, tld: "" } }),
+  );
+  const legacy = await createSetup(f.directory, f.secrets, f.provision);
+  await assert.rejects(() => legacy.review(), /Choose the community TLD/);
+  await assert.rejects(
+    () => legacy.deploy({ planId: fixed.plan!.id }),
+    /Choose the community TLD/,
+  );
+  assert.equal(f.calls(), 1);
 });

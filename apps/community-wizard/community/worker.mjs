@@ -43,7 +43,7 @@ export default {
     headers["Content-Security-Policy"] =
       "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
     return new Response(
-      `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(env.COMMUNITY_NAME)}</title><style>body{margin:0;background:#101914;color:#edf3e9;font:18px/1.6 system-ui;display:grid;min-height:100vh;place-items:center}main{max-width:600px;padding:40px}small{color:#abc89c;letter-spacing:.14em}h1{font-size:48px;line-height:1.15}p{color:#bfcec2}</style><main><small>PIRATE COMMUNITY</small><h1>${escape(env.COMMUNITY_NAME)}</h1><p>Your community’s infrastructure is being set up.</p><p>Song posting will open after creator activation, moderation and publication are connected and verified.</p></main></html>`,
+      `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(env.COMMUNITY_NAME)}</title><style>body{margin:0;background:#101914;color:#edf3e9;font:18px/1.6 system-ui;display:grid;min-height:100vh;place-items:center}main{max-width:600px;padding:40px}small{color:#abc89c;letter-spacing:.14em}h1{font-size:48px;line-height:1.15}p{color:#bfcec2}</style><main><small>COMMUNITY</small><h1>${escape(env.COMMUNITY_NAME)}</h1><p>Your community’s infrastructure is being set up.</p><p>Song posting will open after creator activation, moderation and publication are connected and verified.</p></main></html>`,
       { headers },
     );
   },

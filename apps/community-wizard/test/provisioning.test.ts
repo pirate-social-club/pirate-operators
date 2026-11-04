@@ -217,3 +217,42 @@ test("HTTPS polling has a finite deadline and refuses oversized or wrong receipt
   assert.equal(now, 3000);
   assert.equal(calls, 2);
 });
+
+test("encrypted diagnostics keep the final MiB including the failure after long output", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "wizard-log-tail-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let failure: DeploymentFailure | undefined;
+  try {
+    await runWithDiagnostics(
+      process.execPath,
+      [
+        "-e",
+        "const {writeSync}=require('node:fs');writeSync(1,'discard-this-prefix\\n');writeSync(1,Buffer.alloc(2*1024*1024,120));writeSync(1,'\\nfinal-deploy-error');process.exit(7)",
+      ],
+      {
+        cwd: directory,
+        env: {},
+        directory,
+        password,
+        phase: "deploy",
+      },
+    );
+  } catch (error) {
+    assert.ok(error instanceof DeploymentFailure);
+    failure = error;
+  }
+  assert.ok(failure);
+  const encoded = await readFile(
+    join(directory, "diagnostics", failure.logId),
+    "utf8",
+  );
+  const log = JSON.parse(
+    unseal(encoded, password, `diagnostic:${failure.logId}`),
+  );
+  assert.equal(log.exitCode, 7);
+  assert.equal(log.truncated, true);
+  assert.equal(Buffer.byteLength(log.output), 1024 * 1024);
+  assert.ok(log.output.endsWith("\nfinal-deploy-error"));
+  assert.ok(!log.output.includes("discard-this-prefix"));
+  assert.ok(!encoded.includes("final-deploy-error"));
+});

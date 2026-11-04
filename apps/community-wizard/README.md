@@ -5,6 +5,30 @@ trusted local Node runner. It reviews a fixed resource plan and invokes Alchemy
 for an ordinary HTTPS setup page, D1, private R2 and a queue. It does not yet
 provide the completed login, upload, moderation or first-song application.
 
+## Fixed setup and namespace
+
+Choose the community TLD, deployment identity and service mode before the first
+deployment attempt. Setup settings then stay fixed in v1. Decide any intended
+Web2/HNS access mode and domain names upfront too; adding HNS, another domain
+or changing that topology later is a custom unsupported migration, not a wizard
+function. The open source can be adapted, but there is no automatic adoption,
+identity migration or preserved-session promise. Credential rotation, reviewed
+redeployment of the same setup and recovery remain supported.
+
+This slice provisions only an ordinary HTTPS workers.dev setup page. Custom
+Web2 domains and HNS access are not implemented here. Do not use it as an
+HNS-only deployment or infer that it can attach HNS later. A selected namespace
+can remain undelegated while first-song contracts/flows are tested. Verifying
+access selected at initial setup is distinct from adding a different domain.
+
+The TLD is required even for an unverified test community: its registry fixes
+that label, and the directory identity includes chain and registry. For the
+owned staging namespace, choose c22 if its real Handshake delegation will later
+be exercised. This does not deploy or change any registry/delegation. Testnet
+communities do not retain the same identity on mainnet. An older attempted
+setup with a blank TLD needs an explicit custom state/identity migration; keep
+its state, and do not start another directory against the same resource names.
+
 ## First-song test scope
 
 The owner confirmed on November 4 that song contracts and flows must be testable
@@ -47,6 +71,12 @@ npm ci
 npm run check
 npm start
 ```
+
+A packaged runtime includes the built `dist/` and can use `npm ci --omit=dev`.
+Alchemy, its Cloudflare provider, Effect/platform-node and tsx are runtime
+dependencies. Building the UI and running development tests still requires the
+full install. `npm run smoke:runtime` checks real stack imports, loopback startup
+and the built page with no provider credentials; it never runs plan or deploy.
 
 Open `http://127.0.0.1:8789`. Without runner credentials you can save settings,
 review resources and inspect readiness. State defaults to
@@ -118,7 +148,12 @@ phase it inspects generated deployment files for the actual supplied credential
 bytes, excluding the generated dependency symlink. Unexpected symlinks, excessive
 state size or plaintext matches stop the workflow. This inspection also runs on
 the first real deployment; the offline encrypted-store proof is not evidence
-that a live provider has emitted no other sensitive files.
+that a live provider has emitted no other sensitive files. Before the first real
+run, inventory the runner account's home/cache/temp output locations, compare
+them after both plan and deployment (including failures), and inspect newly
+written files for supplied credential bytes through a private local check.
+Record paths and redacted findings only. The deployment-folder scan does not
+cover other locations or prove their absence of secrets.
 
 Completed commands retain up to 1 MiB of combined output in encrypted private
 `diagnostics/*.enc` files. Failures expose a log ID and exit status, never the
@@ -148,7 +183,8 @@ round trip, not a live second-machine Cloudflare recovery.
 After a crash, remove `runner.lock` only after confirming the old runner and any
 Alchemy process have stopped. Interrupted status never counts as success. No
 automatic rollback deletes resources. Settings remain fixed after the first
-attempt; preserve the state when investigating errors.
+attempt; preserve the state when investigating errors. Do not discard or edit
+state to bypass the unsupported-migration boundary.
 
 ## Contracts and evidence boundaries
 
@@ -178,7 +214,9 @@ community upload/registration/publication journey.
 
 `npm run check` type-checks the stack/runner, runs tests and builds the UI.
 `npm run test:browser` exercises the desktop/mobile managed setup and resume
-journey. Tests include actual pinned Alchemy state persistence and actual
+journey. Its launcher creates one random temporary directory per invocation and
+removes only that directory after the child exits, including a failed test run.
+It never sweeps directories from another session. Tests include actual pinned Alchemy state persistence and actual
 Infisical SDK paths with fake credentials/HTTP; no live provider is implied.
 The root repository check and full dependency audit remain required.
 
@@ -194,3 +232,9 @@ claim of native Alchemy encryption support.
 PR 15 remains stacked on PR 11. Both can be reviewed as a stack; merge PR 11
 before PR 15. Passing CI and this author's repair checks are not an independent
 review. No self-reviewed merge is performed.
+
+
+The review repair retains the last 1 MiB of combined Alchemy output, with a
+truncation flag, so terminal failures remain in encrypted diagnostics. A
+production-dependency smoke check follows the browser run in CI. These checks
+do not prove live provider behavior or first-song readiness.

@@ -58,7 +58,7 @@ export async function createSetup(
           JSON.stringify(settings) !== JSON.stringify(state.settings)
         ) {
           throw new SetupError(
-            "This deployment has started. Keep its settings and state for recovery; use a new state directory for another community.",
+            "This deployment has started. V1 setup is fixed; domain or service changes require a custom migration. Preserve this state for recovery.",
             409,
           );
         }

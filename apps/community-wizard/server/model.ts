@@ -172,8 +172,8 @@ export function settingsFrom(value: unknown): Settings {
     tld: field(
       input,
       "tld",
-      /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)?$/,
-      "Enter an optional HNS TLD label, without a dot.",
+      /^(?!..--)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+      "Choose the community TLD now: 1–63 lowercase registry-label characters, without a dot. Delegation is not required for provisioning.",
     ),
   };
 }
@@ -208,6 +208,7 @@ export function makePlan(
   revision: number,
   sourceDigest: string,
 ): Plan {
+  s = settingsFrom(s); // Also refuse invalid/blank namespace in older persisted state.
   const prefix = `pirate-${s.slug}`;
   const data = {
     revision,
