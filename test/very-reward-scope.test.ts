@@ -19,7 +19,7 @@ const fixture = JSON.parse(
   ),
 );
 const context: RewardPoolContext = {
-  chainId: 84532n,
+  chainId: 6343n,
   pool: "0x1111111111111111111111111111111111111111",
   drawingId: 7n,
 };
@@ -106,7 +106,7 @@ test("wallet, recipient and request labels cannot alter duplicate-prevention inp
 });
 
 test("pool context rejects ambiguous or out-of-range values", () => {
-  for (const chainId of [0n, -1n, 1n << 256n, 84532 as unknown as bigint])
+  for (const chainId of [0n, -1n, 1n << 256n, 6343 as unknown as bigint])
     assert.throws(
       () => rewardPoolScope({ ...context, chainId }),
       /invalid_chain_id/,

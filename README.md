@@ -4,11 +4,13 @@ A standalone local experiment for community-operated song admission, karaoke,
 operator payments and pooled rewards. The workspace_owner approved the six
 experiment decisions and public source publication on 2026-11-03.
 
-The first headless skeleton runs from wallet sign-in to token withdrawal.
-It uses four isolated Cloudflare Workers with distinct role keys and SQLite
-Durable Object storage, a WebSocket performance replay, the pinned karaoke
-scorer, and actual Solidity contracts executing on Anvil. A fifth local Worker
-is the simulated payment provider, with its own persisted store.
+The headless skeleton runs from wallet sign-in to token withdrawal. It uses
+isolated Cloudflare Workers with distinct role keys: the community on D1, the
+operator with a Durable Object for its live karaoke session, and a fake Very
+attester. It also uses a WebSocket performance replay, the pinned karaoke
+scorer, and actual Solidity contracts executing on Anvil. Operators are paid
+through the `OperatorPayments` contract, as
+[the operator payments contract](docs/operator-payments.md) specifies.
 
 ## Run locally
 
@@ -36,7 +38,8 @@ The fixture win is 10,000,001 test USDC units: three participants each withdraw
 This example does not promise that pools generally empty; allocations never
 expire. The fixture ticket costs 1,000,000 token units (one test USDC), with the same
 amount as its spending cap; the pool reads the quote rather than hardcoding it.
-Admission costs two simulated units and each attempt costs two.
+Admission costs 2,000 test token units and each karaoke line 1,000, each paid
+by one redeemed purchase.
 
 On Linux, enforce the offline boundary rather than relying on configuration:
 
@@ -53,8 +56,9 @@ npm run check
 npm run build
 ```
 
-Checks cover the protocol, persisted payment retries, reservation concurrency,
-focused Solidity failure cases and the complete headless flow. Build packages
+Checks cover the protocol, the payment contract, the community's purchase
+limits, the operator's redemption queue and crash recovery, focused Solidity
+failure cases and the complete headless flow. Build packages
 the Worker through cf. The cf configuration is a disabled packaging template;
 the acceptance harness supplies the isolated runtime configurations. Hosted
 deployment and service authentication are later work. No Wrangler file is used.
@@ -70,7 +74,7 @@ one nullifier per scope independently of their wallet.
 
 Community sessions use signed EIP-4361 messages and single-use nonces. Session
 tokens stay in the headless client process. The community accepts only results
-from its configured operator and applies score, coverage and cutoff rules.
+from its configured operator and applies the reward score and cutoff rules.
 The pool trusts the community verifier's entry commitment and the configured
 Very attester. It cannot establish whether a provider was actually called.
 
@@ -93,13 +97,13 @@ debug routes and fake attester are not suitable for hosted operation.
 ## Winnings, registration and withdrawal
 
 Megapot winnings are claimed by the reward pool and transferred into that
-contract. The treasury sponsors tickets; the Tempo operating wallet pays
-operators. Neither receives the participants' allocated winnings.
+contract. The treasury sponsors tickets; the community pays operators through
+`OperatorPayments`. Neither receives the participants' allocated winnings.
 
 The registration window starts when a finalized winning drawing is settled
 into the pool. Passing zero for the constructor duration selects seven days;
 a positive duration explicitly overrides it, including 60 seconds in the local
-fixture and 30 seconds in the public-testnet fixture. This is a default, not an
+fixture. This is a default, not an
 enforced seven-day minimum. The immutable duration must be disclosed before
 participation. Registration is strictly before the deadline; at or after it,
 anyone can finalize. Missing registration means no allocation. If nobody
@@ -107,12 +111,12 @@ registers, winnings become sponsor credit.
 
 The participant signs an EIP-712 registration fixing their payout address.
 Anyone can submit it with the qualifying entry proof and scoped Very
-attestation, paying Base gas for them. Anyone can later pay out that allocation
+attestation, paying gas for them. Anyone can later pay out that allocation
 to the signed address. The headless flow batches both steps through the
 community relayer; participant wallets sign but send no transactions.
 Sponsored registrations use the claimant's original ECDSA key. Empty-code EOAs
 and EOAs carrying an exact EIP-7702 delegation marker are accepted. Other
-contract wallets, ERC-1271 signatures and Tempo passkeys are not supported.
+contract wallets and ERC-1271 signatures are not supported.
 Provider unavailability fails closed, with no alternate provider or extension.
 The pool has no administrator deadline-extension or allocation-sweep function.
 
@@ -127,8 +131,9 @@ for retry. The claimant also retains direct registration and an authenticated
 withdrawal to another address as fallback; a relayer cannot choose a new
 recipient. Losing the claimant key after registration does not stop anyone
 paying the fixed recipient, but access to that receiving wallet still matters.
-A Base pool pays Base USDC. A payout address does not bridge funds to Tempo or
-establish control of a Tempo-native account on Base.
+A pool pays its configured token on its own chain, and a payout address does
+not bridge funds anywhere. Where the reward pool runs, given that Megapot is
+on Base and our contracts deploy to MegaETH, is an open decision.
 
 The sponsor receives only unused ticket funding, rounding dust, winnings when
 nobody registered, or an upstream emergency ticket refund. It cannot take
@@ -144,10 +149,9 @@ dependent on Megapot; there is no arbitrary local timeout cancellation.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,
-complete entity state machines and vectors, streaming consumption and channel
-voucher/credit/close accounting, credential sponsorship buckets, membership
-gate enforcement, ERC-1271/passkey compatibility, bound segment manifests,
-ticket expiry alarms and synchronized timer draining, service-owned entry
+complete entity state machines and vectors, public grade records,
+credential sponsorship buckets, membership gate enforcement,
+ERC-1271/passkey compatibility, scheduled operator ticks, service-owned entry
 commitments, the complete adversarial matrix and broader lifecycle invariants. The pool
 now has stateful Foundry checks for token conservation, finality, allocations
 and duplicate prevention, plus emergency sponsor recovery and the focused
@@ -158,13 +162,12 @@ specifies that client, its cookie sessions, the karaoke socket handshake,
 publication-time public pages, localization and deployment modes. None of it
 is implemented yet.
 
-A separate [testnet spike](docs/testnets.md) now runs real MPP sessions on
-Moderato and the same pool flow on Base Sepolia with simulated providers.
-M2 still requires the complete payment failure matrix. M3 requires real Very
-and live Megapot integration; neither milestone is complete. The fork proves
-contract-held tickets against pinned deployed code. Live drawing delivery,
-Very nullifier stability and Tempo voucher headroom charging remain integration
-questions. No one-person assurance follows from the fake credential.
+Operator payments run locally against Anvil; the MegaETH testnet run (chain
+6343) is next. M3 requires real Very and live Megapot integration; neither is
+complete. The fork proves contract-held tickets against pinned deployed
+Megapot code. Live drawing delivery and Very nullifier stability remain
+integration questions. No one-person assurance follows from the fake
+credential.
 
 A manual [Very credential probe](docs/very-probe.md) prepares four live requests
 to test nullifier stability and scope separation. It uses the hosted verifier,
