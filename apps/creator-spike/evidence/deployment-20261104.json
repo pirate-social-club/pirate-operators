@@ -1,0 +1,46 @@
+{
+  "runtimeSourceCommit": "d5424f1ecbb31e8fa253eaae6d3b1b3af35a4503",
+  "stage": "testnet",
+  "community": {
+    "url": "https://pirate-creator-spike.piratesocialclub.workers.dev",
+    "id": "196282ef-3eed-4741-9745-cba6300eafcc",
+    "created_on": "2026-11-04T12:32:27.221496Z",
+    "versions": [
+      {
+        "version_id": "866cf7a7-3806-4078-80ed-71fb8e8eacca",
+        "percentage": 100
+      }
+    ]
+  },
+  "wallet": {
+    "url": "https://pirate-wallet-test.piratesocialclub.workers.dev",
+    "id": "475df24d-e7aa-493c-afcf-c60985ae7358",
+    "created_on": "2026-11-04T12:32:28.76202Z",
+    "versions": [
+      {
+        "version_id": "df319aed-9ec1-417b-b042-e2e4ef46d893",
+        "percentage": 100
+      }
+    ]
+  },
+  "databaseId": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+  "artifactSha256": "c27be4decf9f152cb0d5bd59b266c9d2d2e58a2b72d384f55ce890b1e5dc7abb",
+  "filesSha256": {
+    "client/assets/dist-c1h-kjRX.js": "21c8bebd02bdb74752df10544af5c50399b76222ed1a15a9cd7ab259c6e7f4ce",
+    "client/assets/dwallet_mpc_wasm-CFFA_Kqz.js": "3473a385e955915e949da317058cee389d7259982ccd66a13e8e78a13e2b5b5b",
+    "client/assets/dwallet_mpc_wasm_bg-CYXyEsOI.wasm": "aec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
+    "client/assets/index-D-M3p4AE.css": "a1ce76f92109e9b061fc9bb5dfb4fbfd154efe7231fc5d22f3c6cb9171ec6900",
+    "client/assets/index-DEeLSWkt.js": "be03a4aaad6a363360a77dd665fed9da22c3b44fac9033ef5f758c2411df705f",
+    "client/assets/wallet-DkmH5d0c.js": "878cbfebb579d9112e4a92b96df3eea5de2c9413ed211cad4299491bd17a1fec",
+    "client/index.html": "3638c0c5e3a06886a117d0073824cc1f0c70448fa1359b4eca54b4a5d9e131ae",
+    "worker/ika.wasm": "aec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
+    "worker/index.js": "f29a76d5228d51bb96f8e580b8f63be735fd8f698e8a2541c37a1c18f78e2a1f"
+  },
+  "publicAssetVerification": "All seven assets byte-matched on both deployed origins.",
+  "operatorReadiness": {
+    "ready": true,
+    "suiMist": "2356280380",
+    "ikaUnits": "22500000000"
+  },
+  "browserAcceptance": "Real MOSS login and passkey PRF remain user acceptance; software-passkey Ika flow verified."
+}

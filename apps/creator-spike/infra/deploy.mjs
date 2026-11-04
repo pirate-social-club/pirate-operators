@@ -34,12 +34,19 @@ if (
 }
 if (!process.env.SUI_OPERATOR_SECRET_KEY)
   throw Error("Inject the dedicated testnet operator through Infisical.");
-const config = JSON.parse(
-  readFileSync(
-    resolve(homedir(), ".config/cloudflare/config/default.json"),
-    "utf8",
-  ),
-);
+const configPath = resolve(homedir(), ".config/cloudflare/config/default.json");
+let config = JSON.parse(readFileSync(configPath, "utf8"));
+// Alchemy accepts the token but cannot refresh the cf OAuth session itself.
+// Let cf perform its normal refresh before handing the token to Alchemy.
+if (Date.parse(config.expiration_time ?? "") <= Date.now() + 120_000) {
+  const refreshed = spawnSync("cf", ["accounts", "list"], {
+    cwd,
+    stdio: "ignore",
+  });
+  if (refreshed.status !== 0)
+    throw Error("Existing cf session could not refresh. Run cf login.");
+  config = JSON.parse(readFileSync(configPath, "utf8"));
+}
 if (!config.oauth_token)
   throw Error("Run cf login for the existing operator profile.");
 const execute = process.argv.includes("--execute");
