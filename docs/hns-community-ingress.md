@@ -1,9 +1,10 @@
 # HNS community ingress
 
-app.tld is a required first-song target. First prove that the intended client
-can resolve the actual HIP-5 delegation and use its records. An HTTPS gateway
-is one transport option after that lookup, not a substitute for it or a
-requirement imposed by the registry contract.
+Native app.tld access is a later milestone. The first-song test uses ordinary
+HTTPS and does not wait for HNS browser qualification. For the later native-
+address milestone, prove that the intended client resolves the actual HIP-5
+delegation and uses its records. An HTTPS gateway is one transport option after
+that lookup, not a substitute for it or a registry-contract requirement.
 
 ## Contract resolution before transport
 
@@ -113,12 +114,13 @@ community directory, MOSS login, creator-wallet site, or first-song upload.
 The historical host addresses are not installation defaults. Reuse source and
 release procedures in the separate milestone instance, preserving production.
 
-## Remaining first-song integration
+## Remaining native-address integration
 
 First select and qualify one real client against the actual `_evm` referral,
 contract records and chosen content/HTTPS transport, including its secure origin.
-Then prove canonical-origin login, API access and first-song upload. A CLI
-registry ceremony or the old DNS-zone browser test cannot replace this proof.
+Then prove canonical-origin login, API access and the song journey through that
+native address. These checks follow ordinary-HTTPS first-song acceptance; a CLI
+registry ceremony or the old DNS-zone browser test cannot replace them.
 
 For a selected shared HTTPS gateway, implement the authority adapter against verified HNS delegation, app ownership,
 community configuration and lifecycle state. A factory event alone must not
