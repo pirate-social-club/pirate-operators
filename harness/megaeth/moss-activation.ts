@@ -1,129 +1,119 @@
-// Bounded live activation of one MOSS learner account on MegaETH testnet,
-// then the opening of the attempt its captured consent authorizes
-// (docs/learning-records-contract.md section 9). Never runs in CI. Without
-// --send it only checks, read-only, against the real chain. With --send it
-// submits at most three operator transactions: the activation, a repeated
-// setup only if the account was delegated but not set up, and openAttempt.
-// It uses the same checks as the operator's publisher (services/accounts.ts).
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// Manual proof for the one captured MOSS consent. --send remains an explicit
+// owner-approved action. Every signed transaction is saved privately before
+// broadcast; reruns reconcile the same journal, with at most three nonces.
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
-import { createPublicClient, createWalletClient, defineChain, encodeFunctionData, hashTypedData, http, type Hex } from "viem";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
+import type { Hex } from "viem";
 import { check } from "../../packages/protocol/index.ts";
-import { consentMessage, consentTypes, recordsAbi, recordsDomain } from "../../packages/protocol/records.ts";
-import { acceptedByAccount, activationOf, checkActivation, codeOf, designatorOf, nonceOf } from "../../services/accounts.ts";
 import type { Env } from "../../services/runtime.ts";
-import { OPERATOR, RECORDS, RPC, consentFromJson, song } from "../moss-consent/consent-probe.ts";
+import {
+  OPERATOR,
+  RECORDS,
+  RPC,
+  consentFromJson,
+  song,
+} from "../moss-consent/consent-probe.ts";
+import { ActivationJournal } from "./activation-journal.ts";
+import { runActivation } from "./activation-run.ts";
 
 const SEND = process.argv.includes("--send");
-const KEYS = process.env.MEGAETH_KEYS ?? join(homedir(), ".config/pirate-operators/megaeth-testnet/keys.json");
-const RESULT = join(homedir(), ".local/state/pirate-operators-moss-consent/probe-result-2026-11-04.json");
-const DELEGATE = "0xf655611abe392f35cbb36181d920a302c4df2284";
-const INITIALIZER = "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42";
-
-const megaeth = defineChain({
-  id: 6343,
-  name: "MegaETH testnet",
-  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: [RPC] } },
-});
-const transport = http(RPC, { timeout: 30_000 });
-const chain = createPublicClient({ chain: megaeth, transport });
-const env = { RPC_URL: RPC, ACCOUNT_DELEGATE: DELEGATE, ACCOUNT_INITIALIZER: INITIALIZER } as Env;
-const log = (step: string, detail: unknown = {}) => console.log(JSON.stringify({ step, ...(detail as object) }));
+const STATE = join(homedir(), ".local/state/pirate-operators-moss-consent");
+const KEYS =
+  process.env.MEGAETH_KEYS ??
+  join(homedir(), ".config/pirate-operators/megaeth-testnet/keys.json");
+const LEARNER = "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3";
+const ATTEMPT =
+  "0xb2cd06f4d6495ee3cf9963edd0699d8739eef7dda7057e6aec43bf09c51ae452";
+// At most 300k + 300k + 400k gas, each capped at 0.001 gwei.
+const LIMITS = { maxFeePerGas: 1_000_000n, maxTotalFee: 1_000_000_000_000n };
+const log = (value: unknown) => console.log(JSON.stringify(value));
 
 async function main() {
-  check((await chain.getChainId()) === 6343, "refusing_non_megaeth_testnet_chain");
-  const probe = JSON.parse(readFileSync(RESULT, "utf8")) as { consent: Record<string, unknown>; signature: Hex };
+  const probe = JSON.parse(
+    readFileSync(join(STATE, "probe-result-2026-11-04.json"), "utf8"),
+  ) as {
+    consent: Record<string, unknown>;
+    signature: Hex;
+  };
   const consent = consentFromJson(probe.consent);
-  const activation = activationOf(probe.signature);
-  check(activation, "not_an_activation");
-  const operator = privateKeyToAccount((JSON.parse(readFileSync(KEYS, "utf8")).keys as { operator: Hex }).operator);
-  check(operator.address === OPERATOR, "operator_key_mismatch");
-  const learner = consent.learner;
-  const typed = { domain: recordsDomain(6343, RECORDS), types: consentTypes, primaryType: "Consent" as const, message: consentMessage(consent) };
-  const digest = hashTypedData(typed);
-  const openData = encodeFunctionData({
-    abi: recordsAbi,
-    functionName: "openAttempt",
-    args: [consentMessage(consent), activation.inner, { ...song, chainId: 6343n }],
-  });
-
-  // The publisher's checks, read-only.
-  await checkActivation(env, learner, activation, 6343);
-  const now = Number((await chain.getBlock()).timestamp);
-  const before = {
-    learner,
-    code: await codeOf(env, learner),
-    nonce: await nonceOf(env, learner),
-    authorizationNonce: activation.authorization.nonce,
-    authorizationChainId: activation.authorization.chainId,
-    consentExpiresAt: consent.expiresAt,
-    consentVerifiedOverRpc: await chain.verifyTypedData({ ...typed, address: learner, signature: probe.signature }),
-    activationSimulates: await chain
-      .call({ account: operator.address, to: activation.initializer, data: activation.data, authorizationList: [activation.authorization] })
-      .then(() => true)
-      .catch((e: Error) => e.message.split("\n")[0]),
-  };
-  log("checked", before);
-  check(before.code === "0x" && before.nonce === before.authorizationNonce, "account_not_in_expected_state");
-  check(consent.expiresAt > now + 600 && before.consentVerifiedOverRpc && before.activationSimulates === true, "precheck_failed");
-  if (!SEND) return log("dry_run", { wouldSend: ["record_activate", "record_open"] });
-
-  const wallet = createWalletClient({ chain: megaeth, transport, account: operator });
-  const sent: { step: string; hash: Hex; status: string; gasUsed: string; block: string }[] = [];
-  const confirm = async (step: string, hash: Hex) => {
-    const receipt = await chain.waitForTransactionReceipt({ hash, timeout: 60_000 });
-    sent.push({ step, hash, status: receipt.status, gasUsed: receipt.gasUsed.toString(), block: receipt.blockNumber.toString() });
-    log(step, sent.at(-1));
-    return receipt;
-  };
-  await confirm(
-    "activate",
-    await wallet.sendTransaction({
-      to: activation.initializer,
-      data: activation.data,
-      authorizationList: [activation.authorization],
-      gas: 1_500_000n,
-    }),
+  check(
+    consent.learner.toLowerCase() === LEARNER && consent.attemptId === ATTEMPT,
+    "unexpected_probe_identity",
   );
-  check((await codeOf(env, learner)) === designatorOf(activation.authorization.address), "activation_not_applied");
-  // Code alone is not enough: the account must accept the consent itself.
-  if (!(await acceptedByAccount(env, learner, digest, activation.inner))) {
-    await confirm("initialize_again", await wallet.sendTransaction({ to: activation.initializer, data: activation.data, gas: 1_500_000n }));
-    check(await acceptedByAccount(env, learner, digest, activation.inner), "account_not_initialized");
+  const env = {
+    RPC_URL: RPC,
+    PAYMENT_CHAIN_ID: "6343",
+    ACCOUNT_DELEGATE: "0xf655611abe392f35cbb36181d920a302c4df2284",
+    ACCOUNT_INITIALIZER: "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
+  } as Env;
+  if (SEND) {
+    const file = JSON.parse(readFileSync(KEYS, "utf8")) as {
+      chainId: number;
+      keys: { operator: Hex };
+    };
+    check(file.chainId === 6343, "keys_not_for_megaeth_testnet");
+    check(
+      privateKeyToAccount(file.keys.operator).address === OPERATOR,
+      "operator_key_mismatch",
+    );
+    env.PRIVATE_KEY = file.keys.operator;
   }
-  const opened = await confirm("open_attempt", await wallet.sendTransaction({ to: RECORDS, data: openData, gas: 1_000_000n }));
-  check(opened.status === "success", "open_reverted");
-  const stored = (await chain.readContract({
-    address: RECORDS,
-    abi: [{ type: "function", name: "attempt", stateMutability: "view", inputs: [{ type: "bytes32" }], outputs: [{ type: "tuple", components: [{ name: "learner", type: "address" }] }] }],
-    functionName: "attempt",
-    args: [consent.attemptId],
-  })) as { learner: string };
-  const evidence = {
-    kind: "megaeth-moss-activation",
-    recordedAt: new Date().toISOString(),
-    chainId: 6343,
-    records: RECORDS,
-    attemptId: consent.attemptId,
-    before,
-    transactions: sent,
-    after: {
-      code: await codeOf(env, learner),
-      acceptsConsent: await acceptedByAccount(env, learner, digest, activation.inner),
-      attemptLearner: stored.learner,
-    },
-    note: "The authorization has chain ID 0; it was sent only to MegaETH testnet. Full signatures stay private.",
-  };
-  mkdirSync("docs/evidence", { recursive: true });
-  const path = `docs/evidence/megaeth-moss-activation-${evidence.recordedAt.slice(0, 10)}.json`;
-  writeFileSync(path, `${JSON.stringify(evidence, null, 2)}\n`);
-  log("evidence", { path, after: evidence.after });
+  const directory = join(STATE, "activation");
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const repository = fileURLToPath(new URL("../../", import.meta.url));
+  const location = relative(realpathSync(repository), realpathSync(directory));
+  check(location.startsWith("../"), "journal_must_be_outside_repository");
+  const journal = new ActivationJournal(join(directory, `${ATTEMPT}.sqlite`));
+  try {
+    const result = await runActivation(
+      {
+        env,
+        consent,
+        signature: probe.signature,
+        song,
+        records: RECORDS,
+        operator: OPERATOR,
+        chainId: 6343,
+        limits: LIMITS,
+      },
+      journal,
+      SEND,
+    );
+    journal.set("run:last_status", result);
+    log({ mode: SEND ? "send" : "read_only", ...result });
+    if (SEND && result.status === "complete") {
+      const evidence = {
+        kind: "megaeth-moss-activation",
+        recordedAt: new Date().toISOString(),
+        chainId: 6343,
+        records: RECORDS,
+        ...result,
+        note: "Authorization chain ID 0 is not chain-bound. Broadcast was restricted to MegaETH testnet. Full signatures and raw transactions stay private.",
+      };
+      mkdirSync("docs/evidence", { recursive: true });
+      const path = `docs/evidence/megaeth-moss-activation-${evidence.recordedAt.slice(0, 10)}.json`;
+      writeFileSync(path, `${JSON.stringify(evidence, null, 2)}\n`);
+      log({ step: "evidence", path });
+    }
+  } catch (error) {
+    // SDK errors can contain the full authorization; diagnostics stay private.
+    journal.set("run:last_error", {
+      at: new Date().toISOString(),
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  } finally {
+    journal.close();
+  }
 }
-
 main().catch((error) => {
-  console.error(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+  const code =
+    error instanceof Error && /^[a-z_]{3,80}$/.test(error.message)
+      ? error.message
+      : "activation_incomplete_retry_same_journal";
+  console.error(JSON.stringify({ error: code }));
   process.exitCode = 1;
 });

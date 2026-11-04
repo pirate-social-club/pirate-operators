@@ -5,6 +5,8 @@
 // can be made to fail.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import {
   createWalletClient,
   encodeFunctionData,
@@ -219,5 +221,75 @@ test("an activation that is not the learner's, names another delegate, or has a 
     assert.equal(await codeOf(a.learner.address), "0x");
   } finally {
     await c.dispose();
+  }
+});
+
+
+test("temporary account verification outages stay pending and never retry initialization", async () => {
+  let failures = 0;
+  const proxy = createServer(async (req, res) => {
+    let body = "";
+    for await (const part of req) body += part;
+    const input = JSON.parse(body);
+    if (
+      failures > 0 &&
+      input.method === "eth_call" &&
+      input.params?.[0]?.data?.startsWith("0x1626ba7e")
+    ) {
+      res.setHeader("Content-Type", "application/json");
+      if (failures-- === 2) {
+        return res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: input.id,
+            error: { code: -32000, message: "upstream unavailable" },
+          }),
+        );
+      }
+      res.statusCode = 503;
+      return res.end("{}");
+    }
+    const reply = await fetch(evm.rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+    res.setHeader("Content-Type", "application/json");
+    res.end(await reply.text());
+  });
+  proxy.listen(0, "127.0.0.1");
+  await once(proxy, "listening");
+  const c = await community(
+    {
+      ...evm,
+      rpcUrl: `http://127.0.0.1:${(proxy.address() as { port: number }).port}`,
+    },
+    "smart-rpc-retry",
+  );
+  try {
+    const a = await smartLearner(c);
+    assert.equal((await consent(a, await wrappedConsent(a))).type, "consented");
+    await c.fault("operator", "fault:crash-before-open", true);
+    await payAll(c, a);
+    const result = await finish(c, a);
+    assert.equal((await publication(c)).state, "pending");
+    failures = 2;
+    await c.at(c.now() + 1);
+    assert.equal((await publication(c)).state, "pending");
+    await c.at(c.now() + 1);
+    assert.equal((await publication(c)).state, "pending");
+    assert.deepEqual(await recordTransactions(c), ["record_activate:success"]);
+    await c.at(c.now() + 1);
+    assert.equal((await publication(c)).state, "published");
+    assert.ok((await read(a, result.attemptId))?.grade);
+    assert.equal(
+      (await recordTransactions(c)).filter((x) =>
+        x.startsWith("record_initialize"),
+      ).length,
+      0,
+    );
+  } finally {
+    await c.dispose();
+    await new Promise((resolve) => proxy.close(resolve));
   }
 });

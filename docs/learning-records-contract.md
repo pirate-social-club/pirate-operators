@@ -220,7 +220,9 @@ will accept the consent. It never takes the presence of code as proof:
   ERC-1271 on the activated account.
 
 The activation, the repeated setup and the opening are intents in the durable
-sender, like every other record write. A crash after activation resumes with
+sender, like every other record write. RPC transport failures and unavailable
+provider responses leave the publication pending; only an actual account
+refusal can trigger setup or a terminal refusal. A crash after activation resumes with
 the ERC-1271 check, not a second activation. A failed step ends the
 publication with its reason: `authorization_nonce_stale`,
 `activation_not_applied`, `account_not_initialized` or
@@ -249,3 +251,9 @@ following ticks publish a final correction for the changed line, then a new
 completion. The local skeleton exposes corrections only at `/__correct`, a
 local control route like `/__fault`. A production correction needs an
 authenticated operator path, which does not exist yet.
+
+
+The manual real-account proof uses a private, crash-durable SQLite journal and
+a cumulative fee cap. See [the MOSS activation procedure](moss-activation.md).
+It is prepared for explicit owner approval and has not been run on the real
+account merely because the fork rehearsal and local tests passed.
