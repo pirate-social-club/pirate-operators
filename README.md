@@ -12,6 +12,12 @@ scorer, and actual Solidity contracts executing on Anvil. Operators are paid
 through the `OperatorPayments` contract, as
 [the operator payments contract](docs/operator-payments.md) specifies.
 
+The [account and portability design](docs/community-accounts-portability.md)
+separates community identity, sponsorship and wallet authority. It proposes a
+MOSS-only account layer first, optional Nostr connection and sharing later,
+and a future non-Cloudflare deployment profile. These are specification
+boundaries; the current runtime remains wallet-keyed and Cloudflare-specific.
+
 ## Run locally
 
 Install Node.js 24 and Foundry 1.9.0, then install the pinned dependencies:
