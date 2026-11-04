@@ -21,11 +21,12 @@ A community authenticates its own operator and participants, admits and
 publishes songs through selected operators, and controls its own records,
 moderation policy and deployment. It requires no global Pirate user account.
 The first complete delivery is community setup followed by a real admitted
-song appearing and playing at app.tld. Customer name buying, gas sponsorship,
-karaoke rewards and Telegram are later work.
+song appearing and playing at the selected application origins. Customer name
+buying, gas sponsorship, karaoke rewards and Telegram are later work.
 
 Spaces support is deferred beyond the decentralized community MVP. Wizard v1
-starts on ordinary HTTPS, with HNS as an optional follow-up for that slice;
+starts on ordinary HTTPS as an engineering slice; Web2 remains optional under
+the domain amendment, and HNS-only access needs its own qualification;
 the wizard may mention Spaces only as unavailable
 "Coming soon" information. Spaces services, issuance and a Cloudflare Containers
 port are not prerequisites for first-song delivery. The setup plan owns this
@@ -241,11 +242,16 @@ section 9.
 ## 7. Community sign-in
 
 Each community authenticates participants with Sign-In with Ethereum
-(EIP-4361) on its own domain. There is no Pirate identity provider, password
-service, recovery service, or directory across communities.
+(EIP-4361) on each of its enabled application origins. The
+[signup and domains amendment](community-signup-and-domains.md) permits Web2
+only, HNS only or both; Web2 is optional. Both hosts refer to the same community
+and wallet persona with separate origin-bound sessions. There is no Pirate
+identity provider, password service, recovery service or user directory across
+communities.
 
-- The message's `domain` and `uri` are the community host. Its `nonce` comes
-  from the community server and is single-use. Its `chainId` is the network
+- The message's `domain` and `uri` match this request's verified community
+  origin. Its `nonce` is origin-bound, comes from the community server and is
+  single-use. Its `chainId` is the network
   whose signature rules apply.
 - The community server verifies secp256k1 signatures with `ecrecover`, and
   smart-account signatures with ERC-1271.
@@ -263,6 +269,10 @@ Origin/CSRF handling, nonce expiry and renewal. Test actual wallet origin
 binding; a matching domain field alone does not establish which site requested
 the signature. Operator sign-in is needed for first-song posting, while
 customer onboarding, gas sponsorship and name purchase are later acceptance.
+Their approved target is one sponsored initial eligible 8–63 character claim,
+with registration and gas paid by the sponsor and the ERC-721 minted to the
+participant's wallet. The amendment owns eligibility, budgets, renewal disclosure
+and reconciliation; section 9 below continues to own service-job sponsorship.
 
 ## 8. Karaoke attempt ticket
 

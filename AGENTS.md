@@ -10,7 +10,11 @@ provisioning: Workers, D1, R2, jobs and bindings. Use cf for diagnostics and
 account inspection without independently changing Alchemy-owned resources.
 Infisical is the service-secret source. Do not introduce Wrangler configuration.
 The first delivery is operator setup through first-song publication; sponsored
-customer name buying is later work. This direction authorizes documentation
+customer name buying is later work. The approved signup/domain specification
+requires user-owned MegaETH ERC-721s with one bounded sponsored initial claim.
+Web2 is optional: support Web2 only, HNS only or both; Alchemy manages selected
+Web2 domains through Cloudflare. No forced Web2 login or public fallback belongs
+to HNS-only setup. See docs/community-signup-and-domains.md. This direction authorizes documentation
 and the admitted implementation lanes, not an unscoped deployment or key action.
 No production deployment, provider credentials, funded operations or mainnet
 activity belongs to the local skeleton. Fixture private keys are public test
@@ -26,7 +30,8 @@ instruction does not authorize that integration, new credentials or transactions
 Mainnet activity and managed production-key exports remain excluded.
 
 Spaces support is deferred beyond the decentralized community MVP. Wizard v1
-starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.
+starts on ordinary HTTPS as an engineering slice, not a mandatory Web2 product
+policy; HNS-only and dual-origin acceptance remain separate integration work.
 The wizard may show Spaces only as disabled Coming soon
 information; do not implement or provision Spaces or generalize the directory
 for it as an MVP gate. Cloudflare Containers are a later candidate to qualify,

@@ -2,9 +2,13 @@
 
 A standalone experiment for independently operated communities, song admission,
 karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
-explains the required happy path: TLD/app records, community directory,
+explains the required happy path: selected application origins, namespace authority, community directory,
 Alchemy.run provisioning, Infisical secrets, real moderation and first post.
-Sponsored customer name purchases are later work. The recovered
+The [signup and optional domains specification](docs/community-signup-and-domains.md)
+adds one sponsored 8–63 character MegaETH ERC-721 claim and Web2 only, HNS only,
+or both access modes. Web2 is optional; the wizard uses Alchemy/Cloudflare to
+manage it when selected. Customer signup implementation follows the first-song
+service path. The recovered
 [operator protocol](docs/operator-protocol.md) owns admission/publication rules.
 Its [payment specification](docs/operator-payments.md) is a published copy of
 the active payment lane's design; that document's implementation-state section
@@ -15,7 +19,8 @@ and requires a separate instance if that HTTPS route is chosen.
 
 Spaces support is deferred beyond the decentralized community MVP. The wizard
 may show "Spaces — Coming soon" as a disabled option. Wizard v1 starts on
-ordinary HTTPS, with HNS as an optional follow-up. Spaces infrastructure and a
+ordinary HTTPS as its first engineering slice, without making Web2 mandatory
+for HNS-only communities. Spaces infrastructure and a
 possible Cloudflare Containers port
 are later work under the [namespace scope](docs/decentralized-setup.md#mvp-namespace-scope).
 
@@ -63,7 +68,7 @@ debug routes, provider secrets and durable job reconciliation remain work.
 ## Current work
 
 The [community browser contract](docs/community-web-client.md) specifies the
-stable community HTTPS origin, same-origin cookie sessions, karaoke handshake,
+verified community application origins, separate same-origin cookie sessions, karaoke handshake,
 publication-time pages and read-only IPFS mirrors. PR 9 adds a fixture-backed
 static client under apps/web; it does not yet connect all real services.
 

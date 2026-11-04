@@ -1,6 +1,7 @@
 # HNS community ingress
 
-app.tld is a required first-song target. First prove that the intended client
+app.tld is required when HNS access is selected. Web2 is optional under the
+[signup and domains contract](community-signup-and-domains.md). First prove that the intended client
 can resolve the actual HIP-5 delegation and use its records. An HTTPS gateway
 is one transport option after that lookup, not a substitute for it or a
 requirement imposed by the registry contract.
@@ -75,13 +76,15 @@ read-only: it can call an HTTPS API for login, uploads and posting. A live API
 still runs on Cloudflare, with origin isolation, session and CORS/CSRF rules
 that the selected client must actually support.
 
-The current community browser contract deliberately keeps alternate-origin
-mirrors read-only and accepts authenticated browser requests only at the
-canonical origin. That is a scoped security/product rule, not an IPFS limit.
-An interactive IPFS route must preserve that canonical-origin contract or
-receive an explicit browser-contract revision and acceptance; this audit does
-not silently enable cross-origin cookies or browser bearer tokens. A redirect
-to an ordinary HTTPS domain proves navigation, not same-origin app.tld use.
+The amended browser contract accepts each explicitly verified HTTPS application
+origin with its own same-origin API and origin-bound session. HNS-only access
+requires no ICANN application domain or Web2 login redirect. Generic IPFS mirrors
+remain read-only; a content-addressed authenticated client still requires separate
+origin/wallet qualification. Cross-origin cookies and browser bearer tokens are
+not enabled by this amendment. A redirect to an ordinary HTTPS domain proves
+navigation, not same-origin app.tld use. Cloudflare, wallet, RPC and gateway
+availability remain dependencies; HNS naming alone does not prove censorship
+resilience. Test the actual client and network before claiming it works.
 
 ## Evidence and limits
 
@@ -117,7 +120,8 @@ release procedures in the separate milestone instance, preserving production.
 
 First select and qualify one real client against the actual `_evm` referral,
 contract records and chosen content/HTTPS transport, including its secure origin.
-Then prove canonical-origin login, API access and first-song upload. A CLI
+Then prove same-origin login, API access and first-song upload at the selected
+HNS application origin without a forced Web2 redirect. A CLI
 registry ceremony or the old DNS-zone browser test cannot replace this proof.
 
 For a selected shared HTTPS gateway, implement the authority adapter against verified HNS delegation, app ownership,

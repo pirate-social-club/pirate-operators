@@ -1,23 +1,41 @@
 # Community setup to first song
 
 Owner direction, 2026-11-04: the first milestone is an operator bringing a
-community online at app.tld, appearing in Pirate's community directory and
+community online at its selected application origins, appearing in Pirate's community directory and
 posting its first song. Sponsored customer name purchases are lower priority.
 Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
 source of service secrets. These are requirements, not optional tooling choices.
 
-The wizard is not implemented. Existing pieces are the testnet HNS name
-registry, local operator services and a fixture static client. The maintained
+The wizard PR 15 source now provisions a workers.dev setup page; it is not a
+completed community app. Existing pieces include the testnet HNS name registry,
+local operator services and a fixture static client. The maintained
 centralized HNS gateway also has prior phone acceptance; its new-registry
 adapter and repeatable community setup are not built. The sequence
 below is the missing end-to-end integration. It keeps centralized hosted
 infrastructure as an explicit part of the decentralized community product.
 
+## Optional domain access and signup
+
+The owner-approved [signup and domains contract](community-signup-and-domains.md)
+specifies a sponsored initial 8–63 character ERC-721 username claim on MegaETH
+and Web2 only, HNS only or both for browser access. Web2 is optional. When
+selected, its hostname, DNS/TLS and Worker attachment are managed through the
+wizard's pinned Alchemy Cloudflare provider. HNS-only setup skips Web2 inputs,
+resources and readiness gates and cannot redirect login to a Web2 alias.
+
+Both active origins reach the same community with separate host-bound sessions.
+The current workers.dev slice does not implement custom domains, dual-origin
+sessions or HNS-only access. Ordinary HTTPS remains the first engineering slice;
+it is not a requirement that every operator expose a Web2 site. First-song
+service integration remains the delivery priority before customer sponsorship.
+
 ## MVP namespace scope
 
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
 community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
-HNS configuration and verification are an optional follow-up for that slice.
+HNS configuration and verification are an optional follow-up for that engineering slice.
+The operator may instead select HNS-only access and wait for its qualification;
+no Web2 resources are then implicitly provisioned.
 This deferral adds no HNS prerequisite to wizard v1. The broader first-song
 and native-address acceptance requirements below retain their own scope. Native
 Spaces community bindings, handle resolution/issuance and their deployment
@@ -51,10 +69,10 @@ acceptance records, or settle the separate HNS ingress/transport decision.
 
 | Step | Wizard responsibility | Completion evidence |
 | --- | --- | --- |
-| 1. Select namespace and operator | Verify current TLD control, select community ID and public origins, and choose Pirate-hosted or independent service operation. | Bound TLD/operator identity and explicit deployment account; no secrets in public configuration. |
+| 1. Select namespace, access mode and operator | Select community identity, Web2 only/HNS only/both and service operation. Verify the relevant domain authority; HNS verification separately gates discovery. | Bound identity and deployment account; disabled Web2 requires no ICANN input, zone or public alias. |
 | 2. Prepare the name registry | Reuse a verified MegaETH factory; create the TLD registry with NOT_FOR_SALE, reserve app to its intended holder, set app's premium to zero, register it, and configure other selected names. | Verified code and receipt, app owned by the intended holder, selected reservations/prices read back. |
 | 3. Save secrets and provision services | Save required provider/service credentials to the right Infisical scope. Alchemy provisions Workers, D1/migrations, R2, job transport, bindings and public ingress. | Secret versions installed without logging values, migrations applied, health and storage checks pass. |
-| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, have the TLD owner sign the HIP-5 delegation/update, and qualify the actual client's registry lookup and chosen HTTPS/content transport. Use an isolated gateway only if that transport needs one. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
+| 4. Activate selected application origins | Build the release. For Web2, reconcile the reviewed Alchemy/Cloudflare hostname and TLS. For HNS, set holder records, verify delegation and qualify actual client resolution and secure transport; use isolated ingress if needed. | Load, login and same-origin API behavior pass independently for every selected origin. Both share one community; HNS-only has no forced Web2 redirect. |
 | 5. Update Pirate's community registry | Submit/update the community record, verify namespace authority independently, and expose the verified entry through the directory/index. | The correct community and app link appear; a forged factory announcement is not accepted as ownership. |
 | 6. Configure real admission | Select trusted operators and policy, validate the required provider connections and enable durable admission/publication jobs. | The restored evidence and publication gate run against real inputs; failures hold rather than publish. |
 | 7. Post the first song | Authenticate the operator/creator, run the applicable creator activation flow, upload sealed media, perform admission, publish the post and complete the configured registration step. | The post appears and plays after reload, its page and media are retrievable, and retries do not duplicate publication or registration. |
@@ -122,9 +140,10 @@ does not satisfy that rule. No simulated allow verdict counts as configuration.
 ## Namespace and directory authority
 
 The per-TLD SLDRegistry and Pirate's shared registry of communities are different
-systems. The former exists in pirate-registry. The latter is required for this
-happy path and is not implemented yet. Its deployment/update interface must be
-built; this requirement is not dismissed because HNS already owns name authority.
+systems. The former exists in pirate-registry. The latter has a separate
+[contract specification](contracts/community-directory.md) and implementation
+lane; this documentation branch does not establish its deployment or integration.
+The directory remains required for discovery even though HNS owns name authority.
 
 The initial directory is Pirate-maintained, with a shared MegaETH community
 registry/index interface. Define the community ID, TLD, chain and SLD-registry
@@ -155,13 +174,13 @@ resolving. Monitor and renew both SLD and HNS TLD. Admin controls future sale
 policy and treasury; the app holder or appointed record manager controls its
 records. TLD ownership can still repoint delegation and orphan old names.
 
-HNS app.tld is a required acceptance target, not shorthand for a workers.dev
-URL. Cloudflare custom domains require an active zone; publishing HNS records
-does not itself establish a Cloudflare zone, ordinary DNS resolution or trusted
-TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
-secure-origin/session behavior. Keep an ordinary HTTPS origin available for
-ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
-proves navigation only; it must not be reported as same-origin app.tld operation.
+HNS app.tld is an acceptance target when HNS access is selected, not shorthand
+for a workers.dev URL. Cloudflare custom domains require an active zone;
+publishing HNS records does not establish that zone or trusted transport.
+Identify and test the actual HNS-capable browser/resolver/gateway and its
+secure-origin/session behavior. An ordinary HTTPS origin is optional and is
+configured only when Web2 is selected. It never counts as app.tld acceptance.
+A redirect proves navigation only, not same-origin HNS application operation.
 Start with the [HIP-5 client and transport proof](hns-community-ingress.md).
 The contract holds app records; a compatible resolver must read the custom
 `._evm` delegation before any transport can use them. Current typed resolver
@@ -234,8 +253,8 @@ not delay community setup or eliminate the need to acquire a purchase token.
 The fixture frontend currently builds a deterministic IPFS CAR. Preserve its
 UnixFS root CID when importing it into independently controlled providers and
 verify retrieval before publishing the content pointer. Primary browser access
-retains the configured canonical session/API origin; alternate gateways are
-read-only snapshots under the current browser contract. IPFS-hosted JavaScript
+uses the verified enabled application origins with separate host-bound
+sessions; generic mirror gateways remain read-only snapshots. IPFS-hosted JavaScript
 can use live APIs; the restriction here is the selected origin/authentication
 policy, not an IPFS limitation. Any interactive content-addressed route needs
 its own client/origin acceptance without weakening that policy. Gateways serving
