@@ -127,11 +127,17 @@ export async function chain(port = 18545) {
     // (account 2) as its karaoke grader.
     const recordsContract = await deploy("LearningRecords", [accounts[3].address]);
     await write(recordsContract, "LearningRecords", "setGrader", [accounts[2].address, ACTIVITY_KARAOKE, true], 3);
+    // A stand-in for MOSS's account proxy and orchestrator, for learners whose
+    // accounts are activated from an ERC-8010 consent.
+    const mockAccount = await deploy("MockAccount", []);
+    const mockInitializer = await deploy("MockInitializer", []);
     return {
       rpcUrl: `http://127.0.0.1:${port}`,
       paymentToken,
       paymentsContract,
       recordsContract,
+      mockAccount,
+      mockInitializer,
       child,
       rpc,
       publicClient,

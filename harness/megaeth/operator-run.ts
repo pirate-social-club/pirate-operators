@@ -105,6 +105,9 @@ async function main() {
       REALTIME_RPC: "1",
       QUOTE_VALID_FROM: String(start - 300),
       QUOTE_VALID_UNTIL: String(start + 86400),
+      // MOSS's account proxy and orchestrator on MegaETH testnet.
+      ACCOUNT_DELEGATE: "0xf655611abe392f35cbb36181d920a302c4df2284",
+      ACCOUNT_INITIALIZER: "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
     },
   });
   const { mf } = runtime;

@@ -10,7 +10,23 @@ import { gasPrice, pendingNonce, receiptOf, sendRaw } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
 
 /** Record intents are sent in order by the publisher (services/records.ts), never by recovery. */
-export type TxKind = "redeem" | "close" | "record_open" | "record_line" | "record_complete";
+export type TxKind =
+  | "redeem"
+  | "close"
+  | "record_activate"
+  | "record_initialize"
+  | "record_open"
+  | "record_line"
+  | "record_complete";
+/** A signed EIP-7702 authorization, as JSON stores it. */
+export interface StoredAuthorization {
+  address: Address;
+  chainId: number;
+  nonce: number;
+  r: Hex;
+  s: Hex;
+  yParity: number;
+}
 export interface Intent {
   kind: TxKind;
   ref: string;
@@ -18,6 +34,8 @@ export interface Intent {
   data: Hex;
   gas: string;
   nonce: number | null;
+  /** Present only for an EIP-7702 transaction, such as a learner account's activation. */
+  authorizationList?: StoredAuthorization[];
 }
 export interface TxRow {
   nonce: number;
@@ -28,6 +46,7 @@ export interface TxRow {
   data: Hex;
   gas: string;
   gasPrice: string;
+  authorizationList?: StoredAuthorization[];
   raw?: Hex;
   hash?: Hex;
   mined: null | { status: "success" | "reverted"; block: number };
@@ -40,10 +59,26 @@ export const txRow = (store: Store, nonce: number) => store.get<TxRow>(txKey(non
 const realtime = (env: Env) => env.REALTIME_RPC === "1";
 
 /** Synchronous and idempotent: records the work before anything can fail. */
-export function enqueue(store: Store, kind: TxKind, ref: string, to: Address, data: Hex, gas: bigint) {
+export function enqueue(
+  store: Store,
+  kind: TxKind,
+  ref: string,
+  to: Address,
+  data: Hex,
+  gas: bigint,
+  authorizationList?: StoredAuthorization[],
+) {
   const existing = intentOf(store, kind, ref);
   if (existing) return existing;
-  const intent: Intent = { kind, ref, to, data, gas: gas.toString(), nonce: null };
+  const intent: Intent = {
+    kind,
+    ref,
+    to,
+    data,
+    gas: gas.toString(),
+    nonce: null,
+    ...(authorizationList ? { authorizationList } : {}),
+  };
   store.set(intentKey(kind, ref), intent);
   return intent;
 }
@@ -61,16 +96,17 @@ function markMined(store: Store, nonce: number, receipt: Receipt) {
 async function signed(env: Env, store: Store, nonce: number) {
   const row = txRow(store, nonce)!;
   if (row.raw && row.hash) return row;
-  const raw = await privateKeyToAccount(env.PRIVATE_KEY).signTransaction({
-    type: "legacy",
-    chainId: row.chainId,
-    nonce: row.nonce,
-    to: row.to,
-    data: row.data,
-    gas: BigInt(row.gas),
-    gasPrice: BigInt(row.gasPrice),
-    value: 0n,
-  });
+  const account = privateKeyToAccount(env.PRIVATE_KEY);
+  const common = { chainId: row.chainId, nonce: row.nonce, to: row.to, data: row.data, gas: BigInt(row.gas), value: 0n };
+  const raw = row.authorizationList
+    ? await account.signTransaction({
+        ...common,
+        type: "eip7702",
+        maxFeePerGas: BigInt(row.gasPrice) * 2n,
+        maxPriorityFeePerGas: BigInt(row.gasPrice),
+        authorizationList: row.authorizationList.map((a) => ({ ...a, yParity: a.yParity })),
+      })
+    : await account.signTransaction({ ...common, type: "legacy", gasPrice: BigInt(row.gasPrice) });
   const next = { ...txRow(store, nonce)!, raw, hash: keccak256(raw) };
   store.set(txKey(nonce), next);
   return next;
@@ -111,6 +147,7 @@ export async function dispatch(env: Env, store: Store, kind: TxKind, ref: string
         data: current.data,
         gas: current.gas,
         gasPrice: fee.toString(),
+        ...(current.authorizationList ? { authorizationList: current.authorizationList } : {}),
         mined: null,
       } satisfies TxRow);
       const allocated = { ...current, nonce };

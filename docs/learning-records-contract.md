@@ -186,12 +186,45 @@ The client signs it with the learner's wallet and sends
 including after the attempt ends. Its `expiresAt` is the attempt's start plus
 seven days.
 
-The operator checks consent locally before storing it. It accepts only a
-low-s ECDSA signature that recovers to the ticket's participant. The contract
-also accepts ERC-1271 signatures from contract accounts, but the operator does
-not check those yet. That includes a MOSS account, which is an EIP-7702
-account with code. A learner's MOSS account authorizing this consent is
-therefore still unproven.
+The operator checks consent before storing it. A low-s ECDSA signature that
+recovers to the ticket's participant is checked locally. Any other signature
+must verify over the RPC, which covers ERC-1271 accounts with code and ERC-6492
+and ERC-8010 wrappers.
+
+A MOSS account that has never transacted has no code. MOSS then returns an
+ERC-8010 signature, which carries three things:
+
+- the learner's own EIP-7702 authorization, delegating to MOSS's account proxy;
+- the call that sets the account up through MOSS's orchestrator;
+- the inner passkey signature that the account checks once it exists.
+
+The operator accepts such a consent only if the authorization recovers to the
+learner, names the configured delegate (`ACCOUNT_DELEGATE`), and comes with the
+configured initializer (`ACCOUNT_INITIALIZER`). Its chain ID must be 0 or the
+records chain. A chain ID of 0 makes the authorization valid on every chain
+that accepts it and has the delegate. The operator sends it only to the
+records chain, but anyone holding the signature could send it elsewhere. Full
+consent signatures are therefore never published by the harness.
+
+Before opening such an attempt, the operator makes sure the learner's account
+will accept the consent. It never takes the presence of code as proof:
+
+- An account with no code is activated first. One EIP-7702 transaction carries
+  the authorization and calls the initializer with the setup data. It is sent
+  only if the authorization's nonce is still the account's.
+- An account with code must accept the consent through ERC-1271 before the
+  attempt opens. EIP-7702 delegation persists even when the setup call
+  reverts. So a delegated account that refuses the consent gets the setup call
+  once more, without the authorization, and must then accept it.
+- The attempt opens with the inner signature. The contract checks it through
+  ERC-1271 on the activated account.
+
+The activation, the repeated setup and the opening are intents in the durable
+sender, like every other record write. A crash after activation resumes with
+the ERC-1271 check, not a second activation. A failed step ends the
+publication with its reason: `authorization_nonce_stale`,
+`activation_not_applied`, `account_not_initialized` or
+`consent_refused_by_account`.
 
 Once a consented result is final, each operator tick moves its publication
 forward through three ordered stages. It opens the attempt, writes every line

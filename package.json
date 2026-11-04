@@ -17,7 +17,8 @@
     "very:probe": "node harness/very/credential-probe.ts",
     "megaeth:payments": "node harness/megaeth/deploy-payments.ts",
     "megaeth:records": "node harness/megaeth/deploy-records.ts",
-    "megaeth:operator-run": "node harness/megaeth/operator-run.ts"
+    "megaeth:operator-run": "node harness/megaeth/operator-run.ts",
+    "megaeth:moss-activation": "node harness/megaeth/moss-activation.ts"
   },
   "dependencies": {
     "viem": "2.57.16"
