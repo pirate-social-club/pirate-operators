@@ -1,0 +1,44 @@
+/*
+ * Document version 1 stylesheet, published at /public/document-v1.css.
+ *
+ * Generated pages outlive releases and refer to this file, so its built bytes
+ * are frozen: scripts/build.ts fails when they differ from the digest in
+ * document-versions.json. A markup or class change needs a new document
+ * version, not an edit here (contract section 3).
+ *
+ * Sources are explicit so client changes cannot alter this file: the document
+ * components and the solid-ui components they render.
+ */
+@import "tailwindcss" source(none);
+@import "@pirate/web-solid-ui/styles/tokens.css";
+
+@source "../document";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/card";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/type";
+
+@custom-variant light (&:is(.light *));
+
+/* Base layer copied from @pirate/web-solid-ui src/index.css at c7cb8783, whose
+ * own `@import "tailwindcss"` uses automatic source detection. */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply bg-background;
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
