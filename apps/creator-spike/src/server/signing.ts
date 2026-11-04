@@ -41,6 +41,7 @@ import {
   claimSignaturePreparation,
   capturedSignaturePreparation,
   releaseUnsubmittedPreparation,
+  resumeSignatureSubmission,
 } from "./operator-lock.ts";
 
 interface SignRow {
@@ -184,11 +185,10 @@ export async function prepareSign(
   const a = await currentAttempt(env, row),
     submissionId = `${a.id}:sign`;
   if (
-    await env.DB.prepare("SELECT id FROM submissions WHERE id=?")
-      .bind(submissionId)
-      .first()
+    await resumeSignatureSubmission(env.DB, s.id, submissionId, () =>
+      executeSign(request, env, body),
+    )
   ) {
-    await executeSign(request, env, body);
     return { alreadySubmitted: true, message: s.message };
   }
   insist(

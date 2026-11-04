@@ -13,6 +13,7 @@ import {
   claimSignaturePreparation,
   capturedSignaturePreparation,
   releaseUnsubmittedPreparation,
+  resumeSignatureSubmission,
 } from "../src/server/operator-lock.ts";
 
 async function fixture() {
@@ -71,6 +72,84 @@ test("concurrent creator exchanges cannot report success for different bound cre
     await assert.rejects(
       bindActiveCredential(f.db, "account", winner === "a" ? "b" : "a"),
       /creator_binding_conflict/,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("reopening prepare resumes approval captured before submission persistence", async () => {
+  const f = await fixture();
+  try {
+    const p = await beginSignaturePreparation(
+      f.db,
+      "signature-a",
+      "attempt-a:sign",
+      1000,
+    );
+    await saveSignaturePreparation(
+      f.db,
+      "signature-a",
+      p.token,
+      "raw-gas-version-1",
+      1001,
+    );
+    await claimSignaturePreparation(
+      f.db,
+      "signature-a",
+      "raw-gas-version-1",
+      "captured-user-proof",
+      1002,
+    );
+    // Simulate termination before submit() stores its signed transaction. The
+    // browser's prepare/reopen path must execute the captured approval rather
+    // than starting another preparation or asking for another signature.
+    assert.equal(
+      await f.db.prepare("SELECT id FROM submissions").first(),
+      null,
+    );
+    let executions = 0;
+    const reopened = await resumeSignatureSubmission(
+      f.db,
+      "signature-a",
+      "attempt-a:sign",
+      async () => {
+        executions++;
+        const approval = await capturedSignaturePreparation(
+          f.db,
+          "signature-a",
+        );
+        const row = await f.db
+          .prepare(
+            "SELECT transaction_bytes FROM signatures WHERE id='signature-a'",
+          )
+          .first<{ transaction_bytes: string }>();
+        assert.equal(approval!.user_signature, "captured-user-proof");
+        assert.equal(row!.transaction_bytes, "raw-gas-version-1");
+        await f.db
+          .prepare(
+            "INSERT INTO submissions(id,attempt_id,kind,digest,bytes,signatures,status,created) VALUES('attempt-a:sign','attempt-a','sign','digest',?,'[]','confirmed',1003)",
+          )
+          .bind(row!.transaction_bytes)
+          .run();
+        await f.db
+          .prepare("DELETE FROM operator_lock WHERE holder='attempt-a:sign'")
+          .run();
+      },
+    );
+    assert.equal(reopened, true);
+    assert.equal(executions, 1);
+    await acquireOperatorLock(f.db, "attempt-b:dkg", 999999);
+    assert.equal(
+      await resumeSignatureSubmission(
+        f.db,
+        "signature-b",
+        "attempt-b:sign",
+        async () => {
+          throw new Error("must not execute");
+        },
+      ),
+      false,
     );
   } finally {
     await f.dispose();

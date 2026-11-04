@@ -141,6 +141,23 @@ export async function capturedSignaturePreparation(db: D1Database, id: string) {
     .first<Preparation>();
 }
 
+/** The prepare/reopen entrypoint must also resume approval saved before submit(). */
+export async function resumeSignatureSubmission(
+  db: D1Database,
+  signatureId: string,
+  submissionId: string,
+  execute: () => Promise<unknown>,
+) {
+  const submitted = await db
+    .prepare("SELECT id FROM submissions WHERE id=?")
+    .bind(submissionId)
+    .first();
+  if (!submitted && !(await capturedSignaturePreparation(db, signatureId)))
+    return false;
+  await execute();
+  return true;
+}
+
 export async function releaseUnsubmittedPreparation(
   db: D1Database,
   id: string,
