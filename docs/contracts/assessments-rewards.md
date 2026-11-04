@@ -27,14 +27,18 @@ ahead or not. Silent, unpaid and unattempted count zero in reward accounting;
 unmeasured is removed from the denominator with its own maximum threshold.
 The payment lane owns billing, complete-line coverage, timing validation and
 hashes. The copy publishes its field definitions; the runtime is published
-separately in [draft PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
+separately in [PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
 at the same commit and is not included in this specification branch.
 
 Karaoke learning credit uses signed performanceEndedAt, when singing stopped,
 not lastAudioAt or endedAt. The latter remains the operator decision/payment
 clock. A performance ending at 16:59:58 keeps the earlier learning day if payment
 finalization occurs after 17:00. This does not alter the existing reward entry
-window's separate endedAt and acceptance-time checks.
+window's separate endedAt and acceptance-time checks. The UI must display
+learning credit separately from pending/accepted/missed drawing entry. A learner
+can keep that day's credit and miss that drawing when finalization or verifier
+acceptance crosses the cutoff. Use the explicit copy in LearningRecords; do not
+promise an entry from a streak or assume automatic entry in a later drawing.
 
 The [LearningRecords draft 3](learning-records.md) preserves the actual earlier
 approval: the shared learning clock, prospective policy activation and terminal

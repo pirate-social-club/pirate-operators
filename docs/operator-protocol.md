@@ -459,15 +459,14 @@ undecided and is not a first-song prerequisite.
 | Extra sponsorship | an allowance not tied to a wallet | Very, scoped to the community and period (section 9) |
 | Register for winnings | entry ownership, and duplicate prevention | the Merkle proof, the wallet's own call, and Very scoped to the pool and drawing |
 
-Owner direction, 2026-11-04: joining uses Very only. Communities cannot choose
-Self or another membership provider. Membership verification belongs to the
-community service; the existing name registry has no buyer allowlist and does
+For this version, joining accepts Very only. Membership verification belongs
+to the community service; the existing name registry has no buyer allowlist and does
 not itself enforce a membership gate. Joining and acquiring a name are distinct
 actions; an application-gated name flow must enforce its gate separately.
 
 A membership proof never substitutes for a reward or sponsorship proof. Very is
-the only credential for those actions too; a community cannot add a fallback
-provider or weaken the requirement. If Very is unavailable, joining, credential-
+the only credential for those actions in this version; their scoped checks
+must not be bypassed. If Very is unavailable, joining, credential-
 gated sponsorship and winnings registration fail closed. Wallet sign-in and
 the open sponsorship allowance retain their separate rules. This mirrors v1's
 claim-time Very check in spec 015 §5.2a.

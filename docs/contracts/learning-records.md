@@ -232,6 +232,12 @@ published.
   to the period containing its signed endedAt. Delayed publication moves neither
   learning day. This mapping does not change the separate reward entry window,
   which currently checks endedAt and acceptance time.
+  UI copy must say: "Your learning day follows when you stopped singing.
+  Drawing entry also requires your finalized result to be accepted before
+  that drawing's cutoff." Show learning credit and drawing-entry status
+  separately. A performance before the cutoff may earn that learning day's
+  credit yet miss the drawing if finalization or acceptance is late. Do not
+  label streak credit as a drawing entry, or silently assign a later drawing.
   The signed performanceEndedAt field and its validation are defined in the
   payment specification at 412c098; the repository's payment source manifest
   pins the exact documentation copy. Its runtime is published separately in

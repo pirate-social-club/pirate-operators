@@ -100,7 +100,7 @@ it is not broad approval of every draft field. The latest correction also
 separates Dance address/service enforcement and publication delays. Payment
 specification `412c098` is included as an exact documentation copy: it defines
 unattempted and performanceEndedAt, with the latter setting Karaoke's learning
-day. Its runtime is published separately in [draft PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
+day. Its runtime is published separately in [PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
 at that same commit, not included in this branch. Protocol section
 12.1 records the reiterated Very-only joining direction; membership, sponsorship
 and claim scopes remain separate. A branch SHA is not evidence that GitHub
