@@ -147,15 +147,16 @@ The [HIP-5 specification](https://hsd-dev.org/HIPs/proposals/0005/) requires a
 compatible external resolver. IPFS documents [origin isolation for apps](https://docs.ipfs.tech/how-to/best-practices-for-ipfs-builders/)
 and [API-origin effects](https://docs.ipfs.tech/how-to/websites-on-ipfs/custom-domains/).
 
-## c22 observation, 2026-11-04
+## c22 ceremony, 2026-11-04
 
-The new MegaETH registry is 0xe56E25eAf86FB8BF641754Fd7918735B98851744.
-Its Handshake UPDATE f860ac4676d3a0c2107fc52755267064a069fd0a0dfce348e09713453aa2a024
-was recorded included at height 354290. The owning watcher expects SPV
-verification from height 354324. At 12:24 UTC, a read-only NS query to the
-existing local hnsd still returned the prior chain-84532 delegation; the
-latest logged hnsd height was 354312 and no verification receipt existed.
-Thus the update was already submitted, while resolver acceptance remained
-pending. Do not issue another UPDATE merely because the old answer is cached
-or the SPV node has not reached its verification threshold. Recheck the owning
-lane's receipts and actual referral before using c22 for browser acceptance.
+The recorded [c22 MegaETH ceremony](https://github.com/pirate-social-club/pirate-registry/blob/2605ca13ba78dc6bcb49dbe4dc47271f8394c70e/docs/ceremonies/c22-2026-11-04-megaeth.json)
+completed with result passed at 15:24 UTC. It verifies the delegation to registry
+0xe56E25eAf86FB8BF641754Fd7918735B98851744 on chain 6343 through local SPV,
+then records purchase, record writes, transfer and resolution. The final
+resolution reports hnsd height 354330. The earlier pending observation is
+superseded; no additional Handshake UPDATE is needed for that ceremony.
+
+This is the contracts lane's recorded proof, not a chain or browser acceptance
+rerun by this integration. Native HNS browser access remains separate. The
+managed first-song community needs its own registry clone and must not reuse
+c22's registry or change c22's independent service mode.

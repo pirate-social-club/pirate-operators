@@ -231,7 +231,7 @@ upload, would change the existing product contract and is not done here.
 | MOSS gas sponsor, if added later | Separate bounded sponsor service/treasury. | Spend sponsor authority/balance; it is not needed for the operator-first setup milestone. |
 | Creator passkey and Ika seed | Authenticator plus PRF-encrypted seed record at the wallet site; never plaintext in Infisical. | Loss of passkey or unavailable encrypted record/site can make registrations inaccessible. Independent recovery is deferred, not proven. |
 
-At inspected payment commit d635d46, _redeem accepts the signed recipient and
+At merged payment baseline 4aaf76e, _redeem accepts the signed recipient and
 amount without an independently enforced operator allowlist or spending cap.
 Small deposits bound loss. A stronger change must have the community admin,
 not the hot signer, authorize operators, immutable/versioned recipients and
