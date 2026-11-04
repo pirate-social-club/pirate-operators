@@ -13,6 +13,37 @@ adapter and repeatable community setup are not built. The sequence
 below is the missing end-to-end integration. It keeps centralized hosted
 infrastructure as an explicit part of the decentralized community product.
 
+## MVP namespace scope
+
+Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
+community MVP. HNS is the only namespace setup path in this milestone. Native
+Spaces community bindings, handle resolution/issuance and their deployment
+integration are later work, not first-song acceptance gates. The current
+HNS-specific registry/directory design need not be generalized for Spaces to
+ship MVP; that later extension needs its own identity and migration design.
+
+The wizard may display a disabled "Spaces — Coming soon" option with the copy
+"Spaces support is planned for a future release." It must not promise a date,
+accept Spaces setup inputs, request keys or funding, or provision Spaces
+services. Configuration/API requests selecting Spaces must return an explicit
+unsupported-namespace result before external effects. MVP acceptance must
+show that this unavailable option cannot block the HNS setup path. This is a
+wizard requirement, not a claim that the wizard is implemented.
+
+Cloudflare Containers are a candidate for the later Spaces service deployment,
+consistent with the preference to keep hosting on Cloudflare. They are not a
+qualified replacement for the existing VPS stack. Container disk is ephemeral
+by default; snapshots and object-storage mounts do not by themselves establish
+safe wallet, name-tree or journal recovery. A future qualification must prove
+durability and interrupted-operation recovery, wallet isolation, independent
+verification, chain/relay connectivity and the proving dependency. The current
+RunPod proving path is external, so an entirely Cloudflare-hosted stack remains
+unproven. See the [Containers lifecycle and storage limits](https://developers.cloudflare.com/containers/faq/).
+
+MVP provisions neither a Spaces VPS nor a Spaces container. This deferral does
+not retire or migrate existing centralized Spaces services, alter their
+acceptance records, or settle the separate HNS ingress/transport decision.
+
 ## The happy path
 
 | Step | Wizard responsibility | Completion evidence |
