@@ -260,8 +260,9 @@ Inspected operators main 9f2217e, registry PR 2 at 296c97d, frontend branch
 388018f and creator PR 10 at 9c7899b. The payment documentation copy is now
 refreshed from 0dec600 to 412c098, defining performanceEndedAt and unattempted.
 The [payment specification](operator-payments.md) is included with exact
-[source provenance](payment-specification-source.json). Its implementation is committed locally and remains unpublished
-at this observation; the documentation copy does not publish its runtime.
+[source provenance](payment-specification-source.json). Its implementation is
+published separately in [draft PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14)
+at 412c098; the documentation copy does not include that runtime.
 No Alchemy provisioner, Infisical setup wizard, shared community directory or complete
 first-song acceptance exists in these inspected sources.
 

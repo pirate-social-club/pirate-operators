@@ -2,5 +2,6 @@
   "sourceCommit": "412c098e5da2fd79896688e87ba390f3246c3074",
   "sourcePath": "docs/operator-payments.md",
   "sha256": "d96889c478ae954799f3f4fbbcef9b055c88c43c966171555eea971a781e72c1",
-  "publication": "Exact documentation copy only. Implementation-state claims describe the local, unpublished segment-payments branch at the source commit, not the code or test coverage in this documentation branch. The implementation lane retains ownership. This copy publishes the performanceEndedAt field definition and validation without publishing its runtime."
+  "publication": "Exact documentation copy only. Implementation-state claims describe the segment-payments branch at the source commit, published separately in draft PR 14, not the code or test coverage in this documentation branch. The implementation lane retains ownership. This copy includes the performanceEndedAt field definition and validation without importing its runtime.",
+  "implementationPullRequest": "https://github.com/pirate-social-club/pirate-operators/pull/14"
 }

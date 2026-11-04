@@ -234,8 +234,9 @@ published.
   which currently checks endedAt and acceptance time.
   The signed performanceEndedAt field and its validation are defined in the
   payment specification at 412c098; the repository's payment source manifest
-  pins the exact documentation copy. That runtime branch remains unpublished
-  at this observation. Implementations must consume and validate this field;
+  pins the exact documentation copy. Its runtime is published separately in
+  [payment PR 14](https://github.com/pirate-social-club/pirate-operators/pull/14),
+  not included in this specification branch. Implementations must consume and validate this field;
   substituting lastAudioAt or endedAt would change the rule.
 - Proposed Dance rule: the first final owner decision records reviewedAt using
   the canonical transaction block timestamp, and sets completedAt=reviewedAt.
