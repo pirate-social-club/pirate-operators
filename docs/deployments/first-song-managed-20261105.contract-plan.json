@@ -1,6 +1,7 @@
 {
-  "profileHash": "0x93e0511d88fdb5f8d37091706191cfda2e46a290c488350587a9c485f069a5ee",
+  "profileHash": "0x4df337d398b7c585d276f9359e5c0fad1f5ca05feda381bd230792bd2a4eb946",
   "profile": {
+    "supersedesPublicProfile": "0x93e0511d88fdb5f8d37091706191cfda2e46a290c488350587a9c485f069a5ee",
     "schema": "pirate.disposable-contract-plan/1",
     "chainId": 6343,
     "tld": "firstsong-20261105",
@@ -49,16 +50,19 @@
       "harness/compile-community.ts": "0x20e48b13774dbc6f3610b5c6728503bd4d7baab43ed861bdfad3bc34f6f020c2",
       "harness/megaeth/deployment-journal.ts": "0x4bc6aa87fae48f21cb27fd591ee6a36cdca83a0df82e6fdc4ae8cc58f3340f54",
       "harness/megaeth/verify-community.ts": "0x719fec25e57b9fe5ef65352af9a379d1f1f5dcf7c845f54022b1ab73d91bc394",
-      "harness/megaeth/setup-community.ts": "0x0bd244127b589a33c5d59b46e908ad9cc3aa70a482e9cc5ae145ae7da2bef3fc",
+      "harness/megaeth/setup-community.ts": "0x7a9bec20e51262ab2f306bbe24fb7fd9e5caf75e77521a17a444f8b353fb0188",
+      "harness/megaeth/adopt-profile.ts": "0xbe048f5db79828141343622791e754dfdccd682b1378ecc77f1177351174ecfd",
+      "harness/megaeth/community-plan.ts": "0xfefc8d0cbab3fdeb80cf8a83ea1711e3af6e5770bb237ef22316be6a79442b31",
+      "docs/deployments/first-song-managed-20261105.contract-plan-v1.json": "0x6d61634ced42ae9dd4fbb1905254ccc96518180225b36a3bd3a1740c79f88d09",
       "package-lock.json": "0x4d3f9cf5ad995fe0f6ed8f5bd95b76de4d382dd7d4d991718498b356591174a1"
     },
     "gas": {
       "registry": "1000000",
-      "authority": "100000",
-      "directory": "4000000",
-      "posts": "2000000"
+      "authority": "300000",
+      "directory": "150000000",
+      "posts": "80000000"
     },
-    "maximumGasPrice": "1000000000",
+    "maximumGasPrice": "30000000",
     "maximumTotalFee": "10000000000000000",
     "executionWindowSeconds": 600,
     "executionOwnerRole": "workspace_coordinator",
@@ -1304,5 +1308,11 @@
         ]
       }
     }
-  }
+  },
+  "gasEstimates": [
+    "184837",
+    "106833310",
+    "47311851"
+  ],
+  "gasEstimateScope": "read-only representative nonzero-code constructor arguments; exact reviewed arguments re-estimated before every send"
 }

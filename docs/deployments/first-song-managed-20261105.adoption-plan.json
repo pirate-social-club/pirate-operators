@@ -1,0 +1,30 @@
+{
+  "schema": "pirate.deployment-journal-adoption-plan/1",
+  "recordedAt": "2026-11-04T21:42:29.867Z",
+  "oldPublicProfile": "0x93e0511d88fdb5f8d37091706191cfda2e46a290c488350587a9c485f069a5ee",
+  "newPublicProfile": "0x4df337d398b7c585d276f9359e5c0fad1f5ca05feda381bd230792bd2a4eb946",
+  "oldJournalSha256": "0xeed0e188194971777022412abfd79640ff597a4ad2c18cdbfe232def2bbe150c",
+  "candidateJournalSha256": "0x0b31191efe4148ef673e4de4c0dc8a4d0426dca55ac7a568e26dbb477433896c",
+  "retainedTransactionHash": "0x20d0cbfe3ccb44fa95ceb00c37115abe26c9d008eb72e72764f0e904f809e493",
+  "retainedNonce": 12,
+  "retainedRegistry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+  "transactionCount": 1,
+  "transactionBytesAndReceipt": "unchanged",
+  "gasEstimates": [
+    "184837",
+    "106833310",
+    "47311851"
+  ],
+  "gasLimits": {
+    "registry": "1000000",
+    "authority": "300000",
+    "directory": "150000000",
+    "posts": "80000000"
+  },
+  "maximumGasPriceWei": "30000000",
+  "maximumTotalFeeWei": "10000000000000000",
+  "executionWindowSeconds": 600,
+  "signerCustody": "workspace_coordinator exclusive; latest/pending nonce13",
+  "qualification": "exact private journal dry-run passed; no adoption or further transaction performed",
+  "recovery": "preserve predecessor and deterministic candidate; exact digest guards, shared deployment lock and atomic fsync/rename"
+}

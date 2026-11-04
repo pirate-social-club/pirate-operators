@@ -1,0 +1,29 @@
+{
+  "schema": "pirate.first-song-registry-evidence/1",
+  "recordedAt": "2026-11-04T21:42:29.866Z",
+  "chainId": 6343,
+  "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+  "tld": "firstsong-20261105",
+  "operator": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+  "factory": "0x702185797cd23e153fd0b83b672f969ea4acfcc6",
+  "runtimeCodeHash": "0xd0d2e318174350517cf8dca33787d618e08373ede6acde145bf3bc0367363ea9",
+  "transaction": {
+    "blockHash": "0xbf665793c0e6293d50c9ed105e222890d0eb1a1f30e8ce40e9bf6d755855b2f5",
+    "blockNumber": "34117218",
+    "contractAddress": null,
+    "effectiveGasPrice": "1000000",
+    "gasUsed": "874094",
+    "hash": "0x20d0cbfe3ccb44fa95ceb00c37115abe26c9d008eb72e72764f0e904f809e493",
+    "status": "success"
+  },
+  "nonce": 12,
+  "verified": {
+    "genuineSharedFactory": true,
+    "erc1167Runtime": true,
+    "operatorAdmin": true,
+    "fixedTld": true,
+    "canonicalReceipt": true
+  },
+  "directoryPosts": "pending reviewed remaining-step gas correction",
+  "hns": "not claimed"
+}

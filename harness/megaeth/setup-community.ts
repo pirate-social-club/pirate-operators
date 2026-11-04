@@ -19,6 +19,11 @@ import { communityId } from "../../packages/community/manifest-core.ts";
 import { compileCommunity } from "../compile-community.ts";
 import { deploymentJournal } from "./deployment-journal.ts";
 import {
+  estimatePlanGas,
+  deploymentGas as gas,
+  deploymentLimits as limits,
+} from "./community-plan.ts";
+import {
   factoryAbi,
   registryProfile,
   verifyDeployment,
@@ -33,18 +38,6 @@ const chain = defineChain({
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: ["https://carrot.megaeth.com/rpc"] } },
 });
-const gas = {
-  registry: 1000000n,
-  authority: 100000n,
-  directory: 4000000n,
-  posts: 2000000n,
-};
-const limits = {
-  chainId: 6343 as const,
-  maximumGasPrice: 1000000000n,
-  maximumTotalFee: 10000000000000000n,
-  maximumExecutionMs: 600000,
-};
 async function main() {
   const { values } = parseArgs({
     strict: true,
@@ -109,6 +102,9 @@ async function main() {
     "harness/megaeth/deployment-journal.ts",
     "harness/megaeth/verify-community.ts",
     "harness/megaeth/setup-community.ts",
+    "harness/megaeth/adopt-profile.ts",
+    "harness/megaeth/community-plan.ts",
+    "docs/deployments/first-song-managed-20261105.contract-plan-v1.json",
     "package-lock.json",
   ];
   const sourceDigests = Object.fromEntries(
@@ -120,6 +116,8 @@ async function main() {
     ),
   );
   const profile = {
+    supersedesPublicProfile:
+      "0x93e0511d88fdb5f8d37091706191cfda2e46a290c488350587a9c485f069a5ee",
     schema: "pirate.disposable-contract-plan/1",
     chainId: 6343,
     tld: saved.settings.tld,
@@ -156,6 +154,12 @@ async function main() {
       }),
     });
   await verifyFactory(client);
+  const gasEstimates = await estimatePlanGas(
+    client,
+    operator.address,
+    artifacts,
+    gas,
+  );
   const balance = await client.getBalance({ address: operator.address });
   insist(
     balance >= limits.maximumTotalFee,
@@ -164,7 +168,18 @@ async function main() {
   if (values["artifacts-out"])
     await writeFile(
       resolve(values["artifacts-out"]),
-      JSON.stringify({ profileHash, profile, artifacts }, null, 2) + "\n",
+      JSON.stringify(
+        {
+          profileHash,
+          profile,
+          artifacts,
+          gasEstimates: gasEstimates.map((value) => value.toString()),
+          gasEstimateScope:
+            "read-only representative nonzero-code constructor arguments; exact reviewed arguments re-estimated before every send",
+        },
+        null,
+        2,
+      ) + "\n",
     );
   if (!values.execute) {
     console.log(
