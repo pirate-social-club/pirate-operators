@@ -352,3 +352,85 @@ test("activation freshness and an atomic unfinished-upload cap gate new reservat
     await f.dispose();
   }
 });
+
+test("a delayed live R2 writer cannot replace the successor's sealed object", async () => {
+  const f = await fixture();
+  let release!: () => void, entered!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const firstEntered = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  try {
+    const row = await f.reserve(),
+      put = f.media.put.bind(f.media);
+    const delayed = new Proxy(f.media, {
+      get(target, key) {
+        if (key === "put")
+          return async (...args: Parameters<typeof put>) => {
+            entered();
+            await waiting;
+            return put(...args);
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const first = uploadAudio(
+      f.db,
+      delayed,
+      f.session.account_id,
+      row.submission_id,
+      request(),
+      1001,
+    );
+    const firstOutcome = assert.rejects(first, /upload_lease_lost/);
+    await firstEntered;
+    const stale = await ownedSubmission(
+      f.db,
+      row.submission_id,
+      f.session.account_id,
+    );
+    await uploadAudio(
+      f.db,
+      f.media,
+      f.session.account_id,
+      row.submission_id,
+      request(),
+      181002,
+    );
+    await sealSubmission(
+      f.db,
+      f.media,
+      f.session,
+      profile,
+      row.submission_id,
+      181003,
+    );
+    const sealed = await ownedSubmission(
+      f.db,
+      row.submission_id,
+      f.session.account_id,
+    );
+    assert.notEqual(stale.object_key, sealed.object_key);
+    release();
+    await firstOutcome;
+    const final = await ownedSubmission(
+      f.db,
+      row.submission_id,
+      f.session.account_id,
+    );
+    assert.equal(final.object_key, sealed.object_key);
+    assert.equal(final.upload_state, "sealed");
+    assert.deepEqual(
+      new Uint8Array(
+        await (await f.media.get(final.object_key))!.arrayBuffer(),
+      ),
+      audio,
+    );
+  } finally {
+    release();
+    await f.dispose();
+  }
+});

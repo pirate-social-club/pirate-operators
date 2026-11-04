@@ -8,6 +8,7 @@ import {
   type PublicationDriver,
   type OperationResult,
   type Reconciliation,
+  type ReplayPolicy,
 } from "../packages/community/publication.ts";
 import {
   loadJob,
@@ -36,6 +37,7 @@ async function fixture() {
   let loseResponse = false,
     reconcileUnknown = false,
     outcome: "confirmed" | "held" | "rejected" = "confirmed";
+  let replayKind: ReplayPolicy["kind"] = "provider_idempotency";
   const driver: PublicationDriver = {
     async request(job, step) {
       return {
@@ -50,13 +52,25 @@ async function fixture() {
     async prepare(op) {
       const raw = `stable-signed-${op.operation_id}`;
       prepared.set(op.operation_id, raw);
-      return { signedBytes: raw, nonce: 1 };
+      return {
+        replay:
+          replayKind === "never"
+            ? { kind: "never" }
+            : {
+                kind: "provider_idempotency",
+                provider: "simulated-ledger/1",
+                key: op.operation_id,
+              },
+        payload: { signedBytes: raw, nonce: 1 },
+      };
     },
     async execute(op) {
       assert.equal(
-        JSON.parse(op.prepared_json!).signedBytes,
+        JSON.parse(op.prepared_json!).payload.signedBytes,
         prepared.get(op.operation_id),
       );
+      const existing = receipts.get(op.operation_id);
+      if (existing) return existing;
       calls.push(op.step);
       const value = { receipt: `fixture-${op.operation_id}` };
       const result: OperationResult =
@@ -105,6 +119,9 @@ async function fixture() {
     },
     outcome: (value: typeof outcome) => {
       outcome = value;
+    },
+    noReplay: () => {
+      replayKind = "never";
     },
     run: () => Effect.runPromise(publicationStep(f.db, "job", driver, clock)),
   };
@@ -235,3 +252,47 @@ test("a stale preparer cannot broadcast after a second worker acquires the lease
     await f.dispose();
   }
 });
+
+for (const keyed of [true, false])
+  test(`two live workers across lease expiry preserve ${keyed ? "provider idempotency" : "a non-idempotent send"}`, async () => {
+    const f = await fixture();
+    let release!: () => void, entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const firstEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    try {
+      if (!keyed) f.noReplay();
+      let sends = 0;
+      const execute = f.driver.execute;
+      f.driver.execute = async (op) => {
+        sends++;
+        if (sends === 1) {
+          entered();
+          await waiting;
+        }
+        return execute(op);
+      };
+      const first = f.run();
+      const firstOutcome = assert.rejects(first, /publication_lease_lost/);
+      await firstEntered;
+      f.tick();
+      assert.equal(await f.run(), keyed ? "pin_audio" : "uncertain");
+      assert.equal(sends, keyed ? 2 : 1);
+      // The original worker is alive and its request arrives after the successor.
+      // A keyed provider deduplicates it; an unkeyed provider was never resent.
+      release();
+      await firstOutcome;
+      assert.deepEqual(f.calls, ["admission"]);
+      if (!keyed) {
+        await resumeUncertainJob(f.db, "job", "private-account", f.clock.now());
+        assert.equal(await f.run(), "pin_audio");
+      }
+      assert.equal((await loadJob(f.db, "job")).phase, "pin_audio");
+    } finally {
+      release();
+      await f.dispose();
+    }
+  });

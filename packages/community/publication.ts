@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { keccak256, type Hex } from "viem";
 import { canonical, hashJson, insist, object } from "./common.ts";
 import {
   advanceJob,
@@ -29,6 +30,45 @@ export type Reconciliation =
   // Only a provider-specific proof of absence permits another execution. The
   // persisted intent, nonce and signed bytes are reused without modification.
   | { kind: "absent"; proof: string };
+export type ReplayPolicy =
+  | { kind: "never" }
+  | {
+      kind: "same_signed_transaction";
+      signedTransaction: Hex;
+      transactionHash: Hex;
+    }
+  | { kind: "provider_idempotency"; provider: string; key: string };
+export interface PreparedOperation {
+  replay: ReplayPolicy;
+  payload: Record<string, unknown>;
+}
+
+export function preparedOperation(
+  operation: ExternalOperation,
+): PreparedOperation {
+  insist(operation.prepared_json, "missing_prepared_operation", 503);
+  const value = object(JSON.parse(operation.prepared_json));
+  const replay = object(value.replay);
+  object(value.payload);
+  if (replay.kind === "same_signed_transaction") {
+    insist(
+      typeof replay.signedTransaction === "string" &&
+        /^0x[0-9a-f]+$/.test(replay.signedTransaction) &&
+        keccak256(replay.signedTransaction as Hex) === replay.transactionHash,
+      "invalid_transaction_replay_binding",
+      503,
+    );
+  } else if (replay.kind === "provider_idempotency") {
+    insist(
+      replay.key === operation.operation_id &&
+        typeof replay.provider === "string" &&
+        /^[a-z0-9][a-z0-9._/-]{1,127}$/.test(replay.provider),
+      "invalid_provider_replay_binding",
+      503,
+    );
+  } else insist(replay.kind === "never", "invalid_replay_policy", 503);
+  return value as unknown as PreparedOperation;
+}
 export interface PublicationDriver {
   request(
     job: PublicationJob,
@@ -36,7 +76,10 @@ export interface PublicationDriver {
   ): Promise<Record<string, unknown>>;
   // Preparation performs reads and local signing only. No billable calls,
   // broadcasts, coin allocation or provider-side operation belongs here.
-  prepare(operation: ExternalOperation): Promise<Record<string, unknown>>;
+  // Replay is disabled unless the reviewed adapter enforces exact signed bytes
+  // or its provider guarantees idempotency for this immutable operation key.
+  // HTTP headers alone do not establish that upstream guarantee.
+  prepare(operation: ExternalOperation): Promise<PreparedOperation>;
   execute(operation: ExternalOperation): Promise<OperationResult>;
   reconcile(operation: ExternalOperation): Promise<Reconciliation>;
   validate(
@@ -169,6 +212,7 @@ export function publicationStep(
         );
         await hooks.boundary?.("prepared", operation);
       }
+      const preparation = preparedOperation(operation);
       let reconciledAbsent = false;
       if (operation.status === "running" || operation.status === "uncertain") {
         let reconciliation: Reconciliation;
@@ -205,6 +249,16 @@ export function publicationStep(
           "missing_absence_proof",
           503,
         );
+        if (preparation.replay.kind === "never") {
+          await parkJob(
+            db,
+            job,
+            "uncertain",
+            "external_result_uncertain",
+            clock.now(),
+          );
+          return "uncertain";
+        }
         // Retain reconciliation evidence before another send. It cannot replace
         // prepared bytes or alter the operation's captured request.
         const proof = { absenceProof: reconciliation.proof };

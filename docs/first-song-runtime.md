@@ -31,10 +31,14 @@ An operation's request hash and preparation are persisted before sending.
 Preparation must persist all external transaction identifiers, nonces and signed
 bytes needed for recovery, without causing a billable call or broadcast. A
 confirmed operation's receipt is reused after interruption. A running operation
-is reconciled before another send. Re-execution requires provider-specific proof
-of absence and uses the original preparation. Providers without a safe lookup
-or idempotency mechanism remain uncertain; a creator retry cannot authorize a
-second paid call. A user-facing resume request only reopens reconciliation.
+is reconciled before another send. Re-execution requires both provider-specific
+proof of absence and persisted replay safety: the identical signed transaction,
+or a provider contract that enforces the immutable operation idempotency key.
+An HTTP idempotency header alone does not establish such a guarantee. Without
+enforced replay safety, an ambiguous send remains uncertain even when a lookup
+currently finds nothing: a delayed original request may still arrive. A creator
+retry cannot authorize a second paid call. A user-facing resume request only
+reopens reconciliation.
 
 Job leases fence stale preparers and state advancement. Immutable operation
 results can be retained after a lease expires, but cannot change an already
