@@ -65,6 +65,10 @@ disposable directory/posts profile using this registry, not c22's, and supplies
 its addresses, ABIs and deployment manifest. The MegaETH clone transaction uses
 the existing approved operator test-funding workflow with a finite budget.
 HNS delegation is unnecessary for this unverified direct-feed test.
+An ordinary EOA may bootstrap as registry admin/controller for disposable
+acceptance. A later MOSS controller handoff needs an explicit proposal and the
+receiving account's acceptance; account execution and recovery are separate
+checks. See the [directory bootstrap boundary](contracts/community-directory.md).
 
 Keep c22 independent for storage/job acceptance. Its provider placeholders are
 not a managed-service configuration or evidence of real checks. Do not switch
