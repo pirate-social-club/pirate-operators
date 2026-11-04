@@ -15,7 +15,7 @@ and Telegram attachment. This contract applies to whichever wallet that plan
 proves.
 
 The [creator-wallet contract](creator-wallet.md) owns the additional first-song
-release flow. It is an operator-funded, testnet-only Ika exception to the
+release flow. It is an operator-submitted, testnet-only Ika exception to the
 earlier MOSS plan's blanket exclusion. It requires a separate creator passkey,
 persisted passkey-backed access, verified cap ownership before acceptance signing and
 confirmed on-chain activation before upload or registration. Ordinary sign-in,
@@ -23,6 +23,11 @@ karaoke, study and dance posts retain this document's session flow. Creator
 setup opens the dedicated wallet site by popup or redirect, not an iframe.
 The creator's encrypted wallet record is distinct from community session
 storage and does not introduce saved song drafts.
+The [funding and wizard contract](creator-wallet-payments.md) requires a verified
+registration-service connection and capped operator test allowance before
+enabling releases. No creator checkout is part of the first-song test. Only
+independent registration operators manage native SUI/IKA inventory; communities using Pirate's service
+do not. An incomplete creator capability leaves ordinary participation available.
 
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
