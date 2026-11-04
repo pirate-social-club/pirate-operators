@@ -284,6 +284,18 @@ async function fixture(acrCode = 1001, responseLost = false) {
       changeAuthority() {
         current = { ...current, publisher: address("5") };
       },
+      replacePairing() {
+        pairings[0] = {
+          ...pairings[0]!,
+          directory: address("6"),
+          controller: address("7"),
+        };
+        current = {
+          ...current,
+          directory: address("6"),
+          controller: address("7"),
+        };
+      },
       dispose: () => mf.dispose(),
     };
   } catch (error) {
@@ -378,6 +390,94 @@ test("changed current authority stops a queued admission before input download o
       "held",
     );
     assert.equal(f.sends(), 0);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an old queued job issues fresh evidence from durable provider acquisition, not enqueue time", async () => {
+  const f = await fixture();
+  try {
+    await f.send();
+    const id = f.queued[0]!;
+    await f.db
+      .prepare(
+        "UPDATE managed_admissions SET created_at=? WHERE admission_id=?",
+      )
+      .bind(Date.now() - 7200000, id)
+      .run();
+    assert.equal(await runAdmission(f.db, f.media, id, f.config), "complete");
+    const result = JSON.parse((await getAdmission(f.db, id)).result_json!);
+    const acquired = await f.db
+      .prepare(
+        "SELECT MIN(started_at) AS first_started FROM moderation_provider_calls WHERE admission_id=?",
+      )
+      .bind(id)
+      .first<{ first_started: number }>();
+    for (const record of result.evidence) {
+      assert.equal(
+        record.envelope.issuedAt,
+        Math.floor(acquired!.first_started / 1000),
+      );
+      assert.ok(record.envelope.expiresAt > Math.floor(Date.now() / 1000));
+    }
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a replacement pairing with the same publisher and revision cannot take over captured work", async () => {
+  const f = await fixture();
+  try {
+    await f.send();
+    const id = f.queued[0]!;
+    f.replacePairing();
+    assert.equal(await runAdmission(f.db, f.media, id, f.config), "held");
+    assert.equal(
+      (await getAdmission(f.db, id)).error_code,
+      "managed_pairing_changed",
+    );
+    assert.equal(f.sends(), 0);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("stale retained provider facts hold on resume without refreshing age or buying another check", async () => {
+  const f = await fixture();
+  try {
+    await f.send();
+    const id = f.queued[0]!;
+    await runAdmission(f.db, f.media, id, f.config);
+    const original = (await getAdmission(f.db, id)).result_json;
+    const old = Date.now() - 7200000;
+    await f.db
+      .prepare(
+        "UPDATE moderation_provider_calls SET started_at=? WHERE admission_id=?",
+      )
+      .bind(old, id)
+      .run();
+    // Model an interruption after retained results but before final job advancement.
+    await f.db
+      .prepare(
+        "UPDATE managed_admissions SET state='queued',result_json=NULL WHERE admission_id=?",
+      )
+      .bind(id)
+      .run();
+    assert.equal(await runAdmission(f.db, f.media, id, f.config), "held");
+    assert.equal(
+      (await getAdmission(f.db, id)).error_code,
+      "moderation_evidence_stale",
+    );
+    assert.equal(f.sends(), 3);
+    const retained = await f.db
+      .prepare(
+        "SELECT MIN(started_at) AS first_started FROM moderation_provider_calls WHERE admission_id=?",
+      )
+      .bind(id)
+      .first<{ first_started: number }>();
+    assert.equal(retained!.first_started, old);
+    assert.ok(original);
   } finally {
     await f.dispose();
   }

@@ -68,6 +68,11 @@ retains its reservation and remains uncertain through authenticated resumes.
 Held work may be explicitly resumed to recheck readiness, with all retained
 provider intents and receipts preserved. Quotas count provider requests, not
 currency; the selected classifier also has a fixed output-token bound.
+Evidence age begins at the earliest durably recorded provider acquisition,
+not at enqueue or resume. Fresh processing of an old queued job remains valid;
+stale retained facts hold before another purchase and cannot gain a new age.
+The captured directory, controller, registry and both origins remain immutable
+even if the service's curated pairing later changes.
 
 The processor's local composition tests exercise actual HTTP authorization,
 D1, R2, MP3 extraction, provider receipt handling, signatures and the release

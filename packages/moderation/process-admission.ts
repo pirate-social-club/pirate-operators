@@ -70,16 +70,47 @@ export function processAdmission(
         );
         const authority = JSON.parse(row.authority_json);
         insist(
+          authority.registry === pairing.registry &&
+            authority.directory === pairing.directory &&
+            authority.controller === pairing.controller &&
+            authority.communityOrigin === pairing.communityOrigin &&
+            authority.serviceOrigin === pairing.serviceOrigin,
+          "managed_pairing_changed",
+          403,
+        );
+        insist(
           authority.serviceBudget?.period === config.serviceBudgetPeriod &&
             authority.serviceBudget.requestCap === config.serviceRequestCap &&
             authority.communityRequestCap === pairing.requestCap,
           "service_budget_profile_changed",
           409,
         );
+        const acquisitionTime = async () => {
+          const acquired = await db
+            .prepare(
+              "SELECT MIN(started_at) AS first_started FROM moderation_provider_calls WHERE admission_id=?",
+            )
+            .bind(id)
+            .first<{ first_started: number | null }>();
+          const seconds =
+            acquired?.first_started === null ||
+            acquired?.first_started === undefined
+              ? null
+              : Math.floor(acquired.first_started / 1000);
+          insist(
+            seconds === null ||
+              (seconds <= Math.floor(Date.now() / 1000) &&
+                seconds + 3600 > Math.floor(Date.now() / 1000)),
+            "moderation_evidence_stale",
+            409,
+          );
+          return seconds;
+        };
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);
           insist(
-            current.communityId === pairing.communityId &&
+            current.chainId === 6343 &&
+              current.communityId === pairing.communityId &&
               current.registry === pairing.registry &&
               current.directory === pairing.directory &&
               current.controller === pairing.controller &&
@@ -92,6 +123,9 @@ export function processAdmission(
             "community_authority_changed",
             403,
           );
+          // Retained provider facts never gain a new age through a retry.
+          // Refuse to buy another check once earlier facts have expired.
+          await acquisitionTime();
         };
         await authorize();
         const request = admissionRequest(JSON.parse(row.request_json), pairing),
@@ -208,7 +242,9 @@ export function processAdmission(
             ),
           interpret: (response) => ({ ...parseLyricsClassification(response) }),
         })) as unknown as ReturnType<typeof parseLyricsClassification>;
-        const issuedAt = Math.floor(row.created_at / 1000),
+        const acquiredAt = await acquisitionTime();
+        insist(acquiredAt !== null, "moderation_acquisition_missing", 503);
+        const issuedAt = acquiredAt,
           evidence: EvidenceRecord[] = [];
         const sign = async (
           check: EvidenceCheck,
@@ -293,6 +329,7 @@ export function processAdmission(
               classificationReceipt: classified.id,
             },
           );
+        await acquisitionTime();
         await finishAdmission(
           db,
           row,
