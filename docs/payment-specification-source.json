@@ -1,6 +1,8 @@
 {
-  "sourceCommit": "0dec600a637e8cc3450d94627a98b95f5a55cab0",
+  "sourceCommit": "4aaf76e7ed2ecb30ae528a3f7b7fd903d383f9b7",
   "sourcePath": "docs/operator-payments.md",
-  "sha256": "e394609fa029da94bc4c99484cbda03991512bdbeda38bc9b855635e3eb1bce2",
-  "publication": "Exact documentation copy only. Implementation-state claims describe the local segment-payments branch at the source commit, not the code in this documentation branch. The implementation lane retains ownership."
+  "sha256": "5ef2bd3f830d8e6b3125ef9ca8ef1320e49e88e217ae8a5ab14a4606cd89d46c",
+  "publication": "Exact documentation bytes from the merged main baseline. The payment and learning-record runtime is now present in this branch through the main merge. The source document retains its dated implementation-state observations; README.md and decentralized-setup.md describe the current integration boundary.",
+  "previousSourceCommit": "0dec600a637e8cc3450d94627a98b95f5a55cab0",
+  "previousSha256": "e394609fa029da94bc4c99484cbda03991512bdbeda38bc9b855635e3eb1bce2"
 }

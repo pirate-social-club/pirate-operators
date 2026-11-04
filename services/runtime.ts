@@ -1,9 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Address, Hex } from "viem";
-import { check } from "../packages/protocol/index.ts";
+import { check, supportedChain } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
-import { operator, onPerformance } from "./operator.ts";
-import { payer, provider } from "./payments.ts";
+import { operator } from "./operator.ts";
+import { onClose, onMessage, tick } from "./karaoke.ts";
+import { communityTick } from "./community-purchases.ts";
+import { D1Store, localControl } from "./storage.ts";
 import { attest } from "./very.ts";
 
 export interface Env {
@@ -13,8 +15,6 @@ export interface Env {
   PRIVATE_KEY: Hex;
   COMMUNITY: Fetcher;
   OPERATOR: Fetcher;
-  PAYER: Fetcher;
-  PROVIDER: Fetcher;
   ISSUER: Address;
   OPERATOR_ADDRESS: Address;
   COMMUNITY_ID: string;
@@ -22,13 +22,29 @@ export interface Env {
   CUTOFF: string;
   SIGNATURE_CHAIN_ID?: string;
   INITIAL_NOW?: string;
+  // Operator payments (docs/operator-payments.md). Local runs point RPC_URL at
+  // loopback anvil only.
+  RPC_URL?: string;
+  PAYMENT_CHAIN_ID?: string;
+  PAYMENT_TOKEN?: string;
+  PAYMENTS_CONTRACT?: string;
+  /** The community's address in OperatorPayments. */
+  COMMUNITY_ADDRESS?: string;
+  SEGMENT_PRICE?: string;
+  REALTIME_RPC?: string;
+  /** LearningRecords on the payment chain; publication is off without it. */
+  RECORDS_CONTRACT?: string;
+  /** The community's own database; the community needs no Durable Object. */
+  DB?: D1Database;
 }
 export class Store {
+  readonly sql: SqlStorage;
   constructor(
-    readonly sql: SqlStorage,
+    private readonly storage: DurableObjectStorage,
     readonly initialNow = 1800000000,
   ) {
-    sql.exec(
+    this.sql = storage.sql;
+    this.sql.exec(
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
   }
@@ -60,6 +76,10 @@ export class Store {
   now() {
     return this.get<number>("clock") ?? this.initialNow;
   }
+  /** Runs every write in `fn` as one SQLite transaction: all of them land, or none. */
+  transaction<T>(fn: () => T): T {
+    return this.storage.transactionSync(fn);
+  }
 }
 export async function call<T>(
   binding: Fetcher,
@@ -85,7 +105,7 @@ export class ServiceState extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.store = new Store(
-      ctx.storage.sql,
+      ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
     );
   }
@@ -99,17 +119,22 @@ export class ServiceState extends DurableObject<Env> {
           "clock_backwards",
         );
         this.store.set("clock", now);
+        if (this.env.ROLE === "operator") await tick(this.env, this.store);
         return Response.json({ now });
       }
+      if (path === "/__fault") {
+        // Local fault injection for crash and race tests; LOCAL_ONLY guards it.
+        const { key, value } = await body<{ key: string; value: unknown }>(
+          request,
+        );
+        check(/^fault:[a-z-]{1,40}$/.test(key), "invalid_fault");
+        if (value === null) this.store.delete(key);
+        else this.store.set(key, value);
+        return Response.json({ key });
+      }
       if (path === "/__state") return Response.json(this.store.entries(""));
-      if (this.env.ROLE === "community")
-        return await community(request, this.env, this.store);
       if (this.env.ROLE === "operator")
         return await operator(request, this.env, this.store, this.ctx);
-      if (this.env.ROLE === "payer")
-        return await payer(request, this.env, this.store);
-      if (this.env.ROLE === "provider")
-        return await provider(request, this.store);
       if (this.env.ROLE === "very")
         return await attest(request, this.env, this.store);
       return new Response("unknown_role", { status: 404 });
@@ -126,17 +151,38 @@ export class ServiceState extends DurableObject<Env> {
         typeof message === "string" && message.length <= 32000,
         "invalid_frame",
       );
-      await onPerformance(ws, JSON.parse(message), this.env, this.store);
+      await onMessage(ws, JSON.parse(message), this.env, this.store);
     } catch (error) {
       ws.send(
         JSON.stringify({
-          error: error instanceof Error ? error.message : "invalid_frame",
+          type: "error",
+          code: error instanceof Error ? error.message : "protocol_error",
         }),
       );
     }
   }
   webSocketClose(ws: WebSocket, code: number, reason: string) {
+    onClose(ws, this.store);
     ws.close(code, reason);
+  }
+}
+/** The community runs in its Worker on D1; only the operator keeps a Durable Object. */
+async function communityFetch(request: Request, env: Env) {
+  check(env.DB, "community_database_unconfigured");
+  const store = new D1Store(env.DB, Number(env.INITIAL_NOW ?? 1800000000));
+  try {
+    const path = new URL(request.url).pathname;
+    const control = await localControl(path, request, store);
+    if (control !== undefined) {
+      if (path === "/__clock") await communityTick(env, store);
+      return Response.json(control);
+    }
+    return await community(request, env, store);
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "internal_error" },
+      { status: 400 },
+    );
   }
 }
 export default {
@@ -145,6 +191,7 @@ export default {
       env.LOCAL_ONLY === "pirate-local-skeleton",
       "local_configuration_required",
     );
+    if (env.ROLE === "community") return communityFetch(request, env);
     return env.STATE.getByName(`${env.ROLE}:${env.COMMUNITY_ID}`).fetch(
       request,
     );
@@ -152,7 +199,5 @@ export default {
 };
 
 export function signatureChainId(env: Env) {
-  const chainId = Number(env.SIGNATURE_CHAIN_ID ?? 31337);
-  check([31337, 84532].includes(chainId), "unsupported_signature_chain");
-  return chainId;
+  return supportedChain(Number(env.SIGNATURE_CHAIN_ID ?? 31337));
 }

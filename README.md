@@ -2,13 +2,15 @@
 
 A standalone experiment for independently operated communities, song admission,
 karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
-explains the required happy path: TLD/app records, community directory,
-Alchemy.run provisioning, Infisical secrets, real moderation and first post.
+explains the first milestone: ordinary HTTPS, a genuine registry, community
+configuration, Alchemy.run provisioning, Infisical, real moderation and first
+publication. Native app.tld/browser acceptance is a separate follow-up.
 Sponsored customer name purchases are later work. The recovered
 [operator protocol](docs/operator-protocol.md) owns admission/publication rules.
-Its [payment specification](docs/operator-payments.md) is a published copy of
-the active payment lane's design; that document's implementation-state section
-describes the source branch recorded in its provenance, not this runtime.
+The [payment specification](docs/operator-payments.md) is pinned to the merged
+main baseline in its [source record](docs/payment-specification-source.json).
+Its original implementation-state notes are dated; the runtime and current
+integration limits below take precedence over those status observations.
 [HNS resolution and ingress](docs/hns-community-ingress.md) puts actual HIP-5
 client support before transport selection. It retains prior gateway evidence
 and requires a separate instance if that HTTPS route is chosen.
@@ -21,11 +23,13 @@ are later work under the [namespace scope](docs/decentralized-setup.md#mvp-names
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits
-and signed purchases for admission jobs and karaoke segment takes. This main
-baseline still contains the older local payment harness; the segment-payments
-branch owns its replacement. Do not deploy that baseline or invoke its old
-public-network harness. The present documentation change does not claim the
-runtime migration is complete.
+and signed purchases for admission jobs and karaoke segment takes. Payments
+and [LearningRecords](docs/learning-records-contract.md) are merged from PRs 14
+and 18, with separate [testnet evidence](docs/megaeth-testnet.md). This does not
+establish a deployed first-song application or real managed moderation. The
+payment signer can choose any recipient and amount within its community/token
+deposit; admin-controlled recipient and spending limits are not implemented.
+OperatorPayments is optional for the disposable first-song path.
 
 External Megapot operates on Base. That fact does not make Base a deployment
 target for Pirate contracts. The reward prize source and production payout
@@ -71,20 +75,34 @@ The creator-wallet design in PR 10 adds operator-funded Sui/Ika setup and a
 creator-owned EVM recipient for the separate Aeneid song-registration test.
 It does not change ordinary MOSS participation or establish a production DATA
 migration. Saved passkey access and reopen-and-sign acceptance remain to be
-implemented. Provider keys stay with the operator that uses them.
+qualified across supported devices. PR 13 records an owner-reported real-
+browser activation/reopen/sign pilot with independently checked chain/signature
+evidence; broader browser/device and actual registration acceptance remain open.
+Provider keys stay with the operator that uses them.
 
-The active payment branch replaces the service payment mechanism, moves
-community state to D1 and adds a durable transaction sender. The setup wizard,
-public-post/discovery contract, live publisher, provider adapters and complete
-second installation are not built. Use the setup overview and task records
-instead of assuming the existing local skeleton is ready to expose.
+The merged [account and portability design](docs/community-accounts-portability.md)
+separates private account IDs, credential bindings and public authors. It is
+specified, not implemented; the current runtime remains wallet-keyed. Payments
+use the D1 community store and durable operator transaction sender, but the
+complete publication-job schema and first-song orchestration are still missing.
+
+PR 15 implements the provisioning wizard and records disposable infrastructure
+recovery acceptance. Its latest launcher still needs independent review and a
+first live startup qualification. PRs 12 and 17 separately specify and implement
+the directory/posts profile; they are not merged or deployed here. Current c22
+stays independent for storage/job testing. First-song acceptance needs a new
+managed-mode community, its own TLD fixed before initial deployment and its own
+operator-controlled registry clone before contracts qualification. The wizard
+does not create that clone. Managed moderation, real registration, publication
+and fresh-browser playback remain unfinished in their owning lanes.
 
 ## Local reward and provider research
 
 The existing RewardPool models one immutable drawing, signed registration,
 fixed-recipient payout, conservation and emergency recovery. Allocations do not
 expire after finalization. Its sponsored path requires the claimant's original
-ECDSA key; ERC-1271 and delegated-key compatibility are not established.
+ECDSA key. Exact EIP-7702 delegation markers are supported; delegated session
+keys, ERC-1271 and other contract-wallet signatures are not supported.
 The community verifier and selected Very attester remain trusted inputs.
 See [the local pool contract](docs/reward-pool.md).
 

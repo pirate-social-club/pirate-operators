@@ -13,16 +13,12 @@
     "check": "npm run typecheck && npm test && forge test --offline && npm run acceptance",
     "dev": "cf dev",
     "build": "cf build",
-    "testnet:prepare": "node harness/testnet/acceptance.ts prepare",
-    "testnet:tempo": "node harness/testnet/acceptance.ts tempo",
-    "testnet:base": "node harness/testnet/acceptance.ts base",
-    "testnet:e2e": "node harness/testnet/acceptance.ts e2e",
-    "testnet:verify": "node harness/testnet/acceptance.ts verify",
     "test:fork": "FOUNDRY_PROFILE=fork forge test --offline -vv",
-    "very:probe": "node harness/very/credential-probe.ts"
+    "very:probe": "node harness/very/credential-probe.ts",
+    "megaeth:payments": "node harness/megaeth/deploy-payments.ts",
+    "megaeth:records": "node harness/megaeth/deploy-records.ts"
   },
   "dependencies": {
-    "mppx": "0.17.0",
     "viem": "2.57.16"
   },
   "devDependencies": {

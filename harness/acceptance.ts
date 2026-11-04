@@ -1,11 +1,16 @@
 import { workers, accounts } from "./runtime.ts";
 import { chain } from "./chain.ts";
 import { runFlow } from "./flow.ts";
-const runtime = await workers();
 let evm: Awaited<ReturnType<typeof chain>> | undefined;
+let runtime: Awaited<ReturnType<typeof workers>> | undefined;
 try {
   evm = await chain();
   const running = evm;
+  runtime = await workers(undefined, {
+    rpcUrl: running.rpcUrl,
+    paymentToken: running.paymentToken,
+    paymentsContract: running.paymentsContract,
+  });
   await runFlow({
     runtime,
     accounts,
@@ -22,7 +27,7 @@ try {
     log: (step, state) => console.log(JSON.stringify({ step, state })),
   });
 } finally {
-  await runtime.mf.dispose();
+  if (runtime) await runtime.mf.dispose();
   if (evm) {
     evm.child.kill();
     await new Promise<void>((resolve) => {

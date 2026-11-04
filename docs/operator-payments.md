@@ -259,7 +259,23 @@ these terminal events:
 
 A socket that closes without `finish` is a disconnect, not a terminal event.
 The attempt waits `reconnectWindowMs` (default 30 seconds) for the same ticket
-and key to reconnect, unless another terminal event comes first. Only the
+and key to reconnect, unless another terminal event comes first.
+
+Two clocks follow. `endedAt` is the operator's decision time and governs the
+reconnect window, payment grace and finalization. `performanceEndedAt` is
+when singing stopped and governs reachability: it equals `endedAt`, except that
+an attempt ending while disconnected stops at the disconnect time. A learner
+who disconnects at second 6 and never returns has reached only the lines that
+began before second 6, although the attempt is decided later. For public
+learning records, a karaoke attempt's completion time is its
+`performanceEndedAt`.
+
+Capture and finish never wait on the payment chain. A `words` or `finish`
+frame is applied on arrival, after only the attempt's synchronous timers, so
+the finish keeps its arrival time. Refreshing purchases from the contract runs
+afterwards and on each tick; if the RPC fails or is slow, purchases stay
+pending for the next attempt, and scores stay withheld until payment is
+confirmed. Only the
 newest connection is live: each accepted connection increments the attempt's
 generation, older sockets for the ticket are closed, and a superseded socket's
 messages and close are ignored, so it can never disconnect its replacement.
@@ -336,8 +352,12 @@ request boundary, so the operator may send audio that spans lines to its
 transcription provider. It may process audio before the purchase is
 redeemed, at its own risk, but it delivers no numeric score for a line,
 provisional or final, on the socket or in any record, until that line is
-paid. If `maxUnpaidRun` consecutive segments end unpaid, it may stop the
-attempt with `payment_missing`.
+paid. If `maxUnpaidRun` consecutive segments end with no purchase received,
+it may stop the attempt with `payment_missing`. A purchase received and still
+being redeemed counts as received, so a slow redemption never stops an
+attempt. Before the rule reads purchase state, each tick and each recovery
+refreshes unresolved purchases from contract state, so a redemption that
+failed counts as missing without waiting for a client retry.
 
 At finalization each scored line takes one status:
 
@@ -347,6 +367,13 @@ At finalization each scored line takes one status:
 | `silent` | paid and measured, nothing recognized | none | zero |
 | `unpaid` | its segment had no confirmed redemption | none | zero |
 | `unmeasured` | paid, but the measurement failed | none | excluded, within the policy's limit |
+| `unattempted` | the line began at or after the performance cutoff, paid or not | none | zero |
+
+A line is reached when it begins before `performanceEndedAt`, measured as time
+since `startedAt`. Only reached lines are scored or enter the timing compensation.
+An unattempted line stays distinct from silence during a reached line, a
+missing payment and a measurement failure. Any purchase made for it remains
+visible in `OperatorPayments`.
 
 The educational score is nullable. An absent assessment is never published
 as a numeric zero, so no other application can read it as demonstrated
@@ -371,7 +398,7 @@ supersede it explicitly, and it gains:
 
 ```text
   manifestSha256, quoteId, community, mode
-  startedAt, lastAudioAt, endedAt
+  startedAt, lastAudioAt, performanceEndedAt, endedAt
   paidCount, paidAmount
   linesTotal, unmeasuredCount, rewardScoreBps
   linesHash         // JCS hash of pirate.karaoke.lines/1
@@ -381,7 +408,7 @@ supersede it explicitly, and it gains:
 ```text
 pirate.karaoke.lines/1 [
   { lineId, lineVersion,
-    status: "assessed" | "silent" | "unpaid" | "unmeasured",
+    status: "assessed" | "silent" | "unpaid" | "unmeasured" | "unattempted",
     scoreBps: integer | null } ]
 
 pirate.karaoke.billing/1 [
@@ -434,10 +461,15 @@ Section 10 stands, with these changes:
    exactly one line entry for every scored line, with no omissions,
    duplicates or IDs the manifest lacks, every `scoreBps` an integer from 0 to
    10,000 or null as its status requires, and exactly one billing entry per
-   segment with that segment's `lineIds`.
+   segment with that segment's `lineIds`. It checks the timing bounds,
+   `startedAt ≤ performanceEndedAt ≤ endedAt` with the performance no longer
+   than the song, and that exactly the lines beginning at or after
+   `performanceEndedAt` are `unattempted`, using the same reachability rule
+   as the operator.
 5. It recomputes `linesHash`, `billingHash`, `linesTotal`, `unmeasuredCount`
-   and `rewardScoreBps`. It checks that lines with a score-bearing or
-   measured status belong to paid segments and `unpaid` lines to unpaid ones,
+   and `rewardScoreBps`. It checks that no line of a paid segment is
+   `unpaid` and that every line of an unpaid segment is `unpaid` or
+   `unattempted`,
    that `paidCount` counts the paid segments and that `paidAmount` equals
    `paidCount × segmentPrice`. It may confirm each paid segment against the
    contract: `redemption(community, unit)` equals the listed digest, and the
@@ -487,8 +519,10 @@ with an expired authorization means failed.
 Accepted work is persisted as a transaction intent, keyed by kind and
 reference, in the same synchronous step that records the redemption, before
 any RPC call. Ticket closures are intents too. Dispatching an intent
-allocates its nonce exactly once and stores the signed transaction before any
-broadcast. An RPC failure before allocation leaves the intent in place, and a
+allocates its nonce exactly once. Advancing the next nonce, writing that
+nonce's transaction row and linking the intent to it are one atomic storage
+transaction, so a failed write never leaves a nonce without its row. The
+signed transaction is stored before any broadcast. An RPC failure before allocation leaves the intent in place, and a
 retry of the same purchase or recovery dispatches it. The sender keeps one
 row per nonce. A transaction row stays
 tracked until its nonce is consumed on chain, even after its purchase has
@@ -498,7 +532,8 @@ every unresolved nonce. A redemption that has become moot then reverts
 harmlessly and consumes its nonce. Recovery never signs a new transaction for
 an allocated nonce, because a duplicate costs gas and a stuck nonce blocks
 every later submission from the operator's key. This is an ordinary durable
-queue and transaction sender; it needs no Durable Object.
+queue and transaction sender; it needs atomic multi-key writes, not a Durable
+Object.
 The operator pays redemption gas and prices it into its quote; batching
 redemptions is an optimization, not a requirement.
 
@@ -506,7 +541,7 @@ redemptions is an optimization, not a requirement.
 
 | Case | Outcome |
 |---|---|
-| The learner sends `finish` | `completed`. Lines bought ahead but not reached are `silent`; nothing is refunded. |
+| The learner sends `finish` | `completed`. Lines not yet reached are `unattempted`, including any bought ahead; nothing is refunded. |
 | The socket drops and the learner returns in time | The same attempt resumes; bought lines stay paid. |
 | The socket drops and the learner does not return | `abandoned` when the reconnect window ends. |
 | A redemption confirms after the deadline but before the closure | It counts; reconciliation reads it from the contract. |
@@ -588,10 +623,12 @@ What exists, all local and loopback only:
   live karaoke session runs on a Durable Object, which section 1 allows.
 - `harness/acceptance.ts` runs the full local flow on anvil: admission and
   every line paid through the contract, three performances, qualification and
-  the reward pool. `test/operator-payments.test.ts` has seventeen integration
+  the reward pool. `test/operator-payments.test.ts` has twenty integration
   tests on anvil, covering the section 10 cases and regressions for an
   interrupted ticket write, purchase insert and settlement, an RPC failure
-  before nonce allocation, and a superseded socket closing.
+  before nonce allocation, a superseded socket closing, the reachability
+  cutoff on disconnect, recovery reconciling reverted redemptions, and words
+  and finish surviving an RPC outage.
   `test/payments-protocol.test.ts` covers the chain allowlist, the reward
   score, manifest rules and the verifier's list checks.
 
@@ -603,8 +640,10 @@ with a grouped manifest end to end.
 Not yet built:
 
 - the public grade-record contract that consumes the result;
-- the MegaETH testnet run, including `realtime_sendRawTransaction`, which the
-  local sender supports but anvil cannot exercise;
+- the community and operator services against MegaETH testnet. The contract
+  itself is deployed there and passed a smoke purchase, redemption and closure
+  ([MegaETH testnet deployment](megaeth-testnet.md)); `realtime_sendRawTransaction`
+  is still unexercised;
 - configurable sponsorship limits: the per-credential buckets of section 9.7
   and a community-wide per-period limit. Only the per-wallet allowance and the
   funds currently deposited bound spending;

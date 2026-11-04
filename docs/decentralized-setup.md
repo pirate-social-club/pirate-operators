@@ -1,25 +1,25 @@
 # Community setup to first song
 
-Owner direction, 2026-11-04: the first milestone is an operator bringing a
-community online at app.tld, appearing in Pirate's community directory and
-posting its first song. Sponsored customer name purchases are lower priority.
-Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
-source of service secrets. These are requirements, not optional tooling choices.
+Owner direction, reconciled 2026-11-04: the first milestone is a disposable
+managed-mode community on ordinary HTTPS, one real admitted and registered song,
+and direct-feed playback after a fresh-browser reload. Interrupted work resumes
+without duplicate charges, registrations or posts. Verified discovery and native
+app.tld/browser acceptance are later gates. Sponsored customer names, HNS browser
+access and karaoke remain outside this milestone.
 
-The wizard is not implemented. Existing pieces are the testnet HNS name
-registry, local operator services and a fixture static client. The maintained
-centralized HNS gateway also has prior phone acceptance; its new-registry
-adapter and repeatable community setup are not built. The sequence
-below is the missing end-to-end integration. It keeps centralized hosted
-infrastructure as an explicit part of the decentralized community product.
+Alchemy.run owns Cloudflare provisioning, and Infisical is the service-secret
+source. PR 15 supplies a provisioning wizard with separate live recovery evidence;
+it does not implement the song application. Main includes payments, learning
+records and the account-design specification. The application account migration,
+managed moderation, publication jobs and live upload-to-playback path remain work.
 
 ## MVP namespace scope
 
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
 community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
 HNS configuration and verification are an optional follow-up for that slice.
-This deferral adds no HNS prerequisite to wizard v1. The broader first-song
-and native-address acceptance requirements below retain their own scope. Native
+This deferral adds no HNS prerequisite to wizard v1. Native-address acceptance below is a separate follow-up to the ordinary-HTTPS
+first-song milestone. Native
 Spaces community bindings, handle resolution/issuance and their deployment
 integration are later work, not first-song acceptance gates. The current
 HNS-specific registry/directory design need not be generalized for Spaces to
@@ -31,7 +31,7 @@ accept Spaces setup inputs, request keys or funding, or provision Spaces
 services. Configuration/API requests selecting Spaces must return an explicit
 unsupported-namespace result before external effects. MVP acceptance must
 show that this unavailable option cannot block supported setup. This is a
-wizard requirement, not a claim that the wizard is implemented.
+wizard requirement; the provisioning implementation remains on PR 15.
 
 Cloudflare Containers are a candidate for the later Spaces service deployment,
 consistent with the preference to keep hosting on Cloudflare. They are not a
@@ -47,7 +47,32 @@ MVP provisions neither a Spaces VPS nor a Spaces container. This deferral does
 not retire or migrate existing centralized Spaces services, alter their
 acceptance records, or settle the separate HNS ingress/transport decision.
 
-## The happy path
+## First-song setup prerequisite
+
+The first-song integration coordinator arranges a separate disposable managed-
+mode community before directory/posts qualification and records setup ownership,
+fixed settings and evidence in the task register. That community is not yet
+provisioned. Select its own TLD and deployment/access settings before the first
+deployment attempt; wizard v1 does not migrate a deployed setup to new settings.
+Use separate resource names, private Alchemy state and the approved credential
+workflow. Managed communities receive scoped service pairing, not provider keys.
+
+The community operator creates and administers a dedicated registry clone through
+the verified shared factory. The wizard does not perform that transaction.
+Record the clone, factory/implementation profile, admin and publisher in the
+reviewed setup manifest. The contracts lane qualifies the permanently unlisted
+disposable directory/posts profile using this registry, not c22's, and supplies
+its addresses, ABIs and deployment manifest. The MegaETH clone transaction uses
+the existing approved operator test-funding workflow with a finite budget.
+HNS delegation is unnecessary for this unverified direct-feed test.
+
+Keep c22 independent for storage/job acceptance. Its provider placeholders are
+not a managed-service configuration or evidence of real checks. Do not switch
+its mode. Pair the new community to the managed service, prove capped operator-
+funded creator activation and actual admission, then run the complete song path.
+A further community is a later repeatability check after that journey passes.
+
+## Native-address follow-up
 
 | Step | Wizard responsibility | Completion evidence |
 | --- | --- | --- |
@@ -83,9 +108,9 @@ credentials automatically authenticate Alchemy. Pin the selected Alchemy release
 and its state/authentication behavior before implementation; current upstream
 includes a v2 API and older examples must not be copied blindly.
 
-The provisioner authenticates to Infisical through a scoped machine identity,
-reads only the selected operator/community environment, and supplies secrets
-to Alchemy's protected secret bindings. Infisical is the recoverable source of
+The trusted provisioner uses the operator's existing Infisical CLI login by
+default; an existing scoped machine identity is an unattended option. It reads
+only the selected scope and supplies secrets to Alchemy's protected bindings. Infisical is the recoverable source of
 truth; Worker bindings are runtime copies. Use one installation path rather
 than an independent automatic sync overwriting Alchemy's bindings. Verify
 rotation and a redeploy from stored secrets. Do not attempt to recover secrets
@@ -250,32 +275,19 @@ operator-first implementation order or requests a new general decision.
 
 ## Observed source and acceptance
 
-Inspected operators main 9f2217e, registry PR 2 at 296c97d, frontend branch
-388018f, creator PR 10 at 9c7899b and payment branch 0dec600 (successor to
-d635d46). The [payment specification](operator-payments.md) is included with exact source
-provenance. Its implementation is committed locally and remains unpublished
-at this observation; the documentation copy does not publish its runtime.
-No Alchemy provisioner, Infisical setup wizard, shared community directory or complete
-first-song acceptance exists in these inspected sources.
+This integration merges main 4aaf76e into guidance ba36312 without rewriting
+published history. Main includes payment PR 14, learning-record PR 18 and
+account-design PR 20. The [payment document](operator-payments.md) matches the
+merged baseline with exact [source provenance](payment-specification-source.json).
+The restored protocol's encoding, evidence and publication-gate sections remain
+byte-identical to their recorded recovery hashes. Joining follows reviewed
+PR 12's Very-only rule; publishing an admitted song does not require membership
+or its provider proof.
 
-The critical integration dependencies are the real ACRCloud/OpenAI adapters,
-a client that resolves the custom HIP-5 records and supports the selected
-transport/session path (including an isolated gateway if needed), and the creator
-wallet site plus Sui/Ika/Aeneid testnet flow. CloudConvert joins this list only
-if selected for conversion. Verify readiness independently, then prove them
-together; substituting a fake verdict or a pending-registration bypass does
-not satisfy the existing first-release contract.
-
-The implementation must prove one real run through steps 1-7, safe interrupted
-resume, no duplicate community/post/registration, provider failure refusal,
-retrieval after reload, and restoration of its configuration from Infisical.
-A local fixture run, a registry rehearsal, a published static shell or a passing
-CLI wallet delegation is not that result. This document is the corrected plan;
-it performs no deployment or provider/key operation.
-
-Current primary references:
-[Alchemy Cloudflare](https://alchemy.run/cloudflare/),
-[Alchemy secrets](https://alchemy.run/cloudflare/security/secrets-env),
-[Cloudflare custom-domain requirements](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/),
-[Infisical secrets management](https://infisical.com/platform/secrets-management),
-and [Filecoin Pin](https://github.com/filecoin-project/filecoin-pin).
+Wizard PR 15 at 1151a8b, creator spike PR 13 at a9810cc and directory/posts
+PR 17 at a64ae9d remain separate source and acceptance boundaries. Their task
+records distinguish provisioning/recovery, the creator browser pilot and local
+contract tests from full first-song acceptance. The new managed community,
+registry clone, contracts deployment, provider run and playback are not claimed
+by this source integration. Consult the current task register and refresh exact
+refs before executing any live step.

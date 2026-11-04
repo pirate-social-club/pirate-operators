@@ -23,7 +23,9 @@ chain. External Megapot's Base deployment is a provider dependency, not our
 deployment target. Local fork inspection remains distinct from public writes.
 The creator-wallet design has its own Sui/Ika and Aeneid testnet scope; this
 instruction does not authorize that integration, new credentials or transactions.
-Mainnet activity and managed production-key exports remain excluded.
+Refuse mainnet chain IDs and public local fixture keys. Public-chain scripts
+are manual opt-in, use test tokens only and never run in default CI. Mainnet
+activity and managed production-key exports remain excluded.
 
 Spaces support is deferred beyond the decentralized community MVP. Wizard v1
 starts on ordinary HTTPS, with HNS as an optional follow-up for that slice.

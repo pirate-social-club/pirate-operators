@@ -1,0 +1,107 @@
+{
+  "version": "pirate-learning-records/1",
+  "provenance": "Computed with Foundry cast abi-encode/keccak and Python sorting; no TypeScript or Solidity under test was invoked.",
+  "activity": {
+    "karaoke": "0xb638468fc981c0cce13fc8cf2e1ab0eb36a00936238b57ca41068baad84761cb"
+  },
+  "scoringPolicy": {
+    "karaoke-scoring/5": "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d"
+  },
+  "manifest": {
+    "leaves": [
+      {
+        "ordinal": 1,
+        "lineId": "line-01",
+        "lineVersion": 1,
+        "lineKey": "0x81b51e647a252ca439d66aab2f162ef8ff31f794747370ed61d223fd9e7d1f5e",
+        "leaf": "0x4c77ba59cfa0a53f97e080e880c238c34dc71712b672cf2073e1311a7f0e78d3"
+      },
+      {
+        "ordinal": 2,
+        "lineId": "line-02",
+        "lineVersion": 1,
+        "lineKey": "0xbe673f44240e6b8a55551214d23c66f0096f68241821f5efae3cdf2b0c097068",
+        "leaf": "0xcbac1e6b04a0c30e8ba598c3106b5748f629228303b4794abdb418c2c5a0db25"
+      },
+      {
+        "ordinal": 3,
+        "lineId": "line-03",
+        "lineVersion": 1,
+        "lineKey": "0x13c7eaabd447f4cf8e8c35658ad8d28b67ba46601eb91dc4592e042d7a365c60",
+        "leaf": "0xcd778b35cf4b086fd20d9948ba0117be603a4ac298ffaf1792aed8f993fb8336"
+      },
+      {
+        "ordinal": 4,
+        "lineId": "line-04",
+        "lineVersion": 1,
+        "lineKey": "0xe814c9c5858ec2c1d8fe0591bf3adfe99a23ae2cdc07ec20ffcd02de056bb7e6",
+        "leaf": "0x1c6f8f358974ba588ffb6c5c1f34907382f18c0a36ce02cd1d87699933248ba5"
+      }
+    ],
+    "linesRoot": "0x307f78ef4bd386a2dec53316e75f678f689bb009e935b531f2f0fe44ae632c07",
+    "proofs": {
+      "1": [
+        "0xcbac1e6b04a0c30e8ba598c3106b5748f629228303b4794abdb418c2c5a0db25",
+        "0x112f7d01cb4116f47ab9f290d2d3e312db51b0e9e5da66224ddd4d1add38f87a"
+      ],
+      "2": [
+        "0x4c77ba59cfa0a53f97e080e880c238c34dc71712b672cf2073e1311a7f0e78d3",
+        "0x112f7d01cb4116f47ab9f290d2d3e312db51b0e9e5da66224ddd4d1add38f87a"
+      ],
+      "3": [
+        "0x1c6f8f358974ba588ffb6c5c1f34907382f18c0a36ce02cd1d87699933248ba5",
+        "0x44790c0d2446a27c46343166f9094c6b62e937b7ba6c96e9d28d7930c9a98879"
+      ],
+      "4": [
+        "0xcd778b35cf4b086fd20d9948ba0117be603a4ac298ffaf1792aed8f993fb8336",
+        "0x44790c0d2446a27c46343166f9094c6b62e937b7ba6c96e9d28d7930c9a98879"
+      ]
+    },
+    "threeLeafRoot": "0x3668d0906182320ffafd9c2c79f83c084c009ba22f4de402664b86771564d116"
+  },
+  "records": {
+    "attemptId": "0x09f53dc283d107cf9719fdbf201f7025424dbe697813f1d5c9feb0b53f5ba0db",
+    "lines": [
+      {
+        "ordinal": 1,
+        "status": 1,
+        "scoreBps": 9000,
+        "final": true,
+        "revision": 1,
+        "recordHash": "0xaa4144f9cbe11dad0155e5578413ab422701333ba377a416176f485a27079521"
+      },
+      {
+        "ordinal": 2,
+        "status": 3,
+        "scoreBps": 0,
+        "final": true,
+        "revision": 1,
+        "recordHash": "0xde0da6e4308648c14f3a854ccaed86162bec760ce8f1fe3675dc9bd2c48807fe"
+      },
+      {
+        "ordinal": 3,
+        "status": 2,
+        "scoreBps": 0,
+        "final": true,
+        "revision": 1,
+        "recordHash": "0xf38ef0f4234cb7ce1b4b2e6b04131421c4d32301b609090e05607e4e9bbb5715"
+      },
+      {
+        "ordinal": 4,
+        "status": 5,
+        "scoreBps": 0,
+        "final": true,
+        "revision": 1,
+        "recordHash": "0x399f7620bc0d415463b888f58d743a83258e0167c413e60513577ced3cd24644"
+      }
+    ],
+    "recordsHash": "0x1c8fffc397653a54d6f38265005f5c732b677b1247e0826a22ae64a0b8452bc7"
+  },
+  "songKey": {
+    "chainId": 6343,
+    "posts": "0x0000000000000000000000000000000000000000",
+    "communityId": "0x5962ebcfbac306c856b583ed5dcb74c5e873f37f407ab0c1c1269c7d37a9b082",
+    "postId": "0x1e7b5e81875ce71d2f823fbc16592b5c3b83e7ab0ada5fd3cb21bc7172cca479",
+    "songKey": "0xc85c5c3e7f9b79f5aaa327aa2ee018d17f249e71799b228e6c09360fec82f30a"
+  }
+}

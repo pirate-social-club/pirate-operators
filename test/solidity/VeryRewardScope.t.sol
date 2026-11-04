@@ -44,17 +44,17 @@ contract VeryRewardScopeTest {
         return string(output);
     }
 
-    function testBaseSepoliaVector() public pure {
+    function testMegaethTestnetVector() public pure {
         checkVector(
             Vector({
-                chainId: 84532,
+                chainId: 6343,
                 pool: 0x1111111111111111111111111111111111111111,
                 drawingId: 7,
-                scope: 0xd36ef3fd2bec6daccd48761101319732581ba0c0a4c089d213715fb7665ddc48,
-                domainHash: 0xf273e8f95a89b67536de4179b46706e8d9de62822985976abc0b71f5d49e3f87,
-                externalNullifier: 1029915917412561647741321628686678282886266634119,
-                expectedSignal: 15528079924984600461116204484018431878310994032754333369729387376329019402362,
-                rewardNullifier: 0x6721bebf2781d966f5479fef564e7af9c4d39b0d5cdf55c90c5815fdd28ec5dd
+                scope: 0x66f646bf167eab5e7b53616c1d0ac3d347d1e7938c832f22ee11a19b0591534e,
+                domainHash: 0x1087d563efc52be5686d591cdf87ed56766960b3d24dfe35ed4ee583ace97ed7,
+                externalNullifier: 1276136217528963286438276924773934326101872049879,
+                expectedSignal: 9987988031917035604339859757035284859828123499243339578990325130716592220601,
+                rewardNullifier: 0x833a95afe23dcced72932062b125af61e6462390c3004962e74a1cbd3edd7bf8
             })
         );
     }
@@ -62,14 +62,14 @@ contract VeryRewardScopeTest {
     function testOtherDrawingVector() public pure {
         checkVector(
             Vector({
-                chainId: 84532,
+                chainId: 6343,
                 pool: 0x1111111111111111111111111111111111111111,
                 drawingId: 8,
-                scope: 0x2ee5d124248318aef640eac4ec8a9fa1d19d62076ce43719a78d29c05a8ba093,
-                domainHash: 0xb8519224810302443bfb275a00ed73f5cb5390866a29fe215adaeee56ff763f3,
-                externalNullifier: 5295378164380980842841068246485212168403248115,
-                expectedSignal: 3223878683203056288971245209316473171124804967721690581752638335257762418181,
-                rewardNullifier: 0xe04bb23f8f2bc7af8626a185e48661895f4bd9098f26fae040a1fd2c92e974fa
+                scope: 0x65657e501d857be9061ef86d6196b4549f23b7e0d7a3197ae961f695b870e106,
+                domainHash: 0x3212c35fbdaff950db2cd4130c511464452618a5645b48a6c1fa39ab7401ea53,
+                externalNullifier: 70316025976836920935361076021307070126720412243,
+                expectedSignal: 6500218037171198286818052551046358367240603005885307789930463912832643428962,
+                rewardNullifier: 0x8c481a559ea8352355b1c9e77db9f197fcaeef5e90100437de9d67f7602e5297
             })
         );
     }
@@ -77,14 +77,14 @@ contract VeryRewardScopeTest {
     function testOtherPoolVector() public pure {
         checkVector(
             Vector({
-                chainId: 84532,
+                chainId: 6343,
                 pool: 0x2222222222222222222222222222222222222222,
                 drawingId: 7,
-                scope: 0x2d1607d6f5707f0db5e1fe5a6b41e6a817a19e47702a6e8bccbc9382af472d5d,
-                domainHash: 0x83f51dee6a6c23ccfd50e76e2097fabcc84caced85c6967fe59873c12f661d44,
-                externalNullifier: 186076959502152631179085034419273387786168048964,
-                expectedSignal: 17013048388397614370916525406888355816356089167906927662142367128697087759615,
-                rewardNullifier: 0x8da54a437ea0bafa932f240ed3c781e7cfa56e666c6d3d846293dacf4ca7eb73
+                scope: 0xd17b14d70e49241407b11997669bc5fa395581bf7fbdf874ac49a4b24b9a6dfb,
+                domainHash: 0x12ab0e82db9b0c77dda839de64eef2e553904137a0ad9c02e616da0fbe42e211,
+                externalNullifier: 576227813648566688767274195578646617556229743121,
+                expectedSignal: 3356580098072245178689534558110363741873369180700218450587025690282305927858,
+                rewardNullifier: 0xdee44275ddde6ea12795b2d6f9df1d04126bbf8285e364e30ea54a302ed0c098
             })
         );
     }

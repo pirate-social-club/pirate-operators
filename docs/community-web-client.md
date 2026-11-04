@@ -1,18 +1,27 @@
-# Community web client and deployment contract, version 1
+# Community web client and deployment contract, version 2
 
 This document specifies the browser client for an independently operated
 community and the way it is deployed. It is a design contract for later
 implementation. Nothing described here is built yet, apart from the local
 behaviour recorded as current state.
 
+Version 2 adopts the account boundary in
+[community accounts and portability](community-accounts-portability.md).
+The session identifies a private community account and its authenticating
+credential; wallet authority is resolved for each capability that needs it.
+MOSS remains the first sign-in integration. This is a design amendment, not
+an implemented session migration or an additional onboarding step.
+
 The [restored operator protocol](operator-protocol.md) supplies section 7
 sign-in and section 8.2 ticket requirements. This document completes their
 browser cookie and handshake behavior. The current payment contract owns
-payment fields and does not change the browser key boundary. The [current setup overview](decentralized-setup.md) owns the chain and
-provisioning direction: Alchemy.run, Infisical, MegaETH, app.tld and the
-operator's first song. Customer name purchase and Telegram attachment are later. OperatorPayments purchases replace the original draft payment
-fields; the active payment specification owns those fields. No cross-chain
-simulated payout is required. Browser session and handshake rules here remain.
+payment fields and does not change the browser key boundary. The
+[current setup overview](decentralized-setup.md) owns the provisioning direction:
+Alchemy.run, Infisical, MegaETH and the first song on ordinary HTTPS. Native
+app.tld acceptance, customer name purchase and Telegram attachment follow
+separately. OperatorPayments purchases replace the original payment fields;
+the current payment specification owns them. Browser session and handshake
+rules here remain.
 
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
@@ -44,7 +53,9 @@ Set-Cookie: __Host-community_session=<opaque>; Path=/; Max-Age=<seconds>; Secure
 The `__Host-` prefix makes the browser refuse the cookie unless it is Secure,
 has `Path=/` and has no `Domain`, so it stays host-only. The value is 256
 random bits. The server stores only its SHA-256 and the session record:
-wallet, community, creation time and expiry.
+account ID, authenticating credential ID, community, creation time and expiry.
+Neither an account nor a connected social identity grants membership,
+sponsorship or wallet authority by itself.
 
 - Lifetime follows the draft's 30 days. The cookie always carries `Max-Age`.
   Without `Max-Age` or `Expires` it would be a browser-session cookie, deleted
@@ -93,7 +104,9 @@ wallet uses; the MOSS spike establishes that exact format.
 The local skeleton differs. It builds SIWE with an `http://` URI, which is
 acceptable only on loopback. It returns a bearer token in the JSON response
 body, and later requests send that token in the `Authorization` header. A
-hosted deployment replaces both.
+hosted deployment replaces both. Its session currently stores only a wallet
+address; the account model requires the separately reviewed migration in the
+account specification.
 
 A mirror (section 6) never offers sign-in. Each authenticated action is a link
 to the same path on the canonical origin, which it reads from the community

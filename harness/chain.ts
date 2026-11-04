@@ -9,9 +9,9 @@ import {
 import { foundry } from "viem/chains";
 import { accounts } from "./runtime.ts";
 import { compile } from "./compile.ts";
+import { ACTIVITY_KARAOKE } from "../packages/protocol/records.ts";
 
-export async function chain() {
-  const port = 18545;
+export async function chain(port = 18545) {
   const child = spawn(
     "anvil",
     [
@@ -109,7 +109,29 @@ export async function chain() {
       });
     const token = await deploy("TestUSDC", []);
     const jackpot = await deploy("MockJackpot", [token]);
+    // The community (fixture account 3) deposits into OperatorPayments and
+    // names the ticket issuer (account 1) as the key that signs its purchases.
+    const paymentToken = await deploy("TestPaymentToken", []);
+    const paymentsContract = await deploy("OperatorPayments", []);
+    await write(paymentToken, "TestPaymentToken", "mint", [accounts[3].address, 1_000_000_000n]);
+    await write(paymentToken, "TestPaymentToken", "approve", [paymentsContract, 1_000_000_000n], 3);
+    await write(paymentsContract, "OperatorPayments", "setSigner", [accounts[1].address], 3);
+    await write(
+      paymentsContract,
+      "OperatorPayments",
+      "deposit",
+      [accounts[3].address, paymentToken, 100_000_000n],
+      3,
+    );
+    // The community also controls LearningRecords and authorizes the operator
+    // (account 2) as its karaoke grader.
+    const recordsContract = await deploy("LearningRecords", [accounts[3].address]);
+    await write(recordsContract, "LearningRecords", "setGrader", [accounts[2].address, ACTIVITY_KARAOKE, true], 3);
     return {
+      rpcUrl: `http://127.0.0.1:${port}`,
+      paymentToken,
+      paymentsContract,
+      recordsContract,
       child,
       rpc,
       publicClient,

@@ -187,7 +187,7 @@ export class Probe {
         "One enrolled credential, as asserted by the operator; not one-human assurance.",
         "Participant labels with fresh 128-bit challenges; no wallet authentication or literal wallet pseudonym test.",
         "Diagnostic scopes only; production pool scope derivation remains unimplemented.",
-        "Hosted verifier trusted; no Very-specific Base verifier established.",
+        "Hosted verifier trusted; no Very-specific MegaETH verifier established.",
         "Timestamp format probe, not fresh liveness, revocation or re-enrollment testing.",
         "No reward attestation issued and no funds moved.",
       ],

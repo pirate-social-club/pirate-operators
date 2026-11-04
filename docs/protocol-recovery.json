@@ -17,7 +17,7 @@
     "9": "Old payment transports deleted; full original 9.7 sponsorship policy retained as section 9 with current accounting notes.",
     "10": "Retained qualification and commitment; current payment specification section 6 replaces score fields.",
     "11": "Existing versioned reward-pool.md owns local settlement; no new reward deployment priority.",
-    "12": "Retained evidence-per-action; current very-reward-scope.md owns adapter mapping.",
+    "12": "Very-only joining, separate membership/sponsorship/reward scopes, and no provider proof merely to publish an admitted song; aligned with reviewed PR 12. Current very-reward-scope.md owns adapter mapping.",
     "13": "Retained admission, auth, ticket, sponsorship and qualification verification; current payment tests replace voucher tests.",
     "14-17": "Obsolete execution order and deployment guidance deleted; decentralized-setup.md owns current first-song sequence."
   }

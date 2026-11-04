@@ -1,0 +1,73 @@
+{
+  "kind": "megaeth-operator-payments-testnet",
+  "recordedAt": "2026-11-04T13:21:00.352Z",
+  "chainId": 6343,
+  "rpc": "https://carrot.megaeth.com/rpc",
+  "contract": "0x98a5242f80ecc9e01295e03a18712b4256d9f071",
+  "runtimeCodeHash": "0xf6c5a9abd58f1035c941025d7ca30950841b40da7dd060abe41f7fbdb33aba64",
+  "token": "0xC5321666F425812D1C12F44dA7BFe08CEB00044B",
+  "community": "0xBF85a150114d3df8B90A7793C0Ea4B2F4bB8C319",
+  "purchaseSigner": "0xa67aC40Bc3d5e1b25D7da5CA2e8585f335A37329",
+  "operator": "0x14B90A55657D9695A727254EAec5E0e32D20d602",
+  "deposit": "500000000",
+  "transactions": [
+    {
+      "step": "deploy_operator_payments",
+      "hash": "0xee26bc4dc4641517fece9d73798f05749af6a542bf60374799010b61801bf45f",
+      "gasUsed": "64659412",
+      "block": "34087991"
+    },
+    {
+      "step": "fund_operator_gas",
+      "hash": "0x42607603152ba4a13cc3c0a539711cb18e858bd36d4d12c8332018957aa21560",
+      "gasUsed": "60000",
+      "block": "34087993"
+    },
+    {
+      "step": "mint_test_usd",
+      "hash": "0xa518fac9de91c1c63e6dcfe470bb27cf47ff3241c4d9e341bad665dd23941a61",
+      "gasUsed": "110075",
+      "block": "34087995"
+    },
+    {
+      "step": "approve_deposit",
+      "hash": "0xb44d319bbf054a80815b72027f5f096aaf8b1eaefc3d46eaca0d7bc357063bb8",
+      "gasUsed": "105100",
+      "block": "34087996"
+    },
+    {
+      "step": "deposit",
+      "hash": "0x68fb8046f48b467c8246820bd2c720ef7b9ad6dbc1d104720776be31d1c70baf",
+      "gasUsed": "157056",
+      "block": "34087998"
+    },
+    {
+      "step": "set_signer",
+      "hash": "0xee6acd018dad81a3842617778c13548ca4444dd9554232bd2fb5064cfc1826d5",
+      "gasUsed": "98849",
+      "block": "34087999"
+    },
+    {
+      "step": "smoke_redeem",
+      "hash": "0x6df21db45bfec59d2eeae108b724f9769b63ac2c096a2e74d9dca56033e81dee",
+      "gasUsed": "243572",
+      "block": "34088001"
+    },
+    {
+      "step": "smoke_close_ticket",
+      "hash": "0xc4e788b1f9f17e2487ba392b38296f2236369c56690d01ee4a572a543f00cd6c",
+      "gasUsed": "110022",
+      "block": "34088003"
+    }
+  ],
+  "verified": {
+    "domainSeparator": true,
+    "signer": true,
+    "deposit": true,
+    "smokeRedeemed": true,
+    "smokeClosed": true,
+    "operatorPaid": true
+  },
+  "remainingAdminEth": "0.979934809507998636",
+  "remainingOperatorEth": "0.019999646405999867"
+}

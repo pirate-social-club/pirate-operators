@@ -18,12 +18,15 @@ import {
   type Ticket,
   type Result,
 } from "../packages/protocol/index.ts";
-import { performance } from "../packages/scoring/fixture-score.ts";
 import { rewardPoolScope } from "../packages/protocol/very-reward-scope.ts";
+import { PAYMENT_GRACE_S, songEndMs } from "../packages/protocol/payments.ts";
+import { fixtureLyrics, fixtureManifest, sungWords } from "./karaoke-fixture.ts";
+import { openAttempt, post, requestPurchase, type Attempt } from "./karaoke-client.ts";
 
 export interface PoolChain {
   token: Address;
   jackpot: Address;
+  paymentToken?: Address;
   deploy(name: string, args: readonly unknown[]): Promise<Address>;
   write(
     address: Address,
@@ -47,8 +50,6 @@ export async function runFlow({
   accounts,
   cutoff = 1800000100,
   windowSeconds = 0,
-  billing = "simulated",
-  auditCharges,
   log,
 }: {
   runtime: Awaited<ReturnType<typeof workers>>;
@@ -56,8 +57,6 @@ export async function runFlow({
   accounts: readonly PrivateKeyAccount[];
   cutoff?: number;
   windowSeconds?: number;
-  billing?: "simulated" | "moderato";
-  auditCharges?: () => Promise<{ count: number; units: number }>;
   log: (step: string, state: unknown) => void;
 }) {
   const { write, read, deploy, token, jackpot } = evm;
@@ -85,14 +84,22 @@ export async function runFlow({
     for (const role of roles) await fetcher(role, "/__clock", { now });
     assert.ok((await evm.timestamp()) >= now);
   };
+  // Karaoke time moves only the services' clocks: payment receipts do not
+  // depend on chain time, and the pool's chain clock advances at the cutoff.
+  let serviceNow = 1800000000;
+  const serviceClock = async (now: number) => {
+    serviceNow = now;
+    for (const role of roles) await fetcher(role, "/__clock", { now });
+  };
   const song: Song = {
     communityId: "fixture-community",
     audio: `0x${readFileSync("fixtures/original-tone.mp3").toString("hex")}`,
     title: "Sing Together",
-    lyrics: "sing together",
+    lyrics: fixtureLyrics,
     artwork: "original-cover-fixture-v1",
     original: true,
   };
+  const manifest = fixtureManifest(song);
   const sessions: string[] = [];
   const entries: Result[] = [];
   for (const wallet of accounts.slice(5, 8)) {
@@ -110,51 +117,63 @@ export async function runFlow({
     participants: sessions.length,
     community: song.communityId,
   });
-  const post = (await fetcher("community", "/songs", song, sessions[0])) as {
+  const posted = (await fetcher(
+    "community",
+    "/songs",
+    { song, manifest },
+    sessions[0],
+  )) as {
     songHash: Hex;
     status: string;
   };
-  assert.equal(post.status, "published");
-  log("admission", post);
+  assert.equal(posted.status, "published");
+  log("admission", posted);
   for (let i = 0; i < 3; i++) {
     const ticket = (await fetcher(
       "community",
       "/tickets",
-      { songHash: post.songHash, sessionKey: accounts[5 + i].address },
+      { songHash: posted.songHash, sessionKey: accounts[5 + i].address },
       sessions[i],
     )) as Signed<Ticket>;
-    await fetcher("operator", "/prepare", ticket);
-    const proof = await accounts[5 + i].signMessage({
-      message: `connect:${ticket.body.ticketId}`,
-    });
-    const worker = await runtime.mf.getWorker("operator");
-    const response = await worker.fetch(
-      `http://operator.localhost/attempt?ticketId=${ticket.body.ticketId}&proof=${proof}`,
-      { headers: { Upgrade: "websocket" } },
-    );
-    assert.equal(response.status, 101);
-    const ws = response.webSocket!;
-    ws.accept();
-    const result = await new Promise<Signed<Result>>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("websocket_timeout")),
-        10000,
+    const ticketId = ticket.body.ticketId;
+    const attempt = (await openAttempt(
+      runtime.mf,
+      ticketId,
+      accounts[5 + i],
+    )) as Attempt;
+    const start = attempt.ready.attemptStart!;
+    const startedAt = start.body.startedAt;
+    // Pay each line inside its window, binding each on the operator's socket.
+    for (const segment of manifest.segments) {
+      const opensAt = startedAt + Math.max(0, Math.ceil((segment.startMs - 15000) / 1000));
+      if (opensAt > serviceNow) await serviceClock(opensAt);
+      const signed = await requestPurchase(
+        runtime.mf,
+        sessions[i],
+        ticketId,
+        segment.segmentId,
+        start,
       );
-      ws.addEventListener(
-        "message",
-        (event) => {
-          clearTimeout(timeout);
-          const value = JSON.parse(String(event.data));
-          if (value.error) reject(new Error(value.error));
-          else resolve(value);
-        },
-        { once: true },
-      );
-      ws.send(JSON.stringify({ words: performance, consumedMs: 2000 }));
-    });
-    ws.close();
-    assert.equal(result.body.charged, 2);
-    assert.equal(result.body.summary.coverageBps, 10000);
+      assert.equal(signed.status, 200, JSON.stringify(signed.value));
+      const bound = await attempt.pay(signed.value);
+      assert.equal(bound.type, "paid", JSON.stringify(bound));
+    }
+    // Sing through the song: finishing one second before its end reaches every line.
+    await serviceClock(startedAt + Math.ceil(songEndMs(manifest) / 1000) - 1);
+    attempt.send({ type: "words", words: sungWords(manifest) });
+    attempt.send({ type: "finish" });
+    const echo = await post(runtime.mf, "operator", "/result", { ticketId });
+    assert.equal((echo.value as { error?: string }).error, "result_not_final");
+    // At the deadline the operator closes the ticket on chain, reconciles at
+    // the closure block and signs.
+    await serviceClock(serviceNow + PAYMENT_GRACE_S);
+    attempt.close();
+    const result = (await fetcher("operator", "/result", {
+      ticketId,
+    })) as Signed<Result>;
+    assert.equal(result.body.paidCount, manifest.segments.length);
+    assert.equal(result.body.unmeasuredCount, 0);
+    assert.ok(result.body.lines.every((line) => line.status === "assessed"));
     const qualified = (await fetcher(
       "community",
       "/qualify",
@@ -167,10 +186,25 @@ export async function runFlow({
     "karaoke_and_qualification",
     entries.map((e) => ({
       participant: e.participant,
-      score: e.summary.scoreBps,
-      charged: e.charged,
+      rewardScoreBps: e.rewardScoreBps,
+      lines: e.lines.map((line) => `${line.lineId}:${line.status}:${line.scoreBps}`),
+      paidCount: e.paidCount,
+      paidAmount: e.paidAmount,
     })),
   );
+  if (evm.paymentToken) {
+    const operatorBalance = await read(evm.paymentToken, "TestPaymentToken", "balanceOf", [
+      accounts[2].address,
+    ]);
+    // Three attempts of four lines at 1000 each, plus one admission at 2000.
+    assert.equal(operatorBalance, BigInt(3 * manifest.segments.length * 1000 + 2000));
+    log("operator_payments", {
+      redemptions: 3 * manifest.segments.length + 1,
+      operatorUnits: String(operatorBalance),
+      contract: "OperatorPayments",
+      chain: "local-anvil",
+    });
+  }
   const pool = await deploy("RewardPool", [
     token,
     jackpot,
@@ -301,30 +335,5 @@ export async function runFlow({
     sponsorDust: "2",
     poolBalance: "0",
   });
-  let chargeCount: number;
-  let chargedUnits: number;
-  if (auditCharges) {
-    const audit = await auditCharges();
-    chargeCount = audit.count;
-    chargedUnits = audit.units;
-  } else {
-    const charges = (await fetcher("provider", "/__state", {})) as {
-      key: string;
-      value: { units: number };
-    }[];
-    const paid = charges.filter((r) => r.key.startsWith("charge:"));
-    chargeCount = paid.length;
-    chargedUnits = paid.reduce((sum, p) => sum + p.value.units, 0);
-  }
-  assert.equal(chargeCount, 4);
-  assert.equal(chargedUnits, 8);
-  log("accounting", {
-    charges: chargeCount,
-    total: chargedUnits,
-    unit: billing,
-  });
-  log("acceptance", {
-    status: "passed",
-    scope: billing === "simulated" ? "local-skeleton/0" : "testnet-skeleton/0",
-  });
+  log("acceptance", { status: "passed", scope: "local-skeleton/1" });
 }

@@ -10,8 +10,9 @@ the staging protocol. Obsolete payment transport and public-chain deployment
 instructions are deleted. The [payment specification](operator-payments.md) owns
 purchase accounting and current karaoke result fields. Its exact copy is published here so the protocol
 has a readable dependency. [Source provenance](payment-specification-source.json)
-pins the copy to the local implementation branch at 0dec600. Section 11 of that
-specification describes that branch, not the runtime in this documentation PR.
+pins the payment document to the merged main baseline. The merged payment and
+learning-record runtime is present; its dated implementation notes do not prove
+managed-service or first-song acceptance.
 The approved browser contract owns cookie and WebSocket behavior. The creator-wallet specification
 owns its separate song-registration proof.
 
@@ -21,7 +22,8 @@ A community authenticates its own operator and participants, admits and
 publishes songs through selected operators, and controls its own records,
 moderation policy and deployment. It requires no global Pirate user account.
 The first complete delivery is community setup followed by a real admitted
-song appearing and playing at app.tld. Customer name buying, gas sponsorship,
+song appearing and playing on ordinary HTTPS after a fresh-browser reload.
+Native app.tld access, customer name buying, general gas sponsorship,
 karaoke rewards and Telegram are later work.
 
 Spaces support is deferred beyond the decentralized community MVP. Wizard v1
@@ -453,22 +455,29 @@ undecided and is not a first-song prerequisite.
 | Action | What must be established | Evidence |
 |---|---|---|
 | Sign in | control of the wallet | a wallet signature (section 7); no humanity check |
-| Join a community or acquire a gated name | the community's membership requirement | the community's gate: Self or Very, as the community configures it; the name registry has no buyer allowlist |
+| Join a community | the membership requirement | Very only, verified by the community service; wallet sign-in alone does not join |
+| Acquire a gated name | the application's separate membership gate, if enabled | Very for membership; the existing name registry has no buyer allowlist |
 | Sing, dance or study | nothing beyond sign-in | none; entries are free |
 | Extra sponsorship | an allowance not tied to a wallet | Very, scoped to the community and period (section 9) |
 | Register for winnings | entry ownership, and duplicate prevention | the Merkle proof, the wallet's own call, and Very scoped to the pool and drawing |
 
-Self serves as a membership gate only. A membership proof from either provider
-never substitutes for the reward proof. Very is the only reward and
-sponsorship credential, everywhere. A community cannot select another
-provider, add a second one, or weaken the requirement. If Very is unavailable,
-registration fails closed and no fallback provider is accepted. This mirrors
-v1, where spec 015 §5.2a also checks Palm (Very) at claim time.
+For this version, joining accepts Very only. Membership verification belongs
+to the community service; the existing name registry has no buyer allowlist and does
+not itself enforce a membership gate. Joining and acquiring a name are distinct
+actions; an application-gated name flow must enforce its gate separately.
 
-Someone who joined through Self meets Very only when they have winnings to
-claim, or want more than the open sponsorship allowance. Someone who already
-uses Very does not enroll again, but each claim needs a fresh proof under the
-claim's scope.
+A membership proof never substitutes for a reward or sponsorship proof. Very is
+the only credential for those actions in this version; their scoped checks
+must not be bypassed. If Very is unavailable, joining, credential-
+gated sponsorship and winnings registration fail closed. Wallet sign-in and
+the open sponsorship allowance retain their separate rules. This mirrors v1's
+claim-time Very check in spec 015 §5.2a.
+
+Someone who already uses Very does not enroll again, but each membership,
+sponsorship or reward action must verify evidence under its applicable scope.
+A successful join is not a reusable claim proof. Define and test the membership
+adapter's community/action binding before enabling joining; the existing reward
+scope mapping alone is not an implemented membership adapter.
 
 ### 12.2 Credential adapter
 
