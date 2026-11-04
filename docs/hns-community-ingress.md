@@ -78,7 +78,11 @@ that the selected client must actually support.
 
 The amended browser contract accepts each explicitly verified HTTPS application
 origin with its own same-origin API and origin-bound session. HNS-only access
-requires no ICANN application domain or Web2 login redirect. Generic IPFS mirrors
+requires no community ICANN application domain or forced login redirect to its
+Web2 alias. MOSS at account.megaeth.com and the separate creator-wallet HTTPS site
+remain dependencies. Qualify embedded MOSS passkeys and the creator-wallet's own
+passkey/RP flow in the actual HNS client; ordinary-HTTPS pilots do not establish
+that behavior. Generic IPFS mirrors
 remain read-only; a content-addressed authenticated client still requires separate
 origin/wallet qualification. Cross-origin cookies and browser bearer tokens are
 not enabled by this amendment. A redirect to an ordinary HTTPS domain proves
@@ -116,12 +120,15 @@ community directory, MOSS login, creator-wallet site, or first-song upload.
 The historical host addresses are not installation defaults. Reuse source and
 release procedures in the separate milestone instance, preserving production.
 
-## Remaining first-song integration
+## Remaining HNS application acceptance
 
 First select and qualify one real client against the actual `_evm` referral,
 contract records and chosen content/HTTPS transport, including its secure origin.
 Then prove same-origin login, API access and first-song upload at the selected
-HNS application origin without a forced Web2 redirect. A CLI
+HNS application origin without a forced redirect to the community's own Web2
+alias. This qualifies the originally selected access mode; v1 does not promise
+later HNS/domain addition. Isolated first-song testing need not wait for this
+HNS-client proof. A CLI
 registry ceremony or the old DNS-zone browser test cannot replace this proof.
 
 For a selected shared HTTPS gateway, implement the authority adapter against verified HNS delegation, app ownership,

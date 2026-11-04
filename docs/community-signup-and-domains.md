@@ -10,9 +10,11 @@ single authenticated origin rule; it does not deploy or implement these flows.
 
 The username is an SLDRegistry ERC-721, minted directly to the participant's
 chosen wallet. Its identity is chain ID, registry, token ID and generation;
-the community ID remains the directory's existing chain/directory/registry
-identity. Web2 hostnames are access aliases, not another NFT namespace. No
-second mint, account or community is created when another domain is enabled.
+the community ID remains `keccak256(abi.encode(chainId, registry))`, scoped by the
+selected directory deployment. Web2 hostnames are access aliases, not another
+NFT namespace. Both initially selected origins share one account and community;
+they do not require a second mint. Later domain changes are custom migrations
+outside wizard v1, as specified in section 4.
 
 Eligible labels are available, valid registry labels of 8 through 63 ASCII
 characters. This deliberately extends the centralized free offering's 8–32
@@ -89,9 +91,21 @@ actual signature/account format, including supported smart accounts; an ECDSA
 fixture is not MOSS acceptance. A fresh undeployed account needs a qualified
 initialization/signature path with its setup cost included in the reviewed
 claim budget; an unsupported account cannot silently become a custodial wallet.
-No browser-controlled sponsor flag authorizes
-spending. Allow only the reviewed registration call and necessary payment/account
-steps, never arbitrary targets, calldata, approvals or recipient substitution.
+
+The registry uses `_safeMint`. A recipient with onchain code, including an account
+with active EIP-7702 delegation, must successfully handle `onERC721Received` and
+return the required ERC-721 receiver value. Signature validation and undeployed
+account tests do not prove this. Before enabling sponsorship, use an actual
+initialized MOSS account with the selected implementation, delegation and module
+profile: record its code/profile, successful registration receipt and active
+NFT ownership readback. Exercise receiver rejection as well. A definite revert
+must not appear as success or consume the successful-claim allowance; retain its
+actual gas cost and reconcile uncertain outcomes. Never bypass safe minting,
+mint to the sponsor or substitute custody to work around an incompatible wallet.
+
+No browser-controlled sponsor flag authorizes spending. Allow only the reviewed
+registration call and necessary payment/account steps, never arbitrary targets,
+calldata, approvals or recipient substitution.
 
 Persist the approved intent and reserve the allowance and maximum spend before
 broadcast. Recheck availability and quote with maxCost and deadline enforced
@@ -125,9 +139,21 @@ Spaces remains deferred.
 No Web2 hostname, ICANN zone, registrar transfer or public workers.dev endpoint
 is a prerequisite when Web2 is disabled. Hide/skip its wizard inputs, credentials,
 DNS/TLS resources and readiness gates; do not deploy it implicitly. An HNS-only
-community must not redirect login, signup, posts or application navigation to
-an ordinary Web2 alias. A selected HNS transport may use a protected backend
-origin internally; this is distinct from requiring a public Web2 app.
+community must not force login, signup, posts or application navigation onto
+the community's own Web2 alias. A selected HNS transport may use a protected
+backend origin internally; this is distinct from requiring a public Web2 app.
+
+This restriction does not remove external wallet dependencies. The selected
+MOSS login uses https://account.megaeth.com, including its embedded wallet frame.
+The creator-wallet flow uses a separate Pirate-run HTTPS site with its own
+stable passkey/RP origin; record the exact selected origin in deployment evidence
+rather than inventing a production hostname from the test pilot. Qualify MOSS
+frame permissions, passkey creation/use, login signatures and callbacks in the
+actual HNS browser. Separately qualify the creator-wallet popup/redirect and
+passkey encryption flow while preserving its specified RP boundary. Both are
+untested for HNS access. Visiting either wallet service is permitted; forcing the
+community app onto its own Web2 alias is not. Provider downtime or lack of browser
+support remains a real dependency failure, not a reason to silently change mode.
 
 HNS-only access is a target with explicit unresolved integration, not a claim
 of censorship immunity. Current Cloudflare hosting, wallet providers, RPC,
@@ -145,6 +171,23 @@ recommend ordinary HTTPS for broad browser compatibility, but the operator
 must be able to select HNS only without acquiring an ICANN domain. HTTPS-first
 engineering delivery does not make Web2 mandatory product policy. The current
 wizard's workers.dev setup-page slice is not implementation of these modes.
+
+For v1, choose the registry TLD, access mode, domain names and deployment account
+upfront. After the first deployment attempt, setup choices remain fixed. The
+wizard does not provide later HNS/domain addition, replacement, removal or mode
+switching. Operators may adapt the OSS with their own agent, but this is a custom
+migration without a standard continuity or recovery guarantee. Keep the original
+deployment state; a new state directory is not a migration mechanism. Credential
+rotation, recovery and reviewed redeployment of the same setup remain supported.
+
+A registry TLD is required even for Web2-only or isolated first-song testing. The
+registry fixes its TLD; the directory fixes chain/registry identity. Use c22 for
+staging when later delegation of that owned TLD is intended, rather than a blank
+or unrelated namespace. HNS delegation and browser acceptance can remain pending
+for the original selection; song tests may use an unverified genuine registry.
+Completing that verification is not adding another TLD. A replacement registry
+or migration from testnet to mainnet creates a different community ID; testnet
+identity/history does not automatically carry over.
 
 When Web2 is selected, the trusted runner uses the pinned Alchemy Cloudflare
 provider to reconcile the chosen hostname, Worker attachment and required
@@ -164,10 +207,13 @@ Persist nonsecret account/zone/resource IDs and the reviewed configuration
 revision. Model domain control, DNS, TLS and application probes separately.
 Resume pending verification without duplicate provisioning. Mark an origin
 active only after control, valid transport and a same-origin app/API probe pass.
-Removing a domain first disables its host/session access and outstanding login
-challenges, then reconciles only its owned resources. Never remove the final
-working application origin as a side effect of disabling Web2. Disabling Web2
-after dual-mode setup leaves the verified HNS origin and community identity.
+Security revocation remains required when control of an origin is lost. It
+first disables that origin's host/session access, outstanding login challenges
+and sockets. Any authorized cleanup reconciles only owned resources. A custom
+migration must preserve the independently verified remaining origin and revoke
+the removed origin; it must not accidentally remove the final working route.
+These are service and custom-maintenance safety requirements, not a promise of
+v1 domain removal or migration controls.
 
 No Cloudflare zone/custom-domain operation is performed for the HNS TLD merely
 because app.tld is configured. Follow the separate HNS ingress contract for
@@ -222,16 +268,25 @@ event, owner, generation, term and locked renewal price. Check invalid/short,
 premium, reserved, taken and price-changed names; exhausted budgets; recipient
 substitution; concurrent/replayed claims across both domains; unknown transaction
 outcomes; and allowance preservation across transfer and restore. Successful
-local fixtures do not establish a live MOSS/paymaster or funded signup.
+local fixtures do not establish a live MOSS/paymaster or funded signup. Include
+a successful safe mint to a real initialized MOSS account with its exact onchain
+code/delegation/module profile and active owner readback, plus rejection by an
+incompatible receiver. Signing successfully is not NFT-receipt acceptance.
 
 For each selected mode, test public reading, login, renewal/logout, signup,
 same-origin writes, post/playback and the selected wallet on the actual client.
 In both mode prove shared community/NFT/content state and rejection of cross-host
-credentials and spoofed hosts. Test pending/failed DNS and certificates, removal
-and domain reassignment, and recovery without duplicate resources. In HNS-only
-mode prove no Web2 setup requirement or implicit public alias, no Web2 login
-redirect, and successful operation in the intended network environment. Browser
-dependency failure is an incomplete acceptance, not permission to weaken auth.
+credentials and spoofed hosts. Test pending/failed DNS and certificates, loss of
+domain control, service-side origin revocation and recovery without duplicate
+resources. Verify the wizard refuses setup changes after a deployment attempt;
+there is no add/remove-domain acceptance path in v1. In HNS-only mode prove no
+community Web2 setup requirement, implicit public alias or forced login redirect
+to the community's own Web2 address. Separately prove MOSS embedded passkeys and
+the external creator-wallet flow in the actual HNS client, recording browser,
+OS, passkey provider and wallet origins. Their use is not a failure of the
+community-alias rule. Successful operation in the intended network environment
+is still required; dependency failure is incomplete acceptance, not permission
+to weaken auth.
 
 Current registry evidence is MegaETH testnet 6343 at 296c97d. The wizard PR 15
 slice provisions a workers.dev setup page; it does not implement these modes,
@@ -246,3 +301,6 @@ and [Cloudflare Worker Custom Domains documentation](https://developers.cloudfla
 The [registry source](https://github.com/pirate-social-club/pirate-registry/blob/296c97d7f0fa05711d78c5074f8ee13fe01b50d9/src/SLDRegistry.sol)
 owns price, mint and renewal behavior. [MOSS](https://joinmoss.megaeth.com/)
 documents sponsored gas; that capability is not evidence of our integration.
+The [ERC-721 receiver contract](https://eips.ethereum.org/EIPS/eip-721#specification)
+specifies the callback; the pinned registry's safe-mint implementation applies
+that check during registration.

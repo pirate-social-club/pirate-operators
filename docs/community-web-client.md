@@ -24,8 +24,10 @@ credentialed cross-origin browser sessions. A preferred origin is a sharing
 preference, not a forced redirect from another enabled origin.
 
 Spaces is deferred beyond the decentralized community MVP. Wizard v1 starts
-on ordinary HTTPS as an engineering slice, with HNS as a follow-up. Web2 is
-optional product configuration, not a prerequisite for HNS-only communities.
+on ordinary HTTPS as an engineering slice. HNS implementation is separate work,
+not a v1 promise to attach HNS later. Choose the namespace, access mode and domains
+upfront; later changes are custom unsupported migrations. Web2 is optional product
+configuration, not a prerequisite for HNS-only communities.
 A namespace picker may
 show a disabled "Spaces — Coming
 soon" option, with no promised date, setup form or provisioning action. It must
@@ -98,7 +100,12 @@ after five minutes. A nonce or signature from another enabled host is not valid
 here. Sign in independently at each origin to reach the same wallet/community
 persona; do not transport a cookie or login token between domains. The same
 origin rule applies to the challenge format the MOSS wallet uses; the MOSS
-spike establishes that exact format.
+spike establishes that exact format. HNS-only excludes a forced redirect to the
+community's own Web2 alias. It still uses MOSS at https://account.megaeth.com and
+the separate Pirate creator-wallet HTTPS site. Embedded MOSS passkeys and the
+creator-wallet's own RP/passkey flow need acceptance in the actual HNS client;
+neither is established by ordinary-HTTPS pilot evidence. See the
+[external-wallet boundary](community-signup-and-domains.md#3-optional-access-modes).
 
 The local skeleton differs. It builds SIWE with an `http://` URI, which is
 acceptable only on loopback. It returns a bearer token in the JSON response
@@ -534,7 +541,7 @@ These checks belong to the implementation tasks that follow. None has run.
 | A5 | A sign-in message whose domain or URI differs from the request's verified origin is refused; a nonce, signature or copied cookie from the other enabled origin is refused | automated |
 | A6 | A mirror shows no sign-in and links authenticated actions to an enabled application origin, including HNS in HNS-only mode | automated against a mirror build |
 | A7 | Both enabled origins share one community/persona/content state with independent sessions; unknown hosts and spoofed forwarding headers fail | automated browser and trusted ingress |
-| A8 | HNS-only setup requires no ICANN domain or public Web2 alias and login never redirects to one; the actual HNS client completes the flow | wizard and actual client acceptance |
+| A8 | HNS-only setup requires no community ICANN domain or public Web2 alias and no forced login redirect to that alias; the actual HNS client completes MOSS embedded-passkey and external creator-wallet flows | wizard and actual client acceptance |
 | A9 | Revoking an origin ends its sessions/nonces/sockets without changing the NFT or the other origin; unsupported config v2 stays read-only | automated |
 | K1 | The handshake reaches `ready`, and a reconnect with the same key resumes | automated, real WebSocket |
 | K2 | A missing `hello`, a replayed challenge signature, a wrong key, an expired ticket or a conflicting ticket closes with the listed code | automated |

@@ -21,7 +21,10 @@ specifies a sponsored initial 8–63 character ERC-721 username claim on MegaETH
 and Web2 only, HNS only or both for browser access. Web2 is optional. When
 selected, its hostname, DNS/TLS and Worker attachment are managed through the
 wizard's pinned Alchemy Cloudflare provider. HNS-only setup skips Web2 inputs,
-resources and readiness gates and cannot redirect login to a Web2 alias.
+resources and readiness gates and cannot force login onto the community's own
+Web2 alias. MOSS at account.megaeth.com and the separate creator-wallet HTTPS site
+remain dependencies that require actual HNS-client qualification. Choose setup
+mode, TLD and domains upfront; later changes are custom unsupported migrations.
 
 Both active origins reach the same community with separate host-bound sessions.
 The current workers.dev slice does not implement custom domains, dual-origin
@@ -32,13 +35,15 @@ service integration remains the delivery priority before customer sponsorship.
 ## MVP namespace scope
 
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
-community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
-HNS configuration and verification are an optional follow-up for that engineering slice.
-The operator may instead select HNS-only access and wait for its qualification;
-no Web2 resources are then implicitly provisioned.
-This deferral adds no HNS prerequisite to wizard v1. The broader first-song
-and native-address acceptance requirements below retain their own scope. Native
-Spaces community bindings, handle resolution/issuance and their deployment
+community MVP. The separately admitted wizard v1 starts on ordinary HTTPS.
+The registry TLD is selected upfront even for tests. Completing verification for
+that namespace can wait; v1 does not promise later HNS/domain attachment or mode
+changes. HNS-only implementation and qualification remain separate work: an
+operator selecting it must wait rather than receive implicit Web2 provisioning.
+This adds no Handshake-delegation prerequisite to isolated first-song tests.
+The broader first-song and native-address acceptance requirements below retain
+their own scope. Native Spaces community bindings, handle resolution/issuance
+and their deployment
 integration are later work, not first-song acceptance gates. The current
 HNS-specific registry/directory design need not be generalized for Spaces to
 ship MVP; that later extension needs its own identity and migration design.
@@ -72,7 +77,7 @@ acceptance records, or settle the separate HNS ingress/transport decision.
 | 1. Select namespace, access mode and operator | Select community identity, Web2 only/HNS only/both and service operation. Verify the relevant domain authority; HNS verification separately gates discovery. | Bound identity and deployment account; disabled Web2 requires no ICANN input, zone or public alias. |
 | 2. Prepare the name registry | Reuse a verified MegaETH factory; create the TLD registry with NOT_FOR_SALE, reserve app to its intended holder, set app's premium to zero, register it, and configure other selected names. | Verified code and receipt, app owned by the intended holder, selected reservations/prices read back. |
 | 3. Save secrets and provision services | Save required provider/service credentials to the right Infisical scope. Alchemy provisions Workers, D1/migrations, R2, job transport, bindings and public ingress. | Secret versions installed without logging values, migrations applied, health and storage checks pass. |
-| 4. Activate selected application origins | Build the release. For Web2, reconcile the reviewed Alchemy/Cloudflare hostname and TLS. For HNS, set holder records, verify delegation and qualify actual client resolution and secure transport; use isolated ingress if needed. | Load, login and same-origin API behavior pass independently for every selected origin. Both share one community; HNS-only has no forced Web2 redirect. |
+| 4. Activate selected application origins | Build the release. For Web2, reconcile the reviewed Alchemy/Cloudflare hostname and TLS. For HNS, set holder records, verify delegation and qualify actual client resolution and secure transport; use isolated ingress if needed. | Load, login and same-origin API behavior pass independently for every selected origin. Both share one community; HNS-only has no forced redirect to the community's own Web2 alias, with external wallet dependencies qualified separately. |
 | 5. Update Pirate's community registry | Submit/update the community record, verify namespace authority independently, and expose the verified entry through the directory/index. | The correct community and app link appear; a forged factory announcement is not accepted as ownership. |
 | 6. Configure real admission | Select trusted operators and policy, validate the required provider connections and enable durable admission/publication jobs. | The restored evidence and publication gate run against real inputs; failures hold rather than publish. |
 | 7. Post the first song | Authenticate the operator/creator, run the applicable creator activation flow, upload sealed media, perform admission, publish the post and complete the configured registration step. | The post appears and plays after reload, its page and media are retrievable, and retries do not duplicate publication or registration. |

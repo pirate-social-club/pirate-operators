@@ -7,8 +7,10 @@ Alchemy.run provisioning, Infisical secrets, real moderation and first post.
 The [signup and optional domains specification](docs/community-signup-and-domains.md)
 adds one sponsored 8–63 character MegaETH ERC-721 claim and Web2 only, HNS only,
 or both access modes. Web2 is optional; the wizard uses Alchemy/Cloudflare to
-manage it when selected. Customer signup implementation follows the first-song
-service path. The recovered
+manage it when selected. V1 setup choices are fixed upfront; later domain/HNS
+changes are custom OSS migrations, not standard wizard functions. HNS-only still
+depends on external MOSS and creator-wallet HTTPS services. Customer signup
+implementation follows the first-song service path. The recovered
 [operator protocol](docs/operator-protocol.md) owns admission/publication rules.
 Its [payment specification](docs/operator-payments.md) is a published copy of
 the active payment lane's design; that document's implementation-state section

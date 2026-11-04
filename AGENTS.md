@@ -13,8 +13,12 @@ The first delivery is operator setup through first-song publication; sponsored
 customer name buying is later work. The approved signup/domain specification
 requires user-owned MegaETH ERC-721s with one bounded sponsored initial claim.
 Web2 is optional: support Web2 only, HNS only or both; Alchemy manages selected
-Web2 domains through Cloudflare. No forced Web2 login or public fallback belongs
-to HNS-only setup. See docs/community-signup-and-domains.md. This direction authorizes documentation
+Web2 domains through Cloudflare. Choose the registry TLD, access mode and domains
+upfront; v1 has no standard later domain/HNS addition or migration function.
+HNS-only setup has no forced redirect to the community's own Web2 alias or public
+fallback. MOSS and the separate creator-wallet HTTPS site remain dependencies
+requiring actual HNS-client qualification. See docs/community-signup-and-domains.md.
+This direction authorizes documentation
 and the admitted implementation lanes, not an unscoped deployment or key action.
 No production deployment, provider credentials, funded operations or mainnet
 activity belongs to the local skeleton. Fixture private keys are public test
