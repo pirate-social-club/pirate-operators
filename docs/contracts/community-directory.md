@@ -1,9 +1,11 @@
 # Community directory V1
 
-This is the proposed contract for
-[ICommunityDirectoryV1](../../contracts/interfaces/community/ICommunityDirectoryV1.sol).
-An interface does not enforce these rules. Implementation and adversarial tests
-are required before deployment.
+[CommunityDirectoryV1](../../contracts/community/CommunityDirectoryV1.sol)
+implements [ICommunityDirectoryV1](../../contracts/interfaces/community/ICommunityDirectoryV1.sol)
+locally. The [implementation profile](community-implementation.md) defines its
+constructor and URI checks. Local adversarial tests cover on-chain behavior;
+namespace verification, governance/MOSS account acceptance and deployment are
+separate gates.
 
 ## Identity and state
 
@@ -35,20 +37,96 @@ must be verified. Indexers retain address history and start blocks across
 changes; changing a pointer does not erase prior records. Private provider credentials,
 wallet-to-author mappings and deployment state do not belong in it.
 
+The V1 manifest must include `publisherRevocations`, initially an empty array.
+This is community-controller-authorized feed policy, committed by the manifest's
+on-chain hash; it is not a new Solidity field. Each entry contains a nonzero
+`postsContract`, a nonzero `publisher` (both lowercase 0x-prefixed 20-byte hex),
+and `fromBlock` (canonical unsigned decimal string, no leading zero except "0",
+within uint256 and no later than the configuration event's block). The publisher
+must occur in this community's earlier canonical configuration history. The
+entry applies only to this manifest's chain/directory/community and the named
+post deployment, never other communities using the same publisher.
+
+Entries are cumulative across canonical config revisions. Later manifests must
+retain every entry unchanged; they may add entries, including an earlier cutoff
+for the same account/deployment. Matching entries combine by the earliest
+fromBlock. The resulting publisher must differ from every revoked publisher for
+the community's covered post deployments. A missing array, removed/altered entry,
+future cutoff, or reselected revoked publisher makes the manifest invalid for
+the compliant feed. The contract still accepts only a URI/hash and does not
+parse or enforce this policy. A client that ignores the policy is not a recovery-
+aware feed. No live JSON validator is supplied by these docs.
+
+See [publisher recovery](community-posts.md#publisher-compromise-and-recovery)
+for the inclusive block rule, restoration and trust limits. Ordinary publisher
+rotation retains the array and does not retroactively distrust old publications.
+
 The service and verifier check redundant manifest fields against chain state;
 the contract cannot fetch JSON. Every URI is a bounded immutable `ipfs://`
 reference, at most 512 UTF-8 bytes, with no query or fragment. Require nonzero
 controller, publisher and content hash. The deployment fixes the supported
 factory set and the namespace-verifier and listing-authority accounts; no
-unbounded super-admin or directory upgrade path is implied. Both authority
-addresses must be governance smart accounts with signer rotation and a defined,
-tested recovery path. Do not bind either role to a single hot EOA. Deployment
+unbounded super-admin or directory upgrade path is implied. For a deployment
+intended to support listings, both authority addresses must be stable
+governance-controlled contracts with signer rotation
+and a defined, tested recovery path. The recommended verifier is a
+[bounded authority contract](namespace-verifier-authority.md) whose service key
+is rotated by a recoverable governance Safe. A separate
+[listing authority contract](community-listing-authority.md) lets its governance
+Safe manage listings and an independent emergency key only remove them. Do not
+bind either directory role directly to a single hot EOA. Deployment
 acceptance must revoke/replace an operational signer while preserving the
 account, directory and posts addresses, configuration and all post IDs. The
 recovery authority must survive loss of an operational signer; it is not a
 claim that an account can recover after every recovery credential is lost.
 The interface defines no Pirate override of community control and no
 lost-community-key recovery bypass.
+
+The approved [disposable first-song profile](disposable-first-song.md) instead
+uses two distinct inert contracts and permanently disables verification/listing.
+It does not need governance custody or these real authority implementations.
+It cannot later install them; enabling listings requires a new deployment.
+
+## Configuration publication lifecycle
+
+Pin and verify configuration manifests before publishing their references, just
+as for [post manifests](media-publication.md). This applies to initial
+`registerCommunity`, every `configure` (including routine address changes and
+incident rotation), and `acceptControllerTransfer`. A missing current config
+withholds the community's whole compliant feed, not just one post.
+
+The operator service first reads canonical directory state and prepares the exact
+next configuration. Validate the complete schema, chain/community identity,
+controller/publisher and contract addresses, plus cumulative revocations against
+the retained canonical history. Serialize JCS once, compute SHA-256 over those
+exact bytes, and durably pin the immutable IPFS object. Confirm pin completion,
+then retrieve through the configured consumer retrieval path and verify the CID,
+exact byte digest, schema and chain bindings. An upload response or a hash of
+local bytes alone is insufficient. Retain the CID, digest, pin status and
+retrieval result with the publication job; never record private credentials.
+
+Only then submit the matching URI/hash and expected revision. Reconcile canonical
+state immediately before submission. If a concurrent change invalidates the
+prepared configuration, rebuild and repeat validation rather than updating only
+the expected revision. A failed pin, unavailable body or mismatch holds the
+transaction for retry; incident urgency does not bypass this order.
+
+For a transfer, complete the same preparation before `proposeControllerTransfer`
+so the receiving account can review the exact committed body. Before acceptance,
+the receiving account's client independently retrieves and verifies that same
+URI/hash and checks the live proposal ID, base revision, expiry and full
+configuration hash. Do not rely on the proposer's earlier availability check.
+If content cannot be verified, do not accept. Changed bytes or configuration
+require a replacement proposal; they cannot be substituted under the old ID.
+
+Keep current and historical config objects pinned and available for replay;
+rotation or transfer must not unpin the previous revision. Monitor availability
+and retry verified retrieval through another configured IPFS gateway as needed.
+A successful preflight is point-in-time evidence, not a perpetual availability
+guarantee. If content later disappears, the feed still follows its fail-closed
+policy until verified retrieval succeeds. These are service/client acceptance
+requirements; the directory cannot fetch JSON, and this PR adds no uploader,
+availability monitor or manifest validator.
 
 ## Authorization and replay protection
 
@@ -109,24 +187,79 @@ it does not increment the revision again. A repeated raw contract call reverts
 on its consumed revision/registration/proposal. Uncertain receipts remain pending
 until reconciled against canonical state.
 
-## Operator bootstrap and MOSS acceptance
+## Operator bootstrap and recovery
 
 The registry admin and community controller need not be MOSS accounts. V1
-supports an ordinary operator EOA making registration/configuration transactions
-with its own bounded gas budget. Later it can propose a controller transfer to
-a MOSS account, and that receiving account must execute acceptance. Keep the
-EOA controller until acceptance is confirmed; a failed initialization or expired
-proposal must not surrender control. Registry-admin transfer, publisher changes
+supports an ordinary operator EOA making testnet bootstrap transactions with
+its own bounded gas budget. Treat that account as temporary: the wizard must
+track handoff to a controller account with demonstrated independent recovery
+before mainnet or real-user onboarding. Testnet first-song acceptance can count
+with the EOA; recovery readiness is a separate tracked result. A
+[Safe governance account](governance-accounts.md) is another candidate alongside
+MOSS. Each selected profile must pass its own recovery acceptance; successful
+execution or code presence alone is insufficient. The receiving account must
+execute acceptance. Keep the EOA controller until acceptance is confirmed; a failed
+initialization or expired proposal must not surrender control. Registry-admin transfer, publisher changes
 and community-controller transfer are separate authorities; transferring this
 directory entry alone does not move the registry admin or service credentials.
-Pirate's verifier/listing roles still require the stable governance accounts
-specified above; this operator bootstrap does not relax that requirement.
+A directory intended to support Pirate listings still requires the stable
+controlled authorities specified above. The separate
+[disposable first-song profile](disposable-first-song.md) uses two inert contracts
+and permanently disables verification/listing, without Safe or service-key setup.
+It cannot later enable discovery; replacing it changes the posts address and song keys.
 
-The wizard should offer the EOA bootstrap without requiring MOSS readiness.
+An EOA has no protocol key-reset or recovery mechanism. If its private key is
+lost without a usable backup, or an attacker has taken control and no trusted
+handoff can be completed, neither the registry admin nor Pirate can recover the
+directory entry. A registry-admin transfer cannot overwrite an existing entry.
+A still-authorized publisher might continue writing under the old config, but
+that does not restore controller authority or the ability to rotate it safely.
+If access remains, a legitimate handoff may contain a compromise; this two-step
+protocol does not guarantee winning a race against a stolen controller key.
+
+Within the existing shared directory/posts deployment, restoring community
+control then requires a new registry and registration, producing a new
+communityId. The old community and post history remain on chain; they are not
+moved or erased. Even reusing a postId under the replacement community yields a
+different publication/streak key. There is no automatic history, author, grade
+or streak migration. Any successor link or migration needs its own explicit
+policy and authority checks. Replacing shared contracts is a different deployment
+migration, not a per-community recovery override.
+
+The wizard may complete the testnet first-song milestone with an EOA without
+waiting for MOSS or Safe recovery acceptance. Its receipt must identify testnet,
+the controller address/type and incomplete recovery; it is not production readiness.
+Its controller step must track `bootstrap-only`, `handoff-proposed`,
+`acceptance-pending`, `recovery-pending` and `recovery-verified`. Save the target account/profile,
+proposal ID, base revision, expiry and transaction receipts without secrets.
+On resume, re-read canonical directory state; an expired/replaced/cancelled
+proposal returns to bootstrap-only if the EOA still controls the entry. Reconcile
+any other completed handoff instead of trusting cached workflow state. An
+orphaned acceptance loses completion.
+An accepted handoff whose recovery check is still outstanding is recovery-pending:
+the new account already controls the entry, and the EOA no longer has authority.
+Verify the selected account's recovery before accepting wherever possible.
+Mark recovery-verified only after the chosen confirmation policy establishes
+the receiving controller and an actual signer-loss/independent-recovery check
+for that account has passed without changing its address. Record which credential
+losses/compromises that profile covers and prove the retired operational signer's
+requests are refused. Do not promise recovery from a stolen root/delegation key
+unless the account profile establishes it. Merely rotating a
+still-accessible signer, simulating a call, possessing a second copy of the same
+key or enrolling a passkey does not prove independent recovery.
+
+Recovery-verified is required before mainnet or real-user onboarding, not for
+the testnet first-song completion result. Track it separately from publication
+and playback acceptance so an EOA test run can pass without being described as
+recoverable setup. A pending recovery step remains visible after that run.
+Loss of every recovery credential remains outside the guarantee. This is a
+wizard acceptance requirement, not a new on-chain controller-type check.
 This describes the contract integration path, not a proven first-song journey:
-the directory/posts are still interfaces and the real wizard transaction flow
-needs acceptance. It does not replace MOSS as the selected ordinary participant
+the directory/posts have local implementations, but the real wizard transaction
+flow still needs acceptance. It does not replace MOSS as the selected ordinary participant
 wallet or the separate Sui/Ika creator activation flow.
+
+### MOSS-specific acceptance
 
 The November 4 MOSS test account's first transaction was not demonstrated: it
 held ETH but no USDm, while the inspected CLI defaulted to USDm fees. Before
@@ -161,6 +294,32 @@ and [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702).
 
 ## Verification and listing are separate
 
+V1 keeps HNS verification as the discovery prerequisite. The HTTPS-first testnet
+path deliberately allows registration, publication, direct post pages and the
+community's own feed while remaining unlisted in Pirate's directory and aggregate
+discovery. An HTTPS origin or domain-control challenge does not satisfy
+`verifyNamespace`; never manufacture HNS evidence or insert a dummy hnsBlockHash
+to list an HTTPS-only community. Raw indexing does not grant discovery status.
+
+On a deployment with working authorities, an existing entry can become
+discoverable later only when the verifier proves
+the matching HNS TLD's binding to that same registry/current config and the
+listing authority lists it. Its publication identity then stays unchanged. If
+the matching namespace cannot be established, a different TLD cannot overwrite
+this entry's immutable tldHash; a new registry creates a new communityId. No
+automatic history migration is implied.
+
+This later-listing path does not exist on the disposable profile: both immutable
+authorities are inert, even if HNS evidence becomes available. Its replacement
+also changes the posts address and song keys.
+
+HTTPS-only discovery is not a V1 verification type. If that becomes a launch
+requirement, revise the verification model and ABI before deployment, including
+distinct identity/display semantics for HTTPS and HNS claims. Neither the
+directory nor the posts pointer is upgradeable; adding that capability after
+deployment would require a new deployment and an explicit identity/history
+migration plan. The current first-song test scope does not require that extension.
+
 Only the namespace verifier can submit a fresh verification. It checks HNS
 delegation to this chain/registry, current app ownership/records and endpoints,
 and the config/publisher binding. Record the HNS height and block hash, observed
@@ -172,12 +331,29 @@ contract stores an attestation, not an on-chain HNS light-client proof.
 and requires the current config revision. Require nonzero evidence/block hashes
 and `observedAt <= block.timestamp < validUntil`; expiry must satisfy a bounded
 maximum age fixed by the deployment profile. Evidence must be no older than
-the previous observation. A profile without a selected freshness bound is not
-deployable. Key compromise can forge these attestations; this is Pirate's
-explicit namespace-verification trust boundary.
+the previous observation. A listing-capable profile without a selected freshness
+bound is not deployable. The disposable profile records a nonzero constructor
+value but cannot attest at all; it does not establish a production age policy.
+Key compromise can forge attestations on a deployment with working authorities;
+this is Pirate's explicit namespace-verification trust boundary. Treat maxVerificationAge as
+an immutable security ceiling, with a selected risk rationale and a measured
+refresh/reader-suppression budget. It bounds each record's lifetime, not an
+ongoing attacker who keeps renewing it; see the
+[evidence-age security rule](namespace-verifier-authority.md#evidence-age-as-a-security-bound).
+
+The [verifier authority design](namespace-verifier-authority.md) separates
+automated attestation from governance signer recovery. Its implementation and
+local integration are prerequisites to a listing-capable deployment; actual
+binding and refresh acceptance precede live listings. None is established by the current directory
+tests. Rotating or pausing its service key does not
+invalidate already recorded attestations; incident response also requires the
+separate listing authority to delist affected communities. Its emergency key
+can do so without waiting for Safe signers, but cannot restore a listing.
 
 Only the separate listing authority calls `setListed`, using an exact listing
-revision. It may list, delist and record a public reason digest. It cannot edit
+revision. Its governance Safe may list/delist; its restricted emergency path
+may only delist and record a public incident-reason digest. After any delisting,
+only a new governance-authorized listing can restore discovery. It cannot edit
 config, controller, publisher or content. `isDiscoverable` is true only for an
 existing, listed entry with a current, unexpired verification bound to its
 current config. Listing=true requires that predicate except the listing bit.
@@ -215,3 +391,11 @@ when a proposed MOSS transfer fails or expires, then acceptance by the correctly
 initialized receiving account. MOSS acceptance is the actual empty-account flow above;
 an ECDSA fixture or a successful compile is not that test. HNS authority and
 browser/gateway acceptance require the independent verifier integration.
+
+Service acceptance must also prove that failed pinning, unavailable retrieval,
+hash/schema mismatch and a stale configuration prevent registration/configure
+submission. Exercise transfer content becoming unavailable between proposal and
+acceptance, replacement of a changed proposal, retained historical pins and a
+routine address update whose config becomes unavailable after submission. The
+last case must withhold the feed until verified retrieval succeeds. These checks
+are not covered by the existing Solidity suite.

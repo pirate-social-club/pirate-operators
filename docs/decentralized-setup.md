@@ -142,12 +142,36 @@ CloudConvert is required when selected media conversion uses it. Preserve the
 specific MP3 frame-window rule for identification; a generic transcoded sample
 does not satisfy that rule. No simulated allow verdict counts as configuration.
 
+## Disposable first-song scope
+
+An EOA test controller remains recovery-incomplete. Demonstrated independent
+recovery and the required controller handoff gate mainnet or real-user
+onboarding; code presence alone is not recovery. This permanently unlisted
+test profile cannot later acquire listing authority.
+
+Owner approval after review, November 4: use a disposable MegaETH testnet directory and
+posts index with two distinct inert authority contracts for the ordinary-HTTPS
+first-song test. It stays permanently unlisted and cannot later enable Pirate
+discovery. Real governance accounts and automated verification are required for
+the first listing-capable deployment, not this disposable one. The later posts
+address changes song keys; no automatic migration of test history is promised.
+See the [profile and receipt requirements](contracts/disposable-first-song.md).
+
+The first-song path explicitly includes MOSS-to-Ika creator activation and
+capped operator-funded setup before upload, followed by sealing, real admission,
+IPFS publication, DATA testnet registration, MegaETH post publication and
+playback after reload. Freeze community-account and lyric-manifest formats
+before storing state. Lyric line/occurrence IDs are stable from publication;
+line/word timings and alignment can arrive in a later post revision for karaoke.
+Neither a speech provider nor karaoke readiness gates this first-song milestone.
+
 ## Namespace and directory authority
 
 The per-TLD SLDRegistry and Pirate's shared registry of communities are different
-systems. The former exists in pirate-registry. The latter is required for this
-happy path and is not implemented yet. Its deployment/update interface must be
-built; this requirement is not dismissed because HNS already owns name authority.
+systems. The former exists in pirate-registry. The shared directory and post
+contracts are implemented and pushed on draft PR 17; their source is not a
+live deployment or completed first-song integration. The disposable profile
+above permits the HTTPS test without HNS listing or real governance accounts.
 
 The initial directory is Pirate-maintained, with a shared MegaETH community
 registry/index interface. Define the community ID, TLD, chain and SLD-registry

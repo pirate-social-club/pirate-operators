@@ -1,7 +1,9 @@
 # Community post index V1
 
-This is the proposed contract for
-[ICommunityPostsV1](../../contracts/interfaces/community/ICommunityPostsV1.sol).
+[CommunityPostsV1](../../contracts/community/CommunityPostsV1.sol) implements
+[ICommunityPostsV1](../../contracts/interfaces/community/ICommunityPostsV1.sol)
+locally. See the [implementation profile](community-implementation.md) for its
+constructor, reference checks and remaining service/deployment acceptance.
 One shared MegaETH contract can index many communities. It refers to one fixed
 directory deployment. A per-community deployment remains possible through the
 same ABI, but the selected first implementation is the shared index.
@@ -18,7 +20,11 @@ gas from its bounded operational balance. It submits for authenticated users
 after authorization and admission. The contract verifies the current publisher
 and current directory config revision on every call. It does not independently
 prove that the account behind authorId requested publication. A compromised
-publisher can forge attribution and publication; the controller can rotate it.
+publisher can forge new publications and append a new revision to every existing
+post in its community, replacing any manifest while keeping the fixed author
+and kind. The controller can rotate it, which stops further writes by that
+account but does not undo its earlier edits or mark them untrusted on chain.
+The recovery procedure below supplies that missing feed policy.
 A registry admin can self-register an unverified directory entry and publish
 through its configured publisher before Pirate verifies or lists it. Only
 Pirate discovery requires that verification; an independent community feed can
@@ -101,6 +107,83 @@ Later hide/restore actions should be explicit revisioned community decisions
 that indexers can replay; they cannot erase public chain history or IPFS copies.
 Those actions and their UI are not prerequisites for the first admitted song.
 
+## Publisher compromise and recovery
+
+This procedure assumes the community controller remains trusted and usable.
+It requires no new ABI: the controller's `configure` transaction both replaces
+the publisher and commits a JCS config manifest containing the cumulative
+`publisherRevocations` array defined in the [directory spec](community-directory.md).
+Pin, retrieve and verify that config before submitting the rotation, following
+the [configuration publication lifecycle](community-directory.md#configuration-publication-lifecycle).
+Use a different publisher account address. Rotating a signer inside the same
+publisher address does not end an address-based revocation. Refresh namespace
+verification separately because any configuration change stales it.
+
+For each affected post deployment, add the compromised publisher and the first
+block whose publications can no longer be trusted. The cutoff is inclusive:
+all that publisher's post events at or after fromBlock are quarantined,
+including legitimate writes inside the uncertain window and earlier writes in
+the same block as the rotation. If the compromise start is unknown, use "0"
+to quarantine its entire history rather than claim a safe boundary. This is a
+controller-issued conservative trust decision, not cryptographic proof of the
+compromise time. It does not quarantine other publishers' events in that block.
+The cutoff uses canonical block height, not a timestamp or service receipt.
+
+Illustrative config fragment; these are not deployed account addresses:
+
+```json
+{
+  "publisherRevocations": [
+    {
+      "postsContract": "0x1111111111111111111111111111111111111111",
+      "publisher": "0x2222222222222222222222222222222222222222",
+      "fromBlock": "1000"
+    }
+  ]
+}
+```
+
+A post event does not contain its submitting publisher. Readers derive that
+account from the directory's canonical ConfigurationPublished event for the
+post's exact communityId and configurationRevision. Do not use the outer
+transaction sender, authorId, latest publisher or untrusted manifest metadata.
+A shared publisher's incident in one community cannot revoke another's posts.
+Apply the current cumulative policy to the entire retained canonical history,
+not only events arriving after the revocation transaction.
+
+Retain quarantined raw events, hashes and revisions for audit, but do not hydrate
+or render their media as trusted feed content. The normal post projection uses
+the highest non-quarantined, otherwise validated revision and exposes a recovery
+marker whenever it differs from the on-chain latest revision. If none exists,
+withhold the post from the normal feed and report it as quarantined in history.
+This read policy does not change `getPost`, delete chain/IPFS content or repair
+already-issued grades, external registrations or reward allocations.
+
+The new publisher restores each legitimate post from independently retained
+admitted inputs, creator consent and evidence, applying the normal publication
+gate. It must read the current on-chain revision, even if that revision is
+quarantined, and submit its successor. Do not roll the contract counter back to
+the last trusted revision. Build a fresh manifest with the new post revision,
+current configurationRevision and correct hash; reusing an old manifest with
+stale identity fields is not restoration. Keep the existing postId, author and
+kind so a genuine restoration preserves publication identity. A forged new post
+with no legitimate author/kind cannot be reassigned: withhold it, and create a
+separate correctly attributed post if needed.
+
+For example, revision 1 at block 990 is trusted; revisions 2 and 3 from publisher
+A at blocks 1000 and 1002 are quarantined by its inclusive cutoff of 1000.
+After rotation, the feed displays revision 1 with the recovery marker while the
+contract still reports revision 3. Publisher B repairs it by publishing revision
+4 using expectedRevision=3 and the new config revision. The feed then selects
+revision 4, while preserving revisions 2 and 3 as quarantined history.
+
+If the trusted controller is unavailable, this procedure cannot manufacture its
+authority. Pirate can delist for containment but cannot replace the config,
+repair post history or recover the controller. The directory's EOA recovery
+limits then apply. A controller can itself censor through this policy, just as
+it can choose its publisher; the rule is a transparent community decision,
+not a new independent truth or moderation authority.
+
 ## Required implementation tests
 
 Prove old/arbitrary publishers cannot publish, stale configs and revisions
@@ -110,3 +193,8 @@ does not give Pirate publication authority. Reconstruct the latest post from
 events and compare its getter. Service acceptance must cover wrong manifest
 bytes, admission failure, overwritten upload attempts, stale evidence, uncertain
 transactions, reorg replay and playback from the published CID after reload.
+Recovery acceptance must exercise forged edits and forged new posts, inclusive
+cutoffs and same-block ordering, repeated publisher tenures, cumulative rules,
+shared publishers across communities, a missing config body, and restoration
+from the actual on-chain revision. These service/indexer cases are requirements;
+the existing Solidity tests do not implement the recovery projection.

@@ -41,7 +41,9 @@ Directory events identify a community and registry, every config revision and
 URI/hash, namespace verification and expiry, and each listing revision. Post
 events include communityId, postId, scoped authorId, kind, post revision,
 configuration revision and manifest URI/hash. Both proposed interfaces expose
-these fields without fetching transaction sender as the author.
+these fields without fetching transaction sender as the author. For compromise
+recovery, retain the publisher for each configuration revision as well; it is
+not emitted as a field of the post event.
 
 Retain raw logs keyed by chainId, contract address, blockHash, transactionHash
 and logIndex. Retain block number, transaction index and canonicality so order
@@ -55,7 +57,12 @@ The projection stores Community, ConfigurationRevision, NamespaceVerification,
 ListingRevision, Post and PostRevision entities, plus hydration status. Query
 per explicit community ID independently of listing; Pirate aggregate discovery
 includes only currently discoverable communities. Unverified claims must not
-appear as verified TLD communities. Use a stable cursor
+appear as verified TLD communities. The HTTPS-first testnet milestone may pass
+through the direct community feed while Pirate's directory and aggregate feed
+omit it. Show publication completion separately from "Pirate discovery pending
+HNS verification"; an indexed event or reachable HTTPS site cannot satisfy that
+gate. Do not add an off-chain aggregate allowlist that silently bypasses V1's
+discovery predicate. Use a stable cursor
 containing canonical ordering keys and post identity; define a snapshot height
 and restart behavior if a reorg invalidates the cursor. Expose provisional versus
 confirmed ingestion status and a last-processed block, not a false finality claim.
@@ -64,8 +71,58 @@ Namespace freshness must also be evaluated at query time or through expiry jobs:
 an unexpired record can become expired without emitting another event. Reorgs,
 config changes, expiry and delisting update feed visibility. Historical post
 records remain available as history rather than being mistaken for active
-directory entries. Explicit future hide/restore events need corresponding
+directory entries. A canonical emergency delisting must invalidate directory,
+aggregate-feed and cached discovery results; a later NamespaceVerified event
+cannot restore the listing bit. Record and test index/cache suppression delay
+against the [security budget](namespace-verifier-authority.md#evidence-age-as-a-security-bound).
+Stale chain/index state must not be presented as current discoverability, and
+cached discovery responses must respect expiry as well as delisting. These
+rules do not disable the community's independent publication/feed path. Explicit future hide/restore events need corresponding
 projection rules when their authorization model is added.
+
+## Publisher-recovery projection
+
+Implement the [publisher recovery rule](community-posts.md#publisher-compromise-and-recovery)
+for community feeds, aggregate feeds and direct post pages. Goldsky's raw events
+or an ABI-generated subgraph alone do not apply it. Store PublisherRevocation
+records scoped by chain, directory, community, post deployment and publisher,
+with inclusive fromBlock and the authorizing config revision. Keep chain latest
+revision distinct from displayed trusted revision and expose quarantine status.
+
+After each canonical configuration event, validate its manifest/hash and the
+cumulative revocation rules before exposing that community's post projection.
+If the new config body is missing, unsupported or invalid, show recovery/policy
+pending and withhold normal post content; do not serve a stale policy as current.
+Resolve the publisher through each post's historical configuration revision,
+classify the event, then hydrate only trusted post manifests. Audit tooling may
+retain flagged references but must not auto-play quarantined content.
+
+Recompute affected posts and invalidate page/feed/media caches when an incident
+is added, including pages previously hydrated under the older policy. Further
+configs must carry the existing entries unchanged; removal or narrowing fails
+validation. Rebuild from canonical config and post history after a reorg,
+rolling back orphaned events and their policy changes. Re-evaluate inclusive
+block heights on that canonical history. A block cutoff is not a forensic
+identity of a transaction; if reorgs or incident evidence make the safe boundary
+uncertain, the controller must add a more conservative cutoff (including "0").
+Expose confirmation/rollback state rather than treating an orphaned rotation as
+completed recovery. A missing historical manifest prevents a trusted replay;
+retain and replicate these public config bodies, not just their current URI.
+
+The [configuration publication lifecycle](community-directory.md#configuration-publication-lifecycle)
+requires pinning and verified consumer-path retrieval before each config-changing
+transaction, with a fresh check before transfer acceptance. This also applies to
+routine publisher rotations or contract-address additions. Preflight reduces
+avoidable feed outages; it does not allow a reader to skip validation or serve
+stale policy when a previously available body disappears.
+
+Two independent feed reducers must agree at the same canonical head, current
+policy revision and confirmation policy on quarantined revisions and displayed
+content. Test duplicate/out-of-order delivery, a revocation published long after
+a forged edit, rotation and publication in the same block, a later config trying
+to drop a rule, missing config bodies, a reorg removing the incident or a forged
+post, and a new publisher restoring currentRevision+1. This is required feed
+acceptance, not implemented indexer behavior in the current contract PR.
 
 ## Manifest hydration
 
