@@ -1,0 +1,8 @@
+{
+  "sourcePackage": "learning-records-2026-11-04/learning-records.md",
+  "sourceTask": "pirate-learning-records-draft-review-20261104",
+  "sourceSha256": "907daaa8621e1a0d729c3e887aa2219652b3aa08cf086cde4f6fad0114453b97",
+  "copy": "learning-records.md",
+  "copyMode": "byte-identical",
+  "status": "staged draft 2; owner-approved review clarifications; no runtime implementation"
+}
