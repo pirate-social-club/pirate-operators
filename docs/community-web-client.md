@@ -26,7 +26,7 @@ In the primary deployment the application and its API share one origin,
 require bearer tokens. The browser session is a cookie:
 
 ```text
-Set-Cookie: __Host-community_session=<opaque>; Path=/; Secure; HttpOnly; SameSite=Lax
+Set-Cookie: __Host-community_session=<opaque>; Path=/; Max-Age=<seconds>; Secure; HttpOnly; SameSite=Lax
 ```
 
 The `__Host-` prefix makes the browser refuse the cookie unless it is Secure,
@@ -34,12 +34,19 @@ has `Path=/` and has no `Domain`, so it stays host-only. The value is 256
 random bits. The server stores only its SHA-256 and the session record:
 wallet, community, creation time and expiry.
 
-- Lifetime follows the draft's 30 days. Any authenticated request in the
-  second half of that period renews the expiry and re-sends the cookie. Sign-in
-  always issues a new value and never reuses a previous one.
-- Logout is `POST /api/session/logout`. It deletes the server record and
-  clears the cookie. Deleting the record also ends the session on every other
-  tab.
+- Lifetime follows the draft's 30 days. The cookie always carries `Max-Age`.
+  Without `Max-Age` or `Expires` it would be a browser-session cookie, deleted
+  when the browser closes, whatever the server record says. `Max-Age` is the
+  number of seconds left until the server record expires, so the browser never
+  keeps the cookie longer than the server honours it.
+- At sign-in the server record expires in 30 days and `Max-Age` is 30 days.
+  Any authenticated request in the second half of that period extends the
+  record to 30 days from now. It re-sends the cookie with the new remaining
+  lifetime. Sign-in always issues a new value and never reuses a previous one.
+- Logout is `POST /api/session/logout`. It deletes the server record. It also
+  clears the cookie by sending the same name, `Path` and attributes with an
+  empty value and `Max-Age=0`. Deleting the record ends the session in every
+  other tab too.
 - An expired or unknown session returns 401 `session_required`. The client
   switches to its signed-out state. Public content stays on screen.
 - Every request with a method other than GET, HEAD or OPTIONS must carry an
@@ -72,8 +79,9 @@ five minutes. The same origin rule applies to the challenge format the MOSS
 wallet uses; the MOSS spike establishes that exact format.
 
 The local skeleton differs. It builds SIWE with an `http://` URI, which is
-acceptable only on loopback, and it returns a bearer token in the
-`Authorization` header. A hosted deployment replaces both.
+acceptable only on loopback. It returns a bearer token in the JSON response
+body, and later requests send that token in the `Authorization` header. A
+hosted deployment replaces both.
 
 A mirror (section 6) never offers sign-in. Each authenticated action is a link
 to the same path on the canonical origin, which it reads from the community
@@ -89,16 +97,19 @@ attach an `Authorization` header, and a cookie for the community origin is
 never sent to an independent operator. So the ticket travels inside the
 socket, in the first message.
 
-The local skeleton differs in three ways that this contract corrects:
+The local skeleton differs in four ways that this contract corrects:
 
 - the session key is a secp256k1 address, where the draft specifies the RFC
   7638 thumbprint of a P-256 key;
 - the browser proves the key by signing the fixed text `connect:<ticketId>`
   and sending it in the URL query, so the proof never changes and appears in
   logs;
-- the operator checks no Origin, and learns tickets through a
-  community-to-operator `/prepare` call rather than from the ticket's own
-  signature.
+- the operator checks no Origin;
+- the community delivers the ticket to the operator in a server-to-server
+  `/prepare` call, which verifies the issuer signature, before the socket
+  opens. The browser then presents only the ticket ID. In this contract the
+  browser presents the signed ticket itself in the first message, and the
+  operator verifies it at that point.
 
 The handshake is:
 
@@ -108,11 +119,13 @@ The handshake is:
    ticket.
 2. The browser opens `wss://<operator>/attempt` with the subprotocol
    `pirate-karaoke.1`. The URL carries no ticket, proof or other secret.
-3. Before upgrading, the operator applies its Origin policy. A request that
-   has an `Origin` header must match an origin listed for the ticket's
-   community in that community's configuration; otherwise the operator
-   answers 403. A request with no `Origin` header comes from a non-browser
-   client and passes this step.
+3. Before upgrading, the operator applies its Origin allowlist. It cannot yet
+   know the ticket's community, because the ticket arrives after the upgrade.
+   The allowlist is the union of the origins that each community it serves
+   lists in its configuration. A request whose `Origin` header is not on the
+   allowlist gets 403. The operator records the `Origin` value with the socket.
+   A request with no `Origin` header comes from a non-browser client and passes
+   this step.
 4. After the upgrade the operator sends
    `{ "type": "challenge", "nonce": <32 random bytes, base64url>, "expiresAt": <ms> }`
    with a ten-second deadline.
@@ -120,11 +133,19 @@ The handshake is:
    `{ "type": "hello", "ticket": <signed ticket>, "publicKey": <JWK>, "signature": <base64url> }`.
    The signature is ECDSA P-256 with SHA-256 over the JCS encoding of
    `{ "purpose": "pirate-karaoke-connect/1", "ticketId", "operator", "nonce" }`.
-6. The operator verifies, in order: the issuer signature, and that the issuer
-   is the key configured for that community; `operator` is itself;
-   `notBefore <= now < expiresAt`; the JWK thumbprint equals
-   `sessionKey`; the signature covers this socket's nonce; and the manifest
-   can be served. It then creates or resumes the attempt
+6. The operator verifies, in order:
+   - the issuer signature, and that the issuer is the key configured for that
+     community;
+   - if an `Origin` was recorded in step 3, that it is listed for the verified
+     ticket's `communityId`, not merely for some community this operator
+     serves;
+   - that `operator` is itself;
+   - that `notBefore <= now < expiresAt`;
+   - that the JWK thumbprint equals `sessionKey`;
+   - that the signature covers this socket's nonce;
+   - that the manifest can be served.
+
+   It then creates or resumes the attempt
    (`attemptId = sha256(ticketId)`, as in section 8.4) and sends
    `{ "type": "ready", "attemptId", "resumed": <bool> }`.
 7. Performance frames are accepted only after `ready`. The attempt ends at
@@ -143,6 +164,7 @@ the socket:
 | 4400 | `protocol_error` | malformed message, or a frame before `ready` |
 | 4401 | `invalid_ticket` | bad issuer signature, wrong community or wrong operator |
 | 4403 | `wrong_session_key` | thumbprint or challenge signature mismatch |
+| 4406 | `origin_mismatch` | the recorded Origin is not listed for the ticket's community |
 | 4408 | `hello_timeout` | no valid `hello` before the challenge deadline |
 | 4409 | `ticket_conflict` | the same ticket ID with a different ticket body |
 | 4410 | `expired_ticket` | outside `notBefore` to `expiresAt` |
@@ -178,6 +200,7 @@ Ownership of the document is fixed:
 | `<main id="public-content">` | publisher | written at publication; the client does not modify it while the page is the entry document |
 | `<div id="app-shell-root">` | client | empty in generated HTML; the client mounts header and navigation here with `render` |
 | `<div id="app-actions-root">` | client | empty; the client mounts the post's interactive controls here |
+| `<link href="/public/document-v<N>.css">` | publisher | the immutable stylesheet for the page's document version; no release replaces it |
 | `<script src="/app/boot.js">` | release | a small, unhashed, short-cache loader that imports the current release's hashed entry |
 
 Solid's `render` creates new nodes inside an empty root. It does not adopt
@@ -186,6 +209,26 @@ When the reader navigates away from the entry page inside the client, the
 client deliberately replaces `#public-content` with its own route view and
 owns that region from then on. Returning to the post renders the client's own
 post view from data, not the generated HTML.
+
+Generated pages outlive releases. They are not regenerated when the client
+changes. Each page therefore records `data-document-version`, the version of
+its markup contract: the region IDs and data attributes above, the classes in
+its markup, and its stylesheet. A page refers to only two files outside its
+own content: the boot loader, and the stylesheet for its document version. It
+never links a release's hashed assets. An upgrade therefore cannot restyle old
+markup or delete files that old markup needs.
+
+Each `release.json` lists the document versions its client can mount on.
+Making a release current, including by rollback, is refused unless it supports
+every document version that is still published. A new document version goes
+through these steps in order:
+
+1. Publish the new version's stylesheet.
+2. Release a client that supports both the old and the new version.
+3. Regenerate every published page under the new version.
+4. Remove the old version from later releases.
+
+The old stylesheet stays until no published page refers to it.
 
 Publication rules:
 
@@ -298,7 +341,8 @@ benchmark suite.
 An application release consists of:
 
 - `release.json`, listing the release version, source commit, supported
-  protocol versions, entry path, and every asset path with its SHA-256;
+  protocol versions, supported document versions, entry path, and every asset
+  path with its SHA-256;
 - content-hashed, immutable assets;
 - build instructions pinned to the lockfile and toolchain, so the same commit
   rebuilds to the same asset hashes.
@@ -322,10 +366,14 @@ the MOSS and MegaETH MVP plan schedules separately. When the client and the
 configuration share no protocol version, the client shows public content
 read-only and explains that the community needs a newer client.
 
-Each release's assets are retained for at least 30 days after it is
-superseded, for open tabs and for generated pages that loaded them. A rollback
-repoints `/app/boot.js` and the current `release.json` to an earlier release.
-It never needs a rebuild.
+Each release's hashed assets are retained for at least 30 days after it is
+superseded, for tabs that are already open. Generated pages do not depend on
+them, because they refer only to the boot loader and their document-version
+stylesheet (section 3). Document-version stylesheets, and any image or media a
+published page refers to, are retained for as long as any published page
+refers to them. A rollback repoints `/app/boot.js` and the current
+`release.json` to an earlier release. It never needs a rebuild. It is refused
+if the earlier release does not support every published document version.
 
 Routing uses paths. Requests for generated documents are served from storage.
 `/api/*` goes to the community service. Any other path without a file falls
@@ -429,15 +477,15 @@ These checks belong to the implementation tasks that follow. None has run.
 
 | ID | Check | Method |
 |---|---|---|
-| A1 | The session cookie is `__Host-`, Secure, HttpOnly, SameSite=Lax and host-only | automated against the local service |
+| A1 | The session cookie is `__Host-`, Secure, HttpOnly, SameSite=Lax and host-only. It carries `Max-Age` equal to the server record's remaining lifetime at sign-in and on renewal, and survives a browser restart | automated against the local service |
 | A2 | An unsafe request with a missing or foreign Origin is refused with 403 `origin_refused` | automated |
-| A3 | Logout ends the session in every tab; an expired session shows public content signed out | automated browser |
+| A3 | Logout ends the session in every tab and clears the cookie with `Max-Age=0`; an expired session shows public content signed out | automated browser |
 | A4 | After sign-in, no credential appears in localStorage, sessionStorage, IndexedDB or the Cache API | automated browser |
 | A5 | A sign-in message whose `domain` or `uri` differs from the canonical origin is refused, and the nonce is single-use | automated |
 | A6 | A mirror shows no sign-in and links authenticated actions to the canonical origin | automated against a mirror build |
 | K1 | The handshake reaches `ready`, and a reconnect with the same key resumes | automated, real WebSocket |
 | K2 | A missing `hello`, a replayed challenge signature, a wrong key, an expired ticket or a conflicting ticket closes with the listed code | automated |
-| K3 | A disallowed Origin is refused, and an allowed Origin without a valid ticket is also refused | automated |
+| K3 | An Origin outside the allowlist gets 403 before upgrade. An allowed Origin without a valid ticket is refused. An Origin allowed only for community A that presents community B's ticket closes with `origin_mismatch` | automated |
 | K4 | No ticket or proof appears in any URL | automated, request logging |
 | P1 | A generated post page shows its content and preview metadata with JavaScript disabled | automated browser |
 | P2 | An edit regenerates the page, a removal serves the 410 tombstone, and a failed job keeps the previous page | automated |
@@ -451,7 +499,7 @@ These checks belong to the implementation tasks that follow. None has run.
 | S3 | The client build fails above the 100 KB gzip initial budget | build check |
 | S4 | One cold-cache measurement on a mid-range Android phone meets the section 5 targets | manual, per release candidate |
 | D1 | Rebuilding the release commit reproduces `release.json` hashes | automated |
-| D2 | A rollback serves the previous release without a rebuild, and superseded assets stay available | automated against a test host |
+| D2 | An unchanged post page published under release N still renders with its styles and mounted controls after an upgrade to N+1 and after a rollback to N. Both moves need no rebuild. Making current a release that lacks a published document version is refused. Superseded hashed assets stay available for 30 days | automated against a test host |
 | D3 | A second installation runs the same release with its own configuration, keys and storage | manual, testnet |
 | D4 | An IPFS mirror is held by two pinning services and retrieved from two gateways | manual |
 | D5 | The security headers in section 6 are present on the primary deployment | automated |
