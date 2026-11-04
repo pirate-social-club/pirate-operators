@@ -57,7 +57,12 @@ The projection stores Community, ConfigurationRevision, NamespaceVerification,
 ListingRevision, Post and PostRevision entities, plus hydration status. Query
 per explicit community ID independently of listing; Pirate aggregate discovery
 includes only currently discoverable communities. Unverified claims must not
-appear as verified TLD communities. Use a stable cursor
+appear as verified TLD communities. The HTTPS-first testnet milestone may pass
+through the direct community feed while Pirate's directory and aggregate feed
+omit it. Show publication completion separately from "Pirate discovery pending
+HNS verification"; an indexed event or reachable HTTPS site cannot satisfy that
+gate. Do not add an off-chain aggregate allowlist that silently bypasses V1's
+discovery predicate. Use a stable cursor
 containing canonical ordering keys and post identity; define a snapshot height
 and restart behavior if a reorg invalidates the cursor. Expose provisional versus
 confirmed ingestion status and a last-processed block, not a false finality claim.

@@ -1,10 +1,18 @@
 # Community setup to first song
 
-Product direction, 2026-11-04: the full setup path is an operator bringing a
+Owner direction, 2026-11-04: the first milestone is an operator bringing a
 community online at app.tld, appearing in Pirate's community directory and
 posting its first song. Sponsored customer name purchases are lower priority.
 Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
 source of service secrets. These are requirements, not optional tooling choices.
+
+Later owner direction, 2026-11-04: first-song contracts and flows must be
+testable without HNS work, using a genuine unverified test registry and ordinary
+HTTPS. HNS verification gates Pirate discovery; app.tld browser acceptance is a
+separate follow-up. This narrows the testnet acceptance scope of the earlier
+milestone without replacing its recorded wording or adding HTTPS-only listing.
+A successful HTTPS test run may remain unlisted in Pirate's directory and
+aggregate feed while serving its own community feed.
 
 This branch does not implement the wizard. Existing pieces are the testnet HNS name
 registry, local operator services and a fixture static client. The maintained
@@ -89,6 +97,11 @@ candidate alongside MOSS, subject to actual account acceptance. If MOSS is used,
 its first-transaction funding, execution and recovery must each be proven; an
 ETH balance or account code is not that proof. See the
 [directory bootstrap boundary](contracts/community-directory.md#operator-bootstrap-and-recovery).
+The verifier's recurring writes use the proposed
+[bounded authority profile](contracts/namespace-verifier-authority.md), under
+recoverable governance. Implement it and pass local integration before directory
+deployment, then prove actual binding and refresh before enabling listings.
+A direct 2-of-3 Safe is not the automated signer for this profile.
 These are proposed integration requirements, not completed directory/wizard
 acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.

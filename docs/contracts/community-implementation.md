@@ -27,6 +27,17 @@ local chain. This slice includes no deployment script or public-chain write. The
 separate [Safe code observation](governance-accounts.md#testnet-code-observation)
 is read-only evidence about candidate governance infrastructure.
 
+The recommended `verifier` input is the stable address of
+[NamespaceVerifierAuthorityV1](namespace-verifier-authority.md), administered by
+a recoverable Safe with a rotatable service key restricted to verification.
+It is a proposed new dependency, not implemented by this PR. The directory ABI
+already accepts its contract address; the existing governance fixture does not
+prove its behavior. Implement/review the authority and pass local integration
+before deploying the directory. In the admitted deployment, bind the actual
+directory and prove signing, recovery and refresh before enabling listings.
+Even an initially unlisted test community must not cause the immutable verifier
+slot to be filled with an arbitrary placeholder.
+
 ## On-chain enforcement
 
 Registration checks the current registry admin and factory membership, the

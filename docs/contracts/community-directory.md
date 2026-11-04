@@ -67,8 +67,11 @@ reference, at most 512 UTF-8 bytes, with no query or fragment. Require nonzero
 controller, publisher and content hash. The deployment fixes the supported
 factory set and the namespace-verifier and listing-authority accounts; no
 unbounded super-admin or directory upgrade path is implied. Both authority
-addresses must be governance smart accounts with signer rotation and a defined,
-tested recovery path. Do not bind either role to a single hot EOA. Deployment
+addresses must be stable governance-controlled contracts with signer rotation
+and a defined, tested recovery path. The recommended verifier is a
+[bounded authority contract](namespace-verifier-authority.md) whose service key
+is rotated by a recoverable governance Safe; listing uses a separate governance
+account. Do not bind either directory role directly to a single hot EOA. Deployment
 acceptance must revoke/replace an operational signer while preserving the
 account, directory and posts addresses, configuration and all post IDs. The
 recovery authority must survive loss of an operational signer; it is not a
@@ -191,7 +194,7 @@ execute acceptance. Keep the EOA controller until acceptance is confirmed; a fai
 initialization or expired proposal must not surrender control. Registry-admin transfer, publisher changes
 and community-controller transfer are separate authorities; transferring this
 directory entry alone does not move the registry admin or service credentials.
-Pirate's verifier/listing roles still require the stable governance accounts
+Pirate's verifier/listing roles still require the stable governance-controlled contracts
 specified above; this operator bootstrap does not relax that requirement.
 
 An EOA has no protocol key-reset or recovery mechanism. If its private key is
@@ -280,6 +283,27 @@ and [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702).
 
 ## Verification and listing are separate
 
+V1 keeps HNS verification as the discovery prerequisite. The HTTPS-first testnet
+path deliberately allows registration, publication, direct post pages and the
+community's own feed while remaining unlisted in Pirate's directory and aggregate
+discovery. An HTTPS origin or domain-control challenge does not satisfy
+`verifyNamespace`; never manufacture HNS evidence or insert a dummy hnsBlockHash
+to list an HTTPS-only community. Raw indexing does not grant discovery status.
+
+An existing entry can become discoverable later only when the verifier proves
+the matching HNS TLD's binding to that same registry/current config and the
+listing authority lists it. Its publication identity then stays unchanged. If
+the matching namespace cannot be established, a different TLD cannot overwrite
+this entry's immutable tldHash; a new registry creates a new communityId. No
+automatic history migration is implied.
+
+HTTPS-only discovery is not a V1 verification type. If that becomes a launch
+requirement, revise the verification model and ABI before deployment, including
+distinct identity/display semantics for HTTPS and HNS claims. Neither the
+directory nor the posts pointer is upgradeable; adding that capability after
+deployment would require a new deployment and an explicit identity/history
+migration plan. The current first-song test scope does not require that extension.
+
 Only the namespace verifier can submit a fresh verification. It checks HNS
 delegation to this chain/registry, current app ownership/records and endpoints,
 and the config/publisher binding. Record the HNS height and block hash, observed
@@ -294,6 +318,14 @@ maximum age fixed by the deployment profile. Evidence must be no older than
 the previous observation. A profile without a selected freshness bound is not
 deployable. Key compromise can forge these attestations; this is Pirate's
 explicit namespace-verification trust boundary.
+
+The [verifier authority design](namespace-verifier-authority.md) separates
+automated attestation from governance signer recovery. Its implementation and
+local integration are prerequisites to deployment; actual binding and refresh
+acceptance precede live listings. None is established by the current directory
+tests. Rotating or pausing its service key does not
+invalidate already recorded attestations; incident response also requires the
+separate listing authority to delist affected communities.
 
 Only the separate listing authority calls `setListed`, using an exact listing
 revision. It may list, delist and record a public reason digest. It cannot edit

@@ -37,6 +37,12 @@ handoff and verified recovery required before mainnet or real-user onboarding.
 remains separate from code verification. These rules add no on-chain recovery
 override or automatic history migration.
 
+The proposed [namespace verifier authority](namespace-verifier-authority.md)
+separates a rotatable automated service key from its recoverable governance Safe.
+Only typed verification to one directory is delegated. This new contract is
+specified but not implemented here and is a prerequisite before directory
+deployment; it does not change the current directory/post ABIs.
+
 ## Content and read path
 
 ```mermaid
@@ -80,6 +86,11 @@ discovery and app.tld browser acceptance remain separate follow-ups under the
 setup plan. EOA control does not downgrade a successful test run to a rehearsal,
 but its receipt must show incomplete recovery. Admission means real
 pre-publication evidence and the publication gate, not a new moderator dashboard.
+
+HTTPS-only communities stay unlisted in V1 until the matching HNS binding is
+verified. Their own feeds and direct post pages still work independently of
+Pirate discovery. HTTPS-domain verification is not being added as a shortcut;
+if HTTPS-only discovery becomes required, revise that ABI before deployment.
 
 Then implement LearningRecords with actual graders, learner consent, an accepted
 public-identity policy and the agreed shared learning clock. Its manifest

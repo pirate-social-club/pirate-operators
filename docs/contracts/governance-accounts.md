@@ -3,7 +3,7 @@
 The community controller may use an EOA for the testnet first-song milestone.
 The wizard still tracks recovery readiness and must establish it before mainnet
 or real-user onboarding. Pirate's verifier and listing roles require separate,
-stable governance account addresses from deployment; the EOA bootstrap allowance
+stable governance-controlled addresses from deployment; the EOA bootstrap allowance
 does not apply to those roles. See the [directory boundary](community-directory.md#operator-bootstrap-and-recovery).
 
 ## Safe candidate and recovery threshold
@@ -12,8 +12,10 @@ Safe is a candidate that does not depend on MOSS recovery. A proposed testnet
 profile is SafeL2 1.4.1 through that version's canonical SafeProxyFactory on
 MegaETH 6343. This is a profile to qualify, not a selected live deployment or
 permission to create keys, fund gas or deploy accounts. The same profile could
-serve the community controller and separate Pirate verifier/listing accounts;
-do not collapse those authorities into one shared address.
+serve the community controller, Pirate's listing account and the separate
+governance account administering the verifier authority. Do not collapse those
+authorities into one shared address. The directory's verifier address is the
+proposed bounded contract described below, not its governance Safe.
 
 Safe owners can replace an owner through a transaction authorized by the current
 threshold. Our proposed 2-of-3 profile uses three independently controlled
@@ -26,13 +28,32 @@ Loss of two signers is outside this profile's guarantee. An offline owner in a
 owner act alone. See Safe's [account and owner model](https://docs.safe.global/advanced/smart-account-overview)
 and [owner replacement](https://docs.safe.global/reference-smart-account/owners/swapOwner).
 
-This profile uses ordinary threshold-authorized account transactions. It does
-not require a recovery module, unrestricted session key or guard. Any additional
-execution authority needs its own review and acceptance. In particular, a
-verifier refresh service must satisfy the selected signing policy and freshness
-budget; a single hot key cannot silently bypass a 2-of-3 threshold. Confirm a
-working transaction preparation, signing and submission path on MegaETH rather
-than inferring Safe Wallet UI or transaction-service support from code presence.
+This profile uses ordinary threshold-authorized account transactions for
+controller, listing and verifier-governance changes. It does not require a
+recovery module, unrestricted session key or guard. Confirm a working transaction
+preparation, signing and submission path on MegaETH rather than inferring Safe
+Wallet UI or transaction-service support from code presence.
+
+## Automated verifier authority
+
+Recurring namespace verification needs automation. The recommended profile is
+a dedicated [NamespaceVerifierAuthorityV1](namespace-verifier-authority.md), with
+a stable address and a service key limited to typed verification calls to one
+directory. A separate 2-of-3 governance Safe binds the directory once and rotates
+or disables that key. Its owners do not co-sign each refresh; the service key
+has no Safe owner/module authority and cannot list communities or edit their
+configuration. One service-key compromise can still forge attestations: the
+governance threshold protects key administration, not the truth of routine evidence.
+
+This chooses a bounded contract over two continuously online Safe signers or a
+general Safe module. Safe documents that modules can execute transactions through
+the account outside its ordinary owner-signature path; accepting one would add
+another execution authority to qualify. See [Safe modules](https://docs.safe.global/advanced/smart-account-modules).
+The bounded verifier is new code still to implement and review. Local tests of
+binding, rotation, pause, freshness and incident handling precede directory
+deployment. Actual account and service acceptance follows the one-time binding
+and precedes live listings. A direct Safe or the current governance fixture is
+not a substitute for this automated acceptance.
 
 ## Testnet code observation
 
