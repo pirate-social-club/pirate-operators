@@ -1,0 +1,49 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS challenges (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  hash TEXT PRIMARY KEY, kind TEXT NOT NULL, account TEXT NOT NULL, expires INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS links (
+  id TEXT PRIMARY KEY, session_hash TEXT NOT NULL, account TEXT NOT NULL,
+  origin TEXT NOT NULL, state TEXT NOT NULL, verifier_hash TEXT NOT NULL,
+  expires INTEGER NOT NULL, credential_id TEXT, code_hash TEXT UNIQUE, consumed INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS credentials (
+  id TEXT PRIMARY KEY, cose_key TEXT NOT NULL, counter INTEGER NOT NULL,
+  sui_public_key TEXT NOT NULL, sui_address TEXT NOT NULL UNIQUE,
+  sealed_seed TEXT NOT NULL, created INTEGER NOT NULL, authenticated_at INTEGER, activated_at INTEGER,
+  dwallet_id TEXT, cap_id TEXT, share_id TEXT, evm_public_key TEXT, evm_address TEXT,
+  status TEXT NOT NULL DEFAULT 'saved'
+);
+CREATE TABLE IF NOT EXISTS bindings (
+  account TEXT PRIMARY KEY, credential_id TEXT NOT NULL REFERENCES credentials(id)
+);
+CREATE TABLE IF NOT EXISTS attempts (
+  id TEXT PRIMARY KEY, account TEXT NOT NULL, credential_id TEXT NOT NULL REFERENCES credentials(id),
+  status TEXT NOT NULL DEFAULT 'reserved', intent TEXT NOT NULL, created INTEGER NOT NULL,
+  dwallet_id TEXT, cap_id TEXT, share_id TEXT, dkg_digest TEXT, acceptance_digest TEXT, error TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_live_attempt ON attempts(account) WHERE status <> 'failed';
+CREATE UNIQUE INDEX IF NOT EXISTS one_credential_attempt ON attempts(credential_id) WHERE status <> 'failed';
+CREATE TRIGGER IF NOT EXISTS attempt_budget BEFORE INSERT ON attempts BEGIN
+  SELECT CASE WHEN (SELECT COUNT(*) FROM attempts WHERE account = NEW.account AND created > NEW.created - 86400000) >= 3
+    THEN RAISE(ABORT, 'account_attempt_limit') END;
+  SELECT CASE WHEN (SELECT COUNT(*) FROM attempts WHERE created > NEW.created - 86400000) >= 3
+    THEN RAISE(ABORT, 'operator_daily_attempt_limit') END;
+END;
+CREATE TABLE IF NOT EXISTS submissions (
+  id TEXT PRIMARY KEY, attempt_id TEXT NOT NULL REFERENCES attempts(id), kind TEXT NOT NULL,
+  digest TEXT NOT NULL UNIQUE, bytes TEXT NOT NULL, signatures TEXT NOT NULL,
+  status TEXT NOT NULL, receipt TEXT, created INTEGER NOT NULL,
+  UNIQUE(attempt_id, kind)
+);
+CREATE TABLE IF NOT EXISTS operator_lock (id INTEGER PRIMARY KEY CHECK (id = 1), holder TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS signatures (
+  id TEXT PRIMARY KEY, credential_id TEXT NOT NULL REFERENCES credentials(id),
+  message TEXT NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL,
+  presign_id TEXT, presign_cap_id TEXT, ika_coin_id TEXT, sui_coin_id TEXT,
+  transaction_bytes TEXT, transaction_digest TEXT, sign_id TEXT, result TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS one_test_signature ON signatures(credential_id);
