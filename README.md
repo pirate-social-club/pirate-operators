@@ -6,6 +6,11 @@ explains the required happy path: TLD/app records, community directory,
 Alchemy.run provisioning, Infisical secrets, real moderation and first post.
 Sponsored customer name purchases are later work. The recovered
 [operator protocol](docs/operator-protocol.md) owns admission/publication rules.
+Its [payment specification](docs/operator-payments.md) is a published copy of
+the active payment lane's design; that document's implementation-state section
+describes the source branch recorded in its provenance, not this runtime.
+[HNS ingress](docs/hns-community-ingress.md) reuses the existing gateway design
+and distinguishes prior phone proof from the new setup acceptance.
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits

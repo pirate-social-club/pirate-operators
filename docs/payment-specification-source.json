@@ -1,0 +1,6 @@
+{
+  "sourceCommit": "0dec600a637e8cc3450d94627a98b95f5a55cab0",
+  "sourcePath": "docs/operator-payments.md",
+  "sha256": "e394609fa029da94bc4c99484cbda03991512bdbeda38bc9b855635e3eb1bce2",
+  "publication": "Exact documentation copy only. Implementation-state claims describe the local segment-payments branch at the source commit, not the code in this documentation branch. The implementation lane retains ownership."
+}

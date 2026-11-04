@@ -7,7 +7,9 @@ Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
 source of service secrets. These are requirements, not optional tooling choices.
 
 The wizard is not implemented. Existing pieces are the testnet HNS name
-registry, local operator services and a fixture static client. The sequence
+registry, local operator services and a fixture static client. The maintained
+centralized HNS gateway also has prior phone acceptance; its new-registry
+adapter and repeatable community setup are not built. The sequence
 below is the missing end-to-end integration. It keeps centralized hosted
 infrastructure as an explicit part of the decentralized community product.
 
@@ -18,7 +20,7 @@ infrastructure as an explicit part of the decentralized community product.
 | 1. Select namespace and operator | Verify current TLD control, select community ID and public origins, and choose Pirate-hosted or independent service operation. | Bound TLD/operator identity and explicit deployment account; no secrets in public configuration. |
 | 2. Prepare the name registry | Reuse a verified MegaETH factory; create the TLD registry with NOT_FOR_SALE, reserve app to its intended holder, set app's premium to zero, register it, and configure other selected names. | Verified code and receipt, app owned by the intended holder, selected reservations/prices read back. |
 | 3. Save secrets and provision services | Save required provider/service credentials to the right Infisical scope. Alchemy provisions Workers, D1/migrations, R2, job transport, bindings and public ingress. | Secret versions installed without logging values, migrations applied, health and storage checks pass. |
-| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, and have the TLD owner sign the HNS delegation/update. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
+| 4. Make app.tld work | Build the Solid release, publish the chosen static artifact, set the holder-authorized app records, have the TLD owner sign the HNS delegation/update, and configure the selected HNS gateway using the existing DANE design. | Independent HNS-to-registry-to-app lookup and an actual load, login and API request in the intended browser. An ordinary HTTPS alias is tested separately. |
 | 5. Update Pirate's community registry | Submit/update the community record, verify namespace authority independently, and expose the verified entry through the directory/index. | The correct community and app link appear; a forged factory announcement is not accepted as ownership. |
 | 6. Configure real admission | Select trusted operators and policy, validate the required provider connections and enable durable admission/publication jobs. | The restored evidence and publication gate run against real inputs; failures hold rather than publish. |
 | 7. Post the first song | Authenticate the operator/creator, run the applicable creator activation flow, upload sealed media, perform admission, publish the post and complete the configured registration step. | The post appears and plays after reload, its page and media are retrievable, and retries do not duplicate publication or registration. |
@@ -38,7 +40,8 @@ name sales, gas sponsorship, karaoke and rewards follow this milestone.
 ## Alchemy, Cloudflare and Infisical
 
 Alchemy.run is the sole infrastructure reconciler for this stack. It owns the
-Workers, D1, R2, required Queues/Workflows, bindings and deployable ingress.
+Workers, D1, R2, required Queues/Workflows, bindings and ordinary HTTPS ingress.
+The HNS TLS gateway is a separate deployed service with its own operator and keys.
 Use cf for relevant diagnostics and account inspection, not a second deployer
 that independently changes Alchemy-owned resources. Do not assume cf login
 credentials automatically authenticate Alchemy. Pin the selected Alchemy release
@@ -118,7 +121,11 @@ TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
 secure-origin/session behavior. Keep an ordinary HTTPS origin available for
 ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
 proves navigation only; it must not be reported as same-origin app.tld operation.
-The exact HNS ingress/certificate mapping remains an integration gap.
+Start from the [existing gateway and acceptance evidence](hns-community-ingress.md).
+Its DNSSEC/DANE ingress and proxy design already served app.8s28 on a phone.
+The open work is adapting authority lookup to the new registry/directory,
+packaging the gateway choice, and proving this Worker/session/upload path.
+The earlier phone run is not fresh acceptance of the new stack.
 
 ## First-song publication and DATA
 
@@ -132,9 +139,11 @@ controls cover display, not the rating. Missing/invalid evidence never publishes
 
 The existing creator design still requires confirmed Sui/Ika activation before
 song-release upload. Do not bypass that requirement under the phrase first song.
-Its current proof uses Sui/Ika testnet and DATA/Story Aeneid 1315 with an
+The specified proof targets Sui/Ika testnet and DATA/Story Aeneid 1315 with an
 operator-funded creator account and registration. This is part of the testnet
 first-release work when that flow is enabled, not a production DATA launch.
+The dedicated Pirate creator-wallet site and activation flow are specified,
+not implemented end to end. They remain first-release dependencies.
 Posting, admission and IP registration retain distinct durable states and
 receipts. The UI must not label a post registered without a confirmed receipt.
 
@@ -152,6 +161,7 @@ upload, would change the existing product contract and is not done here.
 | HNS TLD key | Operator's HNS wallet; its own recovery procedure. Never a Worker secret. | Repoint or lose the namespace, affecting all names beneath it. |
 | Registry admin and app holder | Operator-controlled wallet; separate from provider/payment keys. | Admin can change future sales/treasury; app holder/record manager can redirect app records. |
 | Cloudflare deploy and Infisical machine authority | Scoped operator provisioning identity; protected bootstrap/rotation procedure. | Read accessible secrets or replace infrastructure/frontend within granted scope. |
+| HNS gateway TLS and forwarding authority | The selected gateway operator holds TLS/forwarding keys under its own protected recovery procedure. | Can inspect and alter requests, sessions and served code for traffic it terminates. Independent community Workers do not remove this trust. |
 | OperatorPayments purchase signer | Scoped server secret in Infisical, installed only in the purchasing service. | Current contract permits arbitrary signed recipient/amount: the entire funded deposit is exposed. |
 | Ticket, evidence and feed signing keys | Infisical-backed service keys with key IDs, rotation and restore checks. | Forge that service's tickets, verdicts or feed/config records. |
 | Community sessions | Random opaque cookies; only token hashes/session records in D1, with backup/invalidation policy. | A stolen valid token impersonates its session; database/server compromise has wider authority. No extra session-signing key is assumed. |
@@ -201,10 +211,19 @@ operator-first implementation order or requests a new general decision.
 ## Observed source and acceptance
 
 Inspected operators main 9f2217e, registry PR 2 at 296c97d, frontend branch
-388018f, creator PR 10 at 9c7899b and payment branch d635d46. The payment source
-is now committed locally, not merely uncommitted. It is not on main. No Alchemy
-provisioner, Infisical setup wizard, shared community directory or complete
+388018f, creator PR 10 at 9c7899b and payment branch 0dec600 (successor to
+d635d46). The [payment specification](operator-payments.md) is included with exact source
+provenance. Its implementation is committed locally and remains unpublished
+at this observation; the documentation copy does not publish its runtime.
+No Alchemy provisioner, Infisical setup wizard, shared community directory or complete
 first-song acceptance exists in these inspected sources.
+
+The critical integration dependencies are the real ACRCloud/OpenAI adapters,
+the selected HNS gateway with the new authority/session path, and the creator
+wallet site plus Sui/Ika/Aeneid testnet flow. CloudConvert joins this list only
+if selected for conversion. Verify readiness independently, then prove them
+together; substituting a fake verdict or a pending-registration bypass does
+not satisfy the existing first-release contract.
 
 The implementation must prove one real run through steps 1-7, safe interrupted
 resume, no duplicate community/post/registration, provider failure refusal,
