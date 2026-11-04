@@ -14,6 +14,7 @@ import {
 import type { BcsType } from "@mysten/bcs";
 import { b64, unb64, suiUrl } from "../shared.ts";
 import { insist, type Env } from "./store.ts";
+import { acquireOperatorLock } from "./operator-lock.ts";
 
 export const config = getNetworkConfig("testnet");
 export const ikaType = `${config.packages.ikaPackage}::ika::IKA`;
@@ -87,16 +88,9 @@ export async function submit(
     insist(saved.status === "confirmed", "transaction_failed", 409);
     return JSON.parse(saved.receipt);
   }
-  await env.DB.prepare(
-    "INSERT INTO operator_lock(id,holder) VALUES(1,?) ON CONFLICT(id) DO NOTHING",
-  )
-    .bind(id)
-    .run();
-  const lock = await env.DB.prepare(
-    "SELECT holder FROM operator_lock WHERE id=1",
-  ).first<{ holder: string }>();
-  insist(lock?.holder === id, "operator_busy_reconciling_transaction", 409);
+  await acquireOperatorLock(env.DB, id);
   const { sui } = clients();
+  let persistenceAttempted = false;
   try {
     if (!saved) {
       const { tx, userSignature } = await build();
@@ -107,6 +101,7 @@ export async function submit(
         ...(userSignature ? [userSignature] : []),
         signature.signature,
       ];
+      persistenceAttempted = true;
       const inserted = await env.DB.prepare(
         "INSERT INTO submissions(id,attempt_id,kind,digest,bytes,signatures,status,created) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
       )
@@ -177,11 +172,11 @@ export async function submit(
     insist(tx.status.success, "transaction_failed", 409);
     return receipt;
   } catch (error) {
-    if (!saved)
+    if (!saved && !persistenceAttempted)
       await env.DB.prepare(
-        "DELETE FROM operator_lock WHERE id=1 AND holder=? AND NOT EXISTS(SELECT 1 FROM submissions WHERE id=?)",
+        "DELETE FROM operator_lock WHERE id=1 AND holder=? AND NOT EXISTS(SELECT 1 FROM submissions WHERE id=?) AND NOT EXISTS(SELECT 1 FROM signature_preparations WHERE submission_id=? AND phase='submitting')",
       )
-        .bind(id, id)
+        .bind(id, id, id)
         .run();
     throw error;
   }

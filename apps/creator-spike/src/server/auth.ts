@@ -42,6 +42,7 @@ import {
   type Env,
 } from "./store.ts";
 import { verifyWallet } from "./chain.ts";
+import { bindActiveCredential } from "./binding.ts";
 
 export async function mossChallenge(env: Env, body: Record<string, unknown>) {
   const address = str(body, "address");
@@ -262,11 +263,7 @@ export async function exchange(
     409,
   );
   await verifyWallet(row.dwallet_id, row.cap_id, row.share_id, row.sui_address);
-  await env.DB.prepare(
-    "INSERT INTO bindings(account,credential_id) VALUES(?,?) ON CONFLICT(account) DO UPDATE SET credential_id=excluded.credential_id WHERE bindings.credential_id=excluded.credential_id",
-  )
-    .bind(s.account, row.id)
-    .run();
+  await bindActiveCredential(env.DB, s.account, row.id);
   const sig = await env.DB.prepare(
     "SELECT status FROM signatures WHERE credential_id=?",
   )

@@ -1,4 +1,5 @@
 import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { validateFixedSignMessage } from "../sign-message.ts";
 import {
   IkaClient,
   getNetworkConfig,
@@ -321,6 +322,7 @@ async function sign() {
       suiCoinId: string;
       operator: string;
     }>("sign/start", { request });
+    const message = validateFixedSignMessage(s.id, address, s.message);
     const p = await poll(
       () => ika.getPresign(s.presignId),
       (v) => {
@@ -344,7 +346,7 @@ async function sign() {
       restored.verifiedPublicOutput,
       restored.secretShare,
       Uint8Array.from(p.state.Completed.presign),
-      unb64(s.message),
+      message,
       Hash.KECCAK256,
       SignatureAlgorithm.ECDSASecp256k1,
       Curve.SECP256K1,
@@ -354,7 +356,7 @@ async function sign() {
       message: string;
       alreadySubmitted?: boolean;
     }>("sign/prepare", { request, partialSignature: b64(partial) });
-    if (!sameBytes(unb64(tx.message), unb64(s.message)))
+    if (!sameBytes(unb64(tx.message), message))
       throw new Error("Test message changed.");
     if (!tx.alreadySubmitted) {
       await validateSignTransaction(unb64(tx.bytes), {

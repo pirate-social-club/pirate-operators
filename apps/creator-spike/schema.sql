@@ -47,3 +47,12 @@ CREATE TABLE IF NOT EXISTS signatures (
   transaction_bytes TEXT, transaction_digest TEXT, sign_id TEXT, result TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_test_signature ON signatures(credential_id);
+CREATE TABLE IF NOT EXISTS signature_preparations (
+  signature_id TEXT PRIMARY KEY REFERENCES signatures(id),
+  submission_id TEXT NOT NULL UNIQUE,
+  phase TEXT NOT NULL CHECK(phase IN ('building','prepared','submitting','expired')),
+  token TEXT NOT NULL,
+  expires INTEGER NOT NULL,
+  user_signature TEXT
+);
+CREATE INDEX IF NOT EXISTS signature_preparation_expiry ON signature_preparations(expires);

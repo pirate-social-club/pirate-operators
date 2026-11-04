@@ -33,6 +33,15 @@ import {
 } from "./chain.ts";
 import { bytes, insist, str, type Env } from "./store.ts";
 import { verifyPasskeyProof } from "./passkey-proof.ts";
+import { fixedSignMessage } from "../sign-message.ts";
+import { recordSignatureSubmission } from "./binding.ts";
+import {
+  beginSignaturePreparation,
+  saveSignaturePreparation,
+  claimSignaturePreparation,
+  capturedSignaturePreparation,
+  releaseUnsubmittedPreparation,
+} from "./operator-lock.ts";
 
 interface SignRow {
   id: string;
@@ -85,10 +94,8 @@ export async function startSign(
   );
   const id = randomToken();
   // One fixed, non-transaction EIP-191 test message per creator. No arbitrary signing API.
-  const text = `Pirate creator test\nOrigin: ${walletOrigin}\nNetwork: Sui / Ika testnet\nWallet: ${row.evm_address}\nChallenge: ${id}\nThis proves I reopened my creator wallet. It does not authorize a transfer.`;
-  const encoded = utf8.encode(text),
-    prefix = utf8.encode(`\x19Ethereum Signed Message:\n${encoded.length}`);
-  const message = b64(new Uint8Array([...prefix, ...encoded]));
+  insist(row.evm_address, "wallet_record_incomplete", 409);
+  const message = fixedSignMessage(id, row.evm_address);
   await env.DB.prepare(
     "INSERT INTO signatures(id,credential_id,message,status,created) VALUES(?,?,?,'reserved',?) ON CONFLICT(credential_id) DO NOTHING",
   )
@@ -207,64 +214,61 @@ export async function prepareSign(
     409,
   );
   await verifyWallet(row.dwallet_id, row.cap_id, row.share_id, row.sui_address);
-  const tx = new Transaction();
-  tx.setSender(row.sui_address);
-  tx.setGasOwner(operatorAddress);
-  tx.setGasBudget(gasBudget);
-  const coord = coordinator(tx),
-    sid = ct.registerSessionIdentifier(
+  const preparation = await beginSignaturePreparation(
+    env.DB,
+    s.id,
+    submissionId,
+  );
+  try {
+    const tx = new Transaction();
+    tx.setSender(row.sui_address);
+    tx.setGasOwner(operatorAddress);
+    tx.setGasBudget(gasBudget);
+    const coord = coordinator(tx),
+      sid = ct.registerSessionIdentifier(
+        config,
+        coord,
+        unb64(await hash(`sign:${s.id}`)),
+        tx,
+      );
+    const cap = ct.verifyPresignCap(
       config,
       coord,
-      unb64(await hash(`sign:${s.id}`)),
+      tx.object(s.presign_cap_id),
       tx,
     );
-  const cap = ct.verifyPresignCap(
-    config,
-    coord,
-    tx.object(s.presign_cap_id),
-    tx,
-  );
-  const approval = ct.approveMessage(
-    config,
-    coord,
-    tx.object(row.cap_id),
-    0,
-    0,
-    unb64(s.message),
-    tx,
-  );
-  const coins = {
-    ika: tx.object(s.ika_coin_id),
-    sui: tx.object(s.sui_coin_id),
-  };
-  ct.requestSign(
-    config,
-    coord,
-    cap,
-    approval,
-    bytes(body, "partialSignature", 500_000),
-    sid,
-    coins.ika,
-    coins.sui,
-    tx,
-  );
-  refund(tx, coins, row.sui_address);
-  const raw = await tx.build({ client: sui });
-  // Partial-signature proofs are randomized. A reopened browser may prepare
-  // fresh unsigned bytes; once any signed submission exists, freeze its bytes.
-  const changed = await env.DB.prepare(
-    "UPDATE signatures SET transaction_bytes=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM submissions WHERE id=?)",
-  )
-    .bind(b64(raw), s.id, submissionId)
-    .run();
-  if (changed.meta.changes !== 1) {
-    await executeSign(request, env, body);
-    return { alreadySubmitted: true, message: s.message };
+    const approval = ct.approveMessage(
+      config,
+      coord,
+      tx.object(row.cap_id),
+      0,
+      0,
+      unb64(s.message),
+      tx,
+    );
+    const coins = {
+      ika: tx.object(s.ika_coin_id),
+      sui: tx.object(s.sui_coin_id),
+    };
+    ct.requestSign(
+      config,
+      coord,
+      cap,
+      approval,
+      bytes(body, "partialSignature", 500_000),
+      sid,
+      coins.ika,
+      coins.sui,
+      tx,
+    );
+    refund(tx, coins, row.sui_address);
+    const raw = await tx.build({ client: sui });
+    await saveSignaturePreparation(env.DB, s.id, preparation.token, b64(raw));
+    return { bytes: b64(raw), message: s.message };
+  } catch (error) {
+    await releaseUnsubmittedPreparation(env.DB, s.id, preparation.token);
+    throw error;
   }
-  return {
-    bytes: (await signing(env, row.id)).transaction_bytes,
-    message: s.message,
-  };
 }
 export async function executeSign(
   request: Request,
@@ -280,14 +284,27 @@ export async function executeSign(
   )
     .bind(`${a.id}:sign`)
     .first();
-  const signature = submitted ? "" : str(body, "signature", 4096);
-  if (!submitted)
+  const captured = submitted
+    ? null
+    : await capturedSignaturePreparation(env.DB, s.id);
+  const signature = submitted
+    ? ""
+    : (captured?.user_signature ?? str(body, "signature", 4096));
+  if (!submitted) {
     await verifyPasskeyProof(
       row.sui_public_key,
       unb64(s.transaction_bytes),
       signature,
       "transaction",
     );
+    if (!captured)
+      await claimSignaturePreparation(
+        env.DB,
+        s.id,
+        s.transaction_bytes,
+        signature,
+      );
+  }
   const receipt = await submit(env, a.id, "sign", async () => ({
     tx: Transaction.from(unb64(s.transaction_bytes!)),
     userSignature: signature,
@@ -299,11 +316,7 @@ export async function executeSign(
     "sign_intent_mismatch",
     503,
   );
-  await env.DB.prepare(
-    "UPDATE signatures SET status='signing',transaction_digest=?,sign_id=? WHERE id=?",
-  )
-    .bind(receipt.digest, e.sign_id, s.id)
-    .run();
+  await recordSignatureSubmission(env.DB, s.id, receipt.digest, e.sign_id);
   return { signId: e.sign_id, digest: receipt.digest };
 }
 export async function signStatus(
@@ -313,7 +326,14 @@ export async function signStatus(
 ) {
   const { row } = await context(request, env, body),
     s = await signing(env, row.id);
-  if (s.result) return JSON.parse(s.result);
+  if (s.result) {
+    await env.DB.prepare(
+      "UPDATE signatures SET status='verified' WHERE id=? AND result IS NOT NULL",
+    )
+      .bind(s.id)
+      .run();
+    return JSON.parse(s.result);
+  }
   if (!s.sign_id) return { status: s.status };
   const { ika } = clients();
   const sign = await ika.getSign(
