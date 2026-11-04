@@ -254,8 +254,16 @@ service, recovery service, or directory across communities.
 - The resulting session is community-local and refreshable. The experiment
   uses a 30-day lifetime, in line with the persistent-login ruling of
   2026-10-29.
-- The persona is the wallet address within that community. Recovery is the
-  wallet's responsibility.
+- The session identifies the private community-local account and its verified
+  authenticating credential. Public posts use a separate random author ID;
+  neither the private account ID nor its wallet mapping is public metadata.
+
+The merged [account contract](community-accounts-portability.md) is authoritative
+for account, credential, session and public-author identity. Resolve the verified
+wallet explicitly for each wallet-bound capability. Capture that wallet and its
+authorization when an operation begins; retries retain it across session expiry
+or later credential changes. The account contract is a required implementation,
+not evidence that the wallet-keyed skeleton already satisfies this model.
 
 MOSS is the selected ordinary wallet. The implemented adapter must verify its
 actual signature/account format independently on MegaETH; the local ECDSA
@@ -272,19 +280,21 @@ customer onboarding, gas sponsorship and name purchase are later acceptance.
 
 The ticket issuer signs a ticket only when all of these hold:
 
-1. The request carries a valid community session (section 7) for wallet `w`.
+1. The request carries a valid community session (section 7), and the account's
+   verified binding authorizes wallet `w` for this ticket.
 2. The song is published in that community, has accepted lyrics and timed
    lyrics, and has a segment manifest.
 3. The sponsorship policy (section 9) admits the attempt's quoted maximum cost for
    `w`, or for the Very nullifier `w` presents.
 
-The ticket names `w` directly. A hash of the community and wallet would hide
-nothing, because anyone who knows the wallet can compute it. The published
-entry list (section 10.3) also names wallets. Within a community a wallet is
-its public persona, so operators, verifiers and anyone reading the entry list
-can see which wallet performed which attempt. Participants are told this
-before taking part. Hiding entries would require a different commitment and
-claim design, which is out of scope here.
+The ticket captures `w` directly for its wallet-bound authority. A hash of the
+community and wallet would hide nothing from anyone who knows that wallet.
+The later published reward entry list (section 10.3) also names wallets, so its
+readers can link the wallet to that attempt. Disclose this before participation;
+it does not make the wallet the public author ID or authorize publication of
+the private account/author mapping. Public author identity remains separate.
+Hiding reward entries requires a different commitment/claim design, outside
+this slice. Tickets, purchases and rewards retain their signed wallet fields.
 
 ### 8.2 Ticket
 

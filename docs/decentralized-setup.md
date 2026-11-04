@@ -181,7 +181,9 @@ TLS. Identify and test the actual HNS-capable browser/resolver/gateway and its
 secure-origin/session behavior. Keep an ordinary HTTPS origin available for
 ordinary browsers, but do not count that alone as app.tld acceptance. A redirect
 proves navigation only; it must not be reported as same-origin app.tld operation.
-Start with the [HIP-5 client and transport proof](hns-community-ingress.md).
+For later native-address acceptance, start with the
+[HIP-5 client and transport proof](hns-community-ingress.md). These checks do
+not gate ordinary-HTTPS first-song acceptance.
 The contract holds app records; a compatible resolver must read the custom
 `._evm` delegation before any transport can use them. Current typed resolver
 support does not yet include TLSA or return contenthash. The existing DANE
