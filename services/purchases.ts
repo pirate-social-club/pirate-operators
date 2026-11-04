@@ -233,7 +233,8 @@ export async function acceptPurchase(
         functionName: "redeem",
         args: [purchaseMessage(p), input.signature],
       }),
-      300_000n,
+      // MegaETH testnet measured 243,572 (docs/megaeth-testnet.md); unused gas is not charged.
+      500_000n,
     );
   if (onChain === ZERO_BYTES32) await dispatch(env, store, "redeem", p.unit);
   return outcome(await resolve(env, store, p.unit));

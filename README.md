@@ -149,7 +149,7 @@ dependent on Megapot; there is no arbitrary local timeout cancellation.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,
-complete entity state machines and vectors, public grade records,
+complete entity state machines and vectors, leaderboard indexers,
 credential sponsorship buckets, membership gate enforcement,
 ERC-1271/passkey compatibility, scheduled operator ticks, service-owned entry
 commitments, the complete adversarial matrix and broader lifecycle invariants. The pool
@@ -162,8 +162,13 @@ specifies that client, its cookie sessions, the karaoke socket handshake,
 publication-time public pages, localization and deployment modes. None of it
 is implemented yet.
 
-Operator payments run locally against Anvil; the MegaETH testnet run (chain
-6343) is next. M3 requires real Very and live Megapot integration; neither is
+Operator payments run locally against Anvil and on MegaETH testnet (chain
+6343), as [the testnet record](docs/megaeth-testnet.md) describes. Public
+learning records follow [the LearningRecords encoding](docs/learning-records-contract.md):
+the operator publishes a consented karaoke result line by line, and an
+independent reader rebuilds a learner's grades from chain logs and public
+manifests alone. Leaderboard indexers and the Dance and Study record shapes
+are not built. M3 requires real Very and live Megapot integration; neither is
 complete. The fork proves contract-held tickets against pinned deployed
 Megapot code. Live drawing delivery and Very nullifier stability remain
 integration questions. No one-person assurance follows from the fake

@@ -229,7 +229,7 @@ export interface BillingEntry {
 }
 
 /** Reward accounting: unpaid, silent and unattempted count zero; unmeasured leaves the denominator. */
-export function rewardScore(lines: readonly LineOutcome[]) {
+export function rewardScore(lines: readonly Pick<LineOutcome, "status" | "scoreBps">[]) {
   const linesTotal = lines.length;
   const unmeasuredCount = lines.filter((l) => l.status === "unmeasured").length;
   const denominator = linesTotal - unmeasuredCount;

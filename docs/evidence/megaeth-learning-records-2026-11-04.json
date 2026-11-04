@@ -1,0 +1,367 @@
+{
+  "kind": "megaeth-learning-records-testnet",
+  "recordedAt": "2026-11-04T13:53:31.516Z",
+  "chainId": 6343,
+  "rpc": "https://carrot.megaeth.com/rpc",
+  "contract": "0x0eae432258c5954cf3d06e707acb3490a2f20a12",
+  "runtimeCodeHash": "0x76d0636f494de062472b3b15465b6f3127def3b2075acdd77c3f485102e35a15",
+  "controller": "0xBF85a150114d3df8B90A7793C0Ea4B2F4bB8C319",
+  "grader": "0x14B90A55657D9695A727254EAec5E0e32D20d602",
+  "learner": "0x9e9f197CB54f4Bef4f4058891adD0D5F1ECAb441",
+  "learnerKey": "ephemeral, generated in memory, never stored",
+  "manifest": {
+    "lines": 40,
+    "contentRevision": "0x9eb33e3684d7e953e08d49da39f9e572fbb89eacaf17a12f155d5129f503394a",
+    "linesRoot": "0xbca994cb3c29d5482ca685c9bb20542387feea2500fb8623da12b32e30a99f24",
+    "synthetic": true
+  },
+  "attempts": {
+    "perLine": "0xe2756f05892fd1504c0202b189ab1961c76349b02ab637fbafde57f54e9c9b9a",
+    "batched": "0x7f89d12da191c78337a9d941f6b51ab2d728f5e481e2dd533dba6617cd2833d8"
+  },
+  "gas": {
+    "deploy": 110488100,
+    "openAttempt": 380170,
+    "assessOneLine": {
+      "min": 219881,
+      "max": 232672,
+      "total": 9202824
+    },
+    "completeFortyLines": 281143,
+    "correctOneLine": 194813,
+    "completeAfterCorrection": 261075,
+    "assessTenLines": [
+      1556346,
+      1555458,
+      1555566,
+      1457456
+    ],
+    "publishFortyLinesPerLine": 9864137,
+    "publishFortyLinesBatched": 6786159
+  },
+  "effectiveGasPriceWei": "1000000",
+  "transactions": [
+    {
+      "step": "deploy_learning_records",
+      "hash": "0xe238e58d18f42c8b5e58103d8c07c2b24c92fac38febba9edc29e452e0fb59f4",
+      "gasUsed": "110488100",
+      "block": "34089872"
+    },
+    {
+      "step": "set_grader",
+      "hash": "0xfaa914dd581dbef534c932a7726a050555144034850c9ec25ceaa2000732d88f",
+      "gasUsed": "112490",
+      "block": "34089873"
+    },
+    {
+      "step": "open_attempt:per_line",
+      "hash": "0xd8d48a2de475b2553ced221ccd3a67008d8f692aad380f85bce21b5c64ec7f98",
+      "gasUsed": "380170",
+      "block": "34089875"
+    },
+    {
+      "step": "assess_one_line:1",
+      "hash": "0xa5dc2d329e961a655122e444c81fa3b3fbf54ce78b4b2e534e563c31cbb5147f",
+      "gasUsed": "232652",
+      "block": "34089876"
+    },
+    {
+      "step": "assess_one_line:2",
+      "hash": "0x43cb7ff27d8abc6c22d4e7495c029f1953916c2226ce7f068007ab118d49e2e2",
+      "gasUsed": "232662",
+      "block": "34089878"
+    },
+    {
+      "step": "assess_one_line:3",
+      "hash": "0xf89cac456647c72e5d2f9654688ad483b4c4fcede9a728416d046c56b9c9736e",
+      "gasUsed": "232652",
+      "block": "34089880"
+    },
+    {
+      "step": "assess_one_line:4",
+      "hash": "0xb1af436f60fbc7990679b194990901dfd4afaffb4b7581e88d7a199c12c7a8be",
+      "gasUsed": "232382",
+      "block": "34089881"
+    },
+    {
+      "step": "assess_one_line:5",
+      "hash": "0x6627e43ea00b3883024c4d509cf2814451c406dc69e92d00eedae193de1f1a71",
+      "gasUsed": "232520",
+      "block": "34089883"
+    },
+    {
+      "step": "assess_one_line:6",
+      "hash": "0x7c71f3795cb0b8c2b74f086b3c4bd35dba15c99f3ef3ffcb11a73a8008e2c329",
+      "gasUsed": "232662",
+      "block": "34089884"
+    },
+    {
+      "step": "assess_one_line:7",
+      "hash": "0xfbb5225c0155e98c870587bac46107e1c9855ea8766d824f493c66c88936e5c3",
+      "gasUsed": "232672",
+      "block": "34089886"
+    },
+    {
+      "step": "assess_one_line:8",
+      "hash": "0xb0fa927ca0d549e885044010c92afd91316ebf0f8eb2a0eed93ff8a822662a8b",
+      "gasUsed": "232402",
+      "block": "34089887"
+    },
+    {
+      "step": "assess_one_line:9",
+      "hash": "0x100323a15552ee067ba4d11c408f3f1619b95aebbb0874479b9e98ab8961df40",
+      "gasUsed": "232652",
+      "block": "34089889"
+    },
+    {
+      "step": "assess_one_line:10",
+      "hash": "0x0a443493d599ce07cb1157978d54aac57da302d1a459f260ff016c1918d28401",
+      "gasUsed": "232642",
+      "block": "34089890"
+    },
+    {
+      "step": "assess_one_line:11",
+      "hash": "0x84fb008e77c4ef348cde32ecd65640bbe796f1eea6540c5fe490083a23c1f731",
+      "gasUsed": "232520",
+      "block": "34089892"
+    },
+    {
+      "step": "assess_one_line:12",
+      "hash": "0x2da5a8bb354daec971e92926a1e87be9a24bac88f96086aeadc894aaf8a40a04",
+      "gasUsed": "232270",
+      "block": "34089893"
+    },
+    {
+      "step": "assess_one_line:13",
+      "hash": "0xb4d112d2087cfbc608657c9ad53a266705806eb7c33b954e0cb3f2af847c3cd1",
+      "gasUsed": "232642",
+      "block": "34089895"
+    },
+    {
+      "step": "assess_one_line:14",
+      "hash": "0x54cf9dd1e6f6ace1521d7ea89a683ce854ae6e8da4c098c82c061fa72192e9b8",
+      "gasUsed": "232652",
+      "block": "34089897"
+    },
+    {
+      "step": "assess_one_line:15",
+      "hash": "0x70f9fa35a6e99185e96bf73be9441040fb8e3ccd251336a6c381a263a1d99e49",
+      "gasUsed": "232368",
+      "block": "34089898"
+    },
+    {
+      "step": "assess_one_line:16",
+      "hash": "0x5c3360f960cebbfbca1fe8202234ecc1b3d997c22798a94da5959915af154362",
+      "gasUsed": "232250",
+      "block": "34089900"
+    },
+    {
+      "step": "assess_one_line:17",
+      "hash": "0xfef072570baf2a13b3cb0b59db1f987e44b4b72a0f8b356cb8b025ff91e48301",
+      "gasUsed": "232652",
+      "block": "34089901"
+    },
+    {
+      "step": "assess_one_line:18",
+      "hash": "0x4e10b791413655de8fa5da3b7d77b31504dd85e95469bd6ddb2c2f8e38f2bb21",
+      "gasUsed": "232642",
+      "block": "34089903"
+    },
+    {
+      "step": "assess_one_line:19",
+      "hash": "0xf459207a99b5d2830ccb4d37b1648fe9242284fdcf87b7bf08f258c9e76914c3",
+      "gasUsed": "232642",
+      "block": "34089904"
+    },
+    {
+      "step": "assess_one_line:20",
+      "hash": "0x1aece164feba3a057ef55d27f2db87709a6797e08522201c3e7a8b73af51ab8c",
+      "gasUsed": "232372",
+      "block": "34089906"
+    },
+    {
+      "step": "assess_one_line:21",
+      "hash": "0x25bc9bd8e60971bca6a73a1677a56f6372f9913fd600b95bce74560f0e602061",
+      "gasUsed": "232520",
+      "block": "34089908"
+    },
+    {
+      "step": "assess_one_line:22",
+      "hash": "0xc4b1b571d6c7d87b07518bb33241857f7a23b0897a233491b135d9278e18b765",
+      "gasUsed": "232530",
+      "block": "34089909"
+    },
+    {
+      "step": "assess_one_line:23",
+      "hash": "0xdf553e5c46fe1646d2b2d2d311da2e526423cf552abd8834913ed0a3bfd0ae14",
+      "gasUsed": "232520",
+      "block": "34089911"
+    },
+    {
+      "step": "assess_one_line:24",
+      "hash": "0xa604b173f30971a689a6c8518a761c7180eebe1d39621fa9d7295027c34c5529",
+      "gasUsed": "232250",
+      "block": "34089912"
+    },
+    {
+      "step": "assess_one_line:25",
+      "hash": "0x5cd38e5de9c10a02bc17ea8a099f96a6dd08b3521e01c55f24e8f03c0b915b30",
+      "gasUsed": "232652",
+      "block": "34089914"
+    },
+    {
+      "step": "assess_one_line:26",
+      "hash": "0xc742253f312c34a3aa5c6d28c9259416efdf52bb7e21a4f0c1094b40e81d1731",
+      "gasUsed": "232642",
+      "block": "34089916"
+    },
+    {
+      "step": "assess_one_line:27",
+      "hash": "0x09247b2ba3d780ac5dd5aac8872d16491fdf0caad19cac8892b0e2a1f63e55d3",
+      "gasUsed": "232632",
+      "block": "34089917"
+    },
+    {
+      "step": "assess_one_line:28",
+      "hash": "0xfccc4cac56e3b57869d6cd75f150a954b9f069789e5ef144fd0b1173153170c8",
+      "gasUsed": "232250",
+      "block": "34089919"
+    },
+    {
+      "step": "assess_one_line:29",
+      "hash": "0x932be4660f9bb76425efe8cb526770e9a52d166ff76627d3a1e96d383461dbe9",
+      "gasUsed": "232500",
+      "block": "34089920"
+    },
+    {
+      "step": "assess_one_line:30",
+      "hash": "0x35b9ff715a244329604165693ac7a8006c2366705f55c122cf83aa118cc6bb87",
+      "gasUsed": "232622",
+      "block": "34089922"
+    },
+    {
+      "step": "assess_one_line:31",
+      "hash": "0x2a15d363588e2a5c53c7e35bab0aa4b6cb3828a887d7b400d62aa7ef7e880383",
+      "gasUsed": "232510",
+      "block": "34089924"
+    },
+    {
+      "step": "assess_one_line:32",
+      "hash": "0x017be6f49d0b09b3abb852402c58aa161918a57c483220fc4ffe4e75b418a0dc",
+      "gasUsed": "232240",
+      "block": "34089925"
+    },
+    {
+      "step": "assess_one_line:33",
+      "hash": "0xedb4922afb809f2f6300d443ecd3f869413bc5b9d9ac57a85270b87bca294e1c",
+      "gasUsed": "220557",
+      "block": "34089927"
+    },
+    {
+      "step": "assess_one_line:34",
+      "hash": "0xbd959dcce48bac8dad14a04e2c04a0e09118e11d2d730d96450cedd15d65f1f6",
+      "gasUsed": "220435",
+      "block": "34089928"
+    },
+    {
+      "step": "assess_one_line:35",
+      "hash": "0x99607c2bf6836d5ff7e77b3f830102c975eefa52c5441fc5ecdc97870c706803",
+      "gasUsed": "220547",
+      "block": "34089930"
+    },
+    {
+      "step": "assess_one_line:36",
+      "hash": "0xf2ebf04a6116a05b13263ffd6bbe9e80dcbb586ab1a9a57078f1544e91e3aed2",
+      "gasUsed": "220297",
+      "block": "34089932"
+    },
+    {
+      "step": "assess_one_line:37",
+      "hash": "0x4beab08fc9e41e7eab54e59c32f2564342e378a133c0b6ce25d590a625e8e7d4",
+      "gasUsed": "220029",
+      "block": "34089933"
+    },
+    {
+      "step": "assess_one_line:38",
+      "hash": "0xbf414d14c8fffccf20b0203911b7762c73c2d1882f54010abf6f364565ff3911",
+      "gasUsed": "220019",
+      "block": "34089935"
+    },
+    {
+      "step": "assess_one_line:39",
+      "hash": "0x2985e12d154294c19249f3a8e14f50b6019de44cb328773bab82b429ab7e818c",
+      "gasUsed": "220283",
+      "block": "34089937"
+    },
+    {
+      "step": "assess_one_line:40",
+      "hash": "0x01cd0ea5f7215576cb699f2801342a8eaf07c5ca0fc16ce70d454f43cbd0b9d4",
+      "gasUsed": "219881",
+      "block": "34089938"
+    },
+    {
+      "step": "complete_attempt",
+      "hash": "0x45a8090f25866ace07eb1b38b0473cc784d83295d2a1a48dc3d38d127a42d179",
+      "gasUsed": "281143",
+      "block": "34089940"
+    },
+    {
+      "step": "correct_one_line",
+      "hash": "0xb3d27067dc81d4b8d15a6b4ab64c535153b0106ed3b38974cfc4734d30431754",
+      "gasUsed": "194813",
+      "block": "34089941"
+    },
+    {
+      "step": "complete_after_correction",
+      "hash": "0x1cdc45bce5fb50999324704b636a29cbebb2aa19b0ddccbf0c48ff1c8acfad8b",
+      "gasUsed": "261075",
+      "block": "34089943"
+    },
+    {
+      "step": "open_attempt:batched",
+      "hash": "0x18db4f18a882a65897e0e5a969bde8f7abf115a53ee2b8f26f42ca073d652c9e",
+      "gasUsed": "380190",
+      "block": "34089944"
+    },
+    {
+      "step": "assess_ten_lines:1",
+      "hash": "0xc9e35aab11708dcb3821c0d529a311137f1a1834f7cb940a43bd526413e5e6a4",
+      "gasUsed": "1556346",
+      "block": "34089947"
+    },
+    {
+      "step": "assess_ten_lines:11",
+      "hash": "0x7c23c09c620ee954572a350935ed6bfd270a16d3c88d6c8d83375202d4bcd97d",
+      "gasUsed": "1555458",
+      "block": "34089948"
+    },
+    {
+      "step": "assess_ten_lines:21",
+      "hash": "0x7bf96adf2edda65780786c09efff68f6818f72798ecf412afcdb45786d056c9e",
+      "gasUsed": "1555566",
+      "block": "34089950"
+    },
+    {
+      "step": "assess_ten_lines:31",
+      "hash": "0x6125ef601fffea80e342889b5143e3907550e3a177eaf115f028073c5cfc8644",
+      "gasUsed": "1457456",
+      "block": "34089952"
+    },
+    {
+      "step": "complete_batched",
+      "hash": "0x96588c336a52b09dddaa86606a9e40b13484e96e974d7ba42a1dfdab67c50e62",
+      "gasUsed": "281143",
+      "block": "34089953"
+    }
+  ],
+  "verified": {
+    "perLineVerified": true,
+    "perLineGradeRevision2": true,
+    "perLineCorrectedLine": true,
+    "perLineRecomputed": true,
+    "batchedVerified": true,
+    "batchedRecomputed": true
+  },
+  "remainingAdminEth": "0.979607033737992456",
+  "remainingOperatorEth": "0.019948316841981313"
+}

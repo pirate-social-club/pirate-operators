@@ -26,6 +26,7 @@ export async function workers(
     rpcUrl?: string;
     paymentToken?: string;
     paymentsContract?: string;
+    recordsContract?: string;
   } = {},
 ) {
   const rpcOrigin = options.rpcUrl ? new URL(options.rpcUrl).origin : undefined;
@@ -35,6 +36,7 @@ export async function workers(
         PAYMENT_CHAIN_ID: "31337",
         PAYMENT_TOKEN: options.paymentToken ?? "",
         PAYMENTS_CONTRACT: options.paymentsContract ?? "",
+        ...(options.recordsContract ? { RECORDS_CONTRACT: options.recordsContract } : {}),
         // Fixture account 3 is the community's admin address in OperatorPayments.
         COMMUNITY_ADDRESS: privateKeyToAccount((options.keys ?? keys)[3]).address,
       }

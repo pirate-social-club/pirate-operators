@@ -8,7 +8,8 @@ import { openAttempt, post, requestPurchase, type Attempt } from "../harness/kar
 import type { Signed, Song, Ticket } from "../packages/protocol/index.ts";
 
 export type Chain = Awaited<ReturnType<typeof chain>>;
-export const startChain = () => chain(18645);
+/** Each test file runs its own anvil; files run in parallel, so each needs its own port. */
+export const startChain = (port = 18645) => chain(port);
 export const stopChain = async (evm: Chain) => {
   evm.child.kill();
   await new Promise<void>((resolve) => {
@@ -27,6 +28,7 @@ export async function community(evm: Chain, label: string) {
     rpcUrl: evm.rpcUrl,
     paymentToken: evm.paymentToken,
     paymentsContract: evm.paymentsContract,
+    recordsContract: evm.recordsContract,
     now: start,
     cutoff: start + 100000,
   });
