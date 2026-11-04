@@ -234,8 +234,10 @@ ticket. At issuance it adds the ticket's maximum,
 period (section 9.7), once. Once the ticket's purchases can no longer be
 redeemed, it replaces that maximum with the amount the contract actually paid
 for those exact purchases. A wallet may hold one open performance ticket at a
-time. Community-wide spending is capped by the deposit in the contract, which
-the community funds only up to its period budget.
+time. The deposit in the contract caps the funds available at any moment, not
+spending per period: replenishing it permits further spending, and admission
+purchases do not draw on the wallet allowance. Configurable per-period
+sponsorship limits for the community remain deployment work.
 
 ### 5.3 Attempt timing
 
@@ -460,8 +462,8 @@ ticket's purchase count, so an interrupted insert consumes no slot and the
 community never signs two purchases for one unit. Settlement is one
 compare-and-set that releases the unused reservation and closes the ticket,
 so it simply runs again if interrupted. A compromised signing key
-can spend up to the deposit, so the community funds the contract only up to
-its period budget and rotates the signer if the key is exposed. Funding the
+can spend up to the deposit, so the community keeps the deposit small and
+rotates the signer if the key is exposed. Funding the
 deposit and the signer's custody are the community's operating concerns;
 neither needs Pirate.
 
@@ -603,8 +605,9 @@ Not yet built:
 - the public grade-record contract that consumes the result;
 - the MegaETH testnet run, including `realtime_sendRawTransaction`, which the
   local sender supports but anvil cannot exercise;
-- the per-credential sponsorship buckets of section 9.7; only the per-wallet
-  allowance and the contract deposit bound spending;
+- configurable sponsorship limits: the per-credential buckets of section 9.7
+  and a community-wide per-period limit. Only the per-wallet allowance and the
+  funds currently deposited bound spending;
 - a plain SQLite store for self-hosting beside D1;
 - the web client's P-256 socket handshake; the socket still uses the
   skeleton's session-key proof, as `docs/community-web-client.md` records.
