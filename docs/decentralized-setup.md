@@ -6,7 +6,15 @@ posting its first song. Sponsored customer name purchases are lower priority.
 Alchemy.run owns Cloudflare infrastructure provisioning. Infisical is the
 source of service secrets. These are requirements, not optional tooling choices.
 
-The wizard is not implemented. Existing pieces are the testnet HNS name
+Later owner direction, 2026-11-04: first-song contracts and flows must be
+testable without HNS work, using a genuine unverified test registry and ordinary
+HTTPS. HNS verification gates Pirate discovery; app.tld browser acceptance is a
+separate follow-up. This narrows the testnet acceptance scope of the earlier
+milestone without replacing its recorded wording or adding HTTPS-only listing.
+A successful HTTPS test run may remain unlisted in Pirate's directory and
+aggregate feed while serving its own community feed.
+
+This branch does not implement the wizard. Existing pieces are the testnet HNS name
 registry, local operator services and a fixture static client. The maintained
 centralized HNS gateway also has prior phone acceptance; its new-registry
 adapter and repeatable community setup are not built. The sequence
@@ -18,8 +26,12 @@ infrastructure as an explicit part of the decentralized community product.
 Owner decision, 2026-11-04: Spaces support is deferred beyond the decentralized
 community MVP. The separately admitted wizard v1 starts on ordinary HTTPS;
 HNS configuration and verification are an optional follow-up for that slice.
-This deferral adds no HNS prerequisite to wizard v1. The broader first-song
-and native-address acceptance requirements below retain their own scope. Native
+The testnet first-song milestone can count with a genuine unverified test
+registry, ordinary HTTPS and an EOA controller. Real admission, registration,
+interrupted resume and playback after reload are still required. HNS verification
+gates Pirate discovery; discovery and app.tld browser acceptance below are
+separate follow-ups. Controller recovery is tracked separately and must be
+verified before mainnet or real-user onboarding. Native
 Spaces community bindings, handle resolution/issuance and their deployment
 integration are later work, not first-song acceptance gates. The current
 HNS-specific registry/directory design need not be generalized for Spaces to
@@ -68,11 +80,32 @@ existing work instead of duplicating deployments, jobs or transfers.
 
 Operator login is part of posting. It does not require proving customer name
 buying, deploying a MOSS gas sponsor or completing a rewarded Telegram journey.
-The first operator can pay its own bounded setup gas. An ordinary EOA may be
-the registry admin and bootstrap the community directory; the controller can
-later propose a handoff that the receiving MOSS account accepts. MOSS first-
-transaction fee funding and execution must be proven before that handoff, not
-assumed from an ETH balance. See the [directory bootstrap boundary](contracts/community-directory.md).
+The testnet setup uses the separately scoped capped operator gas budget. An
+ordinary EOA may be the registry admin and controller for first-song acceptance.
+The wizard must track the required handoff to an account with demonstrated
+independent recovery before mainnet or real-user onboarding;
+EOA key loss or takeover has no registry-admin or Pirate recovery override.
+Use bootstrap-only, handoff-proposed, acceptance-pending, recovery-pending and
+recovery-verified states, reconciling proposal expiry and canonical receipts
+on resume. An accepted handoff with an outstanding recovery check remains
+recovery-pending, with the new account already controlling the entry. Record
+testnet first-song completion independently of that recovery status; an EOA run
+can count and must show the controller address/type and outstanding handoff.
+Verified recovery is a prerequisite for mainnet or real-user onboarding.
+[Safe governance accounts](contracts/governance-accounts.md) offer another
+candidate alongside MOSS, subject to actual account acceptance. If MOSS is used,
+its first-transaction funding, execution and recovery must each be proven; an
+ETH balance or account code is not that proof. See the
+[directory bootstrap boundary](contracts/community-directory.md#operator-bootstrap-and-recovery).
+The verifier's recurring writes use the proposed
+[bounded authority profile](contracts/namespace-verifier-authority.md), under
+recoverable governance. A separate
+[listing authority](contracts/community-listing-authority.md) lets its Safe
+manage listings and an independent emergency key only delist. Implement both
+and pass local integration before directory deployment, then prove actual
+binding, refresh and emergency removal before enabling listings. Select maximum
+evidence age as a security limit and measure the reader-suppression delay.
+A direct 2-of-3 Safe alone supplies neither automated path.
 These are proposed integration requirements, not completed directory/wizard
 acceptance. Normal user onboarding,
 name sales, gas sponsorship, karaoke and rewards follow this milestone.
@@ -119,12 +152,31 @@ CloudConvert is required when selected media conversion uses it. Preserve the
 specific MP3 frame-window rule for identification; a generic transcoded sample
 does not satisfy that rule. No simulated allow verdict counts as configuration.
 
+## Disposable first-song scope
+
+Owner approval after review, November 4: use a disposable MegaETH testnet directory and
+posts index with two distinct inert authority contracts for the ordinary-HTTPS
+first-song test. It stays permanently unlisted and cannot later enable Pirate
+discovery. Real governance accounts and automated verification are required for
+the first listing-capable deployment, not this disposable one. The later posts
+address changes song keys; no automatic migration of test history is promised.
+See the [profile and receipt requirements](contracts/disposable-first-song.md).
+
+The first-song path explicitly includes MOSS-to-Ika creator activation and
+capped operator-funded setup before upload, followed by sealing, real admission,
+IPFS publication, DATA testnet registration, MegaETH post publication and
+playback after reload. Freeze community-account and lyric-manifest formats
+before storing state. Lyric line/occurrence IDs are stable from publication;
+line/word timings and alignment can arrive in a later post revision for karaoke.
+Neither a speech provider nor karaoke readiness gates this first-song milestone.
+
 ## Namespace and directory authority
 
 The per-TLD SLDRegistry and Pirate's shared registry of communities are different
-systems. The former exists in pirate-registry. The latter is required for this
-happy path and is not implemented yet. Its deployment/update interface must be
-built; this requirement is not dismissed because HNS already owns name authority.
+systems. The former exists in pirate-registry. The shared directory and post
+contracts are implemented and pushed on draft PR 17; their source is not a
+live deployment or completed first-song integration. The disposable profile
+above permits the HTTPS test without HNS listing or real governance accounts.
 
 The initial directory is Pirate-maintained, with a shared MegaETH community
 registry/index interface. Define the community ID, TLD, chain and SLD-registry

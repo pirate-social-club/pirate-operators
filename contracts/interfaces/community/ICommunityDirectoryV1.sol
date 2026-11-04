@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 
-/// @notice Proposed ABI only. No implementation or deployment is supplied.
+/// @notice V1 directory ABI; local implementation is CommunityDirectoryV1. No deployment is implied.
 /// @dev Normative authorization and hashing: docs/contracts/community-directory.md.
 interface ICommunityDirectoryV1 {
     struct Configuration {

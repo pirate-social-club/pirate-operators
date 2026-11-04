@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 
-/// @notice Proposed ABI only. Stores publication references, never media or grades.
+/// @notice V1 post ABI. Stores publication references, never media or grades.
 /// @dev Normative authorization and manifest: docs/contracts/community-posts.md.
 interface ICommunityPostsV1 {
     enum Kind {

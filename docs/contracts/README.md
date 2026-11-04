@@ -1,9 +1,11 @@
 # Decentralized contract boundaries
 
-Proposed interface slice, 2026-11-04. The workspace_owner requested explicit
-contract boundaries and confirmed human Dance review. This slice defines the
-first-song directory and post ABIs, content publication and feed projection.
-It does not implement or deploy those contracts. The existing
+Contract boundaries and local directory/post implementation, 2026-11-04.
+The workspace_owner requested explicit contracts and confirmed human Dance
+review. The directory and shared post index now implement the reviewed V1 ABIs
+with local authorization, revision and event tests. See the
+[implementation profile](community-implementation.md) for constructor inputs,
+URI checks and remaining acceptance. No deployment or real first song is claimed. The existing
 [setup plan](../decentralized-setup.md) and [operator protocol](../operator-protocol.md)
 retain their admission, creator activation and registration gates.
 
@@ -12,9 +14,9 @@ retain their admission, creator activation and registration gates.
 | Area                       | Authority and responsibility                                                                                               | Inspected state / next boundary                                                                                                                                                                             |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SLD naming                 | TLD owner delegates through HNS; registry admin controls sale policy; SLD holder or record manager controls app records.   | `pirate-registry` implements SLDRegistry and RegistryFactory. Testnet rehearsal exists. Factory provenance does not prove TLD ownership.                                                                    |
-| Community directory        | Registry admin self-registers; community controls config/publisher. Pirate verifies namespaces and selects listings.       | [Directory ABI and authorization](community-directory.md) proposed here; no implementation.                                                                                                                 |
+| Community directory        | Registry admin self-registers; community controls config/publisher. Pirate verifies namespaces and selects listings.       | [Directory authorization](community-directory.md) implemented locally; real namespace and account acceptance remain.                                                                                        |
 | Rules and roles            | Community controls admission policy; LearningRecords owns public qualification-policy activation and grader authorization. | No separate governance contract required for first song. Future delegated roles belong to community authority, not Pirate's listing administrator.                                                          |
-| Song and video publication | Community publisher submits admitted, immutable content references under a scoped author ID and pays gas.                  | [Post ABI](community-posts.md) proposed here; video admission still needs its own policy. No media in contract storage.                                                                                     |
+| Song and video publication | Community publisher submits admitted, immutable content references under a scoped author ID and pays gas.                  | [Post index](community-posts.md) implemented locally; video admission still needs its own policy. No media in contract storage.                                                                             |
 | Comments                   | Community-local author and content policy.                                                                                 | On-chain representation remains open. No comment ABI or automatic public pinning is introduced.                                                                                                             |
 | Operator work payments     | Community purchase authority buys bounded operator work.                                                                   | OperatorPayments and per-line accounting live on the active segment-payments branch; not reimplemented here.                                                                                                |
 | Study, Karaoke and Dance   | Typed assessment records; distinct graders, including human owner review for Dance.                                        | [LearningRecords draft](learning-records.md) and [assessment adapters](assessments-rewards.md); wallet identity and Dance review-day credit are proposed defaults; no grade-contract implementation exists. |
@@ -26,6 +28,26 @@ not editable copies of every rule. A later community governance contract may
 become its controller; it would authorize updates through the same interface.
 There must remain one current config revision, not competing policy pointers
 owned by Pirate and the community. Delisting changes discovery only.
+Controller-authorized publisher revocations in that manifest govern feed
+quarantine after compromise; rotation alone does not repair forged revisions.
+Every config body must be pinned, retrieved and verified before its transaction.
+An EOA controller can complete the testnet first-song milestone, with a tracked
+handoff and verified recovery required before mainnet or real-user onboarding.
+[Safe](governance-accounts.md) is a candidate alongside MOSS; account acceptance
+remains separate from code verification. These rules add no on-chain recovery
+override or automatic history migration.
+
+The proposed [namespace verifier authority](namespace-verifier-authority.md)
+separates a rotatable automated service key from its recoverable governance Safe.
+Only typed verification to one directory is delegated. The proposed
+[listing authority](community-listing-authority.md) gives its governance Safe
+normal listing control and a separate emergency key only delisting power.
+Both contracts are specified but unimplemented prerequisites before a directory
+deployment intended to support listings. The permanently unlisted
+[disposable profile](disposable-first-song.md) instead uses inert authorities;
+neither profile changes the current directory/post ABIs. Maximum evidence
+age is a security ceiling per attestation, not a bound on an active attacker
+who keeps renewing false evidence.
 
 ## Content and read path
 
@@ -56,19 +78,33 @@ prove HNS control, grade a performance or enforce eligibility for Pirate funds.
 
 ## Order of implementation
 
-First implement and test directory authorization and post publication; connect
-the creator flow, upload/seal/admission jobs, real providers, DATA testnet
-registration and feed reads. The separately admitted wizard v1 starts on
+Directory authorization and post publication are implemented and pushed on draft
+[PR 17](https://github.com/pirate-social-club/pirate-operators/pull/17). Next connect
+MOSS-to-Ika creator activation and capped operator-funded setup before upload,
+then upload/seal/admission jobs, real providers, DATA testnet registration and
+feed reads. The [disposable first-song profile](disposable-first-song.md) uses
+two inert authority contracts and stays permanently unlisted. Real authority
+implementation and Safe custody gate the later listing-capable deployment.
+Freeze the community-account and lyric-manifest formats before storing state.
+Initial lyrics preserve line/occurrence identities; timings and alignment are
+later karaoke work, added through a post revision that retains the song key.
+The separately admitted wizard v1 starts on
 ordinary HTTPS; HNS is an optional follow-up for that slice and Spaces is
 post-MVP. An EOA operator can bootstrap the directory without waiting for a
 MOSS first transaction. These are integration paths, not acceptance already run.
 
-The broader first-song milestone still requires verified directory discovery,
-app.tld login, interrupted resume and one real admitted song playing after
-reload under the setup plan. Independent unverified publication and ordinary
-HTTPS provisioning do not by themselves prove that broader milestone. Admission
-means real pre-publication evidence and the publication gate, not a new
-moderator dashboard.
+The first-song testnet milestone uses a genuine unverified test registry and
+ordinary HTTPS, with real admission, registration, interrupted resume and a
+song that plays after reload. HNS verification gates Pirate discovery; verified
+discovery and app.tld browser acceptance remain separate follow-ups under the
+setup plan. EOA control does not downgrade a successful test run to a rehearsal,
+but its receipt must show incomplete recovery. Admission means real
+pre-publication evidence and the publication gate, not a new moderator dashboard.
+
+HTTPS-only communities stay unlisted in V1 until the matching HNS binding is
+verified. Their own feeds and direct post pages still work independently of
+Pirate discovery. HTTPS-domain verification is not being added as a shortcut;
+if HTTPS-only discovery becomes required, revise that ABI before deployment.
 
 Then implement LearningRecords with actual graders, learner consent, an accepted
 public-identity policy and the agreed shared learning clock. Its manifest
