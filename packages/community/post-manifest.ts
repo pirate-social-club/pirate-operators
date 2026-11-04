@@ -227,6 +227,7 @@ export function validatePost(value: unknown): PostManifest {
 
 export interface PublicationEvent extends PublicationIdentity {
   authorId: Hex;
+  kind: 0 | 1;
   revision: number;
   configurationRevision: number;
   manifestSha256: Hex;
@@ -238,6 +239,7 @@ export function validatePostForEvent(
   config: CommunityConfig,
 ): PostManifest {
   const post = validatePost(value);
+  insist(event.kind === 0, "unsupported_post_event_kind");
   insist(
     hashJson(post) === event.manifestSha256,
     "post_manifest_hash_mismatch",
@@ -279,6 +281,13 @@ export function quarantined(
       issued.chainId === event.chainId &&
       issued.postsContract === event.postsContract,
     "publication_configuration_missing",
+  );
+  insist(
+    current.chainId === event.chainId &&
+      current.communityId === event.communityId &&
+      current.postsContract === event.postsContract &&
+      current.configurationRevision >= event.configurationRevision,
+    "revocation_configuration_mismatch",
   );
   return current.publisherRevocations.some(
     (r) =>

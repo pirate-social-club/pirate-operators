@@ -196,6 +196,7 @@ test("event validation prevents a valid manifest being replayed for another post
     c = validateConfig(config());
   const event: PublicationEvent = {
     ...identity,
+    kind: 0,
     authorId: p.authorId,
     revision: 1,
     configurationRevision: 1,
@@ -203,6 +204,10 @@ test("event validation prevents a valid manifest being replayed for another post
     manifestURI: cid,
   };
   assert.equal(validatePostForEvent(p, event, c).postId, postId);
+  assert.throws(
+    () => validatePostForEvent(p, { ...event, kind: 1 }, c),
+    /unsupported_post_event_kind/,
+  );
   assert.throws(
     () =>
       validatePostForEvent(
@@ -231,6 +236,7 @@ test("publisher revocations are cumulative, inclusive and tied to historical con
   const p = validatePost(post());
   const event: PublicationEvent = {
     ...identity,
+    kind: 0,
     authorId: p.authorId,
     revision: 1,
     configurationRevision: 1,
@@ -239,6 +245,31 @@ test("publisher revocations are cumulative, inclusive and tied to historical con
   };
   assert.equal(quarantined(event, 99n, [c1, c2], c2), false);
   assert.equal(quarantined(event, 100n, [c1, c2], c2), true);
+  const otherRegistry = addr("b"),
+    otherId = communityId(6343, otherRegistry);
+  const other1 = validateConfig({
+    ...config(),
+    registry: otherRegistry,
+    communityId: otherId,
+  });
+  const other2 = validateConfig(
+    { ...c2raw, registry: otherRegistry, communityId: otherId },
+    [other1],
+    105n,
+  );
+  assert.throws(
+    () => quarantined(event, 100n, [c1, c2], other2),
+    /revocation_configuration_mismatch/,
+  );
+  assert.throws(
+    () => quarantined(event, 100n, [c1, c2], { ...c2, chainId: 31337 }),
+    /revocation_configuration_mismatch/,
+  );
+  assert.throws(
+    () =>
+      quarantined(event, 100n, [c1, c2], { ...c2, postsContract: addr("d") }),
+    /revocation_configuration_mismatch/,
+  );
   assert.throws(
     () => validateConfig(config(3, addr("b")), [c1, c2], 200n),
     /revocation_removed_or_changed/,
