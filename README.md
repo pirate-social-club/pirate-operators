@@ -152,10 +152,10 @@ creator owns the control capability. Saved passkey access and confirmed
 on-chain activation are required before upload and Aeneid registration.
 The real browser spike demonstrated activation and reopen-and-sign access;
 full acceptance and first-song registration remain incomplete. The
-[payment and wizard contract](docs/creator-wallet-payments.md) separates the
-operator's native fee funding from creator upfront payment or explicit community
-sponsorship. Billing and wizard integration are specified, not implemented by
-the spike. This is not a production DATA integration.
+[funding and wizard contract](docs/creator-wallet-payments.md) requires capped
+operator funding for the first-song test, with no creator payment screen.
+Creator checkout and commercial pricing are deferred. Service/allowance and
+first-song integration remain incomplete. This is not a production DATA integration.
 
 The skeleton is the first runnable deliverable, not full revision 5 acceptance.
 Remaining work includes provider failure modes and audio-window extraction,

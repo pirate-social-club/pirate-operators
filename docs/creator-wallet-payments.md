@@ -1,124 +1,160 @@
-# Creator wallet payments and wizard setup, version 1
+# Creator wallet funding and wizard setup, version 2
 
-Status: owner-selected design, 2026-11-04; billing and wizard integration are
-not implemented by the wallet spike. This contract extends
-[creator wallet version 3](creator-wallet.md). It owns the payer choice,
-quotes, charging and readiness gates. That document continues to own passkey
-custody, Ika verification and activation before upload. The current proof is
-testnet-only; this document selects neither a production price nor a payment
-asset, network or provider.
+Status: owner-confirmed first-song test scope, 2026-11-04. The operator covers
+creator-wallet test fees from a finite budget. Creators see no payment screen.
+Creator payments are deferred; no permanent commercial pricing model is selected.
+This supersedes version 1's recommendation of creator upfront payment.
+
+This contract extends [creator wallet version 4](creator-wallet.md), which owns
+passkey custody, Ika verification and activation before upload. It defines the
+service connection, sponsored test allowance and readiness. The wallet spike
+has not implemented that complete service or the first-song flow.
 
 ## Who operates and who pays
 
-The registration operator sends the chain transactions and keeps SUI and IKA
-available. The payer reimburses that operator through the selected billing
-arrangement. These are separate choices. A creator paying the operator does
-not remove the operator's need for native tokens.
+The registration operator supplies native SUI and IKA, submits the creation
+transactions and pays Aeneid registration gas. For this milestone those costs
+come from an explicitly configured, capped operator test budget. Creators need
+no native tokens, faucet, deposit, checkout or refund flow. Sui gas sponsorship
+alone does not supply IKA; the service must hold both fee inventories.
 
-Pirate's registration service is the recommended operator. A community using
-it connects its service account and selects a payment policy; it does not run
-a Sui treasury or supply Pirate's signing keys. Independent operation means
-running a compatible registration service with a dedicated signer, SUI and
-IKA inventory, finite spending limits and reconciliation. A funded address
-alone is not a functioning registration service.
+Pirate's registration service is the default operator. A community pairs with
+that service and uses a verified test allowance; it does not hold Pirate's
+provider or treasury keys. An independent operator runs a compatible service
+with its own dedicated signer, native inventory, finite limits and reconciliation.
+A funded address alone is not a functioning registration service.
 
-| Payment policy | Creator experience | Community setup |
+| Policy | First-song status | Creator experience |
 | --- | --- | --- |
-| `creator_upfront` | Pays one displayed activation quote through the operator's supported checkout; no SUI/IKA deposits. | Recommended, explicitly confirmed choice. Connect a working billing profile and review prices and refund terms. |
-| `community_sponsored` | Sees “Wallet setup is covered by this community” and no activation charge. | Explicit opt-in. Connect a funded service allowance or a verified test grant and set finite limits. |
+| `community_sponsored` | Required test policy, backed by the operator's capped allowance. The name scopes the grant to a community; it does not require community reimbursement to Pirate. | Wallet setup is covered; no payment screen. |
+| `creator_upfront` | Deferred and unavailable in this milestone. | No checkout option is shown. |
 
-Direct native self-payment is deferred. Do not offer an enabled “fund your
-Sui wallet” toggle in v1. It would require its own fee-coin, transaction-sender,
-consent and recovery implementation. Do not assume a MOSS balance can pay Sui
-or Ika fees, or silently bridge or swap it.
-
-The default recommendation is not permission to charge. The community operator
-confirms the policy during setup and the creator approves each priced action.
-Community sponsorship must never be a silent fallback when checkout is absent.
-The existing spike remains an explicitly funded test grant; it is not evidence
-of an implemented paid service.
+The funding decision authorizes the test model, not an unlimited spend or an
+invented balance. Missing or depleted allowance disables new creator setup.
+It must never switch to charging a creator. Direct native creator self-payment
+is also deferred. Do not assume a MOSS balance pays Sui/Ika fees or add a swap
+or bridge. The first-song test does not depend on HNS delegation or app.tld.
 
 ## Wizard contract
 
-This is a required configuration step before enabling creator releases, not
-before deploying a community website or enabling ordinary MOSS sign-in.
-Use the label “Creator wallets and release fees”. Keep the everyday path
-short; show treasury controls only for independent operators.
+This is a readiness check before creator releases, not before website
+provisioning or ordinary sign-in. Use a short “Creator setup is covered” summary,
+with no payment-policy questionnaire. Show treasury controls only for independent
+operators.
 
-1. “Who handles wallet registration?” Select Pirate's service by default or
-   an independent compatible service. Show its identity, supported testnets
-   and capability status. An unavailable service cannot be selected as ready.
-2. “Connect the registration service.” Complete authenticated community
-   pairing. Verify the exact community return origin and the service manifest,
-   including wallet HTTPS origin, RP ID, protocol/package versions, network
-   and operator address. A pasted URL or syntactically valid credential does
-   not establish a connection. Reuse the stable wallet site across communities.
-3. “Who pays for creator wallets?” Explicitly confirm “Creators pay at setup”
-   or “This community covers setup”. Explain that the registration service
-   handles SUI and IKA in both cases. Show the approved price/refund policy,
-   which actions it covers and whether later signing or registration costs
-   extra. Do not display an invented zero price.
-4. Connect a supported billing profile for creator payment, or a funded
-   allowance/test grant for sponsorship. Configure finite per-action,
-   community and daily limits. If the selected service has no implemented
-   checkout/refund adapter, creator payment stays unavailable. If sponsorship
-   has no verified allowance, it stays unavailable too.
-5. Independent operators additionally connect their deployed service and
-   dedicated signer references. Verify the expected Sui network, spendable
-   SUI and IKA, fee budgets, refill alerts and transaction reconciliation.
-   Aeneid registration also needs its own adapter, signer and gas readiness.
-   A community using Pirate's service never supplies those treasury secrets.
-6. Run a read-only preflight and display the operator, payer, supported
-   settlement asset/network, price policy, limits, wallet origin and individual
-   readiness results. “Enable creator releases” remains unavailable until the
-   relevant checks pass. Reviewing a configuration does not itself transfer
-   funds, provision credentials or deploy a service.
+1. Select Pirate's registration service by default, or an independent service.
+   Show identity, supported testnets and capabilities. An unavailable service
+   remains pending; selecting it does not make it ready.
+2. Complete authenticated community pairing. Verify the exact return origin and
+   pinned service manifest: wallet HTTPS origin/RP ID, protocol/package versions,
+   network and operator address. Reuse the stable wallet site. A pasted URL or
+   syntactically valid credential is not a verified service connection.
+3. Bind `community_sponsored` to a verified operator test allowance and its
+   covered actions. Configure finite per-action, account, community and global
+   daily limits. Record native units and budget windows. Do not ask creators
+   to connect a billing profile or require a checkout/refund adapter.
+4. Independent operators additionally bind their service and dedicated signer
+   references, spendable SUI/IKA, refill alerts and reconciliation. Verify the
+   Aeneid registration adapter, signer and gas separately. Communities using
+   Pirate's service never supply those treasury secrets.
+5. Run a read-only preflight and show service identity, wallet origin, covered
+   actions, limits and individual readiness. Release remains unavailable until
+   the relevant checks pass. Reviewing settings does not transfer funds, create
+   credentials or deploy a service.
 
-The owner-selected wizard requires Infisical for service/operator secrets.
-Use references and runtime server bindings; never put a raw secret in a public
-manifest, browser configuration or resumable wizard state. Creator passkey
-private keys and plaintext Ika seeds never enter Infisical. Alchemy remains the
-provisioning layer selected by the community wizard; this feature adds no
-second deployment runner. Ordinary HTTPS setup comes first, optional HNS later;
-Spaces remains deferred. None of those choices changes the wallet RP ID.
+Infisical remains the required service/operator-secret source. Use references
+and runtime server bindings, never raw secrets in public manifests, browser
+configuration or resumable wizard state. Creator passkey private keys and
+plaintext Ika seeds never enter Infisical. Alchemy owns wizard provisioning;
+cf remains diagnostic tooling. Ordinary HTTPS comes first, HNS is separate,
+and Spaces is deferred. None of these choices changes the wallet RP ID.
 
-Suggested review copy for the default path is: “Pirate handles wallet setup.
-Creators pay the displayed setup price. You do not need SUI or IKA.” For the
-sponsored path use: “Pirate handles wallet setup. This community pays within
-the allowance and limits shown here.” Independent mode names the actual
-service instead of Pirate. Never present these statements as proof of readiness.
+Suggested copy is: “Pirate handles wallet setup. Test fees are covered within
+the operator allowance shown here. You do not need SUI or IKA.” Independent
+mode names its actual service. Do not present this copy as proof of readiness.
 
 ## Configuration and readiness
 
-The deployment handoff needs the following fields or equivalent typed data.
-This is a semantic contract, not a claim that these API fields already exist.
+These are semantic requirements, not claims of implemented API fields.
 
 | Configuration | Required meaning |
 | --- | --- |
-| Version and operator | Configuration version, service mode/ID, endpoint and pinned manifest digest. |
+| Version and operator | Service mode/ID, endpoint and pinned manifest digest. |
 | Origins and networks | Exact community return origin, wallet origin/RP ID, test networks and package identities. |
-| Payer policy | Explicit `creator_upfront` or `community_sponsored`; policy version and covered actions. |
-| Billing reference | Supported settlement profile or sponsorship allowance/grant ID; public terms version. |
-| Limits | Finite action, account, community and global exposure limits with units and time windows. |
+| Sponsorship | Fixed `community_sponsored` policy, version, covered actions and authenticated test allowance/grant ID. |
+| Limits | Finite action, account, community and global native exposure with units and time windows. |
 | Private bindings | Infisical references for backend authentication and independent signer configuration; never secret values. |
 
-Readiness observations are separate from saved settings. Record the checked
-configuration digest, observation time, expiry and reasons for failure.
-Distinguish configured, connected, billing ready, native funding ready,
-activation ready and song-registration ready. Only the authenticated service
-can attest to its allowance and native inventory; a client-side flag is not
-evidence. Recheck and reserve at execution because balances can change after
-preflight. A global low balance must block new quotes before taking payment.
+Record checked configuration digest, observation time, expiry and failure
+reasons. Distinguish configured, connected, allowance ready, native funding
+ready, activation ready and song-registration ready. The service verifies its
+allowance and native inventory; a browser flag is not evidence. Recheck and
+reserve exposure at execution because balances can change after preflight.
 
-Changing operator, origins, network, payer or limits invalidates stale
-preflight results and unpaid quotes. Already funded attempts remain bound to
-their original service and terms until reconciled or refunded; changing a
-setting never reassigns a receipt. A depleted or unreachable service disables
-new releases with an actionable reason. Public reading, ordinary posts and
-MOSS login remain available. Wallet activation alone does not make the
-registration adapter or first-song publication ready.
+Changes to service, origins, network, policy or limits invalidate stale
+readiness and unstarted authorizations. An already submitted attempt remains
+bound to its original service and ledger until reconciled. A depleted or
+unreachable service blocks new releases with a reason. Public reading and
+ordinary participation remain available. An Active wallet alone does not prove
+the registration adapter or first-song flow works.
 
-## Creator flow and quote
+## Sponsored execution and native funding
+
+Verify and reuse an existing Active wallet before creating another. Confirm
+ownership and community-link consent; knowing a public address is insufficient.
+For a new wallet, save the PRF-wrapped seed durably before native-fee operations.
+Missing PRF or failed persistence stops setup. Preserve the wallet contract's
+DKG checks, atomic cap transfer, verified acceptance and confirmed-Active order.
+
+Bind an authenticated spending authorization to the setup intent, community,
+account, creator address, operator, network/package manifest, allowance,
+covered action, native ceiling and expiry. This is an internal bounded grant,
+not a creator checkout quote. Reserve it atomically before submitting an action.
+Enforce the wallet contract's account limits and failed-attempt limits, plus
+community and global budgets. No numeric budget has been chosen by this document;
+finite configured limits and verified test inventory are required before spending.
+
+Keep a durable attempt ledger with unique action/idempotency keys. Persist
+transaction identity before broadcast, reconcile uncertain submissions before
+retrying, and never pay for a second DKG because a callback or poll was lost.
+Serialize or allocate fee coins so concurrent transactions cannot spend the
+same object version. Record actual IKA, SUI and Aeneid costs separately, release
+unused allowance and stop new work before depletion. A timeout stays pending
+until reconciled. Failed setup creates no creator debt or payment request.
+
+Activation, later signing and Aeneid registration have separate native costs.
+The test grant must explicitly cover each needed action within its ceiling;
+otherwise that action stays unavailable. A normal recipient mint may not need
+an Ika signature; check the adapter instead of adding an unnecessary signing
+step. Funding never grants custody of the creator cap or arbitrary signing
+permission. Refills require an operator action; no automatic swap is promised.
+
+## First-song acceptance
+
+| ID | Required evidence |
+| --- | --- |
+| S1 | The default flow has no creator payment screen or provider/treasury-key intake; it verifies the service and test allowance. |
+| S2 | Missing, depleted or expired allowance, missing limits or insufficient native inventory blocks new work without charging the creator. |
+| S3 | PRF/persistence failure stops before spend; a verified existing wallet skips creation. |
+| S4 | Wrong community, account, origin, action, manifest or allowance authorization is refused. Replays and concurrent requests cannot spend twice. |
+| S5 | Unknown submissions remain pending and reconcile before retries; cancellations release only unspent exposure, with actual native costs recorded. |
+| S6 | Service/configuration changes invalidate stale readiness without reassigning existing attempts. Ordinary participation remains available. |
+| S7 | Setup, any required signing and registration each have bounded coverage; creator cap ownership and confirmed Active before upload remain required. |
+| S8 | Real testnet service pairing, inventory and allowance evidence supports the first-song run on ordinary HTTPS without HNS. Fixtures cannot enable live readiness. |
+
+S1–S8 are pending integration acceptance. The browser pilot demonstrated
+activation, reopening and a same-address signature, not the complete service,
+allowance enforcement or first-song registration. The remaining C1–C13 wallet
+requirements still apply. The wizard, wallet and service lanes must hand back
+actual evidence; a documentation merge cannot mark them passed.
+
+## Deferred creator checkout
+
+The following requirements apply only if creator-paid operation is selected in
+a later product decision. They are not first-song gates and do not authorize
+charging. No settlement asset, network, price or commercial default is selected.
+
+### Creator flow and quote
 
 On “Release a song”, first verify and reuse an existing Active wallet. Do not
 sell a second activation for another song, a lost return callback or an
@@ -169,7 +205,7 @@ deadline remains valid when its callback arrives later. Payments confirmed
 after that deadline or with incorrect terms are quarantined
 for reconciliation/refund and never silently consumed by a replacement quote.
 
-## Retries, refunds and native funding
+### Retries, refunds and native funding
 
 Link the financial ledger to the durable setup attempt. Track quote, payment
 confirmation or allowance reservation, submitted operations, actual costs,
@@ -213,18 +249,18 @@ need no Ika signature; verify the adapter instead of adding a signing charge
 to every song. Paying or sponsoring never grants the operator custody of the
 creator's cap or permission to sign arbitrary messages.
 
-## Acceptance and implementation boundary
+### Deferred billing acceptance
 
 The real browser pilot activated a testnet wallet, reopened it and verified a
 signature from the same creator address. It did not implement checkout,
 refunds, commercial service pairing or song registration. Browser/provider
 coverage and the remaining wallet acceptance cases still need evidence.
-The selected settlement profile and real prices remain implementation inputs,
-not missing values that the wizard may replace with a mock success.
+A settlement profile and real prices would be later implementation inputs,
+not missing values that the first-song wizard must collect or invent.
 
 | ID | Required evidence before enabling the affected capability |
 | --- | --- |
-| P1 | Default-service setup asks for a service connection and payer policy, never the service's SUI/IKA keys. Independent mode rejects missing signer, inventory or budgets. |
+| P1 | A future paid-service setup verifies the selected commercial policy and never asks communities for Pirate's SUI/IKA keys. Independent mode rejects missing signer, inventory or budgets. |
 | P2 | Missing checkout/refund support disables creator-paid mode; missing allowance disables sponsorship. Neither silently becomes a free service. |
 | P3 | PRF or encrypted-record persistence failure occurs before charging. A verified existing wallet skips activation payment. |
 | P4 | Changed recipient, amount, asset, network, account or quote is rejected. Replayed receipts and concurrent requests cannot create two charges or DKG attempts. |
@@ -237,10 +273,11 @@ not missing values that the wizard may replace with a mock success.
 | P11 | Later signing/registration shows its own cost or entitlement. Payment cannot authorize arbitrary signing, custody transfer or mainnet execution. |
 | P12 | Readiness is demonstrated against the configured service and adapter, with bounded test receipts and refunds; fixtures are visibly separate and cannot enable a live capability. |
 
-All P1–P12 are pending implementation acceptance. The wizard lane consumes this
-contract; the payment lane owns settlement adapters; the wallet lane owns Ika
-operations and encrypted records. No runtime or mainnet change is implied by
-merging these documents.
+All P1–P12 are deferred and pending implementation acceptance. They do not block
+the sponsored first-song test. S1–S8 above govern that milestone. A future payment
+lane would own settlement adapters; the wallet lane owns Ika operations and
+encrypted records. No runtime, funding or mainnet change is implied by merging
+these documents.
 
 Ika's [integration guide](https://docs.ika.xyz/docs/move-integration/getting-started)
 describes native fee inputs. Sui's

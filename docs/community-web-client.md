@@ -23,10 +23,10 @@ karaoke, study and dance posts retain this document's session flow. Creator
 setup opens the dedicated wallet site by popup or redirect, not an iframe.
 The creator's encrypted wallet record is distinct from community session
 storage and does not introduce saved song drafts.
-The [payment and wizard contract](creator-wallet-payments.md) requires a verified
-registration-service connection and explicit creator-payment or community-
-sponsorship policy before enabling releases. Only independent registration
-operators manage native SUI/IKA inventory; communities using Pirate's service
+The [funding and wizard contract](creator-wallet-payments.md) requires a verified
+registration-service connection and capped operator test allowance before
+enabling releases. No creator checkout is part of the first-song test. Only
+independent registration operators manage native SUI/IKA inventory; communities using Pirate's service
 do not. An incomplete creator capability leaves ordinary participation available.
 
 The following are settled for this version: Solid renders the client; each
