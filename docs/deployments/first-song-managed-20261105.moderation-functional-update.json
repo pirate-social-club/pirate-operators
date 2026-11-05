@@ -1,0 +1,67 @@
+{
+  "schema": "pirate.first-song-functional-service-update/1",
+  "source": "9ac4aceb692903f4014385b6364ac12f8821a22e",
+  "observedAt": "2026-11-05T15:06:05.557Z",
+  "profileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+  "before": {
+    "at": "2026-11-05T14:53:18.644Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T14:53:54.732Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "health": {
+    "profileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+    "release": {
+      "configured": true,
+      "expiresAt": 1793974341,
+      "grantSha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+      "registrationOperator": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319"
+    },
+    "service": "pirate-managed-moderation/1",
+    "status": "available"
+  }
+}

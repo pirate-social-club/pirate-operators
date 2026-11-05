@@ -1,0 +1,114 @@
+{
+  "schema": "pirate.first-song-functional-rollout/1",
+  "source": "9ac4aceb692903f4014385b6364ac12f8821a22e",
+  "observedAt": "2026-11-05T14:57:20.294Z",
+  "managed": {
+    "profileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+    "after": {
+      "at": "2026-11-05T14:53:54.732Z",
+      "resources": [
+        {
+          "name": "pirate-managed-firstsong-20261105",
+          "present": true,
+          "id": "7e62742bc4ed4677b68ec5668552a72f"
+        },
+        {
+          "name": "pirate-managed-firstsong-20261105-db",
+          "present": true,
+          "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a"
+        },
+        {
+          "name": "pirate-managed-firstsong-20261105-media",
+          "present": true,
+          "id": "pirate-managed-firstsong-20261105-media"
+        },
+        {
+          "name": "pirate-managed-firstsong-20261105-jobs",
+          "present": true,
+          "id": "dc4fcd4d7eae467e8688751b79fb3c09"
+        }
+      ]
+    },
+    "health": {
+      "service": "pirate-managed-moderation/1",
+      "status": "available",
+      "profileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+      "release": {
+        "configured": true,
+        "grantSha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+        "registrationOperator": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+        "expiresAt": 1793974341
+      }
+    },
+    "preservation": {
+      "markerSha256": "0x480bfb1a4dc10a3dd8a8a1dc15c1e6f0051440d97e0c58eee747ddb14a6f8ca5",
+      "files": 21
+    }
+  },
+  "application": {
+    "profileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+    "after": {
+      "at": "2026-11-05T14:55:59.246Z",
+      "resources": [
+        {
+          "name": "pirate-first-song-20261105",
+          "present": true,
+          "id": "a29dd318429e42eda7846ea4997ad999"
+        },
+        {
+          "name": "pirate-first-song-20261105-db",
+          "present": true,
+          "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+        },
+        {
+          "name": "pirate-first-song-20261105-media",
+          "present": true,
+          "id": "pirate-first-song-20261105-media"
+        },
+        {
+          "name": "pirate-first-song-20261105-jobs",
+          "present": true,
+          "id": "fe031cd96fbb47579585eb10154f785d"
+        }
+      ]
+    },
+    "health": {
+      "schema": "pirate.community-application/1",
+      "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+      "profileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+      "infrastructure": "provisioned",
+      "firstSong": "not_ready",
+      "signIn": "available",
+      "creatorConnection": "available"
+    },
+    "preservation": {
+      "markerSha256": "0xa139e0b5f39b300df50dcd0aa69a4140e993e08ace4667764ed5f37e45793a03",
+      "files": 34
+    },
+    "consumer": {
+      "queueId": "fe031cd96fbb47579585eb10154f785d",
+      "consumerId": "0c3199ae1ef84494a5896116e15e78f4",
+      "scriptName": "pirate-first-song-20261105"
+    }
+  },
+  "nativeUnchangedProfile": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
+  "releaseGrantSha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+  "providerPurchases": 0,
+  "songPins": 0,
+  "registrations": 0,
+  "posts": 0,
+  "actualSongAcceptance": "outstanding; no signed-in creator or submitted recording yet",
+  "privateEvidence": "Original encrypted wizard state, successor states, predecessor backups, diagnostics and result journals retained on the operator host.",
+  "independentQualification": {
+    "source": "9ac4aceb692903f4014385b6364ac12f8821a22e",
+    "modules": "exact reviewed bytes at100percent traffic",
+    "resources": "all existing IDs and owned new consumer match",
+    "migrations": "managed0002 and application0005 exact applied source hashes",
+    "state": "original wizard state, encrypted successors, backups, results and released locks independently verified",
+    "privateJournalCounts": "all0 before acceptance",
+    "acceptanceBlockers": [
+      "Advancing-head public-index cursor race",
+      "Managed outbound trace query redaction required before private inputs"
+    ]
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "schema": "pirate.first-song-functional-service-update/1",
+  "source": "9ac4aceb692903f4014385b6364ac12f8821a22e",
+  "observedAt": "2026-11-05T15:06:05.563Z",
+  "profileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+  "before": {
+    "at": "2026-11-05T14:55:12.203Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T14:55:59.246Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "health": {
+    "schema": "pirate.community-application/1",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "profileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+    "infrastructure": "provisioned",
+    "firstSong": "not_ready",
+    "signIn": "available",
+    "creatorConnection": "available"
+  },
+  "consumer": {
+    "queueId": "fe031cd96fbb47579585eb10154f785d",
+    "consumerId": "0c3199ae1ef84494a5896116e15e78f4",
+    "scriptName": "pirate-first-song-20261105"
+  }
+}
