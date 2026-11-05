@@ -65,8 +65,8 @@ export async function communityReleaseApi(
       ? await accountSession(request, env.DB, context)
       : await authenticatedWrite(request, env.DB, context);
   if (stem) {
-    if (!read)
-      await requireCuratedOwner(env.DB, (await ready()).config, session.wallet);
+    // Private attachments remain authorized by the original account ownership.
+    // Publication-owner adoption is separately gated on both completed seals.
     const id = stem[1]!,
       slot = stem[2] as StemSlot | undefined;
     const owned = await env.DB.prepare(

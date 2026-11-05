@@ -1,0 +1,144 @@
+{
+  "profileHash": "0xb32933dd38789a8b56a1e553579d28d467b8fc9ffe9c73709ce528c9ce50b520",
+  "profile": {
+    "schema": "pirate.owner-curated-adoption-plan/1",
+    "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+    "postId": "0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e",
+    "authorId": "0xca02b0421fec17df73fb4b9da94040d5fb0986851c46b9d50c331438ab331331",
+    "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+    "configurationSha256": "0x8b10102a5a64ec57f401b9cdf42a060b34f2a9a7a63a31975db1b56ef436a536",
+    "amendmentSha256": "0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765",
+    "privatePlanSha256": "0xd7b5606dc224e5c71e3dca9c1e3a1409d3dd8dce2ef5fc36ea4c3ad5dfac2d36",
+    "applicationProfileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
+    "managedProfileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
+    "nativeProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
+    "applicationBundleSha256": "0x3e6569f190696752080f01b320941e40d02062dc0dc38efab11bbbd1e638f771",
+    "managedBundleSha256": "0x9a856f375ff609737a04bcd7892b3060c52fa53c552f2903f2b50de55f7503bd",
+    "nativeBundleSha256": "0x1dddb3f96cc4c8fe8ae6165b30eddec84e4b28a71067685769c75c4afcf33bdb",
+    "nativeWasmSha256": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
+    "grantSha256": "0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+    "state": {
+      "schema": "pirate.held-first-song-state/1",
+      "application": {
+        "community_accounts": {
+          "count": 1,
+          "sha256": "0x1152813534dfaf1425f55aca44c655261a10ebc77fd6d5d67f6a4de5de1b507a"
+        },
+        "credential_bindings": {
+          "count": 1,
+          "sha256": "0x28759de97c767b4378f44eded9ee4f48edf4500bab117099a28cdf94ae879931"
+        },
+        "creator_bindings": {
+          "count": 1,
+          "sha256": "0x42c8378c328ed0844fe8dccb12dbd58ee6917464528f7c7470b57565fba0a4a7"
+        },
+        "media_submissions": {
+          "count": 1,
+          "sha256": "0x2cc1478f76d44390390eba484c229d0d200efcf9609026b344efa92497bbbca1"
+        },
+        "publication_jobs": {
+          "count": 1,
+          "sha256": "0x711fb3d10bf07472262988bd543156585c73699df4ef78d982ce21a3f9fe5c0a"
+        },
+        "external_operations": {
+          "count": 1,
+          "sha256": "0x7b6a058228abf7fcb9bdb1316f8ef817fce24bf86645eec00fa2fd360a3c4a64"
+        }
+      },
+      "managed": {
+        "managed_admissions": {
+          "count": 1,
+          "sha256": "0xc85c0b97b7d4f8193f6b31415bc3efba552bdbfd48167d8ccfc86a5249fe6168"
+        },
+        "moderation_provider_calls": {
+          "count": 3,
+          "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
+        },
+        "spending_budgets": {
+          "count": 2,
+          "sha256": "0x00d356f36794be939a8a74ca7b46054cdf80909ac185f8e520be9ee28459289e"
+        },
+        "spending_reservations": {
+          "count": 6,
+          "sha256": "0x83577fee80df6d7d3cb942a782259a74f27bccbbd0d416906031cafac305b71f"
+        },
+        "managed_releases": {
+          "count": 0,
+          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "funded_pins": {
+          "count": 0,
+          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "funded_registrations": {
+          "count": 0,
+          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        }
+      }
+    },
+    "stems": {
+      "instrumental": {
+        "sha256": "0xaf6f438a3c7e00c822db5aa7436f67466bf4a0058810ae48d7c8d4ac5b61e368",
+        "byteLength": 4398452,
+        "durationMs": 186672
+      },
+      "vocals": {
+        "sha256": "0xba4ecd77dac09a5d27c78cb1ac4c346183da2046b74117bd1ee9f300efb69b94",
+        "byteLength": 3015716,
+        "durationMs": 186672
+      }
+    },
+    "sourceHashes": {
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
+      "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "docs/deployments/first-song-managed-20261105.application-plan.json": "0x6eab8b14513d2a38c4b7cb5f8f2d01e0c6fadc1d22c61545565b861da224ba13",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
+      "docs/deployments/first-song-managed-20261105.held-state.json": "0x8a04c652b2fe7d3ce57003014158226824908c7765a4f3c5d00d9469da912c31",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x3102e45fc2565e1b87f9be67c1a70baab312783c224556e3795a82a7eff08ede",
+      "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
+      "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
+      "harness/curated-release-plan.ts": "0x7bd56c1d6f44dca50ab5a168c2d7276d49c4d1680307d48a98f8fadb2ea42d62",
+      "harness/curated-release.ts": "0x62c75320d262807a852bdf8dabbf0125a637d332f1b5bb1f539868a612cdf052",
+      "harness/curated-state.ts": "0x82b41a052abd36fcc4560f98bc77743fec76b3da66b3b08171e9634b9095a5e7",
+      "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
+      "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
+      "harness/megaeth/deployment-journal.ts": "0xb1d42a9d7cbe20115c1c6467f4b9ccd1d35992e478be4190253dcba0b558ce31",
+      "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
+      "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
+      "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
+      "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
+      "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
+      "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
+      "packages/community/curated-amendment.ts": "0x15d1862bdee7f165276d221034e1b5bda2b3abd6e0f1f04534e711f12a7fced7",
+      "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
+      "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/owner-policy.ts": "0x2749adcbb50c6c28fe496190e58266cebfcb5d7429c010c6a20d7ed2a3152a25",
+      "packages/community/publication-profile.ts": "0x20574b3176756023e05af7e8c5e8675a29dbc27750fede2a2283eb0d1f248c8a",
+      "packages/moderation/acrcloud.ts": "0x30c06bbb7ae2f58dda1bf8949291e344a4cacff69c65ab86dd443048173b6700",
+      "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
+      "packages/moderation/capabilities.ts": "0xeb416f6f35cf14df1e4e5a13861f0de1a0a1bbe623058d3c55fe79e440690e98",
+      "packages/moderation/curated-admission.ts": "0xc21141d866f671b6480e86e81716378ada0fa740cd429fdf2773dfc3afe114d6",
+      "packages/moderation/evidence.ts": "0x5b2167bcdd54d958e6ea0fa21159cbc5feb4c220936db0218a8bbbba4017637f",
+      "packages/moderation/mp3-frames.ts": "0x8712e19179ab02f7fa92dd6877bd575cb4786e21342635efd8ce4d0d6215d771",
+      "packages/moderation/mp3-windows.ts": "0x62052fa6973db9412579fc89f04d42afe4a39059ee4a0f398aa3970fac27df14",
+      "packages/moderation/provider-http.ts": "0xcc3108927aa1bc589126d5346cfdaa5db2a7e0540d2f7d79c25e1a388a989905",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82"
+    },
+    "bounds": {
+      "executionSeconds": 900,
+      "providerRequests": 0,
+      "newResources": 0,
+      "admissions": 1,
+      "publicationJobs": 1,
+      "publicPins": 5,
+      "rootRegistrations": 1,
+      "posts": 1,
+      "expiresAt": 1793974341
+    },
+    "acceptance": "Explicitly adopt one preserved owner release after exact native/managed/app rollout and both creator stem uploads; queue continues its captured bounded grant."
+  }
+}

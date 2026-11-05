@@ -1,5 +1,5 @@
 {
-  "profileHash": "0xb32933dd38789a8b56a1e553579d28d467b8fc9ffe9c73709ce528c9ce50b520",
+  "profileHash": "0x80a90995e22adb52fbfda929f83c25a570302dc1c3cd3be677f15d9c8d1f311f",
   "profile": {
     "schema": "pirate.owner-curated-adoption-plan/1",
     "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
@@ -9,10 +9,10 @@
     "configurationSha256": "0x8b10102a5a64ec57f401b9cdf42a060b34f2a9a7a63a31975db1b56ef436a536",
     "amendmentSha256": "0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765",
     "privatePlanSha256": "0xd7b5606dc224e5c71e3dca9c1e3a1409d3dd8dce2ef5fc36ea4c3ad5dfac2d36",
-    "applicationProfileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
+    "applicationProfileHash": "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279",
     "managedProfileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
     "nativeProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
-    "applicationBundleSha256": "0x3e6569f190696752080f01b320941e40d02062dc0dc38efab11bbbd1e638f771",
+    "applicationBundleSha256": "0x7070c14b0cfa6d57aad4e28a7398c442f605ccc77c10fac3957ebc598c8185e7",
     "managedBundleSha256": "0x9a856f375ff609737a04bcd7892b3060c52fa53c552f2903f2b50de55f7503bd",
     "nativeBundleSha256": "0x1dddb3f96cc4c8fe8ae6165b30eddec84e4b28a71067685769c75c4afcf33bdb",
     "nativeWasmSha256": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
@@ -93,7 +93,7 @@
       "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
       "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
       "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
-      "docs/deployments/first-song-managed-20261105.application-plan.json": "0x6eab8b14513d2a38c4b7cb5f8f2d01e0c6fadc1d22c61545565b861da224ba13",
+      "docs/deployments/first-song-managed-20261105.application-plan.json": "0xda6975848e4df136e6b4db1b234a74fd131c87412216ed070139dc5af893bfc8",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
       "docs/deployments/first-song-managed-20261105.held-state.json": "0x8a04c652b2fe7d3ce57003014158226824908c7765a4f3c5d00d9469da912c31",
       "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x3102e45fc2565e1b87f9be67c1a70baab312783c224556e3795a82a7eff08ede",
