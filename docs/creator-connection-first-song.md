@@ -33,6 +33,20 @@ creator. A completed retry returns the retained result without another service
 operation. A new upload requires a fresh verification; resuming an existing
 immutable submission keeps its original creator.
 
+If a native receipt was persisted but delivery takes more than five minutes,
+the community authenticates and preserves that original expired receipt and
+retires its connection. It does not bind the stale wallet verification or
+refresh that receipt's timestamp. A new connection requires explicit native
+approval and a fresh ownership read, reusing the existing Active wallet without
+another DKG. This prevents a lost response from trapping a session behind the
+one-day connection lifetime.
+
+Native credential claims also enforce one private account per credential within
+a community before recording a permanent binding. A rejected account cannot be
+pinned to a credential already claimed by another account. The community
+retires that refused request and permits a new connection for an unclaimed
+credential. Another community retains its independent claim namespace.
+
 Popup delivery checks the wallet origin, source window and connection state.
 The wallet sends only to the captured community origin. A same-window return
 contains the connection and state; the server retains the verifier and approval.

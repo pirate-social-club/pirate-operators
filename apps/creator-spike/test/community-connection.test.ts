@@ -15,6 +15,8 @@ import type { Env } from "../src/server/store.ts";
 import { signCreatorRequest } from "../../../packages/community/creator-service.ts";
 import { validateConfig } from "../../../packages/community/config-manifest.ts";
 import { hashJson } from "../../../packages/community/common.ts";
+import { claimCommunityCredential } from "../src/server/community-claims.ts";
+import { bindActiveCredential } from "../src/server/binding.ts";
 
 const original = JSON.parse(
     await readFile(
@@ -181,6 +183,78 @@ test("scoped native connections preserve one launch and refuse changed identity,
       (await env.DB.prepare("SELECT consumed FROM links WHERE id=?")
         .bind(id)
         .first<{ consumed: number }>())!.consumed,
+      0,
+    );
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("a same-community credential claim cannot pin a rejected account; another credential and other communities remain independent", async () => {
+  const mf = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('claim fixture')}}",
+    compatibilityDate: "2026-07-30",
+    d1Databases: ["DB"],
+  });
+  try {
+    const db = await mf.getD1Database("DB");
+    await db.exec((await readFile("schema.sql", "utf8")).replaceAll("\n", " "));
+    for (const [id, address] of [
+      ["credential-C", `0x${"1".repeat(64)}`],
+      ["credential-C2", `0x${"2".repeat(64)}`],
+    ])
+      await db
+        .prepare(
+          "INSERT INTO credentials(id,cose_key,counter,sui_public_key,sui_address,sealed_seed,created,status) VALUES(?,'explicit fixture',0,'explicit fixture',?,'{}',?,'active')",
+        )
+        .bind(id, address, Date.now())
+        .run();
+    const community = configuration.communityId,
+      accountA = `0x${"a".repeat(64)}`,
+      accountB = `0x${"b".repeat(64)}`,
+      nativeA = `community:${community}:${accountA}`,
+      nativeB = `community:${community}:${accountB}`;
+    await claimCommunityCredential(db, community, accountA, "credential-C");
+    await bindActiveCredential(db, nativeA, "credential-C");
+    await assert.rejects(
+      claimCommunityCredential(db, community, accountB, "credential-C"),
+      /creator_credential_claimed/,
+    );
+    assert.equal(
+      await db
+        .prepare("SELECT credential_id FROM bindings WHERE account=?")
+        .bind(nativeB)
+        .first(),
+      null,
+    );
+    await claimCommunityCredential(db, community, accountB, "credential-C2");
+    await bindActiveCredential(db, nativeB, "credential-C2");
+    assert.equal(
+      (await db
+        .prepare("SELECT credential_id FROM bindings WHERE account=?")
+        .bind(nativeB)
+        .first<{ credential_id: string }>())!.credential_id,
+      "credential-C2",
+    );
+    await claimCommunityCredential(
+      db,
+      `0x${"c".repeat(64)}`,
+      accountB,
+      "credential-C",
+    );
+    assert.equal(
+      (await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM scoped_creator_claims WHERE credential_id='credential-C'",
+        )
+        .first<{ n: number }>())!.n,
+      2,
+    );
+    assert.equal(
+      (await db
+        .prepare("SELECT COUNT(*) AS n FROM submissions")
+        .first<{ n: number }>())!.n,
       0,
     );
   } finally {

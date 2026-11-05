@@ -1,6 +1,7 @@
 import type { PrivateKeyAccount } from "viem/accounts";
 import type { AccountSession } from "./accounts.ts";
 import {
+  CommunityError,
   canonical,
   equalTokens,
   hashJson,
@@ -27,6 +28,8 @@ interface Connection {
   verifier_secret: string | null;
   request_id: string | null;
   receipt_json: string | null;
+  expired_receipt_json: string | null;
+  retired_reason: string | null;
   expires_at: number;
   consumed: number;
 }
@@ -53,6 +56,7 @@ export interface CreatorConnectionService {
   config: CommunityConfig;
   publisher: PrivateKeyAccount;
   transport?: (request: Request) => Promise<Response>;
+  verifyReceipt?: typeof verifyCreatorReceipt;
 }
 async function callCreator(
   service: CreatorConnectionService,
@@ -93,6 +97,8 @@ async function callCreator(
     ),
   );
   const result = await jsonBody(response);
+  if (response.status === 409 && result.error === "creator_credential_claimed")
+    throw new CommunityError("creator_credential_claimed", 409);
   insist(response.ok, "creator_service_unavailable", 503);
   return result;
 }
@@ -216,6 +222,10 @@ export async function completeCreatorConnection(
       state: "connected",
       creator: object(JSON.parse(row.receipt_json)).payload,
     };
+  if (row.expired_receipt_json)
+    return { state: "verification_expired", requiresReconnect: true };
+  if (row.retired_reason === "creator_credential_claimed")
+    return { state: "choose_another_wallet", requiresReconnect: true };
   insist(
     row.expires_at > Date.now() &&
       !row.consumed &&
@@ -224,7 +234,9 @@ export async function completeCreatorConnection(
     "creator_connection_expired",
     409,
   );
-  const accountRef = accountReference(service.config, session),
+  const accountRef = accountReference(service.config, session);
+  let result: Record<string, unknown>;
+  try {
     result = await callCreator(service, "creator_exchange", {
       requestId: row.request_id,
       connectionId: row.connection_id,
@@ -232,18 +244,78 @@ export async function completeCreatorConnection(
       state,
       verifier: row.verifier_secret,
     });
+  } catch (error) {
+    if (
+      !(error instanceof CommunityError) ||
+      error.code !== "creator_credential_claimed"
+    )
+      throw error;
+    await db
+      .prepare(
+        "UPDATE creator_connections SET retired_reason='creator_credential_claimed',consumed=1,verifier_secret=NULL WHERE connection_id=? AND account_id=? AND session_hash=? AND consumed=0 AND receipt_json IS NULL",
+      )
+      .bind(id, session.account_id, session.session_hash)
+      .run();
+    const saved = await ownedConnection(db, id, session);
+    if (saved.receipt_json)
+      return {
+        state: "connected",
+        creator: object(JSON.parse(saved.receipt_json)).payload,
+      };
+    insist(
+      saved.retired_reason === "creator_credential_claimed",
+      "creator_connection_recovery_conflict",
+      409,
+    );
+    return { state: "choose_another_wallet", requiresReconnect: true };
+  }
   if (result.state === "waiting") return { state: "waiting" };
   insist(result.state === "connected", "invalid_creator_exchange", 503);
-  const receipt = await verifyCreatorReceipt(result.receipt, {
+  const expected = {
       communityId: service.config.communityId,
       communityOrigin: service.config.app.origin,
       connectionId: row.connection_id,
       requestId: row.request_id,
       accountRef,
       state,
-    }),
-    retained = await retainCreatorBinding(db, session, id, receipt);
-  return retained;
+    },
+    verifyReceipt = service.verifyReceipt ?? verifyCreatorReceipt;
+  let receipt: Awaited<ReturnType<typeof verifyCreatorReceipt>>;
+  try {
+    receipt = await verifyReceipt(result.receipt, expected);
+  } catch (error) {
+    if (
+      !(error instanceof CommunityError) ||
+      error.code !== "creator_receipt_expired"
+    )
+      throw error;
+    const expired = await verifyReceipt(
+      result.receipt,
+      expected,
+      Date.now(),
+      undefined,
+      true,
+    );
+    await db
+      .prepare(
+        "UPDATE creator_connections SET expired_receipt_json=?,consumed=1,verifier_secret=NULL WHERE connection_id=? AND account_id=? AND session_hash=? AND consumed=0 AND receipt_json IS NULL",
+      )
+      .bind(canonical(expired), id, session.account_id, session.session_hash)
+      .run();
+    const saved = await ownedConnection(db, id, session);
+    if (saved.receipt_json)
+      return {
+        state: "connected",
+        creator: object(JSON.parse(saved.receipt_json)).payload,
+      };
+    insist(
+      saved.expired_receipt_json === canonical(expired),
+      "creator_connection_recovery_conflict",
+      409,
+    );
+    return { state: "verification_expired", requiresReconnect: true };
+  }
+  return retainCreatorBinding(db, session, id, receipt);
 }
 /** Caller supplies a cryptographically verified, scope-bound native receipt. */
 export async function retainCreatorBinding(
@@ -252,6 +324,12 @@ export async function retainCreatorBinding(
   id: string,
   receipt: Awaited<ReturnType<typeof verifyCreatorReceipt>>,
 ) {
+  insist(
+    receipt.payload.verifiedAt > Date.now() - 300_000 &&
+      receipt.payload.expiresAt > Date.now(),
+    "creator_receipt_expired",
+    409,
+  );
   const connection = await ownedConnection(db, id, session),
     application = await db
       .prepare(
@@ -305,7 +383,7 @@ export async function retainCreatorBinding(
       .bind(guard, session.account_id, encoded),
     db
       .prepare(
-        "UPDATE creator_connections SET receipt_json=?,consumed=1,verifier_secret=NULL WHERE connection_id=? AND account_id=? AND session_hash=? AND (receipt_json IS NULL OR receipt_json=?)",
+        "UPDATE creator_connections SET receipt_json=?,consumed=1,verifier_secret=NULL WHERE connection_id=? AND account_id=? AND session_hash=? AND ((consumed=0 AND receipt_json IS NULL AND expired_receipt_json IS NULL) OR receipt_json=?)",
       )
       .bind(encoded, id, session.account_id, session.session_hash, encoded),
     db

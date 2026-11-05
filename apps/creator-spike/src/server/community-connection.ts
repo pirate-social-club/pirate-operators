@@ -21,6 +21,7 @@ import {
 } from "./store.ts";
 import { operator, verifyWallet } from "./chain.ts";
 import { bindActiveCredential } from "./binding.ts";
+import { claimCommunityCredential } from "./community-claims.ts";
 
 // Curated disposable profile. A caller cannot introduce a registry, origin or RPC.
 const profile = {
@@ -58,7 +59,15 @@ export async function communityConnection(
     communityId,
   ) => {
     insist(communityId === profile.communityId, "community_not_paired", 403);
-    return readConfiguration(megaethReadClient(), profile);
+    const config = await readConfiguration(megaethReadClient(), profile);
+    insist(
+      config.controller === "0x274f223809f00cbdd51d05de3abc8fd3368fde16" &&
+        config.app.origin ===
+          "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "community_pairing_changed",
+      403,
+    );
+    return config;
   },
 ) {
   try {
@@ -225,6 +234,12 @@ export async function communityConnection(
         utf8.encode(canonical(payload)),
       ),
       receipt = canonical({ payload, signature: signed.signature });
+    await claimCommunityCredential(
+      env.DB,
+      a.communityId,
+      saved.account_ref,
+      row.id,
+    );
     await bindActiveCredential(env.DB, l.account, row.id);
     await env.DB.batch([
       env.DB.prepare(

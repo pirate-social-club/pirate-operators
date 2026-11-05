@@ -119,6 +119,7 @@ async function signedReceipt(
   session: Awaited<ReturnType<typeof fixture>>["session"],
   connection: { connectionId: string; state: string | null; url: string },
   changed: Record<string, unknown> = {},
+  allowExpiredForRecovery = false,
 ) {
   assert.ok(connection.state);
   const requestId = new URL(connection.url).searchParams.get("request")!,
@@ -165,6 +166,7 @@ async function signedReceipt(
     expected,
     now,
     operatorFixture.toSuiAddress(),
+    allowExpiredForRecovery,
   );
   return { receipt, wire, expected, now };
 }
@@ -377,6 +379,211 @@ test("native receipt signature, scope and age are checked before atomic binding;
     assert.equal(
       (await f.db
         .prepare("SELECT COUNT(*) AS n FROM transaction_guards")
+        .first<{ n: number }>())!.n,
+      0,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a lost native receipt older than five minutes is preserved and retired before a fresh approval, without DKG", async () => {
+  const f = await fixture();
+  try {
+    await assert.rejects(beginCreatorConnection(f.db, f.session, f.service));
+    const connection = await beginCreatorConnection(f.db, f.session, f.service),
+      now = Date.now(),
+      // The original response was persisted six minutes before it can be
+      // delivered. It must never acquire a fresh verifiedAt on retry.
+      proof = await signedReceipt(
+        f.session,
+        connection,
+        { verifiedAt: now - 360000, expiresAt: now - 60000 },
+        true,
+      ),
+      originalId = new URL(connection.url).searchParams.get("request");
+    let exchanges = 0;
+    const service = {
+      ...f.service,
+      verifyReceipt: (
+        input: unknown,
+        expected: Parameters<typeof verifyCreatorReceipt>[1],
+        at = Date.now(),
+        _operator?: string,
+        allowExpired = false,
+      ) =>
+        verifyCreatorReceipt(
+          input,
+          expected,
+          at,
+          operatorFixture.toSuiAddress(),
+          allowExpired,
+        ),
+      transport: async (request: Request) => {
+        if (new URL(request.url).pathname.endsWith("/launch"))
+          return f.service.transport(request);
+        const wire = await request.json(),
+          verified = await authorizeCreatorRequest(
+            wire,
+            "creator_exchange",
+            creatorServiceOrigin,
+            async () => config,
+          );
+        if (verified.body.requestId !== originalId)
+          return Response.json({ state: "waiting" });
+        exchanges++;
+        if (exchanges === 1)
+          throw new Error(
+            "explicit fixture: native receipt persisted, response lost",
+          );
+        return Response.json({ state: "connected", receipt: proof.wire });
+      },
+    };
+    await assert.rejects(
+      completeCreatorConnection(
+        f.db,
+        f.session,
+        service,
+        connection.connectionId,
+        connection.state!,
+      ),
+      /response lost/,
+    );
+    const recovered = await completeCreatorConnection(
+      f.db,
+      f.session,
+      service,
+      connection.connectionId,
+      connection.state!,
+    );
+    assert.equal(recovered.state, "verification_expired");
+    const saved = await f.db
+      .prepare("SELECT * FROM creator_connections WHERE connection_id=?")
+      .bind(connection.connectionId)
+      .first<{
+        consumed: number;
+        verifier_secret: string | null;
+        receipt_json: string | null;
+        expired_receipt_json: string;
+      }>();
+    assert.equal(saved!.consumed, 1);
+    assert.equal(saved!.verifier_secret, null);
+    assert.equal(saved!.receipt_json, null);
+    assert.equal(saved!.expired_receipt_json, canonical(proof.receipt));
+    assert.equal(
+      JSON.parse(saved!.expired_receipt_json).payload.verifiedAt,
+      now - 360000,
+    );
+    assert.equal(
+      (await f.db
+        .prepare("SELECT COUNT(*) AS n FROM creator_bindings")
+        .first<{ n: number }>())!.n,
+      0,
+    );
+    await assert.rejects(
+      retainCreatorBinding(
+        f.db,
+        f.session,
+        connection.connectionId,
+        proof.receipt,
+      ),
+      /expired/,
+    );
+    const next = await beginCreatorConnection(f.db, f.session, service);
+    assert.notEqual(next.connectionId, connection.connectionId);
+    assert.equal(f.nativeLaunches.size, 2);
+    assert.equal(
+      (
+        await completeCreatorConnection(
+          f.db,
+          f.session,
+          service,
+          next.connectionId,
+          next.state!,
+        )
+      ).state,
+      "waiting",
+    );
+    assert.equal(
+      (
+        await completeCreatorConnection(
+          f.db,
+          f.session,
+          service,
+          connection.connectionId,
+          connection.state!,
+        )
+      ).state,
+      "verification_expired",
+    );
+    assert.equal(exchanges, 2);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a native credential-claim denial retires its request and lets the session choose another wallet", async () => {
+  const f = await fixture();
+  try {
+    await assert.rejects(beginCreatorConnection(f.db, f.session, f.service));
+    const connection = await beginCreatorConnection(f.db, f.session, f.service);
+    let denials = 0;
+    const service = {
+      ...f.service,
+      transport: async (request: Request) => {
+        if (new URL(request.url).pathname.endsWith("/launch"))
+          return f.service.transport(request);
+        denials++;
+        return Response.json(
+          { error: "creator_credential_claimed" },
+          { status: 409 },
+        );
+      },
+    };
+    assert.equal(
+      (
+        await completeCreatorConnection(
+          f.db,
+          f.session,
+          service,
+          connection.connectionId,
+          connection.state!,
+        )
+      ).state,
+      "choose_another_wallet",
+    );
+    assert.equal(
+      (
+        await completeCreatorConnection(
+          f.db,
+          f.session,
+          service,
+          connection.connectionId,
+          connection.state!,
+        )
+      ).state,
+      "choose_another_wallet",
+    );
+    assert.equal(denials, 1);
+    const old = await f.db
+      .prepare(
+        "SELECT consumed,retired_reason,verifier_secret FROM creator_connections WHERE connection_id=?",
+      )
+      .bind(connection.connectionId)
+      .first<{
+        consumed: number;
+        retired_reason: string;
+        verifier_secret: string | null;
+      }>();
+    assert.equal(old!.consumed, 1);
+    assert.equal(old!.retired_reason, "creator_credential_claimed");
+    assert.equal(old!.verifier_secret, null);
+    const next = await beginCreatorConnection(f.db, f.session, service);
+    assert.notEqual(next.connectionId, connection.connectionId);
+    assert.equal(f.nativeLaunches.size, 2);
+    assert.equal(
+      (await f.db
+        .prepare("SELECT COUNT(*) AS n FROM creator_bindings")
         .first<{ n: number }>())!.n,
       0,
     );

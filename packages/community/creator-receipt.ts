@@ -46,6 +46,7 @@ export async function verifyCreatorReceipt(
   // Explicit alternate key for isolated cryptographic fixtures, never taken
   // from a request or a binding response. Production uses the pinned operator.
   operatorAddress = creatorOperator,
+  allowExpiredForRecovery = false,
 ) {
   const receipt = object(input);
   exact(receipt, ["payload", "signature"]);
@@ -109,10 +110,9 @@ export async function verifyCreatorReceipt(
   };
   insist(
     payload.verifiedAt <= now &&
-      payload.verifiedAt > now - 300_000 &&
-      payload.expiresAt > now &&
+      payload.expiresAt > payload.verifiedAt &&
       payload.expiresAt <= payload.verifiedAt + 300_000,
-    "creator_receipt_expired",
+    "invalid_creator_receipt_lifetime",
     409,
   );
   // Validate exact canonical fields before verifying. No unknown field or
@@ -128,5 +128,11 @@ export async function verifyCreatorReceipt(
   } catch {
     insist(false, "invalid_creator_receipt_signature", 403);
   }
+  insist(
+    allowExpiredForRecovery ||
+      (payload.verifiedAt > now - 300_000 && payload.expiresAt > now),
+    "creator_receipt_expired",
+    409,
+  );
   return { payload, signature };
 }

@@ -80,3 +80,11 @@ CREATE TABLE scoped_creator_connections (
   receipt_json TEXT,
   UNIQUE(community_id, connection_id)
 );
+CREATE TABLE scoped_creator_claims (
+  community_id TEXT NOT NULL,
+  account_ref TEXT NOT NULL,
+  credential_id TEXT NOT NULL REFERENCES credentials(id),
+  claimed_at INTEGER NOT NULL,
+  PRIMARY KEY(community_id, account_ref),
+  UNIQUE(community_id, credential_id)
+);
