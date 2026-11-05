@@ -1,3 +1,4 @@
+import { ownedSourceHashes } from "./content-qualification-source.ts";
 import { qualificationTransport } from "./content-qualification-transport.ts";
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink, lstat } from "node:fs/promises";
@@ -44,21 +45,11 @@ const controls = [
   },
 ] as const;
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
-const sourcePaths = [
-  "harness/qualify-content.ts",
-  "harness/content-qualification-transport.ts",
-  "packages/moderation/openai.ts",
-  "packages/moderation/content-profile.ts",
-  "packages/moderation/provider-http.ts",
-  "packages/community/common.ts",
-  "apps/community-wizard/server/infisical-auth.ts",
-  "apps/community-wizard/server/model.ts",
-  "package-lock.json",
-];
 export async function qualificationPlan() {
-  const sources: Record<string, string> = {};
-  for (const path of sourcePaths)
-    sources[path] = sha(await readFile(path, "utf8"));
+  const sources = await ownedSourceHashes(
+    process.cwd(),
+    "harness/qualify-content.ts",
+  );
   return {
     schema: "pirate.content-qualification/1",
     profile: defaultContentProfile,
