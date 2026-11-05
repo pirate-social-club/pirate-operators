@@ -1,15 +1,15 @@
 {
-  "profileHash": "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
+  "profileHash": "0x9756688b945fc4666d5e9085bd65e1c9ef7e2391f2871ace5a1980c8ee2e07d9",
   "profile": {
     "schema": "pirate.managed-service-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
     "prefix": "pirate-managed-firstsong-20261105",
     "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
     "update": {
-      "previousProfileHash": "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3",
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json",
+      "previousProfileHash": "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json",
       "startupEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-      "previousEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-update.json",
+      "previousEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-transport-update.json",
       "requireIdle": true
     },
     "resources": {
@@ -37,12 +37,12 @@
       "apps/managed-moderation/package.json": "0x0b4aabab6a58007eb834b844fa47c24e29c46be98de3c5d2016d4e95beb2bf44",
       "apps/managed-moderation/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
       "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json": "0xc8f2cee04d8a6b33b0d023e86c571657838ad52606520b4cbd275f79456e5591",
-      "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json": "0xe6c70c90e08d0499ef61ee9eb11808c430e6887f9de9dfe1ea133adfaeaebc8e",
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json": "0x122347652330c5f631d7df6c4a69ab316a781f58be69597cf34dcb14cde957ad",
       "docs/deployments/first-song-managed-20261105.moderation-setup.json": "0xa0061552137652e82e7417504156ca6e5299b5f9bbdfcedc5a80113b0f65ce78",
-      "docs/deployments/first-song-managed-20261105.moderation-update.json": "0x75b24f807f93b5c66e5c34fcbf141ff5020e4b916798cb8e291b34dfe5e9a4c5",
+      "docs/deployments/first-song-managed-20261105.moderation-transport-update.json": "0x6238a9b6c1395445c6ed6f714f8eb85c34941da9382db1622e988ace7f08647e",
       "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
-      "harness/managed-package.ts": "0x09c103569841bf9e6708b36b501a7b1f73e174f7eab6048401bab0709d42b64c",
+      "harness/managed-package.ts": "0x2647d31b06b21f71acc3b433adf64aed9920f6ea91eb2373306f5cf7ddf94a2a",
       "harness/managed-service.ts": "0xb582d395ea4a3cd3e9fe8bc5d76d6a32e7702d3f968265fc24020f25b82afe10",
       "harness/managed-update.ts": "0xb72afcff36643cd7916b40b53e8ef40dced3a56f78af502e1041f33a2e4e4d03",
       "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
@@ -50,11 +50,11 @@
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
       "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
-      "packages/community/budgets.ts": "0xf34c06b5194773e150e6d8fd0e716611be31439abfc468c0b9bad76f07f82838",
+      "packages/community/budgets.ts": "0x7ef33f135d54cac53e4ce50bf1fcd13783b21fad41649c6df86d2657579a5afe",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
       "packages/community/config-manifest.ts": "0x7cc2ce537ba9c99421e7b40d2551d02aac89a634f6c2e4e6110ec97e3c6b5fce",
       "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
-      "packages/community/ipfs.ts": "0xd1bd4b52049db5476ccbfc9f8c74dd97f8eb684ad5d219709622a04a2411c564",
+      "packages/community/ipfs.ts": "0xd4e5a37f0fb642f2e198681c747b11bb1ff7361152eb52d406d7d19c50a4bcc4",
       "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
       "packages/moderation/acrcloud.ts": "0x30c06bbb7ae2f58dda1bf8949291e344a4cacff69c65ab86dd443048173b6700",
       "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
@@ -72,8 +72,8 @@
       "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
       "services/managed-moderation.ts": "0xa18784c1d3383fdf8999fb30778c8650aaeac36eb8eeb8ca125e5adae36a7e7a"
     },
-    "bundleSha256": "0x5429e5d6a8a2fde9b444048b9e476c59f7bb1441db064cbd52d8328359794966",
-    "bundleBytes": 621844,
+    "bundleSha256": "0xa51b81498cda6ecf39214a919561f6f22f13d68487bcc219a9522dc034b80d45",
+    "bundleBytes": 621912,
     "pairings": [
       {
         "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",

@@ -20,9 +20,13 @@ export interface PinIntent {
 }
 export type IpfsTransport = (request: Request) => Promise<Response>;
 const transport: IpfsTransport = (request) => fetch(request);
-// Qualified by an independent live retrieval. The former public-good gateways
-// now reject backend/hotlink traffic; see the recorded recovery evidence.
-export const publicGateways = ["https://gateway.pinata.cloud"] as const;
+// Both paths returned the pinned configuration's exact public bytes. Gateway
+// availability depends on the caller's network; CID and digest checks apply to
+// every path. Final acceptance also checks retrieval through another provider.
+export const publicGateways = [
+  "https://gateway.pinata.cloud",
+  "https://ipfs.filebase.io",
+] as const;
 const rpcOrigin = "https://rpc.filebase.io";
 
 /** Fixed UnixFS importer settings are part of the captured operation request.
@@ -100,7 +104,7 @@ export async function fetchPublicIpfs(
       const response = await send(
         new Request(`${gateway}/ipfs/${cid}`, {
           signal: AbortSignal.timeout(30000),
-          redirect: "follow",
+          redirect: "manual",
           headers: { "cache-control": "no-cache" },
         }),
       );

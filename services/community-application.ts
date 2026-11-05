@@ -34,6 +34,7 @@ import type {
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
+import { configurationHealth } from "./configuration-health.ts";
 
 export interface CommunityEnv {
   DB: D1Database;
@@ -180,6 +181,11 @@ export async function communityFetch(
       security.set("set-cookie", cookie("", 0));
       return reply({ signedOut: true });
     }
+    if (
+      request.method === "GET" &&
+      url.pathname === "/api/public/configuration-diagnostics"
+    )
+      return reply({ gateways: await configurationHealth() });
     const config = await ports.configuration();
     insist(
       config.communityId === context.communityId &&

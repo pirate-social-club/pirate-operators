@@ -64,35 +64,37 @@ function guard(db: D1Database, id: string, rows: Budget[]) {
       ]),
     );
 }
-async function budgets(db: D1Database, keys: BudgetKey[]) {
+async function snapshot(db: D1Database, id: string, keys: BudgetKey[]) {
   insist(
     keys.length > 0 && keys.length <= 4 && unique(keys),
     "invalid_budget_set",
   );
-  const rows = await Promise.all(
-    keys.map((b) =>
+  // D1 batch executes the SELECTs in one transaction. Both sets must come
+  // from the same snapshot: separate reads can straddle a winning request.
+  const results = await db.batch<Budget | Reservation>([
+    ...keys.map((b) =>
       db
         .prepare(
           "SELECT * FROM spending_budgets WHERE scope=? AND period=? AND asset=?",
         )
-        .bind(...key(b))
-        .first<Budget>(),
+        .bind(...key(b)),
     ),
-  );
-  insist(rows.every(Boolean), "budget_not_configured", 503);
-  return rows as Budget[];
-}
-async function reservations(db: D1Database, id: string, keys: BudgetKey[]) {
-  return Promise.all(
-    keys.map((b) =>
+    ...keys.map((b) =>
       db
         .prepare(
           "SELECT * FROM spending_reservations WHERE reservation_id=? AND scope=? AND period=? AND asset=?",
         )
-        .bind(id, ...key(b))
-        .first<Reservation>(),
+        .bind(id, ...key(b)),
     ),
-  );
+  ]);
+  const rows = results.slice(0, keys.length).map((r) => r.results[0]);
+  insist(rows.every(Boolean), "budget_not_configured", 503);
+  return {
+    rows: rows as Budget[],
+    previous: results
+      .slice(keys.length)
+      .map((r) => r.results[0] as Reservation | undefined),
+  };
 }
 function raced(error: unknown) {
   const message = error instanceof Error ? error.message : "";
@@ -116,7 +118,7 @@ export async function reserveBudget(
     "invalid_reservation",
   );
   for (let attempt = 0; attempt < 8; attempt++) {
-    const previous = await reservations(db, id, keys);
+    const { rows, previous } = await snapshot(db, id, keys);
     if (previous.some(Boolean)) {
       insist(previous.every(Boolean), "incomplete_budget_reservation", 503);
       insist(
@@ -128,7 +130,6 @@ export async function reserveBudget(
       );
       return;
     }
-    const rows = await budgets(db, keys);
     for (const row of rows)
       insist(
         amount(row.reserved) + amount(row.spent) + value <= amount(row.ceiling),
@@ -175,10 +176,7 @@ export async function settleBudget(
 ) {
   const cost = amount(actual);
   for (let attempt = 0; attempt < 8; attempt++) {
-    // Read budget versions first. A settlement between these reads either makes
-    // the reservation terminal or invalidates the transaction guard.
-    const rows = await budgets(db, keys);
-    const previous = await reservations(db, id, keys);
+    const { rows, previous } = await snapshot(db, id, keys);
     insist(previous.every(Boolean), "reservation_missing", 409);
     const saved = previous as Reservation[];
     if (saved.every((r) => r.status === "settled")) {

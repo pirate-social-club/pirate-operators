@@ -127,8 +127,8 @@ export async function creatorPackage() {
       "package.json",
       "package-lock.json",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
-      "docs/deployments/first-song-managed-20261105.creator-update-plan-v2.json",
-      "docs/deployments/first-song-managed-20261105.creator-update.json",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v3.json",
+      "docs/deployments/first-song-managed-20261105.creator-transport-update.json",
       ".github/workflows/creator-spike.yml",
       ...[
         "operator",
@@ -156,7 +156,7 @@ export async function creatorPackage() {
     ),
     evidence = JSON.parse(
       await readFile(
-        "docs/deployments/first-song-managed-20261105.creator-update.json",
+        "docs/deployments/first-song-managed-20261105.creator-transport-update.json",
         "utf8",
       ),
     );
@@ -178,13 +178,13 @@ export async function creatorPackage() {
     },
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.creator-update-plan-v2.json",
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v3.json",
       previousProfileHash:
-        "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6",
+        "0xbe5c5fe88ad95d3b0aa703c2bda5c9936b9f32969f0a64d577c68397bde6fbcc",
       expectedExecutionSha256:
-        "0x9e11996d6a4b26e45f7d79073f0cfdc55c95c189d87c5e0b0a83140d9a58c14f",
+        "0x92d1cec57f204694fbab97071b84a5b5c68d8c590b94f186c012fe1981348089",
       expectedResultSha256:
-        "0x32330b1e7a7a36f5fe67538c56c8b15258f2b74cbc60d0cca8d659656185622c",
+        "0x946127a3018f174e8a76c3077370bf61556b33f8123da7c251a417710a957e3c",
     },
     operator:
       "0xe80513f6f72a375ef3fc279f74e904ba4ab244554abbd468559a13a811a82ea6",

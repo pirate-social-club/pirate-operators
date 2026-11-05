@@ -88,8 +88,8 @@ export async function managedPackage() {
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json",
-    "docs/deployments/first-song-managed-20261105.moderation-update.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json",
+    "docs/deployments/first-song-managed-20261105.moderation-transport-update.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -134,13 +134,13 @@ export async function managedPackage() {
     origin: managedOrigin,
     update: {
       previousProfileHash:
-        "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3",
+        "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json",
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json",
       startupEvidencePath:
         "docs/deployments/first-song-managed-20261105.moderation-setup.json",
       previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.moderation-update.json",
+        "docs/deployments/first-song-managed-20261105.moderation-transport-update.json",
       requireIdle: true,
     },
     resources: {

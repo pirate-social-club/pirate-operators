@@ -330,9 +330,15 @@ test("concurrent settlement releases unused funds exactly once while preserving 
     for (const k of keys) await configureBudget(f.db, k, "10");
     await reserveBudget(f.db, "one", "one-request", keys, "4");
     await reserveBudget(f.db, "two", "two-request", keys, "3");
-    await Promise.all(
+    const outcomes = await Promise.allSettled(
       Array.from({ length: 10 }, () => settleBudget(f.db, "one", keys, "2")),
     );
+    for (const outcome of outcomes)
+      assert.equal(
+        outcome.status,
+        "fulfilled",
+        outcome.status === "rejected" ? String(outcome.reason) : undefined,
+      );
     const rows = await f.db
       .prepare("SELECT reserved,spent FROM spending_budgets")
       .all<{ reserved: string; spent: string }>();
@@ -395,3 +401,119 @@ test("failure in a later reservation rolls back every earlier bucket write", asy
     await f.dispose();
   }
 });
+
+// Run a real competing transaction between reads. Unbatched SELECTs expose a
+// mixed snapshot; a read batch returns its coherent snapshot before the winner
+// commits, so the caller must lose its CAS and reconcile the existing result.
+function interleaveReservationRead(
+  db: D1Database,
+  winner: () => Promise<void>,
+) {
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const reservationSelects = new WeakSet<object>();
+  let started = false;
+  let selectCount = 0;
+  let releaseRead!: () => void;
+  const firstWinner = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  let competing: Promise<void> | undefined;
+  function compete() {
+    if (!started) {
+      started = true;
+      competing = winner().finally(releaseRead);
+    }
+    return competing!;
+  }
+  function statement(
+    raw: D1PreparedStatement,
+    sql: string,
+  ): D1PreparedStatement {
+    const wrapped = new Proxy(raw, {
+      get(target, property) {
+        if (property === "bind")
+          return (...values: unknown[]) =>
+            statement(target.bind(...values), sql);
+        if (
+          property === "first" &&
+          sql.startsWith("SELECT * FROM spending_reservations")
+        ) {
+          return async (...args: unknown[]) => {
+            if (selectCount++ > 0) await firstWinner;
+            const result = await Reflect.apply(target.first, target, args);
+            await compete();
+            return result;
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    originals.set(wrapped, raw);
+    if (sql.startsWith("SELECT * FROM spending_reservations"))
+      reservationSelects.add(wrapped);
+    return wrapped;
+  }
+  const wrapped = new Proxy(db, {
+    get(target, property) {
+      if (property === "prepare")
+        return (sql: string) => statement(target.prepare(sql), sql);
+      if (property === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          const raw = statements.map((s) => originals.get(s) ?? s);
+          const result = await target.batch(raw);
+          // Reservation SELECT results have amount/request_hash, while empty
+          // results are also possible. Track SQL explicitly rather than values.
+          if (statements.some((s) => reservationSelects.has(s)))
+            await compete();
+          return result;
+        };
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return { db: wrapped, triggered: () => started, drain: () => competing };
+}
+
+for (const operation of ["reserve", "settle"] as const) {
+  test(`${operation} reconciles a winning request across the complete budget snapshot`, async () => {
+    const f = await fixture();
+    let race: ReturnType<typeof interleaveReservationRead> | undefined;
+    try {
+      for (const k of keys) await configureBudget(f.db, k, "4");
+      if (operation === "settle")
+        await reserveBudget(f.db, "one", "request", keys, "4");
+      const run = (db: D1Database) =>
+        operation === "reserve"
+          ? reserveBudget(db, "one", "request", keys, "4")
+          : settleBudget(db, "one", keys, "2");
+      race = interleaveReservationRead(f.db, () => run(f.db));
+      await run(race.db);
+      assert.equal(race.triggered(), true);
+      const rows = await f.db
+        .prepare("SELECT reserved,spent FROM spending_budgets")
+        .all();
+      assert.deepEqual(
+        rows.results.map((r) => [r.reserved, r.spent]),
+        operation === "reserve"
+          ? [
+              ["4", "0"],
+              ["4", "0"],
+            ]
+          : [
+              ["0", "2"],
+              ["0", "2"],
+            ],
+      );
+      assert.equal(
+        (await f.db
+          .prepare("SELECT COUNT(*) AS n FROM transaction_guards")
+          .first())!.n,
+        0,
+      );
+    } finally {
+      await race?.drain();
+      await f.dispose();
+    }
+  });
+}
