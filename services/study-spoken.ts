@@ -1,0 +1,196 @@
+import { Effect } from "effect";
+import { sha256, toHex } from "viem";
+import {
+  StudyAttemptStore,
+  attemptView,
+} from "../packages/study/attempt-store.ts";
+import {
+  MAX_STUDY_AUDIO_BYTES,
+  MIN_STUDY_RECORDING_MS,
+  MAX_STUDY_RECORDING_MS,
+  StudyError,
+  selection,
+  studyCheck,
+  validateStudyLine,
+  type StudyLine,
+  type StudyPrincipal,
+  type StudySelection,
+  type StudyAttemptLesson,
+} from "../packages/study/contracts.ts";
+import {
+  StudySpeechError,
+  type StudyTranscriber,
+} from "../packages/study/speech-transcriber.ts";
+import { gradeTranscriptV2 } from "../packages/study/transcript-grading.ts";
+
+export async function readStudyAudio(request: Request) {
+  const durationMs = Number(request.headers.get("x-study-duration-ms"));
+  studyCheck(
+    Number.isSafeInteger(durationMs) && durationMs >= MIN_STUDY_RECORDING_MS,
+    "study_recording_too_short",
+  );
+  studyCheck(durationMs <= MAX_STUDY_RECORDING_MS, "study_recording_too_long");
+  const type = (request.headers.get("content-type") ?? "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
+  studyCheck(
+    ["audio/webm", "audio/ogg", "audio/wav", "audio/mp4"].includes(type),
+    "unsupported_study_audio",
+    415,
+  );
+  studyCheck(
+    Number(request.headers.get("content-length") ?? 0) <= MAX_STUDY_AUDIO_BYTES,
+    "study_audio_too_large",
+    413,
+  );
+  studyCheck(request.body, "empty_study_audio");
+  const reader = request.body.getReader(),
+    chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      studyCheck(size <= MAX_STUDY_AUDIO_BYTES, "study_audio_too_large", 413);
+      chunks.push(next.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  const audio = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    audio.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  const ascii = new TextDecoder().decode(audio.subarray(0, 12));
+  studyCheck(
+    size >= 12 &&
+      ((type === "audio/webm" &&
+        toHex(audio.subarray(0, 4)) === "0x1a45dfa3") ||
+        (type === "audio/ogg" && ascii.startsWith("OggS")) ||
+        (type === "audio/wav" &&
+          ascii.startsWith("RIFF") &&
+          ascii.slice(8, 12) === "WAVE") ||
+        (type === "audio/mp4" && ascii.slice(4, 8) === "ftyp")),
+    "invalid_study_audio",
+    415,
+  );
+  return { audio, contentType: type, durationMs };
+}
+
+export function makeStudyService(options: {
+  db: D1Database;
+  transcriber: StudyTranscriber;
+  // Resolve only a currently published, visible song/manifest through trusted public reads.
+  resolveLine(selection: StudySelection): Promise<StudyLine>;
+  now?: () => number;
+}) {
+  const store = new StudyAttemptStore(options.db),
+    now = options.now ?? Date.now;
+  function principal(owner: StudyPrincipal) {
+    studyCheck(
+      owner.accountId.length > 0 &&
+        owner.accountId.length <= 128 &&
+        /^0x[0-9a-f]{64}$/.test(owner.communityId),
+      "study_auth_required",
+      401,
+    );
+  }
+  const service = {
+    async open(
+      owner: StudyPrincipal,
+      requestId: string,
+      input: unknown,
+      lesson: StudyAttemptLesson | null = null,
+    ) {
+      principal(owner);
+      studyCheck(
+        /^[a-zA-Z0-9_-]{16,128}$/.test(requestId),
+        "invalid_study_request_id",
+      );
+      const requested = selection(input);
+      studyCheck(
+        requested.communityId === owner.communityId,
+        "study_wrong_community",
+        403,
+      );
+      const line = validateStudyLine(
+        await options.resolveLine(requested),
+        requested,
+      );
+      return store.open(owner, requestId, line, now(), lesson);
+    },
+    async get(owner: StudyPrincipal, id: string) {
+      principal(owner);
+      return attemptView(await store.get(owner, id));
+    },
+    async list(owner: StudyPrincipal, input?: unknown) {
+      principal(owner);
+      const requested = input === undefined ? undefined : selection(input);
+      studyCheck(
+        !requested || requested.communityId === owner.communityId,
+        "study_wrong_community",
+        403,
+      );
+      return store.list(owner, requested);
+    },
+    submit(owner: StudyPrincipal, id: string, request: Request) {
+      return Effect.tryPromise({
+        try: async () => {
+          principal(owner);
+          const row = await store.get(owner, id);
+          const { audio, contentType, durationMs } =
+            await readStudyAudio(request);
+          const digest = sha256(audio);
+          if (!(await store.claim(owner, id, digest, now(), durationMs)))
+            return attemptView(await store.get(owner, id));
+          try {
+            const line: StudyLine = JSON.parse(row.line_json);
+            const transcript = await options.transcriber.transcribe(
+              audio,
+              contentType,
+              line.language,
+            );
+            const grade = gradeTranscriptV2(
+              line.text,
+              transcript.text,
+              line.language,
+              row.policy,
+            );
+            return await store.finish(
+              owner,
+              id,
+              "assessed",
+              grade,
+              null,
+              now(),
+            );
+          } catch (error) {
+            const known =
+              error instanceof StudySpeechError &&
+              error.outcome === "known_failed";
+            return await store.finish(
+              owner,
+              id,
+              known ? "unavailable" : "uncertain",
+              null,
+              error instanceof StudySpeechError
+                ? error.code
+                : "speech_unavailable",
+              now(),
+            );
+          }
+        },
+        catch: (error) =>
+          error instanceof StudyError
+            ? error
+            : new StudyError("study_unavailable", 503),
+      });
+    },
+  };
+  return service;
+}
