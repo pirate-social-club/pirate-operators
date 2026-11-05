@@ -1,0 +1,20 @@
+{
+  "schema": "pirate.first-song-registration-readiness/1",
+  "observedAt": "2026-11-05T14:12:21.814Z",
+  "mode": "read_only",
+  "chainId": 1315,
+  "blockNumber": "25911660",
+  "gasPrice": "1000007",
+  "operator": "0xe128f4da57540962ff788d5462ae76671499f05e",
+  "balance": "371791263831269424",
+  "latest": 20,
+  "pending": 20,
+  "codeHashes": {
+    "workflow": "0xeae615f93fa4dcdad0e8ac35c6732c54bf0a2a8eaec9b072362d2a08aa7aa2c2",
+    "nft": "0xea926deba1719db0be4988e0c1992733441a05cbe00aebc5f5ebb3b5d613223d",
+    "registry": "0x16a5e60a8c09daebb083bd3f8ffc704cb1d86e20662b3aa948cdea9a2a5f9f32"
+  },
+  "grantSha256": "0x06996a33ced88139a272be908dcd48c51365ea778e0a365a5067c7d2bc20c335",
+  "transactionsSent": 0,
+  "custody": "central staging job and queue quiescence still requires qualification before broadcast"
+}

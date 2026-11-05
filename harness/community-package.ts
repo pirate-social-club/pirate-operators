@@ -1,3 +1,4 @@
+import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -153,8 +154,10 @@ export async function communityPackage() {
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v2.json",
-        "docs/deployments/first-song-managed-20261105.creator-update-plan.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v3.json",
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json",
+        releaseGrantPath,
+        "docs/deployments/first-song-managed-20261105.moderation-plan.json",
         "package.json",
         "package-lock.json",
         "apps/community-wizard/package.json",
@@ -194,6 +197,7 @@ export async function communityPackage() {
         }),
       ),
     );
+  const releaseGrant = await firstSongGrant();
   const profile = {
     schema: "pirate.community-application-plan/1",
     accountId: communityAccount,
@@ -211,21 +215,37 @@ export async function communityPackage() {
     bundleBytes: bytes.length,
     assets,
     migrations,
+    releaseGrant,
+    managedProfileHash: JSON.parse(
+      await readFile(
+        "docs/deployments/first-song-managed-20261105.moderation-plan.json",
+        "utf8",
+      ),
+    ).profileHash as string,
+    queueConsumer: {
+      logical: "Consumer",
+      queueId: "fe031cd96fbb47579585eb10154f785d",
+      scriptName: communityPrefix,
+      batchSize: 1,
+      maxConcurrency: 1,
+      maxRetries: 3,
+      retryDelay: 60,
+    },
     creatorProfileHash: JSON.parse(
       await readFile(
-        "docs/deployments/first-song-managed-20261105.creator-update-plan.json",
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json",
         "utf8",
       ),
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v2.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v3.json",
       previousProfileHash:
-        "0x70e7b4c63c6976f330d38379881d089487205dcb487d88a3ce2fc97bd59b7bac",
+        "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb",
       expectedExecutionSha256:
-        "0xe2677b38ec1902060fed0cb1f20b1bbaa454e5c9d29da48c9d3005cabfe4eaf2",
+        "0xfc2f4b8da56db2e3351aa254cf04e1b39f6cf52b992a2ab477e0fddf1e45ed20",
       expectedResultSha256:
-        "0xb5e9869e6dc34f08de93b4e257b8f414d28858aef924c34d5cfd02eba8ca3abb",
+        "0xf62d9004de0bd2036f85de1bb27151b029b390fba06784e069ba44783f759eb3",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {
@@ -241,14 +261,17 @@ export async function communityPackage() {
     },
     bounds: {
       executionSeconds: 900,
-      newResources: 0,
+      newResources: 1,
       nativeTransactions: 0,
-      providerRequests: 0,
-      registrationTransactions: 0,
-      publicationTransactions: 0,
+      providerRequests: 24,
+      registrationTransactions: 1,
+      publicationTransactions: 1,
+      publicPins: 5,
+      maximumRegistrationFee: releaseGrant.registration.maximumTotalFee,
+      maximumPublicationFee: "30000000000000",
     },
     acceptance:
-      "MOSS sign-in and saved native-wallet connection only; upload and publication disabled pending release adapters",
+      "Managed first-song ROOT publication, interrupted processing and anonymous playback after reload",
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
   };

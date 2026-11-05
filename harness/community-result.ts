@@ -13,6 +13,7 @@ export async function completedCommunityRelease(
   directory: string,
   profile: {
     planId: string;
+    queueConsumer?: unknown;
     bundleSha256: string;
     reviewedUpdate?: ReviewedUpdate;
   },
@@ -40,6 +41,8 @@ export async function completedCommunityRelease(
     });
     return null;
   }
+  if (profile.queueConsumer)
+    insist(result.consumer, "community_completed_consumer_missing", 409);
   const savedHealth = object(result.health),
     savedAfter = object(result.after);
   insist(

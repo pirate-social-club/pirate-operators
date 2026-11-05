@@ -1,3 +1,4 @@
+import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
 import {
   readFile,
   lstat,
@@ -48,11 +49,8 @@ export async function qualifyManagedUpdate(
       object(input);
     return rest;
   };
-  insist(
-    canonical(intent(previous.profile)) === canonical(intent(profile)),
-    "managed_update_changes_resource_or_budget_intent",
-    409,
-  );
+  if (canonical(intent(previous.profile)) !== canonical(intent(profile)))
+    assertFirstSongUpgrade(object(previous.profile), profile, "managed");
   const ids = object(startup.resourceIds),
     expected = [
       object(ids.worker).id,
@@ -66,6 +64,36 @@ export async function qualifyManagedUpdate(
     "managed_update_resource_identity_changed",
     409,
   );
+  const retainedResult = await json(join(directory, "deployment-result.json"));
+  if (retainedResult.profileHash === previous.profileHash)
+    insist(
+      hashText(
+        await readFile(join(directory, "deployment-result.json"), "utf8"),
+      ) === profile.update.expectedResultSha256,
+      "managed_update_result_changed",
+      409,
+    );
+  else {
+    insist(
+      retainedResult.profileHash === hashJson(profile),
+      "managed_update_result_profile_changed",
+      409,
+    );
+    const backup = join(
+        directory,
+        `before-update-${hashJson(profile).slice(2)}`,
+      ),
+      marker = await json(join(backup, "preservation.json"));
+    insist(
+      marker.successor === hashJson(profile) &&
+        marker.resultSha256 === profile.update.expectedResultSha256 &&
+        hashText(
+          await readFile(join(backup, "deployment-result.json"), "utf8"),
+        ) === profile.update.expectedResultSha256,
+      "managed_update_backup_result_changed",
+      409,
+    );
+  }
   const state = join(directory, "deployment/.alchemy/state");
   for (const [logical, type, attributes] of [
     [
@@ -145,8 +173,8 @@ export async function qualifyManagedUpdate(
     "managed_update_live_source_changed",
     409,
   );
-  // This successor changes only retrieval and operational packaging. It must
-  // finish before the first paid request; existing jobs are never migrated.
+  // Functional enablement must finish before the first paid request. Existing
+  // jobs are never migrated by this idle-only staging transition.
   const counts = await cfJson(
     [
       "d1",

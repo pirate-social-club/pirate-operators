@@ -1,3 +1,5 @@
+import { qualifyApplicationPeers } from "./first-song-peers.ts";
+import { qualifyCommunityConsumer } from "./community-consumer.ts";
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
 import {
@@ -154,6 +156,7 @@ async function main() {
   await verifyCommunitySuccessor(directory, profile, password);
   await reviewedPredecessor(directory, { profile, profileHash });
   await requireIdleCommunity(cloudEnv);
+  await qualifyCommunityConsumer(directory, password, cloudEnv);
   if (!values.execute) {
     // Read-only ownership check: authenticate original state without restoring it.
     const { unseal } = await import(
@@ -190,18 +193,7 @@ async function main() {
     );
     return;
   }
-  const nativeHealth = await fetch(
-      "https://pirate-wallet-test.piratesocialclub.workers.dev/api/health",
-      { redirect: "manual", signal: AbortSignal.timeout(30000) },
-    ),
-    nativeStatus = object(await nativeHealth.json());
-  insist(
-    nativeHealth.ok &&
-      nativeStatus.profileHash === profile.creatorProfileHash &&
-      nativeStatus.testnet === true,
-    "community_native_successor_not_ready",
-    503,
-  );
+  await qualifyApplicationPeers(profile);
   await privateDirectory(directory);
   const lockPath = join(directory, "execution.lock"),
     lock = await open(lockPath, "wx", 0o600),
@@ -297,6 +289,11 @@ async function main() {
         COMMUNITY_PUBLISHER_PRIVATE_KEY: publisherKey,
         APPLICATION_PROFILE_HASH: profileHash,
         CREATOR_PROFILE_HASH: profile.creatorProfileHash,
+        MANAGED_PROFILE_HASH: profile.managedProfileHash,
+        RELEASE_GRANT_HASH: profile.releaseGrant.sha256,
+        REGISTRATION_OPERATOR_ADDRESS:
+          profile.releaseGrant.registration.operator,
+        POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
       },
       secrets = [password, publisherKey, token],
       logs: string[] = [];
@@ -338,6 +335,12 @@ async function main() {
       503,
     );
     const after = await inventory();
+    const consumer = await qualifyCommunityConsumer(
+      directory,
+      password,
+      cloudEnv,
+      true,
+    );
     await finishReviewedUpdate(
       directory,
       { profile, profileHash },
@@ -347,6 +350,7 @@ async function main() {
         before,
         after,
         logs,
+        consumer,
         health: status,
       },
     );

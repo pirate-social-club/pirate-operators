@@ -1,3 +1,4 @@
+import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
 import {
@@ -73,12 +74,24 @@ export async function reviewedPredecessor(
     "reviewed_update_plan_changed",
     409,
   );
-  insist(
-    canonical(intent(object(previous.profile))) ===
-      canonical(intent(packaged.profile)),
-    "reviewed_update_changes_resource_or_spending_intent",
-    409,
-  );
+  if (
+    canonical(intent(object(previous.profile))) !==
+    canonical(intent(packaged.profile))
+  ) {
+    // Only the exact idle first-song application baseline has a functional
+    // transition. Every other profile retains the generic immutable intent.
+    if (
+      previous.profileHash ===
+      "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb"
+    )
+      assertFirstSongUpgrade(
+        object(previous.profile),
+        packaged.profile,
+        "application",
+      );
+    else
+      insist(false, "reviewed_update_changes_resource_or_spending_intent", 409);
+  }
   const execution = await privateJson(join(directory, "execution.json"));
   insist(execution, "reviewed_update_execution_missing", 409);
   if (execution.profileHash === packaged.profileHash) {

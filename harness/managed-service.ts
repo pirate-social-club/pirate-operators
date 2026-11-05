@@ -1,10 +1,14 @@
+import { qualifyRegistrationFunding } from "./first-song-peers.ts";
+import {
+  bindManagedCredentials,
+  readManagedCredentials,
+} from "./managed-credentials.ts";
 // Manual bounded staging workflow. Default is a source-bound plan; execution
 // requires its reviewed hash. Never prints provider values or child output.
-import { readFile, writeFile, open, unlink, lstat } from "node:fs/promises";
+import { readFile, writeFile, open, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { privateKeyToAccount } from "viem/accounts";
 import { infisicalAuth } from "../apps/community-wizard/server/infisical-auth.ts";
 import {
   cfLoginToken,
@@ -134,6 +138,8 @@ async function main() {
       "PIRATE_WIZARD_STATE_PASSWORD",
     );
     await qualifyManagedUpdate(directory, profile, before, password, cloudEnv);
+    await readManagedCredentials(profile, get);
+    const registrationReadiness = await qualifyRegistrationFunding(profile);
     if (!values.execute) {
       console.log(
         JSON.stringify({
@@ -141,6 +147,7 @@ async function main() {
           inventory: before,
           ownership: "verified encrypted state",
           idle: true,
+          registrationReadiness,
         }),
       );
       return;
@@ -181,103 +188,7 @@ async function main() {
       );
       return;
     }
-    const file = join(
-        homedir(),
-        ".config/pirate-operators/megaeth-testnet/keys.json",
-      ),
-      metadata = await lstat(file);
-    insist(
-      metadata.isFile() &&
-        !(metadata.mode & 0o077) &&
-        metadata.uid === process.getuid!(),
-      "managed_signer_file_not_private",
-    );
-    const keys = JSON.parse(await readFile(file, "utf8"));
-    insist(
-      keys.chainId === 6343 &&
-        privateKeyToAccount(keys.keys.purchaseSigner).address.toLowerCase() ===
-          profile.moderationSigner,
-      "managed_signer_identity_mismatch",
-    );
-    const secrets: Record<string, string> = {
-      MODERATION_SIGNER_PRIVATE_KEY: keys.keys.purchaseSigner,
-    };
-    for (const name of [
-      "ACRCLOUD_ACCESS_KEY",
-      "ACRCLOUD_ACCESS_SECRET",
-      "OPENAI_API_KEY",
-    ])
-      secrets[name] = await get(
-        credentials.projectId,
-        credentials.sourcePath,
-        name,
-      );
-    const parent = "/services",
-      folderName = managedPrefix;
-    const listFolders = () =>
-      sdk.folders().listFolders({
-        projectId: credentials.projectId,
-        environment: "staging",
-        path: parent,
-        recursive: false,
-      });
-    if (!(await listFolders()).some((f) => f.name === folderName)) {
-      try {
-        await sdk.folders().create({
-          projectId: credentials.projectId,
-          environment: "staging",
-          path: parent,
-          name: folderName,
-        });
-      } catch {
-        insist(
-          (await listFolders()).some((f) => f.name === folderName),
-          "managed_credential_folder_unconfirmed",
-          503,
-        );
-      }
-    }
-    const names = await sdk.secrets().listSecrets({
-      projectId: credentials.projectId,
-      environment: "staging",
-      secretPath: credentials.targetPath,
-      viewSecretValue: false,
-      recursive: false,
-      includeImports: false,
-      expandSecretReferences: false,
-    });
-    for (const [name, secretValue] of Object.entries(secrets)) {
-      if (names.secrets.some((s) => s.secretKey === name))
-        insist(
-          (await get(credentials.projectId, credentials.targetPath, name)) ===
-            secretValue,
-          "managed_credential_binding_changed",
-          409,
-        );
-      else {
-        try {
-          await sdk.secrets().createSecret(name, {
-            projectId: credentials.projectId,
-            environment: "staging",
-            secretPath: credentials.targetPath,
-            secretValue,
-          });
-        } catch {
-          insist(
-            (await get(credentials.projectId, credentials.targetPath, name)) ===
-              secretValue,
-            "managed_credential_binding_unconfirmed",
-            503,
-          );
-        }
-      }
-      insist(
-        (await get(credentials.projectId, credentials.targetPath, name)) ===
-          secretValue,
-        "managed_credential_binding_unconfirmed",
-        503,
-      );
-    }
+    const secrets = await bindManagedCredentials(sdk, profile, get);
     await preserveManagedDeployment(directory, profileHash);
     const cwd = await writeManagedPackage(directory, packaged.bytes);
     const env = {
@@ -291,6 +202,7 @@ async function main() {
       SERVICE_BUDGET_PERIOD: profile.serviceBudgetPeriod,
       SERVICE_REQUEST_CAP: String(profile.serviceRequestCap),
       ACRCLOUD_HOST: profile.acrHost,
+      RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant),
     };
     const secretValues = [password, cloudflare, ...Object.values(secrets)];
     const logs: string[] = [];

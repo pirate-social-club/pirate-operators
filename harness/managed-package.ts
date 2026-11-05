@@ -1,3 +1,4 @@
+import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import {
   readFile,
   copyFile,
@@ -72,6 +73,9 @@ export async function managedPackage() {
     "apps/managed-moderation/encrypted-state.ts",
     "apps/managed-moderation/protected-data.ts",
     "apps/managed-moderation/migrations/0001_managed.sql",
+    "apps/managed-moderation/migrations/0002_release_operations.sql",
+    releaseGrantPath,
+    "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
     "apps/community-wizard/infra/encrypted-state.ts",
     "apps/community-wizard/infra/protected-data.ts",
     "apps/community-wizard/server/infisical-auth.ts",
@@ -88,8 +92,8 @@ export async function managedPackage() {
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json",
-    "docs/deployments/first-song-managed-20261105.moderation-transport-update.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v4.json",
+    "docs/deployments/first-song-managed-20261105.moderation-gateway-update.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -127,6 +131,7 @@ export async function managedPackage() {
       directoryCodeHash: contracts.directory.runtimeCodeHash,
     },
   ];
+  const releaseGrant = await firstSongGrant();
   const profile = {
     schema: "pirate.managed-service-plan/1",
     accountId: "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -134,14 +139,16 @@ export async function managedPackage() {
     origin: managedOrigin,
     update: {
       previousProfileHash:
-        "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
+        "0x9756688b945fc4666d5e9085bd65e1c9ef7e2391f2871ace5a1980c8ee2e07d9",
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v3.json",
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v4.json",
       startupEvidencePath:
         "docs/deployments/first-song-managed-20261105.moderation-setup.json",
       previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.moderation-transport-update.json",
+        "docs/deployments/first-song-managed-20261105.moderation-gateway-update.json",
       requireIdle: true,
+      expectedResultSha256:
+        "0xbcd379784f449af544990f77db569ae7ea4626ef1330307b0b30a0e1e9c69dfd",
     },
     resources: {
       worker: managedPrefix,
@@ -151,6 +158,17 @@ export async function managedPackage() {
       consumer: managedPrefix,
     },
     sourceHashes: hashes,
+    releaseGrant,
+    registrationCredential: {
+      ...JSON.parse(
+        await readFile(
+          "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
+          "utf8",
+        ),
+      ).source,
+      targetChain: 1315,
+    },
+    migrations: ["0001_managed.sql", "0002_release_operations.sql"],
     bundleSha256: hashText(bundle.outputFiles![0]!.text),
     bundleBytes: bytes.length,
     pairings,
@@ -175,12 +193,16 @@ export async function managedPackage() {
       "ACRCLOUD_ACCESS_SECRET",
       "OPENAI_API_KEY",
       "MODERATION_SIGNER_PRIVATE_KEY",
+      "FILEBASE_IPFS_TOKEN",
+      "REGISTRATION_OPERATOR_PRIVATE_KEY",
     ],
     bounds: {
       executionSeconds: 900,
       healthSeconds: 60,
       providerRequests: 24,
-      registrationTransactions: 0,
+      registrationTransactions: 1,
+      publicPins: 5,
+      maximumRegistrationFee: releaseGrant.registration.maximumTotalFee,
       paymentDeposits: 0,
     },
     recovery:
@@ -211,10 +233,11 @@ export async function writeManagedPackage(
   );
   await writeFile(join(cwd, "alchemy.run.ts"), source, { mode: 0o600 });
   await writeFile(join(cwd, "worker/worker.mjs"), bytes, { mode: 0o600 });
-  await copyFile(
-    "apps/managed-moderation/migrations/0001_managed.sql",
-    join(cwd, "migrations/0001_managed.sql"),
-  );
+  for (const name of ["0001_managed.sql", "0002_release_operations.sql"])
+    await copyFile(
+      `apps/managed-moderation/migrations/${name}`,
+      join(cwd, "migrations", name),
+    );
   for (const file of ["encrypted-state.ts", "protected-data.ts"])
     await copyFile(`apps/managed-moderation/${file}`, join(cwd, file));
   const modules = join(cwd, "node_modules"),

@@ -1,0 +1,21 @@
+{
+  "schema": "pirate.first-song-dedicated-signer-readiness/1",
+  "observedAt": "2026-11-05T14:31:01.356Z",
+  "mode": "read_only",
+  "address": "0xBF85a150114d3df8B90A7793C0Ea4B2F4bB8C319",
+  "chainId": 1315,
+  "blockNumber": "25912251",
+  "balance": "1337000000000000000",
+  "latest": 0,
+  "pending": 0,
+  "source": {
+    "path": "~/.config/pirate-operators/megaeth-testnet/keys.json",
+    "sha256": "0x820df8fd4ef8c07d04ce93042623b1d3265bed78c05247e1d3e3626726484034",
+    "sourceField": "keys.communityAdmin",
+    "sourceChain": 6343,
+    "mode": "600",
+    "owner": "current_operator_uid",
+    "inheritedAuthority": "Administers disposable MegaETH6343 payment and learning-record contracts; the first-song registration adapter permits only fixed ROOT mint calldata with value0 on1315."
+  },
+  "transactionsSent": 0
+}
