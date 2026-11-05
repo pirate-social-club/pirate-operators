@@ -1,0 +1,68 @@
+{
+  "profileHash": "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3",
+  "before": {
+    "at": "2026-11-05T06:04:55.146Z",
+    "resources": [
+      {
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true,
+        "id": "7e62742bc4ed4677b68ec5668552a72f"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true,
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true,
+        "id": "pirate-managed-firstsong-20261105-media"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true,
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09"
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T06:05:24.349Z",
+    "resources": [
+      {
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true,
+        "id": "7e62742bc4ed4677b68ec5668552a72f"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true,
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true,
+        "id": "pirate-managed-firstsong-20261105-media"
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true,
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09"
+      }
+    ]
+  },
+  "health": {
+    "service": "pirate-managed-moderation/1",
+    "status": "available",
+    "profileHash": "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3"
+  },
+  "credentials": "existing scoped bindings confirmed",
+  "privateState": "encrypted scan passed",
+  "schema": "pirate.managed-service-update/1",
+  "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+  "sourceCommit": "78d53f4874868d8a57d65774a315cbe52d44d4ec",
+  "bundleSha256": "0x160616262225a2bafebeb24b80adeeef742b12fc243d71f90ecabfcf4e72ecd3",
+  "bundleBytes": 621839,
+  "predecessorProfileHash": "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2",
+  "preservationSha256": "0x3f47782a7caf5d157373784996e9727a241fcf2528587f72e2cf8f83ddddb623",
+  "acceptance": "Owned gateway update and matching live health only; no provider admission or first-song claim"
+}
