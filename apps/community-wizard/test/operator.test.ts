@@ -33,7 +33,7 @@ const settings = {
   projectId,
   environment: "staging",
   secretPath: "/communities/provider-fixture",
-  acrHost: "identify-us-west-2.acrcloud.com",
+
   cloudconvert: false,
   moderationMode: "independent",
 };

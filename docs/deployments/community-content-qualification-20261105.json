@@ -1,0 +1,46 @@
+{
+  "schema": "pirate.content-qualification-evidence/1",
+  "status": "held",
+  "sourceHead": "cb1c0f2c473a96e8617a40e984ba683c8b64fa62",
+  "approvedQualificationSource": "69b3129f90499e9d02698e0e6e85bab054016c7e",
+  "planSha256": "13007363b29efe4598de0b95e338019130e91b6fae63834c4fde99292ddc2ac0",
+  "profile": {
+    "classificationModel": "gpt-6-luna",
+    "moderationModel": "omni-moderation-2024-09-26",
+    "promptVersion": "pirate.lyrics-rating/2",
+    "provider": "openai",
+    "schemaVersion": "pirate.lyrics-classification/1"
+  },
+  "startedAt": "2026-11-05T13:04:36.847220+00:00",
+  "deadlineAt": "2026-11-05T13:09:36.847220+00:00",
+  "observedAt": "2026-11-05T13:10:56.374580+00:00",
+  "requests": 2,
+  "controls": [
+    {
+      "id": "ordinary",
+      "moderation": "passed",
+      "classification": "http_403",
+      "classificationResult": null
+    },
+    {
+      "id": "explicit-allowed",
+      "status": "not_run"
+    },
+    {
+      "id": "empty-lyrics",
+      "status": "not_run"
+    },
+    {
+      "id": "prompt-injection",
+      "status": "not_run"
+    }
+  ],
+  "replay": "not_run",
+  "providerRequestIdRetained": true,
+  "classificationResponseSha256": "0x8179bcc9580dbe0bb77a0735aca0efadb498a06e2471c15f6a8ee4c03d899c72",
+  "journalSha256": "035e2792e6c0dcb9a47c97c10ee6447e630b53378d3ddd985f45eb5ab5a93330",
+  "operationSha256": "c158998d26cfed8bbdc95bad2498074be22d8fc1bf75375f4fce8a4163396bb7",
+  "evidenceDirectory": "/home/t42/.local/state/pirate-content-qualification-20261105-r3",
+  "cause": "The Responses request was denied with HTTP403. The retained metadata does not establish the account/model/permission reason. No automatic retry was attempted.",
+  "remaining": "Resolve existing-account/model access or supply another approved existing-key reference, then prepare and independently review a recovery profile. Full V2/catalog/wizard integration is separately unapproved."
+}

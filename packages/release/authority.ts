@@ -169,7 +169,12 @@ export async function establishRelease(
       providerEndpoint,
     },
     result.evidence as EvidenceRecord[],
-    { operators: [config.policies.moderationSigner], maxAgeSeconds: 3600 },
+    {
+      recognitionOperators: [config.policies.recognitionSigner],
+      contentOperators: [config.policies.moderationSigner],
+      contentProfile: config.policies.contentProfile,
+      maxAgeSeconds: 3600,
+    },
     mode === "reconcile" ? prior!.created_at : now,
   );
   insist(

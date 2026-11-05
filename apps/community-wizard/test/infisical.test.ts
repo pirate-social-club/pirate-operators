@@ -32,8 +32,8 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     projectId: "00000000-0000-0000-0000-000000000001",
     environment: "dev",
     secretPath: "/communities/fixture",
-    acrHost: "identify-eu-west-1.acrcloud.com",
-    cloudconvert: false,
+
+    cloudconvert: true,
     tld: "c22",
     moderationMode: "independent",
   };
@@ -76,7 +76,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
     const payload = JSON.parse(String(init?.body));
     assert.equal(payload.workspaceId, settings.projectId);
     assert.equal(payload.secretPath, settings.secretPath);
-    if (name === "ACRCLOUD_ACCESS_KEY" && fail)
+    if (name === "CLOUDCONVERT_API_KEY" && fail)
       return Response.json({ message: "fixture denied" }, { status: 403 });
     writes.push(`${init?.method}:${name}`);
     saved[name] = payload.secretValue;
@@ -86,8 +86,7 @@ test("official SDK adapter uses exact scope, disables imports and retries partia
   };
   const values = {
     OPENAI_API_KEY: "fixture-openai",
-    ACRCLOUD_ACCESS_KEY: "fixture-acr",
-    ACRCLOUD_ACCESS_SECRET: "fixture-acr-secret",
+    CLOUDCONVERT_API_KEY: "fixture-conversion",
   };
   await infisicalStore.prepare!(settings);
   await assert.rejects(() => infisicalStore.save(settings, values));

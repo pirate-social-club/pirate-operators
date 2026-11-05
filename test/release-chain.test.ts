@@ -1,3 +1,4 @@
+import { configurationV2 } from "./fixtures/configuration-v2.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -116,7 +117,7 @@ test("publication reconciliation binds the transaction, event, publisher, regist
       "utf8",
     ),
   );
-  const config = validateConfig(deployed.configuration),
+  const config = validateConfig(configurationV2(deployed.configuration)),
     code = "0x6000",
     profile = {
       address: config.postsContract,

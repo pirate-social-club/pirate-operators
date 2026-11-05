@@ -1,0 +1,28 @@
+{
+  "repository": "api-next",
+  "commit": "e1f006915f6e65b1c6eb26089a7c801bc36c4b85",
+  "ownership": "Independently owned source. No runtime or build dependency on the source repository.",
+  "sources": [
+    {
+      "path": "packages/application/src/media/source-recording-authority.ts",
+      "sha256": "ed4e1b11340a9d2b1de329d591d90c3f889b3b1fd1494096b8be18f5b8b124fe"
+    },
+    {
+      "path": "packages/platform-cf/src/song-source-acrcloud-catalog.ts",
+      "sha256": "468a4467f5dfd32562e7b25982c82a18ecce5830b6a5025433687c50470fcf8b"
+    },
+    {
+      "path": "db/postgres/migrations/0135_song_source_recording_authority.sql",
+      "sha256": "fdef3c6d12c22db8b9bb508510252b6e3c5c0dd3156b44ff97247eaced05e96c"
+    }
+  ],
+  "destinations": [
+    "packages/recognition/catalog-types.ts",
+    "packages/recognition/catalog-workflow.ts",
+    "packages/recognition/catalog-provider.ts",
+    "packages/recognition/catalog-store.ts",
+    "packages/recognition/catalog-schema.sql"
+  ],
+  "adaptations": "Promise ports and local validators replace prior Effect/schema imports. D1 storage replaces PostgreSQL state. Every accepted license enrolls; derivative permission remains separate. Upload intent precedes transport. Credential URL and bounded listing guards are tightened.",
+  "liveQualification": "No claim that the prior or new catalog enrolled a live song."
+}

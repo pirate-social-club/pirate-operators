@@ -1,3 +1,4 @@
+import { configurationV2 } from "./fixtures/configuration-v2.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -44,7 +45,7 @@ const deployment = JSON.parse(
   ),
 );
 const config = validateConfig({
-  ...deployment.configuration,
+  ...configurationV2(deployment.configuration),
   publisher: publisher.address.toLowerCase(),
   app: { ...deployment.configuration.app, origin },
   feed: { ...deployment.configuration.feed, endpoint: origin + "/api/feed" },

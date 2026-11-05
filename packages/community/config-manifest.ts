@@ -1,3 +1,7 @@
+import {
+  contentProfile,
+  type ContentProfile,
+} from "../moderation/content-profile.ts";
 import type { Address, Hex } from "viem";
 import {
   bytes32,
@@ -25,7 +29,7 @@ export interface PublisherRevocation {
   fromBlock: string;
 }
 export interface CommunityConfig {
-  schema: "pirate.community-config/1";
+  schema: "pirate.community-config/2";
   chainId: number;
   directory: Address;
   communityId: Hex;
@@ -47,6 +51,8 @@ export interface CommunityConfig {
   feed: { endpoint: string; signingKeyId: string };
   policies: {
     admission: { version: string; sha256: Hex };
+    contentProfile: ContentProfile;
+    recognitionSigner: Address;
     moderationSigner: Address;
   };
   publisherRevocations: PublisherRevocation[];
@@ -56,7 +62,7 @@ export function validateConfig(
   previous: CommunityConfig[] = [],
   atBlock?: bigint,
 ): CommunityConfig {
-  const o = schema(value, "pirate.community-config/1", [
+  const o = schema(value, "pirate.community-config/2", [
     "chainId",
     "directory",
     "communityId",
@@ -84,7 +90,12 @@ export function validateConfig(
     "hnsIngress",
   ]);
   exact(feed, ["endpoint", "signingKeyId"]);
-  exact(policies, ["admission", "moderationSigner"]);
+  exact(policies, [
+    "admission",
+    "recognitionSigner",
+    "moderationSigner",
+    "contentProfile",
+  ]);
   const admission = object(policies.admission);
   exact(admission, ["version", "sha256"]);
   insist(
@@ -126,7 +137,7 @@ export function validateConfig(
     };
   });
   const result: CommunityConfig = {
-    schema: "pirate.community-config/1",
+    schema: "pirate.community-config/2",
     chainId,
     directory: address(o.directory),
     communityId: id,
@@ -152,6 +163,8 @@ export function validateConfig(
     feed: { endpoint, signingKeyId: text(feed.signingKeyId, 128) },
     policies: {
       admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+      contentProfile: contentProfile(policies.contentProfile),
+      recognitionSigner: address(policies.recognitionSigner),
       moderationSigner: address(policies.moderationSigner),
     },
     publisherRevocations: revocations,

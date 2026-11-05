@@ -19,6 +19,12 @@ import { privateDirectory } from "./state.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const sources = [
+  "../../packages/moderation/openai.ts",
+  "../../packages/moderation/content-profile.ts",
+  "../../packages/moderation/qualify-content.ts",
+  "../../packages/moderation/provider-http.ts",
+  "../../packages/community/common.ts",
+  "../../package-lock.json",
   "infra/alchemy.run.ts",
   "infra/encrypted-state.ts",
   "infra/protected-data.ts",
@@ -113,7 +119,6 @@ export function provisioner(directory: string): Provisioner {
         CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN,
         COMMUNITY_SLUG: settings.slug,
         COMMUNITY_NAME: settings.name,
-        ACRCLOUD_HOST: settings.acrHost,
         PLAN_ID: plan.id,
         MODERATION_MODE: settings.moderationMode,
         PIRATE_WIZARD_STATE_PASSWORD: password,

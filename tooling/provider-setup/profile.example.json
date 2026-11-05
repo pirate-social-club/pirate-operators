@@ -1,0 +1,10 @@
+{
+  "slug": "onboarding-check",
+  "vault": {
+    "projectId": "00000000-0000-0000-0000-000000000001",
+    "environment": "dev",
+    "bootstrapPath": "/onboarding/provider-rehearsal/bootstrap",
+    "runtimePath": "/onboarding/provider-rehearsal/runtime"
+  },
+  "acrRegion": "eu-west-1"
+}

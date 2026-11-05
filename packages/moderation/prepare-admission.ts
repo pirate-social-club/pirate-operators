@@ -18,7 +18,7 @@ export interface PreparedAdmission {
   requestHash: string;
   title: string;
   lyrics: string;
-  probe: Mp3Probe;
+  probe: Mp3Probe | null;
   windows: (AudioWindowFacts & { objectKey: string; byteLength: number })[];
 }
 export interface AdmissionMedia {
@@ -82,13 +82,14 @@ export async function prepareAdmission(
   }
   const request = admissionRequest(JSON.parse(row.request_json), pairing),
     prefix = `admissions/${row.admission_id}`;
-  await retainInput(
-    media,
-    `${prefix}/audio`,
-    request.inputs.song,
-    "audio/mpeg",
-    transport,
-  );
+  if (request.checks.includes("audio.identification"))
+    await retainInput(
+      media,
+      `${prefix}/audio`,
+      request.inputs.song,
+      "audio/mpeg",
+      transport,
+    );
   await retainInput(
     media,
     `${prefix}/title`,
@@ -128,38 +129,41 @@ export async function prepareAdmission(
         )
       : "";
   insist(title.trim().length > 0, "title_required");
-  const source = await media.get(`${prefix}/audio`);
-  insist(source, "retained_audio_missing", 503);
-  const signal = AbortSignal.timeout(30000),
-    probe = await readMp3Probe(source.body, 3600000, signal),
-    windows: PreparedAdmission["windows"] = [];
-  for (const role of ["primary", "alternate"] as const) {
-    const original = await media.get(`${prefix}/audio`);
-    insist(original, "retained_audio_missing", 503);
-    const window = await readMp3FrameWindow(
-        original.body,
-        probe.durationMs,
+  let probe: Mp3Probe | null = null;
+  const windows: PreparedAdmission["windows"] = [];
+  if (request.checks.includes("audio.identification")) {
+    const source = await media.get(`${prefix}/audio`);
+    insist(source, "retained_audio_missing", 503);
+    const signal = AbortSignal.timeout(30000);
+    probe = await readMp3Probe(source.body, 3600000, signal);
+    for (const role of ["primary", "alternate"] as const) {
+      const original = await media.get(`${prefix}/audio`);
+      insist(original, "retained_audio_missing", 503);
+      const window = await readMp3FrameWindow(
+          original.body,
+          probe.durationMs,
+          role,
+          4000000,
+          signal,
+        ),
+        sampleSha256 = sha256(window.bytes),
+        objectKey = `${prefix}/sample-${role}`;
+      await media.put(objectKey, window.bytes, {
+        sha256: hexToBytes(sampleSha256),
+        httpMetadata: { contentType: "audio/mpeg" },
+        customMetadata: { sha256: sampleSha256 },
+      });
+      windows.push({
         role,
-        4000000,
-        signal,
-      ),
-      sampleSha256 = sha256(window.bytes),
-      objectKey = `${prefix}/sample-${role}`;
-    await media.put(objectKey, window.bytes, {
-      sha256: hexToBytes(sampleSha256),
-      httpMetadata: { contentType: "audio/mpeg" },
-      customMetadata: { sha256: sampleSha256 },
-    });
-    windows.push({
-      role,
-      firstFrame: window.firstFrame,
-      frameCount: window.frameCount,
-      startMs: window.offsetMs,
-      durationMs: window.durationMs,
-      sampleSha256,
-      objectKey,
-      byteLength: window.bytes.length,
-    });
+        firstFrame: window.firstFrame,
+        frameCount: window.frameCount,
+        startMs: window.offsetMs,
+        durationMs: window.durationMs,
+        sampleSha256,
+        objectKey,
+        byteLength: window.bytes.length,
+      });
+    }
   }
   const prepared = {
     requestHash: row.request_hash,

@@ -1,3 +1,4 @@
+import { configurationV2 } from "../../../test/fixtures/configuration-v2.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -25,7 +26,7 @@ const original = JSON.parse(
     ),
   ),
   configuration = validateConfig({
-    ...original.configuration,
+    ...configurationV2(original.configuration),
     publisher: publisher.address.toLowerCase(),
   });
 

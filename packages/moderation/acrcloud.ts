@@ -163,6 +163,10 @@ export function parseAcrResponse(response: ProviderResponse): AcrResult {
       details: { ...details, allCandidatesExcluded: true },
     };
   }
+  details.matches = candidates.map((candidate) => ({
+    id: candidate.id,
+    kind: candidate.kind,
+  }));
   details.match = {
     id: match.id,
     kind: match.kind,

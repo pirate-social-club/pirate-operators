@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { CID } from "multiformats/cid";
@@ -27,7 +28,7 @@ const registry = addr("1"),
 const identity = { chainId: 6343, postsContract, communityId: id, postId };
 function config(revision = 1, publisher = addr("3")) {
   return {
-    schema: "pirate.community-config/1",
+    schema: "pirate.community-config/2",
     chainId: 6343,
     directory: addr("4"),
     communityId: id,
@@ -52,6 +53,8 @@ function config(revision = 1, publisher = addr("3")) {
     },
     policies: {
       admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+      contentProfile: defaultContentProfile,
+    recognitionSigner: addr("6"),
       moderationSigner: addr("6"),
     },
     publisherRevocations: [] as {

@@ -1,3 +1,4 @@
+import { contentProfile } from "../packages/moderation/content-profile.ts";
 import { createPublicClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
@@ -36,6 +37,8 @@ export interface ManagedEnv {
   ACRCLOUD_ACCESS_KEY: string;
   ACRCLOUD_ACCESS_SECRET: string;
   OPENAI_API_KEY: string;
+  SERVICE_CHECKS: "recognition" | "content";
+  CONTENT_PROFILE_JSON: string;
   MODERATION_SIGNER_PRIVATE_KEY: string;
   RELEASE_GRANT_JSON?: string;
   FILEBASE_IPFS_TOKEN?: string;
@@ -102,7 +105,14 @@ function configuration(env: ManagedEnv): ManagedService {
       fetchOptions: { redirect: "manual" },
     }),
   });
+  insist(
+    env.SERVICE_CHECKS === "recognition" || env.SERVICE_CHECKS === "content",
+    "service_checks_required",
+    503,
+  );
   return {
+    mode: env.SERVICE_CHECKS,
+    contentProfile: contentProfile(JSON.parse(env.CONTENT_PROFILE_JSON)),
     serviceOrigin,
     pairings,
     serviceRequestCap: integer(Number(env.SERVICE_REQUEST_CAP), 1, 100),
@@ -165,7 +175,7 @@ export default {
       if (new URL(request.url).pathname === "/health" && response.ok) {
         return Response.json(
           {
-            service: "pirate-managed-moderation/1",
+            service: "pirate-admission-service/2",
             status: "available",
             profileHash: bytes32(env.SERVICE_PROFILE_HASH),
           },

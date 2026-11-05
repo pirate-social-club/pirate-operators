@@ -1,3 +1,4 @@
+import { assertCheckGroup } from "./check-groups.ts";
 import { Effect } from "effect";
 import {
   CommunityError,
@@ -46,16 +47,16 @@ export async function managedFetch(
     insist(url.origin === config.serviceOrigin, "wrong_host", 403);
     if (request.method === "GET" && url.pathname === "/health")
       return reply({
-        service: "pirate-managed-moderation/1",
+        service: "pirate-admission-service/2",
         status: "available",
       });
     const action = (
       {
-        "/v1/admissions": "admit",
-        "/v1/admissions/status": "status",
-        "/v1/admissions/resume": "resume",
+        "/v2/admissions": "admit",
+        "/v2/admissions/status": "status",
+        "/v2/admissions/resume": "resume",
       } as const
-    )[url.pathname as "/v1/admissions"];
+    )[url.pathname as "/v2/admissions"];
     insist(
       request.method === "POST" && action && !url.search,
       "not_found",
@@ -72,6 +73,7 @@ export async function managedFetch(
     let id: string;
     if (action === "admit") {
       const input = admissionRequest(body, pairing);
+      assertCheckGroup(config.mode ?? "all", input.checks);
       const row = await enqueueAdmission(db, input, pairing, authorization, {
         period: config.serviceBudgetPeriod,
         requestCap: config.serviceRequestCap,
@@ -95,7 +97,7 @@ export async function managedFetch(
     const row = await getAdmission(db, id, pairing.communityId);
     return reply(
       {
-        schema: "pirate.managed-admission-status/1",
+        schema: "pirate.admission-status/2",
         admissionId: id,
         jobId: row.job_id,
         submissionId: row.submission_id,

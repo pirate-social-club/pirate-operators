@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
@@ -38,6 +39,8 @@ test("the actual managed Worker bundle starts in workerd and rejects unsigned wo
       ACRCLOUD_HOST: "identify-eu-west-1.acrcloud.com",
       ACRCLOUD_ACCESS_KEY: "fixture-acr-key",
       ACRCLOUD_ACCESS_SECRET: "fixture-acr-secret",
+      SERVICE_CHECKS: "recognition",
+      CONTENT_PROFILE_JSON: JSON.stringify(defaultContentProfile),
       OPENAI_API_KEY: "fixture-openai-key",
       MODERATION_SIGNER_PRIVATE_KEY: hex(1),
     },
@@ -46,11 +49,11 @@ test("the actual managed Worker bundle starts in workerd and rejects unsigned wo
     const health = await mf.dispatchFetch(origin + "/health");
     assert.equal(health.status, 200);
     assert.deepEqual(await health.json(), {
-      service: "pirate-managed-moderation/1",
+      service: "pirate-admission-service/2",
       status: "available",
       profileHash: hex(1),
     });
-    const denied = await mf.dispatchFetch(origin + "/v1/admissions", {
+    const denied = await mf.dispatchFetch(origin + "/v2/admissions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: "{}",
@@ -120,6 +123,8 @@ test("actual managed Worker authorizes a scoped request then reaches RPC without
       ACRCLOUD_HOST: "identify-eu-west-1.acrcloud.com",
       ACRCLOUD_ACCESS_KEY: "fixture-key",
       ACRCLOUD_ACCESS_SECRET: "fixture-secret",
+      SERVICE_CHECKS: "recognition",
+      CONTENT_PROFILE_JSON: JSON.stringify(defaultContentProfile),
       OPENAI_API_KEY: "fixture-key",
       MODERATION_SIGNER_PRIVATE_KEY: `0x${"1".repeat(64)}`,
     },
@@ -156,7 +161,7 @@ test("actual managed Worker authorizes a scoped request then reaches RPC without
         {},
       ),
       send = () =>
-        mf.dispatchFetch(origin + "/v1/admissions/status", {
+        mf.dispatchFetch(origin + "/v2/admissions/status", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(wire),

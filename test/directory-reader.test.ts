@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -24,7 +25,7 @@ const addr = (s: string) => `0x${s.repeat(40)}` as const,
   hash = (s: string) => `0x${s.repeat(64)}` as const;
 async function fixture(fault = "") {
   const config = {
-    schema: "pirate.community-config/1",
+    schema: "pirate.community-config/2",
     chainId: 31337,
     directory: addr("1"),
     registry: addr("2"),
@@ -49,6 +50,8 @@ async function fixture(fault = "") {
     },
     policies: {
       admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+      contentProfile: defaultContentProfile,
+    recognitionSigner: addr("6"),
       moderationSigner: addr("6"),
     },
     publisherRevocations: [] as {

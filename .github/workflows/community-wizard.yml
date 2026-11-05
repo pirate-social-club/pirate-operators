@@ -2,10 +2,22 @@ name: Community wizard
 on:
   push:
     paths:
-      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+      [
+        "apps/community-wizard/**",
+        "packages/moderation/**",
+        "packages/community/common.ts",
+        "package*.json",
+        ".github/workflows/community-wizard.yml",
+      ]
   pull_request:
     paths:
-      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+      [
+        "apps/community-wizard/**",
+        "packages/moderation/**",
+        "packages/community/common.ts",
+        "package*.json",
+        ".github/workflows/community-wizard.yml",
+      ]
 permissions:
   contents: read
 jobs:
@@ -22,6 +34,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: apps/community-wizard/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: .
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run check

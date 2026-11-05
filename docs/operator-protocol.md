@@ -532,3 +532,111 @@ exactly retained sections and the reconciliation map. Sections 4 and 5 are
 byte-identical to that source. Section 3 is also retained exactly. Later browser,
 payment and creator decisions supersede only their corresponding fields or
 scope. No complete obsolete plan or retired execution path was reintroduced.
+
+## Recognition and content assessment revision 2
+
+The November 5 owner decision assigns cross-community recognition and its
+provider costs to Pirate. Communities operate their content assessment and
+storage accounts. This section defines the explicit successor to the version-1
+first-song profile. Version 1 remains bound to its preserved source and serving
+artifacts until that song publishes. No version-2 code, signer or configuration
+is installed into that operation by this source change.
+
+The configuration schema is `pirate.community-config/2`. Its policies contain
+`recognitionSigner`, `moderationSigner` and `contentProfile`, alongside admission
+policy identity. `contentProfile` records provider, moderation model,
+classification model, prompt version and result-schema version. The fixed
+assessment result remains title rating, lyrics rating, explicitness and language.
+Only OpenAI is implemented. Provider/model selection is deployment-owned; callers
+cannot choose an outbound URL or replace the prompt through upload metadata.
+
+Evidence uses EIP-712 domain Pirate Operators version 2 and version-2 check
+schemas. An audio-identification signature can satisfy only the recognition
+trust set; title and lyrics signatures can satisfy only the content trust set.
+Version-1 signatures cannot satisfy this verifier. Subject, input digest,
+community, submission, job and expiry checks remain required. Content evidence
+must contain the exact configured profile. Changing the model, prompt or schema
+therefore requires fresh affected evidence. Pirate sponsorship must pin Pirate's
+recognition service identity independently of a community-selected signer.
+
+The admission service exposes `/v2/admissions`, `/v2/admissions/status` and
+`/v2/admissions/resume`. Production selects either recognition or content checks.
+A request for another group is refused. Recognition never purchases content
+checks, and the content service does not acquire or sample audio. The retained
+all-check local fixture exercises the old combined processing behavior within
+isolated tests; the production entrypoint cannot select it. Each service owns
+its own database, queue, media retention and credentials. Existing publisher
+pairing, current canonical authority, request nonces, budgets and unknown-call
+reconciliation remain in force.
+
+`gpt-6-luna` replaces the retiring lyrics classifier. The moderation model stays
+`omni-moderation-2024-09-26`. Classification explicitly disables reasoning and
+retains its 256-token output bound, strict schema and untrusted-lyrics prompt.
+The runtime, standalone provider qualification and wizard provider check call
+the same request builders and parsers. This changes the successor source, not
+the first-song deployment. Official model and migration references are
+https://developers.openai.com/api/docs/models/gpt-6-luna and
+https://developers.openai.com/api/docs/deprecations.
+
+### Shared catalog and automatic matches
+
+The catalog implementation is independently owned source adopted from api-next
+commit e1f006915f6e65b1c6eb26089a7c801bc36c4b85. Provenance is recorded in
+`recognition-source-provenance.json`. Its new D1 store enrolls every verified
+accepted publication, including licenses that forbid derivatives. Enrollment
+permission and derivative permission are separate decisions. The enrollment
+entrypoint accepts a publication identifier and loads its facts through a
+server-owned verification callback; an HTTP caller cannot supply accepted status,
+creator identity, audio digest or license facts directly.
+
+Deterministic identity binds asset, canonical audio revision/hash and catalog
+bucket. The provider receives opaque registration, asset and digest metadata.
+Creator and license facts remain in the Pirate-owned mapping. Upload intent is
+durable before transport. An uncertain upload reconciles an exact existing
+provider file; zero results do not authorize another upload, multiple results
+block, and readiness alone does not establish project visibility. Verification
+must recognize the enrolled custom recording through the identification project.
+Leases and claim fences reject stale writers. A ready record links the provider
+identity to the accepted publication without making a copyright ownership claim.
+
+A single recognized recording belonging to the authenticated creator reuses its
+canonical identity across communities. Another creator's recording blocks with
+the matched asset unless the upload declares that exact source and its current
+verified license permits the intended use. Unknown or ambiguous mapping blocks.
+There is no human review queue. The first accepted record is an operational
+reference, not proof that its uploader owns the recording. Disputes are deferred.
+The publication integrator must obtain creator identity from authenticated
+creator authority, never a client-supplied display name or ownership claim.
+
+The source exposes these catalog and match-policy boundaries with actual D1 and
+provider-handler tests. It does not claim the old platform ever enrolled a live
+song. Post-publication enqueueing, fresh creator/source/license loading, signed
+match evidence and consumption by the release-authority writer must be integrated
+at the coordinator checkpoint. They must not be replaced by seeded ready rows.
+Catalog lag, simultaneous submissions, backfill, hiding/takedown and provider
+retention must be qualified before cross-community completeness is advertised.
+
+### Qualification and cutover
+
+The wizard no longer requests ACRCloud credentials or an identify hostname.
+Community OpenAI credentials stay in its Infisical scope. An explicit reviewed
+provider check purchases at most two requests through the actual runtime adapter,
+saves its intent before sending and refuses automatic retry of a started or
+failed check. Credential or settings changes invalidate the prior qualification.
+Account qualification is distinct from runtime-secret delivery and publication.
+
+`harness/qualify-content.ts` separately qualifies four fixed controls against
+existing centralized staging credentials: ordinary lyrics, explicit-but-allowed
+lyrics, empty lyrics and prompt injection. Its saved plan binds source hashes,
+model/profile, credential reference, maximum eight requests, 256 classification
+output tokens and a 300-second execution window. Planning reads no credential.
+Execution requires the saved digest. Only sanitized outcomes are retained, and
+replay of completed work sends nothing. A started unknown request cannot rerun.
+This authorization does not copy centralized credentials into community Workers.
+
+Landing requires independent exact-source review, root/provider/wizard checks
+and the first-song coordinator's explicit cutover checkpoint. Runtime deployment,
+new signers, catalog provisioning or provider retention changes require their
+own concrete profile. Full second-community acceptance still includes its own
+provider keys, runtime bindings, a real Filebase pin, recognition evidence,
+registration/publication receipts and playback after reload.

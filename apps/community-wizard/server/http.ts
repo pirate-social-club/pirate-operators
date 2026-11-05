@@ -86,6 +86,9 @@ export function createWizardServer(
         else if (path === "/api/infisical/connect")
           await setup.connectSecrets();
         else if (path === "/api/secrets") await setup.saveSecrets(input);
+        else if (path === "/api/providers/plan") await setup.reviewContent();
+        else if (path === "/api/providers/qualify")
+          await setup.qualifyContent(input);
         else if (path === "/api/plan") await setup.review();
         else if (path === "/api/deploy") {
           if (

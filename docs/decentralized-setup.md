@@ -436,3 +436,12 @@ contract tests from full first-song acceptance. The new managed community,
 registry clone, contracts deployment, provider run and playback are not claimed
 by this source integration. Consult the current task register and refresh exact
 refs before executing any live step.
+
+
+The November 5 successor moves ACRCloud recognition to Pirate and removes its
+community credential/hostname setup. Community content assessment and storage
+remain community-owned. Earlier requirements for community ACRCloud accounts
+are superseded for this successor. The first-song version-1 operation remains
+on its preserved serving profile. The explicit configuration/evidence version-2
+cutover, catalog source adoption and remaining integration gates are specified
+in [operator protocol](operator-protocol.md).

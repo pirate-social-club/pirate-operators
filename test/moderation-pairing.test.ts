@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -22,7 +23,7 @@ const id = communityId(6343, addr("1")),
   origin = "https://community.example",
   serviceOrigin = "https://moderation.example";
 const current = validateConfig({
-  schema: "pirate.community-config/1",
+  schema: "pirate.community-config/2",
   chainId: 6343,
   directory: addr("2"),
   registry: addr("1"),
@@ -44,6 +45,8 @@ const current = validateConfig({
   feed: { endpoint: origin + "/api/feed", signingKeyId: "fixture" },
   policies: {
     admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+    contentProfile: defaultContentProfile,
+    recognitionSigner: addr("5"),
     moderationSigner: addr("5"),
   },
   publisherRevocations: [],
