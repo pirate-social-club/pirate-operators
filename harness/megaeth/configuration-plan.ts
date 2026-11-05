@@ -20,7 +20,7 @@ import {
   address,
 } from "../../packages/community/manifest-core.ts";
 import { directoryAbi } from "../../packages/community/directory-reader.ts";
-import { preparePin } from "../../packages/community/ipfs.ts";
+import { preparePin, publicGateways } from "../../packages/community/ipfs.ts";
 import { deploymentJournalProfileHash } from "./deployment-journal.ts";
 
 export const configurationChain = defineChain({
@@ -104,6 +104,9 @@ export async function configurationPlan() {
     "harness/megaeth/configuration-plan.ts",
     "harness/megaeth/configure-community.ts",
     "harness/megaeth/deployment-journal.ts",
+    "harness/megaeth/configuration-state.ts",
+    "harness/megaeth/configuration-pin-recovery.ts",
+    "docs/deployments/first-song-managed-20261105.configuration-plan-v1.json",
     "packages/community/ipfs.ts",
     "packages/community/directory-reader.ts",
     "packages/community/config-manifest.ts",
@@ -142,8 +145,21 @@ export async function configurationPlan() {
       deploymentBlock: deployed.directory.blockNumber,
     },
     sourceHashes,
+    retrievalGateways: publicGateways,
+    pinRecovery: {
+      required: true,
+      previousPlanPath:
+        "docs/deployments/first-song-managed-20261105.configuration-plan-v1.json",
+      previousProfileHash:
+        "0xbf68ada147729e0b44257c6ff28fc8ca6606ab277df31f41a7c72a596507aca1",
+      expectedReceiptFileSha256:
+        "0xd9310eef10082e56ecf1b10b4a141d8513459246b2ef64bdbd1e50cf77ad4f94",
+      expectedBodySha256:
+        "0x611701662b5570a0cfff855509cafce9659f060d775bbac4f943e9c65dcec368",
+      expectedProviderRequestId: "5ddcd9e8e5055e37a714349b7d12ee59",
+    },
     bounds: {
-      pinAdds: 1,
+      pinAdds: 0,
       pinBytes: bytes.length,
       transactions: 1,
       maximumGasPrice: "30000000",

@@ -5,7 +5,6 @@ import {
   writeFile,
   mkdir,
   open,
-  rename,
   unlink,
   lstat,
 } from "node:fs/promises";
@@ -33,6 +32,8 @@ import {
   readConfiguration,
 } from "../../packages/community/directory-reader.ts";
 import { deploymentJournal } from "./deployment-journal.ts";
+import { saveConfigurationState } from "./configuration-state.ts";
+import { adoptConfigurationPin } from "./configuration-pin-recovery.ts";
 import {
   configurationClient,
   configurationPlan,
@@ -43,24 +44,8 @@ const state = join(
   homedir(),
   ".local/state/pirate-first-song-managed-20261105/configuration",
 );
-async function privateSave(name: string, value: unknown) {
-  const file = join(state, name),
-    temporary = file + ".tmp";
-  const handle = await open(temporary, "w", 0o600);
-  try {
-    await handle.writeFile(canonical(value));
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await rename(temporary, file);
-  const parent = await open(state, "r");
-  try {
-    await parent.sync();
-  } finally {
-    await parent.close();
-  }
-}
+const privateSave = (name: string, value: unknown) =>
+  saveConfigurationState(state, name, value);
 async function main() {
   process.umask(0o077);
   const { values } = parseArgs({
@@ -69,6 +54,7 @@ async function main() {
       "expected-profile": { type: "string" },
       "write-plan": { type: "boolean" },
       preflight: { type: "boolean" },
+      "adopt-existing-pin": { type: "boolean" },
     },
   });
   const planned = await configurationPlan(),
@@ -247,15 +233,32 @@ async function main() {
         (error as NodeJS.ErrnoException).code === "ENOENT",
         "configuration_pin_state_invalid",
       );
-      insist(!current, "configuration_pin_journal_missing", 409);
+      insist(
+        !profile.pinRecovery.required && !current,
+        "configuration_pin_journal_missing",
+        409,
+      );
       pinState = { profileHash, state: "planned" };
       await privateSave("pin.json", pinState);
+    }
+    if (pinState.profileHash !== profileHash) {
+      insist(
+        values["adopt-existing-pin"],
+        "configuration_pin_adoption_required",
+        409,
+      );
+      pinState = await adoptConfigurationPin(state, planned, token);
     }
     insist(
       pinState.profileHash === profileHash,
       "configuration_pin_profile_changed",
     );
     if (pinState.state === "planned") {
+      insist(
+        profile.bounds.pinAdds > 0,
+        "configuration_new_pin_forbidden",
+        409,
+      );
       insist(!current, "configuration_pin_journal_inconsistent", 409);
       insist(Date.now() < deadline, "configuration_window_expired");
       pinState.state = "running";

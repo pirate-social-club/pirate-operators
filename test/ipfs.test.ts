@@ -77,16 +77,23 @@ test("pin reconciliation uses only reads and needs both recursive retention and 
       });
     }
     gateways++;
-    return new Response(
-      gateways === 1 ? new Uint8Array([1]) : new Uint8Array(bytes),
-    );
+    return new Response(new Uint8Array(bytes));
   };
   assert.equal(
     (await reconcilePin(intent, "fixture-token", send)).gateway,
-    "https://dweb.link",
+    "https://gateway.pinata.cloud",
   );
   assert.equal(adds, 0);
-  assert.equal(gateways, 2);
+  assert.equal(gateways, 1);
+  await assert.rejects(
+    fetchPublicIpfs(
+      intent.uri,
+      intent.sha256,
+      bytes.length,
+      async () => new Response(new Uint8Array([1])),
+    ),
+    /public_ipfs_unavailable/,
+  );
   await assert.rejects(
     reconcilePin(intent, "fixture-token", async () =>
       Response.json({ Keys: {} }),

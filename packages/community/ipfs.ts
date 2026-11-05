@@ -20,7 +20,9 @@ export interface PinIntent {
 }
 export type IpfsTransport = (request: Request) => Promise<Response>;
 const transport: IpfsTransport = (request) => fetch(request);
-export const publicGateways = ["https://ipfs.io", "https://dweb.link"] as const;
+// Qualified by an independent live retrieval. The former public-good gateways
+// now reject backend/hotlink traffic; see the recorded recovery evidence.
+export const publicGateways = ["https://gateway.pinata.cloud"] as const;
 const rpcOrigin = "https://rpc.filebase.io";
 
 /** Fixed UnixFS importer settings are part of the captured operation request.
@@ -110,7 +112,7 @@ export async function fetchPublicIpfs(
       insist(root.uri === uri, "ipfs_root_mismatch", 503);
       return { bytes, gateway };
     } catch {
-      /* Try the other independent public gateway with the same digest. */
+      /* An unavailable or mismatching response never becomes valid content. */
     }
   }
   insist(false, "public_ipfs_unavailable", 503);

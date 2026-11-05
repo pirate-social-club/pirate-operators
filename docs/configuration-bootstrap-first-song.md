@@ -23,12 +23,28 @@ The transaction journal identity uses fixed reviewed limits. A shorter absolute
 deadline bounds each invocation without changing that identity, including when
 an interruption left an empty journal before signing.
 
-The profile permits one 1135-byte Filebase pin add and one revision-1
-registration using nonce 17. The gas limit is 1000000, price ceiling 30000000
+The original profile permitted one 1135-byte Filebase pin add; it succeeded
+and its exact response is retained. The gateway-recovery successor permits zero
+additional adds and one revision-1 registration using nonce 17. The gas limit is 1000000, price ceiling 30000000
 wei and aggregate transaction fee ceiling 30000000000000 wei, or 0.00003 test
 ETH. The fresh preflight estimated 457770 gas. These bounds cannot expand on
 retry. No material payment deposit, native wallet funding or song registration
 belongs to this bootstrap.
+
+The first execution stopped before EVM signing because both original public
+gateways returned 429. Their operator announced the backend-traffic change in
+the [August 2026 IPFS post](https://blog.ipfs.tech/2026-08-beyond-sponsored-gateways/).
+Pinata independently returned the original exact manifest bytes. It is the
+qualified independent retrieval endpoint for this disposable acceptance;
+4everland timed out and is not configured as a qualified fallback.
+
+The new execution requires `--adopt-existing-pin`. It verifies the exact
+predecessor plan, raw receipt file and body digests, request ID, CID and size,
+and refuses any existing EVM journal. Only retrieval/source metadata may differ;
+the manifest, calldata, nonce and spending limits remain bound. Current pin
+retention and independently matching bytes pass before local adoption. The
+original pin state is backed up, its receipt stays unchanged, and the successor
+enters confirmed without an upload. Missing or changed evidence stops recovery.
 
 The operator reads its existing Filebase credential through the established
 Infisical workflow. The community receives the public manifest reference. The
