@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x5b5a3485a891321c40e3dbf25aa18c8771420dd68cf7d896ac84017c111cff1e",
+  "profileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
   "profile": {
     "schema": "pirate.managed-service-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -60,7 +60,7 @@
       "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
-      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
       "packages/community/budgets.ts": "0x7ef33f135d54cac53e4ce50bf1fcd13783b21fad41649c6df86d2657579a5afe",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
       "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",

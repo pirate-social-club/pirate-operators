@@ -1,5 +1,5 @@
 {
-  "profileHash": "0xa38f24dd12636a3dca84b9057ee22c19c7b77a4fdc956333d0a008d4aa46c119",
+  "profileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -86,9 +86,9 @@
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
       "docs/deployments/first-song-managed-20261105.application-plan-v6.json": "0x022bdf21293bde607674858d51eac1d39cd06ff7eed420483079b9cb54d0f04f",
-      "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x95a2014193e60229233d27875ca8d3309b7e331bdbd731236f15a04e2f218317",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
       "docs/deployments/first-song-managed-20261105.held-state.json": "0x8a04c652b2fe7d3ce57003014158226824908c7765a4f3c5d00d9469da912c31",
-      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xb3b826c3d15ab062506a4759ae823d4e627f5e5167484153b0d45ca1856c1926",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x3102e45fc2565e1b87f9be67c1a70baab312783c224556e3795a82a7eff08ede",
       "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
       "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
@@ -107,7 +107,7 @@
       "harness/reviewed-update.ts": "0xa9c6c6283f363edbda228cb54a424ae709865c8f94ffa1e4e004ae9cf04976e3",
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
-      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
       "packages/community/accounts.ts": "0x28d2f1847bed1fc58549f4cc6e105ced6956d8480a19fc0210a8fa24bb2ef1f2",
       "packages/community/adopt-curated.ts": "0x3d674d35d898b99a935e8ef150dd652b9296988ec7634f7c3f075ce5fd61523b",
       "packages/community/application-api.ts": "0xa7b412214f2eeb7812aa1df711a91f2296d7f0b185e855d279448d773eecc0ad",
@@ -265,7 +265,7 @@
         }
       }
     },
-    "managedProfileHash": "0x5b5a3485a891321c40e3dbf25aa18c8771420dd68cf7d896ac84017c111cff1e",
+    "managedProfileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
     "queueConsumer": {
       "logical": "Consumer",
       "queueId": "fe031cd96fbb47579585eb10154f785d",
@@ -275,7 +275,7 @@
       "maxRetries": 3,
       "retryDelay": 60
     },
-    "creatorProfileHash": "0x3dccfdd7dc2d556ae5f0b490070d56a951f29ba4ee00ab906af2726babc2a2bf",
+    "creatorProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
     "reviewedUpdate": {
       "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v6.json",
       "previousProfileHash": "0xb93ff3d5997db70680859bdd5dcc7217c2633ac9801e3766e979ad5738a3cf65",

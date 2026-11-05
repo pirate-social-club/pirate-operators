@@ -300,6 +300,8 @@ export async function curatedReleasePlan() {
     paths = [
       ...new Set([
         ...Object.keys(graph.metafile!.inputs),
+        "package.json",
+        "package-lock.json",
         ...[
           "application-plan.json",
           "moderation-plan.json",

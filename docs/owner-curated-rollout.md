@@ -16,16 +16,16 @@ under the existing first-song state directory holds the actual rows; public
 source contains counts and digests only.
 
 The native parser update uses profile
-0x3dccfdd7dc2d556ae5f0b490070d56a951f29ba4ee00ab906af2726babc2a2bf.
+0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb.
 It keeps both wallet origins, RP, database, operator, WASM and financial bounds.
 The new parser accepts the exact owner policy pair, permitting creator-wallet
 reopen after directory revision 2. There is no activation, signature transaction,
 DKG or provider operation in this update. All 19 native checks pass.
 
 Managed profile
-0x5b5a3485a891321c40e3dbf25aa18c8771420dd68cf7d896ac84017c111cff1e
+0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705
 and application profile
-0xa38f24dd12636a3dca84b9057ee22c19c7b77a4fdc956333d0a008d4aa46c119
+0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e
 preserve existing resources, encrypted state, exact held rows and queue settings.
 Application migrations 0006 and 0007 add stem seals and the publication amendment.
 Managed migration 0003 adds the distinct curated admission. These ordinals are
@@ -43,16 +43,19 @@ or create a second release. Payment deposits and learning/reward contracts remai
 disabled.
 
 Configuration profile
-0x1343132963d129e2a33b22d1bb754a7ba3b655220628c0c4dbc43bd82b05fee4
+0x2af568e88e44a824a50325d95e9ebc17f890a0a46243d3fa8d6771cf622d8d3e
 permits one separate configuration pin and one configure transaction on the
 community's own directory. It retains the original controller, publisher, registry,
 TLD and origins. The expected controller nonce is 18, maximum gas is 1,000,000,
 gas price is at most 30,000,000 wei and the total fee is at most 30,000,000,000,000
-wei. Its execution window is 900 seconds. The original revision remains publicly
+wei. Its execution window is 900 seconds. The pin transport checks this deadline at
+the actual add request. A retained, exact controller-signed configuration
+transaction is reconciled even while pending or awaiting confirmation; fresh
+nonce allocation remains fenced. The original revision remains publicly
 retrievable. c22 is untouched.
 
 Adoption profile
-0x8f3a4db4b6c337e1be438bd34c789973a2636f3eddb5fe302dca0d1623ebc323
+0xb32933dd38789a8b56a1e553579d28d467b8fc9ffe9c73709ce528c9ce50b520
 binds the private signed amendment
 0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765.
 The operator declares general rating and English for the retained lyric text.
@@ -79,8 +82,14 @@ journals continue to govern every public pin, ROOT mint and MegaETH post.
 
 Read-only preflights qualified the current controller and funded Story signer,
 existing resource identities, encrypted state and held rows. Local gates pass
-187 Node tests, 134 Solidity tests, skeleton acceptance, the complete web checks
+190 Node tests, 134 Solidity tests, skeleton acceptance, the complete web checks
 and 19 native tests. The script checker reports no findings but selects zero
 files in this child checkout; touched operational files were also counted
 manually and remain below 400 lines. Fresh hosted checks, operational review,
 actual deployment and real anonymous playback remain required.
+
+The Node runner now fixes test concurrency at two workers. Two unconstrained
+16-worker local runs encountered a Miniflare RPC socket failure in the managed
+service renewal fixture; its isolated eight tests and the complete bounded
+190-test run pass. The assertions remain unchanged. This runner limit is part
+of the root manifest bound by every final operational profile.

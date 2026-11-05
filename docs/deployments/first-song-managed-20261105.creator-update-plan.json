@@ -107,7 +107,7 @@
       "harness/reviewed-update.ts": "0xa9c6c6283f363edbda228cb54a424ae709865c8f94ffa1e4e004ae9cf04976e3",
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
-      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
       "packages/community/chain.ts": "0x2e0325107d9faf91af30a841a700c67d74b00657be61383ea5d45f0f7b469aee",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
       "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
@@ -168,5 +168,5 @@
     },
     "recovery": "Preserve the historical state without changing it. Resume the same encrypted successor and exact reviewed package; reconcile owned resources before retry. Never repeat a funded native operation."
   },
-  "profileHash": "0x3dccfdd7dc2d556ae5f0b490070d56a951f29ba4ee00ab906af2726babc2a2bf"
+  "profileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb"
 }

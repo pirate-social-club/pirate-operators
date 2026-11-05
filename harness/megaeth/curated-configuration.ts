@@ -28,6 +28,12 @@ import { configurationClient } from "./configuration-plan.ts";
 import { curatedConfigurationPlan } from "./curated-configuration-plan.ts";
 import { deploymentJournal } from "./deployment-journal.ts";
 import { saveConfigurationState } from "./configuration-state.ts";
+import {
+  curatedConfigurationIntent,
+  curatedConfigurationNonce,
+  guardedConfigurationPin,
+} from "./curated-configuration-recovery.ts";
+import { privateJson } from "../private-json.ts";
 
 async function main() {
   process.umask(0o077);
@@ -68,6 +74,14 @@ async function main() {
     "curated_configuration_predecessor_changed",
     409,
   );
+  const directory = join(
+      homedir(),
+      ".local/state/pirate-first-song-managed-20261105/curated-configuration",
+    ),
+    retained = await curatedConfigurationIntent(
+      await privateJson(join(directory, "evm/transactions.json")),
+      planned,
+    );
   const [latest, pending, price, balance] = await Promise.all([
     client.getTransactionCount({
       address: profile.manifest.controller,
@@ -80,16 +94,22 @@ async function main() {
     client.getGasPrice(),
     client.getBalance({ address: profile.manifest.controller }),
   ]);
-  if (!already)
+  if (!already) {
+    curatedConfigurationNonce(
+      latest,
+      pending,
+      profile.transaction.nonce,
+      !!retained,
+    );
     insist(
-      latest === profile.transaction.nonce &&
-        pending === latest &&
-        price > 0n &&
-        price <= planned.limits.maximumGasPrice &&
-        balance >= planned.call.gas * price,
+      retained ||
+        (price > 0n &&
+          price <= planned.limits.maximumGasPrice &&
+          balance >= planned.call.gas * price),
       "curated_configuration_funding_changed",
       409,
     );
+  }
   if (!values.execute) {
     console.log(
       JSON.stringify({
@@ -104,10 +124,6 @@ async function main() {
     );
     return;
   }
-  const directory = join(
-    homedir(),
-    ".local/state/pirate-first-song-managed-20261105/curated-configuration",
-  );
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const lockPath = join(directory, "execution.lock"),
     lock = await open(lockPath, "wx", 0o600),
@@ -149,6 +165,7 @@ async function main() {
         deadline,
       );
     try {
+      await curatedConfigurationIntent(journal.snapshot(), planned);
       if (already)
         insist(
           journal.snapshot().transactions.configure_owner_curated,
@@ -156,16 +173,14 @@ async function main() {
           409,
         );
       const sdk = await infisicalAuth().client(),
-        s = await sdk
-          .secrets()
-          .getSecret({
-            projectId: profile.credential.projectId,
-            environment: "staging",
-            secretPath: profile.credential.path,
-            secretName: profile.credential.name,
-            includeImports: false,
-            expandSecretReferences: false,
-          });
+        s = await sdk.secrets().getSecret({
+          projectId: profile.credential.projectId,
+          environment: "staging",
+          secretPath: profile.credential.path,
+          secretName: profile.credential.name,
+          includeImports: false,
+          expandSecretReferences: false,
+        });
       insist(
         s.secretValue,
         "curated_configuration_credential_unavailable",
@@ -202,6 +217,7 @@ async function main() {
           planned.bytes,
           s.secretValue,
           (receipt) => save("pin-receipt.json", { profileHash, ...receipt }),
+          guardedConfigurationPin(deadline),
         );
       } else pinState.result = await reconcilePin(profile.pin, s.secretValue);
       pinState.state = "confirmed";

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "acceptance": "node harness/acceptance.ts",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test --test-concurrency=2 test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && forge test --offline && npm run acceptance",
     "dev": "cf dev",

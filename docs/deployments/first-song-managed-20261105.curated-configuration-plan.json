@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x1343132963d129e2a33b22d1bb754a7ba3b655220628c0c4dbc43bd82b05fee4",
+  "profileHash": "0x2af568e88e44a824a50325d95e9ebc17f890a0a46243d3fa8d6771cf622d8d3e",
   "profile": {
     "schema": "pirate.owner-curated-configuration-plan/1",
     "chainId": 6343,
@@ -66,10 +66,12 @@
       "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
       "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
       "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
-      "harness/megaeth/curated-configuration.ts": "0x356ff6315e4d111541e439a462b14a417276809eae29c90d480907b80a4230ed",
+      "harness/megaeth/curated-configuration-recovery.ts": "0x14bc3acaaf2a4b7db306680598bbe33c3c50e8cd42643f294e022f4ea41b9113",
+      "harness/megaeth/curated-configuration.ts": "0xba39ae3346d8b9a1f57935a360bbf659d84cc17357c3dd60e4fc4ea96bd3e2f5",
       "harness/megaeth/deployment-journal.ts": "0xb1d42a9d7cbe20115c1c6467f4b9ccd1d35992e478be4190253dcba0b558ce31",
+      "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
-      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
       "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
       "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
