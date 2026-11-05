@@ -85,7 +85,8 @@ qualified across supported devices. PR 13 records an owner-reported real-
 browser activation/reopen/sign pilot with independently checked chain/signature
 evidence. The first-song creator has now signed in, reopened that saved wallet
 and submitted the selected recording. Broader browser/device acceptance and
-the actual song registration remain open.
+production service guarantees remain open. The selected real song is now
+ROOT-registered to that creator wallet.
 Provider keys stay with the operator that uses them.
 
 The merged [account and portability design](docs/community-accounts-portability.md)
@@ -105,12 +106,14 @@ automate those contract transactions. c22 stays independent for storage/job test
 Draft [PR 26](https://github.com/pirate-social-club/pirate-operators/pull/26)
 integrates the prerequisite sources and first-song application. The
 [owner-curated rollout](docs/owner-curated-rollout.md) is live and independently
-qualified. Its original submission remains held with three historical provider
-receipts, including the classifier refusal. Both stems must be attached before
-signed policy adoption resumes that same job. Actual public pins, ROOT
-registration, publication and fresh-browser playback remain acceptance gates;
-the live health endpoint still reports firstSong: not_ready. Automated content
-moderation is deferred, and no failed classifier result is treated as a pass.
+qualified. [Actual first-song acceptance](docs/deployments/first-song-managed-20261105.first-song-acceptance.json)
+records both sealed stems, five verified public pins, one Aeneid ROOT registration,
+one MegaETH post and anonymous playback after reload. Health reports firstSong:
+ready. The selected recording was submitted with the title "Test"; its sealed
+metadata is preserved. Its original held admission and three provider receipts,
+including the classifier refusal, remain unchanged beside the append-only
+owner-curated decision. Automated content moderation is deferred; the refusal
+was not converted into a successful automated check.
 
 ## Local reward and provider research
 

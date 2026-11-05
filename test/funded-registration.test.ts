@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import {
-  encodeAbiParameters,
-  encodeEventTopics,
   keccak256,
   TransactionReceiptNotFoundError,
   type PublicClient,
@@ -20,6 +18,8 @@ import {
   rootRegistrationData,
   storyTestnet,
 } from "../packages/community/registration-chain.ts";
+
+import { registrationLogs } from "./fixtures/registration-receipt.ts";
 
 test("a lost root-mint response reuses its captured hash, creator, nonce and bounded fee without another mint", async () => {
   const runtime = new Miniflare({
@@ -102,29 +102,7 @@ test("a lost root-mint response reuses its captured hash, creator, nonce and bou
           blockHash,
           gasUsed: 500000n,
           effectiveGasPrice: 1000000000n,
-          logs: [
-            {
-              address: storyTestnet.registry,
-              topics: encodeEventTopics({
-                abi: rootRegistrationAbi,
-                eventName: "IPRegistered",
-                args: {
-                  chainId: 1315n,
-                  tokenContract: storyTestnet.nft,
-                  tokenId: 1n,
-                },
-              }),
-              data: encodeAbiParameters(
-                [
-                  { type: "address" },
-                  { type: "string" },
-                  { type: "string" },
-                  { type: "uint256" },
-                ],
-                [asset, "Root asset", uri, 1000n],
-              ),
-            },
-          ],
+          logs: registrationLogs(hash, blockHash, recipient, uri),
         };
       },
       getTransaction: async () => ({
@@ -134,15 +112,13 @@ test("a lost root-mint response reuses its captured hash, creator, nonce and bou
         to: storyTestnet.workflow,
         value: 0n,
         input: rootRegistrationData(input),
+        blockNumber: 100n,
         blockHash,
       }),
       getBlock: async () => ({ hash: blockHash }),
-      readContract: async ({ functionName }: { functionName: string }) =>
-        functionName === "ipId"
-          ? asset
-          : functionName === "ownerOf"
-            ? recipient
-            : uri,
+      readContract: async () => {
+        throw Error("historical state is unavailable");
+      },
     } as unknown as PublicClient;
     assert.deepEqual(
       await fundedRegistration(

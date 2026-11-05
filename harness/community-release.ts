@@ -1,5 +1,5 @@
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
-import { qualifyCuratedState } from "./curated-state.ts";
+import { qualifyRetainedState } from "./published-state.ts";
 import { qualifyCommunityConsumer } from "./community-consumer.ts";
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
@@ -156,7 +156,7 @@ async function main() {
   );
   await verifyCommunitySuccessor(directory, profile, password);
   await reviewedPredecessor(directory, { profile, profileHash });
-  await qualifyCuratedState(
+  await qualifyRetainedState(
     token,
     communityAccount,
     profile.curatedState,

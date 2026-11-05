@@ -1,0 +1,124 @@
+{
+  "schema": "pirate.published-first-song-state/1",
+  "observedAt": "2026-11-05T20:26:16.469Z",
+  "originalHeldStateSha256": "0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c",
+  "application": {
+    "community_accounts": {
+      "count": 1,
+      "sha256": "0x1152813534dfaf1425f55aca44c655261a10ebc77fd6d5d67f6a4de5de1b507a"
+    },
+    "credential_bindings": {
+      "count": 1,
+      "sha256": "0x28759de97c767b4378f44eded9ee4f48edf4500bab117099a28cdf94ae879931"
+    },
+    "creator_bindings": {
+      "count": 1,
+      "sha256": "0x42c8378c328ed0844fe8dccb12dbd58ee6917464528f7c7470b57565fba0a4a7"
+    },
+    "media_submissions": {
+      "count": 1,
+      "sha256": "0x2cc1478f76d44390390eba484c229d0d200efcf9609026b344efa92497bbbca1"
+    },
+    "publication_jobs": {
+      "count": 1,
+      "sha256": "0xa73931e6f2b1b2d1d671cfb52d088aae55c321d056b48f49f10b97590654c9c2"
+    },
+    "external_operations": {
+      "count": 7,
+      "sha256": "0x9ea74b801d582d2568633ff78bad3f6382b2e1991d76319a1a669123dfdbedc1"
+    },
+    "media_stems": {
+      "count": 2,
+      "sha256": "0x00f8574fbf33d7b0f61d265a375752f2349320235f38c68764d88caac9a7e3cb"
+    },
+    "publication_amendments": {
+      "count": 1,
+      "sha256": "0xf704f7cfc3c2be94d9e510dfaa705210b64bbd978ddc3ea4e18b1501472ccda0"
+    },
+    "external_operation_reconciliations": {
+      "count": 1,
+      "sha256": "0x1aeba6d0739d78a2ade976da384d2348efa028a3c178b9d2f2da033540802625"
+    },
+    "moderation_input_capabilities": {
+      "count": 3,
+      "sha256": "0x18e4b8c4063a5d2c81822cba0e85df704918e64c1b771ddfe761c1e258f3bddf"
+    },
+    "spending_budgets": {
+      "count": 2,
+      "sha256": "0x0c115fda05a3814acdb901c4ce7d41f597871e98f2a77710d1b73b6894a55cd1"
+    },
+    "spending_reservations": {
+      "count": 2,
+      "sha256": "0x3546c0bb7e6127a7ce14c4f9ee7c52581f39de8c601039779022fe5d91c23c01"
+    }
+  },
+  "managed": {
+    "managed_admissions": {
+      "count": 1,
+      "sha256": "0xc85c0b97b7d4f8193f6b31415bc3efba552bdbfd48167d8ccfc86a5249fe6168"
+    },
+    "moderation_provider_calls": {
+      "count": 3,
+      "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
+    },
+    "spending_budgets": {
+      "count": 6,
+      "sha256": "0x9d2816779f075f7f4c3007276411e6ac614f7aa68cbe236465b3fbb0914dbd52"
+    },
+    "spending_reservations": {
+      "count": 14,
+      "sha256": "0x2dadf3552064a08d7b2eadc11f6f4a4029af4015d4998e2ea006af32a70970d3"
+    },
+    "managed_releases": {
+      "count": 1,
+      "sha256": "0xb85fab505aeaa449846c108ebf308ad9d0c36e8d432884f4ce4f6f43210f5201"
+    },
+    "funded_pins": {
+      "count": 5,
+      "sha256": "0xc148a7dc6876aa69359e3611ce5c0583d73dea3a462502bb18b7b501f3bd97b8"
+    },
+    "funded_registrations": {
+      "count": 1,
+      "sha256": "0x1f27c94de938bff9fc507ff108aff36ea7c233a7e0e9b3c12160df54a412e3ec"
+    },
+    "curated_admissions": {
+      "count": 1,
+      "sha256": "0xad364a6ab27bfe7a4d4ee9fe7cdaa3ce4eb5a99beb74c62311cfab0bdb35aaff"
+    },
+    "moderation_request_nonces": {
+      "count": 15,
+      "sha256": "0x489a07654386c1941069c7c02920b2513c6da5409ffd249988139ca513526c22"
+    }
+  },
+  "registration": {
+    "input": {
+      "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+      "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "metadata": {
+        "uri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+        "sha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0"
+      },
+      "nftMetadata": {
+        "uri": "ipfs://bafkreiayekujyl55oopvsg3ul2gldhydegrdjsmogydjme4lqaiedlezqa",
+        "sha256": "0x1822a89c2fbd739f591b745e8cb19f0321a234c98e360696138b801041ac9980"
+      }
+    },
+    "receipt": {
+      "assetId": "0x2e5f4be36d644f6afdbcd3ffa89bb4e1b34cd256",
+      "blockHash": "0xb5b3ea093fb1d301ab97648ef274c1959f6804a58ab8bb176c7e74f9fa64e3b5",
+      "blockNumber": "25922296",
+      "chainId": 1315,
+      "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "metadataSha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+      "metadataUri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+      "network": "aeneid",
+      "nftContract": "0xc32a8a0ff3beddda58393d022af433e78739fabc",
+      "protocol": "story",
+      "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+      "status": "confirmed",
+      "tokenId": "4619",
+      "transactionHash": "0x5945d76b02eefb4a38351c75f86d4c45ffa981439d58e14cc7c194a1180059a0"
+    },
+    "operatorNonceAfter": 1
+  }
+}

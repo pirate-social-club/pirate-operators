@@ -146,7 +146,11 @@ async function main() {
           profileHash,
           inventory: before,
           ownership: "verified encrypted state",
-          retainedState: "exact held predecessor verified",
+          retainedState:
+            profile.curatedState.schema ===
+            "pirate.published-first-song-state/1"
+              ? "exact published predecessor verified"
+              : "exact held predecessor verified",
           registrationReadiness,
         }),
       );

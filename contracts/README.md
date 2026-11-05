@@ -7,8 +7,9 @@ authority split, storage and indexing design, and implementation order.
 `community/CommunityDirectoryV1.sol` and `community/CommunityPostsV1.sol`
 implement them locally. Their authorization, revision and event tests live in
 `test/solidity/community/`. The [implementation profile](../docs/contracts/community-implementation.md)
-records constructor inputs and remaining deployment/service acceptance. No
-public-chain deployment or real first-song acceptance is claimed.
+records constructor inputs. The separate [disposable deployment](../docs/contracts/disposable-first-song.md)
+and [real first-song acceptance](../docs/deployments/first-song-managed-20261105.first-song-acceptance.json)
+qualify the exact MegaETH testnet profile and published release.
 
 `testnet/DisabledDiscoveryAuthority.sol` is the inert authority used twice by
 the [disposable first-song profile](../docs/contracts/disposable-first-song.md).
@@ -18,8 +19,10 @@ listing-capable deployment requires new directory/posts addresses. Its local
 tests live in `test/solidity/community/DisabledDiscovery.t.sol`.
 
 `RewardPool.sol`, `interfaces/IMegapot.sol` and `test/Providers.sol` remain the
-existing local reward experiment. The separate segment-payments branch owns
-`OperatorPayments.sol`. Nothing is relocated while those lanes are active.
+existing local reward experiment. `OperatorPayments.sol` is merged and separately testnet-qualified; its signer
+can still choose arbitrary recipients and amounts within a deposit. First-song
+payment addresses are zero. No payment restriction or reward activation is
+claimed by the publication run.
 Naming contracts remain independently owned by `pirate-registry`.
 
 The shared reference validator is `community/PublicationReference.sol`.

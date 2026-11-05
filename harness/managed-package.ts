@@ -65,6 +65,7 @@ export async function managedPackage() {
     ...Object.keys(bundle.metafile!.inputs).filter(
       (p) => !p.includes("node_modules/"),
     ),
+    "harness/published-replay.ts",
     "package.json",
     "package-lock.json",
     "apps/managed-moderation/package.json",
@@ -75,7 +76,7 @@ export async function managedPackage() {
     "apps/managed-moderation/migrations/0001_managed.sql",
     "apps/managed-moderation/migrations/0002_release_operations.sql",
     "apps/managed-moderation/migrations/0003_owner_curated.sql",
-    "docs/deployments/first-song-managed-20261105.held-state.json",
+    "docs/deployments/first-song-managed-20261105.published-state.json",
     releaseGrantPath,
     "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
     "apps/community-wizard/infra/encrypted-state.ts",
@@ -94,8 +95,8 @@ export async function managedPackage() {
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v6.json",
-    "docs/deployments/first-song-managed-20261105.reader-privacy-rollout.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
+    "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -141,16 +142,16 @@ export async function managedPackage() {
     origin: managedOrigin,
     update: {
       previousProfileHash:
-        "0x084b589a0571e758b23e0d3198d0d00d613ba3d9a2cbdb750f8c6a0c8c0dfef7",
+        "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v6.json",
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
       startupEvidencePath:
         "docs/deployments/first-song-managed-20261105.moderation-setup.json",
       previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.reader-privacy-rollout.json",
+        "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
       requireIdle: false,
       expectedResultSha256:
-        "0xb64509a9c98c96f0bdfb8e5afebe709b027eb8bb93e70ae3918320954a841f10",
+        "0x8863d3f0c558237839ddc1e02d720da4ce7f0eb6c8edc95dedf068471e682f7f",
     },
     resources: {
       worker: managedPrefix,
@@ -163,7 +164,7 @@ export async function managedPackage() {
     releaseGrant,
     curatedState: JSON.parse(
       await readFile(
-        "docs/deployments/first-song-managed-20261105.held-state.json",
+        "docs/deployments/first-song-managed-20261105.published-state.json",
         "utf8",
       ),
     ),

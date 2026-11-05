@@ -1,100 +1,88 @@
 # Owner-curated rollout
 
-This package applies the owner's moderation-deferral correction to the existing
-held first-song release. Product source and migrations are independently approved
-at a14a5aec5621e421608d9467174f045e372bd0b6. The operational package and profiles
-below were independently approved at 53dcd0007dae21870dbcbb8e4d058f4d368b4ecd.
-All four runtime profiles and directory revision 2 are now live and independently
-qualified. [Actual rollout evidence](deployments/first-song-managed-20261105.owner-curated-rollout.json)
-records health, result digests, migrations, preserved state and the canonical
-configuration transaction. Signed adoption and real publication remain pending
-the creator's two stem uploads.
+The first real owner-curated release is published. [Live acceptance](deployments/first-song-managed-20261105.first-song-acceptance.json)
+records both sealed private stems, five verified song pins, one Aeneid ROOT mint
+to the captured creator, one MegaETH post and signed-out playback after reload.
+Health reports firstSong: ready. The selected recording was submitted with the
+title "Test"; its original master, metadata, author and lyric identities remain
+unchanged. Automated content moderation is explicitly deferred.
 
-The retained-state profile has canonical SHA-256
-0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c.
-It binds one sealed submission, its held publication job and failed admission
-operation, one held managed admission and three known provider responses. Both
-funded-operation tables and the managed release table are empty. Account,
-credential and creator bindings are retained. A private, owner-readable capture
-under the existing first-song state directory holds the actual rows; public
-source contains counts and digests only.
+The [initial rollout evidence](deployments/first-song-managed-20261105.owner-curated-rollout.json)
+is a dated record of source 53dcd0007dae21870dbcbb8e4d058f4d368b4ecd and the
+original held-state transition. It remains unchanged. That evidence does not
+claim the later stems, adoption or publication. Application source
+6029b8df943f124b4a8516b5bce95e5bb406a7f5 fixed private stem authorization so
+the account owning a submission could finish both attachments before policy
+adoption. Its independently qualified application profile is
+0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279.
 
-The native parser update uses profile
-0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb.
-It keeps both wallet origins, RP, database, operator, WASM and financial bounds.
-The new parser accepts the exact owner policy pair, permitting creator-wallet
-reopen after directory revision 2. There is no activation, signature transaction,
-DKG or provider operation in this update. All 19 native checks pass.
-
-Managed profile
+Native profile 0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb
+keeps both wallet origins, RP, database, operator, WASM and financial bounds.
+It accepts the exact owner policy pair for saved-wallet reopen. Its update
+made no activation, DKG, native transaction or provider request. Managed profile
 0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705
-and application profile
-0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e
-preserve existing resources, encrypted state, exact held rows and queue settings.
-Application migrations 0006 and 0007 add stem seals and the publication amendment.
-Managed migration 0003 adds the distinct curated admission. These ordinals are
-reserved on this lane; later learner migrations follow the integrated sequence.
-The managed service's old automated worker refuses content work under the owner
-policy. No new OpenAI or OpenRouter call or credential is introduced.
+processed the publication. Application migrations end at 0007 and managed
+migrations at 0003. No timing migration or ElevenLabs binding is enabled.
 
-The successor release grant is
-0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e.
-Its recipient, content, periods, expiry, code hashes, fees, five song pins and one
-ROOT registration remain equal to the original allowance. The directory revision
-changes to 2. Adoption requires no predecessor public-effect intent; the old
-grant cannot authorize the new configuration. This does not replenish a period
-or create a second release. Payment deposits and learning/reward contracts remain
-disabled.
+Directory revision 2 commits to the explicit owner policy. Configuration
+profile 0x2af568e88e44a824a50325d95e9ebc17f890a0a46243d3fa8d6771cf622d8d3e
+permitted one separately bounded setup pin and configure transaction. The
+canonical transaction is
+0x7a7a08b287d62b5daf5cb2273a44aa016de1658717c15b64eefabf2649191810.
+Its actual fee was 214658000000 wei. The original registry, controller,
+publisher, fixed TLD and origins remain. c22 is independent and unchanged.
 
-Configuration profile
-0x2af568e88e44a824a50325d95e9ebc17f890a0a46243d3fa8d6771cf622d8d3e
-permits one separate configuration pin and one configure transaction on the
-community's own directory. It retains the original controller, publisher, registry,
-TLD and origins. The expected controller nonce is 18, maximum gas is 1,000,000,
-gas price is at most 30,000,000 wei and the total fee is at most 30,000,000,000,000
-wei. Its execution window is 900 seconds. The pin transport checks this deadline at
-the actual add request. A retained, exact controller-signed configuration
-transaction is reconciled even while pending or awaiting confirmation; fresh
-nonce allocation remains fenced. The original revision remains publicly
-retrievable. c22 is untouched.
-
-Adoption profile
-0xb32933dd38789a8b56a1e553579d28d467b8fc9ffe9c73709ce528c9ce50b520
-binds the private signed amendment
+Frozen adoption profile
+0x80a90995e22adb52fbfda929f83c25a570302dc1c3cd3be677f15d9c8d1f311f
+adopted the exact controller-signed amendment
 0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765.
-The operator declares general rating and English for the retained lyric text.
-The only signed processing evidence is genuine retained ACRCloud recognition,
-with its original acquisition time. The original classifier refusal is preserved.
-The uploaded lyrics match the local file apart from trailing whitespace; neither
-the sealed text nor its line identities change.
+The earlier application 4f84 plan and adoption b329 plan remain preserved as
+application-plan-v7.json and curated-adoption-plan-v1.json. The operator declared
+general rating and English. Genuine retained ACRCloud recognition kept its
+original acquisition time and the new policy's explicit 24-hour interval.
+The original held admission, failed classifier operation, three provider
+responses, sealed input/authority and original six request reservations remain
+intact. No classifier failure became a pass and no new automated content call
+was purchased.
 
-Apply the exact reviewed native package first, then managed, then directory
-revision 2 and the application package. Each runner defaults to a dry plan and
-requires its exact expected-profile hash for execution. The creator attaches the
-two MP3 stems through the updated browser flow. Both have the master's 186,672 ms
-duration; their exact checksums and sizes are in the adoption profile. Only then
-does the operator run the signed adoption. Its server endpoints use real Worker
-D1.batch transactions, preserve old receipts and wake the same publication job.
-The runner consumes the frozen reviewed plan on replay, checks all four live
-Workers and native WASM, and never reconstructs authority from an advanced job.
+The release grant is
+0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e.
+All five song pins, one ROOT mint and one post are spent under its original
+periods, expiry and fee ceilings. There is no second release allowance.
+The root-release claim remains occupied; it is not an unsettled monetary fee.
+Payment and learning/reward addresses remain zero. Old plan builders that
+require a held job or signer nonce zero are historical and cannot qualify the
+completed release. Never reset those guards or reconstruct authority from the
+advanced job.
 
-Unknown configuration-pin outcomes are read-reconciled, never blindly re-added.
-Configuration transaction retries reuse the same signed bytes and nonce. A lost
-adoption response is reconciled against its immutable rows; reusing the same
-signed amendment cannot reset the job or its allowance. The existing publication
-journals continue to govern every public pin, ROOT mint and MegaETH post.
+## Delayed receipt recovery
 
-Read-only preflights qualified the current controller and funded Story signer,
-existing resource identities, encrypted state and held rows. Local gates pass
-190 Node tests, 134 Solidity tests, skeleton acceptance, the complete web checks
-and 19 native tests. The script checker reports no findings but selects zero
-files in this child checkout; touched operational files were also counted
-manually and remain below 400 lines. Exact-source hosted checks, operational
-review and actual deployment qualification have passed. Real publication and
-anonymous playback remain required.
+Both public Aeneid RPCs lack historical state at the registration block. The
+receipt-proof successor verifies initial delivery from exact canonical calldata,
+one registry event with the captured NFT URI, and the ordered ERC721 mint and
+creator-delivery events. Expected logs bind to the transaction and block; a
+second receipt and canonical block must still agree. Current ownership is not
+used as a substitute for historical evidence. The actual original mint was
+independently verified with historical calls forbidden and zero writes.
 
-The Node runner now fixes test concurrency at two workers. Two unconstrained
-16-worker local runs encountered a Miniflare RPC socket failure in the managed
-service renewal fixture; its isolated eight tests and the complete bounded
-190-test run pass. The assertions remain unchanged. This runner limit is part
-of the root manifest bound by every final operational profile.
+The proposed managed profile is
+0x826ceff8948b688afa57f6feac8e03a5b5973c0907d5c14de0a0633776a752f8.
+The proposed application profile is
+0x11906f227805487ebe1900356ab396c09b58b3607e40885ea2f3dad77deb2dd3.
+They retain resources, credentials, assets, migrations, spent grants and queue
+settings. Their completed-state capture is
+0x84a0c5d483c9dc0a0c486ee8ea892c45b1bc10c7e4bd363991e7ed3ef38284ec.
+It covers the immutable publication/provider tables, reconciliation receipts,
+input capabilities, managed request nonces, stem seals, amendment and spending
+records. Login/session and public index scan counters are not frozen by it.
+The prior application 23fed and managed 7e5c plans are preserved as
+application-plan-v8.json and moderation-plan-v7.json.
+
+These successors require exact independent source/package review, required
+checks and fresh preflights before managed then application execution. Each
+update has a 900-second execution/recovery bound with preserved encrypted
+predecessor state and backups. It permits zero new resources, migrations,
+credentials, provider purchases or chain transactions. The published replay
+harness defaults to verification; its explicit same-amendment replay must retain
+the captured tables, signer nonces and single feed post unchanged. Actual
+successor deployment and replay qualification are recorded separately.

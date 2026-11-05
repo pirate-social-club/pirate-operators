@@ -1,3 +1,7 @@
+import {
+  assertPublishedUpgrade,
+  publishedBaselines,
+} from "./published-state.ts";
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 // Bounded update of a previously applied, independently reviewed package.
@@ -75,6 +79,12 @@ export async function reviewedPredecessor(
     "reviewed_update_plan_changed",
     409,
   );
+  if (previous.profileHash === publishedBaselines.application)
+    assertPublishedUpgrade(
+      object(previous.profile),
+      packaged.profile,
+      "application",
+    );
   if (
     canonical(intent(object(previous.profile))) !==
     canonical(intent(packaged.profile))

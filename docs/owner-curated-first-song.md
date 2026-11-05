@@ -22,8 +22,11 @@ amendment binds those originals to the successor configuration, declaration,
 creator recipient and finite execution grant. Its separate admission operation
 cannot replace the held operation. Adopting an amendment rejects unknown
 provider sends and any predecessor pin, registration or publication intent.
-The owner wallet is enforced at private write boundaries as well as through the
-captured master, creator recipient and exact-job amendment.
+New-master and publication writes enforce the captured owner authority.
+Private stem attachments require the authenticated account, same-origin CSRF
+protection and ownership of that exact submission. They can finish before policy
+adoption or funding readiness. Publication still requires both seals and the
+controller-signed exact-job amendment.
 
 The owner policy accepts genuine retained ACRCloud recognition for at most
 24 hours from its original provider acquisition. Signing under the new policy
@@ -51,14 +54,17 @@ starting a second release. Public pinning requires both retained seals.
 Forced alignment consumes the vocal stem and accepted lyric text after
 publication, following the centralized boundary documented in
 [song-stems-source-provenance.json](song-stems-source-provenance.json). It is a
-supplemental timing artifact, never a replacement lyric manifest. The alignment
-adapter and real provider run remain pending at this source checkpoint.
+supplemental timing artifact, never a replacement lyric manifest. The independently reviewed alignment foundation and private vocal-read helper
+remain offline source. No timing route, migration or ElevenLabs call is enabled;
+character-only response fallback remains deferred.
 
 Local tests cover the actual D1/R2 handlers and a simulated provider/chain journey
 from the retained classifier refusal through the owner-curated publication.
 They preserve old receipts and quotas, reject changed declarations and prior
 public work, and reconstruct the versioned post. Browser tests cover saved
-recordings and both stems after interruption and reload. These tests are not
-live provider, contract or fresh-browser acceptance. The live community still
-has the original held job until independently reviewed execution profiles are
-applied and its actual receipts are verified.
+recordings and both stems after interruption and reload. The separate [live acceptance record](deployments/first-song-managed-20261105.first-song-acceptance.json)
+records actual stems, provider pins, ROOT registration, MegaETH publication and
+fresh anonymous browser playback after reload. The same job is published; its
+original held admission and failed operation remain intact as historical evidence.
+The selected recording's sealed title is "Test". This qualifies the bounded
+owner-curated testnet journey, with the stated moderation and alignment limits.

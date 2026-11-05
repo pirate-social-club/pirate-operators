@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279",
+  "profileHash": "0x11906f227805487ebe1900356ab396c09b58b3607e40885ea2f3dad77deb2dd3",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -85,26 +85,29 @@
       "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
-      "docs/deployments/first-song-managed-20261105.application-plan-v7.json": "0x6eab8b14513d2a38c4b7cb5f8f2d01e0c6fadc1d22c61545565b861da224ba13",
+      "docs/deployments/first-song-managed-20261105.application-plan-v8.json": "0xda6975848e4df136e6b4db1b234a74fd131c87412216ed070139dc5af893bfc8",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
-      "docs/deployments/first-song-managed-20261105.held-state.json": "0x8a04c652b2fe7d3ce57003014158226824908c7765a4f3c5d00d9469da912c31",
-      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x3102e45fc2565e1b87f9be67c1a70baab312783c224556e3795a82a7eff08ede",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x6c5a86890b7d8bf84f021580f57fb03612af696b387ac935e230cf3843b5a049",
       "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
+      "docs/deployments/first-song-managed-20261105.published-state.json": "0xa25728e283703dd7f68488c5a27a035033549099056626f24092f55e70697559",
       "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
-      "harness/community-package.ts": "0x21a8bfaa047d93f1eb4e2db3b5d2fad913ce0dd722ca74e5148439177a98528e",
-      "harness/community-release.ts": "0x515bf973261d6e205a71569f1e5ef1b5fdef5454467711f2e0f7e2a39a2a19dc",
+      "harness/community-package.ts": "0xd8e8e31f3b47ddaf3d469090d1abc9dfa2540d897b93794aec25bb138b21b9b2",
+      "harness/community-release.ts": "0x363726daefd7a7e0df29d23248e2fe37c2ce842a8a9500399539cc8f016dafb6",
       "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
       "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
       "harness/curated-state.ts": "0x82b41a052abd36fcc4560f98bc77743fec76b3da66b3b08171e9634b9095a5e7",
       "harness/curated-upgrade.ts": "0xba5b348e8375651e9b085acb717c662433cfd9447e58446511d1047eaa541a2e",
-      "harness/first-song-peers.ts": "0x202be36bfa876dfa6516b5cd9e521e2283c9fba29fbf6fe272fb486e1a8037d3",
+      "harness/first-song-peers.ts": "0x38509d1167378c427325e09f8a8c5524d2f7164ea97a11e7b9090578be2e4d12",
       "harness/first-song-upgrade.ts": "0xbe8cf0b82863ccb7784d0b15cbc6af3fe3e5b81812015c91b4c322a9083e2dc9",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
       "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
-      "harness/reviewed-update.ts": "0xa9c6c6283f363edbda228cb54a424ae709865c8f94ffa1e4e004ae9cf04976e3",
+      "harness/published-registration.ts": "0x1ecc72571da38531a055fc47c41c7e43218442c34432f01930e325befa726d0f",
+      "harness/published-replay.ts": "0x97f88208529cda9bc84897363a70b5923ea86b0947023b7c2700fe12f6823631",
+      "harness/published-state.ts": "0x60a1dddbfdd97834d842e5a4f841fa69c4929ba1152ad24b5bc1f6fb22d32646",
+      "harness/reviewed-update.ts": "0xd7f750347ac58d5b20fd43bfc63050a5a7dfa4d94e2948ca56b9b69544bae7e3",
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
       "package.json": "0xe99f41daeb1cbf22de252c479a934aa427cd037e273a055d1f0de6ddd4a4b2bd",
@@ -136,7 +139,7 @@
       "packages/community/publication-release.ts": "0x8733b84bc6593e29104a9e5d6351a12822ef3d0a52554a3316bb275368031195",
       "packages/community/publication-store.ts": "0xd7b2eea27223ae468d7b51846514ee72c036fe5eb8c45b53347c8d2e742fd435",
       "packages/community/publication.ts": "0x009478261d49a7001ffcb39e3542edcea06e74939d5be5270acab3a55a6e2f19",
-      "packages/community/registration-chain.ts": "0xed4616629669b303d2961d9074c79237b93c20aa8c4581781eba5a3c9113c046",
+      "packages/community/registration-chain.ts": "0xecc45aabffecb9317ca93aaea2e5706a947ce4ca8f6fc210bb11b4a3e00df354",
       "packages/community/stems.ts": "0x849fc49d2b4ba0c96ec7983da09d6062735085747169f74b1fb4ac9aaa357ba9",
       "packages/community/submissions.ts": "0x8b132471dd08bd97c42b43ecb723114c60b51a0cecf112144244c62ab621d4e8",
       "packages/community/uploads.ts": "0x9ef47ac4dc48a3251a3e5e2b58ffedeaf2e01ce9bf0058cee2b817cf1bdeac93",
@@ -157,8 +160,8 @@
       "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
       "services/first-song-runtime.ts": "0x12698f50e1e22534585f1ba638cf4a93259c06e53e6e325d93cd3fe889d613a0"
     },
-    "bundleSha256": "0x7070c14b0cfa6d57aad4e28a7398c442f605ccc77c10fac3957ebc598c8185e7",
-    "bundleBytes": 833062,
+    "bundleSha256": "0x187cc0b4b5805952948a5bd9efa3a074ba3f7c0bf64ee1501688df771a5235a1",
+    "bundleBytes": 833923,
     "assets": {
       ".vite/manifest.json": "0x57ab9475f0eafe99c92699439ac5d8e8d57ced6c9d121c85cd35abb97fd8e54b",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
@@ -207,7 +210,9 @@
       }
     },
     "curatedState": {
-      "schema": "pirate.held-first-song-state/1",
+      "schema": "pirate.published-first-song-state/1",
+      "observedAt": "2026-11-05T20:26:16.469Z",
+      "originalHeldStateSha256": "0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c",
       "application": {
         "community_accounts": {
           "count": 1,
@@ -227,11 +232,35 @@
         },
         "publication_jobs": {
           "count": 1,
-          "sha256": "0x711fb3d10bf07472262988bd543156585c73699df4ef78d982ce21a3f9fe5c0a"
+          "sha256": "0xa73931e6f2b1b2d1d671cfb52d088aae55c321d056b48f49f10b97590654c9c2"
         },
         "external_operations": {
+          "count": 7,
+          "sha256": "0x9ea74b801d582d2568633ff78bad3f6382b2e1991d76319a1a669123dfdbedc1"
+        },
+        "media_stems": {
+          "count": 2,
+          "sha256": "0x00f8574fbf33d7b0f61d265a375752f2349320235f38c68764d88caac9a7e3cb"
+        },
+        "publication_amendments": {
           "count": 1,
-          "sha256": "0x7b6a058228abf7fcb9bdb1316f8ef817fce24bf86645eec00fa2fd360a3c4a64"
+          "sha256": "0xf704f7cfc3c2be94d9e510dfaa705210b64bbd978ddc3ea4e18b1501472ccda0"
+        },
+        "external_operation_reconciliations": {
+          "count": 1,
+          "sha256": "0x1aeba6d0739d78a2ade976da384d2348efa028a3c178b9d2f2da033540802625"
+        },
+        "moderation_input_capabilities": {
+          "count": 3,
+          "sha256": "0x18e4b8c4063a5d2c81822cba0e85df704918e64c1b771ddfe761c1e258f3bddf"
+        },
+        "spending_budgets": {
+          "count": 2,
+          "sha256": "0x0c115fda05a3814acdb901c4ce7d41f597871e98f2a77710d1b73b6894a55cd1"
+        },
+        "spending_reservations": {
+          "count": 2,
+          "sha256": "0x3546c0bb7e6127a7ce14c4f9ee7c52581f39de8c601039779022fe5d91c23c01"
         }
       },
       "managed": {
@@ -244,28 +273,67 @@
           "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
         },
         "spending_budgets": {
-          "count": 2,
-          "sha256": "0x00d356f36794be939a8a74ca7b46054cdf80909ac185f8e520be9ee28459289e"
+          "count": 6,
+          "sha256": "0x9d2816779f075f7f4c3007276411e6ac614f7aa68cbe236465b3fbb0914dbd52"
         },
         "spending_reservations": {
-          "count": 6,
-          "sha256": "0x83577fee80df6d7d3cb942a782259a74f27bccbbd0d416906031cafac305b71f"
+          "count": 14,
+          "sha256": "0x2dadf3552064a08d7b2eadc11f6f4a4029af4015d4998e2ea006af32a70970d3"
         },
         "managed_releases": {
-          "count": 0,
-          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          "count": 1,
+          "sha256": "0xb85fab505aeaa449846c108ebf308ad9d0c36e8d432884f4ce4f6f43210f5201"
         },
         "funded_pins": {
-          "count": 0,
-          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          "count": 5,
+          "sha256": "0xc148a7dc6876aa69359e3611ce5c0583d73dea3a462502bb18b7b501f3bd97b8"
         },
         "funded_registrations": {
-          "count": 0,
-          "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          "count": 1,
+          "sha256": "0x1f27c94de938bff9fc507ff108aff36ea7c233a7e0e9b3c12160df54a412e3ec"
+        },
+        "curated_admissions": {
+          "count": 1,
+          "sha256": "0xad364a6ab27bfe7a4d4ee9fe7cdaa3ce4eb5a99beb74c62311cfab0bdb35aaff"
+        },
+        "moderation_request_nonces": {
+          "count": 15,
+          "sha256": "0x489a07654386c1941069c7c02920b2513c6da5409ffd249988139ca513526c22"
         }
+      },
+      "registration": {
+        "input": {
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadata": {
+            "uri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+            "sha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0"
+          },
+          "nftMetadata": {
+            "uri": "ipfs://bafkreiayekujyl55oopvsg3ul2gldhydegrdjsmogydjme4lqaiedlezqa",
+            "sha256": "0x1822a89c2fbd739f591b745e8cb19f0321a234c98e360696138b801041ac9980"
+          }
+        },
+        "receipt": {
+          "assetId": "0x2e5f4be36d644f6afdbcd3ffa89bb4e1b34cd256",
+          "blockHash": "0xb5b3ea093fb1d301ab97648ef274c1959f6804a58ab8bb176c7e74f9fa64e3b5",
+          "blockNumber": "25922296",
+          "chainId": 1315,
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadataSha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+          "metadataUri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+          "network": "aeneid",
+          "nftContract": "0xc32a8a0ff3beddda58393d022af433e78739fabc",
+          "protocol": "story",
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "status": "confirmed",
+          "tokenId": "4619",
+          "transactionHash": "0x5945d76b02eefb4a38351c75f86d4c45ffa981439d58e14cc7c194a1180059a0"
+        },
+        "operatorNonceAfter": 1
       }
     },
-    "managedProfileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
+    "managedProfileHash": "0x826ceff8948b688afa57f6feac8e03a5b5973c0907d5c14de0a0633776a752f8",
     "queueConsumer": {
       "logical": "Consumer",
       "queueId": "fe031cd96fbb47579585eb10154f785d",
@@ -277,10 +345,10 @@
     },
     "creatorProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v7.json",
-      "previousProfileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
-      "expectedExecutionSha256": "0x03e5b3c6106f672c619b6f554a607d042464d18e4561ca15ed955e5a1fe9eb38",
-      "expectedResultSha256": "0xf8f3c90525dd63fdef4a16810030c5bf047962958be5773eb4d530e145541253"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v8.json",
+      "previousProfileHash": "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279",
+      "expectedExecutionSha256": "0xdad0e349a5f8597651419e6197b5b283e98ce3841c2d7928541fde4e1c60e17a",
+      "expectedResultSha256": "0x3840b06de61e936e13ac33fd2953d872647d26eca841de73561744701a010c3e"
     },
     "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     "credentialBinding": {

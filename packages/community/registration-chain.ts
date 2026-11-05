@@ -7,6 +7,7 @@ import {
   parseAbi,
   encodeFunctionData,
   decodeEventLog,
+  encodeEventTopics,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
@@ -29,6 +30,7 @@ export const storyTestnet = {
 export const rootRegistrationAbi = parseAbi([
   "function mintAndRegisterIp(address spgNftContract,address recipient,(string ipMetadataURI,bytes32 ipMetadataHash,string nftMetadataURI,bytes32 nftMetadataHash) ipMetadata,bool allowDuplicates) returns (address ipId,uint256 tokenId)",
   "event IPRegistered(address ipId,uint256 indexed chainId,address indexed tokenContract,uint256 indexed tokenId,string name,string uri,uint256 registrationDate)",
+  "event Transfer(address indexed from,address indexed to,uint256 indexed tokenId)",
   "function ipId(uint256 chainId,address tokenContract,uint256 tokenId) view returns (address)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function tokenURI(uint256 tokenId) view returns (string)",
@@ -100,26 +102,63 @@ export async function observeRootRegistration(
       transaction.to?.toLowerCase() === storyTestnet.workflow &&
       transaction.value === 0n &&
       transaction.input === rootRegistrationData(input) &&
+      transaction.blockNumber === receipt.blockNumber &&
       transaction.blockHash === receipt.blockHash,
     "registration_transaction_mismatch",
     503,
   );
-  const registered = [];
+  const registered = [],
+    transfers = [],
+    transferTopic = encodeEventTopics({
+      abi: rootRegistrationAbi,
+      eventName: "Transfer",
+    })[0],
+    registeredTopic = encodeEventTopics({
+      abi: rootRegistrationAbi,
+      eventName: "IPRegistered",
+    })[0];
+  let lastIndex = -1;
   for (const log of receipt.logs) {
-    if (log.address.toLowerCase() !== storyTestnet.registry) continue;
-    try {
-      registered.push(
-        decodeEventLog({
+    const isTransfer =
+        log.address.toLowerCase() === storyTestnet.nft &&
+        log.topics[0] === transferTopic,
+      isRegistered =
+        log.address.toLowerCase() === storyTestnet.registry &&
+        log.topics[0] === registeredTopic;
+    if (!isTransfer && !isRegistered) continue;
+    insist(
+      log.transactionHash === transactionHash &&
+        log.blockHash === receipt.blockHash &&
+        log.blockNumber === receipt.blockNumber &&
+        log.removed === false &&
+        Number.isSafeInteger(log.logIndex) &&
+        log.logIndex! > lastIndex,
+      "registration_log_binding_mismatch",
+      503,
+    );
+    lastIndex = log.logIndex!;
+    if (isTransfer) {
+      transfers.push({
+        ...decodeEventLog({
           abi: rootRegistrationAbi,
-          eventName: "IPRegistered",
+          eventName: "Transfer",
           topics: log.topics,
           data: log.data,
           strict: true,
         }).args,
-      );
-    } catch {
-      /* Unrelated registry events are not registration evidence. */
+        index: log.logIndex,
+      });
+      continue;
     }
+    registered.push(
+      decodeEventLog({
+        abi: rootRegistrationAbi,
+        eventName: "IPRegistered",
+        topics: log.topics,
+        data: log.data,
+        strict: true,
+      }).args,
+    );
   }
   insist(
     registered.length === 1,
@@ -129,39 +168,58 @@ export async function observeRootRegistration(
   const event = registered[0]!;
   insist(
     event.chainId === 1315n &&
-      event.tokenContract.toLowerCase() === storyTestnet.nft,
+      event.tokenContract.toLowerCase() === storyTestnet.nft &&
+      event.uri === input.nftMetadata.uri,
     "registration_asset_mismatch",
     503,
   );
-  const [assetId, owner, uri, block] = await Promise.all([
-    client.readContract({
-      address: storyTestnet.registry,
-      abi: rootRegistrationAbi,
-      functionName: "ipId",
-      args: [1315n, storyTestnet.nft, event.tokenId],
-      blockNumber: receipt.blockNumber,
-    }),
-    client.readContract({
-      address: storyTestnet.nft,
-      abi: rootRegistrationAbi,
-      functionName: "ownerOf",
-      args: [event.tokenId],
-      blockNumber: receipt.blockNumber,
-    }),
-    client.readContract({
-      address: storyTestnet.nft,
-      abi: rootRegistrationAbi,
-      functionName: "tokenURI",
-      args: [event.tokenId],
-      blockNumber: receipt.blockNumber,
-    }),
-    client.getBlock({ blockNumber: receipt.blockNumber }),
-  ]);
+  // Prove initial delivery from the canonical mint receipt. Public testnet RPCs
+  // prune historical state within minutes; current ownership is not evidence
+  // of ownership at mint. The exact workflow call and IPRegistered URI above
+  // bind both metadata inputs, and these two ordered ERC721 events bind the
+  // initial token and creator without an archival eth_call or another mint.
+  const [mint, delivery] = transfers;
   insist(
-    assetId.toLowerCase() === event.ipId.toLowerCase() &&
-      owner.toLowerCase() === address(input.recipient) &&
-      uri === input.nftMetadata.uri &&
-      block.hash === receipt.blockHash,
+    transfers.length === 2 &&
+      mint &&
+      delivery &&
+      mint.tokenId === event.tokenId &&
+      delivery.tokenId === event.tokenId &&
+      mint.from === "0x0000000000000000000000000000000000000000" &&
+      mint.to.toLowerCase() === storyTestnet.workflow &&
+      delivery.from.toLowerCase() === storyTestnet.workflow &&
+      delivery.to.toLowerCase() === address(input.recipient) &&
+      Number.isSafeInteger(mint.index) &&
+      Number.isSafeInteger(delivery.index) &&
+      mint.index! >= 0 &&
+      delivery.index! > mint.index!,
+    "registration_delivery_mismatch",
+    503,
+  );
+  const [block, retained] = await Promise.all([
+    client.getBlock({ blockNumber: receipt.blockNumber }),
+    client.getTransactionReceipt({ hash: transactionHash }),
+  ]);
+  const logIdentity = (logs: typeof receipt.logs) =>
+    JSON.stringify(
+      logs.map((l) => [
+        l.address,
+        l.topics,
+        l.data,
+        l.logIndex,
+        l.transactionHash,
+        l.blockHash,
+        l.blockNumber?.toString(),
+        l.removed,
+      ]),
+    );
+  insist(
+    block.hash === receipt.blockHash &&
+      retained.status === "success" &&
+      retained.transactionHash === transactionHash &&
+      retained.blockHash === receipt.blockHash &&
+      retained.blockNumber === receipt.blockNumber &&
+      logIdentity(retained.logs) === logIdentity(receipt.logs),
     "registration_receipt_binding_mismatch",
     503,
   );

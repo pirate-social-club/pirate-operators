@@ -1,6 +1,10 @@
+import {
+  assertPublishedUpgrade,
+  publishedBaselines,
+} from "./published-state.ts";
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
-import { qualifyCuratedState } from "./curated-state.ts";
+import { qualifyRetainedState } from "./published-state.ts";
 import {
   readFile,
   lstat,
@@ -43,7 +47,9 @@ export async function qualifyManagedUpdate(
     previous.profileHash === profile.update.previousProfileHash &&
       hashJson(previous.profile) === previous.profileHash &&
       (previousEvidence.profileHash ??
-        object(object(previousEvidence.services).managed).profileHash) ===
+        (previousEvidence.profiles
+          ? object(previousEvidence.profiles).managed
+          : object(object(previousEvidence.services).managed).profileHash)) ===
         previous.profileHash,
     "managed_update_predecessor_changed",
     409,
@@ -54,7 +60,9 @@ export async function qualifyManagedUpdate(
     return rest;
   };
   if (canonical(intent(previous.profile)) !== canonical(intent(profile))) {
-    if (previous.profileHash === curatedBaselines.managed)
+    if (previous.profileHash === publishedBaselines.managed)
+      assertPublishedUpgrade(object(previous.profile), profile, "managed");
+    else if (previous.profileHash === curatedBaselines.managed)
       assertCuratedUpgrade(object(previous.profile), profile, "managed");
     else assertFirstSongUpgrade(object(previous.profile), profile, "managed");
   }
@@ -181,7 +189,7 @@ export async function qualifyManagedUpdate(
     409,
   );
   if (profile.curatedState) {
-    await qualifyCuratedState(
+    await qualifyRetainedState(
       String(env.CLOUDFLARE_API_TOKEN),
       profile.accountId,
       profile.curatedState,

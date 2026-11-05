@@ -22,6 +22,8 @@ import {
 } from "../packages/community/post-chain.ts";
 import { validateConfig } from "../packages/community/config-manifest.ts";
 
+import { registrationLogs } from "./fixtures/registration-receipt.ts";
+
 const hash = `0x${"1".repeat(64)}` as const,
   blockHash = `0x${"2".repeat(64)}` as const;
 const signer = "0x1111111111111111111111111111111111111111",
@@ -51,29 +53,7 @@ test("ROOT registration calls the parent-free workflow and reconciles only the e
       transactionHash: hash,
       blockNumber: 100n,
       blockHash,
-      logs: [
-        {
-          address: storyTestnet.registry,
-          topics: encodeEventTopics({
-            abi: rootRegistrationAbi,
-            eventName: "IPRegistered",
-            args: {
-              chainId: 1315n,
-              tokenContract: storyTestnet.nft,
-              tokenId: 1n,
-            },
-          }),
-          data: encodeAbiParameters(
-            [
-              { type: "address" },
-              { type: "string" },
-              { type: "string" },
-              { type: "uint256" },
-            ],
-            [asset, "Root asset", uri, 1000n],
-          ),
-        },
-      ],
+      logs: registrationLogs(hash, blockHash, recipient, uri),
     }),
     getTransaction: async () => ({
       hash,
@@ -82,6 +62,7 @@ test("ROOT registration calls the parent-free workflow and reconciles only the e
       to: storyTestnet.workflow,
       value: 0n,
       input: changed ? "0x" : data,
+      blockNumber: 100n,
       blockHash,
     }),
     readContract: async ({ functionName }: { functionName: string }) =>

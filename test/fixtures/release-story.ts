@@ -1,8 +1,6 @@
 // Explicit local Story RPC simulation. No public-chain transaction is sent.
 import {
   decodeFunctionData,
-  encodeAbiParameters,
-  encodeEventTopics,
   keccak256,
   parseTransaction,
   TransactionReceiptNotFoundError,
@@ -14,6 +12,7 @@ import {
   rootRegistrationAbi,
   storyTestnet,
 } from "../../packages/community/registration-chain.ts";
+import { registrationLogs } from "./registration-receipt.ts";
 export function releaseStoryFixture(signer: PrivateKeyAccount) {
   const code = "0x6000",
     blockHash = `0x${"3".repeat(64)}` as Hex,
@@ -50,7 +49,12 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
     },
     getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
       if (orphaned) throw new TransactionReceiptNotFoundError({ hash });
-      transaction(hash);
+      const decoded = decodeFunctionData({
+        abi: rootRegistrationAbi,
+        data: transaction(hash).data!,
+      });
+      if (decoded.functionName !== "mintAndRegisterIp")
+        throw Error("fixture requires ROOT workflow");
       return {
         status: "success",
         transactionHash: hash,
@@ -58,29 +62,12 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
         blockHash,
         gasUsed: 500000n,
         effectiveGasPrice: 1000000000n,
-        logs: [
-          {
-            address: storyTestnet.registry,
-            topics: encodeEventTopics({
-              abi: rootRegistrationAbi,
-              eventName: "IPRegistered",
-              args: {
-                chainId: 1315n,
-                tokenContract: storyTestnet.nft,
-                tokenId: 1n,
-              },
-            }),
-            data: encodeAbiParameters(
-              [
-                { type: "address" },
-                { type: "string" },
-                { type: "string" },
-                { type: "uint256" },
-              ],
-              [asset, "Root asset", "ipfs://unused", 1000n],
-            ),
-          },
-        ],
+        logs: registrationLogs(
+          hash,
+          blockHash,
+          decoded.args[1],
+          decoded.args[2].nftMetadataURI,
+        ),
       };
     },
     getTransaction: async ({ hash }: { hash: Hex }) => ({
@@ -91,6 +78,7 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
       value: 0n,
       input: transaction(hash).data,
       blockHash,
+      blockNumber: 100n,
     }),
     getBlock: async () => ({ hash: blockHash }),
     readContract: async ({ functionName }: { functionName: string }) => {

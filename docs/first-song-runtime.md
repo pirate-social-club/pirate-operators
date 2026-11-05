@@ -7,7 +7,8 @@ append-only policy amendments. The wizard setup and the subsequent application
 package have separate reviewed Alchemy runners. The managed first-song community
 and its registry/directory/posts contracts exist; the
 [current rollout evidence](deployments/first-song-managed-20261105.owner-curated-rollout.json)
-records exact deployed profiles. This does not yet claim a published first song.
+records the initial deployed profiles. [Actual first-song acceptance](deployments/first-song-managed-20261105.first-song-acceptance.json)
+records the published owner-curated release and anonymous playback after reload.
 
 The current owner-curated run follows
 [the explicit policy successor](owner-curated-first-song.md). Automated content
@@ -39,6 +40,15 @@ post-manifest pin and MegaETH publication. The driver supplies a stable request,
 read-only preparation, execution, reconciliation and result validation. Runtime
 adapters must validate current authority, provider evidence, public content and
 canonical chain receipts under the captured operation request.
+
+ROOT recovery verifies the exact canonical mint transaction and calldata,
+one registry IPRegistered event with the exact NFT metadata URI, and the ordered
+ERC721 transfers from zero through the workflow to the captured creator. Every
+expected log is bound to the transaction and block. A second receipt and the
+canonical block must still agree after confirmation. This proves initial delivery
+at transaction completion, without substituting current ownership for historical
+ownership. Public Aeneid RPCs prune old state, so recovery cannot depend on an
+archival ownerOf or tokenURI call. It never allocates another mint.
 
 An operation's request hash and preparation are persisted before sending.
 Preparation must persist all external transaction identifiers, nonces and signed

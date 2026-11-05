@@ -154,11 +154,12 @@ export async function communityPackage() {
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v7.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v8.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
-        "docs/deployments/first-song-managed-20261105.held-state.json",
+        "docs/deployments/first-song-managed-20261105.published-state.json",
         releaseGrantPath,
         "docs/deployments/first-song-managed-20261105.moderation-plan.json",
+        "harness/published-replay.ts",
         "package.json",
         "package-lock.json",
         "apps/community-wizard/package.json",
@@ -219,7 +220,7 @@ export async function communityPackage() {
     releaseGrant,
     curatedState: JSON.parse(
       await readFile(
-        "docs/deployments/first-song-managed-20261105.held-state.json",
+        "docs/deployments/first-song-managed-20261105.published-state.json",
         "utf8",
       ),
     ),
@@ -246,13 +247,13 @@ export async function communityPackage() {
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v7.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v8.json",
       previousProfileHash:
-        "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
+        "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279",
       expectedExecutionSha256:
-        "0x03e5b3c6106f672c619b6f554a607d042464d18e4561ca15ed955e5a1fe9eb38",
+        "0xdad0e349a5f8597651419e6197b5b283e98ce3841c2d7928541fde4e1c60e17a",
       expectedResultSha256:
-        "0xf8f3c90525dd63fdef4a16810030c5bf047962958be5773eb4d530e145541253",
+        "0x3840b06de61e936e13ac33fd2953d872647d26eca841de73561744701a010c3e",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {

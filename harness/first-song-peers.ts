@@ -1,4 +1,5 @@
 import { address } from "../packages/community/manifest-core.ts";
+import { qualifyPublishedRegistration } from "./published-registration.ts";
 import { readFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -57,12 +58,18 @@ export async function qualifyRegistrationFunding(
         (address) => client.getCode({ address }),
       ),
     ]);
+  const published =
+    profile.curatedState.schema === "pirate.published-first-song-state/1";
   insist(
     chain === 1315 &&
-      latest === 0 &&
-      pending === 0 &&
-      balance >= BigInt(grant.registration.maximumTotalFee) &&
-      gasPrice <= BigInt(grant.registration.maximumGasPrice),
+      latest ===
+        (published
+          ? profile.curatedState.registration.operatorNonceAfter
+          : 0) &&
+      pending === latest &&
+      (published ||
+        (balance >= BigInt(grant.registration.maximumTotalFee) &&
+          gasPrice <= BigInt(grant.registration.maximumGasPrice))),
     "registration_funding_or_nonce_not_qualified",
     409,
   );
@@ -76,6 +83,19 @@ export async function qualifyRegistrationFunding(
     "registration_contract_code_changed",
     409,
   );
+  if (published)
+    return {
+      ...(await qualifyPublishedRegistration(
+        client,
+        profile.curatedState,
+        grant.registration.operator,
+      )),
+      chainId: chain,
+      operator,
+      balance: balance.toString(),
+      latest,
+      pending,
+    };
   // The existing public configuration CID is synthetic metadata for this eth_call
   // only; actual metadata must be server-derived and pinned after admission.
   const uri =
