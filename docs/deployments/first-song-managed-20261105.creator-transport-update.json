@@ -1,0 +1,67 @@
+{
+  "profileHash": "0xbe5c5fe88ad95d3b0aa703c2bda5c9936b9f32969f0a64d577c68397bde6fbcc",
+  "before": {
+    "at": "2026-11-05T10:35:42.020Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "after": {
+    "at": "2026-11-05T10:36:39.830Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "health": [
+    {
+      "origin": "https://pirate-wallet-test.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0xbe5c5fe88ad95d3b0aa703c2bda5c9936b9f32969f0a64d577c68397bde6fbcc",
+        "testnet": true
+      }
+    },
+    {
+      "origin": "https://pirate-creator-spike.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0xbe5c5fe88ad95d3b0aa703c2bda5c9936b9f32969f0a64d577c68397bde6fbcc",
+        "testnet": true
+      }
+    }
+  ],
+  "logs": [
+    "1793874951942-creator-plan-876c4a36-ee56-4181-9a50-b63e96933e69.enc",
+    "1793874955654-creator-deploy-c5ee685f-689d-48de-94b1-fa4c4b676e0e.enc"
+  ],
+  "historicalState": "original preserved unchanged; separate encrypted successor scanned",
+  "nativeTransactions": 0,
+  "providerRequests": 0,
+  "schema": "pirate.first-song-transport-update/1",
+  "sourceCommit": "b49448fb8f548528ada08ab745eb1b2fae330156",
+  "acceptance": "Owned deployment and transport correction only; configuration bootstrap is blocked by public_ipfs_unavailable; real browser/provider/song acceptance remains unproved",
+  "workerModules": {
+    "index.js": "0x21b6615e193a2321d38e8d37974f47e10949665f6dd837df9e127e2da81bd3a2",
+    "ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da"
+  }
+}

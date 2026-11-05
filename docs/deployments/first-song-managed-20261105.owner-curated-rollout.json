@@ -1,0 +1,87 @@
+{
+  "schema": "pirate.owner-curated-rollout-evidence/1",
+  "observedAt": "2026-11-05T18:19:38.370Z",
+  "sourceCommit": "53dcd0007dae21870dbcbb8e4d058f4d368b4ecd",
+  "independentReview": {
+    "gate": "passed",
+    "heldStateObservedAt": "2026-11-05T18:04:44Z",
+    "checks": [
+      "four exact Worker modules including both Native WASM copies",
+      "all five application assets",
+      "full traffic and existing resource identities",
+      "encrypted predecessor state and verified backups",
+      "application migrations 0006/0007 and managed migration 0003",
+      "original held rows and provider accounting",
+      "canonical revision 2 transaction and manifest readback"
+    ]
+  },
+  "profiles": {
+    "native": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
+    "managed": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
+    "application": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e"
+  },
+  "health": [
+    {
+      "role": "wallet",
+      "origin": "https://pirate-wallet-test.piratesocialclub.workers.dev",
+      "status": 200,
+      "profileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb"
+    },
+    {
+      "role": "creator",
+      "origin": "https://pirate-creator-spike.piratesocialclub.workers.dev",
+      "status": 200,
+      "profileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb"
+    },
+    {
+      "role": "managed",
+      "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+      "status": 200,
+      "profileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705"
+    },
+    {
+      "role": "application",
+      "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "status": 200,
+      "profileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
+      "firstSong": "not_ready"
+    }
+  ],
+  "privateResultDigests": {
+    "creator-service": {
+      "profileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
+      "sha256": "0x8876c47896acf61f9a5fc7360f62350dc42ff8133dbadcbdbf68e801150090b1"
+    },
+    "managed-service": {
+      "profileHash": "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
+      "sha256": "0x8863d3f0c558237839ddc1e02d720da4ce7f0eb6c8edc95dedf068471e682f7f"
+    },
+    "application-service": {
+      "profileHash": "0x4f84ca8543085d24528406189a859da98b96aa89a109548e1131dfcfb7a67c3e",
+      "sha256": "0xf8f3c90525dd63fdef4a16810030c5bf047962958be5773eb4d530e145541253"
+    }
+  },
+  "configuration": {
+    "profileHash": "0x2af568e88e44a824a50325d95e9ebc17f890a0a46243d3fa8d6771cf622d8d3e",
+    "revision": 2,
+    "transactionHash": "0x7a7a08b287d62b5daf5cb2273a44aa016de1658717c15b64eefabf2649191810",
+    "blockNumber": "34191187",
+    "nonce": 18,
+    "actualFeeWei": "214658000000",
+    "evidence": "docs/deployments/first-song-managed-20261105.curated-configuration.json"
+  },
+  "preservation": {
+    "originalHeldStateSha256": "0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c",
+    "originalReceiptCount": 3,
+    "newAutomatedContentCalls": 0,
+    "nativeTransactions": 0,
+    "c22Changed": false
+  },
+  "pending": [
+    "creator uploads both exact stems",
+    "signed append-only adoption",
+    "actual five song pins, one ROOT registration and one post",
+    "fresh-browser playback after reload",
+    "supplemental forced alignment"
+  ]
+}

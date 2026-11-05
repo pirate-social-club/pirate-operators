@@ -1,0 +1,32 @@
+{
+  "date": "2026-11-04",
+  "scope": "software-passkey Ika testnet; real browser PRF and MOSS not covered",
+  "status": "verified",
+  "address": "0x054A28888043052F1281648dA6b0f4616DcbE71E",
+  "signature": "0xa6a5979f919d832162f5a28a5d1b691ebcaa659aa2cf813aeff49dc2eb43f8f35fbad662e971cd931a10e0519097ac0dc284e43080cc87ea0959b7071c4fa29f",
+  "message": "GUV0aGVyZXVtIFNpZ25lZCBNZXNzYWdlOgoyOTJQaXJhdGUgY3JlYXRvciB0ZXN0Ck9yaWdpbjogaHR0cHM6Ly9waXJhdGUtd2FsbGV0LXRlc3QucGlyYXRlc29jaWFsY2x1Yi53b3JrZXJzLmRldgpOZXR3b3JrOiBTdWkgLyBJa2EgdGVzdG5ldApXYWxsZXQ6IDB4MDU0QTI4ODg4MDQzMDUyRjEyODE2NDhkQTZiMGY0NjE2RGNiRTcxRQpDaGFsbGVuZ2U6IDN2Um8taF9HVFpPZkYyWWFEVHVYbDNfTGtwZmRLQ1ktX1pscVdMNHNfeDQKVGhpcyBwcm92ZXMgSSByZW9wZW5lZCBteSBjcmVhdG9yIHdhbGxldC4gSXQgZG9lcyBub3QgYXV0aG9yaXplIGEgdHJhbnNmZXIu",
+  "transactionDigest": "7wKqP1c8pdazUJzGNjX4QG17pbvWsGvrQBQLRNufrHCt",
+  "signId": "0x866d7e5f945dbbc0ac6b40596fb8b0a8e75ba4066241de24a0a833ec83459dbf",
+  "dWalletId": "0x7599846143597a669c1d838390b6cdd944db068e80db2c489f1df9574b453e5e",
+  "capId": "0xb4ad6f99bab22fcce43c4d6e8a1a4ce1713a177963fc0fb65ff3dcae8e1bd7c9",
+  "creator": "0x7cb9d94705d879e7af894c2e214e1bec8c9bfa47470746b82c83261b8a0b0186",
+  "packages": {
+    "ikaPackage": "0x1f26bb2f711ff82dcda4d02c77d5123089cb7f8418751474b9fb744ce031526a",
+    "ikaCommonPackage": "0x96fc75633b6665cf84690587d1879858ff76f88c10c945e299f90bf4e0985eb0",
+    "ikaSystemOriginalPackage": "0xae71e386fd4cff3a080001c4b74a9e485cd6a209fa98fb272ab922be68869148",
+    "ikaSystemPackage": "0xde05f49e5f1ee13ed06c1e243c0a8e8fe858e1d8689476fdb7009af8ddc3c38b",
+    "ikaDwallet2pcMpcOriginalPackage": "0xf02f5960c94fce1899a3795b5d11fd076bc70a8d0e20a2b19923d990ed490730",
+    "ikaDwallet2pcMpcPackage": "0x6573a6c13daf26a64eb8a37d3c7a4391b353031e223072ca45b1ff9366f59293"
+  },
+  "transactions": {
+    "dkg": "9cELXZNbb7GRkn5GBH5XiaYNxHrEBfkNPNCwdGkvMTYq",
+    "acceptance": "FfvoxEm98VqDGAuZASYdtD6WF63vb6jYCWRHXaGtjk8z",
+    "presign": "6bsmD3arJ6SeF3QF45sLp6EU2dHKZipmrwm196ubSMb6",
+    "sign": "7wKqP1c8pdazUJzGNjX4QG17pbvWsGvrQBQLRNufrHCt"
+  },
+  "remainingAcceptance": [
+    "Real MOSS login and signature",
+    "Real passkey PRF and activation consent",
+    "Real-device Android Chrome and Telegram"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "pirate.held-first-song-state/1",
+  "application": {
+    "community_accounts": {
+      "count": 1,
+      "sha256": "0x1152813534dfaf1425f55aca44c655261a10ebc77fd6d5d67f6a4de5de1b507a"
+    },
+    "credential_bindings": {
+      "count": 1,
+      "sha256": "0x28759de97c767b4378f44eded9ee4f48edf4500bab117099a28cdf94ae879931"
+    },
+    "creator_bindings": {
+      "count": 1,
+      "sha256": "0x42c8378c328ed0844fe8dccb12dbd58ee6917464528f7c7470b57565fba0a4a7"
+    },
+    "media_submissions": {
+      "count": 1,
+      "sha256": "0x2cc1478f76d44390390eba484c229d0d200efcf9609026b344efa92497bbbca1"
+    },
+    "publication_jobs": {
+      "count": 1,
+      "sha256": "0x711fb3d10bf07472262988bd543156585c73699df4ef78d982ce21a3f9fe5c0a"
+    },
+    "external_operations": {
+      "count": 1,
+      "sha256": "0x7b6a058228abf7fcb9bdb1316f8ef817fce24bf86645eec00fa2fd360a3c4a64"
+    }
+  },
+  "managed": {
+    "managed_admissions": {
+      "count": 1,
+      "sha256": "0xc85c0b97b7d4f8193f6b31415bc3efba552bdbfd48167d8ccfc86a5249fe6168"
+    },
+    "moderation_provider_calls": {
+      "count": 3,
+      "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
+    },
+    "spending_budgets": {
+      "count": 2,
+      "sha256": "0x00d356f36794be939a8a74ca7b46054cdf80909ac185f8e520be9ee28459289e"
+    },
+    "spending_reservations": {
+      "count": 6,
+      "sha256": "0x83577fee80df6d7d3cb942a782259a74f27bccbbd0d416906031cafac305b71f"
+    },
+    "managed_releases": {
+      "count": 0,
+      "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "funded_pins": {
+      "count": 0,
+      "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "funded_registrations": {
+      "count": 0,
+      "sha256": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  }
+}

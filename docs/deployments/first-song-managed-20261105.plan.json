@@ -1,0 +1,117 @@
+{
+  "schema": "pirate.first-song-setup-plan/1",
+  "recordedAt": "2026-11-04T20:59:08.003Z",
+  "sourceCommit": "fce3c88852e5d34e849f2e0133299ca8850ab280",
+  "settings": {
+    "moderationMode": "pirate",
+    "name": "First Song Managed Test",
+    "slug": "first-song-20261105",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "subdomain": "piratesocialclub",
+    "projectId": "",
+    "environment": "",
+    "secretPath": "",
+    "acrHost": "",
+    "cloudconvert": false,
+    "tld": "firstsong-20261105"
+  },
+  "plan": {
+    "revision": 1,
+    "sourceDigest": "3b29fdf74116515f2d1fcf303b44e32b3d5f43373731dd809d47c02a42046375",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+    "resources": [
+      {
+        "kind": "Worker",
+        "name": "pirate-first-song-20261105",
+        "purpose": "Community setup page; posting integration pending"
+      },
+      {
+        "kind": "D1",
+        "name": "pirate-first-song-20261105-db",
+        "purpose": "Community database and schema"
+      },
+      {
+        "kind": "R2",
+        "name": "pirate-first-song-20261105-media",
+        "purpose": "Private media storage"
+      },
+      {
+        "kind": "Queue",
+        "name": "pirate-first-song-20261105-jobs",
+        "purpose": "Job transport; moderation consumer pending"
+      }
+    ],
+    "id": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721"
+  },
+  "profile": "separate-managed-mode-permanently-unlisted-testnet",
+  "registry": null,
+  "registryFactory": "0x702185797cD23E153fd0b83B672f969eA4aCfCc6",
+  "c22": "independent; storage and job testing only",
+  "firstSong": "not_ready",
+  "runner": {
+    "stateDirectory": "/home/t42/.local/state/pirate-first-song-managed-20261105",
+    "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
+    "environment": "staging",
+    "secretPath": "/communities/first-song-20261105-runner",
+    "mode": "cf-login",
+    "existingCredentialSource": "/communities/c22-wizard-staging-runner",
+    "credentialAction": "copy existing state password to separate staging folder; Cloudflare uses existing cf profile at launch; no generated or rotated credentials",
+    "cfProfile": "default"
+  },
+  "limits": {
+    "setupResources": 4,
+    "megaethChainId": 6343,
+    "megaethTotalGasFeeCeilingWei": "10000000000000000",
+    "providerCalls": "not enabled by this setup plan"
+  },
+  "inventory": {
+    "at": "2026-11-04T21:04:33.827Z",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "method": "cf existing default profile, read only",
+    "resources": [
+      {
+        "kind": "Worker",
+        "target": "pirate-first-song-20261105",
+        "totalReturned": 25,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "D1",
+        "target": "pirate-first-song-20261105-db",
+        "totalReturned": 0,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "R2",
+        "target": "pirate-first-song-20261105-media",
+        "totalReturned": 0,
+        "resultShape": [
+          "buckets"
+        ],
+        "matchingIds": [],
+        "cursor": null
+      },
+      {
+        "kind": "Queue",
+        "target": "pirate-first-song-20261105-jobs",
+        "totalReturned": 11,
+        "resultShape": "array",
+        "matchingIds": [],
+        "cursor": null
+      }
+    ]
+  },
+  "execution": {
+    "ownerRole": "workspace_coordinator",
+    "launcherDeadlineSeconds": 60,
+    "applyDeadlineSeconds": 900,
+    "observationIntervalSeconds": 20,
+    "recovery": "On deadline stop new writes, inspect runner and child processes, retain encrypted diagnostics/state and exact task-owned resource inventory; reconcile before retry. No lock removal while a child is live.",
+    "c22Mutation": false
+  }
+}

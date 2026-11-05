@@ -1,0 +1,86 @@
+{
+  "schema": "pirate.safe-code-observation/1",
+  "observedAt": "2026-11-04T14:30:39.799340+00:00",
+  "rpc": "https://carrot.megaeth.com/rpc",
+  "chainId": 6343,
+  "blockTag": "finalized",
+  "blockNumber": 34090238,
+  "blockHash": "0x3db109fb61657fb40718f3e3046b21a05d1d64094f625acfe61edb7969a8dc62",
+  "safeDeploymentsCommit": "685f22be940739259cfc4148db3df7048f39a4e8",
+  "method": "eth_getCode at the recorded block number; Keccak-256 compared with the canonical deployment codeHash in the pinned official assets; block hash rechecked after reads.",
+  "artifacts": [
+    {
+      "path": "v1.4.1/safe.json",
+      "contractName": "Safe",
+      "version": "1.4.1",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.4.1/safe.json",
+      "address": "0x41675C099F32341bf84BFc5382aF534df5C7461a",
+      "codeHash": "0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4",
+      "codeBytes": 23579,
+      "observedCodeHash": "0x1fe2df852ba3299d6534ef416eefa406e56ced995bca886ab7a553e6d0c5e1c4",
+      "matches": true
+    },
+    {
+      "path": "v1.4.1/safe_l2.json",
+      "contractName": "SafeL2",
+      "version": "1.4.1",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.4.1/safe_l2.json",
+      "address": "0x29fcB43b46531BcA003ddC8FCB67FFE91900C762",
+      "codeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+      "codeBytes": 24421,
+      "observedCodeHash": "0xb1f926978a0f44a2c0ec8fe822418ae969bd8c3f18d61e5103100339894f81ff",
+      "matches": true
+    },
+    {
+      "path": "v1.4.1/safe_proxy_factory.json",
+      "contractName": "SafeProxyFactory",
+      "version": "1.4.1",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.4.1/safe_proxy_factory.json",
+      "address": "0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67",
+      "codeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+      "codeBytes": 3054,
+      "observedCodeHash": "0x50c3cdc4074750a7a974204a716c999edd37482f907608d960b2b025ee0b3317",
+      "matches": true
+    },
+    {
+      "path": "v1.3.0/gnosis_safe.json",
+      "contractName": "GnosisSafe",
+      "version": "1.3.0",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.3.0/gnosis_safe.json",
+      "address": "0xd9Db270c1B5E3Bd161E8c8503c55cEABeE709552",
+      "codeHash": "0xbba688fbdb21ad2bb58bc320638b43d94e7d100f6f3ebaab0a4e4de6304b1c2e",
+      "codeBytes": 22958,
+      "observedCodeHash": "0xbba688fbdb21ad2bb58bc320638b43d94e7d100f6f3ebaab0a4e4de6304b1c2e",
+      "matches": true
+    },
+    {
+      "path": "v1.3.0/gnosis_safe_l2.json",
+      "contractName": "GnosisSafeL2",
+      "version": "1.3.0",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.3.0/gnosis_safe_l2.json",
+      "address": "0x3E5c63644E683549055b9Be8653de26E0B4CD36E",
+      "codeHash": "0x21842597390c4c6e3c1239e434a682b054bd9548eee5e9b1d6a4482731023c0f",
+      "codeBytes": 23800,
+      "observedCodeHash": "0x21842597390c4c6e3c1239e434a682b054bd9548eee5e9b1d6a4482731023c0f",
+      "matches": true
+    },
+    {
+      "path": "v1.3.0/proxy_factory.json",
+      "contractName": "GnosisSafeProxyFactory",
+      "version": "1.3.0",
+      "officialNetwork6343": null,
+      "source": "https://github.com/safe-global/safe-deployments/blob/685f22be940739259cfc4148db3df7048f39a4e8/src/assets/v1.3.0/proxy_factory.json",
+      "address": "0xa6B71E26C5e0845f74c812102Ca7114b6a896AB2",
+      "codeHash": "0x337d7f54be11b6ed55fef7b667ea5488db53db8320a05d1146aa4bd169a39a9b",
+      "codeBytes": 3774,
+      "observedCodeHash": "0x337d7f54be11b6ed55fef7b667ea5488db53db8320a05d1146aa4bd169a39a9b",
+      "matches": true
+    }
+  ],
+  "limits": "Read-only single-RPC observation. No Safe proxy was deployed, initialized, funded or exercised. No signer-loss recovery, wallet UI, transaction service or first-song acceptance is established."
+}

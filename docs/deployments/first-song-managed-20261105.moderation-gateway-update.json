@@ -1,0 +1,68 @@
+{
+  "schema": "pirate.first-song-gateway-update/1",
+  "sourceCommit": "71267b84ac6b3dd95ff32730c40de4b93cfe0a20",
+  "profileHash": "0x9756688b945fc4666d5e9085bd65e1c9ef7e2391f2871ace5a1980c8ee2e07d9",
+  "before": {
+    "at": "2026-11-05T11:27:39.183Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T11:28:10.407Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "status": {
+    "profileHash": "0x9756688b945fc4666d5e9085bd65e1c9ef7e2391f2871ace5a1980c8ee2e07d9",
+    "service": "pirate-managed-moderation/1",
+    "status": "available"
+  },
+  "logs": [
+    "1793878069663-managed-plan-6c701131-39cb-43e4-9e31-299e020d8393.enc",
+    "1793878072279-managed-deploy-2ed71e60-085b-4759-9fe2-48a857f58424.enc"
+  ],
+  "workerModules": {
+    "worker.mjs": "0xa51b81498cda6ecf39214a919561f6f22f13d68487bcc219a9522dc034b80d45"
+  },
+  "acceptance": "Owned deployment and live configuration gateway retrieval only; MOSS/passkey, provider and actual song acceptance remain open"
+}

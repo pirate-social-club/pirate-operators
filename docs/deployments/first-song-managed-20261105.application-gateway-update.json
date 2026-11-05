@@ -1,0 +1,72 @@
+{
+  "schema": "pirate.first-song-gateway-update/1",
+  "sourceCommit": "71267b84ac6b3dd95ff32730c40de4b93cfe0a20",
+  "profileHash": "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb",
+  "before": {
+    "at": "2026-11-05T11:26:05.057Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T11:26:34.994Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "health": {
+    "schema": "pirate.community-application/1",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "profileHash": "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb",
+    "infrastructure": "provisioned",
+    "firstSong": "not_ready",
+    "signIn": "available",
+    "creatorConnection": "available"
+  },
+  "logs": [
+    "1793877974050-application-plan-b90e11c4-3d86-4a2d-b0f5-ba7228f7040a.enc",
+    "1793877976387-application-deploy-af6b6ef5-3bb1-43da-9d9a-4c6965b3757d.enc"
+  ],
+  "workerModules": {
+    "worker.mjs": "0xd73f633b6783d520a2b2cc72c2cad571e420b3885226f76b704821007b12b968"
+  },
+  "acceptance": "Owned deployment and live configuration gateway retrieval only; MOSS/passkey, provider and actual song acceptance remain open"
+}

@@ -1,0 +1,42 @@
+{
+  "schema": "pirate.song-alignment-provenance/1",
+  "inspectedAt": "2026-11-05",
+  "sources": [
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment.ts",
+      "sha256": "0x1ba3ae96e6bed11267d4ebf71fb53a86943b5de56400d7c0175efaf26e1ee695"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-request.ts",
+      "sha256": "0x39d6395b68ab47f5326bf289183f26da6df1c31017f2955ec7eb755c7658d591"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-response.ts",
+      "sha256": "0x84f8a458e2d977451c3dedfb19356bba35afa244ecfce7f07d809c8b5ccf4c49"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-types.ts",
+      "sha256": "0x282530fb3393e3a9956b4c4c05dcc2631289b73351a15e3cc37ca140d612585f"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-processing-runtime.ts",
+      "sha256": "0x31c8572af32c393ba6573cd74ef1ba6bc2d9623441e3ab22fff438d0907997d1"
+    }
+  ],
+  "boundary": "Independent request/response adaptation and existing vocal-source binding. No runtime imports from the centralized system. Preserve the exact supplied transcript and immutable lyric occurrence IDs. The current parser requires valid word timing evidence; centralized character-only fallback is not implemented. Durable once-per-revision processing and bounded-row storage are independently owned here.",
+  "documentation": [
+    "https://elevenlabs.io/docs/api-reference/forced-alignment/create",
+    "https://developers.cloudflare.com/d1/platform/limits/"
+  ],
+  "status": "offline foundation; no provider execution or runtime deployment"
+}

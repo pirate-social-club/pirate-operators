@@ -8,7 +8,7 @@
   },
   "scripts": {
     "acceptance": "node harness/acceptance.ts",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test --test-concurrency=2 test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && forge test --offline && npm run acceptance",
     "dev": "cf dev",
@@ -19,6 +19,11 @@
     "megaeth:records": "node harness/megaeth/deploy-records.ts"
   },
   "dependencies": {
+    "@infisical/sdk": "5.0.2",
+    "@mysten/sui": "2.39.0",
+    "effect": "4.1.2",
+    "ipfs-unixfs-importer": "17.1.1",
+    "multiformats": "14.0.5",
     "viem": "2.57.16"
   },
   "devDependencies": {

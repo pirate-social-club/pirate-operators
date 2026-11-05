@@ -10,8 +10,122 @@ access and karaoke remain outside this milestone.
 Alchemy.run owns Cloudflare provisioning, and Infisical is the service-secret
 source. PR 15 supplies a provisioning wizard with separate live recovery evidence;
 it does not implement the song application. Main includes payments, learning
-records and the account-design specification. The application account migration,
-managed moderation, publication jobs and live upload-to-playback path remain work.
+records and the account-design specification. At the original provisioning
+handoff, application accounts, managed moderation, publication jobs and the live
+upload-to-playback path remained work. Current task records and exact deployment
+evidence determine which of those later steps have passed.
+
+## Next-community owner decision, 2026-11-05
+
+Communities connect their own ACRCloud, OpenAI and Filebase accounts through the
+wizard. Their Cloudflare deployment runs admission and publication using those
+credentials and its own moderation evidence signer. Pirate supplies the shared
+contracts, directory/discovery, software and funded creator wallet/registration
+service. Provider account setup is the supported path; it does not require the
+community to operate a Sui/Ika treasury. Infisical stays as the recoverable
+service-secret source, with its project/folder setup automated by the wizard.
+
+This decision applies to the next community's packaged setup. It supersedes the
+earlier Pirate-moderation default for that delivery, while the existing
+first-song managed profile and independent c22 configuration remain fixed.
+The current wizard code still defaults to Pirate moderation; this document is
+an implementation requirement, not evidence that the default has changed.
+Moderation custody and creator-service custody must be configured separately.
+
+The next community is a disposable, unlisted test of repeatable setup and the
+first live community-run moderation path. It may register a genuine registry
+from the approved factory in the existing disposable directory and publish
+through its posts contract. The contract's acceptance of another registry does
+not pair its creator service, fund its publisher or authorize a new moderation
+signer. Those are explicit setup and acceptance steps. Safe qualification,
+lasting contracts and verified discovery are a separate launch track.
+Changing directory/posts addresses later requires explicit configuration and
+history handling; it does not migrate these test communities or song identities.
+
+For this second-community test, the workspace_owner acts as its operator and
+connects operator-owned ACRCloud, OpenAI and Filebase accounts. Existing suitable
+accounts are acceptable; use this community's credential references rather than
+copying Pirate's shared staging credentials. Require working provider access
+and sufficient quota for the reviewed test, not a particular paid plan. Valid
+free access is acceptable, including ACRCloud access; do not assume a universal
+trial expiry or mandatory billing. Show applicable limits and charges, using
+provider readback where supported and guided account checks otherwise.
+
+The test also needs a different original song and its untimed lyrics, supplied
+by the workspace_owner. Reusing the first song's existing registration cannot
+prove the new sponsored-registration boundary. Select the second song and
+prepare provider access when the package is ready for the live test. The
+administrator wallet and server-side publisher need MegaETH test ETH; the
+wizard must show the reviewed amounts and verify balances before the relevant
+transactions. Existing balances may suffice; any transfer still needs approval.
+
+The operator journey has six steps. The
+[wizard acceptance matrix](../apps/community-wizard/README.md#next-community-packaged-wizard-acceptance)
+and web-client D3/D8-D10 checks define its evidence, alongside creator-wallet
+C1-C13 and the [funding checks](creator-wallet-payments.md#first-song-acceptance).
+
+1. Open a versioned setup package on its supported OS/architecture. The package
+   prepares its pinned runtime, Alchemy and authentication helpers, opens the
+   local browser wizard and resumes the same private state on subsequent runs.
+   A source checkout, manual build and terminal flags are not supported-path
+   operator steps. Record the tested platform; do not imply untested platforms.
+2. Connect Cloudflare and Infisical, selecting accounts and projects by name.
+   Create missing approved secret scopes, generate and retain a cryptographically
+   random state password of at least 32 bytes once, and confirm recoverability
+   before provisioning. The operator signs in
+   and authorizes access; it does not copy account UUIDs or generate a password.
+3. Name the community and choose its ordinary HTTPS address and fixed namespace.
+   Explain irreversible/fixed choices before external effects. Display unlisted
+   test status; HNS, Spaces and permanent identity migration are not implied.
+4. Connect the community's provider accounts. Where supported, use provider
+   authorization; otherwise guide the unavoidable initial key step. Automate
+   resource selection/creation and secret storage after connection. Generate
+   and durably store its distinct moderation signer before publishing that
+   identity. Provision and retain the separate server-side publisher identity
+   through the same verified secret workflow. Community provider keys, publisher authority, moderation signing
+   and Pirate treasury keys have separate scopes and permissions.
+5. Connect the administrator wallet. Verify the selected shared deployment and
+   factory, estimate fees, check balances and review the resource/transaction
+   plan. Create the community registry, publish and verify configuration, then
+   register/configure it in the selected directory. Fund the community publisher
+   only through an explicitly approved transfer and verify receipt/balance.
+   Pair Pirate's creator service under its own accepted-signer policy and
+   [bounded second-community grant](creator-wallet-payments.md#second-community-sponsor-admission).
+6. Deploy and verify application, storage, processing and delivery. Show
+   infrastructure, provider checks, creator connection, allowance, publication
+   and playback readiness separately. Complete an actual admitted release with
+   the community's providers, its signature and the approved sponsored action.
+   Reload/resume must reconcile resources, signatures and external receipts.
+
+This is a resumable dependency graph. Infrastructure bootstrap can precede the
+registry/configuration transactions; service pairing remains pending until its
+actual origin, authority and allowance checks pass. Display dependency readiness
+rather than treating the order of screens as proof that a service is connected.
+
+The publisher pays ongoing MegaETH post gas. Show low-balance warnings and an
+explicit blocked/pending publication state if funds are insufficient. An
+automatic refill requires a separate bounded spending policy. Verify approved
+public media independently of the pin provider and qualify the browser delivery
+path for full playback, seeking, reload and upstream failure. One successful
+configuration fetch is not media acceptance. A dedicated gateway or verified
+Worker delivery needs actual qualification; this specification selects neither.
+
+Before a second community consumes Pirate funds, enforce the minimum sponsor
+policy in the funding specification: an independently curated trusted signer,
+content-bound expiring grant, concrete native ceilings and service-side cutoff.
+The community's own on-chain signer selection is not Pirate's spending approval.
+The first-song managed path does not exercise this new trust boundary.
+
+Before first-song acceptance, the coordinator records the chosen source landing
+branch/base, complete source SHA and component-review/check mapping, plus how
+PR 22 commits aefafa5 and 306480c enter that path. Preserve existing integration
+resolutions rather than resolving the older stacked PR conflicts independently.
+When creator sign-in is ready, send the workspace_owner one short procedure
+with exact community/wallet origins, supported browser, MOSS sign-in, existing
+passkey selection, expected testnet/covered-fee display, return step and the
+success/failure state. Reuse the verified Active pilot wallet; a new wallet or
+fresh activation requires an explicit reason and allowance. Do not ask for a
+passkey export or secret. The test song and untimed lyrics are already selected.
 
 ## MVP namespace scope
 
@@ -65,6 +179,10 @@ disposable directory/posts profile using this registry, not c22's, and supplies
 its addresses, ABIs and deployment manifest. The MegaETH clone transaction uses
 the existing approved operator test-funding workflow with a finite budget.
 HNS delegation is unnecessary for this unverified direct-feed test.
+An ordinary EOA may bootstrap as registry admin/controller for disposable
+acceptance. A later MOSS controller handoff needs an explicit proposal and the
+receiving account's acceptance; account execution and recovery are separate
+checks. See the [directory bootstrap boundary](contracts/community-directory.md).
 
 Keep c22 independent for storage/job acceptance. Its provider placeholders are
 not a managed-service configuration or evidence of real checks. Do not switch
@@ -138,12 +256,36 @@ CloudConvert is required when selected media conversion uses it. Preserve the
 specific MP3 frame-window rule for identification; a generic transcoded sample
 does not satisfy that rule. No simulated allow verdict counts as configuration.
 
+## Disposable first-song scope
+
+An EOA test controller remains recovery-incomplete. Demonstrated independent
+recovery and the required controller handoff gate mainnet or real-user
+onboarding; code presence alone is not recovery. This permanently unlisted
+test profile cannot later acquire listing authority.
+
+Owner approval after review, November 4: use a disposable MegaETH testnet directory and
+posts index with two distinct inert authority contracts for the ordinary-HTTPS
+first-song test. It stays permanently unlisted and cannot later enable Pirate
+discovery. Real governance accounts and automated verification are required for
+the first listing-capable deployment, not this disposable one. The later posts
+address changes song keys; no automatic migration of test history is promised.
+See the [profile and receipt requirements](contracts/disposable-first-song.md).
+
+The first-song path explicitly includes MOSS-to-Ika creator activation and
+capped operator-funded setup before upload, followed by sealing, real admission,
+IPFS publication, DATA testnet registration, MegaETH post publication and
+playback after reload. Freeze community-account and lyric-manifest formats
+before storing state. Lyric line/occurrence IDs are stable from publication;
+line/word timings and alignment can arrive in a later post revision for karaoke.
+Neither a speech provider nor karaoke readiness gates this first-song milestone.
+
 ## Namespace and directory authority
 
 The per-TLD SLDRegistry and Pirate's shared registry of communities are different
-systems. The former exists in pirate-registry. The latter is required for this
-happy path and is not implemented yet. Its deployment/update interface must be
-built; this requirement is not dismissed because HNS already owns name authority.
+systems. The former exists in pirate-registry. The shared directory and post
+contracts are implemented and pushed on draft PR 17; their source is not a
+live deployment or completed first-song integration. The disposable profile
+above permits the HTTPS test without HNS listing or real governance accounts.
 
 The initial directory is Pirate-maintained, with a shared MegaETH community
 registry/index interface. Define the community ID, TLD, chain and SLD-registry

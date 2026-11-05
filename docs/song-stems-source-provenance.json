@@ -1,0 +1,56 @@
+{
+  "schema": "pirate.song-stems-provenance/1",
+  "inspectedAt": "2026-11-05",
+  "sources": [
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-submission-repository.ts",
+      "sha256": "0x63f315b0f7329cfd03b8971b5413dab8472e643e59532ce7c5cf477705cc4194"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment.ts",
+      "sha256": "0x1ba3ae96e6bed11267d4ebf71fb53a86943b5de56400d7c0175efaf26e1ee695"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-request.ts",
+      "sha256": "0x39d6395b68ab47f5326bf289183f26da6df1c31017f2955ec7eb755c7658d591"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-response.ts",
+      "sha256": "0x84f8a458e2d977451c3dedfb19356bba35afa244ecfce7f07d809c8b5ccf4c49"
+    },
+    {
+      "repository": "api-next",
+      "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
+      "path": "packages/platform-cf/src/media-providers/elevenlabs-alignment-types.ts",
+      "sha256": "0x282530fb3393e3a9956b4c4c05dcc2631289b73351a15e3cc37ca140d612585f"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/posts/post-composer/song-step.tsx",
+      "sha256": "0x9766fc7443c22bc0bb71bc178204d7a8d1c4f01b51dd9a74543f9df9ae1b60b7"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/posts/post-composer/media-composer-bridge.ts",
+      "sha256": "0x80ab3aaf5060b8db086b4b877c9203d814cdd7eeb013c808d67e039c71016179"
+    }
+  ],
+  "boundary": "Require actual instrumental and vocal MP3 attachments in fixed slots on the original submission. Preserve the primary recording, accepted lyric revision and public post identity. Forced alignment consumes vocal bytes and supplied accepted lyrics after publication. Stems stay private; timings are supplemental and do not rewrite a published lyric manifest. This is independently owned source without runtime imports from the centralized application.",
+  "limits": {
+    "eachMp3Bytes": 26214400,
+    "maximumDurationMs": 3600000
+  },
+  "providerDocumentation": [
+    "https://elevenlabs.io/docs/api-reference/forced-alignment/create"
+  ]
+}

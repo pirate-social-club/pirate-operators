@@ -1,0 +1,198 @@
+{
+  "profileHash": "0x084b589a0571e758b23e0d3198d0d00d613ba3d9a2cbdb750f8c6a0c8c0dfef7",
+  "profile": {
+    "schema": "pirate.managed-service-plan/1",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "prefix": "pirate-managed-firstsong-20261105",
+    "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+    "update": {
+      "previousProfileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json",
+      "startupEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-setup.json",
+      "previousEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-functional-update.json",
+      "requireIdle": true,
+      "expectedResultSha256": "0x5b1b20c90878e5eb0a413d1727b1423aafa967c1513c6eebb1c94eea90a9de02"
+    },
+    "resources": {
+      "worker": "pirate-managed-firstsong-20261105",
+      "database": "pirate-managed-firstsong-20261105-db",
+      "media": "pirate-managed-firstsong-20261105-media",
+      "jobs": "pirate-managed-firstsong-20261105-jobs",
+      "consumer": "pirate-managed-firstsong-20261105"
+    },
+    "sourceHashes": {
+      "apps/community-wizard/infra/encrypted-state.ts": "0x4a36806a68e63ffc4ec8585c75551cd59f922e8e0e15a8033174cbbc20d64fe3",
+      "apps/community-wizard/infra/protected-data.ts": "0x12378aa5ea4c60b5e1f78e454a74f3d9cc4b4d6b0beefd160004c9fb26319a4f",
+      "apps/community-wizard/package-lock.json": "0xb15ea36636a432c2b7a6652e9443e496518a9073e81775c2cb10e3ed065fef72",
+      "apps/community-wizard/server/diagnostics.ts": "0xd97c6fc9bc5fa87b52dd84991d9c892c49f0028a1250ea5c9573d991004493cf",
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
+      "apps/community-wizard/server/state-inspection.ts": "0x608538f901cca6bcda5e1d52ef13181f88a1d6a9fb89cd74a8de50313a6f4ae7",
+      "apps/community-wizard/server/state.ts": "0x4af1b6dc95930c7ab4ba659c5aa8c9c5a765bda8ac3f80ef800a482f22fda1ff",
+      "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "apps/managed-moderation/alchemy.run.ts": "0x5c95b8b4e53b30123a3a13190e98dce3bc5ba87d4c405b10b2a39f906808a67d",
+      "apps/managed-moderation/encrypted-state.ts": "0x4d19c48cbdb61fa3bad8ada364a6f2d498af95e53ca160bbcb927bfd80b1428e",
+      "apps/managed-moderation/migrations/0001_managed.sql": "0x8c2de418f3341fbf3ec145663a3ccbc913c5ccdea8072e93a98f0f296b8fb79e",
+      "apps/managed-moderation/migrations/0002_release_operations.sql": "0x401416aa566ca34f8b18bfae1cb8b604f3cbad5947adfdf34709f5b3065fdb98",
+      "apps/managed-moderation/package-lock.json": "0xb5c1211945be8ce081e5d46c837af92ec91cd9578ca4eb2b33f6f27f4e60b4fc",
+      "apps/managed-moderation/package.json": "0x0b4aabab6a58007eb834b844fa47c24e29c46be98de3c5d2016d4e95beb2bf44",
+      "apps/managed-moderation/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json": "0xf933592d2ad53b4a60f8b6f530014cfe48bebc9075ba7ceebe8a53f1218e5944",
+      "docs/deployments/first-song-managed-20261105.moderation-functional-update.json": "0x0f8c344348535397eec1641b95be5c49918af14199f1991b5226264c1fed3149",
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json": "0xc8f2cee04d8a6b33b0d023e86c571657838ad52606520b4cbd275f79456e5591",
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json": "0x38a0c51931eadc7a501d10146cd60e906d0bb1c227cad525db945199bbfbfb15",
+      "docs/deployments/first-song-managed-20261105.moderation-setup.json": "0xa0061552137652e82e7417504156ca6e5299b5f9bbdfcedc5a80113b0f65ce78",
+      "docs/deployments/first-song-managed-20261105.release-grant.json": "0x4c1ffbf7194027ee1e4250537207ad2d2f70cc1de21f0c19502235922f7f1e30",
+      "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
+      "harness/first-song-peers.ts": "0x202be36bfa876dfa6516b5cd9e521e2283c9fba29fbf6fe272fb486e1a8037d3",
+      "harness/first-song-upgrade.ts": "0x63591951c70a464af2aa51adcb485060d6aecab633fcd0d649c3843f35c3aaa5",
+      "harness/managed-credentials.ts": "0xf67125a0fa5a12073c3d9f6e97d923a0473235762bb4b4ae5e5054e3e9a0b86b",
+      "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
+      "harness/managed-package.ts": "0x3ee2a75d65682c188ec4a96c7e244e1042c8a63b77b70862a22c573e75da8c80",
+      "harness/managed-service.ts": "0x9a3484e99e36de00054ae3940015af4c52bfc1bc953bdb9cfbf697a00415e1ed",
+      "harness/managed-update.ts": "0x3b01f20add924f47ac60176dc5bab9b87c41d641801e0cc7b980b87d0dbe0963",
+      "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
+      "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
+      "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
+      "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
+      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "packages/community/budgets.ts": "0x7ef33f135d54cac53e4ce50bf1fcd13783b21fad41649c6df86d2657579a5afe",
+      "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
+      "packages/community/config-manifest.ts": "0x7cc2ce537ba9c99421e7b40d2551d02aac89a634f6c2e4e6110ec97e3c6b5fce",
+      "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
+      "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
+      "packages/community/lyric-manifest.ts": "0x2ad233d75e1baf69e51d62c77b1852eddcd8677d942b7f5bf2b8b4167b3cdce9",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/post-manifest.ts": "0x43af78170cd7cd1a196d2c28d85230cd777f3270000e81929ee527b4e9693c61",
+      "packages/community/registration-chain.ts": "0xed4616629669b303d2961d9074c79237b93c20aa8c4581781eba5a3c9113c046",
+      "packages/moderation/acrcloud.ts": "0x30c06bbb7ae2f58dda1bf8949291e344a4cacff69c65ab86dd443048173b6700",
+      "packages/moderation/admission-recovery.ts": "0xc02d128c3fc6fe356578aae5337668e5ee7ab2708466ecac68d7661e013d08a6",
+      "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
+      "packages/moderation/admission.ts": "0x55b32a3f4c87ab6615417108adbcf32766d16526db388a1be7f2de7ac9369bcc",
+      "packages/moderation/capabilities.ts": "0xa5e6986bcf54e643b8adb944eee72f918537b06f93564fdd547e69a566ec55f2",
+      "packages/moderation/evidence.ts": "0x6bdaec4a6732b9a6fd2cd2c3eea553a73cef47b668ac3e437231636ff12e5a95",
+      "packages/moderation/mp3-frames.ts": "0x8712e19179ab02f7fa92dd6877bd575cb4786e21342635efd8ce4d0d6215d771",
+      "packages/moderation/mp3-windows.ts": "0x62052fa6973db9412579fc89f04d42afe4a39059ee4a0f398aa3970fac27df14",
+      "packages/moderation/openai.ts": "0x902844073fb55d5226d2324f0554bf8e43e5ca8e44b2deedc475bed43de6b892",
+      "packages/moderation/pairing.ts": "0x6cb00be855dd778b4192a5c037d1df8a98bcbe620963b59b3afeb6107f6659ff",
+      "packages/moderation/prepare-admission.ts": "0x48ac4d2826e3e9d7b8d2c435bcc7ba6a981a052851a9b92ca2d72bffe36f2eb4",
+      "packages/moderation/process-admission.ts": "0xa17be0a862ef8eac51c9d6b5214ede5cb9e2deb0dfbf638d0d2989614dd1482c",
+      "packages/moderation/provider-http.ts": "0xcc3108927aa1bc589126d5346cfdaa5db2a7e0540d2f7d79c25e1a388a989905",
+      "packages/moderation/provider-journal.ts": "0xd50145fb13684f3e0377cb8ef05c88b767ffeaa094129747554220986f98abdb",
+      "packages/moderation/service.ts": "0x38125e29d11eec251c0b5699e2eba76969a1046b91cfa724fb940f5aad50e48f",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "packages/release/artifacts.ts": "0xc47a4fe7eb61a95df4f4a4bd9b10aee46ba9fb9573a1a7468adfb43eb1e1dfb0",
+      "packages/release/authority.ts": "0x0e04e81752f98e8eef2d84a8766c5fce2161b45ebd6bc40d15dc33c4c06ec87b",
+      "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
+      "packages/release/pin-operations.ts": "0xd3ce73d33f854c0f700f330754278ba2ebb95984c4ae9a6f4cfb914966cf4101",
+      "packages/release/registration-operations.ts": "0x55bb61f20d3e850d44b5a498c4c693ecb7860d85fa252907d7a7aeb79385bf6a",
+      "packages/release/service.ts": "0x25f15a02ddc4ff7525e24938428d4352387136bcd6ec4ad73509d07b1c082ff8",
+      "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
+      "services/managed-moderation.ts": "0x428c1a28c9692eebfdab7f4747f13c004fca62dc515e6833d805b4d3f52e511d"
+    },
+    "releaseGrant": {
+      "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "configurationRevision": 1,
+      "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+      "expiresAt": 1793974341,
+      "pins": {
+        "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+        "period": "first-song-20261105-v1",
+        "maximumAdds": 5
+      },
+      "registration": {
+        "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+        "period": "first-song-20261105-v1",
+        "operator": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+        "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+        "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+        "maximumGas": "10000000",
+        "maximumGasPrice": "10000000",
+        "maximumTotalFee": "100000000000000",
+        "expiresAt": 1793974341,
+        "codeHashes": {
+          "workflow": "0xeae615f93fa4dcdad0e8ac35c6732c54bf0a2a8eaec9b072362d2a08aa7aa2c2",
+          "nft": "0xea926deba1719db0be4988e0c1992733441a05cbe00aebc5f5ebb3b5d613223d",
+          "registry": "0x16a5e60a8c09daebb083bd3f8ffc704cb1d86e20662b3aa948cdea9a2a5f9f32"
+        }
+      }
+    },
+    "registrationCredential": {
+      "path": "~/.config/pirate-operators/megaeth-testnet/keys.json",
+      "sha256": "0x820df8fd4ef8c07d04ce93042623b1d3265bed78c05247e1d3e3626726484034",
+      "sourceField": "keys.communityAdmin",
+      "sourceChain": 6343,
+      "mode": "600",
+      "owner": "current_operator_uid",
+      "inheritedAuthority": "Administers disposable MegaETH6343 payment and learning-record contracts; the first-song registration adapter permits only fixed ROOT mint calldata with value0 on1315.",
+      "targetChain": 1315
+    },
+    "migrations": [
+      "0001_managed.sql",
+      "0002_release_operations.sql"
+    ],
+    "bundleSha256": "0x23a7ee2673dd4d6825bf1d315736d665e8334b6656c6b8c077ea6878bf28b887",
+    "bundleBytes": 652555,
+    "pairings": [
+      {
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+        "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+        "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+        "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "serviceOrigin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+        "enabled": true,
+        "budgetPeriod": "first-song-20261105-v1",
+        "requestCap": 24
+      }
+    ],
+    "directoryProfiles": [
+      {
+        "chainId": 6343,
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+        "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+        "deploymentBlock": "34118363",
+        "directoryCodeHash": "0x81d8a47bcdfebe9b7e1f459c94344467032902f573eaf42cc3fe8fb8434d54a0"
+      }
+    ],
+    "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329",
+    "serviceBudgetPeriod": "first-song-20261105-v1",
+    "serviceRequestCap": 24,
+    "acrHost": "identify-eu-west-1.acrcloud.com",
+    "providerCredentials": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "sourcePath": "/services/api-next",
+      "targetPath": "/services/pirate-managed-firstsong-20261105"
+    },
+    "stateProtection": {
+      "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
+      "environment": "staging",
+      "path": "/communities/first-song-20261105-runner"
+    },
+    "secretNames": [
+      "ACRCLOUD_ACCESS_KEY",
+      "ACRCLOUD_ACCESS_SECRET",
+      "OPENAI_API_KEY",
+      "MODERATION_SIGNER_PRIVATE_KEY",
+      "FILEBASE_IPFS_TOKEN",
+      "REGISTRATION_OPERATOR_PRIVATE_KEY"
+    ],
+    "bounds": {
+      "executionSeconds": 900,
+      "healthSeconds": 60,
+      "providerRequests": 24,
+      "registrationTransactions": 1,
+      "publicPins": 5,
+      "maximumRegistrationFee": "100000000000000",
+      "paymentDeposits": 0
+    },
+    "recovery": "Keep the same encrypted Alchemy state and D1 provider journals. Reconcile task-owned resources after an interrupted apply. Unknown paid provider sends cannot be replayed."
+  }
+}

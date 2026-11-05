@@ -1,0 +1,122 @@
+{
+  "profileHash": "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3",
+  "profile": {
+    "schema": "pirate.managed-service-plan/1",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "prefix": "pirate-managed-firstsong-20261105",
+    "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+    "update": {
+      "previousProfileHash": "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2",
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
+      "startupEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-setup.json",
+      "requireIdle": true
+    },
+    "resources": {
+      "worker": "pirate-managed-firstsong-20261105",
+      "database": "pirate-managed-firstsong-20261105-db",
+      "media": "pirate-managed-firstsong-20261105-media",
+      "jobs": "pirate-managed-firstsong-20261105-jobs",
+      "consumer": "pirate-managed-firstsong-20261105"
+    },
+    "sourceHashes": {
+      "apps/community-wizard/infra/encrypted-state.ts": "0x4a36806a68e63ffc4ec8585c75551cd59f922e8e0e15a8033174cbbc20d64fe3",
+      "apps/community-wizard/infra/protected-data.ts": "0x12378aa5ea4c60b5e1f78e454a74f3d9cc4b4d6b0beefd160004c9fb26319a4f",
+      "apps/community-wizard/package-lock.json": "0xb15ea36636a432c2b7a6652e9443e496518a9073e81775c2cb10e3ed065fef72",
+      "apps/community-wizard/server/diagnostics.ts": "0xd97c6fc9bc5fa87b52dd84991d9c892c49f0028a1250ea5c9573d991004493cf",
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
+      "apps/community-wizard/server/state-inspection.ts": "0x608538f901cca6bcda5e1d52ef13181f88a1d6a9fb89cd74a8de50313a6f4ae7",
+      "apps/community-wizard/server/state.ts": "0x4af1b6dc95930c7ab4ba659c5aa8c9c5a765bda8ac3f80ef800a482f22fda1ff",
+      "apps/managed-moderation/alchemy.run.ts": "0xd58b666906856e6abc2f9562ba30b3018723684a7221eca13ae9812c2194892e",
+      "apps/managed-moderation/encrypted-state.ts": "0x4d19c48cbdb61fa3bad8ada364a6f2d498af95e53ca160bbcb927bfd80b1428e",
+      "apps/managed-moderation/migrations/0001_managed.sql": "0x8c2de418f3341fbf3ec145663a3ccbc913c5ccdea8072e93a98f0f296b8fb79e",
+      "apps/managed-moderation/package-lock.json": "0xb5c1211945be8ce081e5d46c837af92ec91cd9578ca4eb2b33f6f27f4e60b4fc",
+      "apps/managed-moderation/package.json": "0x0b4aabab6a58007eb834b844fa47c24e29c46be98de3c5d2016d4e95beb2bf44",
+      "apps/managed-moderation/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json": "0xc8f2cee04d8a6b33b0d023e86c571657838ad52606520b4cbd275f79456e5591",
+      "docs/deployments/first-song-managed-20261105.moderation-setup.json": "0xa0061552137652e82e7417504156ca6e5299b5f9bbdfcedc5a80113b0f65ce78",
+      "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
+      "harness/managed-package.ts": "0x10c3c5f9bd7ee85bfe1357eeee1ed0ecd0abc1d98dbce2bc6a33cce03d7bc661",
+      "harness/managed-service.ts": "0xd7cf3cd80720ab5fc6fdcbf0647b937b80f0bfeaab0456f5ce50536463c643eb",
+      "harness/managed-update.ts": "0x638c99fe80c239c5a27edce040aad3c528cc29788accdc85b52b64f39b4b623f",
+      "package-lock.json": "0xebb13536502cb34de32093741e479bac3a13ea8163cfc647699272e1a4d4b212",
+      "package.json": "0xea33952a3607ca2c71846aff087e1569cf10f33cc49dfd07c9e063f59b7ce160",
+      "packages/community/budgets.ts": "0xf34c06b5194773e150e6d8fd0e716611be31439abfc468c0b9bad76f07f82838",
+      "packages/community/common.ts": "0xd41f171b9dc05881d41eb734f65a69babc3ca68495b35c2cedab908f630d78b2",
+      "packages/community/config-manifest.ts": "0x7cc2ce537ba9c99421e7b40d2551d02aac89a634f6c2e4e6110ec97e3c6b5fce",
+      "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
+      "packages/community/ipfs.ts": "0x95bbae4c7f31e3ceec29adb72d206ba11bb7488dcba301cba4cee502e5c16e83",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/moderation/acrcloud.ts": "0x9c3acc7ecaf8cf390decdc9db3f7df178b033bc4fc84f4f6efb0b77574e20d05",
+      "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
+      "packages/moderation/capabilities.ts": "0x8d932eeb9dd424868b5062b9413887a8bfd79755bd06d1390a386e0e243a3f45",
+      "packages/moderation/evidence.ts": "0x6bdaec4a6732b9a6fd2cd2c3eea553a73cef47b668ac3e437231636ff12e5a95",
+      "packages/moderation/mp3-frames.ts": "0x8712e19179ab02f7fa92dd6877bd575cb4786e21342635efd8ce4d0d6215d771",
+      "packages/moderation/mp3-windows.ts": "0x62052fa6973db9412579fc89f04d42afe4a39059ee4a0f398aa3970fac27df14",
+      "packages/moderation/openai.ts": "0x6e8b5d5c4f34c535cd526db3b8cd2d65330051c8b07c6517bbb4cf74136b3c62",
+      "packages/moderation/pairing.ts": "0x97300a1ccab5aa88db796a4c0baee62adeb5b5d96a2cc863ff18b26987695eee",
+      "packages/moderation/prepare-admission.ts": "0x48ac4d2826e3e9d7b8d2c435bcc7ba6a981a052851a9b92ca2d72bffe36f2eb4",
+      "packages/moderation/process-admission.ts": "0xa17be0a862ef8eac51c9d6b5214ede5cb9e2deb0dfbf638d0d2989614dd1482c",
+      "packages/moderation/provider-http.ts": "0xcc3108927aa1bc589126d5346cfdaa5db2a7e0540d2f7d79c25e1a388a989905",
+      "packages/moderation/provider-journal.ts": "0xd50145fb13684f3e0377cb8ef05c88b767ffeaa094129747554220986f98abdb",
+      "packages/moderation/service.ts": "0x8d12dbcd17b5e5a46a3f2bedda3e04dbdafd2c1c195470d5713e0dbe51b61cd4",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "services/managed-moderation.ts": "0x9dc1f02035d00467d1b80915ee349b9fdde909e6e82b6d6cb7c260d5abdc8627"
+    },
+    "bundleSha256": "0x160616262225a2bafebeb24b80adeeef742b12fc243d71f90ecabfcf4e72ecd3",
+    "bundleBytes": 621839,
+    "pairings": [
+      {
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+        "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+        "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+        "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "serviceOrigin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+        "enabled": true,
+        "budgetPeriod": "first-song-20261105-v1",
+        "requestCap": 24
+      }
+    ],
+    "directoryProfiles": [
+      {
+        "chainId": 6343,
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+        "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+        "deploymentBlock": "34118363",
+        "directoryCodeHash": "0x81d8a47bcdfebe9b7e1f459c94344467032902f573eaf42cc3fe8fb8434d54a0"
+      }
+    ],
+    "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329",
+    "serviceBudgetPeriod": "first-song-20261105-v1",
+    "serviceRequestCap": 24,
+    "acrHost": "identify-eu-west-1.acrcloud.com",
+    "providerCredentials": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "sourcePath": "/services/api-next",
+      "targetPath": "/services/pirate-managed-firstsong-20261105"
+    },
+    "stateProtection": {
+      "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
+      "environment": "staging",
+      "path": "/communities/first-song-20261105-runner"
+    },
+    "secretNames": [
+      "ACRCLOUD_ACCESS_KEY",
+      "ACRCLOUD_ACCESS_SECRET",
+      "OPENAI_API_KEY",
+      "MODERATION_SIGNER_PRIVATE_KEY"
+    ],
+    "bounds": {
+      "executionSeconds": 900,
+      "healthSeconds": 60,
+      "providerRequests": 24,
+      "registrationTransactions": 0,
+      "paymentDeposits": 0
+    },
+    "recovery": "Keep the same encrypted Alchemy state and D1 provider journals. Reconcile task-owned resources after an interrupted apply. Unknown paid provider sends cannot be replayed."
+  }
+}

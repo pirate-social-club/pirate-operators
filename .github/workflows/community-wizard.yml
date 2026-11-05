@@ -1,0 +1,35 @@
+name: Community wizard
+on:
+  push:
+    paths:
+      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+  pull_request:
+    paths:
+      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+permissions:
+  contents: read
+jobs:
+  wizard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/community-wizard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/community-wizard/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check
+      - run: npm run test:browser
+      - run: npm ci --omit=dev
+      - run: npm run smoke:runtime
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: community-wizard-browser
+          path: apps/community-wizard/test-results

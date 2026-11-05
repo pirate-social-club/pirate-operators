@@ -1,0 +1,183 @@
+{
+  "schema": "pirate.first-song-acceptance/1",
+  "observedAt": "2026-11-05T20:12:41.207Z",
+  "runtimeSourceCommit": "6029b8df943f124b4a8516b5bce95e5bb406a7f5",
+  "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+  "policy": "pirate-owner-curated/2026-11-05/1",
+  "firstSong": "ready",
+  "submittedTitle": "Test",
+  "selectedLocalAsset": "Jazzin' Baby Blues.mp3",
+  "postId": "0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e",
+  "configurationRevision": 2,
+  "jobStatus": "published",
+  "privateStems": {
+    "instrumental": {
+      "sealed": true,
+      "byteLength": 4398452,
+      "sha256": "0xaf6f438a3c7e00c822db5aa7436f67466bf4a0058810ae48d7c8d4ac5b61e368"
+    },
+    "vocals": {
+      "sealed": true,
+      "byteLength": 3015716,
+      "sha256": "0xba4ecd77dac09a5d27c78cb1ac4c346183da2046b74117bd1ee9f300efb69b94"
+    },
+    "durationMs": 186672,
+    "independentFullByteVerificationAt": "2026-11-05T19:43:32Z"
+  },
+  "adoption": {
+    "profileHash": "0x80a90995e22adb52fbfda929f83c25a570302dc1c3cd3be677f15d9c8d1f311f",
+    "amendmentSha256": "0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765",
+    "confirmedBy": "2026-11-05T19:52:57Z",
+    "sameSubmissionAndJob": true
+  },
+  "pins": [
+    {
+      "role": "audio",
+      "uri": "ipfs://bafybeic5z3decjfbxjxq7pkarslmw52wkbgsw47n6ulz6nmifeug2of6uy",
+      "sha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "bytes": 4377688
+    },
+    {
+      "role": "lyrics",
+      "uri": "ipfs://bafkreif42jl3w5sfjqelqdqlbd4zqol6e53eriuziihqo25m5hanowj4ee",
+      "sha256": "0xbcd257bb76454c08b80e0b08f998397e277648a299420f076bace9c0d7593c21",
+      "bytes": 6188
+    },
+    {
+      "role": "ip_metadata",
+      "uri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+      "sha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+      "bytes": 2175
+    },
+    {
+      "role": "nft_metadata",
+      "uri": "ipfs://bafkreiayekujyl55oopvsg3ul2gldhydegrdjsmogydjme4lqaiedlezqa",
+      "sha256": "0x1822a89c2fbd739f591b745e8cb19f0321a234c98e360696138b801041ac9980",
+      "bytes": 856
+    },
+    {
+      "role": "post_manifest",
+      "uri": "ipfs://bafkreifdc2ncikvfghhltuzclx5lxujb4qtevrml6yd6ypor6aucyichey",
+      "sha256": "0xa3169a242aa531ceb9d3225dfabbd121e4264ac58bf607ec3dd1f0282c204726",
+      "bytes": 2022
+    }
+  ],
+  "registration": {
+    "assetId": "0x2e5f4be36d644f6afdbcd3ffa89bb4e1b34cd256",
+    "blockHash": "0xb5b3ea093fb1d301ab97648ef274c1959f6804a58ab8bb176c7e74f9fa64e3b5",
+    "blockNumber": "25922296",
+    "chainId": 1315,
+    "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+    "metadataSha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+    "metadataUri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+    "network": "aeneid",
+    "nftContract": "0xc32a8a0ff3beddda58393d022af433e78739fabc",
+    "protocol": "story",
+    "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+    "status": "confirmed",
+    "tokenId": "4619",
+    "transactionHash": "0x5945d76b02eefb4a38351c75f86d4c45ffa981439d58e14cc7c194a1180059a0",
+    "signerNonce": 0,
+    "actualFeeWei": "926329484261",
+    "persistedMaximumFeeWei": "1156302094058",
+    "grantFeeCeilingWei": "100000000000000"
+  },
+  "publication": {
+    "chainId": 6343,
+    "transactionHash": "0xbb1e0f34ce070e78030b349c41ccf0a9275a778a79cb2288a4ccc492195baac4",
+    "revision": 1,
+    "configurationRevision": 2,
+    "publisherNonce": 177,
+    "actualFeeWei": "377696000000",
+    "grantFeeCeilingWei": "30000000000000"
+  },
+  "allowances": {
+    "period": "first-song-20261105-v1",
+    "ipfsAdds": {
+      "spent": 5,
+      "reserved": 0,
+      "ceiling": 5
+    },
+    "rootMints": {
+      "spent": 1,
+      "reserved": 0,
+      "ceiling": 1
+    },
+    "postTransactions": {
+      "spent": 1,
+      "reserved": 0,
+      "ceiling": 1
+    },
+    "rootReleaseClaim": {
+      "reserved": 1,
+      "spent": 0,
+      "ceiling": 1,
+      "meaning": "immutable_single_release_claim_not_unsettled_monetary_fee"
+    }
+  },
+  "preservation": {
+    "originalProviderCalls": 3,
+    "newAutomatedContentCalls": 0,
+    "originalAdmissionUnchanged": true,
+    "originalFailedOperationUnchanged": true,
+    "originalSixQuotaReservationsUnchanged": true,
+    "originalInputAndAuthorityUnchanged": true,
+    "oldClassifierFailureRetained": true,
+    "c22Changed": false
+  },
+  "independentReview": {
+    "observedAt": "2026-11-05T20:02:57Z",
+    "recursivePins": 5,
+    "independentPinataByteAndCidChecks": 5,
+    "canonicalJson": true,
+    "exactRegistrationAndPostCalldata": true,
+    "canonicalChainReceipts": true,
+    "publicPrivateIdsAbsent": true
+  },
+  "browserAfterReload": {
+    "audio": {
+      "bytes": 4377688,
+      "sha256": "c1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "status": 200
+    },
+    "currentSrc": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/public/posts/0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e/audio",
+    "finishedAt": "2026-11-05T20:12:41.207Z",
+    "observedAt": "2026-11-05T20:12:31.964Z",
+    "pass": true,
+    "playback": {
+      "advanced": true,
+      "after": 21.895931,
+      "before": 19.39994,
+      "duration": 186.639979,
+      "ended": false,
+      "error": null,
+      "paused": false,
+      "readyState": 4,
+      "sameElement": true
+    },
+    "postCount": 1,
+    "sessionStatus": 401,
+    "title": "First Song Managed Test · Pirate",
+    "url": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+    "evidenceOrigin": "coordinator_operated_browser; reviewer_independently_read_saved_result"
+  },
+  "independentAnonymousHttp": {
+    "observedAt": "2026-11-05T20:07:52Z",
+    "noCookieFeedReads": 2,
+    "postCount": 1,
+    "fullAudioStatus": 200,
+    "fullAudioBytes": 4377688,
+    "sha256Matches": true,
+    "rangeStatus": 206,
+    "rangeBytes": 1024,
+    "contentRange": "bytes 0-1023/4377688",
+    "rangePrefixMatches": true
+  },
+  "limitations": [
+    "This is disposable testnet acceptance under the explicit owner-curated policy.",
+    "Automated content moderation and ElevenLabs alignment were not executed by this successor.",
+    "Both public Aeneid RPCs lack historical state at the mint block; delayed receipt-recovery repair is separately qualified.",
+    "Broader creator-wallet device acceptance and production operation remain separate."
+  ]
+}

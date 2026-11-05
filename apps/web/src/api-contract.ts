@@ -1,0 +1,74 @@
+/** Client bootstrap is separate from the directory's canonical contract manifest. */
+export interface CommunityClientConfig {
+  readonly schema: "pirate.community-client-config/1";
+  readonly communityId: string;
+  readonly canonicalOrigin: string;
+  readonly apiBase: "/api";
+  readonly protocolVersions: readonly number[];
+  readonly defaultLanguage: string;
+  readonly supportedLanguages: readonly string[];
+  readonly mirrors: readonly string[];
+  readonly signature?: never;
+  readonly fixture?: true;
+}
+export interface CreatorConnectionView {
+  connectionId: string;
+  state: string | null;
+  requestId: string | null;
+  expiresAt: number;
+}
+export interface CommunitySessionView {
+  authenticated: true;
+  authorId: string;
+  mossAddress: string;
+  csrf: string;
+  creator: { evmAddress: string; verifiedAt: number } | null;
+  pendingConnection: CreatorConnectionView | null;
+}
+export interface CommunityCapabilities {
+  schema: "pirate.community-capabilities/1";
+  signIn: boolean;
+  creatorConnection: boolean;
+  upload: boolean;
+  publication: boolean;
+  policyVersion: string;
+}
+export interface PublicSongView {
+  /** Public fields used by this client. The server validates the complete
+   * canonical post manifest before exposing this projection. */
+  manifest: {
+    schema: "pirate.community-post/1" | "pirate.community-post/2";
+    postId: string;
+    authorId: string;
+    title: string;
+    language: string;
+    rating: "general" | "adult";
+    declarationSource?: "operator_declared";
+    automatedContent?: "deferred";
+  };
+  audioUrl: string;
+  postUrl: string;
+  transactionHash: string;
+  lyricsText?: string;
+}
+export interface CommunityFeed {
+  schema: "pirate.community-feed/1";
+  communityId: string;
+  posts: PublicSongView[];
+}
+export interface CommunityUploadView {
+  submissionId: string;
+  postId: string;
+  title: string;
+  state: string;
+  jobId: string | null;
+}
+export interface CommunityJobView {
+  schema: "pirate.publication-job-view/1";
+  jobId: string;
+  submissionId: string;
+  postId: string;
+  phase: string;
+  errorCode: string | null;
+  resumable: boolean;
+}

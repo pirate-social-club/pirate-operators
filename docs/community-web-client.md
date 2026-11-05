@@ -1,9 +1,15 @@
 # Community web client and deployment contract, version 2
 
 This document specifies the browser client for an independently operated
-community and the way it is deployed. It is a design contract for later
-implementation. Nothing described here is built yet, apart from the local
-behaviour recorded as current state.
+community and the way it is deployed. It is a design contract; current task
+records supply implementation and live acceptance evidence. Historical local
+behavior described below is not a claim that every requirement is still absent.
+
+The owner decision of 2026-11-05 makes community-owned moderation/storage
+accounts the next wizard's supported path, paired with Pirate's funded creator
+service. This extends deployment acceptance D3 and adds D8-D10 without making
+HNS discovery or independent creator-treasury operation a prerequisite. The
+existing first-song managed profile remains a separate fixed test.
 
 Version 2 adopts the account boundary in
 [community accounts and portability](community-accounts-portability.md).
@@ -22,6 +28,21 @@ app.tld acceptance, customer name purchase and Telegram attachment follow
 separately. OperatorPayments purchases replace the original payment fields;
 the current payment specification owns them. Browser session and handshake
 rules here remain.
+
+The [creator-wallet contract](creator-wallet.md) owns the additional first-song
+release flow. It is an operator-submitted, testnet-only Ika exception to the
+earlier MOSS plan's blanket exclusion. It requires a separate creator passkey,
+persisted passkey-backed access, verified cap ownership before acceptance signing and
+confirmed on-chain activation before upload or registration. Ordinary sign-in,
+karaoke, study and dance posts retain this document's session flow. Creator
+setup opens the dedicated wallet site by popup or redirect, not an iframe.
+The creator's encrypted wallet record is distinct from community session
+storage and does not introduce saved song drafts.
+The [funding and wizard contract](creator-wallet-payments.md) requires a verified
+registration-service connection and capped operator test allowance before
+enabling releases. No creator checkout is part of the first-song test. Only
+independent registration operators manage native SUI/IKA inventory; communities using Pirate's service
+do not. An incomplete creator capability leaves ordinary participation available.
 
 The following are settled for this version: Solid renders the client; each
 community has one stable canonical origin; sessions are community-local
@@ -393,24 +414,29 @@ An application release consists of:
 - build instructions pinned to the lockfile and toolchain, so the same commit
   rebuilds to the same asset hashes.
 
-Community configuration is served at `/.well-known/pirate-community.json` from
-the canonical origin. It holds:
+Client bootstrap uses `pirate.community-client-config/1` at
+`/.well-known/pirate-client.json` on the canonical origin. It holds:
 
 - the community ID, canonical origin and API base (`/api`);
 - supported protocol versions;
 - the default and supported languages;
-- chain IDs and contract addresses;
-- the ticket issuer and feed signing keys;
-- the origins operators accept for this community;
 - known mirrors.
 
-In this version HTTPS to the canonical origin is the trust source for the
-configuration. The document is also signed with the community's feed signing
-key, so the aggregator and mirrors can check copies. The record that binds
-that key to the namespace belongs to the discovery and feed interface, which
-the MOSS and MegaETH MVP plan schedules separately. When the client and the
-configuration share no protocol version, the client shows public content
-read-only and explains that the community needs a newer client.
+The distinct `pirate.community-config/1` directory manifest contains the chain,
+contracts, publisher, moderation policy and canonical application origin. Its
+HTTPS copy uses `/.well-known/pirate-community.json`; its immutable IPFS bytes
+and digest must match the current registry-authorized directory entry. Client
+bootstrap fields do not replace that manifest or its authority checks.
+
+For the next-community deployment, the canonical HTTPS document is a bootstrap
+location, not a substitute for registry-authorized configuration. Resolve the
+selected directory's current configuration and verify its immutable public
+manifest, exact bytes/hash, revision, publisher and canonical origin under the
+[configuration lifecycle](contracts/community-directory.md#configuration-publication-lifecycle).
+A feed signature or successful HTTPS request alone cannot replace that binding.
+Verification/listing status remains separate from direct publication authority.
+When the client and configuration share no protocol version, the client shows
+public content read-only and explains that the community needs a newer client.
 
 Each release's hashed assets are retained for at least 30 days after it is
 superseded, for tabs that are already open. Generated pages do not depend on
@@ -519,7 +545,12 @@ tooling are needed.
 
 ## 8. Acceptance matrix
 
-These checks belong to the implementation tasks that follow. None has run.
+These checks belong to the implementation tasks. Pass status must cite the
+actual source/profile and task evidence; adding a requirement does not pass it.
+The next-community D3 run consumes wizard W1-W12 and funding S9-S12 as well as
+the applicable existing session, creator-wallet and publication requirements.
+Use a different original song and its lyrics for this run; replay of the first
+song's registration is not evidence for the new sponsored-registration boundary.
 
 | ID | Check | Method |
 |---|---|---|
@@ -547,18 +578,30 @@ These checks belong to the implementation tasks that follow. None has run.
 | S4 | One cold-cache measurement on a mid-range Android phone meets the section 5 targets | manual, per release candidate |
 | D1 | Rebuilding the release commit reproduces `release.json` hashes | automated |
 | D2 | An unchanged post page published under release N still renders with its styles and mounted controls after an upgrade to N+1 and after a rollback to N. Both moves need no rebuild. Making current a release that lacks a published document version is refused. Superseded hashed assets stay available for 30 days | automated against a test host |
-| D3 | A second installation runs the same release with its own configuration, keys and storage | manual, testnet |
+| D3 | A packaged second installation runs the reviewed release with its own canonical origin, genuine registry, Cloudflare resources, provider accounts and moderation signer, paired with Pirate's funded creator service. It stays disposable/unlisted in the existing directory. | actual wizard W1-W12 run, testnet; funding S9-S12 |
 | D4 | An IPFS mirror is held by two pinning services and retrieved from two gateways | manual |
 | D5 | The security headers in section 6 are present on the primary deployment | automated |
 | D6 | The community loads over its HNS route in the intended resolver and browser setup, kept separate from the HTTPS test-domain results | manual |
 | D7 | A post link shared in Telegram shows its card and opens in the Telegram in-app browser on iOS and Android | manual |
+| D8 | Real provider checks run in the second community's Cloudflare account with its own keys, and its own trusted moderation signer binds verdicts to the exact sealed revision. Missing/unavailable checks hold publication. | real accepted/rejected/held cases, signed evidence and service-side signer/grant verification; setup-key readback alone is insufficient |
+| D9 | A fresh browser finds and plays the actual second-community release after reload and can seek. The chosen delivery path handles upstream failure visibly, while retained pin and independent-provider retrieval checks bind the exact public bytes. | browser/network acceptance of full media, range/seek behavior and failure; a small configuration fetch or a Filebase-only download cannot replace independent retention/retrieval evidence |
+| D10 | Second-community requests with another community's evidence, wrong signer/origin/media or revoked/depleted grant cannot start native spending. Interrupted authorized work resumes with its original receipts and identity. | actual-service boundary and recovery run, funding S9-S12; no duplicate provider purchase, registration or post |
+
+D4 qualifies the separate frontend mirror; it is not an extra two-pin requirement
+for this ordinary-HTTPS second-community run. D6/D7 and the karaoke-specific rows
+retain their owning follow-up milestones. No deferred row is silently counted
+as passed by the second-community song test. Changing directory/posts deployments
+later requires an explicit profile/history migration, not merely editing a URL.
 
 ## 9. Remaining implementation work
 
-The client does not exist yet. The community service still uses bearer tokens,
-an `http://` SIWE URI and local debug routes. The operator still uses the fixed
+At the original specification baseline, the client did not exist. The local
+community service used bearer tokens,
+an `http://` SIWE URI and local debug routes. The operator used the fixed
 `connect:<ticketId>` proof in the URL, with a secp256k1 session key. The
 publisher and generated pages, the boot loader, the release manifest,
-community configuration, the budget check and every row of the matrix remain
-to be built. So do the backend and storage work for a complete independent
-installation, and mirror authentication if it is ever wanted.
+community configuration, the budget check and the matrix checks remained
+to be built or qualified. Current implementation tasks must reconcile that baseline with
+their actual evidence. The next-community acceptance additionally requires
+the community-owned moderation/storage setup and funded-service trust boundary
+above. Mirror authentication remains outside this scope.

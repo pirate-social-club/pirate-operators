@@ -1,0 +1,49 @@
+{
+  "sourceRepository": "api-next",
+  "sourceCommit": "a5c63b8db01d4359344d33c31d294a00fbeadb20",
+  "ownership": "Independently owned copies; no runtime, build, session or service dependency on the source repository.",
+  "adoptions": [
+    {
+      "source": "packages/platform-cf/src/media-mp3-sample.ts",
+      "sha256": "a9705c6766baac08cdc167a5e137dd821c97a15cd8f7dcdb5371eba998850c29",
+      "selectedBoundaries": "MP3 stream/header parser, full-source probe and complete-frame sampling; application/Effect/R2 service wrappers excluded.",
+      "destinations": [
+        "packages/moderation/mp3-frames.ts",
+        "packages/moderation/mp3-windows.ts"
+      ],
+      "adaptations": "Local types and errors; firstFrame/frameCount evidence metadata; tolerate rounded whole-source duration for supported MP3s shorter than the sample target."
+    },
+    {
+      "source": "packages/application/src/media/transform.ts",
+      "sha256": "cc08e1d685290653e524a3e2535ea4f9bc9ba33f546618a64657d2b9ed0a68dc",
+      "selectedBoundaries": "mediaTransformSampleWindow: 12-second target, primary quarter and alternate three-quarter offsets.",
+      "destination": "packages/moderation/mp3-windows.ts"
+    },
+    {
+      "source": "packages/platform-cf/src/media-providers/acrcloud-protocol.ts",
+      "sha256": "036cf418e8113f30e61f265b12c1010e9bb77854c58c56a7bff53781d39c734e",
+      "destination": "packages/moderation/acrcloud.ts",
+      "selectedBoundaries": "Regional host allowlist, exact identify endpoint, multipart fields, HMAC-SHA1 preimage, raw sample limits. Newly owned transport uses native FormData and one send."
+    },
+    {
+      "source": "packages/platform-cf/src/media-providers/acrcloud-response.ts",
+      "sha256": "e540f0331dc9c596640b0a17d3656df7b2aa92f7803266d6e4203cf62ddbf594",
+      "destination": "packages/moderation/acrcloud.ts",
+      "selectedBoundaries": "Codes 0/1001/2004, retained-reference candidates and video_audio exclusions. Other failures remain unavailable."
+    },
+    {
+      "source": "packages/platform-cf/src/openai-text-moderation.ts",
+      "sha256": "dbac3d404e5887f05fb9e878231ad6fafd3dd3b9a7784b0c36a25983e4c18f56",
+      "destination": "packages/moderation/openai.ts",
+      "selectedBoundaries": "Fixed moderation endpoint/model, closed category/score/applied-input schemas and response bounds. Lyrics language/explicitness use a separately bounded structured-response classification."
+    }
+  ],
+  "evidenceContract": "docs/operator-protocol.md sections 3 through 5, EIP712 Pirate Operators version 1",
+  "officialProviderReferences": [
+    "https://developers.openai.com/api/reference/resources/moderations/methods/create",
+    "https://developers.openai.com/api/docs/models/omni-moderation-latest",
+    "https://developers.openai.com/api/docs/guides/structured-outputs",
+    "https://developers.openai.com/api/docs/models/gpt-4.1-mini"
+  ],
+  "qualification": "Local actual cryptographic and MP3-handler tests; real provider calls and managed pairing remain separate acceptance."
+}

@@ -237,6 +237,13 @@ Idempotency:
 - The same `jobId` with a different request hash returns `job_conflict`.
 - Operators retain results for at least 30 days.
 
+For the managed first-song profile, the immutable request hash binds each
+input's community origin, path, SHA-256 and byte length. A freshly authorized
+request may renew only the download capability token and expiry for those
+same inputs. The complete transport request remains publisher-signed. Renewal
+does not change the job, captured authority, quota period or retained provider
+operations and cannot authorize a second charge.
+
 The payer sponsors an admission job only under the sponsorship policy in
 section 9.
 

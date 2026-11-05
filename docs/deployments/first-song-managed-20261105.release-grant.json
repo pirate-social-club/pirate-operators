@@ -1,0 +1,31 @@
+{
+  "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+  "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+  "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+  "configurationRevision": 1,
+  "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+  "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+  "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+  "expiresAt": 1793974341,
+  "pins": {
+    "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+    "period": "first-song-20261105-v1",
+    "maximumAdds": 5
+  },
+  "registration": {
+    "sha256": "0xbcc5d9d57226df0fcf6de828c03a1eea62ec0dd98583a7132c5bcafe59e377ad",
+    "period": "first-song-20261105-v1",
+    "operator": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+    "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+    "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+    "maximumGas": "10000000",
+    "maximumGasPrice": "10000000",
+    "maximumTotalFee": "100000000000000",
+    "expiresAt": 1793974341,
+    "codeHashes": {
+      "workflow": "0xeae615f93fa4dcdad0e8ac35c6732c54bf0a2a8eaec9b072362d2a08aa7aa2c2",
+      "nft": "0xea926deba1719db0be4988e0c1992733441a05cbe00aebc5f5ebb3b5d613223d",
+      "registry": "0x16a5e60a8c09daebb083bd3f8ffc704cb1d86e20662b3aa948cdea9a2a5f9f32"
+    }
+  }
+}
