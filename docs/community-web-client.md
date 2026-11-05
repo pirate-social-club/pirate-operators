@@ -414,16 +414,19 @@ An application release consists of:
 - build instructions pinned to the lockfile and toolchain, so the same commit
   rebuilds to the same asset hashes.
 
-Community configuration is served at `/.well-known/pirate-community.json` from
-the canonical origin. It holds:
+Client bootstrap uses `pirate.community-client-config/1` at
+`/.well-known/pirate-client.json` on the canonical origin. It holds:
 
 - the community ID, canonical origin and API base (`/api`);
 - supported protocol versions;
 - the default and supported languages;
-- chain IDs and contract addresses;
-- the ticket issuer and feed signing keys;
-- the origins operators accept for this community;
 - known mirrors.
+
+The distinct `pirate.community-config/1` directory manifest contains the chain,
+contracts, publisher, moderation policy and canonical application origin. Its
+HTTPS copy uses `/.well-known/pirate-community.json`; its immutable IPFS bytes
+and digest must match the current registry-authorized directory entry. Client
+bootstrap fields do not replace that manifest or its authority checks.
 
 For the next-community deployment, the canonical HTTPS document is a bootstrap
 location, not a substitute for registry-authorized configuration. Resolve the

@@ -37,7 +37,7 @@ versions, entry, and every release asset's SHA-256. The snapshot owns the
 rest: the generated community and post pages, the removal and not-found
 documents, `/public/document-v1.css`, the snapshot data under `/public/data`
 that mirror navigation reads, the community configuration copy at
-`/.well-known/pirate-community.json`, `_redirects`, and
+`/.well-known/pirate-client.json`, `_redirects`, and
 `/public/snapshot.json`, which digests the snapshot files.
 
 `dist/car/car.json` records the root CID, the CAR's SHA-256 and the packing

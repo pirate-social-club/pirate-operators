@@ -1,5 +1,5 @@
 {
-  "profileHash": "0xc69a8b555748f1ccc24f6e626210545a6f4864fccf14445026de55891d09b667",
+  "profileHash": "0x55b8457474115a8cf059986f287a4528a1b5f82d95aa11beea83720e1b7706a6",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -70,15 +70,16 @@
       "apps/web/package-lock.json": "0xa378c07517256bf0df176b2f052e103e47df67cb1c1c7b58d530b5cb982fc766",
       "apps/web/package.json": "0xff3a2828be3e6d1ca03b1463e44155643a878649cc8591b59635f08000157dce",
       "apps/web/src/live/api.ts": "0xe051ad4c452369b8751d415e2c8df9448096e82fd3a513c5f965dfd95bce3d02",
-      "apps/web/src/live/entry.tsx": "0x9ebc12fd4579c3f4313c45ffd99b45248dff9df87096969041609cd6379df0ba",
+      "apps/web/src/live/entry.tsx": "0x8ae4bb84bd16f67c67298221f62fa527b5141cd158f584364f2b3ed26c50edc2",
       "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
       "apps/web/src/live/style.css": "0xeb2d08fa0eda4b8e37c96f4b96de6aba5eb3a7538053f13078ee6b4e5b56095f",
       "apps/web/src/ui.ts": "0xd541b05537a20cf7f489dd710b0aab4d1dd86f086f111a167687783c8b2e4013",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-package.ts": "0x14bbee9ea1ce204c95d4acbfeefb0e8f09dad065b718d1f8efe1a53791d162fc",
-      "harness/community-release.ts": "0x645468de403f63e479ff666472165838ea65632bb546d354efb27af7f07fc9f2",
-      "harness/community-state.ts": "0x0ae88ebf4cfda0f27e2629ea0def6c7c9249c1bc03ba1252a9ac83ac31c690ce",
+      "harness/community-release.ts": "0xb69ecb37a83fbdf4cb13cea855e96a8090cead3baf05ca431c53d816cb5b8fed",
+      "harness/community-result.ts": "0x90014b3da12c7b53df6bf230b2dc3951d798177541a0a76ffe3e0158c39c91b1",
+      "harness/community-state.ts": "0x844823cb0ed3370abd6fdaa87a039468a3c2ee82d56bd22beb51d193bddea888",
       "harness/creator-state.ts": "0xb733c6d091c9ae05bd4109512b3137add5f654c4a8e5e859148524c646455331",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
       "harness/worker-modules.ts": "0xdc7c13c67309b5463c30372f053cbd1212fffeed01546c06e863ef3f6086522f",
@@ -95,17 +96,17 @@
       "packages/community/ipfs.ts": "0x95bbae4c7f31e3ceec29adb72d206ba11bb7488dcba301cba4cee502e5c16e83",
       "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
       "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
-      "services/community-application.ts": "0x646e8b53df2fb175b0b977ef503eb2999f4024a3495a99a45a73f38763e2802b",
+      "services/community-application.ts": "0xe4ade19d87e7df3ef14f33e53f9362b7484ee4c45b20b4102dadc9d73426ab91",
       "services/first-song-profile.ts": "0x64e20213f72aa52c1eed42b76fcd8b8574852742b70209aa313f43a8aa2a1a80"
     },
-    "bundleSha256": "0xf21c69d6323ce923538033787475c912469234201beb654be08c0dfd058fe625",
-    "bundleBytes": 652519,
+    "bundleSha256": "0x7bdb8e65ecd97a23963752c6a366f4e0cc03883c7b9d72622270575fbdb932e0",
+    "bundleBytes": 652591,
     "assets": {
-      ".vite/manifest.json": "0xa6dfaf0b97bfa9d6dbdb26da933e54d15833d8d3f171f19d2e93b9df12847192",
+      ".vite/manifest.json": "0x236ca0dc8f317283e3cf82b35306f82bafcec2795a374ca39a7b574cf42e06ba",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
       "app/assets/index-B9LzooRI.css": "0x7c047750a1c0f473e170055da4cab0744bb1f1af42093b2d1d400ce34b2366fb",
-      "app/assets/index-DBsQIaLr.js": "0x68f8c04aa2ae61535c8ce7999225eb03ac0ed88be7e685efc40428e7ef735808",
-      "index.html": "0xf231a1bee21c76b54e5dc200b0222fbda6ff386121a6616d8f35b64a072a9d85"
+      "app/assets/index-DZJkFDuU.js": "0x46673163e1230b680b37e045c081df5e05b608415c64e8e1cf2b74175ca23b7d",
+      "index.html": "0xdfac14f45c15fe02ec646f79c443ffe5fc13b6cb495b1ca3bea667100721bbbe"
     },
     "migrations": [
       "0001_setup.sql",

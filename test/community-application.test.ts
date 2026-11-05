@@ -154,16 +154,17 @@ test("application signs in with real SIWE verification, host cookie and CSRF; pu
       assert.ok(!data.includes(String(session.csrf)));
       assert.ok(!data.includes(signer.address.toLowerCase()));
     }
-    assert.equal(
-      (
-        await f.post(
-          "/api/logout",
-          {},
-          { ...auth, "x-csrf-token": String(session.csrf) },
-        )
-      ).status,
-      200,
+    f.ports.configuration = async () => {
+      throw new Error("fixture directory outage");
+    };
+    assert.equal((await f.call("/api/session", { headers: auth })).status, 200);
+    const signedOut = await f.post(
+      "/api/logout",
+      {},
+      { ...auth, "x-csrf-token": String(session.csrf) },
     );
+    assert.equal(signedOut.status, 200);
+    assert.match(signedOut.headers.get("set-cookie")!, /Max-Age=0/);
     assert.equal((await f.call("/api/session", { headers: auth })).status, 401);
   } finally {
     await f.dispose();

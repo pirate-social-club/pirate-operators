@@ -2,7 +2,7 @@ import { readFile, lstat, mkdir, open, link, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { unseal } from "../apps/community-wizard/infra/protected-data.ts";
-import { insist, object } from "../packages/community/common.ts";
+import { canonical, insist, object } from "../packages/community/common.ts";
 import { fileDigest } from "./creator-state.ts";
 import {
   communityAccount,
@@ -12,17 +12,46 @@ import {
 } from "./community-package.ts";
 
 type Profile = Awaited<ReturnType<typeof communityPackage>>["profile"];
+export async function privateJson(path: string) {
+  try {
+    const stat = await lstat(path);
+    insist(
+      stat.isFile() && stat.uid === process.getuid!() && !(stat.mode & 0o077),
+      "community_metadata_not_private",
+      409,
+    );
+    return object(JSON.parse(await readFile(path, "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+/** A final name appears only after complete bytes are durable. A lost response
+ * can reuse the same document; a conflicting committed value is never replaced. */
 export async function durableJson(
   path: string,
   value: unknown,
-  exclusive = true,
+  boundary?: (phase: "prepared" | "committed") => Promise<void>,
 ) {
-  const handle = await open(path, exclusive ? "wx" : "w", 0o600);
+  const temporary = `${path}.${randomUUID()}.tmp`,
+    handle = await open(temporary, "wx", 0o600);
   try {
     await handle.writeFile(JSON.stringify(value, null, 2) + "\n");
     await handle.sync();
   } finally {
     await handle.close();
+  }
+  await boundary?.("prepared");
+  try {
+    await link(temporary, path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const existing = await privateJson(path);
+    insist(
+      existing && canonical(existing) === canonical(value),
+      "community_metadata_conflict",
+      409,
+    );
   }
   const parent = await open(join(path, ".."), "r");
   try {
@@ -30,6 +59,8 @@ export async function durableJson(
   } finally {
     await parent.close();
   }
+  await boundary?.("committed");
+  await unlink(temporary);
 }
 export function assertCommunityState(input: unknown, logical: string) {
   if (logical === "__stack_output__") return;

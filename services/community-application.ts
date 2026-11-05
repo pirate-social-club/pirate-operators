@@ -150,6 +150,36 @@ export async function communityFetch(
         headers: assetHeaders,
       });
     }
+    if (request.method === "GET" && url.pathname === "/api/session") {
+      const session = await accountSession(request, env.DB, context),
+        creator = await env.DB.prepare(
+          "SELECT evm_address,verified_at FROM creator_bindings WHERE account_id=?",
+        )
+          .bind(session.account_id)
+          .first<{ evm_address: string; verified_at: number }>();
+      const view: CommunitySessionView = {
+        authenticated: true,
+        authorId: session.author_id,
+        mossAddress: session.wallet,
+        csrf: session.csrf_token,
+        creator: creator
+          ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
+          : null,
+        pendingConnection: await pendingCreatorConnection(env.DB, session),
+      };
+      return reply(view);
+    }
+    if (url.pathname === "/api/logout") {
+      insist(request.method === "POST", "method_not_allowed", 405);
+      const session = await authenticatedWrite(request, env.DB, context);
+      await env.DB.prepare(
+        "DELETE FROM community_sessions WHERE session_hash=?",
+      )
+        .bind(session.session_hash)
+        .run();
+      security.set("set-cookie", cookie("", 0));
+      return reply({ signedOut: true });
+    }
     const config = await ports.configuration();
     insist(
       config.communityId === context.communityId &&
@@ -207,25 +237,6 @@ export async function communityFetch(
       };
       return reply(feed);
     }
-    if (request.method === "GET" && url.pathname === "/api/session") {
-      const session = await accountSession(request, env.DB, context),
-        creator = await env.DB.prepare(
-          "SELECT evm_address,verified_at FROM creator_bindings WHERE account_id=?",
-        )
-          .bind(session.account_id)
-          .first<{ evm_address: string; verified_at: number }>();
-      const view: CommunitySessionView = {
-        authenticated: true,
-        authorId: session.author_id,
-        mossAddress: session.wallet,
-        csrf: session.csrf_token,
-        creator: creator
-          ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
-          : null,
-        pendingConnection: await pendingCreatorConnection(env.DB, session),
-      };
-      return reply(view);
-    }
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
@@ -244,15 +255,6 @@ export async function communityFetch(
         return reply({ authenticated: true, csrf: verified.csrf });
       }
       const session = await authenticatedWrite(request, env.DB, context);
-      if (url.pathname === "/api/logout") {
-        await env.DB.prepare(
-          "DELETE FROM community_sessions WHERE session_hash=?",
-        )
-          .bind(session.session_hash)
-          .run();
-        security.set("set-cookie", cookie("", 0));
-        return reply({ signedOut: true });
-      }
       if (
         url.pathname === "/api/creator/connect" ||
         url.pathname === "/api/creator/complete"

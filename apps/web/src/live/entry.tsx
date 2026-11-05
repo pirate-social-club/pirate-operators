@@ -35,6 +35,7 @@ function App() {
     }
   }
   async function refresh() {
+    await refreshSession();
     const [config, community, caps, posts] = await Promise.all([
       get<CommunityClientConfig>("/.well-known/pirate-client.json"),
       get<{ name: string }>("/api/public/community"),
@@ -54,7 +55,6 @@ function App() {
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
     setFeed(posts);
-    await refreshSession();
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;

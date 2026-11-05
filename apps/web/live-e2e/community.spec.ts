@@ -6,7 +6,11 @@ import { resolve } from "node:path";
 
 const origin = "https://community.example",
   wallet = "https://pirate-wallet-test.piratesocialclub.workers.dev";
-async function serve(page: Page, authenticated = false) {
+async function serve(
+  page: Page,
+  authenticated = false,
+  directoryOutage = false,
+) {
   let connected = false,
     exchanges = 0;
   const pending = {
@@ -24,6 +28,8 @@ async function serve(page: Page, authenticated = false) {
         contentType: "application/json",
         body: JSON.stringify(value),
       });
+    if (path === "/.well-known/pirate-client.json" && directoryOutage)
+      return json({ error: "fixture_directory_unavailable" }, 503);
     if (path === "/.well-known/pirate-client.json")
       return json({
         schema: "pirate.community-client-config/1",
@@ -63,6 +69,11 @@ async function serve(page: Page, authenticated = false) {
       exchanges++;
       connected = true;
       return json({ state: "connected" });
+    }
+    if (path === "/api/logout") {
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      authenticated = false;
+      return json({ signedOut: true });
     }
     if (path.startsWith("/api/"))
       throw new Error(`Unexpected fixture call: ${path}`);
@@ -108,6 +119,20 @@ test("fresh anonymous browser loads the real client, offers sign-in and preserve
     path: "/tmp/pirate-first-song-community-client.png",
     fullPage: true,
   });
+});
+
+test("an existing session can sign out after a reload during a directory outage", async ({
+  page,
+}) => {
+  await serve(page, true, true);
+  await page.goto(origin);
+  await expect(page.getByRole("status")).toContainText(
+    "temporarily unavailable",
+  );
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("status")).toHaveText("Signed out.");
+  await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
 });
 
 test("same-window wallet return completes its saved connection with CSRF, then survives reload", async ({

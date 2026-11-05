@@ -1,4 +1,5 @@
 import { bindCommunityPublisher } from "./community-credentials.ts";
+import { completedCommunityRelease } from "./community-result.ts";
 // Manual staging application upgrade. Dry plan by default; exact reviewed hash
 // required for execution. Existing wizard state and resource identities remain.
 import { readFile, writeFile, lstat, open, unlink } from "node:fs/promises";
@@ -208,6 +209,26 @@ async function main() {
   await lock.writeFile(identity);
   await lock.sync();
   try {
+    const completed = await completedCommunityRelease(
+      directory,
+      profile,
+      profileHash,
+      { inventory: before, modules, health },
+    );
+    if (completed) {
+      console.log(
+        JSON.stringify(
+          {
+            ...completed,
+            reconciliation:
+              "committed success matches fresh live identities, modules and health; no apply repeated",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     const executionPath = join(directory, "execution.json");
     try {
       const existing = object(
@@ -303,6 +324,7 @@ async function main() {
     );
     const after = await inventory();
     await durableJson(join(directory, "deployment-result.json"), {
+      schema: "pirate.community-application-release/1",
       profileHash,
       before,
       after,
