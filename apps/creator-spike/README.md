@@ -21,14 +21,12 @@ Worker or move its RP after creating a passkey.
    saved passkey and approve the fixed test signature. Return to community to
    see all three steps complete.
 
-An unsupported PRF provider stops before wallet funding. The first pilot is a
-desktop browser test. Real-device Android Chrome, Telegram, popup blocking and
-cross-device passkey behavior remain acceptance work; there is no redirect
-fallback yet. An activation interrupted after submitting DKG but before local
-verification requires the original open page. The app intentionally does not
-reconstruct the lost local DKG output from the operator. Keep that page open
-and use Retry this step for temporary provider failures. Pending attempts are
-retained and cannot automatically spend again.
+An unsupported PRF provider stops before wallet funding. Real-device Android
+Chrome, Telegram, popup blocking and broader provider acceptance remain work.
+The first-song successor preserves opaque encrypted DKG output for passkey
+reopening and has scoped popup and same-window community returns. Those source
+changes require the native update and live qualification before acceptance.
+Pending attempts retain their identity and cannot automatically spend again.
 
 ## Boundaries
 
@@ -79,8 +77,10 @@ passkey and PRF are software fixtures in a local Miniflare D1, not a bypass
 in the public deployment. The live flow preceded the final activation-consent
 check; that check has cryptographic unit coverage but still needs the real
 browser pilot. Public browser QA confirms the MOSS embed opens and the mobile
-layout fits. A completed real MOSS sign-in and hardware/provider PRF flow have
-not been claimed.
+layout fits. A completed real MOSS sign-in has not been claimed. A later
+passkey pilot qualified activation, reopening and signing within its recorded
+provider scope. The new community connection and broader device matrix remain
+separate acceptance.
 
 The manual smoke script requires `RUN_CREATOR_LIVE_SMOKE=1` and the dedicated
 Infisical environment. It reuses its private saved attempt on retries. It never
@@ -98,8 +98,9 @@ raw user secret share is retained. A reopened page decrypts that saved proof
 and resumes the original DKG and acceptance. Conflicting proof bytes stop
 before a funded call. Existing active wallets can return without buying a
 new test signature. The source has local crypto, D1 and browser-build coverage;
-the new migration and Worker have not yet been deployed. Scoped first-song
-community pairing, connection renewal and live reload acceptance remain open.
+the new migrations and Worker have not yet been deployed. Scoped first-song
+community pairing and safe receipt renewal have independently reviewed source
+and local qualification. Live reload acceptance remains open.
 
 ## Deployment
 
@@ -108,26 +109,33 @@ Build this package, then install the separate `infra` package with `npm ci`.
 Use the existing `cf` login for diagnostics and deployment credentials.
 Do not introduce a second resource owner or deploy directly through Wrangler.
 
-From `infra`, run the plan with:
+From the repository root, build the source-bound update plan with:
 
 ```sh
-infisical run --projectId 43d2261a-f739-428f-92f2-5f907db24c07 --env dev --path / -- node deploy.mjs
+apps/community-wizard/node_modules/.bin/tsx harness/creator-service.ts --write-plan
+apps/community-wizard/node_modules/.bin/tsx harness/creator-service.ts --preflight
 ```
 
-After reviewing the plan, add `--execute` to deploy the fixed testnet stage.
-Infisical supplies `SUI_OPERATOR_SECRET_KEY`; `SMOKE_TEST_SEED` is only for the
-manual local fixture. The dedicated operator address is
+Independent review must bind the exact source and profile before execution
+with `--execute --expected-profile`. The update preserves both origins, RP and
+database, checks original or exact successor Worker modules, requires quiescent
+native journals and has a 900-second execution limit. It authorizes no native
+transaction or new wallet activation. Existing managed bindings supply
+`SUI_OPERATOR_SECRET_KEY`; `SMOKE_TEST_SEED` is only for the manual local fixture.
+The dedicated operator address is
 `0xe80513f6f72a375ef3fc279f74e904ba4ab244554abbd468559a13a811a82ea6`.
-The current funds cover one additional complete pilot, subject to live fees.
+Live inventory must be checked before any separately bounded fresh activation.
+This rollout reuses the verified Active pilot wallet.
 
-Infisical is the credential source of truth. This pinned Alchemy version also
-caches resolved Worker secrets in its local deployment state. The wrapper uses
-a private 0700 directory under
-`~/.local/state/pirate-creator-wallet-testnet/alchemy`, private file creation,
-and an ignored `.alchemy` symlink. Preserve that state across checkouts; do not
-publish it, its logs, smoke state, browser sessions or environment files. The
-deployed Workers disable observability, and production never enables the
-local diagnostic binding.
+Infisical is the credential source of truth. The historical private state under
+`~/.local/state/pirate-creator-wallet-testnet/alchemy` remains preserved unchanged.
+The update verifies its hashes and owned resource identities, then restores a
+separate encrypted Alchemy successor under the first-song runner. Resolved
+secrets and diagnostics stay encrypted and are scanned before and after apply.
+The old `infra/deploy.mjs` workflow now refuses execution; its original source
+remains in Git history. Do not publish private state, logs, smoke state, browser
+sessions or environment files. The deployed Workers disable observability and
+production never enables the local diagnostic binding.
 
 This is an owner-operated spike with finite testnet funding. It does not
 implement device recovery, credential replacement, session renewal, operator

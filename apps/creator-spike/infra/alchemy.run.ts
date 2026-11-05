@@ -1,5 +1,5 @@
 import * as Alchemy from "alchemy";
-import { localState } from "alchemy/State";
+import { encryptedLocalState } from "./encrypted-state.ts";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
@@ -8,7 +8,7 @@ export default Alchemy.Stack(
   "pirate-creator-wallet-testnet",
   {
     providers: Cloudflare.providers(),
-    state: localState(),
+    state: encryptedLocalState(),
   },
   Effect.gen(function* () {
     const DB = yield* Cloudflare.D1.Database("CreatorTestDatabase", {
@@ -28,6 +28,7 @@ export default Alchemy.Stack(
       observability: { enabled: false },
       env: {
         DB,
+        NATIVE_PROFILE_HASH: process.env.NATIVE_PROFILE_HASH!,
         SUI_OPERATOR_SECRET_KEY: Config.Redacted("SUI_OPERATOR_SECRET_KEY"),
       },
     };

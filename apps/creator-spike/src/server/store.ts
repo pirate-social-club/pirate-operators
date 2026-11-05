@@ -4,6 +4,7 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   SUI_OPERATOR_SECRET_KEY: string;
+  NATIVE_PROFILE_HASH?: string;
   LOCAL_TEST_DIAGNOSTICS?: string;
 }
 export class HttpError extends Error {

@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "alchemy": "2.0.0-beta.85",
     "@alchemy.run/cloudflare": "2.0.0-beta.85",
-    "effect": "4.1.0",
-    "@effect/platform-node": "4.1.0"
+    "@effect/platform-node": "4.1.2",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.2"
   },
   "overrides": {
     "@babel/plugin-transform-runtime": "7.29.7"

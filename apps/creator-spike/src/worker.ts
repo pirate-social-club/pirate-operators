@@ -60,7 +60,19 @@ export default {
         });
       }
       let result: Record<string, unknown>;
-      if (
+      if (request.method === "GET" && url.pathname === "/api/health") {
+        insist(
+          typeof env.NATIVE_PROFILE_HASH === "string" &&
+            /^0x[0-9a-f]{64}$/.test(env.NATIVE_PROFILE_HASH),
+          "native_profile_unavailable",
+          503,
+        );
+        result = {
+          service: "pirate-native-creator/1",
+          profileHash: env.NATIVE_PROFILE_HASH,
+          testnet: true,
+        };
+      } else if (
         isWallet &&
         request.method === "POST" &&
         ["/api/communities/launch", "/api/communities/exchange"].includes(
