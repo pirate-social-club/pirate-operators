@@ -214,6 +214,28 @@ export async function bindCredentialToLink(
     "wrong_creator_passkey",
     403,
   );
+  const pending = await env.DB.prepare(
+    "SELECT credential_id FROM attempts WHERE account=? AND status<>'failed'",
+  )
+    .bind(l.account)
+    .first<{ credential_id: string }>();
+  insist(
+    !pending || pending.credential_id === credentialId,
+    "wrong_creator_passkey",
+    403,
+  );
+  const credentialAttempt = await env.DB.prepare(
+    "SELECT a.account,c.status FROM attempts a JOIN credentials c ON c.id=a.credential_id WHERE a.credential_id=? AND a.status<>'failed'",
+  )
+    .bind(credentialId)
+    .first<{ account: string; status: string }>();
+  insist(
+    !credentialAttempt ||
+      credentialAttempt.status === "active" ||
+      credentialAttempt.account === l.account,
+    "creator_activation_belongs_to_another_account",
+    403,
+  );
   const result = await env.DB.prepare(
     "UPDATE links SET credential_id = ? WHERE id = ? AND (credential_id IS NULL OR credential_id = ?) AND consumed = 0",
   )

@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@infisical/sdk": "5.0.2",
+    "@mysten/sui": "2.39.0",
     "effect": "4.1.2",
     "ipfs-unixfs-importer": "17.1.1",
     "multiformats": "14.0.5",

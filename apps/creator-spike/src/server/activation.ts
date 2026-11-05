@@ -39,6 +39,7 @@ import {
 import { evmKey } from "./evm-key.ts";
 import { verifyPasskeyProof } from "./passkey-proof.ts";
 import { requireActivationRecovery } from "./activation-recovery.ts";
+import { finishScopedConnection } from "./community-connection.ts";
 
 export interface AttemptRow {
   id: string;
@@ -345,6 +346,8 @@ export async function finish(
     409,
   );
   await verifyWallet(row.dwallet_id, row.cap_id, row.share_id, row.sui_address);
+  const scoped = await finishScopedConnection(env, connection);
+  if (scoped) return scoped;
   const code = randomToken();
   await env.DB.prepare("UPDATE links SET code_hash=? WHERE id=? AND consumed=0")
     .bind(await hash(code), connection.id)

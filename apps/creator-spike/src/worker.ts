@@ -21,6 +21,10 @@ import {
   operatorAddress,
   verifyWallet,
 } from "./server/chain.ts";
+import {
+  communityConnection,
+  scopedConnectionInfo,
+} from "./server/community-connection.ts";
 
 const communityRoutes = new Set([
   "/api/auth/challenge",
@@ -56,7 +60,35 @@ export default {
         });
       }
       let result: Record<string, unknown>;
-      if (request.method === "GET" && url.pathname === "/api/config") {
+      if (
+        isWallet &&
+        request.method === "POST" &&
+        ["/api/communities/launch", "/api/communities/exchange"].includes(
+          url.pathname,
+        )
+      ) {
+        result = await communityConnection(
+          env,
+          url.pathname.endsWith("/launch")
+            ? "creator_launch"
+            : "creator_exchange",
+          await jsonBody(request),
+        );
+      } else if (
+        isWallet &&
+        request.method === "GET" &&
+        url.pathname === "/api/connection"
+      ) {
+        const id = url.searchParams.get("request") ?? "";
+        insist(
+          /^[A-Za-z0-9_-]{43}$|^[a-f0-9]{64}$/.test(id),
+          "invalid_connection",
+        );
+        result = (await scopedConnectionInfo(env, id)) ?? {
+          scoped: false,
+          communityOrigin,
+        };
+      } else if (request.method === "GET" && url.pathname === "/api/config") {
         result = {
           communityOrigin,
           walletOrigin,

@@ -41,6 +41,34 @@ const sui = new SuiGrpcClient({ network: "testnet", baseUrl: suiUrl }),
   config = getNetworkConfig("testnet");
 const ika = new IkaClient({ suiClient: sui, config });
 const request = new URL(location.href).searchParams.get("request");
+let scopedConnection = false,
+  returnOrigin = communityOrigin;
+const connectionReady = request
+  ? api<{
+      scoped: boolean;
+      communityOrigin: string;
+      purpose?: string;
+      connectionId?: string;
+    }>(`connection?request=${encodeURIComponent(request)}`).then((info) => {
+      const origin = new URL(info.communityOrigin);
+      if (
+        origin.protocol !== "https:" ||
+        origin.origin !== info.communityOrigin
+      )
+        throw new Error("The requesting community could not be verified.");
+      scopedConnection = info.scoped;
+      returnOrigin = origin.origin;
+      if (scopedConnection) {
+        const intro = document.querySelector<HTMLElement>(".intro")!;
+        intro.textContent = `${info.purpose} Requesting community: ${returnOrigin}`;
+        document.querySelector<HTMLAnchorElement>(".wordmark")!.href =
+          returnOrigin;
+        document.querySelector("footer")!.textContent =
+          "Creator setup uses capped operator funding. Reopening an active wallet does not create another wallet.";
+      }
+      return info;
+    })
+  : Promise.resolve(null);
 let keys: UserShareEncryptionKeys | undefined, wallet: WalletRecord | undefined;
 let activationKey: CryptoKey | undefined;
 interface SetupIntent {
@@ -74,6 +102,13 @@ const status = document.querySelector<HTMLElement>("#status")!;
 const setStatus = (text: string) => {
   status.textContent = text;
 };
+void connectionReady.catch((error) =>
+  setStatus(
+    error instanceof Error
+      ? error.message
+      : "The community connection could not be verified.",
+  ),
+);
 const details = document.querySelector<HTMLElement>("#details")!;
 const button = (id: string) =>
   document.querySelector<HTMLButtonElement>(`#${id}`)!;
@@ -110,6 +145,7 @@ async function confirm(w: WalletRecord, active: boolean) {
   return { d, share };
 }
 async function start(register: boolean) {
+  await connectionReady;
   if (!request)
     throw new Error("Start from Release a song on the community page.");
   setStatus(
@@ -137,8 +173,12 @@ async function start(register: boolean) {
   showWallet(wallet);
   if (wallet.status === "active") {
     await confirm(wallet, true);
-    setStatus("Wallet reopened. Ready to sign the test message.");
-    button("sign").hidden = false;
+    setStatus(
+      scopedConnection
+        ? "Wallet reopened. Confirm the connection to return to your community."
+        : "Wallet reopened. Ready to sign the test message.",
+    );
+    button("sign").hidden = scopedConnection;
     button("finish").hidden = false;
   } else {
     await activate();
@@ -463,18 +503,39 @@ async function sign() {
   }
 }
 async function finish() {
-  const result = await api<{ code: string; state: string }>("finish", {
+  await connectionReady;
+  const result = await api<{
+    code?: string;
+    state: string;
+    origin?: string;
+    returnUrl?: string;
+  }>("finish", {
     request,
   });
+  if (scopedConnection && result.origin !== returnOrigin)
+    throw new Error(
+      "The community connection changed. Reopen it from your community.",
+    );
   if (window.opener) {
     window.opener.postMessage(
       { type: "pirate:creator", ...result },
-      communityOrigin,
+      returnOrigin,
     );
     keys = undefined;
     window.close();
   } else {
-    setStatus("Wallet confirmed. Return to the community tab.");
+    if (scopedConnection && result.returnUrl) {
+      const target = new URL(result.returnUrl);
+      if (
+        target.origin !== returnOrigin ||
+        target.pathname !== "/creator/complete" ||
+        target.username ||
+        target.password ||
+        target.hash
+      )
+        throw new Error("The return address did not match your community.");
+      location.assign(target.href);
+    } else setStatus("Wallet confirmed. Return to the community tab.");
   }
 }
 async function run(fn: () => Promise<void>) {

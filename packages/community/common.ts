@@ -110,7 +110,7 @@ export const equalTokens = (a: string, b: string) =>
   );
 export const now = () => Date.now();
 export async function jsonBody(
-  request: Request,
+  request: Pick<Request, "headers" | "body">,
   maxBytes = 64 * 1024,
 ): Promise<Record<string, unknown>> {
   insist(
