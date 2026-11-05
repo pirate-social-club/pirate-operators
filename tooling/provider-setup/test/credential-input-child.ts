@@ -1,7 +1,8 @@
 import { readSecret } from "../private-input.ts";
 import { SetupFailure } from "../model.ts";
+import { credentialLabel } from "../credentials.ts";
 try {
-  const value = await readSecret("FILEBASE_ACCESS_KEY_ID");
+  const value = await readSecret(credentialLabel("FILEBASE_ACCESS_KEY_ID"));
   if (value !== "NeverEchoThisCredential")
     throw new Error("fixture_input_mismatch");
   process.stdout.write("entry_complete\n");

@@ -31,8 +31,8 @@ their names. Keep values out of chat, shell arguments and repository files:
 
 | Secret | Owner action | Use |
 | --- | --- | --- |
-| FILEBASE_ACCESS_KEY_ID | View the new Filebase account's access key ID. | Setup-only S3 signing. |
-| FILEBASE_SECRET_ACCESS_KEY | View that same account's secret access key. | Setup-only S3 signing. |
+| FILEBASE_ACCESS_KEY_ID | Copy the S3 Compatible API field labelled Access token. | Setup-only S3 signing. |
+| FILEBASE_SECRET_ACCESS_KEY | Copy the same section's field labelled Secret key. | Setup-only S3 signing. |
 | ACRCLOUD_CONSOLE_TOKEN | Create a token in the fresh account's Console Developer Settings. | Create/reconcile its recognition project. |
 | OPENAI_ADMIN_KEY | Create an Admin API key in the selected OpenAI organization. | Create/reconcile a new project and service account. |
 
@@ -48,7 +48,8 @@ node tooling/provider-setup/run.ts credentials --provider filebase \
 
 Append `--execute` to prepare the folders and enter credentials. This command
 uses the verified Infisical CLI login, shows the nonsecret destination, and
-prompts for the two values with terminal echo disabled. Paste each value and
+prompts for Access token, then Secret key, matching Filebase's dashboard labels,
+with terminal echo disabled. Paste each value and
 press Enter. It requires a real local terminal; piped input is refused before
 authentication. Values are passed in memory directly to the Infisical SDK,
 read back for exact equality, and omitted from output. They never enter command

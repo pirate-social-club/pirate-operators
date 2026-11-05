@@ -7,6 +7,11 @@ export const bootstrapNames = {
   acrcloud: ["ACRCLOUD_CONSOLE_TOKEN"],
   openai: ["OPENAI_ADMIN_KEY"],
 } as const;
+export function credentialLabel(name: string): string {
+  if (name === "FILEBASE_ACCESS_KEY_ID") return "Access token";
+  if (name === "FILEBASE_SECRET_ACCESS_KEY") return "Secret key";
+  return name;
+}
 export type CredentialTarget = {
   provider: keyof typeof bootstrapNames;
   projectId: string;
@@ -61,7 +66,8 @@ export async function prepareFolders(
 export async function prepareCredentials(
   target: CredentialTarget,
   sdk: InfisicalSDK,
-  prompt: (name: string) => Promise<string> = readSecret,
+  prompt: (name: string) => Promise<string> = (name) =>
+    readSecret(credentialLabel(name)),
   replace = false,
 ) {
   try {

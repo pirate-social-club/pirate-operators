@@ -25,7 +25,10 @@ export async function readSecret(label: string): Promise<string> {
     process.stdin.isTTY && process.stderr.isTTY && !process.stdin.isRaw,
     "credential_entry_requires_local_terminal",
   );
-  requireThat(/^[A-Z][A-Z0-9_]{1,80}$/.test(label), "invalid_credential_label");
+  requireThat(
+    /^[A-Za-z][A-Za-z0-9 _-]{0,80}$/.test(label),
+    "invalid_credential_label",
+  );
   const sink = new Writable({
     write(_chunk, _encoding, callback) {
       callback();
