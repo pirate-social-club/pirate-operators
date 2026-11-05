@@ -123,7 +123,7 @@ function rpc(token: string, path: string, body?: BodyInit) {
     method: "POST",
     headers: { authorization: `Bearer ${token}` },
     body,
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(60000),
   });
 }

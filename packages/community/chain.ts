@@ -6,7 +6,7 @@ export function megaethReadClient(): PublicClient {
     transport: http("https://carrot.megaeth.com/rpc", {
       retryCount: 0,
       timeout: 15000,
-      fetchOptions: { redirect: "error" },
+      fetchOptions: { redirect: "manual" },
     }),
   });
 }

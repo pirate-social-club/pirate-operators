@@ -6,7 +6,7 @@ import {
 } from "./creator-state.ts";
 import { cfJson, rows } from "./managed-inventory.ts";
 import { insist, object } from "../packages/community/common.ts";
-import { workerModuleDigests } from "./worker-modules.ts";
+import { fetchWorkerModuleDigests } from "./worker-modules.ts";
 
 export async function creatorInventory(env: NodeJS.ProcessEnv) {
   const [workers, databases] = await Promise.all([
@@ -87,33 +87,8 @@ export async function creatorRemoteModules(token: string, name: string) {
     ["pirate-wallet-test", "pirate-creator-spike"].includes(name),
     "unowned_creator_worker",
   );
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${creatorAccount}/workers/scripts/${name}`,
-    {
-      headers: { authorization: `Bearer ${token}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(30000),
-    },
-  );
-  insist(response.ok && response.body, "creator_download_failed", 503);
-  const reader = response.body.getReader(),
-    chunks: Uint8Array[] = [];
-  let length = 0;
-  for (;;) {
-    const part = await reader.read();
-    if (part.done) break;
-    length += part.value.length;
-    if (length > 16 * 1024 * 1024) {
-      await reader.cancel();
-      insist(false, "creator_download_too_large", 503);
-    }
-    chunks.push(part.value);
-  }
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return workerModuleDigests(bytes, response.headers.get("content-type") ?? "");
+  return fetchWorkerModuleDigests(token, creatorAccount, name, [
+    "index.js",
+    "ika.wasm",
+  ]);
 }

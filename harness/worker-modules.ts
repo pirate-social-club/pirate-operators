@@ -80,3 +80,55 @@ export function workerModuleDigests(
     cursor = end + 2 + marker.length;
   }
 }
+
+/** Read-only script download; caller admits the owned account/name before use.
+ * Only digests escape this function. Runtime binding values are not requested. */
+export async function fetchWorkerModuleDigests(
+  token: string,
+  accountId: string,
+  name: string,
+  expectedNames: readonly string[],
+) {
+  insist(
+    /^[a-f0-9]{32}$/.test(accountId) && /^[a-z0-9][a-z0-9-]{0,62}$/.test(name),
+    "invalid_worker_download_target",
+    503,
+  );
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${name}`,
+    {
+      headers: { authorization: `Bearer ${token}` },
+      redirect: "manual",
+      signal: AbortSignal.timeout(30000),
+    },
+  );
+  insist(response.ok && response.body, "worker_download_failed", 503);
+  const reader = response.body.getReader(),
+    chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.length;
+      if (size > 16 * 1024 * 1024) {
+        await reader.cancel();
+        insist(false, "worker_download_too_large", 503);
+      }
+      chunks.push(part.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return workerModuleDigests(
+    bytes,
+    response.headers.get("content-type") ?? "",
+    expectedNames,
+  );
+}

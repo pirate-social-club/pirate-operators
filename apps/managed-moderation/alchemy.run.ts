@@ -26,7 +26,10 @@ export default Alchemy.Stack(
       name: prefix,
       main: "./worker/worker.mjs",
       bundle: false,
-      compatibility: { date: "2026-11-04", flags: ["nodejs_compat"] },
+      compatibility: {
+        date: "2026-11-04",
+        flags: ["nodejs_compat", "global_fetch_strictly_public"],
+      },
       workersDev: { enabled: true, previewsEnabled: false },
       crons: ["* * * * *"],
       limits: { cpuMs: 30000 },

@@ -68,7 +68,7 @@ function dependencies(env: CommunityEnv): CommunityDependencies {
     async creatorHealth() {
       try {
         const response = await fetch(creatorServiceOrigin + "/api/health", {
-            redirect: "error",
+            redirect: "manual",
             signal: AbortSignal.timeout(15000),
           }),
           body = await jsonBody(response);

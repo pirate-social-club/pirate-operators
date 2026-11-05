@@ -90,7 +90,7 @@ export async function identifyMp3(
   const request = new Request(endpoint, {
     method: "POST",
     body: form,
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(30000),
   });
   return parseAcrResponse(await providerRequest(request, transport, received));

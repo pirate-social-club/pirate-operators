@@ -1,5 +1,6 @@
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
+import { adoptReviewedUpdate, reviewedPredecessor } from "./reviewed-update.ts";
 // Manual staging application upgrade. Dry plan by default; exact reviewed hash
 // required for execution. Existing wizard state and resource identities remain.
 import { readFile, writeFile, lstat, open, unlink } from "node:fs/promises";
@@ -24,8 +25,11 @@ import {
   insist,
   object,
 } from "../packages/community/common.ts";
-import { managedInventory } from "./managed-inventory.ts";
-import { workerModuleDigests } from "./worker-modules.ts";
+import {
+  communityInventory,
+  communityRemoteModules,
+  requireIdleCommunity,
+} from "./community-inventory.ts";
 import {
   communityPackage,
   writeCommunityPackage,
@@ -34,7 +38,11 @@ import {
   communityAccount,
   communityOwned,
 } from "./community-package.ts";
-import { durableJson, restoreCommunityState } from "./community-state.ts";
+import {
+  durableJson,
+  restoreCommunityState,
+  verifyCommunitySuccessor,
+} from "./community-state.ts";
 
 const directory = join(communityBase, "application-service");
 async function main() {
@@ -45,6 +53,7 @@ async function main() {
         preflight: { type: "boolean" },
         "write-plan": { type: "boolean" },
         "expected-profile": { type: "string" },
+        "reviewed-update": { type: "boolean" },
       },
     }),
     { profile, profileHash, bytes } = await communityPackage();
@@ -84,49 +93,24 @@ async function main() {
       CLOUDFLARE_ACCOUNT_ID: communityAccount,
       CLOUDFLARE_API_TOKEN: token,
     };
-  const inventory = async () => {
-    const value = await managedInventory(cloudEnv, communityPrefix);
-    insist(
-      value.resources.length === 4 &&
-        value.resources.every(
-          (r, i) => r.present && r.id === communityOwned[i]!.id,
-        ),
-      "community_resource_identity_changed",
-      409,
-    );
-    return value;
-  };
+  const inventory = () => communityInventory(cloudEnv);
   const before = await inventory();
-  const remote = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${communityAccount}/workers/scripts/${communityPrefix}`,
-    {
-      headers: { authorization: `Bearer ${token}` },
-      redirect: "error",
-      signal: AbortSignal.timeout(30000),
-    },
-  );
+  const previousPlan = object(
+      JSON.parse(
+        await readFile(profile.reviewedUpdate.previousPlanPath, "utf8"),
+      ),
+    ),
+    previousProfile = object(previousPlan.profile);
   insist(
-    remote.ok &&
-      Number(remote.headers.get("content-length") ?? 0) < 8 * 1024 * 1024,
-    "community_worker_download_failed",
-    503,
+    previousPlan.profileHash === profile.reviewedUpdate.previousProfileHash,
+    "community_previous_plan_changed",
+    409,
   );
-  const moduleBytes = new Uint8Array(await remote.arrayBuffer());
-  insist(
-    moduleBytes.length < 8 * 1024 * 1024,
-    "community_worker_download_too_large",
-    503,
-  );
-  const modules = workerModuleDigests(
-    moduleBytes,
-    remote.headers.get("content-type") ?? "",
-    ["worker.mjs"],
-  );
+  const modules = await communityRemoteModules(token);
   insist(
     Object.keys(modules).length === 1 &&
       Object.values(modules).every(
-        (h) =>
-          h === profile.predecessorWorkerSha256 || h === profile.bundleSha256,
+        (h) => h === previousProfile.bundleSha256 || h === profile.bundleSha256,
       ),
     "community_live_source_changed",
     409,
@@ -139,7 +123,8 @@ async function main() {
   insist(
     live.ok &&
       health.planId === profile.planId &&
-      (health.schema === "pirate.community-setup/1" ||
+      health.schema === "pirate.community-application/1" &&
+      (health.profileHash === profile.reviewedUpdate.previousProfileHash ||
         health.profileHash === profileHash),
     "community_live_profile_changed",
     409,
@@ -162,6 +147,9 @@ async function main() {
     state.path,
     "PIRATE_WIZARD_STATE_PASSWORD",
   );
+  await verifyCommunitySuccessor(directory, profile, password);
+  await reviewedPredecessor(directory, { profile, profileHash });
+  await requireIdleCommunity(cloudEnv);
   if (!values.execute) {
     // Read-only ownership check: authenticate original state without restoring it.
     const { unseal } = await import(
@@ -198,6 +186,18 @@ async function main() {
     );
     return;
   }
+  const nativeHealth = await fetch(
+      "https://pirate-wallet-test.piratesocialclub.workers.dev/api/health",
+      { redirect: "manual", signal: AbortSignal.timeout(30000) },
+    ),
+    nativeStatus = object(await nativeHealth.json());
+  insist(
+    nativeHealth.ok &&
+      nativeStatus.profileHash === profile.creatorProfileHash &&
+      nativeStatus.testnet === true,
+    "community_native_successor_not_ready",
+    503,
+  );
   await privateDirectory(directory);
   const lockPath = join(directory, "execution.lock"),
     lock = await open(lockPath, "wx", 0o600),
@@ -234,11 +234,22 @@ async function main() {
       const existing = object(
         JSON.parse(await readFile(executionPath, "utf8")),
       );
-      insist(
-        existing.profileHash === profileHash,
-        "community_execution_profile_changed",
-        409,
-      );
+      if (existing.profileHash !== profileHash) {
+        insist(
+          values["reviewed-update"],
+          "community_reviewed_update_flag_required",
+          409,
+        );
+        await adoptReviewedUpdate(
+          directory,
+          { profile, profileHash },
+          {
+            "deployment/node_modules": resolve(
+              "apps/community-wizard/node_modules",
+            ),
+          },
+        );
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await durableJson(executionPath, {

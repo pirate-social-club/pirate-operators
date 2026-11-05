@@ -18,6 +18,7 @@ import { unseal } from "../apps/managed-moderation/protected-data.ts";
 import { cfJson } from "./managed-inventory.ts";
 import type { managedInventory } from "./managed-inventory.ts";
 import type { managedPackage } from "./managed-package.ts";
+import { fetchWorkerModuleDigests } from "./worker-modules.ts";
 
 type Profile = Awaited<ReturnType<typeof managedPackage>>["profile"];
 type Inventory = Awaited<ReturnType<typeof managedInventory>>;
@@ -33,11 +34,12 @@ export async function qualifyManagedUpdate(
   env: NodeJS.ProcessEnv,
 ) {
   const previous = await json(profile.update.previousPlanPath),
-    startup = await json(profile.update.startupEvidencePath);
+    startup = await json(profile.update.startupEvidencePath),
+    previousEvidence = await json(profile.update.previousEvidencePath);
   insist(
     previous.profileHash === profile.update.previousProfileHash &&
       hashJson(previous.profile) === previous.profileHash &&
-      startup.profileHash === previous.profileHash,
+      previousEvidence.profileHash === previous.profileHash,
     "managed_update_predecessor_changed",
     409,
   );
@@ -125,6 +127,22 @@ export async function qualifyManagedUpdate(
       (health.profileHash === previous.profileHash ||
         health.profileHash === hashJson(profile)),
     "managed_update_live_profile_changed",
+    409,
+  );
+  const modules = await fetchWorkerModuleDigests(
+    String(env.CLOUDFLARE_API_TOKEN),
+    profile.accountId,
+    profile.prefix,
+    ["worker.mjs"],
+  );
+  insist(
+    Object.keys(modules).length === 1 &&
+      Object.values(modules).every(
+        (hash) =>
+          hash === object(previous.profile).bundleSha256 ||
+          hash === profile.bundleSha256,
+      ),
+    "managed_update_live_source_changed",
     409,
   );
   // This successor changes only retrieval and operational packaging. It must

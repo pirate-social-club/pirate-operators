@@ -94,7 +94,7 @@ test("ACR sends one fixed-region signed raw MP3 request and retains its response
           request.url,
           "https://identify-eu-west-1.acrcloud.com/v1/identify",
         );
-        assert.equal(request.redirect, "error");
+        assert.equal(request.redirect, "manual");
         const form = await request.formData();
         assert.equal(form.get("timestamp"), "1000");
         assert.equal(form.get("sample_bytes"), "4");
@@ -238,7 +238,7 @@ test("OpenAI requests pin models, bound output and preserve exact supplied text 
       async request(request) {
         calls++;
         assert.equal(request.url, "https://api.openai.com/v1/moderations");
-        assert.equal(request.redirect, "error");
+        assert.equal(request.redirect, "manual");
         assert.equal(
           request.headers.get("authorization"),
           "Bearer fixture-private-key",
@@ -268,7 +268,7 @@ test("OpenAI requests pin models, bound output and preserve exact supplied text 
       async request(request) {
         calls++;
         assert.equal(request.url, "https://api.openai.com/v1/responses");
-        assert.equal(request.redirect, "error");
+        assert.equal(request.redirect, "manual");
         const body = (await request.json()) as {
           model: string;
           store: boolean;

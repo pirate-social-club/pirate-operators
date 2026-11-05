@@ -92,7 +92,7 @@ function configuration(env: ManagedEnv): ManagedService {
     transport: http(chain.rpcUrls.default.http[0], {
       retryCount: 0,
       timeout: 15000,
-      fetchOptions: { redirect: "error" },
+      fetchOptions: { redirect: "manual" },
     }),
   });
   return {

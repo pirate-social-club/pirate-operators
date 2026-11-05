@@ -48,7 +48,19 @@ export async function managedPackage() {
     legalComments: "none",
   });
   const bytes = bundle.outputFiles![0]!.contents;
+  const operations = await build({
+    entryPoints: ["harness/managed-service.ts"],
+    bundle: true,
+    write: false,
+    platform: "node",
+    packages: "external",
+    metafile: true,
+    logLevel: "silent",
+  });
   const files = [
+    ...Object.keys(operations.metafile!.inputs).filter(
+      (p) => !p.includes("node_modules/"),
+    ),
     ...Object.keys(bundle.metafile!.inputs).filter(
       (p) => !p.includes("node_modules/"),
     ),
@@ -73,8 +85,11 @@ export async function managedPackage() {
     "harness/managed-service.ts",
     "harness/managed-inventory.ts",
     "harness/managed-update.ts",
+    "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json",
+    "docs/deployments/first-song-managed-20261105.moderation-update.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -119,11 +134,13 @@ export async function managedPackage() {
     origin: managedOrigin,
     update: {
       previousProfileHash:
-        "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2",
+        "0xb59e1baeb975d61643696b1caa01d9bd040a0f844c7b8b0d2b0c5d99bfd9b6b3",
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v2.json",
       startupEvidencePath:
         "docs/deployments/first-song-managed-20261105.moderation-setup.json",
+      previousEvidencePath:
+        "docs/deployments/first-song-managed-20261105.moderation-update.json",
       requireIdle: true,
     },
     resources: {

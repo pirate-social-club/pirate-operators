@@ -26,10 +26,15 @@ import {
   creatorAccount,
   restoreCreatorState,
   verifyCreatorPredecessor,
+  verifyCreatorSuccessor,
 } from "./creator-state.ts";
 import { creatorInventory, creatorRemoteModules } from "./creator-inventory.ts";
-import { adoptCreatorProfile } from "./creator-profile-recovery.ts";
-import { saveConfigurationState as savePrivateJson } from "./megaeth/configuration-state.ts";
+import {
+  adoptReviewedUpdate,
+  reviewedPredecessor,
+  finishReviewedUpdate,
+} from "./reviewed-update.ts";
+import { privateJson } from "./private-json.ts";
 
 const base = join(homedir(), ".local/state/pirate-first-song-managed-20261105"),
   directory = join(base, "creator-service");
@@ -41,7 +46,7 @@ async function main() {
         preflight: { type: "boolean" },
         "write-plan": { type: "boolean" },
         "expected-profile": { type: "string" },
-        "adopt-restored-state": { type: "boolean" },
+        "reviewed-update": { type: "boolean" },
       },
     }),
     packaged = await creatorPackage(),
@@ -126,6 +131,13 @@ async function main() {
     503,
   );
   await verifyCreatorPredecessor(profile.predecessorState, suiKey);
+  await verifyCreatorSuccessor(
+    join(directory, "deployment/infra/.alchemy/state"),
+    profile.predecessorState,
+    password,
+    suiKey,
+  );
+  await reviewedPredecessor(directory, packaged);
   if (!values.execute) {
     console.log(
       JSON.stringify({
@@ -149,6 +161,41 @@ async function main() {
   await lock.writeFile(identity);
   await lock.sync();
   try {
+    const completed = await privateJson(
+      join(directory, "deployment-result.json"),
+    );
+    if (completed?.profileHash === profileHash) {
+      for (const origin of profile.origins) {
+        const response = await fetch(origin + "/api/health", {
+            redirect: "manual",
+            signal: AbortSignal.timeout(30000),
+          }),
+          body = (await response.json()) as { profileHash: string };
+        insist(
+          response.ok &&
+            body.profileHash === profileHash &&
+            canonical(
+              await creatorRemoteModules(
+                token,
+                new URL(origin).hostname.split(".")[0]!,
+              ),
+            ) === canonical(successorModules),
+          "creator_completed_release_not_live",
+          503,
+        );
+      }
+      console.log(
+        JSON.stringify(
+          {
+            ...completed,
+            reconciliation: "committed success verified; no apply repeated",
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
     const deadline = Date.now() + profile.bounds.executionSeconds * 1000;
     let existing: { profileHash: string } | null = null;
     try {
@@ -158,20 +205,19 @@ async function main() {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    if (existing && existing.profileHash !== profileHash) {
+    insist(existing, "creator_update_execution_missing", 409);
+    if (existing.profileHash !== profileHash) {
       insist(
-        values["adopt-restored-state"],
-        "creator_profile_adoption_required",
+        values["reviewed-update"],
+        "creator_reviewed_update_flag_required",
         409,
       );
-      await adoptCreatorProfile(directory, packaged, password, token);
-      existing = { profileHash };
-    }
-    if (!existing)
-      await savePrivateJson(directory, "execution.json", {
-        profileHash,
-        at: new Date().toISOString(),
+      await adoptReviewedUpdate(directory, packaged, {
+        "deployment/infra/node_modules": resolve(
+          "apps/creator-spike/infra/node_modules",
+        ),
       });
+    }
     const cwd = await writeCreatorPackage(directory);
     await restoreCreatorState(
       join(cwd, ".alchemy/state"),
@@ -250,7 +296,7 @@ async function main() {
         nativeTransactions: 0,
         providerRequests: 0,
       };
-    await savePrivateJson(directory, "deployment-result.json", result);
+    await finishReviewedUpdate(directory, packaged, result);
     console.log(JSON.stringify(result, null, 2));
   } finally {
     await lock.close();

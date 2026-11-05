@@ -91,7 +91,7 @@ async function callCreator(
         method: "POST",
         headers: { "content-type": "application/json" },
         body: canonical(wire),
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(45000),
       },
     ),

@@ -156,7 +156,7 @@ export async function fetchCapability(
   insist(cap.expiresAt > nowSeconds, "media_capability_expired", 409);
   const response = await transport(
     new Request(cap.url, {
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.timeout(30000),
       headers: { "cache-control": "no-store" },
     }),

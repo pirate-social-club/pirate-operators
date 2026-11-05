@@ -72,8 +72,6 @@ export async function creatorPackage() {
       "--exclude-standard",
       "--",
       "apps/creator-spike",
-      "packages/community",
-      "packages/protocol",
     ],
     { encoding: "utf8", maxBuffer: 1024 * 1024 },
   );
@@ -86,9 +84,38 @@ export async function creatorPackage() {
     metafile: true,
     logLevel: "silent",
   });
+  const nativeGraph = await build({
+    entryPoints: ["apps/creator-spike/src/worker.ts"],
+    bundle: true,
+    write: false,
+    platform: "browser",
+    format: "esm",
+    conditions: ["workerd", "browser"],
+    target: "es2022",
+    external: ["node:*"],
+    metafile: true,
+    logLevel: "silent",
+    plugins: [
+      {
+        name: "native-source-graph",
+        setup(b) {
+          b.onResolve({ filter: /^@ika\.xyz\/ika-wasm$/ }, () => ({
+            path: resolve("apps/creator-spike/src/server/worker-wasm.ts"),
+          }));
+          b.onResolve({ filter: /\.wasm$/ }, () => ({
+            path: "./ika.wasm",
+            external: true,
+          }));
+        },
+      },
+    ],
+  });
   const paths = [
     ...new Set([
       ...source.stdout.trim().split("\n"),
+      ...Object.keys(nativeGraph.metafile!.inputs).filter(
+        (path) => !path.includes("node_modules/"),
+      ),
       ...Object.keys(graph.metafile!.inputs).filter(
         (path) => !path.includes("node_modules/"),
       ),
@@ -100,6 +127,9 @@ export async function creatorPackage() {
       "package.json",
       "package-lock.json",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v2.json",
+      "docs/deployments/first-song-managed-20261105.creator-update.json",
+      ".github/workflows/creator-spike.yml",
       ...[
         "operator",
         "infisical-auth",
@@ -126,7 +156,7 @@ export async function creatorPackage() {
     ),
     evidence = JSON.parse(
       await readFile(
-        "apps/creator-spike/evidence/deployment-20261104.json",
+        "docs/deployments/first-song-managed-20261105.creator-update.json",
         "utf8",
       ),
     );
@@ -142,17 +172,19 @@ export async function creatorPackage() {
     sourceHashes,
     artifacts,
     predecessorState: await creatorPredecessor(),
-    restoredStateRecovery: {
-      previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
-      previousProfileHash:
-        "0xae814c25d199ceace77150841573df2549da2a3c08df6015b05fcc6c95be6d3d",
-      expectedExecutionFileSha256:
-        "0x55f999f9e9424229e1f8da5f2b5a226b1df070f7892e02e140f024f5d43f6d2d",
-    },
     predecessorModules: {
-      "index.js": `0x${evidence.filesSha256["worker/index.js"]}`,
-      "ika.wasm": `0x${evidence.filesSha256["worker/ika.wasm"]}`,
+      "index.js": evidence.workerModules["index.js"],
+      "ika.wasm": evidence.workerModules["ika.wasm"],
+    },
+    reviewedUpdate: {
+      previousPlanPath:
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v2.json",
+      previousProfileHash:
+        "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6",
+      expectedExecutionSha256:
+        "0x9e11996d6a4b26e45f7d79073f0cfdc55c95c189d87c5e0b0a83140d9a58c14f",
+      expectedResultSha256:
+        "0x32330b1e7a7a36f5fe67538c56c8b15258f2b74cbc60d0cca8d659656185622c",
     },
     operator:
       "0xe80513f6f72a375ef3fc279f74e904ba4ab244554abbd468559a13a811a82ea6",

@@ -19,6 +19,9 @@ import { inspectPrivateFiles } from "../apps/community-wizard/server/state-inspe
 import { privateDirectory } from "../apps/community-wizard/server/state.ts";
 import { CommunityError, insist } from "../packages/community/common.ts";
 import { managedInventory } from "./managed-inventory.ts";
+import { fetchWorkerModuleDigests } from "./worker-modules.ts";
+import { saveConfigurationState } from "./megaeth/configuration-state.ts";
+import { privateJson } from "./private-json.ts";
 import {
   qualifyManagedUpdate,
   preserveManagedDeployment,
@@ -139,6 +142,42 @@ async function main() {
           ownership: "verified encrypted state",
           idle: true,
         }),
+      );
+      return;
+    }
+    const completed = await privateJson(
+      join(directory, "deployment-result.json"),
+    );
+    if (completed?.profileHash === profileHash) {
+      const live = await fetch(managedOrigin + "/health", {
+          redirect: "manual",
+          signal: AbortSignal.timeout(30000),
+        }),
+        health = (await live.json()) as { profileHash: string; status: string },
+        modules = await fetchWorkerModuleDigests(
+          cloudflare,
+          profile.accountId,
+          managedPrefix,
+          ["worker.mjs"],
+        );
+      insist(
+        live.ok &&
+          health.profileHash === profileHash &&
+          health.status === "available" &&
+          Object.keys(modules).length === 1 &&
+          Object.values(modules)[0] === profile.bundleSha256,
+        "managed_completed_release_not_live",
+        503,
+      );
+      console.log(
+        JSON.stringify(
+          {
+            ...completed,
+            reconciliation: "committed success verified; no apply repeated",
+          },
+          null,
+          2,
+        ),
       );
       return;
     }
@@ -294,6 +333,18 @@ async function main() {
       503,
     );
     const after = await managedInventory(cloudEnv, managedPrefix);
+    const modules = await fetchWorkerModuleDigests(
+      cloudflare,
+      profile.accountId,
+      managedPrefix,
+      ["worker.mjs"],
+    );
+    insist(
+      Object.keys(modules).length === 1 &&
+        Object.values(modules)[0] === profile.bundleSha256,
+      "managed_applied_source_unqualified",
+      503,
+    );
     insist(
       after.resources.every(
         (r, i) => r.present && r.id === before.resources[i]?.id,
@@ -301,12 +352,13 @@ async function main() {
       "managed_resource_identity_unconfirmed",
       503,
     );
-    await writeFile(
-      join(directory, "deployment-result.json"),
-      JSON.stringify({ profileHash, before, after, logs, status }, null, 2) +
-        "\n",
-      { mode: 0o600 },
-    );
+    await saveConfigurationState(directory, "deployment-result.json", {
+      profileHash,
+      before,
+      after,
+      logs,
+      status,
+    });
     console.log(
       JSON.stringify(
         {

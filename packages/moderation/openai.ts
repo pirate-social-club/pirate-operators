@@ -50,7 +50,7 @@ export async function moderateText(
     method: "POST",
     headers: keyHeader(apiKey),
     body: JSON.stringify({ model: MODERATION_MODEL, input: inputs }),
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(15000),
   });
   return parseTextModeration(
@@ -129,7 +129,7 @@ export async function classifyLyrics(
   const request = new Request("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: keyHeader(apiKey),
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(30000),
     body: JSON.stringify({
       model: CLASSIFICATION_MODEL,

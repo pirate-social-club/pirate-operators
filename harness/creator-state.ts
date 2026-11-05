@@ -105,6 +105,42 @@ export async function verifyCreatorPredecessor(
     );
   }
 }
+
+export async function verifyCreatorSuccessor(
+  destination: string,
+  hashes: Record<string, string>,
+  password: string,
+  secret: string,
+) {
+  for (const relative of Object.keys(hashes)) {
+    insist(
+      relative.startsWith(prefix) &&
+        /^\w+\.json$/.test(relative.slice(prefix.length)),
+      "invalid_creator_state_path",
+      409,
+    );
+    const path = join(destination, relative),
+      metadata = await lstat(path);
+    insist(
+      metadata.isFile() &&
+        metadata.uid === process.getuid!() &&
+        !(metadata.mode & 0o077),
+      "creator_state_not_private",
+      409,
+    );
+    assertCreatorState(
+      JSON.parse(
+        unseal(
+          await readFile(path, "utf8"),
+          password,
+          `alchemy-state:${relative}`,
+        ),
+      ),
+      relative.slice(prefix.length, -5),
+      secret,
+    );
+  }
+}
 /** Restore a verified historical state into a separate encrypted successor.
  * Never changes or deletes the original plaintext-state preservation source. */
 export async function restoreCreatorState(
