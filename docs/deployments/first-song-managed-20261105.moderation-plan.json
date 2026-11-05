@@ -1,17 +1,17 @@
 {
-  "profileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+  "profileHash": "0x084b589a0571e758b23e0d3198d0d00d613ba3d9a2cbdb750f8c6a0c8c0dfef7",
   "profile": {
     "schema": "pirate.managed-service-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
     "prefix": "pirate-managed-firstsong-20261105",
     "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
     "update": {
-      "previousProfileHash": "0x9756688b945fc4666d5e9085bd65e1c9ef7e2391f2871ace5a1980c8ee2e07d9",
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v4.json",
+      "previousProfileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json",
       "startupEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-      "previousEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-gateway-update.json",
+      "previousEvidencePath": "docs/deployments/first-song-managed-20261105.moderation-functional-update.json",
       "requireIdle": true,
-      "expectedResultSha256": "0xbcd379784f449af544990f77db569ae7ea4626ef1330307b0b30a0e1e9c69dfd"
+      "expectedResultSha256": "0x5b1b20c90878e5eb0a413d1727b1423aafa967c1513c6eebb1c94eea90a9de02"
     },
     "resources": {
       "worker": "pirate-managed-firstsong-20261105",
@@ -31,7 +31,7 @@
       "apps/community-wizard/server/state-inspection.ts": "0x608538f901cca6bcda5e1d52ef13181f88a1d6a9fb89cd74a8de50313a6f4ae7",
       "apps/community-wizard/server/state.ts": "0x4af1b6dc95930c7ab4ba659c5aa8c9c5a765bda8ac3f80ef800a482f22fda1ff",
       "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
-      "apps/managed-moderation/alchemy.run.ts": "0x7e67f263554ab398570bd14ab6b032b2dd56c42cd8c62fbe4fab3cc6ed066791",
+      "apps/managed-moderation/alchemy.run.ts": "0x5c95b8b4e53b30123a3a13190e98dce3bc5ba87d4c405b10b2a39f906808a67d",
       "apps/managed-moderation/encrypted-state.ts": "0x4d19c48cbdb61fa3bad8ada364a6f2d498af95e53ca160bbcb927bfd80b1428e",
       "apps/managed-moderation/migrations/0001_managed.sql": "0x8c2de418f3341fbf3ec145663a3ccbc913c5ccdea8072e93a98f0f296b8fb79e",
       "apps/managed-moderation/migrations/0002_release_operations.sql": "0x401416aa566ca34f8b18bfae1cb8b604f3cbad5947adfdf34709f5b3065fdb98",
@@ -39,9 +39,9 @@
       "apps/managed-moderation/package.json": "0x0b4aabab6a58007eb834b844fa47c24e29c46be98de3c5d2016d4e95beb2bf44",
       "apps/managed-moderation/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
       "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json": "0xf933592d2ad53b4a60f8b6f530014cfe48bebc9075ba7ceebe8a53f1218e5944",
-      "docs/deployments/first-song-managed-20261105.moderation-gateway-update.json": "0x6bc1be952c883a11b3bb363875f6757b4fff3207114949ed99c5b129a468967d",
+      "docs/deployments/first-song-managed-20261105.moderation-functional-update.json": "0x0f8c344348535397eec1641b95be5c49918af14199f1991b5226264c1fed3149",
       "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json": "0xc8f2cee04d8a6b33b0d023e86c571657838ad52606520b4cbd275f79456e5591",
-      "docs/deployments/first-song-managed-20261105.moderation-plan-v4.json": "0x065895a9d01b457bf943182bf4b816181e598f1bc71384e2b5ab9406a99c340b",
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json": "0x38a0c51931eadc7a501d10146cd60e906d0bb1c227cad525db945199bbfbfb15",
       "docs/deployments/first-song-managed-20261105.moderation-setup.json": "0xa0061552137652e82e7417504156ca6e5299b5f9bbdfcedc5a80113b0f65ce78",
       "docs/deployments/first-song-managed-20261105.release-grant.json": "0x4c1ffbf7194027ee1e4250537207ad2d2f70cc1de21f0c19502235922f7f1e30",
       "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
@@ -49,7 +49,7 @@
       "harness/first-song-upgrade.ts": "0x63591951c70a464af2aa51adcb485060d6aecab633fcd0d649c3843f35c3aaa5",
       "harness/managed-credentials.ts": "0xf67125a0fa5a12073c3d9f6e97d923a0473235762bb4b4ae5e5054e3e9a0b86b",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
-      "harness/managed-package.ts": "0xdff0fb1100ebff3ff85681775152866529298c088fddda122d41a6f450d92580",
+      "harness/managed-package.ts": "0x3ee2a75d65682c188ec4a96c7e244e1042c8a63b77b70862a22c573e75da8c80",
       "harness/managed-service.ts": "0x9a3484e99e36de00054ae3940015af4c52bfc1bc953bdb9cfbf697a00415e1ed",
       "harness/managed-update.ts": "0x3b01f20add924f47ac60176dc5bab9b87c41d641801e0cc7b980b87d0dbe0963",
       "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",

@@ -178,7 +178,25 @@ export async function syncPublicPosts(
         )
       )
         throw error;
-      break;
+      const advanced = await loadCursor(db, profile);
+      insist(
+        advanced &&
+          BigInt(advanced.next_block) > from &&
+          advanced.checkpoint_hash,
+        "public_index_progress_changed",
+        503,
+      );
+      const canonicalCheckpoint = await client.getBlock({
+        blockNumber: BigInt(advanced.next_block) - 1n,
+      });
+      insist(
+        canonicalCheckpoint.hash === advanced.checkpoint_hash,
+        "public_index_checkpoint_changed",
+        503,
+      );
+      cursor = advanced;
+      from = BigInt(advanced.next_block);
+      continue;
     }
     cursor = {
       next_block: (to + 1n).toString(),

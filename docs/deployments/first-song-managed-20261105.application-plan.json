@@ -1,5 +1,5 @@
 {
-  "profileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+  "profileHash": "0x4478ffd922ad101316e72654fe924d6e7a3c5d1c6a87ff87a2955a2f598e01aa",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -82,14 +82,14 @@
       "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
-      "docs/deployments/first-song-managed-20261105.application-plan-v3.json": "0x8c3c4a918671e6130d073c112a73afc4de94fd7de4f34e2568fbee78fc689fb3",
+      "docs/deployments/first-song-managed-20261105.application-plan-v4.json": "0x014f747aa3c25c93deb88c300767b6cad5d8c70f9a9b888d7be82ab4efef9abc",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json": "0x700d58a8eeb699efcbde1ed9a397d46d289706e626f9794af083ff9b8a84b2ea",
-      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x38a0c51931eadc7a501d10146cd60e906d0bb1c227cad525db945199bbfbfb15",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xcb971a0188b3320c5c50d62ab4201b6e752f7170996cd4802fd2ad92a496b29a",
       "docs/deployments/first-song-managed-20261105.release-grant.json": "0x4c1ffbf7194027ee1e4250537207ad2d2f70cc1de21f0c19502235922f7f1e30",
       "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
-      "harness/community-package.ts": "0x530d2d16ca2468691d70172ec332e3dc1dd714616ccb74d00366dab523110a78",
+      "harness/community-package.ts": "0xbcc75541ea89b6f0b784b5e2c964efe2a80693721e1e7cb84b35c34dc82b593c",
       "harness/community-release.ts": "0x0f403fd8879ca54fad744b4da87ec90bdbb6d1760ac9935b56fa514f6b4656ac",
       "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
@@ -118,7 +118,7 @@
       "packages/community/managed-client.ts": "0x2aaf09c7ad18d04026d965c6f76b5562df384c64b98c1c15b9ab0afc33ac7308",
       "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
       "packages/community/post-chain.ts": "0x561d71ec8702e330594db671ea3d67faf04e346a6ad111274a8766a2d3dc6480",
-      "packages/community/post-index.ts": "0xe68b9422519a46e435dd172a0431f48277451c64bb732d7c308777adeece5de9",
+      "packages/community/post-index.ts": "0xe46d71685be4c70a270538e419881a2d34eca5568abc570418c981f3b11a456b",
       "packages/community/post-manifest.ts": "0x43af78170cd7cd1a196d2c28d85230cd777f3270000e81929ee527b4e9693c61",
       "packages/community/publication-admission.ts": "0x39d3a15dcebb923ce9d90b606c072bc7e189d359167779b2f9192c5b9dee13ca",
       "packages/community/publication-input.ts": "0x655b22aa92e9c516718170c2a65a67ba352e482cf32d4cc0e09b4d7d21ddfc72",
@@ -145,8 +145,8 @@
       "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
       "services/first-song-runtime.ts": "0x12698f50e1e22534585f1ba638cf4a93259c06e53e6e325d93cd3fe889d613a0"
     },
-    "bundleSha256": "0x67f8bdcf5ed4c0cdecb67d04eb96ce93c32435a659ea54cbc25724913cd16ac1",
-    "bundleBytes": 816288,
+    "bundleSha256": "0x733e58507908cd648e50ba9278aed362ef731eaa15c107659b3271581f49a5c8",
+    "bundleBytes": 816550,
     "assets": {
       ".vite/manifest.json": "0x357f49679197652bd1ccf24ccc00df2f43a66648b5f32751f55d7627ac1919eb",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
@@ -192,7 +192,7 @@
         }
       }
     },
-    "managedProfileHash": "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+    "managedProfileHash": "0x084b589a0571e758b23e0d3198d0d00d613ba3d9a2cbdb750f8c6a0c8c0dfef7",
     "queueConsumer": {
       "logical": "Consumer",
       "queueId": "fe031cd96fbb47579585eb10154f785d",
@@ -204,10 +204,10 @@
     },
     "creatorProfileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v3.json",
-      "previousProfileHash": "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb",
-      "expectedExecutionSha256": "0xfc2f4b8da56db2e3351aa254cf04e1b39f6cf52b992a2ab477e0fddf1e45ed20",
-      "expectedResultSha256": "0xf62d9004de0bd2036f85de1bb27151b029b390fba06784e069ba44783f759eb3"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v4.json",
+      "previousProfileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
+      "expectedExecutionSha256": "0xa9231f0a6d1d27fa4c10ee1391da0d2c41412087dfb804476fe8947196d1e2e5",
+      "expectedResultSha256": "0xf3fb23200e78609b16ff8713aed114b69957e75275bb32408ee871dfd3024a5f"
     },
     "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     "credentialBinding": {
