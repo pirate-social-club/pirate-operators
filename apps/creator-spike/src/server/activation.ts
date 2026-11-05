@@ -38,6 +38,7 @@ import {
 } from "./chain.ts";
 import { evmKey } from "./evm-key.ts";
 import { verifyPasskeyProof } from "./passkey-proof.ts";
+import { requireActivationRecovery } from "./activation-recovery.ts";
 
 export interface AttemptRow {
   id: string;
@@ -148,6 +149,7 @@ export async function dkg(
   const { row } = await context(request, env, body),
     a = await currentAttempt(env, row);
   if (a.dwallet_id) return { attempt: a };
+  await requireActivationRecovery(env, a.id, row.id, body);
   const intent = JSON.parse(a.intent);
   const encryptionKey = bytes(body, "encryptionKey", 20_000),
     signingKey = bytes(body, "signingKey", 32),

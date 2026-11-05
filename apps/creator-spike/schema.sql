@@ -56,3 +56,10 @@ CREATE TABLE IF NOT EXISTS signature_preparations (
   user_signature TEXT
 );
 CREATE INDEX IF NOT EXISTS signature_preparation_expiry ON signature_preparations(expires);
+CREATE TABLE IF NOT EXISTS activation_recovery (
+  attempt_id TEXT PRIMARY KEY REFERENCES attempts(id),
+  credential_id TEXT NOT NULL REFERENCES credentials(id),
+  payload_hash TEXT NOT NULL,
+  record_json TEXT NOT NULL,
+  created INTEGER NOT NULL
+);

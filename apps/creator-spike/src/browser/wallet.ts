@@ -30,12 +30,19 @@ import {
 import { unlock, signer } from "./passkey.ts";
 import { api, poll } from "./api.ts";
 import { validateSignTransaction } from "../sign-intent.ts";
+import {
+  activationWrappingKey,
+  openActivation,
+  sealActivation,
+  type SealedActivation,
+} from "../activation-vault.ts";
 
 const sui = new SuiGrpcClient({ network: "testnet", baseUrl: suiUrl }),
   config = getNetworkConfig("testnet");
 const ika = new IkaClient({ suiClient: sui, config });
 const request = new URL(location.href).searchParams.get("request");
 let keys: UserShareEncryptionKeys | undefined, wallet: WalletRecord | undefined;
+let activationKey: CryptoKey | undefined;
 interface SetupIntent {
   network: string;
   operator: string;
@@ -53,8 +60,13 @@ interface SetupIntent {
 let activationWork:
   | {
       intent: SetupIntent;
-      prepared: Awaited<ReturnType<typeof prepareDKGAsync>>;
+      prepared: Pick<
+        Awaited<ReturnType<typeof prepareDKGAsync>>,
+        "userDKGMessage" | "userPublicOutput" | "encryptedUserShareAndProof"
+      >;
       consentSignature: string;
+      attemptId: string;
+      recovery?: SealedActivation;
     }
   | undefined;
 let retryStep: (() => Promise<void>) | undefined;
@@ -109,6 +121,10 @@ async function start(register: boolean) {
   wallet = unlocked.wallet;
   setStatus("Unlocking your encrypted wallet…");
   try {
+    activationKey = await activationWrappingKey(
+      unlocked.seed,
+      wallet.credentialId,
+    );
     keys = await UserShareEncryptionKeys.fromRootSeedKey(
       unlocked.seed,
       Curve.SECP256K1,
@@ -123,26 +139,25 @@ async function start(register: boolean) {
     await confirm(wallet, true);
     setStatus("Wallet reopened. Ready to sign the test message.");
     button("sign").hidden = false;
-  } else if (wallet.status === "saved") {
-    await activate();
+    button("finish").hidden = false;
   } else {
-    throw new Error(
-      "This wallet has a pending activation. Its transaction is saved, but the original page’s local DKG proof is needed to accept it. Keep that page open; do not create another wallet.",
-    );
+    await activate();
   }
 }
 async function activate() {
-  if (!keys || !wallet) throw new Error("Unlock the passkey first.");
+  if (!keys || !wallet || !activationKey)
+    throw new Error("Unlock the passkey first.");
   if (!activationWork) {
     setStatus("Reserving testnet fees…");
-    const r = await api<{ intent: SetupIntent; consentMessage: string }>(
-      "activation/reserve",
-      {
-        request,
-        encryptionKey: b64(keys.encryptionKey),
-        signingKey: b64(keys.getSigningPublicKeyBytes()),
-      },
-    );
+    const r = await api<{
+      intent: SetupIntent;
+      consentMessage: string;
+      attempt: { id: string };
+    }>("activation/reserve", {
+      request,
+      encryptionKey: b64(keys.encryptionKey),
+      signingKey: b64(keys.getSigningPublicKeyBytes()),
+    });
     if (
       r.intent.network !== "testnet" ||
       r.intent.creator !== wallet.suiAddress ||
@@ -151,7 +166,6 @@ async function activate() {
       r.intent.signingKey !== b64(keys.getSigningPublicKeyBytes()) ||
       r.intent.maxIka !== "22000000000" ||
       r.intent.maxSui !== "600000000" ||
-      r.intent.expires < Date.now() ||
       JSON.stringify(r.intent.packages) !== JSON.stringify(config.packages) ||
       r.consentMessage !== JSON.stringify(r.intent)
     )
@@ -161,32 +175,84 @@ async function activate() {
     const cfg = await api<{ operatorAddress: string }>("config");
     if (cfg.operatorAddress !== r.intent.operator)
       throw new Error("Operator binding mismatch.");
-    setStatus(
-      "Confirm creation of this testnet wallet with your creator passkey.",
+    const retained = await api<{ recovery: SealedActivation | null }>(
+      "activation/recovery",
+      { request },
     );
-    const consent = await signer(wallet).signPersonalMessage(
-      utf8.encode(r.consentMessage),
-    );
-    const dkgClient = new IkaClient({
-      suiClient: sui,
-      config,
-      encryptionKeyOptions: { encryptionKeyID: r.intent.networkKeyId },
-    });
-    setStatus("Preparing your share in this browser. Keep this page open…");
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    const prepared = await prepareDKGAsync(
-      dkgClient,
-      Curve.SECP256K1,
-      keys,
-      unb64(r.intent.session),
-      r.intent.operator,
-    );
-    activationWork = {
-      intent: r.intent,
-      prepared,
-      consentSignature: consent.signature,
-    };
+    if (retained.recovery) {
+      const recovered = await openActivation(
+        activationKey,
+        wallet.credentialId,
+        r.attempt.id,
+        retained.recovery,
+      );
+      activationWork = {
+        intent: r.intent,
+        attemptId: r.attempt.id,
+        consentSignature: recovered.consentSignature,
+        prepared: {
+          userDKGMessage: unb64(recovered.message),
+          userPublicOutput: unb64(recovered.publicOutput),
+          encryptedUserShareAndProof: unb64(recovered.encryptedShare),
+        },
+        recovery: retained.recovery,
+      };
+    } else {
+      if (r.intent.expires < Date.now())
+        throw new Error(
+          "The unused activation authorization expired. No new fee was sent.",
+        );
+      setStatus(
+        "Confirm creation of this testnet wallet with your creator passkey.",
+      );
+      const consent = await signer(wallet).signPersonalMessage(
+        utf8.encode(r.consentMessage),
+      );
+      const dkgClient = new IkaClient({
+        suiClient: sui,
+        config,
+        encryptionKeyOptions: { encryptionKeyID: r.intent.networkKeyId },
+      });
+      setStatus("Preparing and securely saving your wallet recovery proof…");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const prepared = await prepareDKGAsync(
+        dkgClient,
+        Curve.SECP256K1,
+        keys,
+        unb64(r.intent.session),
+        r.intent.operator,
+      );
+      activationWork = {
+        intent: r.intent,
+        attemptId: r.attempt.id,
+        prepared: {
+          userDKGMessage: prepared.userDKGMessage,
+          userPublicOutput: prepared.userPublicOutput,
+          encryptedUserShareAndProof: prepared.encryptedUserShareAndProof,
+        },
+        consentSignature: consent.signature,
+      };
+      prepared.userSecretKeyShare.fill(0);
+    }
   }
+  // Persist encrypted local DKG proof before the funded endpoint can run.
+  // A page close or lost response reopens these same bytes with the passkey.
+  if (!activationWork.recovery)
+    activationWork.recovery = await sealActivation(
+      activationKey,
+      wallet.credentialId,
+      activationWork.attemptId,
+      {
+        consentSignature: activationWork.consentSignature,
+        message: b64(activationWork.prepared.userDKGMessage),
+        publicOutput: b64(activationWork.prepared.userPublicOutput),
+        encryptedShare: b64(activationWork.prepared.encryptedUserShareAndProof),
+      },
+    );
+  await api("activation/recovery", {
+    request,
+    recovery: activationWork.recovery,
+  });
   const { intent, prepared, consentSignature } = activationWork;
   setStatus(
     "Creating the wallet and transferring its capability to your passkey…",
@@ -293,7 +359,6 @@ async function activate() {
     "Wallet active. Return to the community, then reopen it to test signing.",
   );
   button("finish").hidden = false;
-  prepared.userSecretKeyShare.fill(0);
   activationWork = undefined;
 }
 async function sign() {
@@ -449,8 +514,8 @@ if (!request) {
 }
 window.addEventListener("pagehide", () => {
   keys?.decryptionKey.fill(0);
-  activationWork?.prepared.userSecretKeyShare.fill(0);
   activationWork = undefined;
+  activationKey = undefined;
   keys = undefined;
   wallet = undefined;
 });

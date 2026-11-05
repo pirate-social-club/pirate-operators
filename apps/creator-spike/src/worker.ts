@@ -12,6 +12,10 @@ import * as auth from "./server/auth.ts";
 import * as activation from "./server/activation.ts";
 import * as signing from "./server/signing.ts";
 import {
+  retainedActivation,
+  retainActivation,
+} from "./server/activation-recovery.ts";
+import {
   clients,
   ikaType,
   operatorAddress,
@@ -140,6 +144,22 @@ export default {
           case "/api/activation/dkg":
             result = await activation.dkg(request, env, body);
             break;
+          case "/api/activation/recovery": {
+            const { row } = await activation.context(request, env, body);
+            const attempt = await activation.currentAttempt(env, row);
+            result = {
+              recovery:
+                body.recovery === undefined
+                  ? await retainedActivation(env, attempt.id, row.id)
+                  : await retainActivation(
+                      env,
+                      attempt.id,
+                      row.id,
+                      body.recovery,
+                    ),
+            };
+            break;
+          }
           case "/api/activation/accept":
             result = await activation.activate(request, env, body);
             break;

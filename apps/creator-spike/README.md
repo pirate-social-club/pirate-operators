@@ -90,6 +90,17 @@ the bounded 2.2 SUI to 22 IKA exchange using the official testnet faucet
 contract. Its first and `--pilot` receipts are persisted before submission.
 Both funding allocations have already been executed.
 
+The first-song integration successor adds encrypted activation recovery in
+`0003_activation_recovery.sql`. Before DKG can consume funds, the browser must
+save and read back the same opaque proof under its attempt and credential.
+Its nonextractable AES key is derived from the passkey-protected seed, and no
+raw user secret share is retained. A reopened page decrypts that saved proof
+and resumes the original DKG and acceptance. Conflicting proof bytes stop
+before a funded call. Existing active wallets can return without buying a
+new test signature. The source has local crypto, D1 and browser-build coverage;
+the new migration and Worker have not yet been deployed. Scoped first-song
+community pairing, connection renewal and live reload acceptance remain open.
+
 ## Deployment
 
 Alchemy owns one D1 database and two Workers, all dedicated to this spike.
