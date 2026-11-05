@@ -1,0 +1,179 @@
+{
+  "schema": "pirate.first-song-configuration/1",
+  "at": "2026-11-05T05:52:10.729Z",
+  "profileHash": "0x8c55a8effffde64444678717a3600c7b4b2e050334a0b0315b2c6d66b7712d3f",
+  "profile": {
+    "schema": "pirate.first-song-configuration-plan/1",
+    "manifest": {
+      "schema": "pirate.community-config/1",
+      "chainId": 6343,
+      "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+      "tld": "firstsong-20261105",
+      "configurationRevision": 1,
+      "postsContract": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+      "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+      "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "operatorPayments": "0x0000000000000000000000000000000000000000",
+      "learningRecords": "0x0000000000000000000000000000000000000000",
+      "app": {
+        "label": "app",
+        "tokenGeneration": "0",
+        "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "httpsAlias": null,
+        "hnsIngress": "none"
+      },
+      "feed": {
+        "endpoint": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/feed",
+        "signingKeyId": "community-publisher-6343-v1"
+      },
+      "policies": {
+        "admission": {
+          "version": "pirate-release/2026-08-29",
+          "sha256": "0xf4355daa134e09599937e0547188046289fc598c089bc2ac1d381fb327e64e84"
+        },
+        "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329"
+      },
+      "publisherRevocations": []
+    },
+    "pin": {
+      "uri": "ipfs://bafkreiabsnyic5vcde6vn37d3ljdpwqyxbyaqgjrkwqmbw4o545i6hpqfy",
+      "sha256": "0x0193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e",
+      "byteLength": 1135,
+      "mediaType": "application/json"
+    },
+    "transaction": {
+      "to": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "data": "0x0ee84f980000000000000000000000007a385a404d98ce83747650f7ca254004b8d596090000000000000000000000000000000000000000000000000000000000000040000000000000000000000000274f223809f00cbdd51d05de3abc8fd3368fde1600000000000000000000000014b90a55657d9695a727254eaec5e0e32d20d602000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e00000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000042697066733a2f2f6261666b7265696162736e796963357663646536766e333764336c6a64707771797862796171676a726b77716d6277346f35343569366870716679000000000000000000000000000000000000000000000000000000000000",
+      "gas": "1000000",
+      "nonce": 17
+    },
+    "directoryProfile": {
+      "chainId": 6343,
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+      "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "directoryCodeHash": "0x81d8a47bcdfebe9b7e1f459c94344467032902f573eaf42cc3fe8fb8434d54a0",
+      "deploymentBlock": "34118363"
+    },
+    "sourceHashes": {
+      "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
+      "harness/megaeth/configure-community.ts": "0x1c264fe558ee7a20162ab550990e13bf8ee152b0df794cef1b12c05399fe53f1",
+      "harness/megaeth/deployment-journal.ts": "0xb1d42a9d7cbe20115c1c6467f4b9ccd1d35992e478be4190253dcba0b558ce31",
+      "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
+      "harness/megaeth/configuration-pin-recovery.ts": "0x698e10781af112e1d45cddee4801a06021c69f5c84af42c5346e1c2c05c33579",
+      "docs/deployments/first-song-managed-20261105.configuration-plan-v1.json": "0x215a42e5e3a7350f981b34cdf948636c1cbf5909377ad08fb36eded6d86bc934",
+      "packages/community/ipfs.ts": "0x95bbae4c7f31e3ceec29adb72d206ba11bb7488dcba301cba4cee502e5c16e83",
+      "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
+      "packages/community/config-manifest.ts": "0x7cc2ce537ba9c99421e7b40d2551d02aac89a634f6c2e4e6110ec97e3c6b5fce",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/common.ts": "0xd41f171b9dc05881d41eb734f65a69babc3ca68495b35c2cedab908f630d78b2",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "package-lock.json": "0xebb13536502cb34de32093741e479bac3a13ea8163cfc647699272e1a4d4b212",
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/package-lock.json": "0xb15ea36636a432c2b7a6652e9443e496518a9073e81775c2cb10e3ed065fef72"
+    },
+    "retrievalGateways": [
+      "https://gateway.pinata.cloud"
+    ],
+    "pinRecovery": {
+      "required": true,
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.configuration-plan-v1.json",
+      "previousProfileHash": "0xbf68ada147729e0b44257c6ff28fc8ca6606ab277df31f41a7c72a596507aca1",
+      "expectedReceiptFileSha256": "0xd9310eef10082e56ecf1b10b4a141d8513459246b2ef64bdbd1e50cf77ad4f94",
+      "expectedBodySha256": "0x611701662b5570a0cfff855509cafce9659f060d775bbac4f943e9c65dcec368",
+      "expectedProviderRequestId": "5ddcd9e8e5055e37a714349b7d12ee59"
+    },
+    "bounds": {
+      "pinAdds": 0,
+      "pinBytes": 1135,
+      "transactions": 1,
+      "maximumGasPrice": "30000000",
+      "maximumTotalFee": "30000000000000",
+      "executionSeconds": 600
+    },
+    "credential": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "path": "/services/api-next",
+      "name": "FILEBASE_IPFS_TOKEN"
+    },
+    "recovery": "Retain the original pin identity and signed transaction journal. Unknown pin sends are read-reconciled only; EVM retries reuse exact bytes and nonce."
+  },
+  "pin": {
+    "uri": "ipfs://bafkreiabsnyic5vcde6vn37d3ljdpwqyxbyaqgjrkwqmbw4o545i6hpqfy",
+    "sha256": "0x0193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e",
+    "byteLength": 1135,
+    "mediaType": "application/json",
+    "retained": true,
+    "gateway": "https://gateway.pinata.cloud",
+    "verifiedAt": 1793857918
+  },
+  "journal": {
+    "schema": "pirate.testnet-deployment-journal/1",
+    "profileHash": "0xdcf532755c92c553dc803c1a457b92a918a81b7fcb7939ae8f2c161ea702d24b",
+    "chainId": 6343,
+    "signer": "0x274f223809F00CBdD51d05De3aBC8fd3368fDE16",
+    "transactions": {
+      "register_configuration": {
+        "intentHash": "0xd1f767a7561e95d7098a6909786ea996d338b4cc0435ce5f6d9b22376ba7b6c5",
+        "raw": "0xf901eb11830f4240830f4240947d67b9d276aa8c91a3579900a44bbb3096752e8a80b901840ee84f980000000000000000000000007a385a404d98ce83747650f7ca254004b8d596090000000000000000000000000000000000000000000000000000000000000040000000000000000000000000274f223809f00cbdd51d05de3abc8fd3368fde1600000000000000000000000014b90a55657d9695a727254eaec5e0e32d20d602000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e00000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000042697066733a2f2f6261666b7265696162736e796963357663646536766e333764336c6a64707771797862796171676a726b77716d6277346f353435693668707166790000000000000000000000000000000000000000000000000000000000008231b1a0465d6ca88eb8e9538e42aa05d6cea126a5e90f8b56ace7f61445d99945552a80a073c4d0900fbb0c39ba3e938a2c1f6d0cc45c7d71a3ac9b776b132236f4647bf2",
+        "hash": "0x2228bf3a52ee5f54b5a7e90d8c3d8b8f8a9a99241d8fcdf8b714dde4a67221da",
+        "nonce": 17,
+        "maximumFee": "1000000000000",
+        "receipt": {
+          "hash": "0x2228bf3a52ee5f54b5a7e90d8c3d8b8f8a9a99241d8fcdf8b714dde4a67221da",
+          "blockNumber": "34147465",
+          "blockHash": "0x067dd259cd62aaa64f9e21694472440c063c97796159f00c18dfbf4fac58583d",
+          "contractAddress": null,
+          "gasUsed": "448318",
+          "effectiveGasPrice": "1000000",
+          "status": "success"
+        }
+      }
+    },
+    "executions": [
+      {
+        "startedAt": "2026-11-05T05:51:58.308Z",
+        "deadlineAt": "2026-11-05T06:01:41.699Z",
+        "pid": 201079,
+        "ownerRole": "workspace_coordinator"
+      }
+    ]
+  },
+  "configuration": {
+    "schema": "pirate.community-config/1",
+    "chainId": 6343,
+    "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+    "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+    "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+    "tld": "firstsong-20261105",
+    "configurationRevision": 1,
+    "postsContract": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+    "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+    "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+    "operatorPayments": "0x0000000000000000000000000000000000000000",
+    "learningRecords": "0x0000000000000000000000000000000000000000",
+    "app": {
+      "label": "app",
+      "tokenGeneration": "0",
+      "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "httpsAlias": null,
+      "hnsIngress": "none"
+    },
+    "feed": {
+      "endpoint": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/feed",
+      "signingKeyId": "community-publisher-6343-v1"
+    },
+    "policies": {
+      "admission": {
+        "version": "pirate-release/2026-08-29",
+        "sha256": "0xf4355daa134e09599937e0547188046289fc598c089bc2ac1d381fb327e64e84"
+      },
+      "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329"
+    },
+    "publisherRevocations": []
+  }
+}

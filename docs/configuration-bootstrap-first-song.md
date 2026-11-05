@@ -46,6 +46,14 @@ retention and independently matching bytes pass before local adoption. The
 original pin state is backed up, its receipt stays unchanged, and the successor
 enters confirmed without an upload. Missing or changed evidence stops recovery.
 
+The reviewed zero-add recovery completed at 2026-11-05 05:52 UTC. Transaction
+`0x2228bf3a52ee5f54b5a7e90d8c3d8b8f8a9a99241d8fcdf8b714dde4a67221da`
+confirmed revision 1 at block 34147465 using nonce 17. Actual gas was 448318
+at 1000000 wei, a fee of 0.000000448318 test ETH. The exact pinned configuration
+passed the canonical event and public readback checks. The public deployment
+record contains the retained pin and transaction evidence. This establishes
+configuration registration; it does not claim song publication or playback.
+
 The operator reads its existing Filebase credential through the established
 Infisical workflow. The community receives the public manifest reference. The
 token never enters its configuration, browser or private journal. A read-only
