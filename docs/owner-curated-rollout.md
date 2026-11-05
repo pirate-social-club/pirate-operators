@@ -65,9 +65,9 @@ second receipt and canonical block must still agree. Current ownership is not
 used as a substitute for historical evidence. The actual original mint was
 independently verified with historical calls forbidden and zero writes.
 
-The proposed managed profile is
+The deployed and independently qualified managed profile is
 0xdaff75fad62b99c881e0e50b706e12a3fc8e26264e01f41c9d7494d61d4bc3ea.
-The proposed application profile is
+The deployed and independently qualified application profile is
 0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c.
 They retain resources, credentials, assets, migrations, spent grants and queue
 settings. Their completed-state capture is
@@ -78,11 +78,16 @@ records. Login/session and public index scan counters are not frozen by it.
 The prior application 23fed and managed 7e5c plans are preserved as
 application-plan-v8.json and moderation-plan-v7.json.
 
-These successors require exact independent source/package review, required
-checks and fresh preflights before managed then application execution. Each
+Both successors passed exact independent source/package review, all four hosted
+checks and fresh serial preflights, then deployed managed first and application
+second from e7d63397749b2678ec5f8182e812db10b8f55165. Each
 update has a 900-second execution/recovery bound with preserved encrypted
 predecessor state and backups. It permits zero new resources, migrations,
 credentials, provider purchases or chain transactions. The published replay
-harness defaults to verification; its explicit same-amendment replay must retain
-the captured tables, signer nonces and single feed post unchanged. Actual
-successor deployment and replay qualification are recorded separately.
+harness defaults to verification. Its one explicit same-amendment replay passed
+at 20:47:18 UTC with all captured table hashes, signer nonces 1/178 and the single
+feed post unchanged. There were zero additional pins, registrations or posts.
+[Actual successor deployment and replay evidence](deployments/first-song-managed-20261105.published-recovery-rollout.json)
+records the final runtime, backups, migration readback and another fresh-browser
+reload/playback pass. Public requests currently take about 19–31 seconds; this
+latency remains follow-up work and is not claimed optimized.

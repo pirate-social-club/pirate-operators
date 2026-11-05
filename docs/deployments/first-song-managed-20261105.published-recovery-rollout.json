@@ -1,0 +1,194 @@
+{
+  "schema": "pirate.published-recovery-rollout/1",
+  "observedAt": "2026-11-05T20:49:13.286Z",
+  "sourceCommit": "e7d63397749b2678ec5f8182e812db10b8f55165",
+  "independentReview": {
+    "managedObservedAt": "2026-11-05T20:40:29.700Z",
+    "applicationObservedAt": "2026-11-05T20:44:24.501Z",
+    "nativeAndMigrationsObservedAt": "2026-11-05T20:43:56.840Z",
+    "passed": true,
+    "checks": [
+      "exact Worker and five application asset bytes",
+      "full traffic and original resource/consumer IDs",
+      "authenticated encrypted state and byte-identical backups",
+      "all seven application and three managed migration hashes and original timestamps",
+      "unchanged Native JS/WASM/profile at both origins",
+      "all enumerated published-state table hashes"
+    ]
+  },
+  "services": {
+    "managed": {
+      "profileHash": "0xdaff75fad62b99c881e0e50b706e12a3fc8e26264e01f41c9d7494d61d4bc3ea",
+      "resultSha256": "0x87c955ebdd6d79950afbb35a8811691167a7aa1cbf8781ac64093696956992d0",
+      "resources": [
+        {
+          "id": "7e62742bc4ed4677b68ec5668552a72f",
+          "name": "pirate-managed-firstsong-20261105",
+          "present": true
+        },
+        {
+          "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+          "name": "pirate-managed-firstsong-20261105-db",
+          "present": true
+        },
+        {
+          "id": "pirate-managed-firstsong-20261105-media",
+          "name": "pirate-managed-firstsong-20261105-media",
+          "present": true
+        },
+        {
+          "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+          "name": "pirate-managed-firstsong-20261105-jobs",
+          "present": true
+        }
+      ]
+    },
+    "application": {
+      "profileHash": "0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c",
+      "resultSha256": "0x8dde25380465f803f07f3b8b932d107f900bd2be4db7c81be088d9dbdbaca2e6",
+      "health": {
+        "schema": "pirate.community-application/1",
+        "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+        "profileHash": "0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c",
+        "infrastructure": "provisioned",
+        "firstSong": "ready",
+        "signIn": "available",
+        "creatorConnection": "available"
+      },
+      "resources": [
+        {
+          "name": "pirate-first-song-20261105",
+          "present": true,
+          "id": "a29dd318429e42eda7846ea4997ad999"
+        },
+        {
+          "name": "pirate-first-song-20261105-db",
+          "present": true,
+          "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+        },
+        {
+          "name": "pirate-first-song-20261105-media",
+          "present": true,
+          "id": "pirate-first-song-20261105-media"
+        },
+        {
+          "name": "pirate-first-song-20261105-jobs",
+          "present": true,
+          "id": "fe031cd96fbb47579585eb10154f785d"
+        }
+      ],
+      "executionSha256": "0xa5e6fd305a10382422a7005b805728dbf43f9e5f9d6e61b043b8ee7e5e9afe76"
+    }
+  },
+  "modules": {
+    "managed": {
+      "sha256": "0x014dfe4c941d43b9a2d7468149537395d014c4d49170e5b1c2babdf308ec12d6",
+      "bytes": 663569,
+      "trafficVersion": "5dc89e04-b384-4418-80ba-55a819fc900f"
+    },
+    "application": {
+      "sha256": "0x187cc0b4b5805952948a5bd9efa3a074ba3f7c0bf64ee1501688df771a5235a1",
+      "bytes": 833923,
+      "trafficVersion": "d58cb4fd-82d0-4b94-af7a-2af160355811"
+    }
+  },
+  "preservation": {
+    "stateSha256": "0x84a0c5d483c9dc0a0c486ee8ea892c45b1bc10c7e4bd363991e7ed3ef38284ec",
+    "managedBackupFiles": 29,
+    "applicationBackupFiles": 61,
+    "originalWizardStateFiles": 5,
+    "managedMigrations": 3,
+    "applicationMigrations": 7,
+    "originalGrant": "0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+    "newResources": 0,
+    "newMigrations": 0,
+    "newProviderPurchases": 0,
+    "newChainTransactions": 0,
+    "c22Changed": false
+  },
+  "replay": {
+    "observedAt": "2026-11-05T20:47:18.213Z",
+    "amendmentSha256": "0xc04d7bd306fa6a66da509ca4538a56237641ec347da88d65e09ab5998b679765",
+    "tableHashesBefore": "0x24ae76af0a512e60ea020c90b00d3e44039b14013273cdf786da1dc611fe402f",
+    "tableHashesAfter": "0x24ae76af0a512e60ea020c90b00d3e44039b14013273cdf786da1dc611fe402f",
+    "noncesBefore": {
+      "rootLatest": 1,
+      "rootPending": 1,
+      "postLatest": 178,
+      "postPending": 178
+    },
+    "noncesAfter": {
+      "rootLatest": 1,
+      "rootPending": 1,
+      "postLatest": 178,
+      "postPending": 178
+    },
+    "postCount": 1,
+    "additionalPins": 0,
+    "additionalRegistrations": 0,
+    "additionalPosts": 0,
+    "fullEvidence": "first-song-managed-20261105.published-replay.json"
+  },
+  "browserAfterReload": {
+    "audioElements": 1,
+    "currentSrc": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/public/posts/0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e/audio",
+    "initialPageRequestDurations": [
+      {
+        "durationMs": 19426.40000000596,
+        "path": "/api/public/community"
+      },
+      {
+        "durationMs": 27619.20000000298,
+        "path": "/api/capabilities"
+      },
+      {
+        "durationMs": 18832.39999999851,
+        "path": "/api/feed"
+      },
+      {
+        "durationMs": 21825.80000000447,
+        "path": "/api/public/posts/0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e/audio"
+      },
+      {
+        "durationMs": 19314.5,
+        "path": "/api/feed"
+      },
+      {
+        "durationMs": 19943.19999999553,
+        "path": "/api/public/posts/0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e/audio"
+      }
+    ],
+    "observedAt": "2026-11-05T20:47:01.619Z",
+    "pass": true,
+    "playback": {
+      "advanced": true,
+      "after": 75.37794,
+      "before": 72.869854,
+      "duration": 186.639979,
+      "ended": false,
+      "error": null,
+      "paused": false,
+      "readyState": 4,
+      "sameElement": true
+    },
+    "sessionStatus": 401,
+    "title": "First Song Managed Test · Pirate",
+    "url": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/",
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+    "evidenceOrigin": "coordinator_operated_fresh_browser; reviewer_independently_reads_saved_result"
+  },
+  "ci": {
+    "head": "e7d63397749b2678ec5f8182e812db10b8f55165",
+    "local": 42104465224,
+    "creator": 42104465171,
+    "wizard": 42104465169,
+    "web": 42104465395,
+    "allSucceeded": true
+  },
+  "limits": [
+    "The explicit owner-curated testnet scope defers automated content moderation.",
+    "Forced-alignment adapter and private vocal helper remain offline; no ElevenLabs request was made.",
+    "Observed public requests took about 19–31 seconds. Two 25-second browser wait commands and one combined 60-second CDP measurement timed out before a separate short playback measurement passed.",
+    "Broader browser/device acceptance and production operation remain separate."
+  ]
+}

@@ -113,7 +113,10 @@ ready. The selected recording was submitted with the title "Test"; its sealed
 metadata is preserved. Its original held admission and three provider receipts,
 including the classifier refusal, remain unchanged beside the append-only
 owner-curated decision. Automated content moderation is deferred; the refusal
-was not converted into a successful automated check.
+was not converted into a successful automated check. The [delayed-recovery
+update and same-amendment replay](docs/deployments/first-song-managed-20261105.published-recovery-rollout.json)
+also passed with unchanged table hashes, signer nonces and one post. Current
+public read latency is about 19–31 seconds and still needs improvement.
 
 ## Local reward and provider research
 
