@@ -24,6 +24,7 @@ export const postsAbi = parseAbi([
   "function publishRevision(bytes32 communityId,bytes32 postId,uint64 expectedRevision,uint64 configurationRevision,bytes32 authorId,uint8 kind,bytes32 manifestSha256,string manifestURI)",
   "function getPost(bytes32 communityId,bytes32 postId) view returns ((bytes32 authorId,uint8 kind,uint64 revision,uint64 configurationRevision,bytes32 manifestSha256,string manifestURI))",
   "event PostRevisionPublished(bytes32 indexed communityId,bytes32 indexed postId,bytes32 indexed authorId,uint8 kind,uint64 revision,uint64 configurationRevision,bytes32 manifestSha256,string manifestURI)",
+  "error UnknownPost()",
 ]);
 export interface PostsProfile {
   address: Address;
@@ -54,7 +55,7 @@ export function publicationData(input: FirstPublication) {
     ],
   });
 }
-async function confirmedHead(
+export async function verifiedPostsHead(
   client: PublicClient,
   profile: PostsProfile,
   config: CommunityConfig,
@@ -88,7 +89,7 @@ async function confirmedHead(
   );
   return blockNumber;
 }
-function event(
+export function publicationEvent(
   args: Record<string, unknown>,
   profile: PostsProfile,
 ): PublicationEvent {
@@ -130,7 +131,7 @@ export async function observePublication(
     "publication_authority_mismatch",
     503,
   );
-  const head = await confirmedHead(client, profile, config);
+  const head = await verifiedPostsHead(client, profile, config);
   let receipt;
   try {
     receipt = await client.getTransactionReceipt({ hash: bytes32(hash) });
@@ -158,7 +159,7 @@ export async function observePublication(
     if (log.address.toLowerCase() !== profile.address) continue;
     try {
       publications.push(
-        event(
+        publicationEvent(
           decodeEventLog({
             abi: postsAbi,
             eventName: "PostRevisionPublished",
@@ -208,7 +209,7 @@ export async function readCommunityPosts(
   history: CommunityConfig[],
   current: CommunityConfig,
 ) {
-  const head = await confirmedHead(client, profile, current);
+  const head = await verifiedPostsHead(client, profile, current);
   const latest = new Map<
     string,
     { publication: PublicationEvent; block: bigint; transactionHash: Hex }
@@ -224,7 +225,7 @@ export async function readCommunityPosts(
     });
     for (const log of logs) {
       if (log.args.kind !== 0) continue;
-      const publication = event(log.args, profile),
+      const publication = publicationEvent(log.args, profile),
         prior = latest.get(publication.postId);
       if (!prior || publication.revision > prior.publication.revision)
         latest.set(publication.postId, {
