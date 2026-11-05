@@ -116,6 +116,13 @@ export async function adoptConfigurationPin(
   } finally {
     await saved.close();
   }
+  // The backup name must survive a crash before the original is replaced.
+  const parent = await open(directory, "r");
+  try {
+    await parent.sync();
+  } finally {
+    await parent.close();
+  }
   const successor = {
     profileHash: planned.profileHash,
     state: "confirmed",

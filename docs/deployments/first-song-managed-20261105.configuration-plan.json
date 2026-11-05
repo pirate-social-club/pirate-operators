@@ -1,6 +1,6 @@
 {
-  "profileHash": "0x859349dc504ec87ea0640ed877378415de08400a1a60179ac82a24f7e4f33b50",
-  "journalHash": "0x2432736e17720c69185c84a08851f0448b18b2f8fde549e5eca80bf9946ecf07",
+  "profileHash": "0x8c55a8effffde64444678717a3600c7b4b2e050334a0b0315b2c6d66b7712d3f",
+  "journalHash": "0xdcf532755c92c553dc803c1a457b92a918a81b7fcb7939ae8f2c161ea702d24b",
   "profile": {
     "schema": "pirate.first-song-configuration-plan/1",
     "manifest": {
@@ -61,7 +61,7 @@
       "harness/megaeth/configure-community.ts": "0x1c264fe558ee7a20162ab550990e13bf8ee152b0df794cef1b12c05399fe53f1",
       "harness/megaeth/deployment-journal.ts": "0xb1d42a9d7cbe20115c1c6467f4b9ccd1d35992e478be4190253dcba0b558ce31",
       "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
-      "harness/megaeth/configuration-pin-recovery.ts": "0x0bb99ba1c1060f481cab1913f678472bd9859a2bbe46250c0fac6a71e2b2bc9c",
+      "harness/megaeth/configuration-pin-recovery.ts": "0x698e10781af112e1d45cddee4801a06021c69f5c84af42c5346e1c2c05c33579",
       "docs/deployments/first-song-managed-20261105.configuration-plan-v1.json": "0x215a42e5e3a7350f981b34cdf948636c1cbf5909377ad08fb36eded6d86bc934",
       "packages/community/ipfs.ts": "0x95bbae4c7f31e3ceec29adb72d206ba11bb7488dcba301cba4cee502e5c16e83",
       "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
