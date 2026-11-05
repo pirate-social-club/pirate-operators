@@ -51,25 +51,46 @@ export interface DeploymentIntent {
   data: Hex;
   gas: bigint;
 }
+export interface DeploymentLimits {
+  chainId: 6343 | 31337;
+  maximumGasPrice: bigint;
+  maximumTotalFee: bigint;
+  maximumExecutionMs?: number;
+}
+export function deploymentJournalProfileHash(
+  profile: unknown,
+  limits: DeploymentLimits,
+) {
+  return hashJson({
+    profile,
+    limits: {
+      chainId: limits.chainId,
+      maximumGasPrice: limits.maximumGasPrice.toString(),
+      maximumTotalFee: limits.maximumTotalFee.toString(),
+      maximumExecutionMs: limits.maximumExecutionMs ?? 600000,
+    },
+  });
+}
 export async function deploymentJournal(
   directory: string,
   profile: unknown,
   client: PublicClient,
   account: PrivateKeyAccount,
-  limits: {
-    chainId: 6343 | 31337;
-    maximumGasPrice: bigint;
-    maximumTotalFee: bigint;
-    maximumExecutionMs?: number;
-  },
+  limits: DeploymentLimits,
+  executionDeadlineAt?: number,
 ) {
   const startedAt = Date.now(),
     executionMs = limits.maximumExecutionMs ?? 600000,
-    deadline = startedAt + executionMs;
+    deadline = Math.min(
+      startedAt + executionMs,
+      executionDeadlineAt ?? startedAt + executionMs,
+    );
   insist(
     Number.isSafeInteger(executionMs) &&
       executionMs > 0 &&
-      executionMs <= 900000,
+      executionMs <= 900000 &&
+      Number.isSafeInteger(deadline) &&
+      deadline > startedAt,
     "invalid_deployment_execution_bound",
   );
   directory = resolve(directory);
@@ -98,15 +119,7 @@ export async function deploymentJournal(
     lock = await open(lockPath, "wx", 0o600);
   await lock.writeFile(String(process.pid));
   const path = join(directory, "transactions.json"),
-    profileHash = hashJson({
-      profile,
-      limits: {
-        chainId: limits.chainId,
-        maximumGasPrice: limits.maximumGasPrice.toString(),
-        maximumTotalFee: limits.maximumTotalFee.toString(),
-        maximumExecutionMs: executionMs,
-      },
-    });
+    profileHash = deploymentJournalProfileHash(profile, limits);
   let state: JournalState;
   let sending = false;
   async function persist() {

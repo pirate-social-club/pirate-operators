@@ -76,7 +76,11 @@ async function main() {
   if (values["write-plan"])
     await writeFile(
       "docs/deployments/first-song-managed-20261105.configuration-plan.json",
-      JSON.stringify({ profileHash, profile }, null, 2) + "\n",
+      JSON.stringify(
+        { profileHash, journalHash: planned.journalHash, profile },
+        null,
+        2,
+      ) + "\n",
     );
   if (!values.execute && values.preflight) {
     console.log(JSON.stringify(await configurationPreflight(planned), null, 2));
@@ -172,7 +176,7 @@ async function main() {
         await readFile(join(state, "evm/transactions.json"), "utf8"),
       );
       insist(
-        savedJournal.profileHash === profileHash &&
+        savedJournal.profileHash === planned.journalHash &&
           savedJournal.transactions.register_configuration,
         "configuration_confirmed_without_own_journal",
         409,
@@ -189,13 +193,17 @@ async function main() {
       });
     if (storedJournal)
       insist(
-        storedJournal.profileHash === profileHash &&
-          storedJournal.transactions.register_configuration?.nonce ===
-            profile.transaction.nonce,
+        storedJournal.profileHash === planned.journalHash &&
+          Object.keys(storedJournal.transactions).every(
+            (step) => step === "register_configuration",
+          ) &&
+          (!storedJournal.transactions.register_configuration ||
+            storedJournal.transactions.register_configuration.nonce ===
+              profile.transaction.nonce),
         "configuration_journal_changed",
         409,
       );
-    else {
+    if (!storedJournal?.transactions.register_configuration) {
       const [latest, pending, estimated] = await Promise.all([
         client.getTransactionCount({
           address: account.address,
@@ -273,12 +281,8 @@ async function main() {
       profile,
       client,
       account,
-      {
-        chainId: 6343,
-        maximumGasPrice: BigInt(profile.bounds.maximumGasPrice),
-        maximumTotalFee: BigInt(profile.bounds.maximumTotalFee),
-        maximumExecutionMs: deadline - Date.now(),
-      },
+      planned.limits,
+      deadline,
     );
     try {
       const receipt = await journal.send(

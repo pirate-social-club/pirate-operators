@@ -21,6 +21,7 @@ import {
 } from "../../packages/community/manifest-core.ts";
 import { directoryAbi } from "../../packages/community/directory-reader.ts";
 import { preparePin } from "../../packages/community/ipfs.ts";
+import { deploymentJournalProfileHash } from "./deployment-journal.ts";
 
 export const configurationChain = defineChain({
   id: 6343,
@@ -158,7 +159,20 @@ export async function configurationPlan() {
     recovery:
       "Retain the original pin identity and signed transaction journal. Unknown pin sends are read-reconciled only; EVM retries reuse exact bytes and nonce.",
   };
-  return { profile, profileHash: hashJson(profile), bytes, call };
+  const limits = {
+    chainId: 6343 as const,
+    maximumGasPrice: BigInt(profile.bounds.maximumGasPrice),
+    maximumTotalFee: BigInt(profile.bounds.maximumTotalFee),
+    maximumExecutionMs: profile.bounds.executionSeconds * 1000,
+  };
+  return {
+    profile,
+    profileHash: hashJson(profile),
+    journalHash: deploymentJournalProfileHash(profile, limits),
+    limits,
+    bytes,
+    call,
+  };
 }
 
 export async function configurationPreflight(

@@ -19,6 +19,9 @@ and gas estimate on chain 6343. Independent review binds the generated profile
 before `--execute --expected-profile HASH` may run. Execute with a 600-second
 parent timeout and a 15-second termination grace. The coordinator retains
 exclusive custody of the dedicated controller during execution and recovery.
+The transaction journal identity uses fixed reviewed limits. A shorter absolute
+deadline bounds each invocation without changing that identity, including when
+an interruption left an empty journal before signing.
 
 The profile permits one 1135-byte Filebase pin add and one revision-1
 registration using nonce 17. The gas limit is 1000000, price ceiling 30000000

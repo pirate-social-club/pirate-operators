@@ -36,7 +36,20 @@ test("a locally signed deployment resumes after persistence or broadcast without
       evm.publicClient,
       operator,
       limits,
+      Date.now() + 60000,
     );
+    const journalIdentity = journal.snapshot().profileHash;
+    await journal.close();
+    journal = await deploymentJournal(
+      directory,
+      profile,
+      evm.publicClient,
+      operator,
+      limits,
+      Date.now() + 55000,
+    );
+    assert.equal(journal.snapshot().profileHash, journalIdentity);
+    assert.deepEqual(journal.snapshot().transactions, {});
     const before = await evm.publicClient.getTransactionCount({
       address: operator.address,
     });
@@ -63,7 +76,9 @@ test("a locally signed deployment resumes after persistence or broadcast without
       evm.publicClient,
       operator,
       limits,
+      Date.now() + 50000,
     );
+    assert.equal(journal.snapshot().profileHash, journalIdentity);
     await assert.rejects(
       journal.send(
         "authority",
@@ -84,7 +99,9 @@ test("a locally signed deployment resumes after persistence or broadcast without
       evm.publicClient,
       operator,
       limits,
+      Date.now() + 40000,
     );
+    assert.equal(journal.snapshot().profileHash, journalIdentity);
     const receipt = await journal.send("authority", {
       data: artifact.bytecode,
       gas: 100000n,
