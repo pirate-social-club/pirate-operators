@@ -27,6 +27,7 @@ export interface SimulatedStreamLog {
   audioMs: number;
   commits: number;
   emitted: string[];
+  sampleRates: number[];
 }
 
 export class SimulatedScribeStream {
@@ -46,7 +47,14 @@ export class SimulatedScribeStream {
     this.script = script;
     this.send = send;
     this.drop = drop;
-    this.log = { params, chunks: 0, audioMs: 0, commits: 0, emitted: [] };
+    this.log = {
+      params,
+      chunks: 0,
+      audioMs: 0,
+      commits: 0,
+      emitted: [],
+      sampleRates: [],
+    };
   }
 
   receive(text: string): void {
@@ -61,6 +69,8 @@ export class SimulatedScribeStream {
     if (message.commit === true) return this.commit();
     const bytes = atob(message.audio_base_64 ?? "").length;
     this.log.chunks += 1;
+    const rate = message.sample_rate ?? 0;
+    if (!this.log.sampleRates.includes(rate)) this.log.sampleRates.push(rate);
     this.log.audioMs += (bytes / 2 / (message.sample_rate ?? 16000)) * 1000;
     if (
       this.script.dropAfterChunks !== undefined &&

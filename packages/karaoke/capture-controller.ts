@@ -5,9 +5,11 @@
 // playback, local pause/seek/resume transitions are serialized, every chunk is
 // mapped from capture time to song time through the playback clock, and an
 // unmappable chunk aborts the take. Live line scores and summaries are not
-// part of the operator socket, so their state is not carried. One deliberate
-// change: a pause flushes the capture tail before telling the operator, where
-// the centralized client sent pause first and its server dropped that tail.
+// part of the operator socket, so their state is not carried. Two deliberate
+// changes: a pause flushes the capture tail before telling the operator, where
+// the centralized client sent pause first and its server dropped that tail;
+// and a first chunk stamped up to ANCHOR_SLACK_MS before its epoch's anchor is
+// mapped from the anchor instead of aborting the take.
 // See docs/karaoke-capture-handoff.md.
 import {
   createKaraokeCaptureLifecycle,
@@ -86,6 +88,13 @@ export interface KaraokeCaptureController {
   dispose(): void;
 }
 
+/**
+ * The worklet stamps chunks from the first render quantum it processes, which
+ * can precede the main thread's anchor reading by about one quantum. Within
+ * this slack the chunk starts at the anchor; anything earlier still aborts.
+ */
+export const ANCHOR_SLACK_MS = 25;
+
 const initialState = (): KaraokeCaptureState => ({
   status: "idle",
   phase: "idle",
@@ -132,6 +141,7 @@ export function createKaraokeCaptureController(
   let captureEnded = false;
   let generation = 0;
   let localChain: Promise<void> = Promise.resolve();
+  let epochCaptureMs: number | null = null;
 
   function setState(patch: Partial<KaraokeCaptureState>): void {
     state = { ...state, ...patch };
@@ -229,10 +239,14 @@ export function createKaraokeCaptureController(
           }
           observePlayback();
           const durationMs = (pcm16.byteLength / 2 / 16_000) * 1000;
-          const range = playbackClock.mapRange(
-            capturedAtMs - durationMs,
-            capturedAtMs,
-          );
+          let startMs = capturedAtMs - durationMs;
+          if (
+            epochCaptureMs !== null &&
+            startMs < epochCaptureMs &&
+            epochCaptureMs - startMs <= ANCHOR_SLACK_MS
+          )
+            startMs = epochCaptureMs;
+          const range = playbackClock.mapRange(startMs, capturedAtMs);
           if (!range) {
             handleCaptureError({
               code: "karaoke_clock_unavailable",
@@ -271,7 +285,10 @@ export function createKaraokeCaptureController(
           options.getPlaybackPosition?.()?.playbackRate ?? 1,
         getSongMs: () => options.getPlaybackPosition?.()?.songMs ?? songMs,
         isPlaying: () => isPlaying,
-        onAnchor: (anchor) => playbackClock.reset(anchor),
+        onAnchor: (anchor) => {
+          epochCaptureMs = anchor.captureMs;
+          playbackClock.reset(anchor);
+        },
         onError: (error) => {
           if (attempt === generation && !disposed) handleCaptureError(error);
         },

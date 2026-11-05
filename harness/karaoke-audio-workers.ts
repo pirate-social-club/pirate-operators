@@ -7,6 +7,7 @@ import { Miniflare } from "miniflare";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import { keys, roles } from "./runtime.ts";
@@ -16,7 +17,8 @@ const roleKey = { community: 1, operator: 2, very: 4 } as const;
 const bundle = async (entry: string) =>
   (
     await build({
-      entryPoints: [entry],
+      // Resolved from the repository root, so callers may run from any directory.
+      entryPoints: [fileURLToPath(new URL(`../${entry}`, import.meta.url))],
       bundle: true,
       write: false,
       format: "esm",
@@ -30,34 +32,46 @@ export async function karaokeAudioWorkers(
   options: {
     now?: number;
     cutoff?: number;
-    rpcUrl: string;
-    paymentToken: string;
-    paymentsContract: string;
+    /** Loopback anvil; omitted for capture-only acceptance without purchases. */
+    rpcUrl?: string;
+    paymentToken?: string;
+    paymentsContract?: string;
     recordsContract?: string;
     /** Omitted to exercise an operator without a provider credential. */
     elevenLabsApiKey?: string;
     streams: SimulatedStream[];
+    /** Miniflare routes that reach the operator directly, e.g. for a browser. */
+    operatorRoutes?: string[];
   },
   persist = mkdtempSync(join(tmpdir(), "pirate-karaoke-audio-")),
 ) {
-  const rpcOrigin = new URL(options.rpcUrl).origin;
-  const payments = {
-    RPC_URL: options.rpcUrl,
-    PAYMENT_CHAIN_ID: "31337",
-    PAYMENT_TOKEN: options.paymentToken,
-    PAYMENTS_CONTRACT: options.paymentsContract,
-    ...(options.recordsContract
-      ? { RECORDS_CONTRACT: options.recordsContract }
-      : {}),
-    COMMUNITY_ADDRESS: privateKeyToAccount(keys[3]).address,
-  };
+  const rpcOrigin = options.rpcUrl ? new URL(options.rpcUrl).origin : undefined;
+  const zero = "0x0000000000000000000000000000000000000000";
+  const payments = options.rpcUrl
+    ? {
+        RPC_URL: options.rpcUrl,
+        PAYMENT_CHAIN_ID: "31337",
+        PAYMENT_TOKEN: options.paymentToken ?? "",
+        PAYMENTS_CONTRACT: options.paymentsContract ?? "",
+        ...(options.recordsContract
+          ? { RECORDS_CONTRACT: options.recordsContract }
+          : {}),
+        COMMUNITY_ADDRESS: privateKeyToAccount(keys[3]).address,
+      }
+    : // No chain: the operator's default quote profile, so the community trusts it.
+      {
+        PAYMENT_CHAIN_ID: "31337",
+        PAYMENT_TOKEN: zero,
+        PAYMENTS_CONTRACT: zero,
+        COMMUNITY_ADDRESS: privateKeyToAccount(keys[3]).address,
+      };
   const [service, operator, simulator] = await Promise.all([
     bundle("services/runtime.ts"),
     bundle("services/karaoke-audio-runtime.ts"),
     bundle("harness/karaoke-elevenlabs-simulator.ts"),
   ]);
   const rpcOnly = async (request: Request) => {
-    if (new URL(request.url).origin !== rpcOrigin)
+    if (!rpcOrigin || new URL(request.url).origin !== rpcOrigin)
       return new Response("external_network_disabled", { status: 403 });
     const response = await fetch(request.url, {
       method: "POST",
@@ -103,6 +117,9 @@ export async function karaokeAudioWorkers(
         d1Databases: { DB: `${role}-db` },
         serviceBindings: { COMMUNITY: "community", OPERATOR: "operator" },
         outboundService: role === "operator" ? "elevenlabs" : rpcOnly,
+        ...(role === "operator" && options.operatorRoutes
+          ? { routes: options.operatorRoutes }
+          : {}),
       })),
       {
         name: "elevenlabs",
@@ -112,7 +129,7 @@ export async function karaokeAudioWorkers(
         bindings: {
           SIM_API_KEY: "simulated-elevenlabs-key",
           SIM_STREAMS: JSON.stringify(options.streams),
-          RPC_ORIGIN: rpcOrigin,
+          ...(rpcOrigin ? { RPC_ORIGIN: rpcOrigin } : {}),
         },
       },
     ],

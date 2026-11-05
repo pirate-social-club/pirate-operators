@@ -77,7 +77,8 @@ function harness(options: { micFails?: boolean } = {}) {
     songMs += ms;
     controller.noteTime(songMs);
   };
-  const chunk = () => onChunk?.(new ArrayBuffer(3200), clockMs);
+  const chunk = (capturedAtMs = clockMs) =>
+    onChunk?.(new ArrayBuffer(3200), capturedAtMs);
   return {
     controller,
     log,
@@ -175,4 +176,31 @@ test("a chunk the playback clock cannot map aborts the take", async () => {
   const state = h.controller.getState();
   assert.equal(state.micError?.code, "karaoke_clock_unavailable");
   assert.ok(h.log.includes("stop"));
+});
+
+test("a first chunk stamped within one render quantum before its anchor maps from the anchor", async () => {
+  const h = harness();
+  await h.controller.start(0);
+  h.goLive();
+  h.play(0);
+  await tick();
+  // Anchor at capture 1000 ms. The worklet's first quantum ran 3 ms earlier.
+  h.advance(97);
+  h.chunk(1_097);
+  assert.equal(h.controller.getState().micError, null);
+  assert.deepEqual(h.pushed, [{ songStartMs: 0, songEndMs: 97 }]);
+});
+
+test("a chunk starting well before its anchor still aborts the take", async () => {
+  const h = harness();
+  await h.controller.start(0);
+  h.goLive();
+  h.play(0);
+  await tick();
+  h.advance(50);
+  h.chunk(1_050); // starts 50 ms before the anchor
+  assert.equal(
+    h.controller.getState().micError?.code,
+    "karaoke_clock_unavailable",
+  );
 });
