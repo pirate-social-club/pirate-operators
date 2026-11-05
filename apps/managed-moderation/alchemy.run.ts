@@ -49,6 +49,11 @@ export default Alchemy.Stack(
         SERVICE_BUDGET_PERIOD: process.env.SERVICE_BUDGET_PERIOD!,
         SERVICE_REQUEST_CAP: process.env.SERVICE_REQUEST_CAP!,
         ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!,
+        RELEASE_GRANT_JSON: process.env.RELEASE_GRANT_JSON!,
+        FILEBASE_IPFS_TOKEN: Config.Redacted("FILEBASE_IPFS_TOKEN"),
+        REGISTRATION_OPERATOR_PRIVATE_KEY: Config.Redacted(
+          "REGISTRATION_OPERATOR_PRIVATE_KEY",
+        ),
         ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
         ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
         OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),

@@ -191,8 +191,15 @@ export async function reconcilePin(
       JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)),
     ),
     keys = object(result.Keys),
-    pin = object(keys[cid]);
-  insist(pin.Type === "recursive", "pin_not_retained", 503);
+    pin = keys[cid];
+  insist(
+    pin &&
+      typeof pin === "object" &&
+      !Array.isArray(pin) &&
+      (pin as Record<string, unknown>).Type === "recursive",
+    "pin_not_retained",
+    503,
+  );
   const { bytes, gateway } = await fetchPublicIpfs(
     intent.uri,
     intent.sha256,

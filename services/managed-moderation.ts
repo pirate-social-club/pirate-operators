@@ -18,6 +18,10 @@ import {
   type ManagedService,
 } from "../packages/moderation/service.ts";
 
+import { releaseFetch } from "../packages/release/service.ts";
+import { storyReadClient } from "../packages/community/registration-chain.ts";
+import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
+
 export interface ManagedEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -33,6 +37,9 @@ export interface ManagedEnv {
   ACRCLOUD_ACCESS_SECRET: string;
   OPENAI_API_KEY: string;
   MODERATION_SIGNER_PRIVATE_KEY: string;
+  RELEASE_GRANT_JSON?: string;
+  FILEBASE_IPFS_TOKEN?: string;
+  REGISTRATION_OPERATOR_PRIVATE_KEY?: string;
 }
 const chain = defineChain({
   id: 6343,
@@ -131,6 +138,29 @@ export default {
   async fetch(request, env) {
     try {
       const config = configuration(env);
+      if (new URL(request.url).pathname.startsWith("/v1/releases/")) {
+        insist(
+          env.RELEASE_GRANT_JSON &&
+            env.FILEBASE_IPFS_TOKEN &&
+            /^0x[0-9a-fA-F]{64}$/.test(
+              env.REGISTRATION_OPERATOR_PRIVATE_KEY ?? "",
+            ),
+          "release_service_unavailable",
+          503,
+        );
+        return releaseFetch(request, env.DB, env.MEDIA, {
+          origin: config.serviceOrigin,
+          grant: JSON.parse(env.RELEASE_GRANT_JSON),
+          pairings: config.pairings,
+          currentConfiguration: config.currentConfiguration,
+          filebaseCredential: env.FILEBASE_IPFS_TOKEN,
+          registrationSigner: privateKeyToAccount(
+            env.REGISTRATION_OPERATOR_PRIVATE_KEY as `0x${string}`,
+          ),
+          registrationClient: storyReadClient(),
+          acrEndpoint: acrEndpoint(config.acr.host),
+        });
+      }
       const response = await managedFetch(request, env.DB, config);
       if (new URL(request.url).pathname === "/health" && response.ok) {
         return Response.json(

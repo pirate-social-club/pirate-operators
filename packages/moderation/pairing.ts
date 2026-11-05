@@ -25,7 +25,14 @@ export interface ManagedPairing {
   requestCap: number;
 }
 export interface ServiceAuthorization {
-  action: "admit" | "status" | "resume";
+  action:
+    | "admit"
+    | "status"
+    | "resume"
+    | "release_pin"
+    | "release_register"
+    | "release_pin_status"
+    | "release_register_status";
   communityId: Hex;
   communityOrigin: string;
   serviceOrigin: string;
