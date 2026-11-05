@@ -23,10 +23,12 @@ import {
   type LessonRow,
 } from "../packages/study/lesson-store.ts";
 import type { makeStudyService } from "./study-spoken.ts";
+import { selectStudyLessonLines } from "../packages/study/line-selection.ts";
 
 export function makeStudyLessonService(options: {
   db: D1Database;
   attempts: ReturnType<typeof makeStudyService>;
+  // Return all eligible published lines in song order. Selection is per owner.
   resolveLines: (song: StudySong) => Promise<StudyLine[]>;
   now?: () => number;
 }) {
@@ -146,7 +148,15 @@ export function makeStudyLessonService(options: {
       const row = await store.create(
         owner,
         requestId,
-        newLesson(song, await options.resolveLines(song), now()),
+        newLesson(
+          song,
+          selectStudyLessonLines(
+            song,
+            await options.resolveLines(song),
+            await store.practice(owner, song),
+          ),
+          now(),
+        ),
       );
       return service.get(owner, row.lesson_id);
     },

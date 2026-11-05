@@ -21,6 +21,7 @@ session trust crossing into that application. Source SHA-256 fingerprints are:
 | packages/application/src/study-shared-lesson-engine.ts | 6615bc83053134719cb5287fb3ee0cfd64e0f76f652b73cd36ebd294526df57c |
 | packages/platform-cf/src/study-v2-repository.ts        | dddadb6c76366230b55698cbe40f817801006275f4d3ee29d8c84604cb18cf75 |
 | packages/application/src/study-v2-lifecycle.ts         | bedf3bfbe48b35fea99ac9be3d68f18c5031e759e005eb728ba6f511dcaf4e14 |
+| packages/domain/src/study/lyric-line-identity.ts       | 111bef1b58201c4c241659788f1cef05fea2e5388afc8274c48fa1a146d2076f |
 
 packages/study/transcript-grading.ts retains the pinned implementation with a
 provenance comment, repository formatting and its phonetic import redirected
@@ -67,10 +68,30 @@ that feedback; the server has already chosen the next line. Reload resumes the
 server-selected line, matching the centralized route. A one-second minimum
 rejects short recordings before opening an attempt or dispatching speech.
 
-The server snapshots four to ten distinct validated lines from one published
-song revision and manifest. The browser never supplies reference text or chooses
-queue order. Unseen lines come before unresolved repeats. Repeats sort by least
-recent presentation, then original line order. A line resolves on a correct
+The resolver returns all eligible published lines in song order, up to the
+manifest's 2000-line bound. The server validates the complete candidate set and
+chooses up to ten using only this learner's saved graded presentations: fewest
+first, then least recently practised (never practised first), then song order.
+It removes later occurrences of repeated text before applying the limit, using
+the pinned NFKC, case, punctuation/symbol and whitespace normalization. The
+first occurrence supplies the reference and line ID. Four distinct-text lines
+remain the minimum. The chosen set is frozen in that lesson; new practice never
+reshuffles an already opened or replayed lesson.
+
+History is scoped to account, community, chain, posts contract and post. It
+counts assessed attempts attached to saved lessons, including misses, and uses
+their original completion times. Repeated uploads count once. Ungraded provider
+failures, uncertain calls and unsubmitted recordings count zero. Text and
+language identify practice across revisions, so unchanged chorus text retains
+its history even when occurrence IDs change; edited text starts fresh. This is
+the requested local presentation history, without importing the old review
+scheduler or its database. The query uses saved grades directly, including one
+whose queue reconciliation is pending, so a restart cannot lose practice.
+
+The server snapshots four to ten selected lines from one published revision and
+manifest. The browser never supplies reference text or chooses queue order.
+Unseen lines come before unresolved repeats. Repeats sort by least recent
+presentation, then original line order. A line resolves on a correct
 answer or its third graded presentation. Three misses resolve it without
 mastering it. A lesson ends when all lines resolve or after min(20,3\*lineCount)
 graded presentations. The latter can leave unresolved lines. Completion reason,
@@ -102,8 +123,10 @@ on every lesson and attempt; completion alone cannot award anything.
    Pirate-managed StudyTranscriber. Construct makeStudyLessonService with the
    same D1, that attempt service and a trusted resolveLines(song) callback.
    Resolve the visible published post and hash-verified lyric manifest through
-   existing public-read authority and validateLyrics. Choose four to ten distinct
-   study lines on the server and preserve their order. Return StudyLine objects
+   existing public-read authority and validateLyrics. Return all eligible valid
+   lines in manifest order, rather than a fixed first-ten subset. The lesson
+   service receives the authenticated principal and selects its least-practised
+   distinct-text lines from its own saved history. Return StudyLine objects
    matching chain, posts contract, community, post, revision, line ID, lineVersion,
    language and manifest digest. Lines must be nonempty and at most 512 characters.
    Opening an attempt revalidates the frozen line against resolveLine; a changed
@@ -205,8 +228,12 @@ Streak is excluded. Telegram and funded activity remain outside this component.
 Root tests use actual Miniflare D1, including disk-backed restart. Browser tests
 use built Solid assets, actual MediaRecorder capture, actual D1 and both real
 Study services, with explicitly simulated speech and an authenticated fixture.
-They check automatic submit/advance, both feedback sound requests, one Continue
-on a miss, server-selected returns and reload, completion, lost response recovery,
+Six additional D1 selection tests cover successive lessons over 25 lines,
+learner/song isolation, practice count and recency ordering, normalized chorus
+exclusion, immutable existing lessons, revisions and restart recovery. They
+also verify failed/uncertain provider outcomes and replay do not inflate history.
+Browser scenarios check automatic submit/advance, both feedback sound requests,
+one Continue on a miss, server-selected returns and reload, completion, lost response recovery,
 short recording refusal, known/unknown provider failure, microphone denial and
 mobile fit. Audio calls are instrumented; this is not a physical speaker test or
 real-provider accuracy test. The local engine's August compatibility date is

@@ -82,16 +82,12 @@ export interface StudyLessonSubmission {
   attempt: StudyAttempt;
   lesson: StudyLesson;
 }
-export function newLesson(
-  song: StudySong,
-  lines: StudyLine[],
-  now: number,
-): LessonState {
+export function validateStudySongLines(song: StudySong, lines: StudyLine[]) {
   studyCheck(
-    lines.length >= 4 &&
-      lines.length <= 10 &&
+    lines.length > 0 &&
+      lines.length <= 2000 &&
       new Set(lines.map((l) => l.lineId)).size === lines.length,
-    "insufficient_study_lines",
+    "invalid_study_lines",
     409,
   );
   const validated = lines.map((line) => {
@@ -108,6 +104,19 @@ export function newLesson(
     "study_manifest_mismatch",
     409,
   );
+  return validated;
+}
+export function newLesson(
+  song: StudySong,
+  lines: StudyLine[],
+  now: number,
+): LessonState {
+  studyCheck(
+    lines.length >= 4 && lines.length <= 10,
+    "insufficient_study_lines",
+    409,
+  );
+  const validated = validateStudySongLines(song, lines);
   return {
     policy: STUDY_QUEUE_POLICY,
     song,

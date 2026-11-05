@@ -4,6 +4,7 @@ import {
   type LessonState,
   type StudySong,
 } from "./lesson.ts";
+import type { StudyLinePractice } from "./line-selection.ts";
 export interface LessonRow {
   lesson_id: string;
   revision: number;
@@ -49,6 +50,36 @@ export class StudyLessonStore {
       )
       .bind(owner.accountId, owner.communityId, requestId)
       .first<LessonRow>();
+  }
+  async practice(owner: StudyPrincipal, song: StudySong) {
+    // Count immutable assessed attempts, including a saved grade whose queue
+    // reconciliation has not run yet. Replays and ungraded failures add no row.
+    const rows = await this.db
+      .prepare(
+        `
+      SELECT json_extract(a.line_json,'$.text') AS text,
+             json_extract(a.line_json,'$.language') AS language,
+             count(*) AS presentations, max(a.completed_at) AS lastPractisedAt
+        FROM study_attempts a
+        JOIN study_lessons l ON l.lesson_id=a.lesson_id
+         AND l.account_id=a.account_id AND l.community_id=a.community_id
+       WHERE a.account_id=? AND a.community_id=? AND a.state='assessed'
+         AND json_extract(l.song_json,'$.chainId')=?
+         AND json_extract(l.song_json,'$.postsContract')=?
+         AND json_extract(l.song_json,'$.postId')=?
+       GROUP BY json_extract(a.line_json,'$.text'),
+                json_extract(a.line_json,'$.language')
+    `,
+      )
+      .bind(
+        owner.accountId,
+        owner.communityId,
+        song.chainId,
+        song.postsContract,
+        song.postId,
+      )
+      .all<StudyLinePractice>();
+    return rows.results;
   }
   async create(owner: StudyPrincipal, requestId: string, state: LessonState) {
     await this.db
