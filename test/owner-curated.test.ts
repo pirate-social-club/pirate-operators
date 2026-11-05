@@ -177,6 +177,20 @@ test("curation refuses changed declarations, unknown provider results and a pred
       ),
       /curated_declaration_changed/,
     );
+    for (const mutation of [
+      { windows: [] },
+      { probe: { ...f.result.probe, durationMs: 1 } },
+    ])
+      await assert.rejects(
+        adoptCuratedAdmission(
+          f.managed.db,
+          f.signed,
+          { ...f.result, ...mutation },
+          f.config,
+          f.grant,
+        ),
+        /curated_prepared_projection_changed/,
+      );
     assert.equal(
       (await f.managed.db
         .prepare("SELECT COUNT(*) AS n FROM curated_admissions")

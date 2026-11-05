@@ -5,6 +5,7 @@ import {
   insist,
   object,
   hashText,
+  exact,
 } from "../community/common.ts";
 import {
   ownerCurated,
@@ -205,7 +206,28 @@ export async function selectedAdmission(
     "invalid_curated_admission",
     409,
   );
+  exact(result, [
+    "schema",
+    "admissionId",
+    "amendmentSha256",
+    "automatedContent",
+    "declarations",
+    "evidence",
+    "probe",
+    "windows",
+  ]);
+  const prepared = JSON.parse(original.prepared_json) as PreparedAdmission;
+  insist(
+    canonical(result.probe) === canonical(prepared.probe) &&
+      canonical(result.windows) ===
+        canonical(
+          prepared.windows.map(({ objectKey, byteLength, ...facts }) => facts),
+        ),
+    "curated_prepared_projection_changed",
+    409,
+  );
   const declarations = object(result.declarations);
+  exact(declarations, ["source", "rating", "language"]);
   insist(
     declarations.source === "operator_declared" &&
       declarations.rating === a.rating &&
