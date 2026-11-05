@@ -1,0 +1,67 @@
+{
+  "schema": "pirate.first-song-gateway-update/1",
+  "sourceCommit": "71267b84ac6b3dd95ff32730c40de4b93cfe0a20",
+  "profileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
+  "before": {
+    "at": "2026-11-05T11:24:56.908Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "after": {
+    "at": "2026-11-05T11:25:49.821Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "health": [
+    {
+      "origin": "https://pirate-wallet-test.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
+        "testnet": true
+      }
+    },
+    {
+      "origin": "https://pirate-creator-spike.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
+        "testnet": true
+      }
+    }
+  ],
+  "logs": [
+    "1793877908102-creator-plan-b8ea517f-462d-4a77-bf07-c306004a8dc5.enc",
+    "1793877910237-creator-deploy-478b514d-e139-41c8-a994-dc99a0213418.enc"
+  ],
+  "historicalState": "original preserved unchanged; separate encrypted successor scanned",
+  "nativeTransactions": 0,
+  "providerRequests": 0,
+  "workerModules": {
+    "ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
+    "index.js": "0x931507e7da1ca2380d84682c0ec7b414455703c2feaeae49f0574c0408ba5439"
+  },
+  "acceptance": "Owned deployment and live configuration gateway retrieval only; MOSS/passkey, provider and actual song acceptance remain open"
+}

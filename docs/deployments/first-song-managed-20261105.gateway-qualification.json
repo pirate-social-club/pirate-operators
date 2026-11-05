@@ -1,0 +1,74 @@
+{
+  "schema": "pirate.first-song-public-gateway-qualification/1",
+  "sourceCommit": "71267b84ac6b3dd95ff32730c40de4b93cfe0a20",
+  "at": "2026-11-05T11:30:22.144Z",
+  "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+  "probes": [
+    {
+      "path": "/api/public/configuration-diagnostics",
+      "status": 200,
+      "body": {
+        "gateways": [
+          {
+            "gateway": "https://gateway.pinata.cloud",
+            "status": 200,
+            "contentType": "application/json",
+            "byteLength": 1135,
+            "sha256": "0x0193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e",
+            "uri": "ipfs://bafkreiabsnyic5vcde6vn37d3ljdpwqyxbyaqgjrkwqmbw4o545i6hpqfy",
+            "matches": true
+          },
+          {
+            "gateway": "https://ipfs.filebase.io",
+            "status": 200,
+            "contentType": "application/json",
+            "byteLength": 1135,
+            "sha256": "0x0193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e",
+            "uri": "ipfs://bafkreiabsnyic5vcde6vn37d3ljdpwqyxbyaqgjrkwqmbw4o545i6hpqfy",
+            "matches": true
+          }
+        ]
+      }
+    },
+    {
+      "path": "/.well-known/pirate-client.json",
+      "status": 200,
+      "body": {
+        "schema": "pirate.community-client-config/1",
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "canonicalOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "apiBase": "/api",
+        "protocolVersions": [
+          1
+        ],
+        "defaultLanguage": "en",
+        "supportedLanguages": [
+          "en"
+        ],
+        "mirrors": []
+      }
+    },
+    {
+      "path": "/api/capabilities",
+      "status": 200,
+      "body": {
+        "schema": "pirate.community-capabilities/1",
+        "signIn": true,
+        "creatorConnection": true,
+        "upload": false,
+        "publication": false,
+        "policyVersion": "pirate-release/2026-08-29"
+      }
+    },
+    {
+      "path": "/api/feed",
+      "status": 200,
+      "body": {
+        "schema": "pirate.community-feed/1",
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "posts": []
+      }
+    }
+  ],
+  "scope": "Public configuration and empty feed only; no authentication or actual song acceptance"
+}
