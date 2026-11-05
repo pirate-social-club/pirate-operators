@@ -1,3 +1,4 @@
+import { assertCheckGroup } from "./check-groups.ts";
 import { admissionSigner } from "./sign-admission.ts";
 import {
   defaultContentProfile,
@@ -114,6 +115,9 @@ export function processAdmission(
           return seconds;
         };
         const checks = JSON.parse(row.request_json).checks as EvidenceCheck[];
+        // Recheck the group at queue execution too: mode may change after HTTP
+        // admission, and a retained row must not purchase another service's work.
+        assertCheckGroup(config.mode ?? "all", checks);
         const profile = config.contentProfile ?? defaultContentProfile;
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);

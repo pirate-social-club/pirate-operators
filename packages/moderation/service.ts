@@ -1,3 +1,4 @@
+import { assertCheckGroup } from "./check-groups.ts";
 import { Effect } from "effect";
 import {
   CommunityError,
@@ -72,16 +73,7 @@ export async function managedFetch(
     let id: string;
     if (action === "admit") {
       const input = admissionRequest(body, pairing);
-      const mode = config.mode ?? "all";
-      insist(
-        mode === "all" ||
-          (mode === "recognition"
-            ? input.checks.length === 1 &&
-              input.checks[0] === "audio.identification"
-            : !input.checks.includes("audio.identification")),
-        "wrong_service_checks",
-        400,
-      );
+      assertCheckGroup(config.mode ?? "all", input.checks);
       const row = await enqueueAdmission(db, input, pairing, authorization, {
         period: config.serviceBudgetPeriod,
         requestCap: config.serviceRequestCap,

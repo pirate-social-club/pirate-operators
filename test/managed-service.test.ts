@@ -579,3 +579,24 @@ for (const mode of ["recognition", "content"] as const)
       await f.dispose();
     }
   });
+
+test("a queued admission cannot execute another check group after service-mode change", async () => {
+  const f = await fixture();
+  try {
+    const response = await f.send();
+    assert.equal(response.status, 202);
+    const body = (await response.json()) as { admissionId: string };
+    f.config.mode = "content";
+    assert.equal(
+      await runAdmission(f.db, f.media, body.admissionId, f.config),
+      "held",
+    );
+    assert.equal(f.sends(), 0);
+    assert.equal(
+      (await getAdmission(f.db, body.admissionId)).error_code,
+      "wrong_service_checks",
+    );
+  } finally {
+    await f.dispose();
+  }
+});
