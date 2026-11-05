@@ -1,8 +1,10 @@
 # Automated namespace verifier authority
 
-Recommended V1 implementation profile, 2026-11-04. This specifies a new contract
-dependency; no Solidity implementation, ABI, service, key or deployment is added
-by this document. It does not grant HTTPS-only discovery or reward eligibility.
+V1 implementation profile, 2026-11-05. The
+[authority contract](../../contracts/community/NamespaceVerifierAuthorityV1.sol)
+has local integration tests. Live governance, service, key and deployment
+qualification remain separate. It does not grant HTTPS-only discovery or reward
+eligibility.
 The [directory](community-directory.md#verification-and-listing-are-separate)
 continues to require HNS evidence for Pirate discovery.
 
@@ -128,8 +130,9 @@ Acceptance must include a forged attestation using the full allowed age, rejecti
 above M, the exact expiry boundary, repeated forged renewal while the key is
 active, and expiry of the last accepted forgery after revocation. Also test
 emergency delisting while verification remains unexpired, renewal that cannot
-relist, reader/cache suppression, and loss of refresh/RPC access. These are
-required tests for the proposed authorities/service, not new coverage in this PR.
+relist, reader/cache suppression, and loss of refresh/RPC access. Local authority
+tests cover contract behavior; reader/cache and refresh/RPC behavior still need
+service acceptance.
 
 ## Refresh service and incident handling
 
@@ -154,6 +157,32 @@ operations; it does not prove the truth of evidence or equal two independent
 signers. The service also needs protected credentials, retained evidence and
 monitoring under its separate operational acceptance.
 
+A stolen verifier key can also shorten verification for every listed community
+to one second. After expiry, `isDiscoverable` is false even though `listed`
+remains true. The attacker can advance `observedAt` to the current block, causing
+honest evidence observed earlier to be rejected by the directory's monotonic
+observation rule. The current directory intentionally permits shortening:
+an honest verifier can also cut a forged verification short. Changing that
+behavior would require an explicit directory design decision before deployment.
+
+For this availability attack, governance first disables or rotates the stolen
+key. The service reads the canonical configuration, verification revision and
+accepted `observedAt`, then makes a fresh namespace observation and retains its
+new evidence. An observation-order rejection requires re-observation, not another
+submission of the cached proof. Do not replace the cached proof's timestamp
+without repeating the underlying checks. Submit using the current expected
+revision and the actual fresh observation time. If `listed` remains true, the
+new valid verification restores discovery without a governance re-listing.
+If the community was emergency-delisted, fresh verification alone cannot
+restore it; listing governance must separately authorize restoration.
+
+The incident drill must cover a one-second malicious verification expiring a
+listed community, rejection of older cached evidence, key rotation, fresh
+observation and restoration while the listing flag remains true. The local
+[review probes](../../test/solidity/community/DiscoveryReviewProbe.t.sol) cover
+the contract behavior. Re-observation, retained evidence and reader recovery
+still require service acceptance; these tests do not implement that service.
+
 On compromise, the separate [emergency delisting key](community-listing-authority.md)
 can suppress affected communities without waiting for a governance threshold.
 The verifier governance Safe still disables or rotates the operator. This stops
@@ -161,8 +190,9 @@ new calls from the old key but does not invalidate existing attestations; withou
 canonical delisting or expiry, a false attestation can remain discoverable.
 Verification refresh cannot undo a delisting. If the emergency key is compromised,
 its governance must disable or rotate it before restoring any listings.
-Revalidate from fresh trusted observations, submit a new valid attestation where justified and make
-a separate listing decision. For invalid namespace bindings, remain delisted;
+Revalidate from fresh trusted observations and submit a new valid attestation
+where justified. If incident handling delisted the community, make a separate
+listing decision. For invalid namespace bindings, remain delisted;
 do not write a fake "revoked" attestation into the HNS fields. Keep incident and
 verification receipts so readers can reconstruct canonical state. Once new
 forgeries are stopped, the security ceiling bounds the remaining on-chain
