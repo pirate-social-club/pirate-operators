@@ -1,7 +1,8 @@
 # Community listing authority and emergency delisting
 
-Recommended V1 implementation profile, 2026-11-04. CommunityListingAuthorityV1
-is a new, unimplemented contract dependency alongside the
+V1 implementation profile, 2026-11-05.
+[CommunityListingAuthorityV1](../../contracts/community/CommunityListingAuthorityV1.sol)
+has local integration tests alongside the
 [namespace verifier authority](namespace-verifier-authority.md). The directory
 already accepts its contract address as `listingAuthority`; no directory/post
 ABI change is proposed. A direct Safe in that slot would require its normal
@@ -93,6 +94,17 @@ Qualify actual account recovery, the emergency submission path and reader
 invalidation before enabling live listings. No deployment, key operation or
 runtime acceptance has been performed for this design.
 
+At initial enablement and every rotation of either operational key, read the
+actual verifier `operator()` and listing `emergencyKey()` addresses on the
+canonical chain. Compare the proposed active pair before submission and both
+installed values after confirmation; reject a shared nonzero address and verify
+separate custody. Check every intermediate rotation step as well as the final
+pair. Record the compared addresses and receipts in the deployment/rotation
+evidence. The contracts permit one address to occupy both roles; different
+authority-contract addresses do not establish operational-key separation. The
+[review probes](../../test/solidity/community/DiscoveryReviewProbe.t.sol)
+explicitly preserve this procedural boundary.
+
 Test governance-only binding/rotation, wrong targets, rebinding, unbound/disabled
 calls and old-key refusal. Prove the emergency key cannot list true, call other
 targets/functions or affect namespace/config/publication/fund state. Delisting
@@ -102,5 +114,5 @@ receipt retry, reorg reconciliation and verification refresh after delisting.
 Rotate a compromised emergency key through governance and show that only a fresh
 authorized restoration with valid verification can restore discovery. Include
 the actual directory artifact in local tests and a real governance/emergency
-account acceptance during the admitted deployment; existing fixtures prove
-neither this authority nor incident-response latency.
+account acceptance during the admitted deployment. Local fixtures establish
+contract behavior, not real custody or incident-response latency.
