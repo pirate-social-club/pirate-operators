@@ -1,0 +1,31 @@
+name: Provider setup
+on:
+  push:
+    paths: ["tooling/provider-setup/**", ".github/workflows/provider-setup.yml"]
+  pull_request:
+    paths: ["tooling/provider-setup/**", ".github/workflows/provider-setup.yml"]
+permissions:
+  contents: read
+jobs:
+  local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: tooling/provider-setup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tooling/provider-setup/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Run without external networking
+        run: |
+          sudo --preserve-env=PATH,HOME unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            npm run check
+          '
+      - run: npm audit --omit=dev --audit-level=high
