@@ -11,8 +11,7 @@ export function StudyScreen(props: {
   lines: StudyLine[];
   client: StudyClient;
 }) {
-  const [index, setIndex] = createSignal(0),
-    [consent, setConsent] = createSignal(false);
+  const [index, setIndex] = createSignal(0);
   const [phase, setPhase] = createSignal<
     "loading" | "idle" | "recording" | "recorded" | "saving"
   >("loading");
@@ -37,13 +36,12 @@ export function StudyScreen(props: {
     if (recorder?.state === "recording") recorder.stop();
     cleanup();
   });
-  async function restore() {
+  async function restore(current = line()) {
     const version = ++generation;
     setPhase("loading");
     setResult(null);
     setError("");
     try {
-      const current = line();
       if (!current) return;
       const history = await props.client.history(current);
       if (!active || version !== generation) return;
@@ -171,11 +169,12 @@ export function StudyScreen(props: {
   }
   function next() {
     if (index() + 1 < props.lines.length) {
-      setIndex(index() + 1);
+      const nextIndex = index() + 1;
+      setIndex(nextIndex);
       recording = undefined;
       requestId = undefined;
       attemptId = undefined;
-      void restore();
+      void restore(props.lines[nextIndex]);
     }
   }
   return (
@@ -197,30 +196,12 @@ export function StudyScreen(props: {
             <blockquote lang={current().language} dir="auto">
               {current().text}
             </blockquote>
-            <p class="study-explainer">
-              We compare the words heard with the line. This does not measure
-              pronunciation or accent.
-            </p>
-            <label class="study-consent">
-              <input
-                type="checkbox"
-                checked={consent()}
-                disabled={phase() === "recording" || phase() === "saving"}
-                onChange={(e) => setConsent(e.currentTarget.checked)}
-              />
-              I agree to send my recording to ElevenLabs, which may store it.
-              Pirate saves my transcript and result.
-            </label>
             <div class="study-actions">
               <Show
                 when={phase() === "recording"}
                 fallback={
                   <button
-                    disabled={
-                      !consent() ||
-                      phase() === "loading" ||
-                      phase() === "saving"
-                    }
+                    disabled={phase() === "loading" || phase() === "saving"}
                     onClick={record}
                   >
                     {result() || phase() === "recorded"
@@ -234,11 +215,7 @@ export function StudyScreen(props: {
                 </button>
               </Show>
               <Show when={phase() === "recorded"}>
-                <button
-                  class="study-secondary"
-                  disabled={!consent()}
-                  onClick={submit}
-                >
+                <button class="study-secondary" onClick={submit}>
                   Check my answer
                 </button>
               </Show>
@@ -280,9 +257,7 @@ export function StudyScreen(props: {
                         </span>
                       </p>
                       <Show when={!saved().grade?.correct}>
-                        <p>
-                          Read the line once more, then record another answer.
-                        </p>
+                        <p>You can try another recording or move on.</p>
                       </Show>
                     </Show>
                   </section>
@@ -291,7 +266,8 @@ export function StudyScreen(props: {
             </div>
             <Show
               when={
-                result()?.grade?.correct && index() + 1 < props.lines.length
+                result()?.state === "assessed" &&
+                index() + 1 < props.lines.length
               }
             >
               <button class="study-secondary" onClick={next}>
@@ -300,7 +276,8 @@ export function StudyScreen(props: {
             </Show>
             <Show
               when={
-                result()?.grade?.correct && index() + 1 === props.lines.length
+                result()?.state === "assessed" &&
+                index() + 1 === props.lines.length
               }
             >
               <p class="study-complete">

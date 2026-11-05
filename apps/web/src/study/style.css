@@ -47,25 +47,6 @@
     serif;
   overflow-wrap: anywhere;
 }
-.study-explainer {
-  font-size: 14px;
-  color: #4d625b;
-}
-.study-consent {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 14px;
-  margin: 24px 0;
-  cursor: pointer;
-}
-.study-consent input {
-  margin-top: 6px;
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  accent-color: #183930;
-}
 .study-actions {
   display: flex;
   flex-wrap: wrap;
@@ -87,8 +68,7 @@
   opacity: 0.45;
   cursor: default;
 }
-.study-page button:focus-visible,
-.study-page input:focus-visible {
+.study-page button:focus-visible {
   outline: 3px solid #c59043;
   outline-offset: 4px;
 }

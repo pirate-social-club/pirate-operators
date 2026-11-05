@@ -10,6 +10,8 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4177",
     browserName: "chromium",
     headless: true,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
     permissions: ["microphone"],
     launchOptions: {
       args: [

@@ -1,7 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
 async function record(page: Page) {
-  await page.getByRole("checkbox").check();
   await page
     .getByRole("button", { name: /Record answer|Record again/ })
     .click();
@@ -28,7 +27,11 @@ test("ordinary learner records an untimed line, reloads its real saved result an
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Record answer" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(
+    page.getByText(/ElevenLabs|pronunciation|accent|send my recording/i),
+  ).toHaveCount(0);
   await record(page);
   await expect(
     page.getByRole("heading", { name: "Matched", exact: true }),
@@ -47,7 +50,7 @@ test("ordinary learner records an untimed line, reloads its real saved result an
     page.getByRole("heading", { name: "Matched", exact: true }),
   ).not.toBeVisible();
 });
-test("failed assessment and provider failure stay unscored or failed after reload", async ({
+test("misses allow progression and stay wrong; provider failure stays unscored after reload", async ({
   page,
   request,
 }) => {
@@ -57,6 +60,15 @@ test("failed assessment and provider failure stay unscored or failed after reloa
   await expect(
     page.getByRole("heading", { name: "Try again", exact: true }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Next line" }).click();
+  await expect(page.getByRole("blockquote")).toHaveText("Stay with me");
+  await expect(
+    page.getByRole("heading", { name: "Try again", exact: true }),
+  ).not.toBeVisible();
+  const missed = await (await request.get("/__fixture")).json();
+  expect(missed.attempts).toHaveLength(1);
+  expect(missed.attempts[0].grade.correct).toBe(false);
+  expect(missed.attempts[0].qualification).toBe("not_evaluated");
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Try again", exact: true }),
@@ -77,6 +89,9 @@ test("failed assessment and provider failure stay unscored or failed after reloa
   ).toBeVisible();
   const state = await (await request.get("/__fixture")).json();
   expect(state.attempts[0].grade).toBeNull();
+  await expect(
+    page.getByRole("button", { name: "Next line" }),
+  ).not.toBeVisible();
 });
 test("lost submission response reuses the same recording without a duplicate assessment", async ({
   page,
@@ -116,7 +131,6 @@ test("mobile layout fits and denied microphone permission produces a recoverable
     };
   });
   await denied.goto("http://127.0.0.1:4177/");
-  await denied.getByRole("checkbox").check();
   await denied.getByRole("button", { name: "Record answer" }).click();
   await expect(denied.getByRole("alert")).toContainText("refused");
   await expect(

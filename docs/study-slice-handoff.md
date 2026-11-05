@@ -76,7 +76,17 @@ https://developers.cloudflare.com/d1/worker-api/d1-database/ .
 4. Use accountSession for reads and authenticatedWrite for writes in
    services/community-application.ts or its owned route composition. Derive
    StudyPrincipal from session.account_id and the server's configured communityId.
-   Preserve the existing HttpOnly cookie, Origin and CSRF protections. Ordinary
+   Preserve the existing HttpOnly cookie, Origin and CSRF protections. Before
+   public release, add the linked Terms/Privacy acceptance line to MOSS sign-in,
+   backed by actual Terms and Privacy documents and recorded policy acceptance.
+   The Privacy Policy must describe ElevenLabs recording processing/retention
+   and Pirate's actual transcript/result storage. Suggested sign-in copy is
+   "By continuing, you agree to the Terms and Privacy Policy." This component
+   has no provider checkbox, notice, link or replacement disclaimer in Study;
+   provider/retention and assessment limitations belong in those policies per
+   the October 20 ruling. Do not copy the older app's audio-retention period
+   unless it matches the new system's actual storage. Browser microphone
+   permission is unchanged. Ordinary
    sign-in is enough; creator connection, DATA registration, membership and Palm
    are not admission checks. Return no private account ID in response bodies.
 5. Compose GET /api/study/attempts as service.list(principal, selection), with private
@@ -130,6 +140,26 @@ holds still apply before any live enablement. The reference and heard-text
 bounds also limit grading work. No learner recording or transcript belongs in
 public telemetry.
 
+The per-account 100-attempt limit is not a bound on Pirate's total provider bill.
+Inspection of the current managed service found no wired Study speech capability
+or overall daily Study budget; its moderation request cap is not evidence of a
+speech budget. Public Study must stay disabled until the coordinator configures
+and proves a single daily budget shared across all accounts, communities and
+managed speech entrypoints. Reserve against it atomically before dispatch; stop
+new calls at exhaustion and retain uncertain charges until reconciled. Bound
+billable input duration or conservative maximum cost on the server: the browser's
+30-second timer and a 2 MiB upload limit do not establish that cost bound. Pin the
+actual daily allowance, period, price/cost assumptions and recovery behavior in
+the reviewed managed-service configuration. Prove concurrent requests from
+multiple accounts cannot exceed it, exhausted service makes no provider call,
+and retries cannot refund or charge a reservation twice. No daily monetary
+allowance or production enablement is approved by this source change.
+
+Next line is available after every assessed answer, whether correct or wrong.
+A miss retains its failed grade and not_evaluated qualification; progression
+does not imply a pass or reward. An unavailable or uncertain provider outcome
+has no grade and is not relabelled as an assessed answer.
+
 This is private operational attempt evidence awaiting downstream qualification
 and consented publication. qualification is always not_evaluated. A passed
 assessment does not mint shares, enter a drawing, create settled winnings or
@@ -156,6 +186,12 @@ From apps/web run its typecheck, then these additional commands:
     node_modules/.bin/vite build --config vite.study.config.ts
     node_modules/.bin/playwright test --config playwright.study.config.ts
 
+The dedicated .github/workflows/study.yml installs the root and web fixture
+packages, builds this entry and runs all four scenarios in a loopback-only
+hosted job. It is independently owned and does not edit the coordinator's
+existing web workflow or package scripts. Failure traces and screenshots are
+uploaded as the study-browser-results artifact.
+
 Use the repository's installed matching Chromium through
 PLAYWRIGHT_BROWSERS_PATH where needed. No existing package script was edited.
 The source task record carries the final checked source and exact outcomes.
@@ -177,3 +213,11 @@ only the isolated local acceptance host and simulated speech were used. The
 pinned grading copy was compared after its documented import/comment/formatting
 transformations. No existing tracked file changed. Independent review, hosted
 checks and all live integration/provider acceptance remain distinct gates.
+
+The initial source 2742d679 had 194 passing Node tests locally. Its hosted
+pull-request Local acceptance run 42068614797 had 198 passing Node tests and
+zero failures, verified from that job's log. Those counts describe different
+checkouts and are not interchangeable. That initial hosted Web run did not build
+Study or execute its browser configuration. The new dedicated Study workflow
+closes that coverage gap; the task record carries the successor's observed
+hosted outcomes. The user review of 2742d679 was code-only, with no test rerun.
