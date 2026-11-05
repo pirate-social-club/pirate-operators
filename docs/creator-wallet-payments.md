@@ -149,7 +149,10 @@ entry. Refuse unknown signers, changed configuration and another community's
 valid evidence; only the service's own administration may extend its trust.
 
 The minimum controlled-test grant covers one authenticated creator, one approved
-test release and at most one registration attempt identity. Bind the exact
+test release and at most one registration attempt identity. The workspace_owner
+supplies a different original song and its lyrics for this second-community run;
+the first song's existing registration cannot substitute for a new covered
+registration action. Bind the exact
 sealed audio and title/lyrics/artwork revision hashes, verified creator recipient,
 service/adapter manifest, allowed actions, expiry and allowance ID. A valid
 moderation signature must bind those same inputs and satisfy current admission
@@ -205,7 +208,7 @@ native costs. Exercise this cutoff in the second-community acceptance run.
 | S9 | Before the second community spends, the service accepts only its explicitly curated community/configuration, moderation signer and content-bound creator/release grant. Unknown, rotated, stale, cross-community or forged evidence cannot reserve native spend. |
 | S10 | The controlled grant permits one approved release/registration attempt identity, zero new activation unless separately authorized, and concrete native per-action/community/global ceilings. Concurrent, reverted and unknown operations cannot escape the reserved exposure or create duplicate registrations. |
 | S11 | Revoking the grant, community or signer blocks new spends and queued work. An interrupted submitted attempt retains its original receipt/binding and reconciles without replay or silently creating another grant. |
-| S12 | Real community-operated provider checks and signed evidence precede the second community's bounded sponsored registration. Test untrusted signer, mismatched media, depletion, revocation and interrupted recovery; simulations or receipt reuse alone do not establish this boundary. |
+| S12 | Real community-operated provider checks and signed evidence for a different original song and its lyrics precede the second community's bounded sponsored registration. Test untrusted signer, mismatched media, depletion, revocation and interrupted recovery; simulations or the first song's receipt do not establish this boundary. |
 
 S1–S8 remain the first-song requirements; S9–S12 extend acceptance for the
 second community. Qualify the S9–S11 safeguards locally and pass the concrete

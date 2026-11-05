@@ -546,6 +546,8 @@ These checks belong to the implementation tasks. Pass status must cite the
 actual source/profile and task evidence; adding a requirement does not pass it.
 The next-community D3 run consumes wizard W1-W12 and funding S9-S12 as well as
 the applicable existing session, creator-wallet and publication requirements.
+Use a different original song and its lyrics for this run; replay of the first
+song's registration is not evidence for the new sponsored-registration boundary.
 
 | ID | Check | Method |
 |---|---|---|

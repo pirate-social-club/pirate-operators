@@ -42,6 +42,23 @@ lasting contracts and verified discovery are a separate launch track.
 Changing directory/posts addresses later requires explicit configuration and
 history handling; it does not migrate these test communities or song identities.
 
+For this second-community test, the workspace_owner acts as its operator and
+connects operator-owned ACRCloud, OpenAI and Filebase accounts. Existing suitable
+accounts are acceptable; use this community's credential references rather than
+copying Pirate's shared staging credentials. Require working provider access
+and sufficient quota for the reviewed test, not a particular paid plan. Valid
+free access is acceptable, including ACRCloud access; do not assume a universal
+trial expiry or mandatory billing. Show applicable limits and charges, using
+provider readback where supported and guided account checks otherwise.
+
+The test also needs a different original song and its untimed lyrics, supplied
+by the workspace_owner. Reusing the first song's existing registration cannot
+prove the new sponsored-registration boundary. Select the second song and
+prepare provider access when the package is ready for the live test. The
+administrator wallet and server-side publisher need MegaETH test ETH; the
+wizard must show the reviewed amounts and verify balances before the relevant
+transactions. Existing balances may suffice; any transfer still needs approval.
+
 The operator journey has six steps. The
 [wizard acceptance matrix](../apps/community-wizard/README.md#next-community-packaged-wizard-acceptance)
 and web-client D3/D8-D10 checks define its evidence, alongside creator-wallet

@@ -82,9 +82,22 @@ The package's supported OS/architecture, release/source hashes and pinned runtim
 must be explicit. It prepares the required runtime and authentication helpers;
 the supported user journey does not require cloning source, npm commands,
 hand-made runner folders, generated passwords or launcher flags. Account signup,
-provider billing and unavoidable initial provider-key creation are guided owner
-steps. Do not promise provider APIs or authorization flows before qualifying them.
+applicable provider billing and unavoidable initial provider-key creation are
+guided owner steps. Existing operator-owned accounts are acceptable. Require
+working access and enough quota for the reviewed test; a paid ACRCloud plan or
+fixed trial deadline is not a prerequisite. Valid free access is acceptable.
+Show reported limits, expiry and charges where available, and guide the operator
+to account checks when the provider exposes no suitable API. Unavailable quota
+data must not be presented as a successful quota check. Do not promise provider
+APIs or authorization flows before qualifying them.
 The existing commands below remain developer/current-runtime instructions.
+
+The workspace_owner operates this disposable community and supplies a different
+original song with its untimed lyrics. Prepare these and the operator-owned
+provider connections when the package is ready for the live test. Check MegaETH
+test ETH for both administrator and publisher against the reviewed transaction
+plan. W12 requires the new covered registration action; replaying the first
+song's registration does not qualify it.
 
 The wizard generates a new secp256k1 moderation evidence key through the trusted
 runner and stores it in the owning service's Infisical scope before using or
@@ -116,7 +129,7 @@ configuration. The current first-song token is not a default for new communities
 | --- | --- | --- |
 | W1 | A versioned package opens the wizard on a fresh supported machine and prepares pinned dependencies without source/build/terminal setup. | Artifact/source hashes, platform identity and actual fresh-install/reopen run. |
 | W2 | Cloudflare and Infisical connections select accounts/projects by name, prepare approved secret scopes and retain the generated state password before apply. | Actual account/scope readback and restore with the same encrypted state; no UUID/password copying or secret leakage. |
-| W3 | The operator connects its own ACRCloud, OpenAI and Filebase accounts; the wizard automates supported resource setup and stores credentials in the calling service's scope. | Real provider checks, resources and credential references; no Pirate provider-key copying or simulated success. |
+| W3 | The operator connects its own ACRCloud, OpenAI and Filebase accounts; the wizard automates supported resource setup and stores credentials in the calling service's scope. Valid free access is accepted. | Real provider checks, resources and credential references, with actual quota/limit checks identified; no mandatory paid plan, Pirate provider-key copying or simulated success. |
 | W4 | Community moderation and publisher keys are provisioned once, durably saved and verified as distinct from each other and the controller. | Signed challenges, Infisical readback, resumed setup using the same addresses, uncertain-write refusal and explicit rotation/trust-update checks. |
 | W5 | Alchemy deploys the community's actual application, private upload storage, D1 migrations and durable admission/publication jobs in the chosen Cloudflare account. | Source/package/profile binding, runtime schema and storage/job round trips; this is more than a setup page. |
 | W6 | The administrator approves registry creation and configuration against verified existing shared contracts. | Canonical clone/config receipts, pinned and retrieved manifest, publisher/origin/signer readback; replay reconciles instead of creating another registry. |
@@ -125,7 +138,7 @@ configuration. The current first-song token is not a default for new communities
 | W9 | A creator signs into this second origin and links the verified Active wallet through the stable wallet site using the short owner procedure. | Actual browser/passkey return and recipient binding under creator C8/C10/C13; no new wallet charge merely for another community. |
 | W10 | Interrupted setup and publication resume with the same resource, key, grant and transaction identities. | Interruptions around secret persistence, apply, pinning, registration and post publication; no duplicate purchases, mints or posts. |
 | W11 | The operator can update or restore the package with retained deployment identities, secret references and encrypted state. | Same-version restore on a supported machine, independent password recovery, wrong-password refusal and one active deployer; no silent deployment migration. |
-| W12 | A real release passes community-run moderation, bounded sponsored registration, public retention and fresh-browser playback; rejected/held work stays unpublished. | Web-client D3/D8-D10, funding S1-S12 and applicable creator C1-C13 evidence, including seeking/reload and failed-delivery behavior. |
+| W12 | A different original song and its lyrics pass community-run moderation, bounded sponsored registration, public retention and fresh-browser playback; rejected/held work stays unpublished. | Web-client D3/D8-D10, funding S1-S12 and applicable creator C1-C13 evidence, including the new covered registration action, seeking/reload and failed-delivery behavior. |
 
 The implementation record must identify which existing acceptance IDs passed,
 the new rows passed, skipped checks, exact deployed profiles and sanitized costs.
