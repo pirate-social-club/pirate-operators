@@ -4,15 +4,17 @@
 // later slice. Not the live router; see docs/karaoke-learner-handoff.md.
 import { render } from "@solidjs/web";
 import { createSignal } from "solid-js";
-import type { ManifestLine } from "../../../../packages/protocol/payments.ts";
-import { karaokeStageLinesOf } from "../../../../packages/karaoke/manifest-lines.ts";
+import {
+  karaokeStageLinesOf,
+  type KaraokeTimedLine,
+} from "../../../../packages/karaoke/manifest-lines.ts";
 import { KaraokePracticeSurface } from "./practice-surface.tsx";
 import "./style.css";
 
 interface Fixture {
   title: string;
   instrumentalUrl: string;
-  lines: ManifestLine[];
+  lines: KaraokeTimedLine[];
 }
 type Status = "idle" | "active" | "ended";
 

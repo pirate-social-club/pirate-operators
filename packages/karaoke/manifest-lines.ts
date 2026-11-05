@@ -1,15 +1,34 @@
 // Adapts the protocol's timed karaoke manifest to the centralized display
 // model. Every word keeps its published text and millisecond range; the
 // adopted transform owns spacing, punctuation and canonical-text alignment.
-import type { ManifestLine } from "../protocol/payments.ts";
 import {
   toKaraokeStageLines,
   type KaraokeStageLine,
   type RawKaraokeLine,
 } from "./lyric-transform.ts";
 
+/**
+ * The timing fields of the protocol's ManifestLine in
+ * packages/protocol/payments.ts, declared structurally so the browser build
+ * does not depend on the protocol's chain libraries. The adapter test checks
+ * that ManifestLine stays assignable to it.
+ */
+export interface KaraokeTimedWord {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+export interface KaraokeTimedLine {
+  lineId: string;
+  ordinal: number;
+  text: string;
+  startMs: number;
+  endMs: number;
+  words: readonly KaraokeTimedWord[];
+}
+
 export function karaokeStageLinesOf(
-  lines: readonly ManifestLine[],
+  lines: readonly KaraokeTimedLine[],
 ): KaraokeStageLine[] {
   const raw: RawKaraokeLine[] = [...lines]
     .sort((a, b) => a.ordinal - b.ordinal)

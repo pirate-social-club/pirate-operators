@@ -1,14 +1,14 @@
 // Timed fixture shaped like the protocol karaoke manifest lines. Word texts
 // omit punctuation, as provider alignment does; the display maps them back
 // onto the canonical line text.
-import type { ManifestLine } from "../../../packages/protocol/payments.ts";
+import type { KaraokeTimedLine } from "../../../packages/karaoke/manifest-lines.ts";
 
 const id = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
 const line = (
   ordinal: number,
   text: string,
   words: [string, number, number][],
-): ManifestLine => ({
+): KaraokeTimedLine => ({
   lineId: id(ordinal),
   lineVersion: 1,
   ordinal,
@@ -19,7 +19,7 @@ const line = (
 });
 
 export const KARAOKE_FIXTURE_DURATION_MS = 8500;
-export const karaokeFixtureLines: ManifestLine[] = [
+export const karaokeFixtureLines: KaraokeTimedLine[] = [
   line(1, "Hello, world!", [
     ["Hello", 500, 1200],
     ["world", 1300, 2400],
