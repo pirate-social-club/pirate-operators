@@ -1,6 +1,5 @@
 // Manual bounded staging workflow. Default is a source-bound plan; execution
 // requires its reviewed hash. Never prints provider values or child output.
-import { execFile } from "node:child_process";
 import { readFile, writeFile, open, unlink, lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
@@ -19,6 +18,11 @@ import {
 import { inspectPrivateFiles } from "../apps/community-wizard/server/state-inspection.ts";
 import { privateDirectory } from "../apps/community-wizard/server/state.ts";
 import { CommunityError, insist } from "../packages/community/common.ts";
+import { managedInventory } from "./managed-inventory.ts";
+import {
+  qualifyManagedUpdate,
+  preserveManagedDeployment,
+} from "./managed-update.ts";
 import {
   managedPackage,
   managedPrefix,
@@ -28,79 +32,14 @@ import {
 
 const base = join(homedir(), ".local/state/pirate-first-song-managed-20261105"),
   directory = join(base, "managed-service");
-async function cfJson(args: string[], env: NodeJS.ProcessEnv) {
-  return new Promise<unknown>((done, fail) => {
-    execFile(
-      resolve("node_modules/.bin/cf"),
-      args,
-      { env, encoding: "utf8", timeout: 30000, maxBuffer: 2 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) fail(new CommunityError("managed_inventory_failed", 503));
-        else
-          try {
-            done(JSON.parse(stdout));
-          } catch {
-            fail(new CommunityError("managed_inventory_invalid", 503));
-          }
-      },
-    );
-  });
-}
-function rows(input: unknown): Record<string, unknown>[] {
-  if (Array.isArray(input)) return input;
-  if (input && typeof input === "object") {
-    for (const key of ["result", "buckets", "queues"])
-      if (key in input) return rows((input as Record<string, unknown>)[key]);
-  }
-  throw new CommunityError("managed_inventory_invalid", 503);
-}
-async function inventory(env: NodeJS.ProcessEnv) {
-  const results = await Promise.all([
-    cfJson(["workers", "list", "--per-page", "100", "--page", "1"], env),
-    cfJson(
-      ["d1", "list", "--name", `${managedPrefix}-db`, "--per-page", "100"],
-      env,
-    ),
-    cfJson(
-      [
-        "r2",
-        "buckets",
-        "list",
-        "--name-contains",
-        `${managedPrefix}-media`,
-        "--per-page",
-        "100",
-      ],
-      env,
-    ),
-    cfJson(["queues", "list"], env),
-  ]);
-  const targets = [
-    managedPrefix,
-    `${managedPrefix}-db`,
-    `${managedPrefix}-media`,
-    `${managedPrefix}-jobs`,
-  ];
-  const found = results.map((r, index) => ({
-    name: targets[index],
-    present: rows(r).some((row) =>
-      [row.id, row.name, row.queue_name].includes(targets[index]),
-    ),
-  }));
-  // A single full workers page would make absence ambiguous. Do not mutate.
-  insist(
-    rows(results[0]).length < 100,
-    "managed_inventory_pagination_required",
-    503,
-  );
-  return { at: new Date().toISOString(), resources: found };
-}
 async function main() {
   process.umask(0o077);
   const { values } = parseArgs({
     options: {
       execute: { type: "boolean" },
       inventory: { type: "boolean" },
+      update: { type: "boolean" },
+      preflight: { type: "boolean" },
       "expected-profile": { type: "string" },
       "write-plan": { type: "boolean" },
     },
@@ -112,7 +51,7 @@ async function main() {
       "docs/deployments/first-song-managed-20261105.moderation-plan.json",
       JSON.stringify({ profileHash, profile }, null, 2) + "\n",
     );
-  if (!values.execute && !values.inventory) {
+  if (!values.execute && !values.inventory && !values.preflight) {
     console.log(JSON.stringify({ profileHash, profile }, null, 2));
     return;
   }
@@ -141,14 +80,15 @@ async function main() {
     CLOUDFLARE_ACCOUNT_ID: profile.accountId,
     CLOUDFLARE_API_TOKEN: cloudflare,
   };
-  const before = await inventory(cloudEnv);
-  if (!values.execute) {
+  const before = await managedInventory(cloudEnv, managedPrefix);
+  if (!values.execute && !values.preflight) {
     console.log(JSON.stringify({ profileHash, inventory: before }, null, 2));
     return;
   }
+  insist(values.update, "managed_update_requires_explicit_flag", 409);
   insist(
-    before.resources.every((r) => !r.present),
-    "managed_resources_already_exist_reconcile_first",
+    before.resources.every((r) => r.present),
+    "managed_owned_resources_missing",
     409,
   );
   await privateDirectory(directory);
@@ -170,16 +110,14 @@ async function main() {
       secretPath: string,
       secretName: string,
     ) => {
-      const result = await sdk
-        .secrets()
-        .getSecret({
-          projectId,
-          environment: "staging",
-          secretPath,
-          secretName,
-          includeImports: false,
-          expandSecretReferences: false,
-        });
+      const result = await sdk.secrets().getSecret({
+        projectId,
+        environment: "staging",
+        secretPath,
+        secretName,
+        includeImports: false,
+        expandSecretReferences: false,
+      });
       insist(
         result.secretValue && result.secretValue.length > 0,
         "managed_credential_empty",
@@ -192,6 +130,18 @@ async function main() {
       profile.stateProtection.path,
       "PIRATE_WIZARD_STATE_PASSWORD",
     );
+    await qualifyManagedUpdate(directory, profile, before, password, cloudEnv);
+    if (!values.execute) {
+      console.log(
+        JSON.stringify({
+          profileHash,
+          inventory: before,
+          ownership: "verified encrypted state",
+          idle: true,
+        }),
+      );
+      return;
+    }
     const file = join(
         homedir(),
         ".config/pirate-operators/megaeth-testnet/keys.json",
@@ -226,24 +176,20 @@ async function main() {
     const parent = "/services",
       folderName = managedPrefix;
     const listFolders = () =>
-      sdk
-        .folders()
-        .listFolders({
+      sdk.folders().listFolders({
+        projectId: credentials.projectId,
+        environment: "staging",
+        path: parent,
+        recursive: false,
+      });
+    if (!(await listFolders()).some((f) => f.name === folderName)) {
+      try {
+        await sdk.folders().create({
           projectId: credentials.projectId,
           environment: "staging",
           path: parent,
-          recursive: false,
+          name: folderName,
         });
-    if (!(await listFolders()).some((f) => f.name === folderName)) {
-      try {
-        await sdk
-          .folders()
-          .create({
-            projectId: credentials.projectId,
-            environment: "staging",
-            path: parent,
-            name: folderName,
-          });
       } catch {
         insist(
           (await listFolders()).some((f) => f.name === folderName),
@@ -252,17 +198,15 @@ async function main() {
         );
       }
     }
-    const names = await sdk
-      .secrets()
-      .listSecrets({
-        projectId: credentials.projectId,
-        environment: "staging",
-        secretPath: credentials.targetPath,
-        viewSecretValue: false,
-        recursive: false,
-        includeImports: false,
-        expandSecretReferences: false,
-      });
+    const names = await sdk.secrets().listSecrets({
+      projectId: credentials.projectId,
+      environment: "staging",
+      secretPath: credentials.targetPath,
+      viewSecretValue: false,
+      recursive: false,
+      includeImports: false,
+      expandSecretReferences: false,
+    });
     for (const [name, secretValue] of Object.entries(secrets)) {
       if (names.secrets.some((s) => s.secretKey === name))
         insist(
@@ -273,14 +217,12 @@ async function main() {
         );
       else {
         try {
-          await sdk
-            .secrets()
-            .createSecret(name, {
-              projectId: credentials.projectId,
-              environment: "staging",
-              secretPath: credentials.targetPath,
-              secretValue,
-            });
+          await sdk.secrets().createSecret(name, {
+            projectId: credentials.projectId,
+            environment: "staging",
+            secretPath: credentials.targetPath,
+            secretValue,
+          });
         } catch {
           insist(
             (await get(credentials.projectId, credentials.targetPath, name)) ===
@@ -297,6 +239,7 @@ async function main() {
         503,
       );
     }
+    await preserveManagedDeployment(directory, profileHash);
     const cwd = await writeManagedPackage(directory, packaged.bytes);
     const env = {
       ...cloudEnv,
@@ -350,10 +293,12 @@ async function main() {
       "managed_health_not_qualified",
       503,
     );
-    const after = await inventory(cloudEnv);
+    const after = await managedInventory(cloudEnv, managedPrefix);
     insist(
-      after.resources.every((r) => r.present),
-      "managed_resources_unconfirmed",
+      after.resources.every(
+        (r, i) => r.present && r.id === before.resources[i]?.id,
+      ),
+      "managed_resource_identity_unconfirmed",
       503,
     );
     await writeFile(

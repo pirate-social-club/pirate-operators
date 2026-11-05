@@ -71,6 +71,10 @@ export async function managedPackage() {
     "apps/community-wizard/package-lock.json",
     "harness/managed-package.ts",
     "harness/managed-service.ts",
+    "harness/managed-inventory.ts",
+    "harness/managed-update.ts",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
+    "docs/deployments/first-song-managed-20261105.moderation-setup.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -113,6 +117,15 @@ export async function managedPackage() {
     accountId: "08a4c22cf52e2ecae883e36f80a33f4a",
     prefix: managedPrefix,
     origin: managedOrigin,
+    update: {
+      previousProfileHash:
+        "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2",
+      previousPlanPath:
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
+      startupEvidencePath:
+        "docs/deployments/first-song-managed-20261105.moderation-setup.json",
+      requireIdle: true,
+    },
     resources: {
       worker: managedPrefix,
       database: `${managedPrefix}-db`,

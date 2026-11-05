@@ -14,10 +14,19 @@ apps/community-wizard/node_modules/.bin/tsx harness/managed-service.ts --write-p
 apps/community-wizard/node_modules/.bin/tsx harness/managed-service.ts --inventory
 ```
 
-After independent source and plan review, execution adds `--execute` and
-`--expected-profile` with that exact plan hash. It independently refreshes the
-selected cf login, verifies the account and inspects all four resource names
-before mutation. It refuses existing resources instead of adopting them.
+The initial create completed under the preserved revision-one plan. The current
+plan is an update of those same resources for the qualified public gateway.
+After independent source and plan review, execution adds `--execute --update`
+and `--expected-profile` with that exact plan hash. It refreshes the selected
+cf login and verifies the account, all four exact resource identities and all
+five encrypted Alchemy resource records. Missing, replaced or unrelated
+resources stop execution. The source package, encrypted predecessor state and
+deployment result are durably preserved before the update. Existing backups
+are verified before reuse; an incomplete backup requires reconciliation.
+`--preflight --update` performs ownership, current-profile and idle checks
+without applying or changing credential bindings. The original and successor
+health profiles are the only accepted live states. Zero admissions and provider
+calls are required for this retrieval-only update; it never migrates active jobs.
 The coordinator owns the 900-second apply and recovery window. An interrupted
 apply retains its encrypted Alchemy state and private diagnostics; inspect
 ownership and reconcile those resources before a reviewed retry. No default
