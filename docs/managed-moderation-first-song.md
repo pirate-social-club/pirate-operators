@@ -1,72 +1,84 @@
 # Managed first-song service
 
-The disposable managed service belongs to the standalone operators repository.
-It has its own Worker, D1 admission journal, private R2 retention, Queue and
-consumer. Alchemy owns those resources. The ordinary community receives the
-service origin and a publisher-scoped signed request capability; provider
-credentials and the moderation evidence signer remain in this separate service.
-The c22 community and its independent configuration are outside this deployment.
+The disposable managed service belongs to this standalone repository. It owns
+one Worker, D1 journal, private R2 bucket, Queue and consumer through Alchemy.
+The community has a separate private account/upload/job database and bucket.
+Provider credentials remain in the managed service under the established
+Infisical workflow. c22 retains its independent mode and resources.
 
-The manual plan is generated with the pinned wizard `tsx` runner:
+The current independently qualified runtime is owner-curated profile
+0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705.
+[The rollout record](owner-curated-rollout.md) binds all four deployed profiles,
+application and managed migrations, preserved predecessor state and directory
+revision 2. The latest reviewed source is recorded there. The source-bound
+managed runner defaults to a plan, requires an exact reviewed hash for execution,
+and retains its encrypted state and private diagnostics through interruption.
+Fresh ownership, current modules, existing binding identities and recorded
+private result digests must qualify before an update. The active held-job
+transition validates its exact captured rows; the earlier gateway-only zero-job
+preflight is historical and does not govern this transition.
 
-```sh
-apps/community-wizard/node_modules/.bin/tsx harness/managed-service.ts --write-plan
-apps/community-wizard/node_modules/.bin/tsx harness/managed-service.ts --inventory
-```
+The community's TLD was fixed before setup. Its operator created its own
+registry clone through the shared factory, and directory/posts qualification
+used that registry. The wizard does not automate clone creation or the contract
+transactions. The permanently unlisted profile enables no listing or namespace
+verification. Every service request binds the exact community, controller,
+registry, publisher, directory revision and both HTTPS origins. Joining through
+Very is separate from publishing an admitted song.
 
-The initial create completed under the preserved revision-one plan. The current
-plan is an update of those same resources for the qualified public gateway.
-After independent source and plan review, execution adds `--execute --update`
-and `--expected-profile` with that exact plan hash. It refreshes the selected
-cf login and verifies the account, all four exact resource identities and all
-five encrypted Alchemy resource records. Missing, replaced or unrelated
-resources stop execution. The source package, encrypted predecessor state and
-deployment result are durably preserved before the update. Existing backups
-are verified before reuse; an incomplete backup requires reconciliation.
-`--preflight --update` performs ownership, current-profile and idle checks
-without applying or changing credential bindings. The original and successor
-health profiles are the only accepted live states. Zero admissions and provider
-calls are required for this retrieval-only update; it never migrates active jobs.
-The coordinator owns the 900-second apply and recovery window. An interrupted
-apply retains its encrypted Alchemy state and private diagnostics; inspect
-ownership and reconcile those resources before a reviewed retry. No default
-command creates a resource, sends a provider request or broadcasts a transaction.
-Every package plan first starts the isolated pinned Alchemy CLI with its Node
-runtime peer and a credential-free environment, checking the exact version.
+## Current admission and retained history
 
-Only the existing staging ACRCloud and OpenAI credentials are rebound from
-the approved managed store into the service's own Infisical folder. The existing
-testnet signer is checked against its recorded public identity before binding.
-Existing target values must match; this workflow cannot rotate them. The
-state password comes from the already established managed-community runner
-folder. Credentials are passed in the child's environment, state and diagnostics
-are encrypted, and generated files are scanned for plaintext after each phase.
+The workspace_owner deferred automated content moderation for the owner-curated
+MVP. [The exact policy](owner-curated-first-song.md) requires truthful declared
+rating/language and genuine retained audio-recognition evidence. Its declaration
+is not a successful classifier response. The first real submission retains one
+held automated admission and three provider receipts: ACRCloud recognition and
+OpenAI text safety succeeded; the configured lyrics classifier returned HTTP403
+model_not_found. No new classifier or OpenRouter call follows the policy change.
 
-The operator curates the exact registry, directory, controller and both HTTPS
-origins. Runtime resolution independently checks the chain ID, directory runtime
-hash, complete configuration event history, retained public manifest hashes,
-current state and canonical block hash. Manifest bytes must be exact JCS;
-historical revocations must be valid at their own publication block. Every new provider purchase rechecks
-that authority against the immutable job capture. Joining or namespace discovery
-does not grant publication authority in this profile.
+The controller-signed append-only amendment binds that exact sealed master,
+lyric revision and occurrence IDs, original job input/authority, held operation,
+known responses, declarations and current directory revision. A distinct curated
+admission and successor operation preserve the old records. Adoption requires
+both exact instrumental/vocal MP3 seals and no predecessor public-effect intent.
+The same publication job continues under the captured successor grant; neither
+request quotas nor financial allowances are replenished.
 
-The first acceptance period permits at most 24 provider requests, with both a
-service-wide and community-specific quota. These count upstream calls, not
-currency; each classification also has a 256-token output bound and bounded
-input. Unknown requests retain their reservation, and a resume cannot buy them
-again. This deployment enables no payment deposit, registration transaction or
-fund transfer. Those application steps have separate bounded qualification.
+Historical provider calls reserve both service-wide and community-specific
+request quotas before sending. Raw responses persist before interpretation;
+unknown sends retain their reservations and are never purchased again on resume.
+The initial period permits 24 requests, with three already consumed by the
+original attempt. Request counts are distinct from monetary/token quotes.
+Existing credentials and every historical budget/receipt remain preserved.
 
-The public `/health` response establishes startup and the exact service profile.
-Real signed admission, managed provider semantics, public pin retention, Aeneid
-registration, MegaETH publication and browser readback remain separate acceptance
-steps. Local workerd and explicit simulated-provider tests establish their
-recorded handler and persistence properties only.
+The managed release adapter now also owns bounded public pinning and one Aeneid
+ROOT registration to the genuine creator recipient. The reviewed grant permits
+five song artifacts, one registration and one MegaETH post in aggregate, with
+exact original quota periods, expiry and fee ceilings. The separate controller
+configuration pin/transaction is recorded outside those song artifacts. Payment
+deposits and learning/reward contracts remain disabled in this community.
 
+## Recovery and acceptance
+
+Alchemy resource identities, encrypted predecessor records, full traffic,
+actual module hashes, migrations, query redaction and private backups passed
+independent live qualification. Both current health endpoints are available;
+firstSong remains not_ready until the complete publication and public playback
+journey succeeds. The rollout evidence does not claim that success.
+
+Each external operation persists its identity and preparation before a send.
 The IPFS adapter fixes CIDv1 UnixFS, raw leaves, 262144-byte chunks and a balanced
-174-link layout. It computes the expected root before an add and reconciles
+174-link layout. It computes the expected root before adding and reconciles
 unknown responses by that identity. A retained recursive Filebase pin and an
-independent public gateway download must both match the original file bytes.
-It does not repurchase an add after an ambiguous result. Provider protocol
-references are the [Filebase RPC documentation](https://filebase.com/docs/ipfs/rpc-api)
+independent public gateway download must match the exact original bytes. An
+ambiguous add cannot be repurchased after an empty lookup. Registration and
+publication retain signed transaction bytes, nonce, chain and fee bounds;
+recovery reconciles the same transaction rather than allocating another charge
+or post.
+
+Provider references are the [Filebase RPC documentation](https://filebase.com/docs/ipfs/rpc-api)
 and [Kubo RPC documentation](https://docs.ipfs.tech/reference/kubo/rpc/).
+Supplemental forced alignment is currently an [offline foundation](song-alignment.md)
+with separate authentication, binding and execution qualification still pending.
+It cannot rewrite the immutable published lyric manifest or purchase a second
+ROOT registration, song pin or post.

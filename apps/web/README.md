@@ -1,4 +1,19 @@
-# Community web client: static release and IPFS mirror slice
+# Community web client
+
+This project owns two builds. The live client under src/live connects the real
+community API, MOSS sign-in, saved creator wallet, resumable master/stem uploads,
+job status and anonymous playback. `npm run build:live` creates dist/live for the
+reviewed Alchemy application package; `npm run test:e2e:live` exercises that client
+against its explicit local API fixture. The hosted first-song rollout and its
+remaining real publication/playback gates are recorded in
+[the rollout document](../../docs/owner-curated-rollout.md).
+
+The separate static release and IPFS mirror build described below retains
+labelled fixture content. Its tests do not establish live authentication,
+provider processing or first-song success. The full `npm run check` covers both
+builds and their browser suites.
+
+## Static release and IPFS mirror slice
 
 This is the first slice of the browser client specified in
 [docs/community-web-client.md](../../docs/community-web-client.md). It builds

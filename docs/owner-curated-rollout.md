@@ -1,10 +1,14 @@
-# Prepared owner-curated rollout
+# Owner-curated rollout
 
 This package applies the owner's moderation-deferral correction to the existing
 held first-song release. Product source and migrations are independently approved
 at a14a5aec5621e421608d9467174f045e372bd0b6. The operational package and profiles
-below are prepared for separate review. Nothing in this document claims that the
-new directory revision, runtime profiles, adoption or real publication has run.
+below were independently approved at 53dcd0007dae21870dbcbb8e4d058f4d368b4ecd.
+All four runtime profiles and directory revision 2 are now live and independently
+qualified. [Actual rollout evidence](deployments/first-song-managed-20261105.owner-curated-rollout.json)
+records health, result digests, migrations, preserved state and the canonical
+configuration transaction. Signed adoption and real publication remain pending
+the creator's two stem uploads.
 
 The retained-state profile has canonical SHA-256
 0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c.
@@ -85,8 +89,9 @@ existing resource identities, encrypted state and held rows. Local gates pass
 190 Node tests, 134 Solidity tests, skeleton acceptance, the complete web checks
 and 19 native tests. The script checker reports no findings but selects zero
 files in this child checkout; touched operational files were also counted
-manually and remain below 400 lines. Fresh hosted checks, operational review,
-actual deployment and real anonymous playback remain required.
+manually and remain below 400 lines. Exact-source hosted checks, operational
+review and actual deployment qualification have passed. Real publication and
+anonymous playback remain required.
 
 The Node runner now fixes test concurrency at two workers. Two unconstrained
 16-worker local runs encountered a Miniflare RPC socket failure in the managed

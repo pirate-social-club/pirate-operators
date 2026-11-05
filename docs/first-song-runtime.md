@@ -1,11 +1,22 @@
 # First-song runtime
 
 The first-song branch owns its community application state and processing code.
-The application migration is `apps/community-wizard/infra/migrations/0002_first_song.sql`;
-`0003_publication_journal.sql` retains reconciliation proofs. The current wizard
-provisioner still packages only the setup Worker and first migration. Application
-packaging, live adapters and managed-community qualification remain integration
-work until their reviewed successors are recorded.
+Its explicit application migrations now run through 0007: accounts, sealed
+submissions, publication journals, creator bindings, private stem slots and
+append-only policy amendments. The wizard setup and the subsequent application
+package have separate reviewed Alchemy runners. The managed first-song community
+and its registry/directory/posts contracts exist; the
+[current rollout evidence](deployments/first-song-managed-20261105.owner-curated-rollout.json)
+records exact deployed profiles. This does not yet claim a published first song.
+
+The current owner-curated run follows
+[the explicit policy successor](owner-curated-first-song.md). Automated content
+moderation is deferred. Rating/language are operator declarations, and genuine
+retained ACRCloud evidence keeps its original acquisition time. The old held
+admission and classifier refusal remain historical records. A controller-signed
+amendment can adopt only the exact sealed release, without replacing its original
+job input, authority, lyric IDs or consumed quotas. The provider flow described
+later in this document remains the historical automated policy implementation.
 
 Private accounts, credential bindings and public author identities are separate.
 Upload reservation captures the authenticating wallet and verified native
@@ -18,7 +29,9 @@ Each upload attempt owns a private R2 object key. The declared SHA-256 is an
 R2 checksum condition. A lost upload response is reconciled from that object;
 an expired writer has a different key from its successor and cannot overwrite
 the object selected for sealing. Sealing atomically creates one publication
-job. MP3 structure and moderation are admission checks after storage.
+job. Private instrumental and vocal MP3s occupy immutable fixed slots on the
+same submission; each has independent leases, checksum/probe validation and
+lost-response reconciliation. They do not replace the master or lyric revision.
 
 The Effect publication runner performs one bounded step per wakeup. Its order
 is admission, retained audio pin, retained lyrics pin, registration, retained
@@ -78,4 +91,6 @@ The processor's local composition tests exercise actual HTTP authorization,
 D1, R2, MP3 extraction, provider receipt handling, signatures and the release
 gate with explicit simulated providers. They establish admission, rejection,
 holds, capability renewal, changed-authority refusal and uncertain-response
-recovery. They do not establish live provider acceptance or service deployment.
+recovery. Live service deployment is separately qualified in the rollout record.
+The actual held submission obtained recognition and text-safety responses before
+the classifier refused access. That is not completed automated moderation.
