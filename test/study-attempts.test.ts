@@ -29,7 +29,10 @@ const other = { ...owner, accountId: "other-learner" };
 const recording = (suffix = 1) =>
   new Request("https://study.example/audio", {
     method: "PUT",
-    headers: { "content-type": "audio/webm;codecs=opus" },
+    headers: {
+      "content-type": "audio/webm;codecs=opus",
+      "x-study-duration-ms": "1000",
+    },
     body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, suffix]),
   });
 async function runtime(persist?: string) {
@@ -256,7 +259,7 @@ test("interrupted assessment remains pending after runtime restart without a sec
     const { audio } = await readStudyAudio(recording());
     await f.db
       .prepare(
-        "UPDATE study_attempts SET state='assessing',audio_digest=? WHERE attempt_id=?",
+        "UPDATE study_attempts SET state='assessing',audio_digest=?,audio_duration_ms=1000 WHERE attempt_id=?",
       )
       .bind(sha256(audio), a.attemptId)
       .run();
@@ -287,7 +290,10 @@ test("audio streams enforce actual byte bounds and container type before paid di
     readStudyAudio(
       new Request("https://study.example", {
         method: "POST",
-        headers: { "content-type": "audio/webm" },
+        headers: {
+          "content-type": "audio/webm",
+          "x-study-duration-ms": "1000",
+        },
         body: "plain text is not audio",
       }),
     ),
@@ -306,7 +312,10 @@ test("audio streams enforce actual byte bounds and container type before paid di
     readStudyAudio(
       new Request("https://study.example", {
         method: "POST",
-        headers: { "content-type": "audio/webm" },
+        headers: {
+          "content-type": "audio/webm",
+          "x-study-duration-ms": "1000",
+        },
         body,
         duplex: "half",
       } as RequestInit),

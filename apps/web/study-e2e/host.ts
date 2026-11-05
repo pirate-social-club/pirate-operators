@@ -1,5 +1,5 @@
-// Loopback-only acceptance host: real D1/service, simulated authenticated session
-// and speech response. Never deployed or used as a production auth adapter.
+// Loopback-only acceptance host: real D1/lesson services with a simulated
+// authenticated account and speech response. Never deployed as an auth adapter.
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { readFile } from "node:fs/promises";
@@ -7,10 +7,12 @@ import { resolve, extname } from "node:path";
 import { Miniflare } from "miniflare";
 import { Effect } from "effect";
 import { makeStudyService } from "../../../services/study-spoken.ts";
+import { makeStudyLessonService } from "../../../services/study-lessons.ts";
 import {
   StudyError,
   type StudyLine,
 } from "../../../packages/study/contracts.ts";
+import { songOf } from "../../../packages/study/lesson.ts";
 import { StudySpeechError } from "../../../packages/study/speech-transcriber.ts";
 
 const origin = "http://127.0.0.1:4177",
@@ -34,27 +36,30 @@ await db.batch(
     .filter((s) => s.trim())
     .map((s) => db.prepare(s)),
 );
-const lines: StudyLine[] = ["Hold me close", "Stay with me"].map((text, i) => ({
+const lines: StudyLine[] = [
+  "Hold me close",
+  "Stay with me",
+  "Walk into the light",
+  "Keep the fire bright",
+].map((text, i) => ({
   chainId: 6343,
-  postsContract: `0x${"2".repeat(40)}`,
-  communityId: `0x${"a".repeat(64)}`,
-  postId: `0x${"b".repeat(64)}`,
-  lineId: `0x${String(i + 3).repeat(64)}`,
+  postsContract: "0x" + "2".repeat(40),
+  communityId: "0x" + "a".repeat(64),
+  postId: "0x" + "b".repeat(64),
+  lineId: "0x" + String(i + 3).repeat(64),
   lyricRevision: 1,
   lineVersion: 1,
   text,
   language: "en",
-  manifestDigest: `0x${"d".repeat(64)}`,
+  manifestDigest: "0x" + "d".repeat(64),
 }));
-const owner = {
-  accountId: "fixture-learner",
-  communityId: lines[0].communityId,
-};
-let heard = "Hold me close",
-  failure = false,
+const song = songOf(lines[0]),
+  owner = { accountId: "fixture-learner", communityId: lines[0].communityId };
+let heard = lines[0].text,
+  failure: "known_failed" | "unknown" | null = null,
   lostResponse = false,
   calls = 0;
-const service = makeStudyService({
+const attempts = makeStudyService({
   db,
   resolveLine: async (selected) => {
     const line = lines.find((line) => line.lineId === selected.lineId);
@@ -65,10 +70,15 @@ const service = makeStudyService({
     providerRetention: "stored",
     transcribe: async () => {
       calls++;
-      if (failure) throw new StudySpeechError("speech_unavailable");
+      if (failure) throw new StudySpeechError("speech_unavailable", failure);
       return { text: heard, language: "en" };
     },
   },
+});
+const lessons = makeStudyLessonService({
+  db,
+  attempts,
+  resolveLines: async () => lines,
 });
 const server = createServer(async (req, res) => {
   try {
@@ -82,66 +92,99 @@ const server = createServer(async (req, res) => {
         : {}),
     } as RequestInit);
     let response: Response;
-    if (path === "/api/study/lesson")
-      response = Response.json({ lines, csrf: "local-fixture-csrf" });
-    else if (path === "/__fixture" && req.method === "POST") {
+    if (path === "/api/study/config")
+      response = Response.json({ song, csrf: "local-fixture-csrf" });
+    else if (
+      path === "/__fixture" &&
+      (req.method === "POST" || req.method === "PATCH")
+    ) {
       const body = (await request.json()) as {
         heard?: string;
-        failure?: boolean;
+        failure?: boolean | "known_failed" | "unknown";
         lostResponse?: boolean;
       };
-      heard = body.heard ?? "Hold me close";
-      failure = body.failure === true;
-      lostResponse = body.lostResponse === true;
-      await db.prepare("DELETE FROM study_attempts").run();
-      calls = 0;
+      if (req.method === "POST") {
+        await db.prepare("DELETE FROM study_attempts").run();
+        await db.prepare("DELETE FROM study_lessons").run();
+        calls = 0;
+        heard = lines[0].text;
+        failure = null;
+        lostResponse = false;
+      }
+      if (body.heard !== undefined) heard = body.heard;
+      if (body.failure !== undefined)
+        failure =
+          body.failure === true
+            ? "unknown"
+            : body.failure === false
+              ? null
+              : body.failure;
+      if (body.lostResponse !== undefined) lostResponse = body.lostResponse;
       response = Response.json({ fixture: true });
     } else if (path === "/__fixture")
-      response = Response.json({ calls, attempts: await service.list(owner) });
-    else if (path.startsWith("/api/study/attempts")) {
+      response = Response.json({
+        calls,
+        attempts: await attempts.list(owner),
+        lesson: await lessons.latest(owner, song),
+      });
+    else if (path.startsWith("/api/study/lessons")) {
       if (
         req.method !== "GET" &&
         request.headers.get("x-csrf-token") !== "local-fixture-csrf"
       )
         throw new StudyError("fixture_csrf_required", 403);
-      if (path === "/api/study/attempts" && req.method === "GET")
+      if (path === "/api/study/lessons" && req.method === "GET")
         response = Response.json(
-          await service.list(
+          await lessons.latest(
             owner,
-            url.searchParams.has("selection")
-              ? JSON.parse(url.searchParams.get("selection")!)
-              : undefined,
+            JSON.parse(url.searchParams.get("song") ?? "null"),
           ),
         );
-      else if (path === "/api/study/attempts" && req.method === "POST") {
+      else if (path === "/api/study/lessons" && req.method === "POST") {
         const body = (await request.json()) as {
           requestId: string;
-          selection: unknown;
+          song: unknown;
         };
         response = Response.json(
-          await service.open(owner, body.requestId, body.selection),
+          await lessons.start(owner, body.requestId, body.song),
           { status: 201 },
         );
       } else {
-        const match = path.match(/^\/api\/study\/attempts\/([^/]+)\/audio$/);
-        if (!match || req.method !== "PUT")
-          throw new StudyError("not_found", 404);
-        response = await Effect.runPromise(
-          Effect.match(service.submit(owner, match[1], request), {
-            onSuccess: (result) => Response.json(result),
-            onFailure: (error) =>
-              Response.json({ error: error.code }, { status: error.status }),
-          }),
+        const match = path.match(
+          /^\/api\/study\/lessons\/([^/]+)(?:\/attempts(?:\/([^/]+)\/audio)?)?$/,
         );
-        if (lostResponse) {
-          lostResponse = false;
-          // Replace the committed result with a gateway failure. Browsers may
-          // transparently retry a TCP-reset PUT before exposing it to the UI.
+        if (!match) throw new StudyError("not_found", 404);
+        if (req.method === "GET")
+          response = Response.json(await lessons.get(owner, match[1]));
+        else if (req.method === "POST" && path.endsWith("/attempts")) {
+          const body = (await request.json()) as {
+            presentationNumber: number;
+            takeNumber: number;
+          };
           response = Response.json(
-            { error: "fixture_response_lost" },
-            { status: 503 },
+            await lessons.openAttempt(
+              owner,
+              match[1],
+              body.presentationNumber,
+              body.takeNumber,
+            ),
           );
-        }
+        } else if (req.method === "PUT" && match[2]) {
+          response = await Effect.runPromise(
+            Effect.match(lessons.submit(owner, match[1], match[2], request), {
+              onSuccess: (value) => Response.json(value),
+              onFailure: (error) =>
+                Response.json({ error: error.code }, { status: error.status }),
+            }),
+          );
+          if (lostResponse) {
+            lostResponse = false;
+            response = Response.json(
+              { error: "fixture_response_lost" },
+              { status: 503 },
+            );
+          }
+        } else throw new StudyError("not_found", 404);
       }
     } else {
       const file = resolve(
@@ -149,8 +192,7 @@ const server = createServer(async (req, res) => {
         path === "/" ? "index.html" : "." + decodeURIComponent(path),
       );
       if (!file.startsWith(dist + "/")) throw new StudyError("not_found", 404);
-      const content = await readFile(file);
-      response = new Response(content, {
+      response = new Response(await readFile(file), {
         headers: {
           "content-type":
             (
@@ -158,6 +200,7 @@ const server = createServer(async (req, res) => {
                 ".html": "text/html",
                 ".js": "application/javascript",
                 ".css": "text/css",
+                ".mp3": "audio/mpeg",
               } as Record<string, string>
             )[extname(file)] ?? "application/octet-stream",
         },

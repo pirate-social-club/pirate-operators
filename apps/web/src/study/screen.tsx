@@ -1,80 +1,141 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import {
   MAX_STUDY_AUDIO_BYTES,
+  MAX_STUDY_RECORDING_MS,
+  MIN_STUDY_RECORDING_MS,
+  STUDY_SHORT_RECORDING_MESSAGE,
   type StudyAttempt,
-  type StudyLine,
 } from "../../../../packages/study/contracts.ts";
+import type {
+  StudyLesson,
+  StudyLessonSubmission,
+} from "../../../../packages/study/lesson.ts";
 import type { StudyClient } from "./client.ts";
+import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 import "./style.css";
 
-export function StudyScreen(props: {
-  lines: StudyLine[];
-  client: StudyClient;
-}) {
-  const [index, setIndex] = createSignal(0);
+export function StudyScreen(props: { client: StudyClient }) {
+  const [lesson, setLesson] = createSignal<StudyLesson | null>(null),
+    [miss, setMiss] = createSignal<StudyAttempt | null>(null);
   const [phase, setPhase] = createSignal<
-    "loading" | "idle" | "recording" | "recorded" | "saving"
-  >("loading");
-  const [error, setError] = createSignal(""),
-    [result, setResult] = createSignal<StudyAttempt | null>(null);
-  let stream: MediaStream | undefined, recorder: MediaRecorder | undefined;
-  let recording: Blob | undefined,
-    requestId: string | undefined,
-    attemptId: string | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined,
-    active = true,
+      "loading" | "idle" | "recording" | "saving"
+    >("loading"),
+    [error, setError] = createSignal("");
+  const sounds = createStudyFeedbackAudio();
+  let stream: MediaStream | undefined,
+    recorder: MediaRecorder | undefined,
+    timer: ReturnType<typeof setTimeout> | undefined;
+  let active = true,
     generation = 0;
-  const line = () => props.lines[index()];
-  const cleanup = () => {
+  const blocked = () =>
+    lesson()?.current?.attempt?.state === "assessing" ||
+    lesson()?.current?.attempt?.state === "uncertain";
+  const visibleLine = () => miss()?.line ?? lesson()?.current?.line;
+  function cleanup() {
     clearTimeout(timer);
     stream?.getTracks().forEach((track) => track.stop());
     stream = undefined;
-  };
+  }
   onCleanup(() => {
     active = false;
     generation++;
     if (recorder?.state === "recording") recorder.stop();
     cleanup();
+    sounds.dispose();
   });
-  async function restore(current = line()) {
+  function install(value: StudyLesson) {
+    setLesson(value);
+    setMiss(null);
+  }
+  async function load(restart = false) {
     const version = ++generation;
     setPhase("loading");
-    setResult(null);
     setError("");
+    setMiss(null);
     try {
-      if (!current) return;
-      const history = await props.client.history(current);
-      if (!active || version !== generation) return;
-      setResult(
-        history.find(
-          (row) =>
-            row.line.lineId === current?.lineId &&
-            row.line.manifestDigest === current.manifestDigest &&
-            row.line.postId === current.postId &&
-            row.line.communityId === current.communityId &&
-            row.line.postsContract === current.postsContract &&
-            row.line.chainId === current.chainId &&
-            row.line.lyricRevision === current.lyricRevision,
-        ) ?? null,
-      );
+      const value = await (restart
+        ? props.client.restart()
+        : props.client.load());
+      if (active && version === generation) install(value);
     } catch (e) {
       if (active && version === generation)
         setError(
-          e instanceof Error ? e.message : "Saved results are unavailable.",
+          e instanceof Error
+            ? e.message
+            : "Study is unavailable. Try again later.",
         );
     } finally {
       if (active && version === generation) setPhase("idle");
     }
   }
-  void restore();
+  void load();
+  function apply(result: StudyLessonSubmission) {
+    if (!active) return;
+    setLesson(result.lesson);
+    if (result.attempt.state === "assessed" && result.attempt.grade) {
+      sounds.play(result.attempt.grade.correct ? "correct" : "incorrect");
+      // The queue has already advanced server-side. Hold only the just-spent
+      // miss until Continue; reload resumes the authoritative next card.
+      setMiss(
+        !result.attempt.grade.correct &&
+          result.lesson.lastAttempt?.attemptId === result.attempt.attemptId
+          ? result.attempt
+          : null,
+      );
+      setError("");
+    } else if (result.attempt.state === "unavailable")
+      setError("Speech is unavailable. Try again later.");
+    else if (
+      result.attempt.state === "uncertain" ||
+      result.attempt.state === "assessing"
+    )
+      setError("");
+    setPhase("idle");
+  }
+  async function submit(audio: Blob, durationMs: number, version: number) {
+    const current = lesson();
+    if (!current || !current.current) return;
+    setPhase("saving");
+    setError("");
+    let attemptId: string | undefined;
+    try {
+      attemptId = (await props.client.open(current)).attempt.attemptId;
+      const response = await props.client.submit(
+        current.lessonId,
+        attemptId,
+        audio,
+        durationMs,
+      );
+      if (active && version === generation) apply(response);
+    } catch (e) {
+      if (!active || version !== generation) return;
+      try {
+        const restored = await props.client.load();
+        if (!active || version !== generation) return;
+        if (attemptId && restored.lastAttempt?.attemptId === attemptId)
+          apply({ attempt: restored.lastAttempt, lesson: restored });
+        else {
+          install(restored);
+          setError(
+            blocked()
+              ? ""
+              : e instanceof Error
+                ? e.message
+                : "Your answer could not be saved. Try again.",
+          );
+          setPhase("idle");
+        }
+      } catch {
+        setError("Your answer could not be saved. Try again.");
+        setPhase("idle");
+      }
+    }
+  }
   async function record() {
     const version = ++generation;
+    sounds.unlock();
     setError("");
-    setResult(null);
     setPhase("loading");
-    recording = undefined;
-    requestId = undefined;
-    attemptId = undefined;
     try {
       if (
         !navigator.mediaDevices?.getUserMedia ||
@@ -89,7 +150,7 @@ export function StudyScreen(props: {
         return;
       }
       stream = captured;
-      const type = ["audio/webm", "audio/ogg", "audio/mp4"].find((type) =>
+      const type = ["audio/webm", "audio/mp4", "audio/ogg"].find((type) =>
         MediaRecorder.isTypeSupported(type),
       );
       if (!type)
@@ -99,6 +160,7 @@ export function StudyScreen(props: {
       const chunks: Blob[] = [];
       let size = 0,
         failed = false;
+      const startedAt = performance.now();
       capture.ondataavailable = (event) => {
         size += event.data.size;
         if (size > MAX_STUDY_AUDIO_BYTES) {
@@ -117,175 +179,167 @@ export function StudyScreen(props: {
         }
       };
       capture.onstop = () => {
+        const durationMs = Math.round(performance.now() - startedAt);
         cleanup();
         if (!active || version !== generation) return;
-        if (failed || size === 0) {
+        if (failed) {
           setPhase("idle");
-          if (!failed) setError("No audio was recorded. Try again.");
           return;
         }
-        recording = new Blob(chunks, { type });
-        requestId = crypto.randomUUID();
-        setPhase("recorded");
+        if (durationMs < MIN_STUDY_RECORDING_MS) {
+          setError(STUDY_SHORT_RECORDING_MESSAGE);
+          setPhase("idle");
+          return;
+        }
+        if (durationMs > MAX_STUDY_RECORDING_MS || size === 0) {
+          setError("The recording is empty or too long. Try again.");
+          setPhase("idle");
+          return;
+        }
+        void submit(new Blob(chunks, { type }), durationMs, version);
       };
       capture.start(250);
-      setResult(null);
       setPhase("recording");
       timer = setTimeout(() => {
+        failed = true;
+        cleanup();
         if (capture.state === "recording") capture.stop();
-      }, 30000);
+        if (active) {
+          setPhase("idle");
+          setError("The recording is too long. Try a shorter answer.");
+        }
+      }, MAX_STUDY_RECORDING_MS);
     } catch (e) {
-      cleanup();
       if (active && version === generation) {
-        setPhase("idle");
+        cleanup();
         setError(
           e instanceof Error ? e.message : "Microphone access was refused.",
         );
+        setPhase("idle");
       }
-    }
-  }
-  async function submit() {
-    const current = line();
-    if (!recording || !requestId || !current) return;
-    setPhase("saving");
-    setError("");
-    try {
-      // A lost response keeps the same request/attempt and recording for replay.
-      if (!attemptId)
-        attemptId = (await props.client.open(current, requestId)).attemptId;
-      const saved = await props.client.submit(attemptId, recording);
-      if (!active) return;
-      setResult(saved);
-      recording = undefined;
-      setPhase("idle");
-    } catch (e) {
-      if (active) {
-        setPhase("recorded");
-        setError(
-          e instanceof Error ? e.message : "Your answer could not be saved.",
-        );
-      }
-    }
-  }
-  function next() {
-    if (index() + 1 < props.lines.length) {
-      const nextIndex = index() + 1;
-      setIndex(nextIndex);
-      recording = undefined;
-      requestId = undefined;
-      attemptId = undefined;
-      void restore(props.lines[nextIndex]);
     }
   }
   return (
     <main class="study-page">
-      <header>
-        <span class="study-eyebrow">STUDY</span>
-        <p>
-          Line {index() + 1} of {props.lines.length}
-        </p>
-      </header>
-      <h1>Say it back</h1>
-      <p class="study-intro">Read the line, then say it in your own voice.</p>
       <Show
-        when={line()}
-        fallback={<p>No Study lines are available for this song.</p>}
-      >
-        {(current) => (
+        when={lesson()}
+        fallback={
           <>
-            <blockquote lang={current().language} dir="auto">
-              {current().text}
-            </blockquote>
-            <div class="study-actions">
-              <Show
-                when={phase() === "recording"}
-                fallback={
-                  <button
-                    disabled={phase() === "loading" || phase() === "saving"}
-                    onClick={record}
-                  >
-                    {result() || phase() === "recorded"
-                      ? "Record again"
-                      : "Record answer"}
-                  </button>
-                }
-              >
-                <button class="study-stop" onClick={() => recorder?.stop()}>
-                  Stop recording
-                </button>
-              </Show>
-              <Show when={phase() === "recorded"}>
-                <button class="study-secondary" onClick={submit}>
-                  Check my answer
-                </button>
-              </Show>
-            </div>
-            <div role="status" aria-live="polite">
-              <Show when={phase() === "recording"}>
-                <p>Recording… up to 30 seconds.</p>
-              </Show>
-              <Show when={phase() === "saving"}>
-                <p>Checking your answer…</p>
-              </Show>
-              <Show when={error()}>
-                <p class="study-error" role="alert">
-                  {error()}
+            <h1>Study</h1>
+            <p role="status">Loading your lesson…</p>
+          </>
+        }
+      >
+        {(value) => (
+          <>
+            <Show when={value().status !== "completed" || miss()}>
+              <header>
+                <span class="study-eyebrow">STUDY</span>
+                <p>
+                  {value().progress.resolved} of {value().progress.total} lines
+                  finished
                 </p>
+              </header>
+              <h1>Say it back</h1>
+              <p class="study-intro">
+                Read the line, then say it in your own voice.
+              </p>
+              <Show when={visibleLine()}>
+                {(line) => (
+                  <blockquote lang={line().language} dir="auto">
+                    {line().text}
+                  </blockquote>
+                )}
               </Show>
-              <Show when={result()}>
-                {(saved) => (
-                  <section class="study-result" data-state={saved().state}>
+              <Show
+                when={miss()}
+                fallback={
+                  <>
                     <Show
-                      when={saved().state === "assessed"}
+                      when={!blocked()}
                       fallback={
-                        <p>
-                          {saved().state === "ready"
-                            ? "This answer has not been assessed. Record another answer to continue."
-                            : saved().state === "assessing"
-                              ? "Your assessment is pending. Refresh to check your saved result."
-                              : "This answer could not be assessed. You can record another answer."}
+                        <p role="status">
+                          We couldn't confirm the recording's outcome. Recording
+                          is paused for this lesson. Choose Study again to start
+                          a new lesson, or leave Study.
                         </p>
                       }
                     >
-                      <h2>
-                        {saved().grade?.correct ? "Matched" : "Try again"}
-                      </h2>
+                      <button
+                        disabled={phase() === "loading" || phase() === "saving"}
+                        onClick={() =>
+                          phase() === "recording"
+                            ? recorder?.stop()
+                            : void record()
+                        }
+                      >
+                        {phase() === "recording"
+                          ? "Stop"
+                          : phase() === "saving"
+                            ? "Checking…"
+                            : "Record"}
+                      </button>
+                    </Show>
+                    <Show when={blocked()}>
+                      <button
+                        class="study-secondary"
+                        onClick={() => void load(true)}
+                      >
+                        Study again
+                      </button>
+                    </Show>
+                  </>
+                }
+              >
+                {(wrong) => (
+                  <>
+                    <section
+                      class="study-result"
+                      data-state="incorrect"
+                      role="status"
+                    >
+                      <h2>Incorrect</h2>
                       <p>
-                        We heard:{" "}
+                        You said:{" "}
                         <span dir="auto">
-                          {saved().grade?.heardTranscript || "No words"}
+                          {wrong().grade?.heardTranscript || "No words"}
                         </span>
                       </p>
-                      <Show when={!saved().grade?.correct}>
-                        <p>You can try another recording or move on.</p>
-                      </Show>
-                    </Show>
-                  </section>
+                    </section>
+                    <button onClick={() => setMiss(null)}>Continue</button>
+                  </>
                 )}
               </Show>
-            </div>
-            <Show
-              when={
-                result()?.state === "assessed" &&
-                index() + 1 < props.lines.length
-              }
-            >
-              <button class="study-secondary" onClick={next}>
-                Next line
-              </button>
             </Show>
-            <Show
-              when={
-                result()?.state === "assessed" &&
-                index() + 1 === props.lines.length
-              }
-            >
-              <p class="study-complete">
-                You've reached the last line. Your result is saved.
+            <Show when={value().status === "completed" && !miss()}>
+              <h1>Lesson complete</h1>
+              <p>
+                {value().progress.firstPassCorrect} of {value().progress.total}{" "}
+                lines matched on the first try.
               </p>
+              <button
+                onClick={() => void load(true)}
+                disabled={phase() !== "idle"}
+              >
+                Study again
+              </button>
             </Show>
           </>
         )}
+      </Show>
+      <Show when={error()}>
+        <p class="study-error" role="alert">
+          {error()}
+        </p>
+      </Show>
+      <Show when={!lesson() && phase() === "idle"}>
+        <button onClick={() => void load()}>Try again</button>
+      </Show>
+      <Show when={phase() === "recording"}>
+        <p role="status">Recording…</p>
+      </Show>
+      <Show when={phase() === "saving"}>
+        <p role="status">Checking your answer…</p>
       </Show>
     </main>
   );

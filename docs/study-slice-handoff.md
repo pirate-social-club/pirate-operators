@@ -1,223 +1,232 @@
 # Text-only Study component handoff
 
-This slice supplies say-it-back grading, private attempt persistence and a
-recording screen. Its base is first-song c58d013017f773aaf8e899b0d8177cee9b2efea5,
-whose runtime is the independently qualified d9775df MOSS-origin successor.
-All changes are new files. The first-song coordinator owns integration into
-its evolving branch, live service and release packages. This handoff does not
-establish live sign-in, provider acceptance, public learning records or rewards.
+This slice supplies say-it-back grading, private lesson and attempt persistence,
+and a recording screen. It starts at first-song
+c58d013017f773aaf8e899b0d8177cee9b2efea5. All component files are new relative
+to that base. The first-song coordinator owns live integration and release.
+This source does not establish live sign-in, provider acceptance, public learning
+records, Karaoke or rewards.
 
 ## Source and assessment policy
 
-The upstream is api-next a5c63b8db01d4359344d33c31d294a00fbeadb20. These are
-independently owned copies and adaptations; no runtime import or session trust
-crosses into that application.
+The server source is api-next a5c63b8db01d4359344d33c31d294a00fbeadb20. These
+are independently owned copies and adaptations, with no runtime imports or
+session trust crossing into that application. Source SHA-256 fingerprints are:
 
-`packages/domain/src/rewards/study-v2-grading.ts` has source SHA-256 `8971d235abe8f52a7dff0321d14fdbc2fe072a1a7b568bd4a2a0bc49d836ccbb`.
+| Source path                                            | SHA-256                                                          |
+| ------------------------------------------------------ | ---------------------------------------------------------------- |
+| packages/domain/src/rewards/study-v2-grading.ts        | 8971d235abe8f52a7dff0321d14fdbc2fe072a1a7b568bd4a2a0bc49d836ccbb |
+| packages/domain/src/study/english-phonetics.ts         | d844bb7065dfa9c6d6e0055d45e33afc25d4480a3fe4e15b89d8304bba382f9d |
+| packages/platform-cf/src/study-spoken-audio.ts         | b29012b1a15e252c0e160739f3c8be4b543e72600872867e37eade493954c581 |
+| packages/application/src/study-shared-lesson-engine.ts | 6615bc83053134719cb5287fb3ee0cfd64e0f76f652b73cd36ebd294526df57c |
+| packages/platform-cf/src/study-v2-repository.ts        | dddadb6c76366230b55698cbe40f817801006275f4d3ee29d8c84604cb18cf75 |
+| packages/application/src/study-v2-lifecycle.ts         | bedf3bfbe48b35fea99ac9be3d68f18c5031e759e005eb728ba6f511dcaf4e14 |
 
-`packages/domain/src/study/english-phonetics.ts` has source SHA-256 `d844bb7065dfa9c6d6e0055d45e33afc25d4480a3fe4e15b89d8304bba382f9d`.
+packages/study/transcript-grading.ts retains the pinned implementation with a
+provenance comment, repository formatting and its phonetic import redirected
+to packages/scoring/english-phonetics.ts. That existing helper is byte-identical
+to the source above. Only script_aware_token_phonetic_v4 is admitted and stored
+with each attempt. English phonetic tolerance is inherited. Other languages use
+normalized segmented text comparison. This grades transcribed words, not accent,
+acoustic pronunciation or singing. The September 30 run-together/split-word fix
+remains intact.
 
-`packages/platform-cf/src/study-spoken-audio.ts` has source SHA-256 `b29012b1a15e252c0e160739f3c8be4b543e72600872867e37eade493954c581`.
+packages/study/speech-transcriber.ts independently adapts the transport to a
+Promise port, composed through Effect in services/study-spoken.ts. It retains
+Scribe v2, disabled diarization/audio-event tags, no timestamps, the language
+hint, stored provider retention, a 20-second header/body deadline, a 64 KiB
+response bound and a 4096-character transcript bound. It refuses redirects and
+cancels rejected/oversized responses. Reference lyrics and account identifiers
+are not sent to the provider. Known refusals and unknown outcomes remain distinct.
 
-packages/study/transcript-grading.ts is the pinned grading file with one
-provenance comment, repository formatting and its phonetic import redirected to the existing
-packages/scoring/english-phonetics.ts. That helper is byte-identical to the
-upstream above. The original policy implementations remain intact; this slice
-admits only script_aware_token_phonetic_v4 and stores it with every attempt.
-English phonetic tolerance is inherited. Other languages use normalized
-segmented text comparison, without English phonetics. This compares transcript
-text; it does not measure accent, acoustic pronunciation or singing.
+The frontend source is pirate-web-solid
+667a6f22325cc7dd07ed7bcdfc088864e519f71d. Paths below its
+src/features/studying/ directory have these source fingerprints:
 
-packages/study/speech-transcriber.ts adapts the upstream transport into a
-narrow Promise port, with the processing workflow represented by Effect in
-services/study-spoken.ts. It retains Scribe v2, disabled diarization/audio-event
-tags, no timestamps, the language hint, stored provider retention, the 20-second
-header/body deadline, 64 KiB response bound and 4096-character transcript bound.
-It also refuses redirects and cancels rejected/oversized responses. It never
-sends reference lyrics or learner/account identifiers to the provider.
-Provider refusals and unknown outcomes remain distinct.
+| Source file                  | SHA-256                                                          |
+| ---------------------------- | ---------------------------------------------------------------- |
+| studying-route-view.tsx      | 57fd135bc38465a14eca27740eff570b11ea16cf06e3ea1cf0a66b6918c6a9a2 |
+| studying-recording-policy.ts | 170271ab68510e43e64a9818bd2848c82d73d7148e16a13965dc2ed269ec82e1 |
+| studying-feedback-audio.ts   | 0637e3308140df52b795325c153787b02fc2142ac234e98677555d3c7130bd95 |
+| studying-browser-recorder.ts | f261990d865685bba2030dc2d92057cb3a7832745af87fbc059b5cb64fe8f9d8 |
 
-The upstream R2 archive adapter is not copied. This component retains reference,
-audio digest, policy, transcript and result in private D1. Raw recording bytes
-are held only for the current dispatch; the browser keeps its recording in
-memory for an interrupted-upload replay. The provider may retain the recording.
-There is no audio download route or public recording publication. If durable
-raw-audio retention is required before integrated release, the coordinator must
-add the established protected archive workflow and matching disclosure; it is
-not supplied by this component.
+The copied public/sounds/study/correct.mp3 fingerprint is
+e0d4d9e900efabbe47f3b8c48812a9466b3dce39cf9030d65463a74e8f3c1855.
+The incorrect.mp3 fingerprint is
+3587e70c9f9ba54b2e00a9b69d7d3206c45c75d610579546f0d47902136b61c1.
+Both are independently owned byte-identical assets under apps/web/src/study/sounds/.
+The screen and feedback helper adapt the old behavior to this component's
+contracts rather than importing its route or application state.
 
-The transport contract was checked against the official endpoint reference:
-https://elevenlabs.io/docs/api-reference/speech-to-text/convert . D1's conditional
-statements and transactional batch behavior were checked against
-https://developers.cloudflare.com/d1/worker-api/d1-database/ .
+## Lesson behavior
 
-## Integration sequence
+Stopping capture submits immediately. A correct grade plays the correct sound
+and displays the server's next line. A miss plays the incorrect sound and holds
+the reference and heard text with one Continue button. Continue dismisses only
+that feedback; the server has already chosen the next line. Reload resumes the
+server-selected line, matching the centralized route. A one-second minimum
+rejects short recordings before opening an attempt or dispatching speech.
 
-1. Adopt the new files onto the coordinator's reviewed first-song successor.
-   Assign packages/study/schema.sql the next actual application migration
-   ordinal, add it to the coordinator's migration runner and apply it through
-   the reviewed release process. Do not leave a reserved ordinal gap. The
-   component does not create or migrate tables on a request.
-2. Supply makeStudyService with the application D1 binding, a trusted
-   resolveLine callback and a Pirate-managed transcriber port. Resolve the
-   current visible published post and hash-verified lyric manifest through the
-   existing public-read authority. Validate it with validateLyrics, match the
-   requested chain/posts/community/post/revision/line identity, then return its
-   lineVersion, text, language and manifest digest. Never accept reference text,
-   grading policy or account ID from a request. This slice supports nonempty
-   lines up to 512 characters. No audio clip or timings are needed.
-3. Bind makeStudyTranscriber only within the Pirate-owned managed service using
-   its existing approved ElevenLabs binding. The community application receives
-   a scoped managed-speech capability, not a provider key. Its implementation of
-   StudyTranscriber must authenticate that capability and preserve known_failed
-   versus unknown outcomes. Wiring the existing pairing/managed-service handler
-   is coordinator work. The adapter accepts an injected fetch transport for
-   local tests; the production composition must never select the test fixture.
-4. Use accountSession for reads and authenticatedWrite for writes in
-   services/community-application.ts or its owned route composition. Derive
-   StudyPrincipal from session.account_id and the server's configured communityId.
-   Preserve the existing HttpOnly cookie, Origin and CSRF protections. Before
-   public release, add the linked Terms/Privacy acceptance line to MOSS sign-in,
-   backed by actual Terms and Privacy documents and recorded policy acceptance.
-   The Privacy Policy must describe ElevenLabs recording processing/retention
-   and Pirate's actual transcript/result storage. Suggested sign-in copy is
-   "By continuing, you agree to the Terms and Privacy Policy." This component
-   has no provider checkbox, notice, link or replacement disclaimer in Study;
-   provider/retention and assessment limitations belong in those policies per
-   the October 20 ruling. Do not copy the older app's audio-retention period
-   unless it matches the new system's actual storage. Browser microphone
-   permission is unchanged. Ordinary
-   sign-in is enough; creator connection, DATA registration, membership and Palm
-   are not admission checks. Return no private account ID in response bodies.
-5. Compose GET /api/study/attempts as service.list(principal, selection), with private
-   no-store responses.
-   The optional GET selection is bounded JSON in the selection query parameter;
-   validate it through the service. The screen filters by the selected line so
-   newer attempts on other lines cannot hide an older saved result.
-   POST at that path accepts only requestId and selection, with a bounded JSON
-   body, then calls service.open. PUT
-   /api/study/attempts/:attemptId/audio passes the original bounded request to
-   service.submit. Run its Effect through Effect.match so StudyError.code and
-   status become sanitized errors, without logging provider bodies, transcripts
-   or credentials. GET for one attempt may call service.get. Do not cache any
-   authenticated result in public assets or public read caches.
-6. Add a Study action and route in the coordinator-owned live UI. Mount
-   StudyScreen with the published song's ordered StudyLine array and
-   createStudyClient(() => currentSession.csrf). Use the same canonical origin
-   and existing ordinary MOSS sign-in. apps/web/src/study/entry.tsx and the
-   standalone Vite configuration are acceptance entrypoints, not a replacement
-   for the live router. Do not package or deploy study-e2e/host.ts.
+The server snapshots four to ten distinct validated lines from one published
+song revision and manifest. The browser never supplies reference text or chooses
+queue order. Unseen lines come before unresolved repeats. Repeats sort by least
+recent presentation, then original line order. A line resolves on a correct
+answer or its third graded presentation. Three misses resolve it without
+mastering it. A lesson ends when all lines resolve or after min(20,3\*lineCount)
+graded presentations. The latter can leave unresolved lines. Completion reason,
+first-pass outcomes and mastery remain separate facts.
 
-packages/study/contracts.ts is the versioned exercise/result boundary. It only
-admits say-it-back. It carries the real publication identity without interpreting
-it as the placeholder LearningRecords song key. The song coordinator owns the
-canonical record mapping, timing revisions and Karaoke prerequisites. The MOSS
-consent lane owns activation and publication consent. Later public publication
-must preserve the original attempt identity, time, line revision and policy.
-Component timestamps are Unix milliseconds. A later chain publisher must
-explicitly map them to the contract clock and retain the original qualification
-period rather than assigning the later publication time.
+A known failed provider call permits a new ungraded take on the same
+presentation. An uncertain or interrupted dispatch remains paused without a
+grade or queue advance. Study again creates a distinct lesson and preserves the
+old one. Expired, unsubmitted attempts also permit an ungraded take. No provider
+failure becomes a miss. A later correct repeat never rewrites a failed first pass.
 
-## Recovery and operational bounds
+The new durable lesson policy is pirate.study.lesson-queue/1. It adopts the
+pinned spoken graded-return rules and production line-count bounds. It does
+not adopt multiple choice, optional language-detection-based ungraded rerecords,
+long-term review scheduling, streaks or reward qualification. Those were separate
+policy/composition concerns in the source. qualification remains not_evaluated
+on every lesson and attempt; completion alone cannot award anything.
 
-An idempotency key opens one attempt per private account/community. A different
-reference on that key conflicts. The first accepted audio digest atomically
-moves ready to assessing before dispatch. Concurrent/repeated uploads cannot
-send a second provider request; changed bytes conflict. Results persist after
-reload and service/runtime restart. Unknown provider outcomes remain uncertain,
-and a process interruption after dispatch remains assessing. Neither state is
-a failure grade or permission to automatically redispatch. A learner may
-explicitly record a new attempt; operator reconciliation of abandoned pending
-attempts is later integration work.
+## Coordinator wiring
 
-There are at most 100 new attempts per account/community in a rolling 24-hour
-window. An existing-key replay remains readable at that limit. New audio must
-arrive within five minutes of opening. Audio is capped at 2 MiB from the actual
-stream, with a supported MIME and container header; the UI stops at 30 seconds.
-Header sniffing is not full audio decoding, and the server does not establish
-recording duration from client claims. Existing provider budgets and financial
-holds still apply before any live enablement. The reference and heard-text
-bounds also limit grading work. No learner recording or transcript belongs in
-public telemetry.
+1. Adopt this branch's new files onto the reviewed first-song successor.
+   packages/study/schema.sql is consolidated component-owned SQL, not an applied
+   migration. Assign the next actual application migration ordinal, register it
+   and apply it through the reviewed process. It creates study_lessons and
+   study_attempts, with ownership-bound lesson references. If an earlier version
+   was already applied, make an additive migration instead of recreating tables.
+   The component never creates tables on a request or edits the shared runner.
+2. Construct makeStudyService with D1, a trusted resolveLine callback and a
+   Pirate-managed StudyTranscriber. Construct makeStudyLessonService with the
+   same D1, that attempt service and a trusted resolveLines(song) callback.
+   Resolve the visible published post and hash-verified lyric manifest through
+   existing public-read authority and validateLyrics. Choose four to ten distinct
+   study lines on the server and preserve their order. Return StudyLine objects
+   matching chain, posts contract, community, post, revision, line ID, lineVersion,
+   language and manifest digest. Lines must be nonempty and at most 512 characters.
+   Opening an attempt revalidates the frozen line against resolveLine; a changed
+   reference conflicts. No clip or timings are required for this exercise.
+3. Bind makeStudyTranscriber within Pirate's managed service using the approved
+   ElevenLabs binding. The community app receives an authenticated scoped speech
+   capability, not a provider key. Preserve known_failed versus unknown outcomes.
+   The existing pairing handler, capability and shared daily counter remain
+   coordinator work. Production must never select the browser fixture.
+4. Derive StudyPrincipal from accountSession/authenticatedWrite and the configured
+   community. Keep existing HttpOnly cookie, Origin and CSRF protection. Ordinary
+   sign-in suffices: no membership, creator wallet, DATA or Palm admission gate.
+   Before public release, write Terms and Privacy adapted from the old policies
+   to this system's actual storage and obtain owner review. Add and record their
+   acceptance at MOSS sign-in, for example "By continuing, you agree to the Terms
+   and Privacy Policy." Cover ElevenLabs processing/retention, transcript/result
+   storage and assessment limitations there. Do not copy an old audio-retention
+   period that this system does not implement. Per the October 20 ruling, Study
+   has no provider checkbox or in-flow provider/assessment notices. Browser
+   microphone permission remains unchanged.
+5. Compose the following private no-store routes. Bound JSON and query inputs;
+   accept only the listed fields, never caller-provided principals or references.
+   GET /api/study/lessons?song=<bounded JSON> calls lessons.latest(principal,song)
+   and returns a lesson or null. POST /api/study/lessons accepts requestId and
+   song, then calls lessons.start. GET /api/study/lessons/:lessonId calls get.
+   POST /api/study/lessons/:lessonId/attempts accepts presentationNumber and
+   takeNumber, then calls openAttempt. PUT
+   /api/study/lessons/:lessonId/attempts/:attemptId/audio passes the original
+   bounded Request to lessons.submit. Run its Effect through Effect.match and
+   sanitize StudyError.code/status. The lesson wrapper checks current presentation,
+   take, account and community. Do not expose standalone attempt open/submit as a
+   way around lesson authority. Never log provider bodies, audio, transcripts or
+   credentials, or put authenticated results into public caches.
+6. Add the Study action and route in the coordinator-owned live UI. Mount
+   StudyScreen with createStudyClient(song,()=>currentSession.csrf,lessonId,onOpened).
+   Store the returned lesson ID in the route, as the acceptance entry does, so
+   reload addresses that same lesson. Without an ID, load resumes the latest
+   lesson for this song. The ID is a private-record locator, not authentication.
+   The browser sends x-study-duration-ms alongside the captured Blob. The standalone
+   entry's GET /api/study/config returns song and CSRF only for its fixture; use
+   the live app's existing session/router composition. Do not deploy study-e2e/host.ts.
 
-The per-account 100-attempt limit is not a bound on Pirate's total provider bill.
-Inspection of the current managed service found no wired Study speech capability
-or overall daily Study budget; its moderation request cap is not evidence of a
-speech budget. Public Study must stay disabled until the coordinator configures
-and proves a single daily budget shared across all accounts, communities and
-managed speech entrypoints. Reserve against it atomically before dispatch; stop
-new calls at exhaustion and retain uncertain charges until reconciled. Bound
-billable input duration or conservative maximum cost on the server: the browser's
-30-second timer and a 2 MiB upload limit do not establish that cost bound. Pin the
-actual daily allowance, period, price/cost assumptions and recovery behavior in
-the reviewed managed-service configuration. Prove concurrent requests from
-multiple accounts cannot exceed it, exhausted service makes no provider call,
-and retries cannot refund or charge a reservation twice. No daily monetary
-allowance or production enablement is approved by this source change.
+The song coordinator owns real publication identity, the LearningRecords song
+mapping, timing revisions and Karaoke. The MOSS consent lane owns activation
+and consent for public records. Component timestamps are Unix milliseconds.
+Later publication must preserve original lesson/attempt identity, activity time,
+line revision and policy, explicitly map clocks and retain the original
+qualification period. Later wallet attachment cannot fabricate earlier consent.
 
-Next line is available after every assessed answer, whether correct or wrong.
-A miss retains its failed grade and not_evaluated qualification; progression
-does not imply a pass or reward. An unavailable or uncertain provider outcome
-has no grade and is not relabelled as an assessed answer.
+## Recovery, storage and limits
 
-This is private operational attempt evidence awaiting downstream qualification
-and consented publication. qualification is always not_evaluated. A passed
-assessment does not mint shares, enter a drawing, create settled winnings or
-pay USDm. The reward policy, deduplication by permitted drawing share and
-claim-time Palm rules remain subsequent slices. Historical practice sessions
-are not imported or converted into paid results.
+An owner-scoped request key opens one lesson. Each presentation/take opens one
+attempt using a deterministic key. The first accepted audio digest and duration
+atomically move ready to assessing before provider dispatch. Repeated uploads
+cannot dispatch again; changed bytes or duration conflict. Saved grades reconcile
+into the queue using a conditional revision update. If the process stops after
+the grade is saved, the next read finishes that transition exactly once. This is
+tested using an actual disk-backed D1 restart, not a process-local cache.
 
-## Local acceptance
+Unknown provider outcomes remain uncertain. An interruption after dispatch can
+remain assessing; neither permits automatic redispatch. A lost response after
+successful persistence is recovered by reading the lesson. Only the just-completed
+attempt can hold miss feedback. An old replay returns its original grade without
+advancing the current queue. Operator reconciliation of abandoned uncertain
+attempts remains later work.
 
-The root Study tests use the actual pinned Miniflare D1 engine and a disk-backed
-runtime restart. Browser tests use built Solid assets, actual MediaRecorder
-capture, actual D1 and the real Study service, with an explicitly simulated
-speech response and authenticated session. They do not test production MOSS
-sign-in or real ElevenLabs accuracy. The local runtime's August compatibility
-date is its installed engine limit, not production November-date qualification.
+At most 100 new attempts per account/community can open in a rolling 24 hours;
+existing-key replays remain readable. Audio must arrive within five minutes of
+opening. The actual stream is capped at 512 KiB with a supported MIME/container
+header. Capture is bounded to 60 seconds. The browser checks one second and the
+server checks the supplied integer duration from 1000 to 60000 milliseconds,
+binding it to replay identity. This is product metadata, not decoded duration
+verification. Header sniffing and the byte bound do not establish provider cost.
 
-Run focused checks from the task worktree in a loopback-only namespace:
+The account limit does not bound Pirate's total bill. Before public enablement,
+the managed speech service needs one shared daily call count across all accounts,
+communities and speech entrypoints. Increment it atomically before every provider
+call; refuse calls at the configured limit. Attempt replays make no call and
+consume no additional count. A dispatched call remains counted even if its
+outcome is unknown. Choose the daily number and day boundary in coordinator
+configuration and test concurrent exhaustion. This owner-approved v1 gate needs
+no price assumptions, monetary reservations or cost reconciliation. At exhaustion,
+show one short try-later message; the limit stays out of the ordinary learner flow.
 
-    node --test test/study-*.test.ts
-    npm run check
+The old R2 audio archive is not copied. Pirate retains reference, audio digest,
+submitted duration, transcript, outcome, policy and private lesson state in D1.
+Raw recording bytes are transient during capture/dispatch, with no download or
+publication route. ElevenLabs may retain them. The coordinator must make the
+policies match this behavior, including any later protected archive it adds.
+No learner recording or transcript belongs in public telemetry.
 
-From apps/web run its typecheck, then these additional commands:
+A pass does not mint shares, enter a drawing, create winnings or pay USDm. Reward
+qualification, drawing deduplication, claim-time Palm, custody and funding are
+subsequent decisions/slices. Historical practice is never retroactively rewarded.
+Streak is excluded. Telegram and funded activity remain outside this component.
+
+## Acceptance
+
+Root tests use actual Miniflare D1, including disk-backed restart. Browser tests
+use built Solid assets, actual MediaRecorder capture, actual D1 and both real
+Study services, with explicitly simulated speech and an authenticated fixture.
+They check automatic submit/advance, both feedback sound requests, one Continue
+on a miss, server-selected returns and reload, completion, lost response recovery,
+short recording refusal, known/unknown provider failure, microphone denial and
+mobile fit. Audio calls are instrumented; this is not a physical speaker test or
+real-provider accuracy test. The local engine's August compatibility date is
+its installed limit, not November production qualification.
+
+Run npm run check from the task worktree and web TypeScript from apps/web.
+Additional Study commands from apps/web are:
 
     node_modules/.bin/vite build --config vite.study.config.ts
     node_modules/.bin/playwright test --config playwright.study.config.ts
 
-The dedicated .github/workflows/study.yml installs the root and web fixture
-packages, builds this entry and runs all four scenarios in a loopback-only
-hosted job. It is independently owned and does not edit the coordinator's
-existing web workflow or package scripts. Failure traces and screenshots are
-uploaded as the study-browser-results artifact.
+Run runtime checks in a loopback-only network namespace. The dedicated
+.github/workflows/study.yml installs server/browser dependencies, builds Study
+and runs all four browser scenarios in hosted CI. Failure traces/screenshots
+are retained as study-browser-results. It does not edit the coordinator's shared
+workflow or package scripts. Use PLAYWRIGHT_BROWSERS_PATH for the installed
+matching local Chromium. The authoritative task record carries exact final
+source, counts and hosted run evidence; local and PR-merge counts can differ.
 
-Use the repository's installed matching Chromium through
-PLAYWRIGHT_BROWSERS_PATH where needed. No existing package script was edited.
-The source task record carries the final checked source and exact outcomes.
-
-Before integrated acceptance, wire the authenticated routes, migration,
-published-manifest resolver, managed speech capability and live router. Then
-qualify one published song and an ordinary account with no membership, creator
-wallet or Palm; exercise failure, replay and reload, and perform the separately
-bounded real-provider run. A database-only replacement for public learning
-records is not adopted. Telegram, funded claims and Karaoke remain outside this
-slice.
-
-Verification on November 5 passed the full loopback-only root check: TypeScript,
-194 Node tests (including 13 Study tests), 134 Solidity tests and local skeleton
-acceptance. Web TypeScript, the standalone Study build and four built-browser
-scenarios passed. The standalone browser host and spec also passed an explicit
-strict TypeScript check. Desktop and 390-pixel mobile visual inspection passed;
-only the isolated local acceptance host and simulated speech were used. The
-pinned grading copy was compared after its documented import/comment/formatting
-transformations. No existing tracked file changed. Independent review, hosted
-checks and all live integration/provider acceptance remain distinct gates.
-
-The initial source 2742d679 had 194 passing Node tests locally. Its hosted
-pull-request Local acceptance run 42068614797 had 198 passing Node tests and
-zero failures, verified from that job's log. Those counts describe different
-checkouts and are not interchangeable. That initial hosted Web run did not build
-Study or execute its browser configuration. The new dedicated Study workflow
-closes that coverage gap; the task record carries the successor's observed
-hosted outcomes. The user review of 2742d679 was code-only, with no test rerun.
+After wiring, qualify one published song and an ordinary account with no
+membership, creator wallet or Palm, including misses, replay and reload. A
+separately bounded real ElevenLabs run and the full published-song journey remain
+open. This handoff supplies component source for review, not a live release.

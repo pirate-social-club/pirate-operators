@@ -6,6 +6,8 @@ import {
 } from "../packages/study/attempt-store.ts";
 import {
   MAX_STUDY_AUDIO_BYTES,
+  MIN_STUDY_RECORDING_MS,
+  MAX_STUDY_RECORDING_MS,
   StudyError,
   selection,
   studyCheck,
@@ -13,6 +15,7 @@ import {
   type StudyLine,
   type StudyPrincipal,
   type StudySelection,
+  type StudyAttemptLesson,
 } from "../packages/study/contracts.ts";
 import {
   StudySpeechError,
@@ -21,6 +24,12 @@ import {
 import { gradeTranscriptV2 } from "../packages/study/transcript-grading.ts";
 
 export async function readStudyAudio(request: Request) {
+  const durationMs = Number(request.headers.get("x-study-duration-ms"));
+  studyCheck(
+    Number.isSafeInteger(durationMs) && durationMs >= MIN_STUDY_RECORDING_MS,
+    "study_recording_too_short",
+  );
+  studyCheck(durationMs <= MAX_STUDY_RECORDING_MS, "study_recording_too_long");
   const type = (request.headers.get("content-type") ?? "")
     .split(";")[0]
     .trim()
@@ -70,7 +79,7 @@ export async function readStudyAudio(request: Request) {
     "invalid_study_audio",
     415,
   );
-  return { audio, contentType: type };
+  return { audio, contentType: type, durationMs };
 }
 
 export function makeStudyService(options: {
@@ -92,7 +101,12 @@ export function makeStudyService(options: {
     );
   }
   const service = {
-    async open(owner: StudyPrincipal, requestId: string, input: unknown) {
+    async open(
+      owner: StudyPrincipal,
+      requestId: string,
+      input: unknown,
+      lesson: StudyAttemptLesson | null = null,
+    ) {
       principal(owner);
       studyCheck(
         /^[a-zA-Z0-9_-]{16,128}$/.test(requestId),
@@ -108,7 +122,7 @@ export function makeStudyService(options: {
         await options.resolveLine(requested),
         requested,
       );
-      return store.open(owner, requestId, line, now());
+      return store.open(owner, requestId, line, now(), lesson);
     },
     async get(owner: StudyPrincipal, id: string) {
       principal(owner);
@@ -129,9 +143,10 @@ export function makeStudyService(options: {
         try: async () => {
           principal(owner);
           const row = await store.get(owner, id);
-          const { audio, contentType } = await readStudyAudio(request);
+          const { audio, contentType, durationMs } =
+            await readStudyAudio(request);
           const digest = sha256(audio);
-          if (!(await store.claim(owner, id, digest, now())))
+          if (!(await store.claim(owner, id, digest, now(), durationMs)))
             return attemptView(await store.get(owner, id));
           try {
             const line: StudyLine = JSON.parse(row.line_json);

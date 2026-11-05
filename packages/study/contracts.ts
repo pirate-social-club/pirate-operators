@@ -2,7 +2,16 @@ import type { StudyTranscriptGradeV2 } from "./transcript-grading.ts";
 
 export const STUDY_SCHEMA = "pirate.study.attempt/1" as const;
 export const STUDY_POLICY = "script_aware_token_phonetic_v4" as const;
-export const MAX_STUDY_AUDIO_BYTES = 2 * 1024 * 1024;
+export const MAX_STUDY_AUDIO_BYTES = 524_288;
+export const MIN_STUDY_RECORDING_MS = 1_000;
+export const MAX_STUDY_RECORDING_MS = 60_000;
+export const STUDY_SHORT_RECORDING_MESSAGE =
+  "Record for at least one second, then try again.";
+export interface StudyAttemptLesson {
+  lessonId: string;
+  presentationNumber: number;
+  takeNumber: number;
+}
 export interface StudySelection {
   chainId: number;
   postsContract: string;
@@ -28,6 +37,8 @@ export interface StudyAttempt {
   state: "ready" | "assessing" | "assessed" | "unavailable" | "uncertain";
   grade: StudyTranscriptGradeV2 | null;
   failure: string | null;
+  lesson: StudyAttemptLesson | null;
+  recordingDurationMs: number | null;
   qualification: "not_evaluated";
 }
 export interface StudyPrincipal {
