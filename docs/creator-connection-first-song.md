@@ -60,3 +60,14 @@ activation recovery and scoped-community migrations through
 These source changes do not themselves establish a deployed wallet update,
 live MOSS sign-in, passkey acceptance, registration or publication. The existing
 wallet pilot and explicit cryptographic/D1 fixtures remain separate evidence.
+
+The first native update restored its encrypted state, then stopped before any
+Alchemy phase because the credential scanner correctly refused the dependency
+link below its scan root. Both live Worker modules and the D1 schema remained
+unchanged. The recovery scans the infrastructure and built assets separately,
+preserving the scanner's strict link rules. Its explicit `--adopt-restored-state`
+handoff requires the exact original execution metadata, no diagnostics or result,
+the unchanged decrypted predecessor state and both exact live predecessor module
+sets. It durably backs up the original execution record before replacing only
+its profile metadata. A changed intent or any started external phase refuses
+this local handoff. The same resource, native-spend and time limits remain.

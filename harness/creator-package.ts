@@ -99,6 +99,7 @@ export async function creatorPackage() {
       "harness/managed-inventory.ts",
       "package.json",
       "package-lock.json",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
       ...[
         "operator",
         "infisical-auth",
@@ -141,6 +142,14 @@ export async function creatorPackage() {
     sourceHashes,
     artifacts,
     predecessorState: await creatorPredecessor(),
+    restoredStateRecovery: {
+      previousPlanPath:
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
+      previousProfileHash:
+        "0xae814c25d199ceace77150841573df2549da2a3c08df6015b05fcc6c95be6d3d",
+      expectedExecutionFileSha256:
+        "0x55f999f9e9424229e1f8da5f2b5a226b1df070f7892e02e140f024f5d43f6d2d",
+    },
     predecessorModules: {
       "index.js": `0x${evidence.filesSha256["worker/index.js"]}`,
       "ika.wasm": `0x${evidence.filesSha256["worker/ika.wasm"]}`,

@@ -91,9 +91,11 @@
       "apps/creator-spike/test/signing.test.ts": "0x8fcf4da5ca0292ab064f356ab7d65f191478951fc5be273ac0a262512b9abcf4",
       "apps/creator-spike/tsconfig.json": "0x2f6cd0ff76245e8acfcf7a2ee710f06b0043e738e723f35a0e0e56e753ea03ec",
       "apps/creator-spike/vite.config.ts": "0xd548272c4d9d6b6436cfb062357981824414359c649090f29cc3868fa5e60d2a",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json": "0x6ea1169681bc44c4c6900097a29f246f594ab4d312500cc3306b7305c488d528",
       "harness/creator-inventory.ts": "0x4ad5bcd2e6776498e3600da2ee315b002f2c36bea8a6d8d6c8eb5f6845dc9a63",
-      "harness/creator-package.ts": "0xa948f6837d73b1bfb4974dc948aa9e4642e6d1eaee038038a448e2aea2a3d016",
-      "harness/creator-service.ts": "0xcaf79abdcf0b92ae3724b49161a8e7e9abff6c6338c27fe6db415e7976da54ab",
+      "harness/creator-package.ts": "0x9649de8d52ddb41ddb0a14dd73f60d8cc739498298cd041c5d57782696b8712d",
+      "harness/creator-profile-recovery.ts": "0x856dbb79682bb9ad3312540f57aa8bb198ffc2efacd395e6c77cbaf804ad80cf",
+      "harness/creator-service.ts": "0xec266c4a436d3e2ae8bcba4e839189c8ad9ea1b57f9d8cb1eb29577fcda2a3c4",
       "harness/creator-state.ts": "0xb733c6d091c9ae05bd4109512b3137add5f654c4a8e5e859148524c646455331",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
       "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
@@ -140,6 +142,11 @@
       "pirate-creator-wallet-testnet/testnet/CommunityTest.json": "0xb5fb0d6fce29cc8c31e734a2973557d790aae8aec151d43a3d82692e37625654",
       "pirate-creator-wallet-testnet/testnet/__stack_output__.json": "0x4cd548f4948bb086a3b8864d967b66eb1884148a5d16eb00223aee2e5e893088"
     },
+    "restoredStateRecovery": {
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json",
+      "previousProfileHash": "0xae814c25d199ceace77150841573df2549da2a3c08df6015b05fcc6c95be6d3d",
+      "expectedExecutionFileSha256": "0x55f999f9e9424229e1f8da5f2b5a226b1df070f7892e02e140f024f5d43f6d2d"
+    },
     "predecessorModules": {
       "index.js": "0xf29a76d5228d51bb96f8e580b8f63be735fd8f698e8a2541c37a1c18f78e2a1f",
       "ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da"
@@ -165,5 +172,5 @@
     },
     "recovery": "Preserve the historical state without changing it. Resume the same encrypted successor and exact reviewed package; reconcile owned resources before retry. Never repeat a funded native operation."
   },
-  "profileHash": "0xae814c25d199ceace77150841573df2549da2a3c08df6015b05fcc6c95be6d3d"
+  "profileHash": "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6"
 }

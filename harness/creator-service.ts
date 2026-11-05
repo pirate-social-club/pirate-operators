@@ -28,6 +28,7 @@ import {
   verifyCreatorPredecessor,
 } from "./creator-state.ts";
 import { creatorInventory, creatorRemoteModules } from "./creator-inventory.ts";
+import { adoptCreatorProfile } from "./creator-profile-recovery.ts";
 import { saveConfigurationState as savePrivateJson } from "./megaeth/configuration-state.ts";
 
 const base = join(homedir(), ".local/state/pirate-first-song-managed-20261105"),
@@ -40,6 +41,7 @@ async function main() {
         preflight: { type: "boolean" },
         "write-plan": { type: "boolean" },
         "expected-profile": { type: "string" },
+        "adopt-restored-state": { type: "boolean" },
       },
     }),
     packaged = await creatorPackage(),
@@ -156,11 +158,15 @@ async function main() {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    insist(
-      !existing || existing.profileHash === profileHash,
-      "creator_execution_profile_changed",
-      409,
-    );
+    if (existing && existing.profileHash !== profileHash) {
+      insist(
+        values["adopt-restored-state"],
+        "creator_profile_adoption_required",
+        409,
+      );
+      await adoptCreatorProfile(directory, packaged, password, token);
+      existing = { profileHash };
+    }
     if (!existing)
       await savePrivateJson(directory, "execution.json", {
         profileHash,
@@ -182,7 +188,8 @@ async function main() {
       },
       logs: string[] = [];
     for (const phase of ["plan", "deploy"]) {
-      await inspectPrivateFiles(join(directory, "deployment"), secrets);
+      await inspectPrivateFiles(cwd, secrets);
+      await inspectPrivateFiles(join(directory, "deployment/dist"), secrets);
       const remaining = Math.floor((deadline - Date.now()) / 1000);
       insist(remaining > 0, "creator_update_window_expired", 409);
       logs.push(
@@ -202,7 +209,8 @@ async function main() {
           { cwd, env, directory, password, phase: `creator-${phase}` },
         ),
       );
-      await inspectPrivateFiles(join(directory, "deployment"), secrets);
+      await inspectPrivateFiles(cwd, secrets);
+      await inspectPrivateFiles(join(directory, "deployment/dist"), secrets);
     }
     const health = [];
     for (const origin of profile.origins) {
