@@ -74,6 +74,8 @@ export async function managedPackage() {
     "apps/managed-moderation/protected-data.ts",
     "apps/managed-moderation/migrations/0001_managed.sql",
     "apps/managed-moderation/migrations/0002_release_operations.sql",
+    "apps/managed-moderation/migrations/0003_owner_curated.sql",
+    "docs/deployments/first-song-managed-20261105.held-state.json",
     releaseGrantPath,
     "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
     "apps/community-wizard/infra/encrypted-state.ts",
@@ -92,8 +94,8 @@ export async function managedPackage() {
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json",
-    "docs/deployments/first-song-managed-20261105.moderation-functional-update.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v6.json",
+    "docs/deployments/first-song-managed-20261105.reader-privacy-rollout.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -139,16 +141,16 @@ export async function managedPackage() {
     origin: managedOrigin,
     update: {
       previousProfileHash:
-        "0x60dbf29656e700bfd58f459cdcee216d129145b1b66e1b474195e248f0df490b",
+        "0x084b589a0571e758b23e0d3198d0d00d613ba3d9a2cbdb750f8c6a0c8c0dfef7",
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v5.json",
+        "docs/deployments/first-song-managed-20261105.moderation-plan-v6.json",
       startupEvidencePath:
         "docs/deployments/first-song-managed-20261105.moderation-setup.json",
       previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.moderation-functional-update.json",
-      requireIdle: true,
+        "docs/deployments/first-song-managed-20261105.reader-privacy-rollout.json",
+      requireIdle: false,
       expectedResultSha256:
-        "0x5b1b20c90878e5eb0a413d1727b1423aafa967c1513c6eebb1c94eea90a9de02",
+        "0xb64509a9c98c96f0bdfb8e5afebe709b027eb8bb93e70ae3918320954a841f10",
     },
     resources: {
       worker: managedPrefix,
@@ -159,6 +161,12 @@ export async function managedPackage() {
     },
     sourceHashes: hashes,
     releaseGrant,
+    curatedState: JSON.parse(
+      await readFile(
+        "docs/deployments/first-song-managed-20261105.held-state.json",
+        "utf8",
+      ),
+    ),
     registrationCredential: {
       ...JSON.parse(
         await readFile(
@@ -168,7 +176,11 @@ export async function managedPackage() {
       ).source,
       targetChain: 1315,
     },
-    migrations: ["0001_managed.sql", "0002_release_operations.sql"],
+    migrations: [
+      "0001_managed.sql",
+      "0002_release_operations.sql",
+      "0003_owner_curated.sql",
+    ],
     bundleSha256: hashText(bundle.outputFiles![0]!.text),
     bundleBytes: bytes.length,
     pairings,
@@ -233,7 +245,11 @@ export async function writeManagedPackage(
   );
   await writeFile(join(cwd, "alchemy.run.ts"), source, { mode: 0o600 });
   await writeFile(join(cwd, "worker/worker.mjs"), bytes, { mode: 0o600 });
-  for (const name of ["0001_managed.sql", "0002_release_operations.sql"])
+  for (const name of [
+    "0001_managed.sql",
+    "0002_release_operations.sql",
+    "0003_owner_curated.sql",
+  ])
     await copyFile(
       `apps/managed-moderation/migrations/${name}`,
       join(cwd, "migrations", name),

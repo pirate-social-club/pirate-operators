@@ -1,0 +1,96 @@
+{
+  "profileHash": "0x1343132963d129e2a33b22d1bb754a7ba3b655220628c0c4dbc43bd82b05fee4",
+  "profile": {
+    "schema": "pirate.owner-curated-configuration-plan/1",
+    "chainId": 6343,
+    "manifest": {
+      "schema": "pirate.community-config/1",
+      "chainId": 6343,
+      "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+      "tld": "firstsong-20261105",
+      "configurationRevision": 2,
+      "postsContract": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+      "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+      "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "operatorPayments": "0x0000000000000000000000000000000000000000",
+      "learningRecords": "0x0000000000000000000000000000000000000000",
+      "app": {
+        "label": "app",
+        "tokenGeneration": "0",
+        "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "httpsAlias": null,
+        "hnsIngress": "none"
+      },
+      "feed": {
+        "endpoint": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/feed",
+        "signingKeyId": "community-publisher-6343-v1"
+      },
+      "policies": {
+        "admission": {
+          "version": "pirate-owner-curated/2026-11-05/1",
+          "sha256": "0xeac6c5663b1942264851404e8a713b43eb222335338a8f68a2d09ad083b26d97"
+        },
+        "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329"
+      },
+      "publisherRevocations": []
+    },
+    "pin": {
+      "uri": "ipfs://bafkreielcaicuwte5rl7ianzzx2cubqlgtzktj5ghiyzoxnrwvxpinvfgy",
+      "sha256": "0x8b10102a5a64ec57f401b9cdf42a060b34f2a9a7a63a31975db1b56ef436a536",
+      "byteLength": 1143,
+      "mediaType": "application/json"
+    },
+    "originalConfigurationSha256": "0x0193708176a2193d56efe3dad237da18b87008193155a0c0db8eef3a8f1df02e",
+    "directoryProfile": {
+      "chainId": 6343,
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+      "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "directoryCodeHash": "0x81d8a47bcdfebe9b7e1f459c94344467032902f573eaf42cc3fe8fb8434d54a0",
+      "deploymentBlock": "34118363"
+    },
+    "transaction": {
+      "to": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+      "data": "0x8c1bc3e7d3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000060000000000000000000000000274f223809f00cbdd51d05de3abc8fd3368fde1600000000000000000000000014b90a55657d9695a727254eaec5e0e32d20d602000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000008b10102a5a64ec57f401b9cdf42a060b34f2a9a7a63a31975db1b56ef436a53600000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000042697066733a2f2f6261666b726569656c636169637577746535726c3769616e7a7a7832637562716c67747a6b746a35676869797a6f786e7277767870696e76666779000000000000000000000000000000000000000000000000000000000000",
+      "gas": "1000000",
+      "nonce": 18
+    },
+    "sourceHashes": {
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "docs/deployments/first-song-managed-20261105.configuration.json": "0x04f75ca4bd3cb215b5dbc41b303d019f72332cf2d3fa35858467d9d7f25a23cf",
+      "docs/deployments/first-song-managed-20261105.contracts.json": "0x1c3665f00aad9709f5d4272195370b82892de433f9c4e12f128452acde9e8292",
+      "docs/owner-curated-policy.json": "0x35fb50817cdb07fd682aebc53b235611d882e681650951e1b283c7fac6ee8423",
+      "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
+      "harness/megaeth/configuration-state.ts": "0x84d297baf7dfb516ee9cba7a3e8542a63e8e17403650c5478383fa824bb3c62f",
+      "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
+      "harness/megaeth/curated-configuration.ts": "0x356ff6315e4d111541e439a462b14a417276809eae29c90d480907b80a4230ed",
+      "harness/megaeth/deployment-journal.ts": "0xb1d42a9d7cbe20115c1c6467f4b9ccd1d35992e478be4190253dcba0b558ce31",
+      "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
+      "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
+      "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
+      "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
+      "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
+      "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/owner-policy.ts": "0x2749adcbb50c6c28fe496190e58266cebfcb5d7429c010c6a20d7ed2a3152a25",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29"
+    },
+    "credential": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "path": "/services/api-next",
+      "name": "FILEBASE_IPFS_TOKEN"
+    },
+    "bounds": {
+      "pinAdds": 1,
+      "transactions": 1,
+      "maximumGasPrice": "30000000",
+      "maximumTotalFee": "30000000000000",
+      "executionSeconds": 900
+    },
+    "purpose": "Separate setup configuration pin and revision2. No song pin, registration, post, provider inference or credential creation."
+  }
+}

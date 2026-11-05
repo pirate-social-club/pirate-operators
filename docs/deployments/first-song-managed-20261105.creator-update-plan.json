@@ -93,27 +93,32 @@
       "apps/creator-spike/test/worker-outbound.test.ts": "0xc672806939b5345c86a319b333b6e49e83a6dc30d526a151886118b5f7a74ecc",
       "apps/creator-spike/tsconfig.json": "0x2f6cd0ff76245e8acfcf7a2ee710f06b0043e738e723f35a0e0e56e753ea03ec",
       "apps/creator-spike/vite.config.ts": "0xd548272c4d9d6b6436cfb062357981824414359c649090f29cc3868fa5e60d2a",
-      "docs/deployments/first-song-managed-20261105.creator-transport-update.json": "0x2187976ab959d12bb79999fd6d784942a261830886d54e0a3d03f4e635b1fa28",
+      "docs/deployments/first-song-managed-20261105.creator-gateway-update.json": "0xba10850237b09e87636e775afdbe6ef87bb7ceb1afca3864ab4bbb39d09fa9e5",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v1.json": "0x6ea1169681bc44c4c6900097a29f246f594ab4d312500cc3306b7305c488d528",
-      "docs/deployments/first-song-managed-20261105.creator-update-plan-v3.json": "0x5e9c444968efed2761d3f71420430b3155a1c98ceff625ca9825e4b72beee80b",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json": "0x700d58a8eeb699efcbde1ed9a397d46d289706e626f9794af083ff9b8a84b2ea",
       "harness/creator-inventory.ts": "0x8ff63d28a6976156d347aa5dd826640a079dd483bd1e1c4a34f082bd61f7810f",
-      "harness/creator-package.ts": "0xfbf72bfe2561e2ce7369c619124512751b643370ca1087c012aefe4c5f7a2405",
+      "harness/creator-package.ts": "0xd9c0e502fef848887cb65335b2c60cca1006b8f7537e9fb7c3797f3f635f92cf",
       "harness/creator-service.ts": "0x59068c6a307e89eff47e6a55b901520843e659b28c86a04a0e3c1f2bd6141b89",
       "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
+      "harness/curated-upgrade.ts": "0xba5b348e8375651e9b085acb717c662433cfd9447e58446511d1047eaa541a2e",
+      "harness/first-song-upgrade.ts": "0xbe8cf0b82863ccb7784d0b15cbc6af3fe3e5b81812015c91b4c322a9083e2dc9",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
       "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
-      "harness/reviewed-update.ts": "0xfe44dbdd52152669748aea46ed99b247ed42fd6177e3b622662161e59156768d",
+      "harness/reviewed-update.ts": "0xa9c6c6283f363edbda228cb54a424ae709865c8f94ffa1e4e004ae9cf04976e3",
       "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
       "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
       "package.json": "0x2bb4e7ebc20b9ff181d1f0ac891926bc586d89c222620d5ee10be8c4d6b96d43",
       "packages/community/chain.ts": "0x2e0325107d9faf91af30a841a700c67d74b00657be61383ea5d45f0f7b469aee",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
-      "packages/community/config-manifest.ts": "0x7cc2ce537ba9c99421e7b40d2551d02aac89a634f6c2e4e6110ec97e3c6b5fce",
+      "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
       "packages/community/creator-service.ts": "0xc34dfa09f6a7be0674f8968948ae4d05eabb13f611ec9c3b2b145dbcafe061e0",
       "packages/community/directory-reader.ts": "0xab3dc8b4ab8682cf2f7b25f2af986e75e12938cb31c0ea06cfdfbbddf769eda5",
-      "packages/community/ipfs.ts": "0xd4e5a37f0fb642f2e198681c747b11bb1ff7361152eb52d406d7d19c50a4bcc4",
+      "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
       "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
-      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29"
+      "packages/community/owner-policy.ts": "0x2749adcbb50c6c28fe496190e58266cebfcb5d7429c010c6a20d7ed2a3152a25",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
+      "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82"
     },
     "artifacts": {
       "client/assets/dist-c1h-kjRX.js": "0x21c8bebd02bdb74752df10544af5c50399b76222ed1a15a9cd7ab259c6e7f4ce",
@@ -124,7 +129,7 @@
       "client/assets/wallet-RnwTeBsh.js": "0xff4dcd272c040b3c09006823f37f23c30b7832c99dbd870dc995b9f180d4357b",
       "client/index.html": "0xd7bcd3211a6163fa5f905fb91e5c5b6340dbe466dd9c1047e448642b06211358",
       "worker/ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
-      "worker/index.js": "0x931507e7da1ca2380d84682c0ec7b414455703c2feaeae49f0574c0408ba5439"
+      "worker/index.js": "0x1dddb3f96cc4c8fe8ae6165b30eddec84e4b28a71067685769c75c4afcf33bdb"
     },
     "predecessorState": {
       "pirate-creator-wallet-testnet/testnet/CreatorTestDatabase.json": "0x3c7929c0c48054c320fa61c74f2c8b1a2160e77edfb2499be36498c4e1286e28",
@@ -133,14 +138,14 @@
       "pirate-creator-wallet-testnet/testnet/__stack_output__.json": "0x4cd548f4948bb086a3b8864d967b66eb1884148a5d16eb00223aee2e5e893088"
     },
     "predecessorModules": {
-      "index.js": "0x21b6615e193a2321d38e8d37974f47e10949665f6dd837df9e127e2da81bd3a2",
+      "index.js": "0x931507e7da1ca2380d84682c0ec7b414455703c2feaeae49f0574c0408ba5439",
       "ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da"
     },
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.creator-update-plan-v3.json",
-      "previousProfileHash": "0xbe5c5fe88ad95d3b0aa703c2bda5c9936b9f32969f0a64d577c68397bde6fbcc",
-      "expectedExecutionSha256": "0x92d1cec57f204694fbab97071b84a5b5c68d8c590b94f186c012fe1981348089",
-      "expectedResultSha256": "0x946127a3018f174e8a76c3077370bf61556b33f8123da7c251a417710a957e3c"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json",
+      "previousProfileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
+      "expectedExecutionSha256": "0xa8694a606f181b7294776ccc990ef142ba61dfddd26661cc4123515d60c77bba",
+      "expectedResultSha256": "0x4e03b65bc10ad14afc75bdb792a3c97f4a85443e6151bfab1af826883e00383e"
     },
     "operator": "0xe80513f6f72a375ef3fc279f74e904ba4ab244554abbd468559a13a811a82ea6",
     "operatorCredential": {
@@ -163,5 +168,5 @@
     },
     "recovery": "Preserve the historical state without changing it. Resume the same encrypted successor and exact reviewed package; reconcile owned resources before retry. Never repeat a funded native operation."
   },
-  "profileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b"
+  "profileHash": "0x3dccfdd7dc2d556ae5f0b490070d56a951f29ba4ee00ab906af2726babc2a2bf"
 }

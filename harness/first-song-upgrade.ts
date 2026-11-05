@@ -11,7 +11,7 @@ import { validateReleaseGrant } from "../packages/release/grant.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 
 export const releaseGrantPath =
-  "docs/deployments/first-song-managed-20261105.release-grant.json";
+  "docs/deployments/first-song-managed-20261105.owner-curated-grant.json";
 export async function firstSongGrant() {
   return validateReleaseGrant(
     JSON.parse(await readFile(releaseGrantPath, "utf8")),

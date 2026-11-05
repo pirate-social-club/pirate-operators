@@ -1,4 +1,5 @@
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
+import { qualifyCuratedState } from "./curated-state.ts";
 import { qualifyCommunityConsumer } from "./community-consumer.ts";
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
@@ -155,7 +156,12 @@ async function main() {
   );
   await verifyCommunitySuccessor(directory, profile, password);
   await reviewedPredecessor(directory, { profile, profileHash });
-  await requireIdleCommunity(cloudEnv);
+  await qualifyCuratedState(
+    token,
+    communityAccount,
+    profile.curatedState,
+    "application",
+  );
   await qualifyCommunityConsumer(directory, password, cloudEnv);
   if (!values.execute) {
     // Read-only ownership check: authenticate original state without restoring it.

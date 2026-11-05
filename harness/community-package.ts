@@ -154,8 +154,9 @@ export async function communityPackage() {
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v5.json",
-        "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v6.json",
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
+        "docs/deployments/first-song-managed-20261105.held-state.json",
         releaseGrantPath,
         "docs/deployments/first-song-managed-20261105.moderation-plan.json",
         "package.json",
@@ -216,6 +217,12 @@ export async function communityPackage() {
     assets,
     migrations,
     releaseGrant,
+    curatedState: JSON.parse(
+      await readFile(
+        "docs/deployments/first-song-managed-20261105.held-state.json",
+        "utf8",
+      ),
+    ),
     managedProfileHash: JSON.parse(
       await readFile(
         "docs/deployments/first-song-managed-20261105.moderation-plan.json",
@@ -233,19 +240,19 @@ export async function communityPackage() {
     },
     creatorProfileHash: JSON.parse(
       await readFile(
-        "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json",
+        "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
         "utf8",
       ),
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v5.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v6.json",
       previousProfileHash:
-        "0x4478ffd922ad101316e72654fe924d6e7a3c5d1c6a87ff87a2955a2f598e01aa",
+        "0xb93ff3d5997db70680859bdd5dcc7217c2633ac9801e3766e979ad5738a3cf65",
       expectedExecutionSha256:
-        "0xbc87b82a312b04598fccee1ac6aff92d25aa820e4f732994cc6f1a2d0a8deed7",
+        "0xfcae0834e0f21162d42a11cac49952b68eb137065c0f53b408f1d5e1daa9f42c",
       expectedResultSha256:
-        "0x7b75529c65514a0279301289fa9e568dcfb1cb1d2262ec12bc2769bb5405a311",
+        "0x1bd7c622929c43048fa566929637b14333abbbbf08740f54da6a94b374da5e9b",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {

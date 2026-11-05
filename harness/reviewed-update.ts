@@ -1,4 +1,5 @@
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
+import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
 import {
@@ -85,6 +86,12 @@ export async function reviewedPredecessor(
       "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb"
     )
       assertFirstSongUpgrade(
+        object(previous.profile),
+        packaged.profile,
+        "application",
+      );
+    else if (previous.profileHash === curatedBaselines.application)
+      assertCuratedUpgrade(
         object(previous.profile),
         packaged.profile,
         "application",

@@ -18,7 +18,7 @@ for (const kind of ["application", "managed"] as const) {
       ).profile,
       candidate = JSON.parse(
         await readFile(
-          `docs/deployments/first-song-managed-20261105.${name}-plan.json`,
+          `docs/deployments/first-song-managed-20261105.${name}-plan-${kind === "application" ? "v4" : "v5"}.json`,
           "utf8",
         ),
       ).profile;

@@ -1,4 +1,6 @@
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
+import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
+import { qualifyCuratedState } from "./curated-state.ts";
 import {
   readFile,
   lstat,
@@ -26,7 +28,7 @@ type Inventory = Awaited<ReturnType<typeof managedInventory>>;
 const json = async (path: string) =>
   object(JSON.parse(await readFile(path, "utf8")));
 
-/** Read-only ownership and idle qualification. Never adopts or creates resources. */
+/** Read-only ownership and retained-state qualification. Never creates resources. */
 export async function qualifyManagedUpdate(
   directory: string,
   profile: Profile,
@@ -40,7 +42,9 @@ export async function qualifyManagedUpdate(
   insist(
     previous.profileHash === profile.update.previousProfileHash &&
       hashJson(previous.profile) === previous.profileHash &&
-      previousEvidence.profileHash === previous.profileHash,
+      (previousEvidence.profileHash ??
+        object(object(previousEvidence.services).managed).profileHash) ===
+        previous.profileHash,
     "managed_update_predecessor_changed",
     409,
   );
@@ -49,8 +53,11 @@ export async function qualifyManagedUpdate(
       object(input);
     return rest;
   };
-  if (canonical(intent(previous.profile)) !== canonical(intent(profile)))
-    assertFirstSongUpgrade(object(previous.profile), profile, "managed");
+  if (canonical(intent(previous.profile)) !== canonical(intent(profile))) {
+    if (previous.profileHash === curatedBaselines.managed)
+      assertCuratedUpgrade(object(previous.profile), profile, "managed");
+    else assertFirstSongUpgrade(object(previous.profile), profile, "managed");
+  }
   const ids = object(startup.resourceIds),
     expected = [
       object(ids.worker).id,
@@ -173,6 +180,15 @@ export async function qualifyManagedUpdate(
     "managed_update_live_source_changed",
     409,
   );
+  if (profile.curatedState) {
+    await qualifyCuratedState(
+      String(env.CLOUDFLARE_API_TOKEN),
+      profile.accountId,
+      profile.curatedState,
+      "managed",
+    );
+    return;
+  }
   // Functional enablement must finish before the first paid request. Existing
   // jobs are never migrated by this idle-only staging transition.
   const counts = await cfJson(

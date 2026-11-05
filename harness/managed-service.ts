@@ -146,7 +146,7 @@ async function main() {
           profileHash,
           inventory: before,
           ownership: "verified encrypted state",
-          idle: true,
+          retainedState: "exact held predecessor verified",
           registrationReadiness,
         }),
       );
