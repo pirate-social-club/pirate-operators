@@ -1,6 +1,7 @@
 @import "tailwindcss" source(none);
 @import "@pirate/web-solid-ui/styles/tokens.css";
 @source "./entry.tsx";
+@source "./upload.tsx";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/feedback/spinner";
 
@@ -189,6 +190,58 @@ button:disabled {
   font-size: 12px;
   color: #b8cf9a;
   margin-top: 20px;
+}
+.live-upload {
+  background: #17201a;
+  border: 1px solid #ffffff12;
+  border-radius: 16px;
+  padding: 28px;
+  margin: 0 0 48px;
+}
+.live-upload h2 {
+  font-size: 23px;
+  font-weight: 500;
+  margin-top: 0;
+}
+.live-upload label {
+  display: block;
+  margin: 18px 0;
+  font-size: 14px;
+}
+.live-upload input:not([type="checkbox"]),
+.live-upload textarea {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid #ffffff24;
+  border-radius: 8px;
+  background: #0e1411;
+  color: #eef0e9;
+  font: inherit;
+}
+.live-upload .live-consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  line-height: 1.6;
+}
+.live-upload input[type="checkbox"] {
+  margin-top: 5px;
+}
+.live-upload-progress {
+  border-top: 1px solid #ffffff24;
+  padding: 12px 0;
+  margin-top: 20px;
+}
+.live-upload-progress h3 {
+  font-size: 18px;
+  font-weight: 500;
+}
+.live-upload-progress p,
+.live-upload > p {
+  font-size: 13px;
+  line-height: 1.6;
 }
 .live-footer {
   max-width: 1180px;

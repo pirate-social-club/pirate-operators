@@ -54,3 +54,19 @@ export interface CommunityFeed {
   communityId: string;
   posts: PublicSongView[];
 }
+export interface CommunityUploadView {
+  submissionId: string;
+  postId: string;
+  title: string;
+  state: string;
+  jobId: string | null;
+}
+export interface CommunityJobView {
+  schema: "pirate.publication-job-view/1";
+  jobId: string;
+  submissionId: string;
+  postId: string;
+  phase: string;
+  errorCode: string | null;
+  resumable: boolean;
+}

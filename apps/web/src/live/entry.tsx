@@ -10,6 +10,7 @@ import {
   type CommunitySessionView,
 } from "./api.ts";
 import "./style.css";
+import { SongUpload } from "./upload.tsx";
 
 const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
 const shortened = (address: string) =>
@@ -290,6 +291,16 @@ function App() {
                   : "Connect creator wallet"}
               </Button>
             </section>
+          )}
+        </Show>
+        <Show when={session()}>
+          {(current) => (
+            <SongUpload
+              session={current()}
+              policy={capabilities()?.policyVersion ?? ""}
+              enabled={capabilities()?.upload === true}
+              refreshFeed={refresh}
+            />
           )}
         </Show>
         <section class="live-songs">

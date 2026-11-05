@@ -7,4 +7,6 @@ export type {
   CommunityCapabilities,
   PublicSongView,
   CommunityFeed,
+  CommunityUploadView,
+  CommunityJobView,
 } from "../../apps/web/src/api-contract.ts";

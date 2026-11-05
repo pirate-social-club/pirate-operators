@@ -18,6 +18,7 @@ import {
   type ManagedService,
 } from "../packages/moderation/service.ts";
 
+import { validateReleaseGrant } from "../packages/release/grant.ts";
 import { releaseFetch } from "../packages/release/service.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
@@ -163,11 +164,40 @@ export default {
       }
       const response = await managedFetch(request, env.DB, config);
       if (new URL(request.url).pathname === "/health" && response.ok) {
+        let release: {
+          configured: boolean;
+          grantSha256?: string;
+          registrationOperator?: string;
+          expiresAt?: number;
+        } = { configured: false };
+        try {
+          const grant = validateReleaseGrant(
+            JSON.parse(env.RELEASE_GRANT_JSON ?? "null"),
+          );
+          const signer = privateKeyToAccount(
+            env.REGISTRATION_OPERATOR_PRIVATE_KEY as `0x${string}`,
+          );
+          if (
+            env.FILEBASE_IPFS_TOKEN &&
+            signer.address.toLowerCase() === grant.registration.operator &&
+            grant.expiresAt > Math.floor(Date.now() / 1000)
+          )
+            release = {
+              configured: true,
+              grantSha256: grant.sha256,
+              registrationOperator: grant.registration.operator,
+              expiresAt: grant.expiresAt,
+            };
+        } catch {
+          /* Moderation health remains distinct from release configuration. */
+        }
+
         return Response.json(
           {
             service: "pirate-managed-moderation/1",
             status: "available",
             profileHash: bytes32(env.SERVICE_PROFILE_HASH),
+            release,
           },
           { headers: { "cache-control": "no-store" } },
         );

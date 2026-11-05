@@ -14,6 +14,7 @@ import { validateConfig } from "../packages/community/config-manifest.ts";
 import { authorizeCreatorRequest } from "../packages/community/creator-service.ts";
 import { creatorServiceOrigin } from "../packages/community/creator-receipt.ts";
 import { hashJson } from "../packages/community/common.ts";
+import { releasePostsFixture } from "./fixtures/release-posts.ts";
 
 // Public local fixture keys. Never fund or deploy them.
 const signer = privateKeyToAccount(`0x${"11".repeat(32)}`),
@@ -51,8 +52,10 @@ async function fixture() {
     COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
   } as unknown as CommunityEnv;
   const launches = new Set<string>();
+  const posts = releasePostsFixture(publisher, config);
   let loseLaunch = true;
   const ports: CommunityDependencies = {
+    publicReads: { client: posts.client, profile: posts.profile },
     configuration: async () => config,
     verifyLogin: (address, message, signature) =>
       verifyMessage({ address, message, signature }),

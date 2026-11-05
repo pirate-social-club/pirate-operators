@@ -34,7 +34,13 @@ export default Alchemy.Stack(
         flags: ["nodejs_compat", "global_fetch_strictly_public"],
       },
       workersDev: { enabled: true, previewsEnabled: false },
-      observability: { enabled: false },
+      crons: ["* * * * *"],
+      limits: { cpuMs: 30000 },
+      observability: {
+        enabled: true,
+        logs: { enabled: true, invocationLogs: true },
+        traces: { enabled: true, headSamplingRate: 0.1 },
+      },
       env: {
         DB,
         MEDIA,
@@ -44,9 +50,25 @@ export default Alchemy.Stack(
           "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
         APPLICATION_PROFILE_HASH: process.env.APPLICATION_PROFILE_HASH!,
         CREATOR_PROFILE_HASH: process.env.CREATOR_PROFILE_HASH!,
+        MANAGED_PROFILE_HASH: process.env.MANAGED_PROFILE_HASH!,
+        RELEASE_GRANT_HASH: process.env.RELEASE_GRANT_HASH!,
+        REGISTRATION_OPERATOR_ADDRESS:
+          process.env.REGISTRATION_OPERATOR_ADDRESS!,
+        POSTING_EXPIRES_AT: process.env.POSTING_EXPIRES_AT!,
         COMMUNITY_PUBLISHER_PRIVATE_KEY: Config.Redacted(
           "COMMUNITY_PUBLISHER_PRIVATE_KEY",
         ),
+      },
+    });
+    yield* Cloudflare.Queues.Consumer("Consumer", {
+      queueId: JOBS.queueId,
+      scriptName: app.workerName,
+      settings: {
+        batchSize: 1,
+        maxConcurrency: 1,
+        maxRetries: 3,
+        maxWaitTimeMs: 1000,
+        retryDelay: 60,
       },
     });
     return { origin: app.url, database: DB.databaseId };

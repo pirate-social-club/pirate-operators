@@ -10,9 +10,19 @@ async function serve(
   page: Page,
   authenticated = false,
   directoryOutage = false,
+  releasing = false,
 ) {
-  let connected = false,
-    exchanges = 0;
+  let connected = releasing,
+    exchanges = 0,
+    reservations = 0,
+    storedUploads = 0,
+    uploadCalls = 0,
+    phase = "admission";
+  const submissionId = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+    postId = "0x" + "4".repeat(64),
+    jobId = `publication:${submissionId}`;
+  let reserved = false,
+    sealed = false;
   const pending = {
     connectionId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
     state: "s".repeat(43),
@@ -43,10 +53,64 @@ async function serve(
       return json({
         signIn: true,
         creatorConnection: true,
-        upload: false,
-        publication: false,
+        upload: releasing,
+        publication: releasing,
+        policyVersion: "pirate-release/2026-08-29",
       });
     if (path === "/api/feed") return json({ posts: [] });
+    if (path === "/api/uploads" && request.method() === "GET")
+      return json({
+        uploads: reserved
+          ? [
+              {
+                submissionId,
+                postId,
+                title: "Browser saved song",
+                state: sealed ? phase : "uploaded",
+                jobId: sealed ? jobId : null,
+              },
+            ]
+          : [],
+      });
+    if (releasing && path === "/api/uploads" && request.method() === "POST") {
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      expect(request.headers()["idempotency-key"]).toBeTruthy();
+      expect(request.postDataJSON().original).toBe(true);
+      if (!reserved) {
+        reservations++;
+        reserved = true;
+      }
+      return json({ submissionId, postId, state: "reserved" }, 201);
+    }
+    if (releasing && path === `/api/uploads/${submissionId}/audio`) {
+      uploadCalls++;
+      expect(request.method()).toBe("PUT");
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      if (!storedUploads) {
+        storedUploads++;
+        return route.abort("connectionreset");
+      }
+      return json({ uploaded: true });
+    }
+    if (releasing && path === `/api/uploads/${submissionId}/seal`) {
+      sealed = true;
+      return json({ jobId, postId }, 202);
+    }
+    if (releasing && path === `/api/jobs/${encodeURIComponent(jobId)}`)
+      return json({
+        schema: "pirate.publication-job-view/1",
+        jobId,
+        submissionId,
+        postId,
+        phase,
+        errorCode: null,
+        resumable: phase === "uncertain",
+      });
+    if (releasing && path === `/api/jobs/${encodeURIComponent(jobId)}/resume`) {
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      phase = "publication";
+      return json({ resuming: true });
+    }
     if (path === "/api/session")
       return authenticated
         ? json({
@@ -89,7 +153,16 @@ async function serve(
         : "text/html";
     await route.fulfill({ contentType, body: await readFile(file) });
   });
-  return { pending, exchanges: () => exchanges };
+  return {
+    pending,
+    exchanges: () => exchanges,
+    reservations: () => reservations,
+    storedUploads: () => storedUploads,
+    uploadCalls: () => uploadCalls,
+    phase: (value: string) => {
+      phase = value;
+    },
+  };
 }
 
 test("fresh anonymous browser loads the real client, offers sign-in and preserves the empty feed on reload", async ({
@@ -126,12 +199,12 @@ test("an existing session can sign out after a reload during a directory outage"
 }) => {
   await serve(page, true, true);
   await page.goto(origin);
-  await expect(page.getByRole("status")).toContainText(
+  await expect(page.locator(".live-status")).toContainText(
     "temporarily unavailable",
   );
   await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("status")).toHaveText("Signed out.");
+  await expect(page.locator(".live-status")).toHaveText("Signed out.");
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
 });
 
@@ -155,11 +228,77 @@ test("same-window wallet return completes its saved connection with CSRF, then s
     page.getByRole("button", { name: "Reopen creator wallet" }),
   ).toBeEnabled();
   expect(state.exchanges()).toBe(1);
-  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  await expect(page.getByRole("checkbox")).toHaveCount(1);
   await expect(
     page.getByText("Original composition", { exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByText("Historical recording", { exact: true }),
   ).toHaveCount(0);
+});
+
+test("saved binary and release intent survive an interrupted upload and reload; held/rejected jobs cannot publish", async ({
+  page,
+}) => {
+  const state = await serve(page, true, false, true);
+  await page.goto(origin);
+  await page
+    .getByLabel("Song title", { exact: true })
+    .fill("Browser saved song");
+  await page.getByLabel("Lyrics", { exact: true }).fill("A saved lyric line");
+  await page
+    .getByLabel("Recording", { exact: true })
+    .setInputFiles({
+      name: "saved-song.mp3",
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from("ID3browser-local-upload-fixture"),
+    });
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Submit song", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Continue saved release" }),
+  ).toBeEnabled();
+  expect(state.reservations()).toBe(1);
+  expect(state.storedUploads()).toBe(1);
+  await page.reload();
+  await expect(page.getByText("Saved recording: saved-song.mp3")).toBeVisible();
+  await expect(page.getByLabel("Song title", { exact: true })).toHaveValue(
+    "Browser saved song",
+  );
+  await page.getByRole("button", { name: "Continue saved release" }).click();
+  await expect(
+    page.getByText(
+      "Submitted. Your progress is saved; processing continues after you leave.",
+    ),
+  ).toBeVisible();
+  expect(state.reservations()).toBe(1);
+  expect(state.storedUploads()).toBe(1);
+  expect(state.uploadCalls()).toBe(2);
+  state.phase("uncertain");
+  await page.reload();
+  await page.getByRole("button", { name: "Check and resume" }).click();
+  await expect(page.getByText("Publishing to the community.")).toBeVisible();
+  state.phase("held");
+  await page.reload();
+  await expect(
+    page.getByText(
+      "This release is held for review and has not been published.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Check and resume" }),
+  ).toHaveCount(0);
+  state.phase("failed");
+  await page.reload();
+  await expect(
+    page.getByText("This release was rejected and has not been published."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Check and resume" }),
+  ).toHaveCount(0);
+  expect(state.reservations()).toBe(1);
+  await page.screenshot({
+    path: "/tmp/pirate-first-song-upload-recovery.png",
+    fullPage: true,
+  });
 });

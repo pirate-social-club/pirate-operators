@@ -2,6 +2,8 @@
 export const firstSong = {
   origin: "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
   name: "First Song Managed Test",
+  managedOrigin:
+    "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
   planId: "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
   directoryProfile: {
     chainId: 6343,

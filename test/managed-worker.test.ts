@@ -49,6 +49,7 @@ test("the actual managed Worker bundle starts in workerd and rejects unsigned wo
       service: "pirate-managed-moderation/1",
       status: "available",
       profileHash: hex(1),
+      release: { configured: false },
     });
     const denied = await mf.dispatchFetch(origin + "/v1/admissions", {
       method: "POST",

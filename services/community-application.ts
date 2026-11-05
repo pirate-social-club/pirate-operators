@@ -35,8 +35,23 @@ import type {
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { configurationHealth } from "./configuration-health.ts";
+import { serveInputCapability } from "../packages/community/input-capabilities.ts";
+import { communityReleaseApi } from "./community-release-api.ts";
+import {
+  firstSongRuntime,
+  publicPostsProfile,
+  type FirstSongRuntimeEnv,
+} from "./first-song-runtime.ts";
+import {
+  firstSongPublicReady,
+  publicSongViews,
+  publicSongResource,
+  type PublicReadPorts,
+} from "./community-public.ts";
+import { runCommunityJob, recoverCommunityJobs } from "./community-jobs.ts";
+import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
-export interface CommunityEnv {
+export interface CommunityEnv extends FirstSongRuntimeEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ jobId: string }>;
@@ -52,6 +67,8 @@ export interface CommunityDependencies {
   verifyLogin: VerifyLogin;
   creatorHealth(): Promise<boolean>;
   creatorTransport?: CreatorConnectionService["transport"];
+  releaseRuntime?(config: CommunityConfig): FirstSongDriverPorts;
+  publicReads?: PublicReadPorts;
 }
 function dependencies(env: CommunityEnv): CommunityDependencies {
   return {
@@ -111,6 +128,28 @@ export async function communityFetch(
       communityId: firstSong.directoryProfile.communityId,
       origin: firstSong.origin,
     };
+    const publicReads = ports.publicReads ?? {
+      client: megaethReadClient(),
+      profile: publicPostsProfile(),
+    };
+    const configuration = async () => {
+      const config = await ports.configuration();
+      insist(
+        config.communityId === context.communityId &&
+          config.app.origin === context.origin,
+        "community_configuration_changed",
+        503,
+      );
+      return config;
+    };
+    const ready = async () => {
+      const config = await configuration();
+      const runtime =
+        ports.releaseRuntime?.(config) ??
+        firstSongRuntime(env, config, configuration);
+      await runtime.checkServices();
+      return { config, ports: runtime };
+    };
     if (request.method === "GET" && url.pathname === "/health") {
       const schema = await env.DB.prepare(
         "SELECT version FROM setup_schema WHERE version=1",
@@ -121,12 +160,22 @@ export async function communityFetch(
         503,
       );
       await ensureCommunityIdentity(env.DB, context);
+      let publicReady = false;
+      try {
+        publicReady = await firstSongPublicReady(
+          env.DB,
+          await configuration(),
+          publicReads,
+        );
+      } catch {
+        /* A private job is never public readiness evidence. */
+      }
       return reply({
         schema: "pirate.community-application/1",
         planId: env.PLAN_ID,
         profileHash: env.APPLICATION_PROFILE_HASH,
         infrastructure: "provisioned",
-        firstSong: "not_ready",
+        firstSong: publicReady ? "ready" : "not_ready",
         signIn: "available",
         creatorConnection: (await ports.creatorHealth())
           ? "available"
@@ -186,13 +235,17 @@ export async function communityFetch(
       url.pathname === "/api/public/configuration-diagnostics"
     )
       return reply({ gateways: await configurationHealth() });
-    const config = await ports.configuration();
-    insist(
-      config.communityId === context.communityId &&
-        config.app.origin === context.origin,
-      "community_configuration_changed",
-      503,
+    if (url.pathname.startsWith("/api/moderation/inputs/"))
+      return serveInputCapability(request, env.DB, env.MEDIA, context.origin);
+    const release = await communityReleaseApi(
+      request,
+      env,
+      context,
+      ready,
+      reply,
     );
+    if (release) return release;
+    const config = await configuration();
     if (
       request.method === "GET" &&
       url.pathname === "/.well-known/pirate-community.json"
@@ -215,12 +268,19 @@ export async function communityFetch(
       return reply(boot);
     }
     if (request.method === "GET" && url.pathname === "/api/capabilities") {
+      let releaseReady = false;
+      try {
+        await ready();
+        releaseReady = true;
+      } catch {
+        /* Fail closed while a required peer is unavailable. */
+      }
       const capabilities: CommunityCapabilities = {
         schema: "pirate.community-capabilities/1",
         signIn: true,
         creatorConnection: await ports.creatorHealth(),
-        upload: false,
-        publication: false,
+        upload: releaseReady,
+        publication: releaseReady,
         policyVersion: RELEASE_POLICY,
       };
       return reply(capabilities);
@@ -233,16 +293,23 @@ export async function communityFetch(
         lang: "en",
         dir: "ltr",
         revision: 1,
-        posts: [],
+        posts: await publicSongViews(env.DB, config, publicReads),
       });
     if (request.method === "GET" && url.pathname === "/api/feed") {
       const feed: CommunityFeed = {
         schema: "pirate.community-feed/1",
         communityId: config.communityId,
-        posts: [],
+        posts: await publicSongViews(env.DB, config, publicReads),
       };
       return reply(feed);
     }
+    const publicResource = await publicSongResource(
+      request,
+      env.DB,
+      config,
+      publicReads,
+    );
+    if (publicResource) return publicResource;
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
@@ -321,4 +388,26 @@ export default {
   fetch(request, env) {
     return communityFetch(request, env);
   },
-} satisfies ExportedHandler<CommunityEnv>;
+  async queue(batch: MessageBatch<{ jobId: string }>, env: CommunityEnv) {
+    const ports = dependencies(env),
+      config = await ports.configuration();
+    insist(
+      config.communityId === firstSong.directoryProfile.communityId &&
+        config.app.origin === firstSong.origin,
+      "community_configuration_changed",
+      503,
+    );
+    const runtime = firstSongRuntime(env, config, ports.configuration);
+    for (const message of batch.messages) {
+      try {
+        await runCommunityJob(runtime, env.JOBS, message.body.jobId);
+        message.ack();
+      } catch {
+        message.retry({ delaySeconds: 60 });
+      }
+    }
+  },
+  async scheduled(_event, env) {
+    await recoverCommunityJobs(env.DB, env.JOBS);
+  },
+} satisfies ExportedHandler<CommunityEnv, { jobId: string }>;
