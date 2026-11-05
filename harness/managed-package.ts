@@ -8,6 +8,8 @@ import {
   unlink,
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { build } from "esbuild";
 import { privateDirectory } from "../apps/community-wizard/server/state.ts";
 import { hashJson, hashText, insist } from "../packages/community/common.ts";
@@ -15,6 +17,23 @@ import { hashJson, hashText, insist } from "../packages/community/common.ts";
 export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
 export async function managedPackage() {
+  const cli = await promisify(execFile)(
+    resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
+    ["--version"],
+    {
+      cwd: resolve("apps/managed-moderation"),
+      timeout: 30000,
+      maxBuffer: 65536,
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        CI: "true",
+        DO_NOT_TRACK: "1",
+        NO_COLOR: "1",
+      },
+    },
+  );
+  insist(/2\.0\.0-beta\.85/.test(cli.stdout), "managed_cli_version_mismatch");
   const bundle = await build({
     entryPoints: ["services/managed-moderation.ts"],
     bundle: true,

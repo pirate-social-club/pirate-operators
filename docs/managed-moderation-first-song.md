@@ -22,6 +22,8 @@ The coordinator owns the 900-second apply and recovery window. An interrupted
 apply retains its encrypted Alchemy state and private diagnostics; inspect
 ownership and reconcile those resources before a reviewed retry. No default
 command creates a resource, sends a provider request or broadcasts a transaction.
+Every package plan first starts the isolated pinned Alchemy CLI with its Node
+runtime peer and a credential-free environment, checking the exact version.
 
 Only the existing staging ACRCloud and OpenAI credentials are rebound from
 the approved managed store into the service's own Infisical folder. The existing
@@ -35,6 +37,8 @@ The operator curates the exact registry, directory, controller and both HTTPS
 origins. Runtime resolution independently checks the chain ID, directory runtime
 hash, complete configuration event history, retained public manifest hashes,
 current state and canonical block hash. Every new provider purchase rechecks
+that the manifest bytes are exact JCS and historical revocations were valid
+at their own publication block. Every new provider purchase rechecks
 that authority against the immutable job capture. Joining or namespace discovery
 does not grant publication authority in this profile.
 

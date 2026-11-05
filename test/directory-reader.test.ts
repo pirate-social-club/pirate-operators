@@ -51,33 +51,49 @@ async function fixture(fault = "") {
       admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
       moderationSigner: addr("6"),
     },
-    publisherRevocations: [],
+    publisherRevocations: [] as {
+      postsContract: string;
+      publisher: string;
+      fromBlock: string;
+    }[],
   };
-  const bytes = new TextEncoder().encode(canonical(config)),
-    pin = await preparePin(bytes, "application/json"),
+  const configurations = [config],
     code = "0x60006000";
-  const chainConfig = {
-    controller: addr("4"),
-    publisher: addr("5"),
-    operatorPayments: addr("0"),
-    learningRecords: addr("0"),
-    sha256Digest: pin.sha256,
-    uri: pin.uri,
-  };
-  const data = encodeAbiParameters(
-    directoryAbi[1].inputs.filter(
-      (input) => !("indexed" in input && input.indexed),
-    ),
-    [
-      1n,
-      chainConfig.controller,
-      chainConfig.publisher,
-      chainConfig.operatorPayments,
-      chainConfig.learningRecords,
-      pin.sha256,
-      pin.uri,
-    ],
+  if (fault === "cutoff")
+    configurations.push({
+      ...config,
+      configurationRevision: 2,
+      publisher: addr("7"),
+      publisherRevocations: [
+        { postsContract: addr("3"), publisher: addr("5"), fromBlock: "70" },
+      ],
+    });
+  const records = await Promise.all(
+    configurations.map(async (c) => {
+      let encoded = canonical(c);
+      if (fault === "pretty") encoded = JSON.stringify(c, null, 2);
+      if (fault === "duplicates")
+        encoded = encoded.replace(
+          '"tld":"fixture"',
+          '"tld":"other","tld":"fixture"',
+        );
+      const bytes = new TextEncoder().encode(encoded),
+        pin = await preparePin(bytes, "application/json");
+      return {
+        bytes,
+        pin,
+        chainConfig: {
+          controller: c.controller,
+          publisher: fault === "manifest" ? addr("5") : c.publisher,
+          operatorPayments: c.operatorPayments,
+          learningRecords: c.learningRecords,
+          sha256Digest: pin.sha256,
+          uri: pin.uri,
+        },
+      };
+    }),
   );
+  const { chainConfig, pin } = records.at(-1)!;
   let blocks = 0;
   // Explicit RPC fixture tests reader logic; live chain qualification is separate.
   const client = createPublicClient({
@@ -99,23 +115,34 @@ async function fixture(fault = "") {
               transactions: [],
             };
           case "eth_getLogs":
-            return [
-              {
-                address: config.directory,
-                blockHash: hash("a"),
-                blockNumber: "0x33",
-                data,
-                topics: encodeEventTopics({
-                  abi: directoryAbi,
-                  eventName: "ConfigurationPublished",
-                  args: { communityId: config.communityId },
-                }),
-                logIndex: "0x0",
-                transactionHash: hash("d"),
-                transactionIndex: "0x0",
-                removed: false,
-              },
-            ];
+            return records.map((record, index) => ({
+              address: config.directory,
+              blockHash: hash("a"),
+              blockNumber: `0x${(51 + index).toString(16)}`,
+              data: encodeAbiParameters(
+                directoryAbi[1].inputs.filter(
+                  (input) => !("indexed" in input && input.indexed),
+                ),
+                [
+                  BigInt(index + 1),
+                  record.chainConfig.controller,
+                  record.chainConfig.publisher,
+                  record.chainConfig.operatorPayments,
+                  record.chainConfig.learningRecords,
+                  record.pin.sha256,
+                  record.pin.uri,
+                ],
+              ),
+              topics: encodeEventTopics({
+                abi: directoryAbi,
+                eventName: "ConfigurationPublished",
+                args: { communityId: config.communityId },
+              }),
+              logIndex: "0x0",
+              transactionHash: hash("d"),
+              transactionIndex: "0x0",
+              removed: false,
+            }));
           case "eth_call":
             return encodeFunctionResult({
               abi: directoryAbi,
@@ -123,7 +150,7 @@ async function fixture(fault = "") {
               result: {
                 registry: config.registry,
                 tldHash: hashText(config.tld),
-                configurationRevision: 1n,
+                configurationRevision: BigInt(records.length),
                 configuration: {
                   ...chainConfig,
                   sha256Digest: fault === "state" ? hash("e") : pin.sha256,
@@ -160,9 +187,15 @@ async function fixture(fault = "") {
           deploymentBlock: 50n,
           directoryCodeHash: keccak256(code),
         },
-        async () =>
+        async (request) =>
           new Response(
-            fault === "bytes" ? new Uint8Array([0]) : new Uint8Array(bytes),
+            fault === "bytes"
+              ? new Uint8Array([0])
+              : new Uint8Array(
+                  records.find((r) =>
+                    request.url.includes(r.pin.uri.slice(7)),
+                  )!.bytes,
+                ),
           ),
       ),
   };
@@ -172,4 +205,18 @@ test("canonical directory reader binds event history, raw manifest bytes, curren
   assert.deepEqual(await f.read(), f.config);
   for (const fault of ["chain", "manifest", "state", "bytes", "reorg"])
     await assert.rejects((await fixture(fault)).read());
+});
+
+test("correctly committed pretty or duplicate-key configuration bytes are refused", async () => {
+  for (const fault of ["pretty", "duplicates"])
+    await assert.rejects(
+      (await fixture(fault)).read(),
+      /configuration_not_canonical/,
+    );
+});
+test("a revocation cutoff future at its publication does not become valid at a later read head", async () => {
+  await assert.rejects(
+    (await fixture("cutoff")).read(),
+    /invalid_revocation_block/,
+  );
 });

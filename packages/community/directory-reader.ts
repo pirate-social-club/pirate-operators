@@ -1,5 +1,5 @@
 import { parseAbi, type Address, type Hex, type PublicClient } from "viem";
-import { hashText, insist, object } from "./common.ts";
+import { canonical, hashText, insist, object } from "./common.ts";
 import { validateConfig, type CommunityConfig } from "./config-manifest.ts";
 import { communityId } from "./manifest-core.ts";
 import { fetchPublicIpfs, type IpfsTransport } from "./ipfs.ts";
@@ -106,14 +106,13 @@ export async function readConfiguration(
       65536,
       send,
     );
-    const raw = object(
-        JSON.parse(
-          new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
-            bytes,
-          ),
-        ),
-      ),
-      config = validateConfig(raw, history, blockNumber);
+    const decoded = new TextDecoder("utf-8", {
+        fatal: true,
+        ignoreBOM: true,
+      }).decode(bytes),
+      raw = object(JSON.parse(decoded));
+    insist(decoded === canonical(raw), "configuration_not_canonical", 503);
+    const config = validateConfig(raw, history, log.blockNumber);
     insist(
       config.chainId === profile.chainId &&
         config.communityId === profile.communityId &&
