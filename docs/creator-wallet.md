@@ -18,6 +18,11 @@ pairing and readiness. It supersedes version 3's creator-upfront recommendation;
 commercial pricing remains undecided. Infisical remains required for the wizard's
 service secrets. Saved passkey and cryptographic requirements are unchanged.
 
+The later [sponsorship and eligibility direction](creator-sponsorship-policy.md)
+separates production treasury custody from gas sponsorship and makes future
+song eligibility a community policy. It leaves this testnet wallet protocol
+and the owner-only MVP intact; no budget contract or new provider is implemented.
+
 ## Scope and authority
 
 Ordinary participation uses the existing MOSS/community session flow. Reading,
@@ -115,15 +120,16 @@ and require the relevant acceptance evidence before enabling either live path.
    draft or upload while setup is pending.
 3. Create and save the creator passkey. Derive its native Sui account address
    locally; this needs no chain transaction or fee. Persist the PRF-wrapped
-   Ika seed and public wallet metadata described below before charging or DKG.
-   Obtain the bounded activation quote, then verify its payment or reserve
-   the community allowance under the payment contract. No paid chain stage
-   starts before that authorization and the following creator consent.
+   Ika seed and public wallet metadata described below before DKG.
+   Obtain bounded setup authorization and reserve the operator-backed community
+   allowance under the funding contract. Creator checkout is deferred. No paid
+   chain stage starts before that authorization and the following creator consent.
 4. Obtain an authenticated setup intent from the operator. It binds the
    requesting account and community, attempt ID, nonce, expiry, exact Sui
    control address, encryption public key, curve, package/network manifest,
-   operator sender and maximum fees. It also binds the quote, payer policy
-   and verified payment or allowance authorization.
+   operator sender and maximum fees. It also binds the payer policy and
+   verified allowance authorization. Any future checkout quote/payment binding
+   requires the separately selected deferred billing mode.
    The wallet checks these against its locally derived account and selected
    manifest, then signs domain-separated consent with that Sui passkey
    account. The operator verifies the signature, account binding, nonce and

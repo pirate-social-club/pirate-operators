@@ -363,6 +363,14 @@ upload, would change the existing product contract and is not done here.
 
 ## Secret custody and spending exposure
 
+For creator setup, the later [sponsorship policy](creator-sponsorship-policy.md)
+requires production gas sponsorship through a replaceable provider or protected
+signer, with no raw treasury private keys in application Workers or Infisical.
+Ordinary communities select a service and funding arrangement; operating a gas
+station is optional. Infisical still holds scoped service credentials. Current
+testnet behavior and existing exposure in other payment contracts remain as
+documented below; this direction is not evidence that they have been hardened.
+
 | Authority or state | Custody and recovery | Exposure if compromised |
 | --- | --- | --- |
 | HNS TLD key | Operator's HNS wallet; its own recovery procedure. Never a Worker secret. | Repoint or lose the namespace, affecting all names beneath it. |
@@ -374,6 +382,7 @@ upload, would change the existing product contract and is not done here.
 | Community sessions | Random opaque cookies; only token hashes/session records in D1, with backup/invalidation policy. | A stolen valid token impersonates its session; database/server compromise has wider authority. No extra session-signing key is assumed. |
 | AI, conversion and pinning keys | Owning operator's Infisical scope; provider quota and rotation. | Spend provider budget, access permitted data or change retained pins. |
 | MOSS gas sponsor, if added later | Separate bounded sponsor service/treasury. | Spend sponsor authority/balance; it is not needed for the operator-first setup milestone. |
+| Creator sponsorship, production direction | Managed gas service or protected signer; community treasury stays under operator control. Ika fee funding is separate. | Authorized callers can consume allowed budgets. Provider credentials and KMS permissions still need independently enforced limits. This design is not implemented by the testnet hot key. |
 | Creator passkey and Ika seed | Authenticator plus PRF-encrypted seed record at the wallet site; never plaintext in Infisical. | Loss of passkey or unavailable encrypted record/site can make registrations inaccessible. Independent recovery is deferred, not proven. |
 
 At merged payment baseline 4aaf76e, _redeem accepts the signed recipient and

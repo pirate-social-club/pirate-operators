@@ -98,6 +98,12 @@ accounts or transfers private history and sessions.
 
 ## Sponsorship is a separate decision
 
+For song publishing, the later [creator eligibility policy](creator-sponsorship-policy.md#community-eligibility)
+preserves owner-only MVP publishing and allows communities to choose future
+creator-only, verified-activity or optional Very requirements. It does not
+change membership or reward cash-out rules. Eligibility, wallet ownership and
+the sponsor's permission to spend remain separate checks.
+
 For every funded action, answer four questions independently: which account
 is requesting it, whether that account is eligible, who pays and what signing
 authority the action needs. A Nostr signature proves control of a key. It does

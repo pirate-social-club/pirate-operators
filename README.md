@@ -88,6 +88,12 @@ and submitted the selected recording. Broader browser/device acceptance and
 the actual song registration remain open.
 Provider keys stay with the operator that uses them.
 
+The [creator sponsorship policy](docs/creator-sponsorship-policy.md) records the
+production custody direction and future community publishing eligibility.
+The current MVP remains owner-only and uses Pirate's capped test allowance.
+Managed gas services, protected signers, community funding and budget contracts
+are specified boundaries or options, not claims of implemented capabilities.
+
 The merged [account and portability design](docs/community-accounts-portability.md)
 separates private account IDs, credential bindings and public authors. The
 application now implements those boundaries, stable post/lyric identities and
