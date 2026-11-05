@@ -105,7 +105,7 @@ function headers() {
   return new Headers({
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
-    "referrer-policy": "same-origin",
+    "referrer-policy": "strict-origin",
     "x-frame-options": "DENY",
     "permissions-policy":
       'publickey-credentials-create=(self "https://account.megaeth.com"), publickey-credentials-get=(self "https://account.megaeth.com")',

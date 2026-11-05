@@ -11,6 +11,7 @@ async function serve(
   authenticated = false,
   directoryOutage = false,
   releasing = false,
+  referrerPolicy = "strict-origin",
 ) {
   let connected = releasing,
     exchanges = 0,
@@ -177,7 +178,11 @@ async function serve(
       : filename.endsWith(".css")
         ? "text/css"
         : "text/html";
-    await route.fulfill({ contentType, body: await readFile(file) });
+    await route.fulfill({
+      contentType,
+      body: await readFile(file),
+      headers: { "referrer-policy": referrerPolicy },
+    });
   });
   return {
     pending,
@@ -325,13 +330,11 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   await page
     .getByLabel("Song title", { exact: true })
     .fill("Corrected browser song");
-  await page
-    .getByLabel("Recording", { exact: true })
-    .setInputFiles({
-      name: "corrected.mp3",
-      mimeType: "audio/mpeg",
-      buffer: Buffer.from("ID3corrected-local-fixture"),
-    });
+  await page.getByLabel("Recording", { exact: true }).setInputFiles({
+    name: "corrected.mp3",
+    mimeType: "audio/mpeg",
+    buffer: Buffer.from("ID3corrected-local-fixture"),
+  });
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Submit song", exact: true }).click();
   await expect(
@@ -356,3 +359,49 @@ test("saved binary and release intent survive an interrupted upload and reload; 
     fullPage: true,
   });
 });
+
+for (const policy of ["same-origin", "strict-origin"]) {
+  test(`real pinned MOSS SDK parent-origin handshake with ${policy} referrer policy`, async ({
+    page,
+  }) => {
+    // Controlled wallet peer, using the SDK's actual pinned Penpal transport.
+    // It cancels connection; no fixture account or authenticated session exists.
+    const moss = "https://account.megaeth.com";
+    await serve(page, false, false, false, policy);
+    await page.route(`${moss}/**`, async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === "/penpal.mjs")
+        return route.fulfill({
+          contentType: "application/javascript",
+          body: await readFile("node_modules/penpal/dist/penpal.mjs"),
+        });
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><body><script type="module">
+        import {connect,WindowMessenger} from '/penpal.mjs';
+        document.body.dataset.referrer=document.referrer;
+        const origin=document.referrer ? new URL(document.referrer).origin : null;
+        if(origin) {
+          const connection=connect({messenger:new WindowMessenger({remoteWindow:window.parent,allowedOrigins:[origin]}),methods:{status:()=>({status:'disconnected'}),connect:()=>({status:'cancelled'})}});
+          const app=await connection.promise; await app.ready();
+        }
+      </script></body>`,
+      });
+    });
+    await page.goto(origin + "/draft?draft=fixture-private-context");
+    await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+    const body = page.frameLocator("iframe").locator("body");
+    await expect(body).toHaveAttribute(
+      "data-referrer",
+      policy === "same-origin" ? "" : origin + "/",
+    );
+    if (policy === "strict-origin")
+      await expect(page.locator(".live-status")).toHaveText(
+        "MOSS sign-in was cancelled.",
+      );
+    else await expect(page.locator(".live-status")).toHaveText("Opening MOSS…");
+    await expect(
+      page.getByRole("button", { name: "Connect creator wallet" }),
+    ).toHaveCount(0);
+  });
+}

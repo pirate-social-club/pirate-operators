@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x4478ffd922ad101316e72654fe924d6e7a3c5d1c6a87ff87a2955a2f598e01aa",
+  "profileHash": "0xb93ff3d5997db70680859bdd5dcc7217c2633ac9801e3766e979ad5738a3cf65",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -82,14 +82,14 @@
       "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
-      "docs/deployments/first-song-managed-20261105.application-plan-v4.json": "0x014f747aa3c25c93deb88c300767b6cad5d8c70f9a9b888d7be82ab4efef9abc",
+      "docs/deployments/first-song-managed-20261105.application-plan-v5.json": "0xf0b0e597a6438f95eb61cd9a8ee41be9e83cb352bb84f9c9be86af421deec7fc",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v4.json": "0x700d58a8eeb699efcbde1ed9a397d46d289706e626f9794af083ff9b8a84b2ea",
       "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xcb971a0188b3320c5c50d62ab4201b6e752f7170996cd4802fd2ad92a496b29a",
       "docs/deployments/first-song-managed-20261105.release-grant.json": "0x4c1ffbf7194027ee1e4250537207ad2d2f70cc1de21f0c19502235922f7f1e30",
       "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
-      "harness/community-package.ts": "0xbcc75541ea89b6f0b784b5e2c964efe2a80693721e1e7cb84b35c34dc82b593c",
+      "harness/community-package.ts": "0x44de10abae6d86575ae345bae2d4a926ec5006b7d641bf72645f03c03a86f0b2",
       "harness/community-release.ts": "0x0f403fd8879ca54fad744b4da87ec90bdbb6d1760ac9935b56fa514f6b4656ac",
       "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
@@ -136,7 +136,7 @@
       "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
       "packages/release/artifacts.ts": "0xc47a4fe7eb61a95df4f4a4bd9b10aee46ba9fb9573a1a7468adfb43eb1e1dfb0",
       "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
-      "services/community-application.ts": "0xb50e10c0541a7fea91912dc37e1a4187474e6372d36851f8cbb8b4e68907cdc6",
+      "services/community-application.ts": "0x0e54355eda5411e8c13584a914491171da8d33b8c7a90ae8072886975878031c",
       "services/community-jobs.ts": "0x25e4580a5db4ebf0cc0bb090b1d284d3488597de5d4e1d09c52241f02925cf02",
       "services/community-public.ts": "0x08808caddbe7b92c737bd67c905db44e9fe555ba6902445749dccc47b135502c",
       "services/community-release-api.ts": "0xfaa41bd594f903117447027a695efd7a9ab9ea3673c32b68af1f16ffbcc00ef6",
@@ -145,8 +145,8 @@
       "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
       "services/first-song-runtime.ts": "0x12698f50e1e22534585f1ba638cf4a93259c06e53e6e325d93cd3fe889d613a0"
     },
-    "bundleSha256": "0x733e58507908cd648e50ba9278aed362ef731eaa15c107659b3271581f49a5c8",
-    "bundleBytes": 816550,
+    "bundleSha256": "0x47051f2a9882201994f223bd017815aa115cb89028d142324a90009b3be402cf",
+    "bundleBytes": 816552,
     "assets": {
       ".vite/manifest.json": "0x357f49679197652bd1ccf24ccc00df2f43a66648b5f32751f55d7627ac1919eb",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
@@ -204,10 +204,10 @@
     },
     "creatorProfileHash": "0x052fe4c74994bb7141615561ec48af185ed7a6898c2f00f765cef2972f7de43b",
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v4.json",
-      "previousProfileHash": "0xc6f18ae76a7311a1852fb0a987f1b74ae3ff13ba4aeadda10d1c622d822748f6",
-      "expectedExecutionSha256": "0xa9231f0a6d1d27fa4c10ee1391da0d2c41412087dfb804476fe8947196d1e2e5",
-      "expectedResultSha256": "0xf3fb23200e78609b16ff8713aed114b69957e75275bb32408ee871dfd3024a5f"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v5.json",
+      "previousProfileHash": "0x4478ffd922ad101316e72654fe924d6e7a3c5d1c6a87ff87a2955a2f598e01aa",
+      "expectedExecutionSha256": "0xbc87b82a312b04598fccee1ac6aff92d25aa820e4f732994cc6f1a2d0a8deed7",
+      "expectedResultSha256": "0x7b75529c65514a0279301289fa9e568dcfb1cb1d2262ec12bc2769bb5405a311"
     },
     "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     "credentialBinding": {

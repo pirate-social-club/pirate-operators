@@ -236,6 +236,7 @@ test("application separates bootstrap from directory manifest, serves assets wit
     };
     const page = await f.call("/");
     assert.equal(page.status, 200);
+    assert.equal(page.headers.get("referrer-policy"), "strict-origin");
     assert.match(
       page.headers.get("content-security-policy")!,
       /frame-src https:\/\/\*\.megaeth.com/,
