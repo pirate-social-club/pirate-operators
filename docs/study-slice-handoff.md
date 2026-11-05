@@ -104,6 +104,9 @@ it as the placeholder LearningRecords song key. The song coordinator owns the
 canonical record mapping, timing revisions and Karaoke prerequisites. The MOSS
 consent lane owns activation and publication consent. Later public publication
 must preserve the original attempt identity, time, line revision and policy.
+Component timestamps are Unix milliseconds. A later chain publisher must
+explicitly map them to the contract clock and retain the original qualification
+period rather than assigning the later publication time.
 
 ## Recovery and operational bounds
 
