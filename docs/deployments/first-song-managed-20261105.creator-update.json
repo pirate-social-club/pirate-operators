@@ -1,0 +1,136 @@
+{
+  "profileHash": "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6",
+  "before": {
+    "at": "2026-11-05T07:46:49.729Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "after": {
+    "at": "2026-11-05T07:47:50.134Z",
+    "database": "2cdb3ab0-e45f-4a63-9d65-da0a6f1dd0ed",
+    "workers": [
+      {
+        "workerId": "fc39d9a234914a2ca83ff43c542f1eb0",
+        "workerName": "pirate-wallet-test"
+      },
+      {
+        "workerId": "d767e34b050243019a34cf7ed7fb9179",
+        "workerName": "pirate-creator-spike"
+      }
+    ],
+    "quiescent": true
+  },
+  "health": [
+    {
+      "origin": "https://pirate-wallet-test.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6",
+        "testnet": true
+      }
+    },
+    {
+      "origin": "https://pirate-creator-spike.piratesocialclub.workers.dev",
+      "status": 200,
+      "body": {
+        "service": "pirate-native-creator/1",
+        "profileHash": "0x210c70d6a4c26b56647c6e4eb2d325b77a25d841506a42834ebef2801fea5fd6",
+        "testnet": true
+      }
+    }
+  ],
+  "logs": [
+    "1793864825329-creator-plan-ca42a1aa-a36f-4e54-9f85-591f3eedc72b.enc",
+    "1793864830845-creator-deploy-668448eb-cba4-48ec-b8b4-89456b23f576.enc"
+  ],
+  "historicalState": "original preserved unchanged; separate encrypted successor scanned",
+  "nativeTransactions": 0,
+  "providerRequests": 0,
+  "schema": "pirate.native-creator-update/1",
+  "sourceCommit": "71eda08bd3b11ec38166cdc100787206b3ec506a",
+  "predecessorProfileHash": "0xae814c25d199ceace77150841573df2549da2a3c08df6015b05fcc6c95be6d3d",
+  "originalExecutionSha256": "0x55f999f9e9424229e1f8da5f2b5a226b1df070f7892e02e140f024f5d43f6d2d",
+  "workerModules": {
+    "ika.wasm": "0xaec420e5f58dffa5977634cf34a6a6aa7fe77a522567e38b07067e949f4488da",
+    "index.js": "0xbbf4e853f07556c5bca8c5af56aaf95cdc32d27b393d6e68c5e58dfa300c5242"
+  },
+  "acceptance": "Owned source update and migrations only; live MOSS, new-community passkey exchange and first-song remain separate acceptance",
+  "schemaReadback": [
+    [
+      {
+        "name": "__alchemy_migrations"
+      },
+      {
+        "name": "_cf_KV"
+      },
+      {
+        "name": "activation_recovery"
+      },
+      {
+        "name": "attempts"
+      },
+      {
+        "name": "bindings"
+      },
+      {
+        "name": "challenges"
+      },
+      {
+        "name": "creator_request_nonces"
+      },
+      {
+        "name": "credentials"
+      },
+      {
+        "name": "links"
+      },
+      {
+        "name": "operator_lock"
+      },
+      {
+        "name": "scoped_creator_claims"
+      },
+      {
+        "name": "scoped_creator_connections"
+      },
+      {
+        "name": "sessions"
+      },
+      {
+        "name": "signature_preparations"
+      },
+      {
+        "name": "signatures"
+      },
+      {
+        "name": "submissions"
+      }
+    ],
+    [
+      {
+        "active": 1
+      }
+    ],
+    [
+      {
+        "confirmed": 4
+      }
+    ],
+    [
+      {
+        "claims": 0
+      }
+    ]
+  ]
+}
