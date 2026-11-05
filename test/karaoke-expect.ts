@@ -78,6 +78,14 @@ function matchers(actual: unknown, negate: boolean) {
       if (negate) return check(same(actual, expected), true, "toEqual");
       assert.deepStrictEqual(defined(actual), defined(expected));
     },
+    toHaveLength: (length: number) =>
+      check(
+        (actual as { length: number }).length === length,
+        negate,
+        `toHaveLength ${length} (got ${(actual as { length: number }).length})`,
+      ),
+    toBeUndefined: () =>
+      check(actual === undefined, negate, `${String(actual)} toBeUndefined`),
     toBeNull: () =>
       check(actual === null, negate, `${String(actual)} toBeNull`),
     toBeCloseTo: (expected: number, digits = 2) =>
@@ -102,7 +110,7 @@ function matchers(actual: unknown, negate: boolean) {
         negate,
         `toMatch ${String(pattern)}`,
       ),
-    toThrow: (expected?: string | RegExp) => {
+    toThrow: (expected?: string | RegExp | (new (...args: any[]) => Error)) => {
       let thrown: unknown;
       try {
         (actual as () => unknown)();
@@ -115,7 +123,9 @@ function matchers(actual: unknown, negate: boolean) {
         (expected === undefined ||
           (typeof expected === "string"
             ? text.includes(expected)
-            : expected.test(text)));
+            : typeof expected === "function"
+              ? thrown instanceof expected
+              : expected.test(text)));
       check(pass, negate, `toThrow ${String(expected)} (got ${text})`);
     },
     toHaveBeenCalled: () =>
@@ -158,4 +168,10 @@ export const vi = {
     mock.timers.tick(ms);
     for (let i = 0; i < 10; i++) await Promise.resolve();
   },
+};
+
+/** The one Bun runtime helper the adopted tests call. */
+export const Bun = {
+  sleep: (ms: number) =>
+    new Promise<void>((resolve) => setTimeout(resolve, ms)),
 };
