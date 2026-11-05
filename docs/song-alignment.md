@@ -46,3 +46,17 @@ test proves that a redirect response is retained and the API key is never
 forwarded to its destination. The remaining source tests cover multipart vocal
 bytes, digest/probe checks, transcript and occurrence integrity, concurrent
 wakes, unknown outcomes, and restart after receipt retention.
+
+The private vocal helper is also offline. Its five-minute-maximum read capability
+is signed by the existing managed evidence signer and bound to the exact current
+configuration, both origins, published post/revision and vocal seal. It requires
+the published private job and fresh canonical public-post/configuration reads
+before lookup and again at delivery. Expiry is checked after the D1 lookup before
+starting R2 access, and synchronously after the final authority read. Changes
+during awaited D1/R2 operations cannot return private bytes under stale authority.
+
+Future runtime wiring must keep the expected origin, current configuration and
+signing role server-controlled, gate capability issuance by the exact finite
+post/lyric grant, and hash/probe downloaded vocal bytes before the provider send.
+A read capability, community session or provider key alone cannot authorize an
+alignment purchase. No route or deployed service currently imports this helper.
