@@ -15,6 +15,7 @@ import {
   text,
 } from "../community/common.ts";
 import { address, RELEASE_POLICY } from "../community/manifest-core.ts";
+import { OWNER_POLICY_VERSION } from "../community/owner-policy.ts";
 
 export const evidenceDomain = {
   name: "Pirate Operators",
@@ -91,7 +92,9 @@ export function validateEvidence(value: unknown): EvidenceRecord {
   insist(
     Object.hasOwn(evidenceSchemas, check) &&
       e.schema === evidenceSchemas[check] &&
-      e.policy === RELEASE_POLICY,
+      (e.policy === RELEASE_POLICY ||
+        (e.policy === OWNER_POLICY_VERSION &&
+          check === "audio.identification")),
     "unsupported_evidence",
   );
   const envelope: Evidence = {
@@ -103,7 +106,7 @@ export function validateEvidence(value: unknown): EvidenceRecord {
     subject: bytes32(e.subject),
     inputsHash: bytes32(e.inputsHash),
     evaluator: text(e.evaluator, 256),
-    policy: RELEASE_POLICY,
+    policy: String(e.policy),
     result: text(e.result, 64),
     detailsHash: bytes32(e.detailsHash),
     issuedAt: integer(e.issuedAt, 1, Number.MAX_SAFE_INTEGER),

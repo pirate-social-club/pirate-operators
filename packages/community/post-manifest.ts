@@ -19,6 +19,11 @@ import {
   type PublicationIdentity,
 } from "./manifest-core.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
+import {
+  ownerCurated,
+  OWNER_POLICY_VERSION,
+  OWNER_POLICY_HASH,
+} from "./owner-policy.ts";
 
 export interface MediaReference {
   role: "audio" | "lyrics" | "artwork";
@@ -86,7 +91,7 @@ export function validateRegistration(value: unknown): RegistrationReceipt {
   };
 }
 export interface PostManifest extends PublicationIdentity {
-  schema: "pirate.community-post/1";
+  schema: "pirate.community-post/1" | "pirate.community-post/2";
   authorId: Hex;
   kind: "song";
   revision: number;
@@ -103,27 +108,35 @@ export interface PostManifest extends PublicationIdentity {
     rating: "general" | "adult";
     coverDisplayed: boolean;
     evidenceSha256: Hex;
+    automatedContent?: "deferred";
+    declarationSource?: "operator_declared";
   };
   registration: RegistrationReceipt;
 }
 export function validatePost(value: unknown): PostManifest {
-  const o = schema(value, "pirate.community-post/1", [
-    "chainId",
-    "postsContract",
-    "communityId",
-    "postId",
-    "authorId",
-    "kind",
-    "revision",
-    "configurationRevision",
-    "publishedAt",
-    "title",
-    "language",
-    "rating",
-    "media",
-    "admission",
-    "registration",
-  ]);
+  const raw = object(value),
+    curated = raw.schema === "pirate.community-post/2";
+  const o = schema(
+    value,
+    curated ? "pirate.community-post/2" : "pirate.community-post/1",
+    [
+      "chainId",
+      "postsContract",
+      "communityId",
+      "postId",
+      "authorId",
+      "kind",
+      "revision",
+      "configurationRevision",
+      "publishedAt",
+      "title",
+      "language",
+      "rating",
+      "media",
+      "admission",
+      "registration",
+    ],
+  );
   insist(
     o.kind === "song" && (o.rating === "general" || o.rating === "adult"),
     "unsupported_post",
@@ -136,10 +149,16 @@ export function validatePost(value: unknown): PostManifest {
     "rating",
     "coverDisplayed",
     "evidenceSha256",
+    ...(curated ? ["automatedContent", "declarationSource"] : []),
   ]);
   insist(
-    admission.policyVersion === RELEASE_POLICY &&
-      admission.policySha256 === RELEASE_POLICY_HASH &&
+    (curated
+      ? admission.policyVersion === OWNER_POLICY_VERSION &&
+        admission.policySha256 === OWNER_POLICY_HASH &&
+        admission.automatedContent === "deferred" &&
+        admission.declarationSource === "operator_declared"
+      : admission.policyVersion === RELEASE_POLICY &&
+        admission.policySha256 === RELEASE_POLICY_HASH) &&
       admission.decision === "publish" &&
       admission.rating === o.rating &&
       typeof admission.coverDisplayed === "boolean",
@@ -199,7 +218,7 @@ export function validatePost(value: unknown): PostManifest {
   );
   return {
     ...identity(o),
-    schema: "pirate.community-post/1",
+    schema: curated ? "pirate.community-post/2" : "pirate.community-post/1",
     authorId: bytes32(o.authorId),
     kind: "song",
     revision: integer(o.revision, 1, Number.MAX_SAFE_INTEGER),
@@ -215,12 +234,18 @@ export function validatePost(value: unknown): PostManifest {
     media,
     registration,
     admission: {
-      policyVersion: RELEASE_POLICY,
-      policySha256: RELEASE_POLICY_HASH,
+      policyVersion: curated ? OWNER_POLICY_VERSION : RELEASE_POLICY,
+      policySha256: curated ? OWNER_POLICY_HASH : RELEASE_POLICY_HASH,
       decision: "publish",
       rating: o.rating,
       coverDisplayed: admission.coverDisplayed,
       evidenceSha256: bytes32(admission.evidenceSha256),
+      ...(curated
+        ? {
+            automatedContent: "deferred" as const,
+            declarationSource: "operator_declared" as const,
+          }
+        : {}),
     },
   };
 }
@@ -239,6 +264,13 @@ export function validatePostForEvent(
   config: CommunityConfig,
 ): PostManifest {
   const post = validatePost(value);
+  insist(
+    post.admission.policyVersion === config.policies.admission.version &&
+      post.admission.policySha256 === config.policies.admission.sha256 &&
+      (post.schema === "pirate.community-post/2") ===
+        ownerCurated(config.policies.admission),
+    "post_admission_policy_mismatch",
+  );
   insist(event.kind === 0, "unsupported_post_event_kind");
   insist(
     hashJson(post) === event.manifestSha256,

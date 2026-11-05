@@ -8,7 +8,14 @@ import {
   type CommunityUploadView,
   type CommunitySessionView,
 } from "./api.ts";
-import { audioHash, clearDraft, readDraft, saveDraft, type SongDraft } from "./draft.ts";
+import {
+  audioHash,
+  clearDraft,
+  readDraft,
+  saveDraft,
+  type SongDraft,
+} from "./draft.ts";
+import { StemUploads, uploadStemFiles } from "./stem-upload.tsx";
 
 const phaseText: Record<string, string> = {
   reserved: "Draft saved. Continue to upload your recording.",
@@ -37,6 +44,8 @@ export function SongUpload(props: {
     [title, setTitle] = createSignal(""),
     [lyrics, setLyrics] = createSignal(""),
     [file, setFile] = createSignal<File | null>(null),
+    [instrumental, setInstrumental] = createSignal<File | null>(null),
+    [vocals, setVocals] = createSignal<File | null>(null),
     [consent, setConsent] = createSignal(false),
     [uploads, setUploads] = createSignal<CommunityUploadView[]>([]),
     [jobs, setJobs] = createSignal<Record<string, CommunityJobView>>({}),
@@ -93,8 +102,16 @@ export function SongUpload(props: {
     let saved = draft();
     if (!saved) {
       const recording = file();
-      if (!recording || !title().trim() || !consent())
-        throw new Error("Add a title, an MP3 and your publication consent.");
+      if (
+        !recording ||
+        !instrumental() ||
+        !vocals() ||
+        !title().trim() ||
+        !consent()
+      )
+        throw new Error(
+          "Add a title, recording, instrumental, vocals and your publication consent.",
+        );
       if (
         !recording.size ||
         recording.size > 25 * 1024 * 1024 ||
@@ -109,6 +126,8 @@ export function SongUpload(props: {
         language: "en",
         lyrics: lyrics(),
         file: recording,
+        instrumental: instrumental()!,
+        vocals: vocals()!,
         audioSha256: await audioHash(recording),
         acceptedPolicy: props.policy,
       };
@@ -140,6 +159,12 @@ export function SongUpload(props: {
       await putAudio(
         `/api/uploads/${saved.submissionId}/audio`,
         saved.file,
+        props.session.csrf,
+      );
+      setMessage("Uploading your instrumental and vocal stems…");
+      await uploadStemFiles(
+        saved.submissionId!,
+        { instrumental: saved.instrumental, vocals: saved.vocals },
         props.session.csrf,
       );
       setMessage("Submitting your recording for moderation…");
@@ -181,7 +206,11 @@ export function SongUpload(props: {
   return (
     <section class="live-upload">
       <h2>Release a song</h2>
-      <Show when={!draft()?.jobId}>
+      <Show
+        when={
+          !draft()?.jobId && !props.policy.startsWith("pirate-owner-curated/")
+        }
+      >
         <label>
           Song title
           <input
@@ -206,6 +235,33 @@ export function SongUpload(props: {
           {(saved) => (
             <p class="live-muted">Saved recording: {saved().file.name}</p>
           )}
+        </Show>
+        <Show when={!draft()}>
+          <label>
+            Instrumental
+            <input
+              aria-label="Instrumental"
+              type="file"
+              accept="audio/mpeg,.mp3"
+              disabled={busy()}
+              onChange={(e) =>
+                setInstrumental(e.currentTarget.files?.[0] ?? null)
+              }
+            />
+          </label>
+          <label>
+            Vocals
+            <input
+              aria-label="Vocals"
+              type="file"
+              accept="audio/mpeg,.mp3"
+              disabled={busy()}
+              onChange={(e) => setVocals(e.currentTarget.files?.[0] ?? null)}
+            />
+          </label>
+          <p class="live-muted">
+            Add both MP3 stems. Vocals are used to align your supplied lyrics.
+          </p>
         </Show>
         <label>
           Lyrics
@@ -237,7 +293,12 @@ export function SongUpload(props: {
             busy() ||
             !props.enabled ||
             !props.session.creator ||
-            (!draft() && (!file() || !title().trim() || !consent()))
+            (!draft() &&
+              (!file() ||
+                !instrumental() ||
+                !vocals() ||
+                !title().trim() ||
+                !consent()))
           }
           onClick={() => void run(release)}
         >
@@ -249,6 +310,7 @@ export function SongUpload(props: {
       </p>
       <Show
         when={
+          !props.policy.startsWith("pirate-owner-curated/") &&
           draft()?.jobId &&
           ["held", "failed", "published"].includes(
             jobs()[draft()!.jobId!]?.phase ?? "",
@@ -264,6 +326,8 @@ export function SongUpload(props: {
               setTitle("");
               setLyrics("");
               setFile(null);
+              setInstrumental(null);
+              setVocals(null);
               setConsent(false);
               setMessage(
                 "Start a new release. Your earlier release and its status stay saved.",
@@ -284,6 +348,11 @@ export function SongUpload(props: {
                 {phaseText[job()?.phase ?? upload.state] ??
                   "Your release is saved."}
               </p>
+              <StemUploads
+                submissionId={upload.submissionId}
+                authorId={props.session.authorId}
+                csrf={props.session.csrf}
+              />
               <Show when={job()?.resumable}>
                 <Button
                   disabled={busy() || !props.enabled}

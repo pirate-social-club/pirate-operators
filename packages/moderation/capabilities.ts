@@ -57,6 +57,7 @@ function capability(
 export function admissionRequest(
   value: unknown,
   pairing: ManagedPairing,
+  recognitionOnly = false,
 ): AdmissionRequest {
   const r = object(value);
   exact(r, [
@@ -99,8 +100,12 @@ export function admissionRequest(
       : capability(inputs.lyrics, pairing, submissionId, "lyrics", 131072);
   const checks: EvidenceCheck[] = [
     "audio.identification",
-    "title.rating",
-    ...(lyrics ? ["lyrics.classification" as const] : []),
+    ...(!recognitionOnly
+      ? [
+          "title.rating" as const,
+          ...(lyrics ? ["lyrics.classification" as const] : []),
+        ]
+      : []),
   ];
   insist(
     hashJson(r.checks) === hashJson(checks),

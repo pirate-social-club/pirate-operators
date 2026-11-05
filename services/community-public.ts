@@ -82,6 +82,12 @@ export async function publicSongViews(
         title: post.title,
         language: post.language,
         rating: post.rating,
+        ...(post.schema === "pirate.community-post/2"
+          ? {
+              declarationSource: post.admission.declarationSource,
+              automatedContent: post.admission.automatedContent,
+            }
+          : {}),
       },
       audioUrl: `/api/public/posts/${post.postId}/audio`,
       postUrl: `/#song-${post.postId}`,

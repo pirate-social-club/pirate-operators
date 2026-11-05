@@ -9,6 +9,14 @@ import {
   sealSubmission,
 } from "../packages/community/submissions.ts";
 import { uploadAudio } from "../packages/community/uploads.ts";
+import {
+  reserveStem,
+  uploadStem,
+  requireStems,
+  submissionStems,
+  stemView,
+  type StemSlot,
+} from "../packages/community/stems.ts";
 import { publicationExecutionProfile } from "../packages/community/publication-profile.ts";
 import { resumeUncertainJob } from "../packages/community/publication-store.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
@@ -22,6 +30,8 @@ import {
 } from "./first-song-driver.ts";
 
 import type { PublicationWakeQueue } from "./community-jobs.ts";
+import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
+import { ownerCurated } from "../packages/community/owner-policy.ts";
 
 interface ReleaseApiEnv {
   DB: D1Database;
@@ -43,13 +53,54 @@ export async function communityReleaseApi(
     upload = /^\/api\/uploads\/([a-f0-9-]{36})\/(audio|seal)$/.exec(
       url.pathname,
     ),
+    stem =
+      /^\/api\/uploads\/([a-f0-9-]{36})\/stems(?:\/(instrumental|vocals))?$/.exec(
+        url.pathname,
+      ),
     job = /^\/api\/jobs\/([^/]+)(\/resume)?$/.exec(url.pathname);
-  if (url.pathname !== "/api/uploads" && !upload && !job) return null;
+  if (url.pathname !== "/api/uploads" && !upload && !job && !stem) return null;
   insist(!url.search, "invalid_request", 400);
   const read = request.method === "GET",
     session = read
       ? await accountSession(request, env.DB, context)
       : await authenticatedWrite(request, env.DB, context);
+  if (stem) {
+    if (!read)
+      await requireCuratedOwner(env.DB, (await ready()).config, session.wallet);
+    const id = stem[1]!,
+      slot = stem[2] as StemSlot | undefined;
+    const owned = await env.DB.prepare(
+      "SELECT submission_id FROM media_submissions WHERE submission_id=? AND account_id=?",
+    )
+      .bind(id, session.account_id)
+      .first();
+    insist(owned, "submission_not_found", 404);
+    if (!slot) {
+      insist(read, "method_not_allowed", 405);
+      return reply({ stems: stemView(await submissionStems(env.DB, id)) });
+    }
+    if (request.method === "POST") {
+      const row = await reserveStem(
+        env.DB,
+        session.account_id,
+        id,
+        slot,
+        await jsonBody(request),
+      );
+      return reply({ stem: stemView([row])[0] }, 201);
+    }
+    insist(request.method === "PUT", "method_not_allowed", 405);
+    return reply(
+      await uploadStem(
+        env.DB,
+        env.MEDIA,
+        session.account_id,
+        id,
+        slot,
+        request,
+      ),
+    );
+  }
   if (url.pathname === "/api/uploads" && read) {
     const rows = await env.DB.prepare(
       "SELECT s.submission_id,s.post_id,s.metadata_json,COALESCE(j.phase,s.upload_state) AS state,j.job_id FROM media_submissions s LEFT JOIN publication_jobs j ON j.submission_id=s.submission_id WHERE s.account_id=? ORDER BY s.created_at DESC,s.submission_id DESC LIMIT 20",
@@ -94,6 +145,7 @@ export async function communityReleaseApi(
       );
       exact(await jsonBody(request), []);
       const runtime = await ready();
+      await requireCuratedOwner(env.DB, runtime.config, session.wallet);
       await resumeFirstSongAdmission(runtime.ports, id);
       await resumeUncertainJob(env.DB, id, session.account_id);
       await env.JOBS.send({ jobId: id });
@@ -134,7 +186,13 @@ export async function communityReleaseApi(
       moderationSigner: config.policies.moderationSigner,
       execution: publicationExecutionProfile(ports),
     };
+  await requireCuratedOwner(env.DB, config, session.wallet);
   if (url.pathname === "/api/uploads") {
+    insist(
+      !ownerCurated(config.policies.admission),
+      "owner_release_already_submitted",
+      409,
+    );
     const row = await reserveSubmission(
       env.DB,
       session,
@@ -153,6 +211,7 @@ export async function communityReleaseApi(
   }
   insist(upload?.[2] === "seal", "not_found", 404);
   exact(await jsonBody(request), []);
+  await requireStems(env.DB, env.MEDIA, upload[1]!);
   const sealed = await sealSubmission(
     env.DB,
     env.MEDIA,

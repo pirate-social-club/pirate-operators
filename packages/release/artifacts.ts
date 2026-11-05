@@ -9,6 +9,7 @@ import {
   RELEASE_POLICY,
   RELEASE_POLICY_HASH,
 } from "../community/manifest-core.ts";
+import { ownerCurated } from "../community/owner-policy.ts";
 import type { AdmittedRelease } from "./authority.ts";
 import type { RetainedPin } from "./pin-operations.ts";
 
@@ -48,7 +49,9 @@ export async function releaseArtifact(
   const { context, grant, config, prepared } = release;
   let bytes: Uint8Array;
   if (role === "audio") {
-    const object = await media.get(`admissions/${context.admissionId}/audio`);
+    const object = await media.get(
+      `admissions/${release.sourceAdmissionId ?? context.admissionId}/audio`,
+    );
     insist(object, "retained_release_audio_missing", 503);
     bytes = new Uint8Array(await object.arrayBuffer());
   } else if (role === "lyrics") bytes = encode(context.lyrics);
@@ -113,7 +116,9 @@ export async function releaseArtifact(
       );
       bytes = encode(
         validatePost({
-          schema: "pirate.community-post/1",
+          schema: ownerCurated(config.policies.admission)
+            ? "pirate.community-post/2"
+            : "pirate.community-post/1",
           ...identity,
           kind: "song",
           revision: 1,
@@ -133,13 +138,19 @@ export async function releaseArtifact(
             mediaType,
           })),
           admission: {
-            policyVersion: RELEASE_POLICY,
-            policySha256: RELEASE_POLICY_HASH,
+            policyVersion: config.policies.admission.version,
+            policySha256: config.policies.admission.sha256,
             decision: "publish",
             rating:
               release.decision.rating === "adult_18" ? "adult" : "general",
             coverDisplayed: false,
             evidenceSha256: release.evidenceSha256,
+            ...(ownerCurated(config.policies.admission)
+              ? {
+                  automatedContent: "deferred",
+                  declarationSource: "operator_declared",
+                }
+              : {}),
           },
           registration,
         }),

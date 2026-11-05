@@ -26,6 +26,10 @@ async function serve(
     sealed = false;
   const keys = new Set<string>(),
     stored = new Set<string>();
+  const stemRows = new Map<
+    string,
+    { slot: string; state: string; sha256: string; byteLength: number }
+  >();
   type Upload = {
     submissionId: string;
     postId: string;
@@ -111,7 +115,37 @@ async function serve(
       }
       return json({ uploaded: true });
     }
+    const stem =
+      /^\/api\/uploads\/([^/]+)\/stems(?:\/(instrumental|vocals))?$/.exec(path);
+    if (releasing && stem) {
+      if (!stem[2])
+        return json({
+          stems: [...stemRows]
+            .filter(([key]) => key.startsWith(stem[1]! + "/"))
+            .map(([, row]) => row),
+        });
+      const key = stem[1] + "/" + stem[2];
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      if (request.method() === "POST") {
+        const input = request.postDataJSON(),
+          existing = stemRows.get(key);
+        if (existing) expect(existing.sha256).toBe(input.sha256);
+        else stemRows.set(key, { slot: stem[2], state: "reserved", ...input });
+        return json({ stem: stemRows.get(key) }, 201);
+      }
+      expect(request.method()).toBe("PUT");
+      const row = stemRows.get(key)!;
+      expect(row).toBeTruthy();
+      expect(request.postDataBuffer()!.length).toBe(row.byteLength);
+      row.state = "sealed";
+      return json({ sealed: true });
+    }
     if (releasing && path === `/api/uploads/${submissionId}/seal`) {
+      expect(
+        ["instrumental", "vocals"].every(
+          (slot) => stemRows.get(submissionId + "/" + slot)?.state === "sealed",
+        ),
+      ).toBe(true);
       sealed = true;
       return json({ jobId, postId }, 202);
     }
@@ -283,6 +317,12 @@ test("saved binary and release intent survive an interrupted upload and reload; 
     buffer: Buffer.from("ID3browser-local-upload-fixture"),
   });
   await page.getByRole("checkbox").check();
+  for (const slot of ["Instrumental", "Vocals"])
+    await page.getByLabel(slot, { exact: true }).setInputFiles({
+      name: slot + ".mp3",
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from("ID3" + slot + "-browser-fixture"),
+    });
   await page.getByRole("button", { name: "Submit song", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Continue saved release" }),
@@ -336,6 +376,15 @@ test("saved binary and release intent survive an interrupted upload and reload; 
     buffer: Buffer.from("ID3corrected-local-fixture"),
   });
   await page.getByRole("checkbox").check();
+  for (const slot of ["Instrumental", "Vocals"])
+    await page
+      .getByLabel(slot, { exact: true })
+      .first()
+      .setInputFiles({
+        name: slot + "-corrected.mp3",
+        mimeType: "audio/mpeg",
+        buffer: Buffer.from("ID3corrected-" + slot + "-browser-fixture"),
+      });
   await page.getByRole("button", { name: "Submit song", exact: true }).click();
   await expect(
     page.getByText(

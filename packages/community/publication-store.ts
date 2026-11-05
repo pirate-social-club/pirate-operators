@@ -66,7 +66,18 @@ export async function planOperation(
   time: number,
 ) {
   const requestHash = hashJson(request),
-    operationId = hashJson({ job: job.job_id, step });
+    amendment =
+      step === "admission"
+        ? await db
+            .prepare(
+              "SELECT successor_operation_id FROM publication_amendments WHERE job_id=?",
+            )
+            .bind(job.job_id)
+            .first<{ successor_operation_id: string }>()
+        : null,
+    storedStep = amendment ? "admission:owner-curated:1" : step,
+    operationId =
+      amendment?.successor_operation_id ?? hashJson({ job: job.job_id, step });
   await db
     .prepare(
       `INSERT INTO external_operations(operation_id,job_id,step,request_hash,request_json,status)
@@ -76,7 +87,7 @@ export async function planOperation(
     .bind(
       operationId,
       job.job_id,
-      step,
+      storedStep,
       requestHash,
       canonical(request),
       job.job_id,
@@ -86,14 +97,23 @@ export async function planOperation(
     .run();
   const operation = await db
     .prepare("SELECT * FROM external_operations WHERE job_id=? AND step=?")
-    .bind(job.job_id, step)
+    .bind(job.job_id, storedStep)
     .first<ExternalOperation>();
   insist(
     operation && operation.request_hash === requestHash,
     "operation_intent_changed",
     409,
   );
-  return operation;
+  return { ...operation, step };
+}
+export async function activeAdmissionOperation(db: D1Database, jobId: string) {
+  const row = await db
+    .prepare(
+      "SELECT o.* FROM external_operations o WHERE o.operation_id=COALESCE((SELECT successor_operation_id FROM publication_amendments WHERE job_id=?),(SELECT operation_id FROM external_operations WHERE job_id=? AND step='admission'))",
+    )
+    .bind(jobId, jobId)
+    .first<ExternalOperation>();
+  return row ? { ...row, step: "admission" as const } : null;
 }
 export async function prepareOperation(
   db: D1Database,

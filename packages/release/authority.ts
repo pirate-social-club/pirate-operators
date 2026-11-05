@@ -15,6 +15,8 @@ import {
 import { configureBudget, reserveBudget } from "../community/budgets.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import { getAdmission } from "../moderation/admission-store.ts";
+import { selectedAdmission } from "../moderation/curated-admission.ts";
+import { ownerCurated, OWNER_POLICY } from "../community/owner-policy.ts";
 import {
   verifyAdmission,
   type AdmissionDecision,
@@ -55,6 +57,7 @@ export interface AdmittedRelease {
   decision: AdmissionDecision;
   evidenceSha256: string;
   createdAt: number;
+  sourceAdmissionId?: string;
 }
 export async function establishRelease(
   db: D1Database,
@@ -129,11 +132,22 @@ export async function establishRelease(
       created_at: number;
     }>();
   if (mode === "reconcile" && !prior) return null;
-  const admission = await getAdmission(
-    db,
-    context.admissionId,
-    config.communityId,
-  );
+  const selected = await selectedAdmission(db, context.admissionId, config),
+    admission = selected.admission;
+  if (selected.curation) {
+    const a = selected.curation.amendment;
+    insist(
+      a.execution.grantHash === grant.sha256 &&
+        a.postId === context.postId &&
+        a.authorId === context.authorId &&
+        a.recipient === context.recipient &&
+        a.contentSha256 === grant.contentSha256 &&
+        a.expiresAt === grant.expiresAt &&
+        a.language === context.lyrics.language,
+      "curated_release_scope_mismatch",
+      409,
+    );
+  }
   insist(
     admission.job_id === context.jobId &&
       admission.state === "complete" &&
@@ -162,14 +176,20 @@ export async function establishRelease(
       title: prepared.title,
       lyrics: prepared.lyrics,
       songType: "original",
-      declaredRating: "general",
+      declaredRating: selected.curation?.amendment.rating ?? "general",
       windows: prepared.windows.map(
         ({ objectKey, byteLength, ...window }) => window,
       ),
       providerEndpoint,
     },
     result.evidence as EvidenceRecord[],
-    { operators: [config.policies.moderationSigner], maxAgeSeconds: 3600 },
+    {
+      operators: [config.policies.moderationSigner],
+      maxAgeSeconds: ownerCurated(config.policies.admission)
+        ? OWNER_POLICY.recognition.maximumAgeSeconds
+        : 3600,
+      policyVersion: config.policies.admission.version,
+    },
     mode === "reconcile" ? prior!.created_at : now,
   );
   insist(
@@ -222,5 +242,7 @@ export async function establishRelease(
     decision,
     evidenceSha256,
     createdAt: saved.created_at,
+    sourceAdmissionId:
+      selected.curation?.amendment.originalAdmissionId ?? context.admissionId,
   };
 }

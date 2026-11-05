@@ -141,6 +141,37 @@ test("authenticated release HTTP retains one upload/job through reload and queue
       ))!.status,
       200,
     );
+    assert.equal(
+      (await call(
+        `/api/uploads/${row.submissionId}/seal`,
+        "POST",
+        "{}",
+        headers,
+      ))!.status,
+      409,
+    );
+    for (const slot of ["instrumental", "vocals"]) {
+      const path = `/api/uploads/${row.submissionId}/stems/${slot}`;
+      assert.equal(
+        (await call(
+          path,
+          "POST",
+          JSON.stringify({
+            sha256: sha256(f.managed.audio),
+            byteLength: f.managed.audio.length,
+          }),
+          headers,
+        ))!.status,
+        201,
+      );
+      assert.equal(
+        (await call(path, "PUT", f.managed.audio, {
+          ...auth,
+          "content-type": "audio/mpeg",
+        }))!.status,
+        200,
+      );
+    }
     const sealed = (await (await call(
       `/api/uploads/${row.submissionId}/seal`,
       "POST",
@@ -220,6 +251,24 @@ test("authenticated release HTTP retains one upload/job through reload and queue
     assert.deepEqual(
       await (await call("/api/uploads", "GET", undefined, otherAuth))!.json(),
       { uploads: [] },
+    );
+    assert.equal(
+      (await call(
+        `/api/uploads/${row.submissionId}/stems`,
+        "GET",
+        undefined,
+        otherAuth,
+      ))!.status,
+      404,
+    );
+    assert.equal(
+      (await call(
+        `/api/uploads/${row.submissionId}/stems/vocals`,
+        "PUT",
+        f.managed.audio,
+        { ...otherAuth, "content-type": "audio/mpeg" },
+      ))!.status,
+      404,
     );
     const empty = await call("/api/uploads");
     assert.ok((await empty!.text()).includes(row.submissionId));

@@ -4,6 +4,7 @@ import { managedRequest, type ManagedClient } from "./managed-client.ts";
 import type { PublicationInput } from "./publication-input.ts";
 import type { OperationResult, Reconciliation } from "./publication.ts";
 import { verifyAdmission } from "../moderation/admission.ts";
+import { ownerCurated, OWNER_POLICY } from "./owner-policy.ts";
 
 async function interpretAdmission(
   input: PublicationInput,
@@ -41,14 +42,30 @@ async function interpretAdmission(
     };
   insist(body.state === "complete", "unsupported_admission_state", 503);
   const result = object(body.result);
+  const curated = ownerCurated(client.configuration.policies.admission);
   insist(
-    result.schema === "pirate.managed-admission/1" &&
+    result.schema ===
+      (curated ? "pirate.owner-admission/1" : "pirate.managed-admission/1") &&
       result.admissionId === expected &&
       Array.isArray(result.evidence) &&
       Array.isArray(result.windows),
     "invalid_completed_admission",
     503,
   );
+  if (curated)
+    insist(
+      input.amendment &&
+        result.amendmentSha256 === hashJson(input.amendment) &&
+        canonical(result.declarations) ===
+          canonical({
+            source: "operator_declared",
+            rating: input.amendment.amendment.rating,
+            language: input.amendment.amendment.language,
+          }) &&
+        result.automatedContent === "deferred",
+      "curated_declaration_changed",
+      409,
+    );
   const decision = await verifyAdmission(
     {
       communityId: client.configuration.communityId,
@@ -59,7 +76,7 @@ async function interpretAdmission(
       title: input.metadata.title,
       lyrics: input.metadata.lyrics.sourceText,
       songType: "original",
-      declaredRating: "general",
+      declaredRating: input.amendment?.amendment.rating ?? "general",
       windows: result.windows as Parameters<
         typeof verifyAdmission
       >[0]["windows"],
@@ -68,7 +85,10 @@ async function interpretAdmission(
     result.evidence,
     {
       operators: [client.configuration.policies.moderationSigner],
-      maxAgeSeconds: 3600,
+      maxAgeSeconds: curated
+        ? OWNER_POLICY.recognition.maximumAgeSeconds
+        : 3600,
+      policyVersion: client.configuration.policies.admission.version,
     },
     Math.floor(Date.now() / 1000),
   );
@@ -98,8 +118,9 @@ async function admissionBody(
     communityId: client.configuration.communityId,
     checks: [
       "audio.identification",
-      "title.rating",
-      ...(caps.lyrics ? ["lyrics.classification"] : []),
+      ...(!ownerCurated(client.configuration.policies.admission)
+        ? ["title.rating", ...(caps.lyrics ? ["lyrics.classification"] : [])]
+        : []),
     ],
     inputs: caps,
     declared: {

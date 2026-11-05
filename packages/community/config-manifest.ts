@@ -1,4 +1,5 @@
 import type { Address, Hex } from "viem";
+import { ownerCurated } from "./owner-policy.ts";
 import {
   bytes32,
   canonical,
@@ -88,8 +89,9 @@ export function validateConfig(
   const admission = object(policies.admission);
   exact(admission, ["version", "sha256"]);
   insist(
-    admission.version === RELEASE_POLICY &&
-      admission.sha256 === RELEASE_POLICY_HASH,
+    (admission.version === RELEASE_POLICY &&
+      admission.sha256 === RELEASE_POLICY_HASH) ||
+      ownerCurated(admission as { version: string; sha256: string }),
     "unsupported_admission_policy",
   );
   const tld = text(o.tld, 63),
@@ -151,7 +153,10 @@ export function validateConfig(
     },
     feed: { endpoint, signingKeyId: text(feed.signingKeyId, 128) },
     policies: {
-      admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+      admission: {
+        version: String(admission.version),
+        sha256: bytes32(admission.sha256),
+      },
       moderationSigner: address(policies.moderationSigner),
     },
     publisherRevocations: revocations,

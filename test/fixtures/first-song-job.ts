@@ -6,7 +6,10 @@ import { sha256 } from "viem";
 import { Effect } from "effect";
 import { communityRuntime } from "../community-runtime.ts";
 import { releaseFixture } from "./release-service.ts";
-import { publisher, configuration } from "./release-admission.ts";
+import {
+  publisher,
+  configuration as baselineConfiguration,
+} from "./release-admission.ts";
 import { releasePostsFixture } from "./release-posts.ts";
 import { hashText, publicId } from "../../packages/community/common.ts";
 import {
@@ -14,6 +17,11 @@ import {
   sealSubmission,
 } from "../../packages/community/submissions.ts";
 import { uploadAudio } from "../../packages/community/uploads.ts";
+import {
+  reserveStem,
+  uploadStem,
+  stemSlots,
+} from "../../packages/community/stems.ts";
 import { serveInputCapability } from "../../packages/community/input-capabilities.ts";
 import { publicationStep } from "../../packages/community/publication.ts";
 import type { ExternalOperation } from "../../packages/community/publication-store.ts";
@@ -30,8 +38,15 @@ import { firstSongDriver } from "../../services/first-song-driver.ts";
 import type { AccountSession } from "../../packages/community/accounts.ts";
 
 export async function firstSongJobFixture(
-  options: { loseFirstPinResponse?: boolean; responseLost?: boolean } = {},
+  options: {
+    loseFirstPinResponse?: boolean;
+    responseLost?: boolean;
+    controller?: `0x${string}`;
+  } = {},
 ) {
+  const configuration = options.controller
+    ? { ...baselineConfiguration, controller: options.controller }
+    : baselineConfiguration;
   const community = await communityRuntime(),
     managed = await releaseFixture(
       1001,
@@ -40,6 +55,11 @@ export async function firstSongJobFixture(
       false,
     );
   try {
+    if (options.controller) {
+      managed.config.currentConfiguration = async () => configuration;
+      managed.service.currentConfiguration = async () => configuration;
+      managed.config.pairings[0]!.controller = configuration.controller;
+    }
     // Explicit completed authentication/native-binding fixture. Their real
     // cryptography/device acceptance is owned by their separate tests and pilot.
     const session: AccountSession = {
@@ -150,6 +170,27 @@ export async function firstSongJobFixture(
         body: managed.audio,
       }),
     );
+    for (const slot of stemSlots) {
+      await reserveStem(
+        community.db,
+        session.account_id,
+        row.submission_id,
+        slot,
+        { sha256: sha256(managed.audio), byteLength: managed.audio.length },
+      );
+      await uploadStem(
+        community.db,
+        community.media,
+        session.account_id,
+        row.submission_id,
+        slot,
+        new Request(configuration.app.origin + "/fixture", {
+          method: "PUT",
+          headers: { "content-type": "audio/mpeg" },
+          body: managed.audio,
+        }),
+      );
+    }
     const sealed = await sealSubmission(
       community.db,
       community.media,
@@ -166,6 +207,7 @@ export async function firstSongJobFixture(
       );
     return {
       community,
+      configuration,
       managed,
       session,
       row,

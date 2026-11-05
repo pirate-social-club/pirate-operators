@@ -17,6 +17,8 @@ import { validateLyrics } from "./lyric-manifest.ts";
 import { loadJob } from "./publication-store.ts";
 import type { Submission, SongMetadata } from "./submissions.ts";
 import type { ReleaseContext } from "../release/authority.ts";
+import { selectedCuratedAmendment } from "./curated-amendment.ts";
+import { curatedAdmissionId } from "./curated-amendment.ts";
 
 export async function publicationInput(
   db: D1Database,
@@ -26,6 +28,8 @@ export async function publicationInput(
 ) {
   const job = await loadJob(db, jobId),
     authority = object(JSON.parse(job.authority_json));
+  const signed = await selectedCuratedAmendment(db, jobId, config),
+    originalConfig = signed?.amendment.originalConfiguration ?? config;
   const row = await db
     .prepare(
       "SELECT * FROM media_submissions WHERE submission_id=? AND upload_state='sealed'",
@@ -52,12 +56,13 @@ export async function publicationInput(
   const policy = object(authority.policy),
     creator = object(authority.creator);
   insist(
-    authority.chainId === config.chainId &&
-      authority.communityId === config.communityId &&
-      authority.postsContract === config.postsContract &&
-      authority.configurationRevision === config.configurationRevision &&
-      authority.publisher === config.publisher &&
-      authority.moderationSigner === config.policies.moderationSigner &&
+    authority.chainId === originalConfig.chainId &&
+      authority.communityId === originalConfig.communityId &&
+      authority.postsContract === originalConfig.postsContract &&
+      authority.configurationRevision ===
+        originalConfig.configurationRevision &&
+      authority.publisher === originalConfig.publisher &&
+      authority.moderationSigner === originalConfig.policies.moderationSigner &&
       authority.accountId === row.account_id &&
       authority.authorId === row.author_id &&
       authority.wallet === row.captured_wallet &&
@@ -95,16 +100,53 @@ export async function publicationInput(
   );
   const context: ReleaseContext = {
     jobId: job.job_id,
-    admissionId: hashJson({
-      communityId: config.communityId,
-      jobId: job.job_id,
-    }),
+    admissionId: signed
+      ? curatedAdmissionId(config.communityId, job.job_id)
+      : hashJson({
+          communityId: config.communityId,
+          jobId: job.job_id,
+        }),
     postId: row.post_id,
     authorId: row.author_id,
     recipient: address(creator.evm_address),
     lineage: "root",
     lyrics: metadata.lyrics,
   };
+  if (signed) {
+    const a = signed.amendment,
+      originalExecution = object(authority.execution);
+    insist(
+      originalExecution.configurationSha256 === hashJson(originalConfig),
+      "curated_predecessor_configuration_changed",
+      409,
+    );
+    const previous = await db
+      .prepare(
+        "SELECT result_json FROM external_operations WHERE operation_id=? AND job_id=? AND status='failed'",
+      )
+      .bind(a.originalOperationId, jobId)
+      .first<{ result_json: string }>();
+    insist(
+      a.jobId === jobId &&
+        a.submissionId === row.submission_id &&
+        a.postId === row.post_id &&
+        a.authorId === row.author_id &&
+        a.ownerWallet === row.captured_wallet &&
+        a.recipient === context.recipient &&
+        a.contentSha256 === row.audio_sha256 &&
+        a.originalInputHash === job.input_hash &&
+        a.originalAuthorityHash === hashJson(authority) &&
+        a.originalRequestHash === row.request_hash &&
+        a.originalGrantHash === originalExecution.grantHash &&
+        a.execution.serviceOrigin === originalExecution.serviceOrigin &&
+        a.language === metadata.language &&
+        previous &&
+        hashJson(JSON.parse(previous.result_json)) ===
+          a.originalOperationReceiptHash,
+      "curated_original_input_changed",
+      409,
+    );
+  }
   const createdAt = integer(
     (job as typeof job & { created_at: number }).created_at,
     0,
@@ -114,7 +156,16 @@ export async function publicationInput(
     job,
     row,
     metadata,
-    authority,
+    authority: signed
+      ? {
+          ...authority,
+          configurationRevision: config.configurationRevision,
+          policy: config.policies.admission,
+          execution: signed.amendment.execution,
+          curatedAmendmentSha256: hashJson(signed),
+        }
+      : authority,
+    amendment: signed,
     context,
     createdAt,
     progress: object(JSON.parse(job.progress_json)),

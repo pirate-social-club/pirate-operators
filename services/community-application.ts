@@ -37,6 +37,7 @@ import { firstSong } from "./first-song-profile.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
 import { communityReleaseApi } from "./community-release-api.ts";
+import { adoptCuratedPublication } from "../packages/community/adopt-curated.ts";
 import {
   firstSongRuntime,
   publicPostsProfile,
@@ -237,6 +238,24 @@ export async function communityFetch(
       return reply({ gateways: await configurationHealth() });
     if (url.pathname.startsWith("/api/moderation/inputs/"))
       return serveInputCapability(request, env.DB, env.MEDIA, context.origin);
+    if (url.pathname === "/api/operator/owner-curated") {
+      insist(request.method === "POST" && !url.search, "not_found", 404);
+      requestOrigin(request, context.origin);
+      const signed = await jsonBody(request, 256 * 1024),
+        config = await configuration();
+      // Only the current controller's exact-job signature authorizes adoption.
+      // A creator cookie and an ordinary resume never grant this authority.
+      const result = await adoptCuratedPublication(
+        env.DB,
+        env.MEDIA,
+        signed,
+        config,
+      );
+      await env.JOBS.send({
+        jobId: String((signed.amendment as Record<string, unknown>).jobId),
+      });
+      return reply(result);
+    }
     const release = await communityReleaseApi(
       request,
       env,
@@ -281,7 +300,7 @@ export async function communityFetch(
         creatorConnection: await ports.creatorHealth(),
         upload: releaseReady,
         publication: releaseReady,
-        policyVersion: RELEASE_POLICY,
+        policyVersion: config.policies.admission.version,
       };
       return reply(capabilities);
     }

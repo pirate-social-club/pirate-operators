@@ -3,7 +3,7 @@ import { ownedSubmission, type Submission } from "./submissions.ts";
 
 const checksum = (hex: string) =>
   Uint8Array.from(hex.slice(2).match(/../g)!, (b) => Number.parseInt(b, 16));
-async function boundedAudio(request: Request, length: number) {
+export async function boundedAudio(request: Request, length: number) {
   insist(
     request.headers.get("content-type")?.split(";")[0] === "audio/mpeg",
     "mp3_required",

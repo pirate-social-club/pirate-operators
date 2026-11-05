@@ -1,4 +1,6 @@
 import type { Address, Hex } from "viem";
+import { OWNER_POLICY_VERSION } from "../community/owner-policy.ts";
+import { RELEASE_POLICY } from "../community/manifest-core.ts";
 import {
   canonical,
   exact,
@@ -39,6 +41,7 @@ export interface AdmissionFacts {
 export interface AdmissionPolicy {
   operators: Address[];
   maxAgeSeconds: number;
+  policyVersion?: string;
 }
 export interface AdmissionDecision {
   decision: "publish" | "block" | "hold" | "needs_evidence";
@@ -153,18 +156,26 @@ export async function verifyAdmission(
     values.length <= 32 && facts.windows.length <= 2,
     "too_many_evidence_records",
   );
-  const required: EvidenceCheck[] = [
-    "audio.identification",
-    "title.rating",
-    ...(facts.lyrics.trim() ? ["lyrics.classification" as const] : []),
-  ];
+  const curated = policy.policyVersion === OWNER_POLICY_VERSION;
+  insist(
+    !policy.policyVersion || curated || policy.policyVersion === RELEASE_POLICY,
+    "unsupported_admission_policy",
+  );
+  const required: EvidenceCheck[] = curated
+    ? ["audio.identification"]
+    : [
+        "audio.identification",
+        "title.rating",
+        ...(facts.lyrics.trim() ? ["lyrics.classification" as const] : []),
+      ];
   const valid: EvidenceRecord[] = [];
   for (const value of values) {
     try {
       const record = validateEvidence(value),
         e = record.envelope;
       insist(
-        required.includes(e.check) &&
+        e.policy === (policy.policyVersion ?? RELEASE_POLICY) &&
+          required.includes(e.check) &&
           policy.operators.some((o) => o.toLowerCase() === e.operator),
         "untrusted_evidence_operator",
       );

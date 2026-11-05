@@ -5,6 +5,7 @@ import {
   exact,
   insist,
   integer,
+  jsonBody,
   object,
   text,
 } from "../packages/community/common.ts";
@@ -22,6 +23,7 @@ import { validateReleaseGrant } from "../packages/release/grant.ts";
 import { releaseFetch } from "../packages/release/service.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
+import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
 
 export interface ManagedEnv {
   DB: D1Database;
@@ -139,6 +141,40 @@ export default {
   async fetch(request, env) {
     try {
       const config = configuration(env);
+      const url = new URL(request.url);
+      if (url.pathname === "/v1/curated/adopt") {
+        insist(
+          request.method === "POST" &&
+            url.origin === config.serviceOrigin &&
+            !url.search &&
+            env.RELEASE_GRANT_JSON,
+          "not_found",
+          404,
+        );
+        const input = await jsonBody(request, 256 * 1024);
+        exact(input, ["signed", "result"]);
+        const a = object(object(input.signed).amendment),
+          pairing = config.pairings.find(
+            (p) => p.communityId === a.communityId && p.enabled,
+          );
+        insist(
+          pairing && request.headers.get("origin") === pairing.communityOrigin,
+          "unpaired_curated_adoption",
+          403,
+        );
+        const current = await config.currentConfiguration(pairing),
+          grant = validateReleaseGrant(JSON.parse(env.RELEASE_GRANT_JSON));
+        return Response.json(
+          await adoptCuratedAdmission(
+            env.DB,
+            input.signed,
+            input.result,
+            current,
+            grant,
+          ),
+          { headers: { "cache-control": "no-store" } },
+        );
+      }
       if (new URL(request.url).pathname.startsWith("/v1/releases/")) {
         insist(
           env.RELEASE_GRANT_JSON &&

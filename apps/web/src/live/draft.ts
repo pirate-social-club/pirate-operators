@@ -7,6 +7,8 @@ export interface SongDraft {
   language: string;
   lyrics: string;
   file: File;
+  instrumental?: File;
+  vocals?: File;
   audioSha256: string;
   acceptedPolicy: string;
   submissionId?: string;

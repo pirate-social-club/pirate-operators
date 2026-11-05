@@ -1,4 +1,5 @@
 import { requireExecutionProfile } from "../packages/community/publication-profile.ts";
+import { requireStems } from "../packages/community/stems.ts";
 import {
   canonical,
   hashJson,
@@ -34,6 +35,7 @@ import type {
   PublicationJob,
   PublicationStep,
 } from "../packages/community/publication-store.ts";
+import { activeAdmissionOperation } from "../packages/community/publication-store.ts";
 import { preparedOperation } from "../packages/community/publication.ts";
 import type {
   PublicationDriver,
@@ -108,6 +110,8 @@ export function firstSongDriver(
       ports.managed.configuration,
     );
     requireExecutionProfile(input.authority, ports);
+    if (operation.step !== "admission")
+      await requireStems(ports.db, ports.media, input.row.submission_id);
     insist(
       operation.request_hash ===
         hashJson(
@@ -157,6 +161,8 @@ export function firstSongDriver(
         ports.managed.configuration,
       );
       requireExecutionProfile(input.authority, ports);
+      if (step !== "admission")
+        await requireStems(ports.db, ports.media, input.row.submission_id);
       return requestValue(
         input,
         step,
@@ -264,12 +270,7 @@ export async function resumeFirstSongAdmission(
     input.progress.resumePhase !== "admission"
   )
     return false;
-  const operation = await ports.db
-    .prepare(
-      "SELECT * FROM external_operations WHERE job_id=? AND step='admission'",
-    )
-    .bind(jobId)
-    .first<ExternalOperation>();
+  const operation = await activeAdmissionOperation(ports.db, jobId);
   insist(
     operation &&
       (operation.status === "running" || operation.status === "uncertain") &&

@@ -1,4 +1,7 @@
 import { admissionRecovery } from "./admission-recovery.ts";
+import { ownerCurated } from "../community/owner-policy.ts";
+import { curatedAdmissionId } from "../community/curated-amendment.ts";
+import { selectedAdmission } from "./curated-admission.ts";
 import { Effect } from "effect";
 import {
   CommunityError,
@@ -71,6 +74,32 @@ export async function managedFetch(
       config.currentConfiguration,
     );
     let id: string;
+    const current = await config.currentConfiguration(pairing);
+    if (ownerCurated(current.policies.admission)) {
+      const jobId = text(body.jobId, 128),
+        id = curatedAdmissionId(pairing.communityId, jobId),
+        selected = await selectedAdmission(db, id, current),
+        a = selected.curation!.amendment;
+      if (action === "admit") {
+        const parsed = admissionRequest(body, pairing, true);
+        insist(
+          parsed.submissionId === a.submissionId &&
+            parsed.declared.songSha256 === a.contentSha256,
+          "curated_admission_scope_mismatch",
+          409,
+        );
+      } else exact(body, ["jobId"]);
+      return reply({
+        schema: "pirate.managed-admission-status/1",
+        admissionId: id,
+        jobId,
+        submissionId: a.submissionId,
+        state: "complete",
+        recovery: "none",
+        errorCode: null,
+        result: JSON.parse(selected.admission.result_json!),
+      });
+    }
     if (action === "admit") {
       const input = admissionRequest(body, pairing);
       const row = await enqueueAdmission(db, input, pairing, authorization, {

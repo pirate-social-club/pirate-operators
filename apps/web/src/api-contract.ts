@@ -37,12 +37,14 @@ export interface PublicSongView {
   /** Public fields used by this client. The server validates the complete
    * canonical post manifest before exposing this projection. */
   manifest: {
-    schema: "pirate.community-post/1";
+    schema: "pirate.community-post/1" | "pirate.community-post/2";
     postId: string;
     authorId: string;
     title: string;
     language: string;
     rating: "general" | "adult";
+    declarationSource?: "operator_declared";
+    automatedContent?: "deferred";
   };
   audioUrl: string;
   postUrl: string;

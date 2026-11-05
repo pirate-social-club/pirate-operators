@@ -37,6 +37,7 @@ import {
 import type { ManagedPairing } from "./pairing.ts";
 import type { ProviderTransport } from "./provider-http.ts";
 import type { AudioWindowFacts } from "./admission.ts";
+import { ownerCurated } from "../community/owner-policy.ts";
 
 export interface ManagedProcessing {
   pairings: ManagedPairing[];
@@ -108,6 +109,11 @@ export function processAdmission(
         };
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);
+          insist(
+            !ownerCurated(current.policies.admission),
+            "automated_content_deferred",
+            409,
+          );
           insist(
             current.chainId === 6343 &&
               current.communityId === pairing.communityId &&

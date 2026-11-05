@@ -213,7 +213,9 @@ function App() {
         <a href="/" class="live-brand">
           pirate<span>/ community</span>
         </a>
-        <span class="live-testnet">TESTNET</span>
+        <span class="live-testnet">
+          Disposable testnet, permanently unlisted · recovery incomplete
+        </span>
         <Show
           when={session()}
           fallback={
@@ -336,6 +338,16 @@ function App() {
                   <p class="live-muted">
                     Creator {song.manifest.authorId.slice(2, 10)}
                   </p>
+                  <Show
+                    when={
+                      song.manifest.declarationSource === "operator_declared"
+                    }
+                  >
+                    <p class="live-muted">
+                      Rating and language declared by the operator. Automated
+                      content moderation is deferred.
+                    </p>
+                  </Show>
                   <audio controls preload="metadata" src={song.audioUrl} />
                   <Show when={song.lyricsText}>
                     <details>
