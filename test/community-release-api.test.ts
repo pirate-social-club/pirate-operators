@@ -255,7 +255,8 @@ test("authenticated release HTTP retains one upload/job through reload and queue
     );
     const lyricsUri = JSON.parse(
       (await loadJob(f.community.db, sealed.jobId)).progress_json,
-    ).pin_lyrics.uri as string;
+    ).pin_lyrics.pin.uri as string;
+    assert.match(lyricsUri, /^ipfs:\/\//);
     const unavailableLyrics = {
       ...publicPorts,
       transport: async (request: Request) =>
@@ -274,6 +275,17 @@ test("authenticated release HTTP retains one upload/job through reload and queue
         unavailableLyrics,
       ),
       false,
+    );
+    const availableAudio = await publicSongResource(
+      new Request(context.origin + feed[0]!.audioUrl),
+      f.community.db,
+      configuration,
+      unavailableLyrics,
+    );
+    assert.equal(availableAudio!.status, 200);
+    assert.equal(
+      sha256(new Uint8Array(await availableAudio!.arrayBuffer())),
+      sha256(f.managed.audio),
     );
     const audioPath = context.origin + feed[0]!.audioUrl,
       audio = await publicSongResource(
