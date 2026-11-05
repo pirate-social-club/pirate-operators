@@ -1,0 +1,72 @@
+{
+  "schema": "pirate.first-song-transport-update/1",
+  "profileHash": "0x70e7b4c63c6976f330d38379881d089487205dcb487d88a3ce2fc97bd59b7bac",
+  "before": {
+    "at": "2026-11-05T10:38:42.956Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T10:39:13.869Z",
+    "resources": [
+      {
+        "name": "pirate-first-song-20261105",
+        "present": true,
+        "id": "a29dd318429e42eda7846ea4997ad999"
+      },
+      {
+        "name": "pirate-first-song-20261105-db",
+        "present": true,
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+      },
+      {
+        "name": "pirate-first-song-20261105-media",
+        "present": true,
+        "id": "pirate-first-song-20261105-media"
+      },
+      {
+        "name": "pirate-first-song-20261105-jobs",
+        "present": true,
+        "id": "fe031cd96fbb47579585eb10154f785d"
+      }
+    ]
+  },
+  "logs": [
+    "1793875132577-application-plan-2c955e4d-5602-4e74-93fb-ab37e51a43a1.enc",
+    "1793875134885-application-deploy-96853fa6-fc26-43d7-8c6c-d2f11b6b4930.enc"
+  ],
+  "health": {
+    "schema": "pirate.community-application/1",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "profileHash": "0x70e7b4c63c6976f330d38379881d089487205dcb487d88a3ce2fc97bd59b7bac",
+    "infrastructure": "provisioned",
+    "firstSong": "not_ready",
+    "signIn": "available",
+    "creatorConnection": "available"
+  },
+  "sourceCommit": "b49448fb8f548528ada08ab745eb1b2fae330156",
+  "acceptance": "Owned deployment and transport correction only; configuration bootstrap is blocked by public_ipfs_unavailable; real browser/provider/song acceptance remains unproved",
+  "workerModules": {
+    "worker.mjs": "0x400b8e1a79800aee19fbdcbebfb8c4126df80f1135b08ad172997c3b3cd1ce2f"
+  }
+}

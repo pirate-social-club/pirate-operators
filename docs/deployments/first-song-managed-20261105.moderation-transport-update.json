@@ -1,0 +1,68 @@
+{
+  "after": {
+    "at": "2026-11-05T10:43:15.635Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "before": {
+    "at": "2026-11-05T10:42:41.255Z",
+    "resources": [
+      {
+        "id": "7e62742bc4ed4677b68ec5668552a72f",
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "id": "pirate-managed-firstsong-20261105-media",
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "logs": [
+    "1793875373151-managed-plan-3fa235b4-03fd-4eeb-8031-07435e42a4f2.enc",
+    "1793875375961-managed-deploy-3dc4c7b4-78fd-472e-8691-0e2bbdb13c72.enc"
+  ],
+  "profileHash": "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
+  "status": {
+    "profileHash": "0x3d28db5c587f2316a4752f0fcc080185cba98f2e3d5d4c2b14a3babeda18af50",
+    "service": "pirate-managed-moderation/1",
+    "status": "available"
+  },
+  "schema": "pirate.first-song-transport-update/1",
+  "sourceCommit": "b49448fb8f548528ada08ab745eb1b2fae330156",
+  "acceptance": "Owned deployment and transport correction only; configuration bootstrap is blocked by public_ipfs_unavailable; real browser/provider/song acceptance remains unproved",
+  "workerModules": {
+    "worker.mjs": "0x5429e5d6a8a2fde9b444048b9e476c59f7bb1441db064cbd52d8328359794966"
+  }
+}
