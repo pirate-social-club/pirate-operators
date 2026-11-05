@@ -38,6 +38,7 @@ export default Alchemy.Stack(
       limits: { cpuMs: 30000 },
       observability: {
         enabled: true,
+        redactQueryString: true,
         logs: { enabled: true, invocationLogs: true },
         traces: { enabled: true, headSamplingRate: 0.1 },
       },

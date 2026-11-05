@@ -18,11 +18,29 @@ async function serve(
     storedUploads = 0,
     uploadCalls = 0,
     phase = "admission";
-  const submissionId = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+  let submissionId = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
     postId = "0x" + "4".repeat(64),
     jobId = `publication:${submissionId}`;
   let reserved = false,
     sealed = false;
+  const keys = new Set<string>(),
+    stored = new Set<string>();
+  type Upload = {
+    submissionId: string;
+    postId: string;
+    title: string;
+    state: string;
+    jobId: string | null;
+  };
+  const history: Upload[] = [];
+  let songTitle = "Browser saved song";
+  const currentUpload = (): Upload => ({
+    submissionId,
+    postId,
+    title: songTitle,
+    state: sealed ? phase : "uploaded",
+    jobId: sealed ? jobId : null,
+  });
   const pending = {
     connectionId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
     state: "s".repeat(43),
@@ -59,26 +77,25 @@ async function serve(
       });
     if (path === "/api/feed") return json({ posts: [] });
     if (path === "/api/uploads" && request.method() === "GET")
-      return json({
-        uploads: reserved
-          ? [
-              {
-                submissionId,
-                postId,
-                title: "Browser saved song",
-                state: sealed ? phase : "uploaded",
-                jobId: sealed ? jobId : null,
-              },
-            ]
-          : [],
-      });
+      return json({ uploads: reserved ? [currentUpload(), ...history] : [] });
     if (releasing && path === "/api/uploads" && request.method() === "POST") {
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       expect(request.headers()["idempotency-key"]).toBeTruthy();
       expect(request.postDataJSON().original).toBe(true);
-      if (!reserved) {
+      const key = request.headers()["idempotency-key"]!;
+      if (!keys.has(key)) {
+        if (reserved) history.push(currentUpload());
+        keys.add(key);
         reservations++;
+        if (reservations > 1) {
+          submissionId = `bbbbbbbb-bbbb-4bbb-bbbb-${String(reservations).padStart(12, "0")}`;
+          postId = "0x" + String(reservations + 4).repeat(64);
+          jobId = `publication:${submissionId}`;
+        }
         reserved = true;
+        sealed = false;
+        phase = "admission";
+        songTitle = request.postDataJSON().title;
       }
       return json({ submissionId, postId, state: "reserved" }, 201);
     }
@@ -86,9 +103,10 @@ async function serve(
       uploadCalls++;
       expect(request.method()).toBe("PUT");
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
-      if (!storedUploads) {
+      if (!stored.has(submissionId)) {
+        stored.add(submissionId);
         storedUploads++;
-        return route.abort("connectionreset");
+        if (storedUploads === 1) return route.abort("connectionreset");
       }
       return json({ uploaded: true });
     }
@@ -96,16 +114,24 @@ async function serve(
       sealed = true;
       return json({ jobId, postId }, 202);
     }
-    if (releasing && path === `/api/jobs/${encodeURIComponent(jobId)}`)
+    if (
+      releasing &&
+      path.startsWith("/api/jobs/") &&
+      request.method() === "GET"
+    ) {
+      const id = decodeURIComponent(path.slice("/api/jobs/".length)),
+        row = [currentUpload(), ...history].find((row) => row.jobId === id)!;
+      expect(row).toBeTruthy();
       return json({
         schema: "pirate.publication-job-view/1",
-        jobId,
-        submissionId,
-        postId,
-        phase,
+        jobId: row.jobId,
+        submissionId: row.submissionId,
+        postId: row.postId,
+        phase: row.state,
         errorCode: null,
-        resumable: phase === "uncertain",
+        resumable: row.state === "uncertain",
       });
+    }
     if (releasing && path === `/api/jobs/${encodeURIComponent(jobId)}/resume`) {
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       phase = "publication";
@@ -246,13 +272,11 @@ test("saved binary and release intent survive an interrupted upload and reload; 
     .getByLabel("Song title", { exact: true })
     .fill("Browser saved song");
   await page.getByLabel("Lyrics", { exact: true }).fill("A saved lyric line");
-  await page
-    .getByLabel("Recording", { exact: true })
-    .setInputFiles({
-      name: "saved-song.mp3",
-      mimeType: "audio/mpeg",
-      buffer: Buffer.from("ID3browser-local-upload-fixture"),
-    });
+  await page.getByLabel("Recording", { exact: true }).setInputFiles({
+    name: "saved-song.mp3",
+    mimeType: "audio/mpeg",
+    buffer: Buffer.from("ID3browser-local-upload-fixture"),
+  });
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Submit song", exact: true }).click();
   await expect(
@@ -297,6 +321,36 @@ test("saved binary and release intent survive an interrupted upload and reload; 
     page.getByRole("button", { name: "Check and resume" }),
   ).toHaveCount(0);
   expect(state.reservations()).toBe(1);
+  await page.getByRole("button", { name: "Start another release" }).click();
+  await page
+    .getByLabel("Song title", { exact: true })
+    .fill("Corrected browser song");
+  await page
+    .getByLabel("Recording", { exact: true })
+    .setInputFiles({
+      name: "corrected.mp3",
+      mimeType: "audio/mpeg",
+      buffer: Buffer.from("ID3corrected-local-fixture"),
+    });
+  await page.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "Submit song", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Submitted. Your progress is saved; processing continues after you leave.",
+    ),
+  ).toBeVisible();
+  expect(state.reservations()).toBe(2);
+  expect(state.storedUploads()).toBe(2);
+  await expect(
+    page.getByText("This release was rejected and has not been published."),
+  ).toBeVisible();
+  state.phase("published");
+  await page.reload();
+  await expect(
+    page.getByText("Published. Find your song in Latest songs."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Start another release" }).click();
+  await expect(page.getByLabel("Song title", { exact: true })).toBeEditable();
   await page.screenshot({
     path: "/tmp/pirate-first-song-upload-recovery.png",
     fullPage: true,

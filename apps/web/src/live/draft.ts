@@ -68,3 +68,19 @@ export async function audioHash(file: File) {
     ).join("")
   );
 }
+
+/** Explicit creator action after a terminal job. Server evidence is retained. */
+export async function clearDraft(authorId: string) {
+  const db = await database();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("drafts", "readwrite");
+      tx.objectStore("drafts").delete(authorId);
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () =>
+        reject(new Error("The saved draft could not be closed. Please retry."));
+    });
+  } finally {
+    db.close();
+  }
+}

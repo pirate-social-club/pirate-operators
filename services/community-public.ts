@@ -164,16 +164,15 @@ export async function firstSongPublicReady(
   ports: PublicReadPorts,
 ) {
   try {
-    const songs = await publicSongs(db, config, ports);
+    const songs = await publicSongViews(db, config, ports);
     if (!songs.length) return false;
-    const audio = songs[0]!.post.media.find((m) => m.role === "audio")!;
-    const { bytes } = await fetchPublicIpfs(
-      audio.uri,
-      audio.sha256,
-      audio.byteLength,
-      ports.transport,
+    const playback = await publicSongResource(
+      new Request(config.app.origin + songs[0]!.audioUrl),
+      db,
+      config,
+      ports,
     );
-    return bytes.length === audio.byteLength;
+    return playback?.status === 200;
   } catch {
     return false;
   }

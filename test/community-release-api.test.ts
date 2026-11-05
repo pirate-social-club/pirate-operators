@@ -253,6 +253,28 @@ test("authenticated release HTTP retains one upload/job through reload and queue
       await firstSongPublicReady(f.community.db, configuration, publicPorts),
       true,
     );
+    const lyricsUri = JSON.parse(
+      (await loadJob(f.community.db, sealed.jobId)).progress_json,
+    ).pin_lyrics.uri as string;
+    const unavailableLyrics = {
+      ...publicPorts,
+      transport: async (request: Request) =>
+        new URL(request.url).pathname.includes(lyricsUri.slice(7))
+          ? new Response("fixture missing lyrics", { status: 404 })
+          : f.managed.service.pinTransport(request),
+    };
+    await assert.rejects(
+      publicSongViews(f.community.db, configuration, unavailableLyrics),
+      /public_ipfs_unavailable/,
+    );
+    assert.equal(
+      await firstSongPublicReady(
+        f.community.db,
+        configuration,
+        unavailableLyrics,
+      ),
+      false,
+    );
     const audioPath = context.origin + feed[0]!.audioUrl,
       audio = await publicSongResource(
         new Request(audioPath),

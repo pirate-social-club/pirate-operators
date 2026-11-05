@@ -8,7 +8,7 @@ import {
   type CommunityUploadView,
   type CommunitySessionView,
 } from "./api.ts";
-import { audioHash, readDraft, saveDraft, type SongDraft } from "./draft.ts";
+import { audioHash, clearDraft, readDraft, saveDraft, type SongDraft } from "./draft.ts";
 
 const phaseText: Record<string, string> = {
   reserved: "Draft saved. Continue to upload your recording.",
@@ -247,6 +247,33 @@ export function SongUpload(props: {
       <p role="status" class={error() ? "live-error" : "live-muted"}>
         {message()}
       </p>
+      <Show
+        when={
+          draft()?.jobId &&
+          ["held", "failed", "published"].includes(
+            jobs()[draft()!.jobId!]?.phase ?? "",
+          )
+        }
+      >
+        <Button
+          disabled={busy()}
+          onClick={() =>
+            void run(async () => {
+              await clearDraft(props.session.authorId);
+              setDraft(null);
+              setTitle("");
+              setLyrics("");
+              setFile(null);
+              setConsent(false);
+              setMessage(
+                "Start a new release. Your earlier release and its status stay saved.",
+              );
+            })
+          }
+        >
+          Start another release
+        </Button>
+      </Show>
       <For each={uploads()}>
         {(upload) => {
           const job = () => (upload.jobId ? jobs()[upload.jobId] : undefined);
