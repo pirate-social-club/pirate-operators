@@ -25,13 +25,19 @@ test("fixed UnixFS roots bind a raw single chunk and a multi-block file independ
     (await preparePin(large.slice(0, 262144), "audio/mpeg")).uri,
   );
   const requests: Request[] = [];
+  let receipts = 0;
   const result = await addPin(
     JSON.parse(canonical(intent)),
     bytes,
     "fixture-token",
+    async (receipt) => {
+      receipts++;
+      assert.equal(JSON.parse(receipt.body).Hash, intent.uri.slice(7));
+    },
     async (request) => {
       requests.push(request);
       const url = new URL(request.url);
+      if (!url.pathname.endsWith("/add")) assert.equal(receipts, 1);
       if (url.host === "rpc.filebase.io") {
         assert.equal(
           request.headers.get("authorization"),
@@ -96,9 +102,51 @@ test("pin reconciliation uses only reads and needs both recursive retention and 
     /public_ipfs_unavailable/,
   );
   await assert.rejects(
-    addPin(intent, bytes, "fixture-token", async () =>
-      Response.json({ Hash: "unexpected" }),
+    addPin(
+      intent,
+      bytes,
+      "fixture-token",
+      async (receipt) => {
+        assert.equal(JSON.parse(receipt.body).Hash, "unexpected");
+      },
+      async () => Response.json({ Hash: "unexpected" }),
     ),
     /pin_root_mismatch/,
   );
+});
+
+test("a pin response must be retained before interpretation or follow-up and failure never sends again implicitly", async () => {
+  const bytes = new TextEncoder().encode("fixture"),
+    intent = await preparePin(bytes, "application/json");
+  let sends = 0;
+  await assert.rejects(
+    addPin(
+      intent,
+      bytes,
+      "fixture-token",
+      async () => {
+        throw new Error("fixture persistence interruption");
+      },
+      async () => {
+        sends++;
+        return Response.json({ Hash: intent.uri.slice(7) });
+      },
+    ),
+    /fixture persistence interruption/,
+  );
+  assert.equal(sends, 1);
+  let retainedStatus = 0;
+  await assert.rejects(
+    addPin(
+      intent,
+      bytes,
+      "fixture-token",
+      async (receipt) => {
+        retainedStatus = receipt.status;
+      },
+      async () => new Response("provider refused", { status: 401 }),
+    ),
+    /pin_provider_unavailable/,
+  );
+  assert.equal(retainedStatus, 401);
 });

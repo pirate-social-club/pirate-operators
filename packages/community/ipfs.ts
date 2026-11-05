@@ -2,7 +2,14 @@ import { importer } from "ipfs-unixfs-importer";
 import { fixedSize } from "ipfs-unixfs-importer/chunker";
 import { balanced } from "ipfs-unixfs-importer/layout";
 import { sha256, type Hex } from "viem";
-import { canonical, insist, MAX_AUDIO_BYTES, object, text } from "./common.ts";
+import {
+  canonical,
+  hashText,
+  insist,
+  MAX_AUDIO_BYTES,
+  object,
+  text,
+} from "./common.ts";
 import { ipfsUri } from "./manifest-core.ts";
 
 export interface PinIntent {
@@ -48,8 +55,12 @@ export async function preparePin(
     mediaType,
   };
 }
-export async function readBounded(response: Response, maximum: number) {
-  insist(response.ok && response.body, "ipfs_unavailable", 503);
+export async function readBounded(
+  response: Response,
+  maximum: number,
+  requireOk = true,
+) {
+  insist((!requireOk || response.ok) && response.body, "ipfs_unavailable", 503);
   const reader = response.body.getReader(),
     chunks: Uint8Array[] = [];
   let size = 0;
@@ -121,6 +132,12 @@ export async function addPin(
   intent: PinIntent,
   bytes: Uint8Array,
   token: string,
+  received: (receipt: {
+    status: number;
+    body: string;
+    bodySha256: Hex;
+    requestId: string | null;
+  }) => Promise<void>,
   send: IpfsTransport = transport,
 ) {
   insist(
@@ -137,9 +154,17 @@ export async function addPin(
   const response = await send(
     rpc(token, "/api/v0/add?cid-version=1&wrap-with-directory=false", form),
   );
-  const output = new TextDecoder("utf-8", { fatal: true })
-    .decode(await readBounded(response, 65536))
-    .trim();
+  const raw = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
+    await readBounded(response, 65536, false),
+  );
+  await received({
+    status: response.status,
+    body: raw,
+    bodySha256: hashText(raw),
+    requestId: response.headers.get("x-request-id")?.slice(0, 256) ?? null,
+  });
+  insist(response.ok, "pin_provider_unavailable", 503);
+  const output = raw.trim();
   const lines = output.split("\n").map((line) => object(JSON.parse(line)));
   insist(
     lines.length === 1 && `ipfs://${text(lines[0]!.Hash, 128)}` === intent.uri,
