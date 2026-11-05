@@ -17,5 +17,5 @@
       "@/*": ["./node_modules/@pirate/web-solid-ui/src/*"]
     }
   },
-  "include": ["src", "scripts", "test", "e2e", "*.ts"]
+  "include": ["src", "scripts", "test", "e2e", "live-e2e", "*.ts"]
 }

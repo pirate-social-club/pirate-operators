@@ -8,7 +8,7 @@
 export const PROTOCOL_VERSION = 1;
 export const DOCUMENT_VERSION = 1;
 
-export type { CommunityClientConfig as CommunityConfig } from "../../../packages/community/application-api.ts";
+export type { CommunityClientConfig as CommunityConfig } from "./api-contract.ts";
 
 export interface PublicAuthor {
   readonly handle: string;

@@ -3,7 +3,7 @@ import type {
   CommunityClientConfig,
   CommunityFeed,
   CommunitySessionView,
-} from "../../../../packages/community/application-api.ts";
+} from "../api-contract.ts";
 export type {
   CommunityCapabilities,
   CommunityClientConfig,
