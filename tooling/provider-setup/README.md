@@ -24,10 +24,10 @@ signup and catalog access. An existing OpenAI organization can supply an Admin
 API key for a new project/service account. No new subscription is assumed;
 working access and sufficient available quota/credits determine acceptance.
 
-Sign into the existing approved Infisical project with `infisical login`.
-In its selected environment create a dedicated bootstrap folder, matching the
-profile. Put only these provider credentials there, never into chat, shell
-arguments, the profile JSON or repository files:
+Sign into Infisical with `infisical login`. First-time account signup/sign-in
+still involves the owner. The secure entry command below creates the bootstrap
+folder and stores these values without opening the secrets dashboard or typing
+their names. Keep values out of chat, shell arguments and repository files:
 
 | Secret | Owner action | Use |
 | --- | --- | --- |
@@ -35,6 +35,39 @@ arguments, the profile JSON or repository files:
 | FILEBASE_SECRET_ACCESS_KEY | View that same account's secret access key. | Setup-only S3 signing. |
 | ACRCLOUD_CONSOLE_TOKEN | Create a token in the fresh account's Console Developer Settings. | Create/reconcile its recognition project. |
 | OPENAI_ADMIN_KEY | Create an Admin API key in the selected OpenAI organization. | Create/reconcile a new project and service account. |
+
+### Secure terminal entry
+
+From the repository root, inspect the selected target without authentication:
+
+```sh
+node tooling/provider-setup/run.ts credentials --provider filebase \
+  --project-id PROJECT_UUID --environment staging \
+  --bootstrap-path /onboarding/provider-rehearsal/bootstrap
+```
+
+Append `--execute` to prepare the folders and enter credentials. This command
+uses the verified Infisical CLI login, shows the nonsecret destination, and
+prompts for the two values with terminal echo disabled. Paste each value and
+press Enter. It requires a real local terminal; piped input is refused before
+authentication. Values are passed in memory directly to the Infisical SDK,
+read back for exact equality, and omitted from output. They never enter command
+arguments, shell history or plaintext files. The command creates no placeholders.
+
+Existing valid entries are retained by default. An incomplete pair, empty value
+or recognized placeholder stops the command. Explicit `--replace` asks for the
+values again and permits replacing existing entries in this selected folder.
+All missing/replacement inputs are collected before any secret write; cancelling
+entry writes neither Filebase value. A failed write can leave a partial vault
+result, which is reported as incomplete. Readback resolves lost write responses;
+a partial pair can be repaired with explicit replacement of both values.
+
+This is a credential-store preparation operation, not provider qualification.
+Its `--execute` authorizes only the selected Infisical folder/secret writes;
+provider requests still require the separate immutable plan and exact digest.
+Use `--provider acrcloud` or `--provider openai` for the corresponding setup token.
+Linux xterm-compatible terminal entry, cancellation, backspace and echo restore
+are exercised in real pseudo-terminal tests with synthetic values.
 
 For the Filebase-first run only its two values are needed. Keys can be provided
 one provider at a time. The operator supplies the nonsecret Infisical project

@@ -1,5 +1,6 @@
 import { requireThat, SetupFailure, type Vault, type Plan } from "./model.ts";
 import type { Store } from "./journal.ts";
+import { validCredential } from "./private-input.ts";
 
 export type Transport = (request: Request) => Promise<Response>;
 export async function bounded(response: Response, limit: number) {
@@ -46,10 +47,7 @@ export class Context {
   }
   async secret(zone: "bootstrap" | "runtime", name: string) {
     const value = await this.vault.get(zone, name);
-    requireThat(
-      value && value.length <= 16384 && !/[\r\n]/.test(value),
-      `missing_${name.toLowerCase()}`,
-    );
+    requireThat(validCredential(value), `missing_${name.toLowerCase()}`);
     return value;
   }
   async request(url: string, init: RequestInit = {}) {

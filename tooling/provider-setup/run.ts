@@ -12,6 +12,11 @@ import { authenticatedSdk, createVault } from "./vault.ts";
 import { provisionAcr, qualifyAcr } from "./acrcloud.ts";
 import { provisionOpenAi, qualifyOpenAi } from "./openai.ts";
 import {
+  credentialTarget,
+  bootstrapNames,
+  prepareCredentials,
+} from "./credentials.ts";
+import {
   filebaseClient,
   provisionFilebase,
   qualifyFilebase,
@@ -23,11 +28,11 @@ export async function main(args: string[]): Promise<Record<string, unknown>> {
       usage:
         "node tooling/provider-setup/run.ts init|status|provision|qualify --state-dir /private/path [--profile /private/profile.json] [--provider filebase|acrcloud|openai] [--execute --approve PLAN_DIGEST]",
       credentials:
-        "Infisical CLI login; bootstrap keys stay in the selected vault folder. No secret arguments.",
+        "credentials --provider filebase|acrcloud|openai --project-id UUID --environment staging --bootstrap-path /dedicated/bootstrap [--execute] [--replace]. Hidden terminal entry; no secret arguments.",
     };
   const [command, ...rest] = args;
   requireThat(
-    ["init", "status", "provision", "qualify"].includes(command),
+    ["init", "status", "provision", "qualify", "credentials"].includes(command),
     "unknown_command",
   );
   const options: Record<string, string> = {};
@@ -40,10 +45,14 @@ export async function main(args: string[]): Promise<Record<string, unknown>> {
         "--provider",
         "--execute",
         "--approve",
+        "--project-id",
+        "--environment",
+        "--bootstrap-path",
+        "--replace",
       ].includes(key) && !(key in options),
       "unknown_or_duplicate_option",
     );
-    if (key === "--execute") options[key] = "true";
+    if (key === "--execute" || key === "--replace") options[key] = "true";
     else {
       requireThat(
         rest[i + 1] && !rest[i + 1].startsWith("--"),
@@ -52,6 +61,40 @@ export async function main(args: string[]): Promise<Record<string, unknown>> {
       options[key] = rest[++i];
     }
   }
+  if (command === "credentials") {
+    requireThat(
+      !options["--state-dir"] && !options["--profile"] && !options["--approve"],
+      "credential_scope_arguments_required",
+    );
+    const target = credentialTarget(options);
+    if (!options["--execute"])
+      return {
+        ...target,
+        names: bootstrapNames[target.provider],
+        replace: Boolean(options["--replace"]),
+        execution: "none",
+      };
+    requireThat(
+      process.stdin.isTTY && process.stderr.isTTY,
+      "credential_entry_requires_local_terminal",
+    );
+    process.stderr.write(
+      `Infisical target: ${target.projectId} / ${target.environment} / ${target.secretPath}\n`,
+    );
+    return prepareCredentials(
+      target,
+      await authenticatedSdk(),
+      undefined,
+      Boolean(options["--replace"]),
+    );
+  }
+  requireThat(
+    !options["--project-id"] &&
+      !options["--environment"] &&
+      !options["--bootstrap-path"] &&
+      !options["--replace"],
+    "credential_options_require_credentials_command",
+  );
   requireThat(options["--state-dir"], "state_directory_required");
   const provider = options["--provider"] ?? "filebase";
   requireThat(
