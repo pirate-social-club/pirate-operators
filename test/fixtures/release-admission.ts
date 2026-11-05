@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../../packages/moderation/content-profile.ts";
 // Explicit local provider simulation from the owned managed-service tests.
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
@@ -33,7 +34,7 @@ export const publisher = privateKeyToAccount(`0x${"11".repeat(32)}`),
   origin = "https://community.example",
   serviceOrigin = "https://moderation.example";
 export const configuration = validateConfig({
-  schema: "pirate.community-config/1",
+  schema: "pirate.community-config/2",
   chainId: 6343,
   communityId: communityId(6343, address("1")),
   registry: address("1"),
@@ -55,6 +56,8 @@ export const configuration = validateConfig({
   feed: { endpoint: origin + "/api/feed", signingKeyId: "fixture" },
   policies: {
     admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+    recognitionSigner: evaluator.address.toLowerCase(),
+    contentProfile: defaultContentProfile,
     moderationSigner: evaluator.address.toLowerCase(),
   },
   publisherRevocations: [],
@@ -263,7 +266,7 @@ export async function releaseAdmissionFixture(
       return managedFetch(
         new Request(
           serviceOrigin +
-            "/v1/admissions" +
+            "/v2/admissions" +
             (action === "admit" ? "" : "/" + action),
           {
             method: "POST",
