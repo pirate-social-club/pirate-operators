@@ -142,7 +142,8 @@ export async function observePublication(
   if (receipt.blockNumber > head) return null;
   const tx = await client.getTransaction({ hash });
   insist(
-    tx.hash === hash &&
+    receipt.transactionHash === hash &&
+      tx.hash === hash &&
       tx.chainId === 6343 &&
       tx.from.toLowerCase() === address(publisher) &&
       tx.to?.toLowerCase() === profile.address &&
@@ -222,6 +223,7 @@ export async function readCommunityPosts(
       strict: true,
     });
     for (const log of logs) {
+      if (log.args.kind !== 0) continue;
       const publication = event(log.args, profile),
         prior = latest.get(publication.postId);
       if (!prior || publication.revision > prior.publication.revision)

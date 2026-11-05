@@ -28,7 +28,8 @@ export interface PinGrant {
 export type RetainedPin = Awaited<ReturnType<typeof reconcilePin>>;
 export type PinStatus =
   | { state: "confirmed"; pin: RetainedPin }
-  | { state: "uncertain" };
+  | { state: "uncertain" }
+  | { state: "absent" };
 /** One add attempt for an immutable pin operation. Unknown responses keep their
  * quota reservation. Every later wakeup is retention/retrieval reconciliation;
  * absence from pin/ls never authorizes another non-idempotent add. */
@@ -40,6 +41,7 @@ export async function fundedPin(
   bytes: Uint8Array,
   credential: string,
   send?: IpfsTransport,
+  mode: "execute" | "reconcile" = "execute",
 ): Promise<PinStatus> {
   bytes32(id);
   bytes32(grant.sha256);
@@ -50,11 +52,13 @@ export async function fundedPin(
     "invalid_pin_grant",
     503,
   );
-  insist(
-    canonical(await preparePin(bytes, intent.mediaType)) === canonical(intent),
-    "funded_pin_input_changed",
-    409,
-  );
+  if (mode === "execute")
+    insist(
+      canonical(await preparePin(bytes, intent.mediaType)) ===
+        canonical(intent),
+      "funded_pin_input_changed",
+      409,
+    );
   const requestHash = hashJson({ grant, intent });
   const keys = [
     {
@@ -63,14 +67,30 @@ export async function fundedPin(
       asset: "ipfs_add_attempts",
     },
   ];
-  await configureBudget(db, keys[0]!, String(grant.maximumAdds));
-  await reserveBudget(db, id, requestHash, keys, "1");
-  await db
-    .prepare(
-      "INSERT INTO funded_pins(operation_id,request_hash,grant_hash,intent_json,state,created_at) VALUES(?,?,?,?,'prepared',?) ON CONFLICT DO NOTHING",
-    )
-    .bind(id, requestHash, grant.sha256, canonical(intent), Date.now())
-    .run();
+  if (mode === "execute") {
+    await configureBudget(db, keys[0]!, String(grant.maximumAdds));
+    await reserveBudget(db, id, requestHash, keys, "1");
+    await db
+      .prepare(
+        "INSERT INTO funded_pins(operation_id,request_hash,grant_hash,intent_json,state,created_at) VALUES(?,?,?,?,'prepared',?) ON CONFLICT DO NOTHING",
+      )
+      .bind(id, requestHash, grant.sha256, canonical(intent), Date.now())
+      .run();
+  } else {
+    const prior = await db
+      .prepare(
+        "SELECT request_hash,state FROM funded_pins WHERE operation_id=?",
+      )
+      .bind(id)
+      .first<{ request_hash: string; state: string }>();
+    if (!prior) return { state: "absent" };
+    insist(
+      prior.request_hash === requestHash,
+      "funded_pin_intent_changed",
+      409,
+    );
+    if (prior.state === "prepared") return { state: "absent" };
+  }
   const load = async () => {
     const row = await db
       .prepare("SELECT * FROM funded_pins WHERE operation_id=?")
@@ -101,7 +121,7 @@ export async function fundedPin(
     };
   }
   const claimed =
-    row.state === "prepared"
+    mode === "execute" && row.state === "prepared"
       ? await db
           .prepare(
             "UPDATE funded_pins SET state='running' WHERE operation_id=? AND state='prepared' RETURNING operation_id",

@@ -144,6 +144,29 @@ test("a lost root-mint response reuses its captured hash, creator, nonce and bou
             ? recipient
             : uri,
     } as unknown as PublicClient;
+    assert.deepEqual(
+      await fundedRegistration(
+        db,
+        id,
+        grant,
+        input,
+        client,
+        signer,
+        "reconcile",
+      ),
+      { state: "absent" },
+    );
+    assert.equal(
+      (await db.prepare("SELECT COUNT(*) AS n FROM spending_budgets").first())!
+        .n,
+      0,
+    );
+    assert.equal(
+      (await db
+        .prepare("SELECT COUNT(*) AS n FROM funded_registrations")
+        .first())!.n,
+      0,
+    );
     const pending = await fundedRegistration(
       db,
       id,
@@ -154,6 +177,20 @@ test("a lost root-mint response reuses its captured hash, creator, nonce and bou
     );
     assert.equal(pending.state, "uncertain");
     assert.equal(broadcasts, 1);
+    assert.deepEqual(
+      await fundedRegistration(
+        db,
+        id,
+        grant,
+        input,
+        client,
+        signer,
+        "reconcile",
+      ),
+      pending,
+    );
+    assert.equal(broadcasts, 1);
+
     const saved = await db
       .prepare("SELECT prepared_json FROM funded_registrations")
       .first();
@@ -207,6 +244,103 @@ test("a lost root-mint response reuses its captured hash, creator, nonce and bou
       /registration_grant_mismatch/,
     );
   } finally {
+    await runtime.dispose();
+  }
+});
+
+test("expiry during the awaited running claim cannot start a broadcast", async () => {
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('fixture')}}",
+    compatibilityDate: "2026-08-06",
+    d1Databases: ["DB"],
+  });
+  const realNow = Date.now;
+  try {
+    const db = await runtime.getD1Database("DB");
+    for (const path of [
+      "apps/managed-moderation/migrations/0001_managed.sql",
+      "packages/release/registration-schema.sql",
+    ]) {
+      const sql = await readFile(path, "utf8");
+      await db.batch(
+        sql
+          .replace(/--[^\n]*/g, "")
+          .split(";")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => db.prepare(s)),
+      );
+    }
+    const signer = privateKeyToAccount(`0x${"0".repeat(63)}1`),
+      id = `0x${"1".repeat(64)}` as Hex,
+      recipient = "0x2222222222222222222222222222222222222222",
+      code = "0x6000",
+      digest = keccak256(code),
+      uri =
+        "ipfs://bafkreiabsnyic5vcde6vn37d3ljdpwqyxbyaqgjrkwqmbw4o545i6hpqfy";
+    const grant: RegistrationGrant = {
+      sha256: `0x${"2".repeat(64)}`,
+      period: "fixture-expiry",
+      operator: signer.address.toLowerCase() as Hex,
+      recipient,
+      contentSha256: id,
+      maximumGas: "2000000",
+      maximumGasPrice: "2000000000",
+      maximumTotalFee: "4000000000000000",
+      expiresAt: Math.floor(realNow() / 1000) + 3600,
+      codeHashes: { workflow: digest, nft: digest, registry: digest },
+    };
+    const input = {
+      recipient,
+      contentSha256: id,
+      metadata: { uri, sha256: id },
+      nftMetadata: { uri, sha256: id },
+    } as const;
+    let broadcasts = 0;
+    const client = {
+      getChainId: async () => 1315,
+      getBlockNumber: async () => 101n,
+      getCode: async () => code,
+      getTransactionCount: async () => 3,
+      getGasPrice: async () => 1000000000n,
+      getBalance: async () => 10000000000000000n,
+      estimateGas: async () => 1000000n,
+      getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+        throw new TransactionReceiptNotFoundError({ hash });
+      },
+      sendRawTransaction: async () => {
+        broadcasts++;
+        throw new Error("unexpected expired broadcast");
+      },
+    } as unknown as PublicClient;
+    const { afterD1First } = await import("./fixtures/d1-after-first.ts");
+    const paused = afterD1First(
+      db,
+      (sql) =>
+        sql.startsWith("UPDATE funded_registrations SET state='running'"),
+      () => {
+        Date.now = () => grant.expiresAt * 1000 + 1;
+      },
+    );
+    const result = await fundedRegistration(
+      paused.db,
+      id,
+      grant,
+      input,
+      client,
+      signer,
+    );
+    assert.equal(paused.seen(), 1);
+    assert.equal(result.state, "uncertain");
+    assert.equal(broadcasts, 0);
+    assert.ok(
+      (await db
+        .prepare("SELECT prepared_json FROM funded_registrations")
+        .first())!.prepared_json,
+    );
+  } finally {
+    Date.now = realNow;
     await runtime.dispose();
   }
 });

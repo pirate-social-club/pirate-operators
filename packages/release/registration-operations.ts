@@ -55,7 +55,8 @@ interface Row {
 }
 export type RegistrationStatus =
   | { state: "confirmed"; receipt: RegistrationReceipt }
-  | { state: "uncertain"; transactionHash?: Hex };
+  | { state: "uncertain"; transactionHash?: Hex }
+  | { state: "absent" };
 /** Exactly one root mint under the grant. Signed bytes are persisted before the
  * first broadcast and reused after a missing response; no replacement nonce,
  * recipient, metadata or fee can enter a retry. */
@@ -66,6 +67,7 @@ export async function fundedRegistration(
   input: RootRegistrationInput,
   client: PublicClient,
   signer: PrivateKeyAccount,
+  mode: "execute" | "reconcile" = "execute",
 ): Promise<RegistrationStatus> {
   bytes32(id);
   bytes32(grant.sha256);
@@ -92,22 +94,39 @@ export async function fundedRegistration(
         asset: "native_wei",
       },
     ];
-  await configureBudget(db, countKeys[0]!, "1");
-  await configureBudget(db, feeKeys[0]!, grant.maximumTotalFee);
-  await reserveBudget(db, id + ":mint", requestHash, countKeys, "1");
-  await reserveBudget(
-    db,
-    id + ":fee",
-    requestHash,
-    feeKeys,
-    grant.maximumTotalFee,
-  );
-  await db
-    .prepare(
-      "INSERT INTO funded_registrations(operation_id,request_hash,grant_hash,state,created_at) VALUES(?,?,?,'planned',?) ON CONFLICT DO NOTHING",
-    )
-    .bind(id, requestHash, grant.sha256, Date.now())
-    .run();
+  if (mode === "execute") {
+    await configureBudget(db, countKeys[0]!, "1");
+    await configureBudget(db, feeKeys[0]!, grant.maximumTotalFee);
+    await reserveBudget(db, id + ":mint", requestHash, countKeys, "1");
+    await reserveBudget(
+      db,
+      id + ":fee",
+      requestHash,
+      feeKeys,
+      grant.maximumTotalFee,
+    );
+    await db
+      .prepare(
+        "INSERT INTO funded_registrations(operation_id,request_hash,grant_hash,state,created_at) VALUES(?,?,?,'planned',?) ON CONFLICT DO NOTHING",
+      )
+      .bind(id, requestHash, grant.sha256, Date.now())
+      .run();
+  } else {
+    const prior = await db
+      .prepare(
+        "SELECT request_hash,state FROM funded_registrations WHERE operation_id=?",
+      )
+      .bind(id)
+      .first<{ request_hash: string; state: string }>();
+    if (!prior) return { state: "absent" };
+    insist(
+      prior.request_hash === requestHash,
+      "registration_intent_changed",
+      409,
+    );
+    if (prior.state === "planned" || prior.state === "prepared")
+      return { state: "absent" };
+  }
   const load = async () => {
     const row = await db
       .prepare("SELECT * FROM funded_registrations WHERE operation_id=?")
@@ -263,6 +282,7 @@ export async function fundedRegistration(
   // A confirmed receipt disappearing is a reorg/unavailable chain, never a new
   // operation. Keep its original signed hash and fail closed.
   if (
+    mode === "reconcile" ||
     row.state === "confirmed" ||
     Math.floor(Date.now() / 1000) >= grant.expiresAt
   )
@@ -274,6 +294,8 @@ export async function fundedRegistration(
     .bind(id)
     .first();
   insist(claimed, "registration_operation_changed", 409);
+  if (Math.floor(Date.now() / 1000) >= grant.expiresAt)
+    return { state: "uncertain", transactionHash: prepared.hash };
   try {
     const sent = await client.sendRawTransaction({
       serializedTransaction: prepared.raw,

@@ -17,6 +17,7 @@ import {
 import {
   observePublication,
   publicationData,
+  readCommunityPosts,
   postsAbi,
 } from "../packages/community/post-chain.ts";
 import { validateConfig } from "../packages/community/config-manifest.ts";
@@ -132,6 +133,7 @@ test("publication reconciliation binds the transaction, event, publisher, regist
   };
   const data = publicationData(input);
   let changed = false;
+  let receiptHash: typeof hash | typeof blockHash = hash;
   const client = {
     getChainId: async () => 6343,
     getBlockNumber: async () => 101n,
@@ -139,7 +141,7 @@ test("publication reconciliation binds the transaction, event, publisher, regist
     readContract: async () => config.directory,
     getTransactionReceipt: async () => ({
       status: "success",
-      transactionHash: hash,
+      transactionHash: receiptHash,
       blockNumber: 100n,
       blockHash,
       logs: [
@@ -192,5 +194,25 @@ test("publication reconciliation binds the transaction, event, publisher, regist
   await assert.rejects(
     observePublication(client, profile, config, hash, config.publisher, input),
     /publication_event_mismatch/,
+  );
+  changed = false;
+  receiptHash = blockHash;
+  await assert.rejects(
+    observePublication(client, profile, config, hash, config.publisher, input),
+    /publication_transaction_mismatch/,
+  );
+  const otherKindClient = {
+    ...client,
+    getLogs: async () => [
+      {
+        args: { ...input, kind: 1, revision: 1n, configurationRevision: 1n },
+        blockNumber: 100n,
+        transactionHash: hash,
+      },
+    ],
+  } as unknown as PublicClient;
+  assert.deepEqual(
+    await readCommunityPosts(otherKindClient, profile, [config], config),
+    [],
   );
 });

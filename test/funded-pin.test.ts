@@ -132,3 +132,39 @@ test("an absent result after a started add stays reserved and never authorizes a
     await f.dispose();
   }
 });
+
+test("read-only pin status never creates an intent, reserves quota or sends an add", async () => {
+  const f = await fixture();
+  try {
+    const bytes = new TextEncoder().encode("explicit read-only pin fixture"),
+      intent = await preparePin(bytes, "application/json");
+    let sends = 0;
+    const result = await fundedPin(
+      f.db,
+      id,
+      grant,
+      intent,
+      bytes,
+      "fixture-token",
+      async () => {
+        sends++;
+        throw new Error("unexpected status send");
+      },
+      "reconcile",
+    );
+    assert.deepEqual(result, { state: "absent" });
+    assert.equal(sends, 0);
+    assert.equal(
+      (await f.db
+        .prepare("SELECT COUNT(*) AS n FROM spending_budgets")
+        .first())!.n,
+      0,
+    );
+    assert.equal(
+      (await f.db.prepare("SELECT COUNT(*) AS n FROM funded_pins").first())!.n,
+      0,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
