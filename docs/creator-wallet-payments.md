@@ -11,6 +11,11 @@ service. Operating community moderation does not select independent creator
 treasury operation. The controlled second-community sponsor-admission contract
 below extends this document; the first-song managed profile remains fixed.
 
+The later [creator sponsorship and publishing policy](creator-sponsorship-policy.md)
+defines production key custody and configurable future posting eligibility.
+It preserves this test allowance and makes self-hosting optional. Its provider,
+budget-contract and community-funding options are not implemented launch gates.
+
 This contract extends [creator wallet version 4](creator-wallet.md), which owns
 passkey custody, Ika verification and activation before upload. It defines the
 service connection, sponsored test allowance and readiness. The wallet spike
@@ -69,7 +74,10 @@ ordinary wizard step and never requests Pirate's treasury credentials.
    the relevant checks pass. Reviewing settings does not transfer funds, create
    credentials or deploy a service.
 
-Infisical remains the required service/operator-secret source. Use references
+Infisical remains the required service/operator-secret source. In production,
+store restricted service credentials and protected-signer references, not raw
+treasury private keys; follow the [custody boundary](creator-sponsorship-policy.md#production-signing-and-gas-sponsorship).
+The existing capped testnet signer is not the production requirement. Use references
 and runtime server bindings, never raw secrets in public manifests, browser
 configuration or resumable wizard state. Creator passkey private keys and
 plaintext Ika seeds never enter Infisical. Alchemy owns wizard provisioning;

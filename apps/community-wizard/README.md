@@ -64,6 +64,13 @@ this test choice does not claim a permanent commercial pricing policy. The
 service's balances, finite budgets and activation limits must be checked before
 releases. No new funds, credentials or fee transactions were created here.
 
+The later [creator sponsorship policy](../../docs/creator-sponsorship-policy.md)
+defines production custody and future community eligibility. Communities choose
+a service and bounded funding arrangement; they need not run a Sui gas station
+or provide a treasury key. Future song eligibility may use creator-only access,
+verified activity or optional Very evidence. These settings and funding options
+are not implemented wizard controls and do not widen owner-only MVP publishing.
+
 This setup slice's community queue has no moderation consumer. Creator activation/registration, sealed
 media, public IPFS publication, directory/post transactions and reload/playback
 remain integration work. First-song readiness stays incomplete after successful
