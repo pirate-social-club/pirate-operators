@@ -1,3 +1,4 @@
+import { qualificationTransport } from "./content-qualification-transport.ts";
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink, lstat } from "node:fs/promises";
 import { isAbsolute, join, dirname } from "node:path";
@@ -45,6 +46,7 @@ const controls = [
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 const sourcePaths = [
   "harness/qualify-content.ts",
+  "harness/content-qualification-transport.ts",
   "packages/moderation/openai.ts",
   "packages/moderation/content-profile.ts",
   "packages/moderation/provider-http.ts",
@@ -166,35 +168,16 @@ async function main() {
     });
     insist(secret.secretValue, "existing_openai_runtime_key_missing");
     const apiKey = secret.secretValue;
-    const transport = {
-      async request(request: Request) {
-        const url = new URL(request.url);
-        insist(
-          url.origin === "https://api.openai.com" &&
-            ["/v1/moderations", "/v1/responses"].includes(url.pathname),
-          "unapproved_qualification_request",
-        );
-        insist(
-          Date.now() < deadline && journal.requests < plan.bounds.requests,
-          "qualification_request_bound",
-        );
-        insist(
-          (await request.clone().arrayBuffer()).byteLength <=
-            plan.bounds.maxRequestBytes,
-          "qualification_input_bound",
-        );
+    const transport = qualificationTransport({
+      deadline,
+      maxRequests: plan.bounds.requests,
+      maxRequestBytes: plan.bounds.maxRequestBytes,
+      requests: () => journal.requests,
+      async reserve() {
         journal.requests++;
         await atomic(path, journal);
-        return fetch(
-          new Request(request, {
-            signal: AbortSignal.any([
-              request.signal,
-              AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-            ]),
-          }),
-        );
       },
-    };
+    });
     for (const control of controls) {
       for (const phase of ["moderation", "classification"] as const) {
         const id = `${control.id}:${phase}`,
