@@ -58,7 +58,8 @@ export interface Profile {
   };
   acrRegion: (typeof regions)[number];
   musicBucketId?: number;
-  openaiOrganization: string;
+  openaiOrganization?: string;
+  filebaseRpcCheck?: "sdk-base64-read-only";
   samples?: { positive: Sample; negative: Sample };
 }
 export interface Plan {
@@ -77,6 +78,7 @@ export interface Plan {
     openaiClassification: 1;
     filebaseUpload: 1;
     independentRetrieval: 5;
+    filebaseRpcRead?: 3;
   };
 }
 const pathPattern = /^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/;
@@ -103,8 +105,17 @@ export function profileFrom(value: unknown): Profile {
     slug: text(p.slug, /^[a-z][a-z0-9-]{2,23}$/),
     vault,
     acrRegion,
-    openaiOrganization: text(p.openaiOrganization, /^org-[A-Za-z0-9]{1,80}$/),
   };
+  if (p.openaiOrganization !== undefined)
+    profile.openaiOrganization = text(
+      p.openaiOrganization,
+      /^org-[A-Za-z0-9]{1,80}$/,
+    );
+  if (p.filebaseRpcCheck !== undefined)
+    profile.filebaseRpcCheck = text(
+      p.filebaseRpcCheck,
+      /^sdk-base64-read-only$/,
+    ) as Profile["filebaseRpcCheck"];
   if (p.musicBucketId !== undefined) {
     profile.musicBucketId = integer(p.musicBucketId);
     requireThat(profile.musicBucketId > 0, "invalid_music_catalog");
@@ -153,6 +164,7 @@ export function createPlan(
       openaiClassification: 1,
       filebaseUpload: 1,
       independentRetrieval: 5,
+      ...(profile.filebaseRpcCheck ? { filebaseRpcRead: 3 as const } : {}),
     },
   };
 }

@@ -6,6 +6,5 @@
     "bootstrapPath": "/onboarding/provider-rehearsal/bootstrap",
     "runtimePath": "/onboarding/provider-rehearsal/runtime"
   },
-  "acrRegion": "eu-west-1",
-  "openaiOrganization": "org-replace"
+  "acrRegion": "eu-west-1"
 }

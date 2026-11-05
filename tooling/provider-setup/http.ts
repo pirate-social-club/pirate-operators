@@ -57,6 +57,7 @@ export class Context {
         "https://api-v2.acrcloud.com",
         "https://api.openai.com",
         "https://gateway.pinata.cloud",
+        "https://rpc.filebase.io",
         ...["eu-west-1", "us-west-2", "ap-southeast-1"].map(
           (r) => `https://identify-${r}.acrcloud.com`,
         ),

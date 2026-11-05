@@ -11,6 +11,7 @@ import { CID } from "multiformats/cid";
 import { sha256 } from "multiformats/hashes/sha2";
 import { canonical, digest, requireThat, SetupFailure } from "./model.ts";
 import { Context, bounded } from "./http.ts";
+import { qualifyRpcRead } from "./rpc-compatibility.ts";
 
 const clientAccounts = new WeakMap<S3Client, string>();
 export async function probeCar(intent: string) {
@@ -191,6 +192,8 @@ export async function qualifyFilebase(ctx: Context, client: S3Client) {
     async () => retrieve(ctx, probe),
     async () => retrieve(ctx, probe),
   );
+  if (ctx.plan.profile.filebaseRpcCheck)
+    await qualifyRpcRead(ctx, { cid: probe.cid, sha256: digest(probe.bytes) });
 }
 async function retrieve(
   ctx: Context,

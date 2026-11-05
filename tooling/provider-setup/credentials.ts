@@ -12,6 +12,11 @@ export function credentialLabel(name: string): string {
   if (name === "FILEBASE_SECRET_ACCESS_KEY") return "Secret key";
   return name;
 }
+export function credentialUrl(provider: CredentialTarget["provider"]) {
+  return provider === "filebase"
+    ? "https://console.filebase.com/keys/s3"
+    : undefined;
+}
 export type CredentialTarget = {
   provider: keyof typeof bootstrapNames;
   projectId: string;

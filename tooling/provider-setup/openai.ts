@@ -10,6 +10,10 @@ import { Context } from "./http.ts";
 
 const base = "https://api.openai.com/v1";
 function headers(ctx: Context, token: string) {
+  requireThat(
+    ctx.plan.profile.openaiOrganization,
+    "openai_organization_required",
+  );
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
@@ -37,6 +41,10 @@ async function find(ctx: Context, url: string, token: string, name: string) {
   throw new SetupFailure("openai_pagination_bound");
 }
 export async function provisionOpenAi(ctx: Context) {
+  requireThat(
+    ctx.plan.profile.openaiOrganization,
+    "openai_organization_required",
+  );
   const admin = await ctx.secret("bootstrap", "OPENAI_ADMIN_KEY");
   const projectReceipt = (data: Record<string, unknown>): Receipt => {
     requireThat(

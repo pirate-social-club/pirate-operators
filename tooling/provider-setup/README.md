@@ -81,6 +81,13 @@ bootstrap folder. The personal CLI login has broader account permissions; a
 folder name does not restrict that login's authority. Only cloud Infisical is
 supported by this rehearsal; instance/profile selection remains future work.
 
+Filebase's [S3 Compatible API credentials page](https://console.filebase.com/keys/s3)
+provides Access token and Secret key for automatic bucket creation and S3
+uploads. An IPFS bucket can also be addressed through the separate IPFS RPC API.
+The application's RPC bearer credential is a separate setup concern. The S3
+pair is not the console's short-lived RPC token. The wizard should show this
+direct S3 link beside its matching field labels.
+
 ## Install and plan
 
 Use Node 24 on Linux. From this directory run `npm ci --ignore-scripts`, then
@@ -90,7 +97,7 @@ keys and can run with external networking disabled. Existing root checks are
 separate and unchanged. This package is not the distributable operator wizard.
 
 Copy `profile.example.json` to a private file outside every repository with
-mode 0600. Replace its placeholder project/organization IDs and choose the
+mode 0600. Replace its placeholder project ID and choose the
 bootstrap/runtime folder paths. Do not add secret fields. Create a new private
 state directory with mode 0700. From the repository root, initialize it:
 
@@ -108,6 +115,11 @@ vault scopes and request limits, and retain its `planDigest`. The plan is
 immutable. Reopening uses the same state directory; do not initialize a new
 intent to escape an uncertain create or lose the resources intended for stage
 two. No native transactions or community deployment are part of this profile.
+
+`openaiOrganization` is optional for a Filebase-only plan. OpenAI provisioning
+requires the actual organization in that provider's plan, before any key read
+or provider call. Different provider intents may retain separate receipts and
+runtime references; the later wizard must reuse the already qualified resources.
 
 ## Run the bounded provider test
 
@@ -132,6 +144,28 @@ intent. A lost upload response reconciles through object metadata. A retrieval
 failure never triggers another upload. No media or private test clips enter
 this public object. Successful API use qualifies the actual account/route,
 not an unlimited free plan or all remote-pinning endpoints.
+
+### Optional read-only RPC compatibility experiment
+
+Before initializing its plan, set `filebaseRpcCheck` to
+`sdk-base64-read-only` to allow at most three RPC reads after the S3 probe and
+independent retrieval have passed. Plans without this field do not call RPC
+and retain their original limits. The experiment constructs a candidate using
+the published Filebase PinManager's base64 account-key/secret/bucket format and
+sends it only to `https://rpc.filebase.io/api/v0/pin/ls`, filtered to the exact
+verified probe CID, with redirects refused. Base64 preserves the account pair's
+authority; it is not attenuation or encryption. The pair is sent to Filebase
+inside this TLS request. The exact execution plan must explicitly allow that
+credential use; it is never implied by a successful S3 upload.
+
+The SDK documents this format for its Pinning Service API, not the RPC API.
+This experiment measures whether RPC accepts it. A rejected candidate is saved
+as a negative result; unknown reads can retry within the durable bound. No token
+is minted, persisted, exported to runtime or printed. Even a successful read
+does not prove bucket confinement, expiry/refresh, RPC write capability or full
+application publication. The console's short-lived RPC tokens may use another
+format or issuance path. These qualifications must be settled before claiming
+the community's RPC runtime credential is ready.
 
 ACRCloud discovers the built-in `ACRCloud Music` catalog or stops for catalog
 confirmation. The documented list endpoint's availability for a fresh account

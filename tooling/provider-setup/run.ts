@@ -15,6 +15,7 @@ import {
   credentialTarget,
   bootstrapNames,
   prepareCredentials,
+  credentialUrl,
 } from "./credentials.ts";
 import {
   filebaseClient,
@@ -73,6 +74,7 @@ export async function main(args: string[]): Promise<Record<string, unknown>> {
         names: bootstrapNames[target.provider],
         replace: Boolean(options["--replace"]),
         execution: "none",
+        credentialUrl: credentialUrl(target.provider),
       };
     requireThat(
       process.stdin.isTTY && process.stderr.isTTY,
@@ -81,6 +83,8 @@ export async function main(args: string[]): Promise<Record<string, unknown>> {
     process.stderr.write(
       `Infisical target: ${target.projectId} / ${target.environment} / ${target.secretPath}\n`,
     );
+    const url = credentialUrl(target.provider);
+    if (url) process.stderr.write(`Filebase S3 credentials: ${url}\n`);
     return prepareCredentials(
       target,
       await authenticatedSdk(),
