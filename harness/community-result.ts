@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { digest } from "./private-json.ts";
+import { reviewedPredecessor, type ReviewedUpdate } from "./reviewed-update.ts";
 import { join } from "node:path";
 import { insist, object } from "../packages/community/common.ts";
 import { communityOwned } from "./community-package.ts";
@@ -8,7 +11,11 @@ import type { managedInventory } from "./managed-inventory.ts";
  * Alchemy merely because its final console response was lost. */
 export async function completedCommunityRelease(
   directory: string,
-  profile: { planId: string; bundleSha256: string },
+  profile: {
+    planId: string;
+    bundleSha256: string;
+    reviewedUpdate?: ReviewedUpdate;
+  },
   profileHash: string,
   live: {
     inventory: Awaited<ReturnType<typeof managedInventory>>;
@@ -18,6 +25,21 @@ export async function completedCommunityRelease(
 ) {
   const result = await privateJson(join(directory, "deployment-result.json"));
   if (!result) return null;
+  if (result.profileHash !== profileHash && profile.reviewedUpdate) {
+    const policy = profile.reviewedUpdate;
+    insist(
+      result.profileHash === policy.previousProfileHash &&
+        digest(await readFile(join(directory, "deployment-result.json"))) ===
+          policy.expectedResultSha256,
+      "community_completed_result_conflict",
+      409,
+    );
+    await reviewedPredecessor(directory, {
+      profile: { ...profile, reviewedUpdate: policy },
+      profileHash,
+    });
+    return null;
+  }
   const savedHealth = object(result.health),
     savedAfter = object(result.after);
   insist(

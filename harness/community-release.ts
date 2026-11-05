@@ -1,6 +1,10 @@
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
-import { adoptReviewedUpdate, reviewedPredecessor } from "./reviewed-update.ts";
+import {
+  adoptReviewedUpdate,
+  reviewedPredecessor,
+  finishReviewedUpdate,
+} from "./reviewed-update.ts";
 // Manual staging application upgrade. Dry plan by default; exact reviewed hash
 // required for execution. Existing wizard state and resource identities remain.
 import { readFile, writeFile, lstat, open, unlink } from "node:fs/promises";
@@ -334,14 +338,18 @@ async function main() {
       503,
     );
     const after = await inventory();
-    await durableJson(join(directory, "deployment-result.json"), {
-      schema: "pirate.community-application-release/1",
-      profileHash,
-      before,
-      after,
-      logs,
-      health: status,
-    });
+    await finishReviewedUpdate(
+      directory,
+      { profile, profileHash },
+      {
+        schema: "pirate.community-application-release/1",
+        profileHash,
+        before,
+        after,
+        logs,
+        health: status,
+      },
+    );
     console.log(
       JSON.stringify(
         {

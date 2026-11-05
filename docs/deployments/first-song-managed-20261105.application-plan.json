@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x4018a90d5f1253092c1e74a1e48362b71493e33749b4215ecf5c227ae8c0bc6a",
+  "profileHash": "0x968dfa65112ca99aeb1ceef68da0501891a24aa6da5a07c801f5d11b4acf8dfb",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -84,8 +84,8 @@
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
       "harness/community-package.ts": "0xd621cece5c7a777ca5c4b213cb64ae5d15e94c6f0828b790663ca5301d122a03",
-      "harness/community-release.ts": "0xb3e3cbf89722ad8df1ea25cfe81c41cc89f069c4a442261ddaa3f65a2369cd70",
-      "harness/community-result.ts": "0x90014b3da12c7b53df6bf230b2dc3951d798177541a0a76ffe3e0158c39c91b1",
+      "harness/community-release.ts": "0x6592e33232d5f3044617c6850970a9c4796003c1cd7d796abac51fd59c8b5c8f",
+      "harness/community-result.ts": "0xe240ac9c1ecb6c87583de8efe0da28eb83f45e52548aa75ca53adbe64490fe73",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
       "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
       "harness/managed-inventory.ts": "0xfcef61c977ea15af169c6d8b384e49919665287698595f03dd218a1f77b0099b",
