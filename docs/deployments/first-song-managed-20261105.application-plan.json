@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x55b8457474115a8cf059986f287a4528a1b5f82d95aa11beea83720e1b7706a6",
+  "profileHash": "0xe3558039821334c5aa83015bed9e919d6aa90db46f03882411a657d5adc0d75c",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -75,8 +75,9 @@
       "apps/web/src/live/style.css": "0xeb2d08fa0eda4b8e37c96f4b96de6aba5eb3a7538053f13078ee6b4e5b56095f",
       "apps/web/src/ui.ts": "0xd541b05537a20cf7f489dd710b0aab4d1dd86f086f111a167687783c8b2e4013",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
+      "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
-      "harness/community-package.ts": "0x14bbee9ea1ce204c95d4acbfeefb0e8f09dad065b718d1f8efe1a53791d162fc",
+      "harness/community-package.ts": "0x13df74a6c3d679ff523598aba56b7350109d4e97783f248d8643113eb1ef0b4a",
       "harness/community-release.ts": "0xb69ecb37a83fbdf4cb13cea855e96a8090cead3baf05ca431c53d816cb5b8fed",
       "harness/community-result.ts": "0x90014b3da12c7b53df6bf230b2dc3951d798177541a0a76ffe3e0158c39c91b1",
       "harness/community-state.ts": "0x844823cb0ed3370abd6fdaa87a039468a3c2ee82d56bd22beb51d193bddea888",

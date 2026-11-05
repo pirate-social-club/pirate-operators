@@ -130,6 +130,7 @@ export async function communityPackage() {
       "apps/web/src/live",
       "apps/web/src/ui.ts",
       "apps/web/vite.live.config.ts",
+        "apps/web/vite.shared.ts",
       "apps/web/package.json",
       "apps/web/package-lock.json",
     ],
