@@ -1,0 +1,31 @@
+{
+  "schema": "pirate.openai-model-access-evidence/1",
+  "status": "model_access_unconfirmed",
+  "approvedSource": "cc4bede3ac5e50625d28aba0db93509b91a42cc8",
+  "workingHead": "857a4707f7d2d5d3d198ecbf10a1e0e80e5fb2f1",
+  "planSha256": "ff4998a1e63197a85437c819583d44f1c2520535c7e766f4933c3c420e2f0721",
+  "startedAt": "2026-11-05T13:34:11.548158+00:00",
+  "deadlineAt": "2026-11-05T13:36:11.548158+00:00",
+  "observedAt": "2026-11-05T13:35:35.883802+00:00",
+  "request": {
+    "method": "GET",
+    "url": "https://api.openai.com/v1/models/gpt-6-luna"
+  },
+  "requests": 1,
+  "journalState": "done",
+  "result": {
+    "errorCode": null,
+    "errorType": "invalid_request_error",
+    "modelId": null,
+    "providerRequestIdPresent": true,
+    "responseSha256": "baa4bd9beef25ee730ab6c7b4c73d037dd93c120f42c0c34b8819307afc9beb1",
+    "status": 404
+  },
+  "journalSha256": "552d657c46c05ff62f313bddd7ad4a7632b8f63d28225530139ef18a5d48fb51",
+  "operationSha256": "cf0e45ab204d5c01bbdd0721b2163fc3d3f9b35a04d1d009515e931876c311b8",
+  "evidenceDirectory": "/home/t42/.local/state/pirate-openai-access-20261105",
+  "scope": "Exactly one read-only model-metadata request. No inference, retry, provider resource or permission change. Error body and message were not retained.",
+  "conclusion": "The existing staging key could not retrieve the selected model. HTTP404 and invalid_request_error do not distinguish model availability from account permissions. Responses inference access remains unproven. The earlier HTTP403 classification journal remains unchanged.",
+  "qualificationEvidence": "community-content-qualification-20261105.json",
+  "remaining": "Confirm existing-account access or supply an already qualified existing Infisical reference, then prepare and independently review a recovery profile. Full V2 integration and deployment remain outside this diagnostic approval."
+}
