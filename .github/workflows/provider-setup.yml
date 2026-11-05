@@ -1,9 +1,23 @@
 name: Provider setup
 on:
   push:
-    paths: ["tooling/provider-setup/**", ".github/workflows/provider-setup.yml"]
+    paths:
+      [
+        "tooling/provider-setup/**",
+        "packages/moderation/**",
+        "packages/community/common.ts",
+        "package*.json",
+        ".github/workflows/provider-setup.yml",
+      ]
   pull_request:
-    paths: ["tooling/provider-setup/**", ".github/workflows/provider-setup.yml"]
+    paths:
+      [
+        "tooling/provider-setup/**",
+        "packages/moderation/**",
+        "packages/community/common.ts",
+        "package*.json",
+        ".github/workflows/provider-setup.yml",
+      ]
 permissions:
   contents: read
 jobs:
@@ -20,6 +34,8 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: tooling/provider-setup/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: .
       - run: npm ci --ignore-scripts
       - name: Run without external networking
         run: |

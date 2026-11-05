@@ -13,7 +13,7 @@ import {
   hashText,
   insist,
 } from "../../packages/community/common.ts";
-import { validateConfig } from "../../packages/community/config-manifest.ts";
+import { validateConfig } from "./configuration-v1.ts";
 import {
   RELEASE_POLICY,
   RELEASE_POLICY_HASH,
@@ -102,6 +102,7 @@ export async function configurationPlan() {
   };
   const sourcePaths = [
     "harness/megaeth/configuration-plan.ts",
+    "harness/megaeth/configuration-v1.ts",
     "harness/megaeth/configure-community.ts",
     "harness/megaeth/deployment-journal.ts",
     "harness/megaeth/configuration-state.ts",

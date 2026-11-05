@@ -1,19 +1,13 @@
 import { createHash } from "node:crypto";
 
 export class SetupError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
+  readonly status: number;
+  constructor(message: string, status = 400) {
     super(message);
+    this.status = status;
   }
 }
-export const secretNames = [
-  "OPENAI_API_KEY",
-  "ACRCLOUD_ACCESS_KEY",
-  "ACRCLOUD_ACCESS_SECRET",
-  "CLOUDCONVERT_API_KEY",
-] as const;
+export const secretNames = ["OPENAI_API_KEY", "CLOUDCONVERT_API_KEY"] as const;
 export type SecretName = (typeof secretNames)[number];
 export interface Settings {
   name: string;
@@ -23,7 +17,6 @@ export interface Settings {
   projectId: string;
   environment: string;
   secretPath: string;
-  acrHost: string;
   cloudconvert: boolean;
   tld: string;
   moderationMode: "pirate" | "independent";
@@ -51,6 +44,12 @@ export interface SetupState {
     | "failed"
     | "update_pending"
     | "provisioned";
+  contentCheck?: {
+    id: string;
+    revision: number;
+    state: "planned" | "started" | "passed" | "failed";
+    receipt?: unknown;
+  };
   attempted: boolean;
   message?: string;
 }
@@ -87,7 +86,6 @@ export function settingsFrom(value: unknown): Settings {
     "projectId",
     "environment",
     "secretPath",
-    "acrHost",
     "cloudconvert",
     "tld",
     "moderationMode",
@@ -107,7 +105,6 @@ export function settingsFrom(value: unknown): Settings {
     input.projectId = "";
     input.environment = "";
     input.secretPath = "";
-    input.acrHost = "";
     input.cloudconvert = false;
   }
   const independent = input.moderationMode === "independent";
@@ -160,14 +157,6 @@ export function settingsFrom(value: unknown): Settings {
           "secretPath",
           /^\/(?=.{1,240}$)(?:[a-zA-Z0-9_-]+\/){0,7}[a-zA-Z0-9_-]+$/,
           "Choose a dedicated Infisical folder with up to eight path segments, such as /communities/c22.",
-        ),
-    acrHost: !independent
-      ? ""
-      : field(
-          input,
-          "acrHost",
-          /^identify-[a-z0-9-]+\.acrcloud\.com$/,
-          "Enter your ACRCloud identify host, without https://.",
         ),
     cloudconvert: independent && input.cloudconvert === true,
     tld: field(
@@ -273,7 +262,7 @@ export function readiness(state: SetupState) {
       title: "Moderation and publication",
       state: "integration_pending",
       detail:
-        "Connect real ACRCloud/OpenAI checks, the release gate, sealed media and public IPFS publication.",
+        "Connect Pirate recognition and community content checks, the release gate, sealed media and public IPFS publication.",
     },
     {
       title: "Creator activation",

@@ -520,3 +520,12 @@ The review repair retains the last 1 MiB of combined Alchemy output, with a
 truncation flag, so terminal failures remain in encrypted diagnostics. A
 production-dependency smoke check follows the browser run in CI. These checks
 do not prove live provider behavior or first-song readiness.
+
+
+The November 5 successor moves ACRCloud recognition to Pirate and removes its
+community credential/hostname setup. Community content assessment and storage
+remain community-owned. Earlier requirements for community ACRCloud accounts
+are superseded for this successor. The first-song version-1 operation remains
+on its preserved serving profile. The explicit configuration/evidence version-2
+cutover, catalog source adoption and remaining integration gates are specified
+in [operator protocol](../../docs/operator-protocol.md).

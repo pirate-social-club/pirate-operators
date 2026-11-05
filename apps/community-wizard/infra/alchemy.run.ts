@@ -42,10 +42,7 @@ export default Alchemy.Stack(
         PLAN_ID: process.env.PLAN_ID!,
         ...(process.env.MODERATION_MODE === "independent"
           ? {
-              ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!,
               OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),
-              ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
-              ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
               ...(process.env.CLOUDCONVERT_API_KEY
                 ? {
                     CLOUDCONVERT_API_KEY: Config.Redacted(

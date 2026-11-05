@@ -97,11 +97,17 @@ export function admissionRequest(
     inputs.lyrics === null
       ? null
       : capability(inputs.lyrics, pairing, submissionId, "lyrics", 131072);
-  const checks: EvidenceCheck[] = [
-    "audio.identification",
+  const contentChecks: EvidenceCheck[] = [
     "title.rating",
     ...(lyrics ? ["lyrics.classification" as const] : []),
   ];
+  const sets: EvidenceCheck[][] = [
+    ["audio.identification"],
+    contentChecks,
+    ["audio.identification", ...contentChecks],
+  ];
+  const checks = sets.find((checks) => hashJson(r.checks) === hashJson(checks));
+  insist(checks, "unsupported_admission_checks");
   insist(
     hashJson(r.checks) === hashJson(checks),
     "unsupported_admission_checks",

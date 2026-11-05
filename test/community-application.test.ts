@@ -1,3 +1,4 @@
+import { configurationV2 } from "./fixtures/configuration-v2.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -28,7 +29,7 @@ const signer = privateKeyToAccount(`0x${"11".repeat(32)}`),
     ),
   ),
   config = validateConfig({
-    ...deployment.configuration,
+    ...configurationV2(deployment.configuration),
     publisher: publisher.address.toLowerCase(),
   });
 
@@ -227,7 +228,7 @@ test("application separates bootstrap from directory manifest, serves assets wit
         await f.call("/.well-known/pirate-community.json")
       ).json()) as { schema: string };
     assert.equal(client.schema, "pirate.community-client-config/1");
-    assert.equal(manifest.schema, "pirate.community-config/1");
+    assert.equal(manifest.schema, "pirate.community-config/2");
     f.ports.configuration = async () => {
       throw new Error("fixture unavailable RPC");
     };

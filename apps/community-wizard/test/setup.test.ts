@@ -23,15 +23,13 @@ const settings: Settings = {
   projectId: "00000000-0000-0000-0000-000000000001",
   environment: "dev",
   secretPath: "/communities/local-test",
-  acrHost: "identify-eu-west-1.acrcloud.com",
+
   cloudconvert: false,
   tld: "c22",
   moderationMode: "independent",
 };
 const credentials = {
   OPENAI_API_KEY: "fixture-openai-not-a-real-key",
-  ACRCLOUD_ACCESS_KEY: "fixture-acr-not-a-real-key",
-  ACRCLOUD_ACCESS_SECRET: "fixture-acr-not-a-real-secret",
 };
 async function fixture(t: TestContext, options: Partial<Provisioner> = {}) {
   const directory = await mkdtemp(join(tmpdir(), "pirate-wizard-test-"));
@@ -227,7 +225,6 @@ test("configuration rejects path/shell/URL injection and provider secrets in set
     { slug: "$(command)" },
     { subdomain: "example.com/path" },
     { secretPath: "/../other" },
-    { acrHost: "127.0.0.1" },
     { accountId: "wrong" },
     { OPENAI_API_KEY: "secret" },
   ])
@@ -352,4 +349,96 @@ test("namespace is required before planning and all setup choices stay fixed aft
     /Choose the community TLD/,
   );
   assert.equal(f.calls(), 1);
+});
+
+test("wizard qualification uses the runtime models, persists its intent and never repeats a completed or uncertain check", async (t) => {
+  const f = await fixture(t),
+    original = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  await f.setup.configure(settings);
+  await f.setup.saveSecrets(credentials);
+  const { categories, MODERATION_MODEL, CLASSIFICATION_MODEL } = await import(
+    "../../../packages/moderation/openai.ts"
+  );
+  let sends = 0;
+  globalThis.fetch = async (input) => {
+    sends++;
+    const request = input as Request,
+      body = await request.json();
+    assert.equal(
+      request.headers.get("authorization"),
+      `Bearer ${credentials.OPENAI_API_KEY}`,
+    );
+    assert.equal(f.setup.snapshot().contentCheck?.state, "started");
+    if (request.url.endsWith("/moderations")) {
+      assert.equal(body.model, MODERATION_MODEL);
+      assert.equal(body.input.length, 2);
+      return Response.json({
+        id: "modr-fixture",
+        model: MODERATION_MODEL,
+        results: [0, 1].map(() => ({
+          flagged: false,
+          categories: Object.fromEntries(categories.map((c) => [c, false])),
+          category_scores: Object.fromEntries(categories.map((c) => [c, 0])),
+          category_applied_input_types: Object.fromEntries(
+            categories.map((c) => [c, ["text"]]),
+          ),
+        })),
+      });
+    }
+    assert.equal(body.model, CLASSIFICATION_MODEL);
+    assert.equal(body.reasoning.effort, "none");
+    assert.deepEqual(body.text.format.schema.required, [
+      "titleRating",
+      "lyricsRating",
+      "explicit",
+      "primaryLanguage",
+    ]);
+    return Response.json({
+      id: "resp_fixture",
+      model: CLASSIFICATION_MODEL,
+      status: "completed",
+      usage: {},
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              text: JSON.stringify({
+                titleRating: "general",
+                lyricsRating: "general",
+                explicit: false,
+                primaryLanguage: "en",
+              }),
+            },
+          ],
+        },
+      ],
+    });
+  };
+  await f.setup.reviewContent();
+  const id = f.setup.snapshot().contentCheck!.id;
+  await f.setup.qualifyContent({ planId: id });
+  assert.equal(sends, 2);
+  assert.equal(f.setup.snapshot().contentCheck!.state, "passed");
+  await assert.rejects(f.setup.qualifyContent({ planId: id }));
+  assert.equal(sends, 2);
+  const disk = await readFile(join(f.directory, "setup.json"), "utf8");
+  assert(!disk.includes(credentials.OPENAI_API_KEY));
+  await f.setup.saveSecrets(credentials);
+  assert.equal(f.setup.snapshot().contentCheck, undefined);
+  await f.setup.reviewContent();
+  globalThis.fetch = async () => {
+    sends++;
+    throw Error("lost response");
+  };
+  const next = f.setup.snapshot().contentCheck!.id;
+  await assert.rejects(f.setup.qualifyContent({ planId: next }));
+  await assert.rejects(f.setup.qualifyContent({ planId: next }));
+  assert.equal(sends, 3);
 });

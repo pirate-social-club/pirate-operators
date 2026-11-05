@@ -13,12 +13,18 @@ test("operator chooses a fixed namespace, configures HTTPS without delegation an
   await page
     .getByLabel("workers.dev subdomain", { exact: true })
     .fill("example");
-  await expect(page.getByLabel("Project UUID", { exact: true })).toHaveCount(0);
+  await page
+    .getByLabel("Project UUID", { exact: true })
+    .fill("00000000-0000-0000-0000-000000000001");
+  await page
+    .getByLabel("Secret folder", { exact: true })
+    .fill("/communities/night-garden");
   await page.getByRole("button", { name: "Save & continue" }).click();
   await expect(
-    page.getByRole("heading", { name: "Your services" }),
+    page.getByRole("heading", { name: "Connect your providers" }),
   ).toBeVisible();
-  await expect(page.getByLabel("OpenAI API key")).toHaveCount(0);
+  await expect(page.getByLabel("OpenAI API key")).toHaveCount(1);
+  await expect(page.getByLabel("ACRCloud access key")).toHaveCount(0);
   await page.getByRole("button", { name: "Review deployment" }).click();
   await expect(
     page.getByText("https://pirate-night-garden.example.workers.dev", {
@@ -72,11 +78,7 @@ test("independent setup guides CLI login and refuses keys before connection", as
   await page
     .getByLabel("workers.dev subdomain", { exact: true })
     .fill("example");
-  await page.getByLabel("Advanced: operate moderation myself").check();
   await page.getByLabel("Environment", { exact: true }).fill("dev");
-  await page
-    .getByLabel("ACRCloud identify host", { exact: true })
-    .fill("identify-eu-west-1.acrcloud.com");
   await page
     .getByLabel("Project UUID", { exact: true })
     .fill("00000000-0000-0000-0000-000000000001");

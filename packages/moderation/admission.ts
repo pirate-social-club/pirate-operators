@@ -1,3 +1,4 @@
+import type { ContentProfile } from "./content-profile.ts";
 import type { Address, Hex } from "viem";
 import {
   canonical,
@@ -37,7 +38,9 @@ export interface AdmissionFacts {
   providerEndpoint: string;
 }
 export interface AdmissionPolicy {
-  operators: Address[];
+  contentProfile: ContentProfile;
+  recognitionOperators: Address[];
+  contentOperators: Address[];
   maxAgeSeconds: number;
 }
 export interface AdmissionDecision {
@@ -110,7 +113,15 @@ function boundAudio(record: EvidenceRecord, facts: AdmissionFacts) {
     "audio_result_mismatch",
   );
 }
-function boundText(record: EvidenceRecord, facts: AdmissionFacts) {
+function boundText(
+  record: EvidenceRecord,
+  facts: AdmissionFacts,
+  profile: ContentProfile,
+) {
+  insist(
+    canonical(record.details.profile) === canonical(profile),
+    "content_evidence_profile_mismatch",
+  );
   if (record.envelope.check === "title.rating") {
     exact(record.inputs, ["titleRevision", "titleSha256"]);
     insist(
@@ -165,7 +176,10 @@ export async function verifyAdmission(
         e = record.envelope;
       insist(
         required.includes(e.check) &&
-          policy.operators.some((o) => o.toLowerCase() === e.operator),
+          (e.check === "audio.identification"
+            ? policy.recognitionOperators
+            : policy.contentOperators
+          ).some((o) => o.toLowerCase() === e.operator),
         "untrusted_evidence_operator",
       );
       insist(
@@ -190,7 +204,7 @@ export async function verifyAdmission(
           : hashText(e.check === "title.rating" ? facts.title : facts.lyrics);
       insist(e.subject === subject, "evidence_subject_mismatch");
       if (e.check === "audio.identification") boundAudio(record, facts);
-      else boundText(record, facts);
+      else boundText(record, facts, policy.contentProfile);
       valid.push(record);
     } catch {
       /* Invalid records never satisfy a required check. */

@@ -1,3 +1,8 @@
+import {
+  categories,
+  MODERATION_MODEL,
+  CLASSIFICATION_MODEL,
+} from "../../../packages/moderation/openai.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
@@ -159,19 +164,38 @@ function openAiFake(planName: string, accountName: string) {
     const body = await request.json();
     if (path === "/v1/moderations") {
       tally.moderation++;
-      return json({ results: [{ flagged: false }] });
+      return json({
+        id: "mod-fixture",
+        model: MODERATION_MODEL,
+        results: [0, 1].map(() => ({
+          flagged: false,
+          categories: Object.fromEntries(categories.map((c) => [c, false])),
+          category_scores: Object.fromEntries(categories.map((c) => [c, 0.01])),
+          category_applied_input_types: Object.fromEntries(
+            categories.map((c) => [c, ["text"]]),
+          ),
+        })),
+      });
     }
     assert.equal(path, "/v1/responses");
     assert.equal(body.max_output_tokens, 256);
     assert.equal(body.store, false);
     tally.classification++;
     return json({
+      id: "resp-fixture",
+      model: CLASSIFICATION_MODEL,
+      usage: { input_tokens: 20, output_tokens: 20 },
       status: "completed",
       output: [
         {
           type: "message",
+          status: "completed",
+          role: "assistant",
           content: [
-            { type: "output_text", text: '{"language":"en","explicit":false}' },
+            {
+              type: "output_text",
+              text: '{"primaryLanguage":"en","explicit":false,"titleRating":"general","lyricsRating":"general"}',
+            },
           ],
         },
       ],

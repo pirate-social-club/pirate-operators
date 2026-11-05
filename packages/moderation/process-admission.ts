@@ -1,6 +1,16 @@
+import { admissionSigner } from "./sign-admission.ts";
+import {
+  defaultContentProfile,
+  type ContentProfile,
+} from "./content-profile.ts";
 import { Effect } from "effect";
 import type { PrivateKeyAccount } from "viem/accounts";
-import { CommunityError, hashText, insist } from "../community/common.ts";
+import {
+  CommunityError,
+  hashText,
+  insist,
+  canonical,
+} from "../community/common.ts";
 import { configureBudget } from "../community/budgets.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import { admissionRequest } from "./capabilities.ts";
@@ -28,17 +38,14 @@ import {
   journaledProviderCall,
   UncertainProviderCall,
 } from "./provider-journal.ts";
-import {
-  signEvidence,
-  evidenceSchemas,
-  type EvidenceCheck,
-  type EvidenceRecord,
-} from "./evidence.ts";
+import { type EvidenceCheck, type EvidenceRecord } from "./evidence.ts";
 import type { ManagedPairing } from "./pairing.ts";
 import type { ProviderTransport } from "./provider-http.ts";
 import type { AudioWindowFacts } from "./admission.ts";
 
 export interface ManagedProcessing {
+  mode?: "recognition" | "content" | "all";
+  contentProfile?: ContentProfile;
   pairings: ManagedPairing[];
   serviceRequestCap: number;
   serviceBudgetPeriod: string;
@@ -106,6 +113,8 @@ export function processAdmission(
           );
           return seconds;
         };
+        const checks = JSON.parse(row.request_json).checks as EvidenceCheck[];
+        const profile = config.contentProfile ?? defaultContentProfile;
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);
           insist(
@@ -118,8 +127,16 @@ export function processAdmission(
               current.publisher === authority.publisher &&
               current.configurationRevision ===
                 authority.configurationRevision &&
-              current.policies.moderationSigner ===
-                config.signer.address.toLowerCase(),
+              (!checks.includes("title.rating") ||
+                canonical(current.policies.contentProfile) ===
+                  canonical(profile)) &&
+              checks.every(
+                (check) =>
+                  (check === "audio.identification"
+                    ? current.policies.recognitionSigner
+                    : current.policies.moderationSigner) ===
+                  config.signer.address.toLowerCase(),
+              ),
             "community_authority_changed",
             403,
           );
@@ -164,178 +181,182 @@ export function processAdmission(
         const lease = { admissionId: id, token: row.lease_token! },
           windows: (AudioWindowFacts & { providerCode: number })[] = [],
           audioDetails: Record<string, unknown>[] = [];
-        for (const role of ["primary", "alternate"] as const) {
-          const window = prepared.windows.find((w) => w.role === role)!;
-          const call = await journaledProviderCall(db, lease, {
-            kind: role === "primary" ? "acr_primary" : "acr_alternate",
+        if (checks.includes("audio.identification"))
+          for (const role of ["primary", "alternate"] as const) {
+            const window = prepared.windows.find((w) => w.role === role)!;
+            const call = await journaledProviderCall(db, lease, {
+              kind: role === "primary" ? "acr_primary" : "acr_alternate",
+              budgets,
+              authorize,
+              request: {
+                schema: "pirate.acr-call/1",
+                sampleSha256: window.sampleSha256,
+                byteLength: window.byteLength,
+                endpoint: acrEndpoint(config.acr.host),
+              },
+              async send(received) {
+                const sample = await media.get(window.objectKey);
+                insist(sample, "retained_sample_missing", 503);
+                return identifyMp3(
+                  new Uint8Array(await sample.arrayBuffer()),
+                  config.acr,
+                  received,
+                  config.transport,
+                );
+              },
+              interpret: (response) => ({ ...parseAcrResponse(response) }),
+            });
+            const result = call as unknown as ReturnType<
+              typeof parseAcrResponse
+            >;
+            // The frozen wire records actual provider codes. Excluded-only code0
+            // cannot be relabelled as1001; this first profile holds for review.
+            insist(
+              !result.details.allCandidatesExcluded,
+              "acrcloud_excluded_reference_needs_review",
+              409,
+            );
+            const { objectKey, byteLength, ...facts } = window;
+            windows.push({ ...facts, providerCode: result.code });
+            audioDetails.push(result.details);
+            if (result.code !== 2004) break;
+          }
+        let textResult: ReturnType<typeof parseTextModeration> | undefined;
+        let classified:
+          | ReturnType<typeof parseLyricsClassification>
+          | undefined;
+        if (checks.includes("title.rating")) {
+          textResult = (await journaledProviderCall(db, lease, {
+            kind: "text_moderation",
             budgets,
             authorize,
             request: {
-              schema: "pirate.acr-call/1",
-              sampleSha256: window.sampleSha256,
-              byteLength: window.byteLength,
-              endpoint: acrEndpoint(config.acr.host),
+              model: profile.moderationModel,
+              titleSha256: request.declared.titleSha256,
+              lyricsSha256: request.declared.lyricsSha256,
             },
-            async send(received) {
-              const sample = await media.get(window.objectKey);
-              insist(sample, "retained_sample_missing", 503);
-              return identifyMp3(
-                new Uint8Array(await sample.arrayBuffer()),
-                config.acr,
+            send: (received) =>
+              moderateText(
+                prepared.title,
+                prepared.lyrics,
+                config.openAiKey,
                 received,
                 config.transport,
-              );
+                profile,
+              ),
+            interpret: (response) => ({
+              ...parseTextModeration(
+                response,
+                prepared.lyrics.trim() ? 2 : 1,
+                profile,
+              ),
+            }),
+          })) as unknown as ReturnType<typeof parseTextModeration>;
+          classified = (await journaledProviderCall(db, lease, {
+            kind: "lyrics_classification",
+            budgets,
+            authorize,
+            request: {
+              model: profile.classificationModel,
+              maxOutputTokens: 256,
+              titleSha256: request.declared.titleSha256,
+              lyricsSha256: request.declared.lyricsSha256,
             },
-            interpret: (response) => ({ ...parseAcrResponse(response) }),
-          });
-          const result = call as unknown as ReturnType<typeof parseAcrResponse>;
-          // The frozen wire records actual provider codes. Excluded-only code0
-          // cannot be relabelled as1001; this first profile holds for review.
-          insist(
-            !result.details.allCandidatesExcluded,
-            "acrcloud_excluded_reference_needs_review",
-            409,
-          );
-          const { objectKey, byteLength, ...facts } = window;
-          windows.push({ ...facts, providerCode: result.code });
-          audioDetails.push(result.details);
-          if (result.code !== 2004) break;
+            send: (received) =>
+              classifyLyrics(
+                prepared.title,
+                prepared.lyrics,
+                config.openAiKey,
+                received,
+                config.transport,
+                profile,
+              ),
+            interpret: (response) => ({
+              ...parseLyricsClassification(response, profile),
+            }),
+          })) as unknown as ReturnType<typeof parseLyricsClassification>;
         }
-        const textResult = (await journaledProviderCall(db, lease, {
-          kind: "text_moderation",
-          budgets,
-          authorize,
-          request: {
-            model: MODERATION_MODEL,
-            titleSha256: request.declared.titleSha256,
-            lyricsSha256: request.declared.lyricsSha256,
-          },
-          send: (received) =>
-            moderateText(
-              prepared.title,
-              prepared.lyrics,
-              config.openAiKey,
-              received,
-              config.transport,
-            ),
-          interpret: (response) => ({
-            ...parseTextModeration(response, prepared.lyrics.trim() ? 2 : 1),
-          }),
-        })) as unknown as ReturnType<typeof parseTextModeration>;
-        const classified = (await journaledProviderCall(db, lease, {
-          kind: "lyrics_classification",
-          budgets,
-          authorize,
-          request: {
-            model: CLASSIFICATION_MODEL,
-            maxOutputTokens: 256,
-            titleSha256: request.declared.titleSha256,
-            lyricsSha256: request.declared.lyricsSha256,
-          },
-          send: (received) =>
-            classifyLyrics(
-              prepared.title,
-              prepared.lyrics,
-              config.openAiKey,
-              received,
-              config.transport,
-            ),
-          interpret: (response) => ({ ...parseLyricsClassification(response) }),
-        })) as unknown as ReturnType<typeof parseLyricsClassification>;
         const acquiredAt = await acquisitionTime();
         insist(acquiredAt !== null, "moderation_acquisition_missing", 503);
         const issuedAt = acquiredAt,
           evidence: EvidenceRecord[] = [];
-        const sign = async (
-          check: EvidenceCheck,
-          subject: ReturnType<typeof hashText>,
-          result: string,
-          inputs: Record<string, unknown>,
-          details: Record<string, unknown>,
-        ) => {
-          evidence.push(
-            await signEvidence(
-              config.signer,
-              {
-                check,
-                schema: evidenceSchemas[check],
-                submissionId: row.submission_id,
-                communityId: row.community_id,
-                jobId: row.job_id,
-                subject,
-                evaluator: `pirate-managed/1;acr-raw/1;${MODERATION_MODEL};${CLASSIFICATION_MODEL}`,
-                policy: "pirate-release/2026-08-29",
-                result,
-                issuedAt,
-                expiresAt: issuedAt + 3600,
-              },
-              inputs,
-              details,
-            ),
-          );
-        };
+        const sign = admissionSigner(
+          config.signer,
+          row,
+          evidence,
+          issuedAt,
+          profile,
+        );
         const codes = windows.map((w) => w.providerCode),
           audio = codes.includes(0)
             ? "identified"
             : codes.every((c) => c === 1001)
               ? "not_identified"
               : "inconclusive";
-        await sign(
-          "audio.identification",
-          request.declared.songSha256,
-          audio,
-          {
-            songSha256: request.declared.songSha256,
-            songByteLength: request.inputs.song.byteLength,
-            extraction: "mp3-frame-window/1",
-            windows,
-            provider: "acrcloud",
-            providerEndpoint: acrEndpoint(config.acr.host),
-          },
-          { windows: audioDetails },
-        );
-        const classification = classified.classification;
-        await sign(
-          "title.rating",
-          request.declared.titleSha256,
-          textResult.results[0]!.adult ||
-            classification.titleRating === "adult_18"
-            ? "adult_18"
-            : "general",
-          { titleRevision: 1, titleSha256: request.declared.titleSha256 },
-          {
-            model: MODERATION_MODEL,
-            moderation: textResult.results[0],
-            classificationModel: CLASSIFICATION_MODEL,
-            classificationReceipt: classified.id,
-          },
-        );
-        if (prepared.lyrics.trim())
+        if (checks.includes("audio.identification"))
           await sign(
-            "lyrics.classification",
-            request.declared.lyricsSha256!,
-            textResult.results[1]!.adult ||
-              classification.lyricsRating === "adult_18" ||
-              classification.explicit
+            "audio.identification",
+            request.declared.songSha256,
+            audio,
+            {
+              songSha256: request.declared.songSha256,
+              songByteLength: request.inputs.song.byteLength,
+              extraction: "mp3-frame-window/1",
+              windows,
+              provider: "acrcloud",
+              providerEndpoint: acrEndpoint(config.acr.host),
+            },
+            { windows: audioDetails },
+          );
+        if (textResult && classified) {
+          const classification = classified.classification;
+          await sign(
+            "title.rating",
+            request.declared.titleSha256,
+            textResult.results[0]!.adult ||
+              classification.titleRating === "adult_18"
               ? "adult_18"
               : "general",
-            { lyricsRevision: 1, lyricsSha256: request.declared.lyricsSha256 },
+            { titleRevision: 1, titleSha256: request.declared.titleSha256 },
             {
-              explicit: classification.explicit,
-              primaryLanguage: classification.primaryLanguage,
-              model: MODERATION_MODEL,
-              moderation: textResult.results[1],
-              classificationModel: CLASSIFICATION_MODEL,
+              profile,
+              model: profile.moderationModel,
+              moderation: textResult.results[0],
+              classificationModel: profile.classificationModel,
               classificationReceipt: classified.id,
             },
           );
+          if (prepared.lyrics.trim())
+            await sign(
+              "lyrics.classification",
+              request.declared.lyricsSha256!,
+              textResult.results[1]!.adult ||
+                classification.lyricsRating === "adult_18" ||
+                classification.explicit
+                ? "adult_18"
+                : "general",
+              {
+                lyricsRevision: 1,
+                lyricsSha256: request.declared.lyricsSha256,
+              },
+              {
+                profile,
+                explicit: classification.explicit,
+                primaryLanguage: classification.primaryLanguage,
+                model: profile.moderationModel,
+                moderation: textResult.results[1],
+                classificationModel: profile.classificationModel,
+                classificationReceipt: classified.id,
+              },
+            );
+        }
         await acquisitionTime();
         await finishAdmission(
           db,
           row,
           "complete",
           {
-            schema: "pirate.managed-admission/1",
+            schema: "pirate.admission/2",
             admissionId: id,
             evidence,
             probe: prepared.probe,
@@ -343,8 +364,8 @@ export function processAdmission(
               ({ objectKey, byteLength, ...facts }) => facts,
             ),
             models: {
-              moderation: MODERATION_MODEL,
-              classification: CLASSIFICATION_MODEL,
+              moderation: profile.moderationModel,
+              classification: profile.classificationModel,
             },
           },
           null,

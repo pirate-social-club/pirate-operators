@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sha256, type Hex } from "viem";
@@ -46,7 +47,12 @@ const facts: AdmissionFacts = {
   ],
   providerEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
 };
-const policy = { operators: [signer.address], maxAgeSeconds: 3600 };
+const policy = {
+  contentProfile: defaultContentProfile,
+  recognitionOperators: [signer.address],
+  contentOperators: [signer.address],
+  maxAgeSeconds: 3600,
+};
 async function record(
   check: EvidenceCheck,
   result = check === "audio.identification" ? "not_identified" : "general",
@@ -70,8 +76,12 @@ async function record(
         : { lyricsRevision: 1, lyricsSha256: hashText(facts.lyrics) };
   const details =
     check === "lyrics.classification"
-      ? { explicit: true, primaryLanguage: "en" }
-      : { providerReceipt: "fixture" };
+      ? {
+          profile: defaultContentProfile,
+          explicit: true,
+          primaryLanguage: "en",
+        }
+      : { profile: defaultContentProfile, providerReceipt: "fixture" };
   return signEvidence(
     key,
     {
@@ -103,7 +113,7 @@ const records = () =>
 
 test("the current EIP712 release gate allows explicit lyrics and enforces rejection and holds", async () => {
   const values = await records();
-  assert.deepEqual(evidenceDomain, { name: "Pirate Operators", version: "1" });
+  assert.deepEqual(evidenceDomain, { name: "Pirate Operators", version: "2" });
   const admitted = await verifyAdmission(facts, values, policy, 1001);
   assert.equal(admitted.decision, "publish");
   assert.equal(admitted.used.length, 3);
@@ -271,7 +281,12 @@ test("independently signed changed audio windows fail binding and trusted disagr
       await verifyAdmission(
         facts,
         [...values, disagree],
-        { ...policy, operators: [signer.address, other.address] },
+        {
+          ...policy,
+          contentProfile: defaultContentProfile,
+          recognitionOperators: [signer.address, other.address],
+          contentOperators: [signer.address, other.address],
+        },
         1001,
       )
     ).decision,
@@ -356,5 +371,43 @@ test("raw MP3 windows preserve complete source frames and reproducible occurrenc
   await assert.rejects(
     readMp3FrameWindow(stream(bytes), probe.durationMs, "primary", 100, signal),
     /output_too_large/,
+  );
+});
+
+test("each check trusts only its configured signer and rejects the v1 signature domain", async () => {
+  const split = {
+    contentProfile: defaultContentProfile,
+    recognitionOperators: [signer.address],
+    contentOperators: [other.address],
+    maxAgeSeconds: 3600,
+  };
+  const values = await Promise.all([
+    record("audio.identification"),
+    record("title.rating", "general", other),
+    record("lyrics.classification", "general", other),
+  ]);
+  assert.equal(
+    (await verifyAdmission(facts, values, split, 1001)).decision,
+    "publish",
+  );
+  const forged = await record("audio.identification", "not_identified", other);
+  assert.equal(
+    (await verifyAdmission(facts, [forged, ...values.slice(1)], split, 1001))
+      .decision,
+    "needs_evidence",
+  );
+  const old = {
+    ...values[0],
+    signature: await signer.signTypedData({
+      domain: { name: "Pirate Operators", version: "1" },
+      types: evidenceTypes,
+      primaryType: "Evidence",
+      message: { ...values[0]!.envelope, issuedAt: 1000n, expiresAt: 4600n },
+    }),
+  };
+  assert.equal(
+    (await verifyAdmission(facts, [old, ...values.slice(1)], split, 1001))
+      .decision,
+    "needs_evidence",
   );
 });

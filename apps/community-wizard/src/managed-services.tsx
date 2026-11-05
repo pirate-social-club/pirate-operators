@@ -3,11 +3,11 @@ export function ManagedServices() {
     <>
       <h2>Your services</h2>
       <p class="lede">
-        Use Pirate’s moderation service and a sponsored creator-wallet test
-        flow. You do not need AI-provider keys or a creator payment screen.
+        Pirate provides audio recognition across communities. Connect your
+        community’s content moderation and storage accounts.
       </p>
       <div class="card">
-        <h3>Moderation · pairing pending</h3>
+        <h3>Recognition · pairing pending</h3>
         <p>
           Existing publication defaults apply, including allowing explicit
           lyrics. Signed operator results must be verified before publication.

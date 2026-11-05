@@ -1,3 +1,4 @@
+import { defaultContentProfile } from "../packages/moderation/content-profile.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -31,7 +32,7 @@ const publisher = privateKeyToAccount(`0x${"11".repeat(32)}`),
   origin = "https://community.example",
   serviceOrigin = "https://moderation.example";
 const configuration = validateConfig({
-  schema: "pirate.community-config/1",
+  schema: "pirate.community-config/2",
   chainId: 6343,
   communityId: communityId(6343, address("1")),
   registry: address("1"),
@@ -53,11 +54,17 @@ const configuration = validateConfig({
   feed: { endpoint: origin + "/api/feed", signingKeyId: "fixture" },
   policies: {
     admission: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+    contentProfile: defaultContentProfile,
+    recognitionSigner: evaluator.address.toLowerCase(),
     moderationSigner: evaluator.address.toLowerCase(),
   },
   publisherRevocations: [],
 });
-async function fixture(acrCode = 1001, responseLost = false) {
+async function fixture(
+  acrCode = 1001,
+  responseLost = false,
+  mode: "all" | "recognition" | "content" = "all",
+) {
   const mf = new Miniflare({
     modules: true,
     script: "export default {fetch(){return new Response('fixture')}}",
@@ -131,6 +138,7 @@ async function fixture(acrCode = 1001, responseLost = false) {
       current = configuration;
     const queued: string[] = [];
     const config = {
+      mode,
       serviceOrigin,
       pairings,
       serviceRequestCap: 10,
@@ -224,7 +232,12 @@ async function fixture(acrCode = 1001, responseLost = false) {
       communityId: configuration.communityId,
       submissionId,
       jobId,
-      checks: ["audio.identification", "title.rating", "lyrics.classification"],
+      checks:
+        mode === "recognition"
+          ? ["audio.identification"]
+          : mode === "content"
+            ? ["title.rating", "lyrics.classification"]
+            : ["audio.identification", "title.rating", "lyrics.classification"],
       inputs: {
         song: capability("audio"),
         title: capability("title"),
@@ -258,7 +271,7 @@ async function fixture(acrCode = 1001, responseLost = false) {
       return managedFetch(
         new Request(
           serviceOrigin +
-            "/v1/admissions" +
+            "/v2/admissions" +
             (action === "admit" ? "" : "/" + action),
           {
             method: "POST",
@@ -332,7 +345,12 @@ test("managed HTTP, retained MP3 windows, provider receipts and signed admission
         providerEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
       },
       result.evidence,
-      { operators: [evaluator.address], maxAgeSeconds: 3600 },
+      {
+        contentProfile: defaultContentProfile,
+        recognitionOperators: [evaluator.address],
+        contentOperators: [evaluator.address],
+        maxAgeSeconds: 3600,
+      },
       Math.floor(Date.now() / 1000),
     );
     assert.equal(decision.decision, "publish");
@@ -512,11 +530,51 @@ for (const [code, decision] of [
             "https://identify-eu-west-1.acrcloud.com/v1/identify",
         },
         result.evidence,
-        { operators: [evaluator.address], maxAgeSeconds: 3600 },
+        {
+          contentProfile: defaultContentProfile,
+          recognitionOperators: [evaluator.address],
+          contentOperators: [evaluator.address],
+          maxAgeSeconds: 3600,
+        },
         Math.floor(Date.now() / 1000),
       );
       assert.equal(checked.decision, decision);
       assert.equal(f.sends(), code === 2004 ? 4 : 3);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+for (const mode of ["recognition", "content"] as const)
+  test(`the ${mode} service performs only its authorized check group`, async () => {
+    const f = await fixture(1001, false, mode);
+    try {
+      const response = await f.send();
+      assert.equal(response.status, 202);
+      const body = (await response.json()) as { admissionId: string };
+      assert.equal(
+        await runAdmission(f.db, f.media, body.admissionId, f.config),
+        "complete",
+      );
+      const row = await getAdmission(f.db, body.admissionId);
+      const result = JSON.parse(row.result_json!);
+      assert.deepEqual(
+        result.evidence.map(
+          (r: { envelope: { check: string } }) => r.envelope.check,
+        ),
+        mode === "recognition"
+          ? ["audio.identification"]
+          : ["title.rating", "lyrics.classification"],
+      );
+      assert.equal(f.sends(), mode === "recognition" ? 1 : 2);
+      const wrong = await f.send("admit", {
+        ...f.body,
+        checks:
+          mode === "recognition"
+            ? ["title.rating", "lyrics.classification"]
+            : ["audio.identification"],
+      });
+      assert.equal(wrong.status, 400);
     } finally {
       await f.dispose();
     }

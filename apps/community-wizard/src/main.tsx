@@ -15,23 +15,12 @@ const blank: Settings = {
   projectId: "",
   environment: "dev",
   secretPath: "/communities/my-community",
-  acrHost: "identify-eu-west-1.acrcloud.com",
   cloudconvert: false,
   tld: "",
-  moderationMode: "pirate",
+  moderationMode: "independent",
 };
 const providers: { key: SecretName; label: string; hint: string }[] = [
   { key: "OPENAI_API_KEY", label: "OpenAI API key", hint: "Moderation" },
-  {
-    key: "ACRCLOUD_ACCESS_KEY",
-    label: "ACRCloud access key",
-    hint: "Song identification and release evidence",
-  },
-  {
-    key: "ACRCLOUD_ACCESS_SECRET",
-    label: "ACRCloud access secret",
-    hint: "Song identification",
-  },
   {
     key: "CLOUDCONVERT_API_KEY",
     label: "CloudConvert API key",
@@ -243,24 +232,10 @@ function App() {
                 <div class="card">
                   <h3>Moderation</h3>
                   <p>
-                    Pirate-operated moderation with the existing publication
-                    defaults. Explicit lyrics are allowed. Connection
-                    verification is still pending.
+                    Pirate provides shared audio recognition. Your community
+                    connects its own content moderation account. Explicit lyrics
+                    are allowed. Connection verification is still pending.
                   </p>
-                  <label class="check">
-                    <input
-                      type="checkbox"
-                      checked={settings().moderationMode === "independent"}
-                      disabled={busy() || state()?.attempted}
-                      onChange={(e) =>
-                        setting(
-                          "moderationMode",
-                          e.currentTarget.checked ? "independent" : "pirate",
-                        )
-                      }
-                    />
-                    <span>Advanced: operate moderation myself</span>
-                  </label>
                 </div>
                 <Show when={settings().moderationMode === "independent"}>
                   <div class="card">
@@ -298,11 +273,6 @@ function App() {
                   </div>
                   <div class="card">
                     <h3>Moderation providers</h3>
-                    {input(
-                      "acrHost",
-                      "ACRCloud identify host",
-                      "identify-eu-west-1.acrcloud.com",
-                    )}
                     <label class="check">
                       <input
                         type="checkbox"
@@ -419,6 +389,43 @@ function App() {
                     </button>
                   </div>
                 </form>
+                <div class="card">
+                  <h3>Check content moderation</h3>
+                  <p>
+                    Run one moderation request and one lyrics classification
+                    request using the application’s configured models. This
+                    checks your account; deployed publication is verified later.
+                  </p>
+                  <button
+                    class="secondary"
+                    disabled={
+                      busy() ||
+                      !state()?.secrets.includes("OPENAI_API_KEY") ||
+                      Boolean(
+                        state()?.contentCheck &&
+                          state()?.contentCheck?.state !== "planned",
+                      )
+                    }
+                    onClick={() => void action("providers/plan", {})}
+                  >
+                    Review provider check
+                  </button>
+                  <Show when={state()?.contentCheck?.state === "planned"}>
+                    <button
+                      disabled={busy()}
+                      onClick={() =>
+                        void action("providers/qualify", {
+                          planId: state()?.contentCheck?.id,
+                        })
+                      }
+                    >
+                      Run two provider requests
+                    </button>
+                  </Show>
+                  <Show when={state()?.contentCheck}>
+                    <p>Provider check: {state()?.contentCheck?.state}</p>
+                  </Show>
+                </div>
               </Show>
               <div class="note">
                 <h3>Keep the first release focused</h3>

@@ -1,3 +1,6 @@
+import { qualifyContent } from "../../../packages/moderation/qualify-content.ts";
+import { defaultContentProfile } from "../../../packages/moderation/content-profile.ts";
+import { createHash } from "node:crypto";
 import { HealthPending } from "./health.ts";
 import { DeploymentFailure } from "./diagnostics.ts";
 import {
@@ -102,6 +105,7 @@ export async function createSetup(
           settings,
           secrets: sameScope ? state.secrets : [],
           secretStoreSite: sameScope ? state.secretStoreSite : undefined,
+          contentCheck: undefined,
           revision: state.revision + 1,
           plan: undefined,
         };
@@ -146,6 +150,7 @@ export async function createSetup(
         state.plan = undefined;
         state.revision++;
         state.secrets = [];
+        state.contentCheck = undefined;
         if (state.attempted) {
           state.deployment = "update_pending";
           state.message =
@@ -157,6 +162,90 @@ export async function createSetup(
         } catch (error) {
           connected = false;
           throw error;
+        }
+        await persist();
+      });
+    },
+    async reviewContent() {
+      return locked(async () => {
+        if (!state.settings || state.settings.moderationMode !== "independent")
+          throw new SetupError(
+            "Save community moderation settings first.",
+            409,
+          );
+        requireConnection();
+        if (state.contentCheck && state.contentCheck.state !== "planned")
+          throw new SetupError(
+            "This check already ran or has an uncertain result. Preserve its receipt.",
+            409,
+          );
+        state.contentCheck = {
+          id: createHash("sha256")
+            .update(
+              JSON.stringify({
+                revision: state.revision,
+                profile: defaultContentProfile,
+                source: await provisioner.digest(),
+                requests: 2,
+              }),
+            )
+            .digest("hex"),
+          revision: state.revision,
+          state: "planned",
+        };
+        await persist();
+      });
+    },
+    async qualifyContent(input: unknown) {
+      return locked(async () => {
+        const request = object(input),
+          check = state.contentCheck;
+        if (
+          !state.settings ||
+          !check ||
+          check.state !== "planned" ||
+          check.revision !== state.revision ||
+          request.planId !== check.id
+        )
+          throw new SetupError(
+            "Review the current two-request provider check first.",
+            409,
+          );
+        requireConnection();
+        const expected = createHash("sha256")
+          .update(
+            JSON.stringify({
+              revision: state.revision,
+              profile: defaultContentProfile,
+              source: await provisioner.digest(),
+              requests: 2,
+            }),
+          )
+          .digest("hex");
+        if (expected !== check.id)
+          throw new SetupError(
+            "Provider check source changed. Review again.",
+            409,
+          );
+        const values = await secrets.read(state.settings);
+        check.state = "started";
+        await persist();
+        try {
+          let requests = 0;
+          check.receipt = await qualifyContent(values.OPENAI_API_KEY!, {
+            async request(request) {
+              if (++requests > 2) throw new Error("provider_request_bound");
+              return fetch(request);
+            },
+          });
+          check.state = "passed";
+        } catch {
+          check.state = "failed";
+          await persist();
+          throw new SetupError(
+            "Provider check did not complete. Preserve this result; a started request is never retried automatically.",
+            409,
+          );
         }
         await persist();
       });

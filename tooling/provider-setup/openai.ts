@@ -1,4 +1,9 @@
 import {
+  moderateText,
+  classifyLyrics,
+} from "../../packages/moderation/openai.ts";
+import { defaultContentProfile } from "../../packages/moderation/content-profile.ts";
+import {
   digest,
   object,
   text,
@@ -152,81 +157,56 @@ export async function qualifyOpenAi(ctx: Context) {
     "openai_setup_required",
   );
   const key = await ctx.secret("runtime", "OPENAI_API_KEY");
-  const h = {
-    Authorization: `Bearer ${key}`,
-    "Content-Type": "application/json",
-  };
-  await ctx.store.once("openai.moderation", async () => {
-    const data = object(
-      await ctx.json(`${base}/moderations`, {
-        method: "POST",
-        headers: h,
-        body: JSON.stringify({
-          model: "omni-moderation-latest",
-          input: "A quiet morning and a friendly hello.",
-        }),
+  const transport = {
+    request: async (request: Request) =>
+      ctx.request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: await request.text(),
       }),
+  };
+  const title = "Morning",
+    lyrics = "A quiet morning and a friendly hello.";
+  await ctx.store.once("openai.moderation", async () => {
+    const data = await moderateText(
+      title,
+      lyrics,
+      key,
+      async () => {},
+      transport,
     );
     requireThat(
-      Array.isArray(data.results) &&
-        data.results.length === 1 &&
-        object(data.results[0]).flagged === false,
+      data.results.every((r) => !r.adult),
       "openai_moderation_control_failed",
     );
-    return { passed: true, model: "omni-moderation-latest", requests: 1 };
+    return {
+      passed: true,
+      model: defaultContentProfile.moderationModel,
+      requests: 1,
+    };
   });
   await ctx.store.once("openai.classification", async () => {
-    const model = "gpt-4.1-mini-2025-04-14";
-    const data = object(
-      await ctx.json(`${base}/responses`, {
-        method: "POST",
-        headers: h,
-        body: JSON.stringify({
-          model,
-          store: false,
-          max_output_tokens: 256,
-          input:
-            "Classify this setup control. Title: Morning. Lyrics: A quiet morning and a friendly hello. Return the language code and whether it is explicit.",
-          text: {
-            format: {
-              type: "json_schema",
-              name: "setup_control",
-              strict: true,
-              schema: {
-                type: "object",
-                properties: {
-                  language: { type: "string" },
-                  explicit: { type: "boolean" },
-                },
-                required: ["language", "explicit"],
-                additionalProperties: false,
-              },
-            },
-          },
-        }),
-      }),
+    const data = await classifyLyrics(
+      title,
+      lyrics,
+      key,
+      async () => {},
+      transport,
     );
     requireThat(
-      data.status === "completed" && Array.isArray(data.output),
-      "openai_classification_incomplete",
-    );
-    const fragments: string[] = [];
-    for (const item of data.output) {
-      const message = object(item);
-      if (message.type !== "message") continue;
-      requireThat(
-        Array.isArray(message.content),
-        "openai_classification_invalid",
-      );
-      for (const part of message.content)
-        if (object(part).type === "output_text")
-          fragments.push(String(object(part).text));
-    }
-    const result = object(JSON.parse(fragments.join("")));
-    requireThat(
-      result.language === "en" && result.explicit === false,
+      data.classification.primaryLanguage === "en" &&
+        data.classification.explicit === false &&
+        data.classification.titleRating === "general" &&
+        data.classification.lyricsRating === "general",
       "openai_classification_control_failed",
     );
-    return { passed: true, model, requests: 1, maxOutputTokens: 256 };
+    return {
+      passed: true,
+      model: defaultContentProfile.classificationModel,
+      promptVersion: defaultContentProfile.promptVersion,
+      schemaVersion: defaultContentProfile.schemaVersion,
+      requests: 1,
+      maxOutputTokens: 256,
+    };
   });
 }

@@ -18,7 +18,7 @@ import { address, RELEASE_POLICY } from "../community/manifest-core.ts";
 
 export const evidenceDomain = {
   name: "Pirate Operators",
-  version: "1",
+  version: "2",
 } as const;
 export const evidenceTypes = {
   Evidence: [
@@ -39,10 +39,10 @@ export const evidenceTypes = {
   ],
 } as const;
 export const evidenceSchemas = {
-  "audio.identification": "pirate.evidence.audio-identification/1",
-  "title.rating": "pirate.evidence.title-rating/1",
-  "lyrics.classification": "pirate.evidence.lyrics-classification/1",
-  "artwork.display": "pirate.evidence.artwork-display/1",
+  "audio.identification": "pirate.evidence.audio-identification/2",
+  "title.rating": "pirate.evidence.title-rating/2",
+  "lyrics.classification": "pirate.evidence.lyrics-classification/2",
+  "artwork.display": "pirate.evidence.artwork-display/2",
 } as const;
 export type EvidenceCheck = keyof typeof evidenceSchemas;
 export interface Evidence {

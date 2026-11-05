@@ -17,15 +17,13 @@ const settings: Settings = {
   projectId: "00000000-0000-0000-0000-000000000001",
   environment: "dev",
   secretPath: "/communities/fixture",
-  acrHost: "identify-eu-west-1.acrcloud.com",
+
   cloudconvert: false,
   tld: "c22",
   moderationMode: "independent",
 };
 const values = {
   OPENAI_API_KEY: "fixture-openai",
-  ACRCLOUD_ACCESS_KEY: "fixture-acr",
-  ACRCLOUD_ACCESS_SECRET: "fixture-acr-secret",
 };
 
 test("CLI onboarding creates scoped folders, saves/readbacks, restores and redeploys without exposing auth", async (t) => {

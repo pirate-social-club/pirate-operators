@@ -228,3 +228,11 @@ API provenance: [Filebase IPFS upload/CAR import](https://filebase.com/docs/ipfs
 and [OpenAI project/service-account credentials](https://developers.openai.com/api/docs/guides/api-keys).
 No credentials, provider calls or paid capacity were used to write or test this
 package. Its first live run is a distinct qualification step with the owner.
+
+
+The November 5 successor qualifies OpenAI through the application runtime
+adapter, using gpt-6-luna and the same prompt/result schema. Community ACRCloud
+onboarding is superseded by Pirate-owned recognition; the preserved ACRCloud
+CLI adapter is only an operator tool. The wizard now has an explicit two-request
+existing-key qualification action. This is account qualification, not deployed
+credential delivery or complete second-community acceptance.
