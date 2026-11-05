@@ -1,0 +1,14 @@
+{
+  "name": "@pirate/managed-moderation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@alchemy.run/cloudflare": "2.0.0-beta.85",
+    "alchemy": "2.0.0-beta.85",
+    "effect": "4.1.2"
+  }
+}

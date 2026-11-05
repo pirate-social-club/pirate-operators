@@ -19,9 +19,10 @@
     "megaeth:records": "node harness/megaeth/deploy-records.ts"
   },
   "dependencies": {
-    "viem": "2.57.16",
     "effect": "4.1.2",
-    "multiformats": "14.0.5"
+    "ipfs-unixfs-importer": "17.1.1",
+    "multiformats": "14.0.5",
+    "viem": "2.57.16"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-beta.v.11",
