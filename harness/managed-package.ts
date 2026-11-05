@@ -1,4 +1,5 @@
 import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
+import { ownedModuleGraph } from "./owned-module-graph.ts";
 import {
   readFile,
   copyFile,
@@ -59,6 +60,7 @@ export async function managedPackage() {
     logLevel: "silent",
   });
   const files = [
+    ...(await ownedModuleGraph("harness/published-replay.ts")),
     ...Object.keys(operations.metafile!.inputs).filter(
       (p) => !p.includes("node_modules/"),
     ),

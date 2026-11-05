@@ -66,9 +66,9 @@ used as a substitute for historical evidence. The actual original mint was
 independently verified with historical calls forbidden and zero writes.
 
 The proposed managed profile is
-0x826ceff8948b688afa57f6feac8e03a5b5973c0907d5c14de0a0633776a752f8.
+0xdaff75fad62b99c881e0e50b706e12a3fc8e26264e01f41c9d7494d61d4bc3ea.
 The proposed application profile is
-0x11906f227805487ebe1900356ab396c09b58b3607e40885ea2f3dad77deb2dd3.
+0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c.
 They retain resources, credentials, assets, migrations, spent grants and queue
 settings. Their completed-state capture is
 0x84a0c5d483c9dc0a0c486ee8ea892c45b1bc10c7e4bd363991e7ed3ef38284ec.

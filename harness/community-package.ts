@@ -1,4 +1,5 @@
 import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
+import { ownedModuleGraph } from "./owned-module-graph.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -148,6 +149,7 @@ export async function communityPackage() {
       [
         ...Object.keys(bundle.metafile!.inputs),
         ...Object.keys(graph.metafile!.inputs),
+        ...(await ownedModuleGraph("harness/published-replay.ts")),
         ...tracked.stdout.trim().split("\n"),
         ...migrations.map((p) => `apps/community-wizard/infra/migrations/${p}`),
         "apps/community-wizard/infra/application-alchemy.run.ts",
