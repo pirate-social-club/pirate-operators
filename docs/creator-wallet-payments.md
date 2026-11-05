@@ -5,6 +5,12 @@ creator-wallet test fees from a finite budget. Creators see no payment screen.
 Creator payments are deferred; no permanent commercial pricing model is selected.
 This supersedes version 1's recommendation of creator upfront payment.
 
+Owner clarification, 2026-11-05: the next community supplies its own moderation
+and storage provider accounts while Pirate remains its default funded creator
+service. Operating community moderation does not select independent creator
+treasury operation. The controlled second-community sponsor-admission contract
+below extends this document; the first-song managed profile remains fixed.
+
 This contract extends [creator wallet version 4](creator-wallet.md), which owns
 passkey custody, Ika verification and activation before upload. It defines the
 service connection, sponsored test allowance and readiness. The wallet spike
@@ -40,7 +46,8 @@ or bridge. The first-song test does not depend on HNS delegation or app.tld.
 This is a readiness check before creator releases, not before website
 provisioning or ordinary sign-in. Use a short “Creator setup is covered” summary,
 with no payment-policy questionnaire. Show treasury controls only for independent
-operators.
+creator-service operators. Community moderation/provider setup is a separate
+ordinary wizard step and never requests Pirate's treasury credentials.
 
 1. Select Pirate's registration service by default, or an independent service.
    Show identity, supported testnets and capabilities. An unavailable service
@@ -129,11 +136,68 @@ an Ika signature; check the adapter instead of adding an unnecessary signing
 step. Funding never grants custody of the creator cap or arbitrary signing
 permission. Refills require an operator action; no automatic swap is promised.
 
+## Second-community sponsor admission
+
+The second community exercises a new spending boundary: Pirate's service would
+pay after another community's moderation signer approves a release. Its public
+configuration can select a signer, but cannot grant that signer authority over
+Pirate funds. Before any second-community spend, Pirate's service must curate
+and authenticate an allowlist entry for the exact chain, directory, registry,
+community, configuration/policy revision, canonical origin, publisher and
+moderation signer/key ID. Bind the creator-service pairing and grant to that
+entry. Refuse unknown signers, changed configuration and another community's
+valid evidence; only the service's own administration may extend its trust.
+
+The minimum controlled-test grant covers one authenticated creator, one approved
+test release and at most one registration attempt identity. The workspace_owner
+supplies a different original song and its lyrics for this second-community run;
+the first song's existing registration cannot substitute for a new covered
+registration action. Bind the exact
+sealed audio and title/lyrics/artwork revision hashes, verified creator recipient,
+service/adapter manifest, allowed actions, expiry and allowance ID. A valid
+moderation signature must bind those same inputs and satisfy current admission
+policy. A signature alone does not establish authorship. The content-bound
+test grant does not authorize open enrollment or arbitrary songs; a broader
+rights/fingerprint-recheck policy remains a separate decision.
+
+Reuse the verified existing Active wallet with creator linking consent. The
+minimum grant covers zero new DKG/activation operations and zero associated
+SUI/IKA spend. A fresh activation or later signature needs its own explicitly
+covered action and native ceilings; it cannot silently consume this allowance.
+An already confirmed registration is reused only if the reviewed adapter proves
+the same asset and creator binding. Merely reusing a receipt does not qualify
+the new sponsored-registration boundary; its live acceptance needs the covered
+registration action against the second community's accepted signer.
+
+The execution profile must specify concrete integer native amounts before the
+grant is issued: registration gas-unit ceiling, maximum gas price, any protocol
+fee ceiling, per-attempt and community-period totals, global exposure remaining,
+period/expiry and at most one in-flight registration for this grant. For each
+authorized transaction, maximum Aeneid gas exposure is gas-unit ceiling times
+maximum gas price; sum those exposures across the reviewed finite transaction
+set and include failed/uncertain allocations. Add any fixed protocol fees in
+their own native units. Do not convert one token into another by assumption.
+This specification selects no numeric fee ceiling or live spend. Missing values,
+insufficient inventory or insufficient remaining budget keep the grant unready.
+Reserve exposure atomically before submission. Reverted and unknown submissions
+retain their costs/reservations until the same attempt is reconciled; an absent
+receipt alone cannot permit a replacement mint or fresh allowance.
+
+Pirate must be able to revoke the community pairing, signer trust or grant
+server-side. Recheck current revocation and the captured authorization immediately
+before every new external spend. Revocation blocks queued/unstarted work and
+new grants; it does not erase receipts, cancel already broadcast transactions
+or turn an uncertain operation into permission to resend. Continue read-only
+reconciliation of existing attempts. Signer/config changes require a new trusted
+profile and invalidate unstarted grants without redirecting submitted attempts.
+Retain a sanitized audit of accepted signer, grant reservation, cutoff and actual
+native costs. Exercise this cutoff in the second-community acceptance run.
+
 ## First-song acceptance
 
 | ID | Required evidence |
 | --- | --- |
-| S1 | The default flow has no creator payment screen or provider/treasury-key intake; it verifies the service and test allowance. |
+| S1 | The creator-facing flow has no payment screen or provider/treasury-key intake; it verifies the service and test allowance. The community operator's provider-key setup is separate. |
 | S2 | Missing, depleted or expired allowance, missing limits or insufficient native inventory blocks new work without charging the creator. |
 | S3 | PRF/persistence failure stops before spend; a verified existing wallet skips creation. |
 | S4 | Wrong community, account, origin, action, manifest or allowance authorization is refused. Replays and concurrent requests cannot spend twice. |
@@ -141,8 +205,15 @@ permission. Refills require an operator action; no automatic swap is promised.
 | S6 | Service/configuration changes invalidate stale readiness without reassigning existing attempts. Ordinary participation remains available. |
 | S7 | Setup, any required signing and registration each have bounded coverage; creator cap ownership and confirmed Active before upload remain required. |
 | S8 | Real testnet service pairing, inventory and allowance evidence supports the first-song run on ordinary HTTPS without HNS. Fixtures cannot enable live readiness. |
+| S9 | Before the second community spends, the service accepts only its explicitly curated community/configuration, moderation signer and content-bound creator/release grant. Unknown, rotated, stale, cross-community or forged evidence cannot reserve native spend. |
+| S10 | The controlled grant permits one approved release/registration attempt identity, zero new activation unless separately authorized, and concrete native per-action/community/global ceilings. Concurrent, reverted and unknown operations cannot escape the reserved exposure or create duplicate registrations. |
+| S11 | Revoking the grant, community or signer blocks new spends and queued work. An interrupted submitted attempt retains its original receipt/binding and reconciles without replay or silently creating another grant. |
+| S12 | Real community-operated provider checks and signed evidence for a different original song and its lyrics precede the second community's bounded sponsored registration. Test untrusted signer, mismatched media, depletion, revocation and interrupted recovery; simulations or the first song's receipt do not establish this boundary. |
 
-S1–S8 are pending integration acceptance. The browser pilot demonstrated
+S1–S8 remain the first-song requirements; S9–S12 extend acceptance for the
+second community. Qualify the S9–S11 safeguards locally and pass the concrete
+profile's bounded preflight before starting the reviewed live S12 run. S12
+passes only after that real execution and its receipts are verified. The browser pilot demonstrated
 activation, reopening and a same-address signature, not the complete service,
 allowance enforcement or first-song registration. The remaining C1–C13 wallet
 requirements still apply. The wizard, wallet and service lanes must hand back

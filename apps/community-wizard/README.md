@@ -5,6 +5,14 @@ trusted local Node runner. It reviews a fixed resource plan and invokes Alchemy
 for an ordinary HTTPS setup page, D1, private R2 and a queue. It does not yet
 provide the completed login, upload, moderation or first-song application.
 
+Owner decision, 2026-11-05: the next packaged community setup uses the operator's
+own ACRCloud, OpenAI and Filebase accounts and community-run moderation. Pirate
+supplies shared contracts/discovery and the funded creator service. This is
+ordinary provider setup, separate from operating a Sui/Ika treasury. The current
+code's managed-moderation default and the first-song test profile are unchanged;
+the target and its pending evidence are specified below and in the
+[setup decision](../../docs/decentralized-setup.md#next-community-owner-decision-2026-11-05).
+
 ## Fixed setup and namespace
 
 Choose the community TLD, deployment identity and service mode before the first
@@ -38,7 +46,7 @@ delegation and a fresh namespace attestation gate verified Pirate discovery;
 opening app.tld is a separate browser/transport check. Neither gates the first
 song test. A factory event alone does not establish namespace ownership.
 
-The wizard defaults to Pirate-operated moderation. Communities using that
+The current wizard code defaults to Pirate-operated moderation. Communities using that
 service do not supply OpenAI/ACRCloud keys and those keys never enter their
 Workers. Policy settings are deferred; existing publication rules apply,
 including allowing explicit lyrics. Service pairing, authorized operator
@@ -56,11 +64,87 @@ this test choice does not claim a permanent commercial pricing policy. The
 service's balances, finite budgets and activation limits must be checked before
 releases. No new funds, credentials or fee transactions were created here.
 
-The queue has no moderation consumer. Creator activation/registration, sealed
+This setup slice's community queue has no moderation consumer. Creator activation/registration, sealed
 media, public IPFS publication, directory/post transactions and reload/playback
 remain integration work. First-song readiness stays incomplete after successful
 infrastructure provisioning. Spaces, sponsored name purchases, ElevenLabs,
 OpenRouter and Telegram remain outside this slice.
+
+## Next-community packaged wizard acceptance
+
+This extends the runnable provisioning slice; none of these rows gains a pass
+from this specification. Qualify the next disposable, unlisted community using
+the existing directory/posts deployment and a new genuine registry. Lasting
+governance and verified discovery are separate launch work. Keep c22 and the
+first-song resources, identities and managed-mode settings unchanged.
+
+The package's supported OS/architecture, release/source hashes and pinned runtime
+must be explicit. It prepares the required runtime and authentication helpers;
+the supported user journey does not require cloning source, npm commands,
+hand-made runner folders, generated passwords or launcher flags. Account signup,
+applicable provider billing and unavoidable initial provider-key creation are
+guided owner steps. Existing operator-owned accounts are acceptable. Require
+working access and enough quota for the reviewed test; a paid ACRCloud plan or
+fixed trial deadline is not a prerequisite. Valid free access is acceptable.
+Show reported limits, expiry and charges where available, and guide the operator
+to account checks when the provider exposes no suitable API. Unavailable quota
+data must not be presented as a successful quota check. Do not promise provider
+APIs or authorization flows before qualifying them.
+The existing commands below remain developer/current-runtime instructions.
+
+The workspace_owner operates this disposable community and supplies a different
+original song with its untimed lyrics. Prepare these and the operator-owned
+provider connections when the package is ready for the live test. Check MegaETH
+test ETH for both administrator and publisher against the reviewed transaction
+plan. W12 requires the new covered registration action; replaying the first
+song's registration does not qualify it.
+
+The wizard generates a new secp256k1 moderation evidence key through the trusted
+runner and stores it in the owning service's Infisical scope before using or
+publishing its address. Keep it distinct from the publisher, controller and
+Pirate treasury identities. Retain only its secret reference, public key ID,
+version and operation state in resumable setup metadata. Verify exact secret
+readback and a signed challenge against the public address. If creation or
+persistence is uncertain, reconcile the original key operation; do not publish
+an ephemeral key or silently replace it. Resume reuses the stored identity.
+Rotation is explicit, retains history and invalidates unstarted authorizations;
+Pirate's service must separately approve the replacement signer. This prose
+authorizes no real key creation or rotation.
+
+Provision the separate server-side publisher key through the same verified
+secret workflow before committing its address in community configuration.
+It is distinct from the administrator wallet and moderation signer. Explicit
+adoption of an existing publisher requires proof of the corresponding protected
+secret and identity; never attempt to recover a key by reading Worker bindings.
+The state password also needs cryptographically random generation of at least
+32 bytes and verified vault persistence before encrypted deployment writes.
+
+Filebase setup must qualify the chosen account/bootstrap and runtime credentials,
+resource creation, retained pin proof and independent retrieval. A bucket label
+alone does not prove the effective scope of a token. Keep any account-wide
+credential within its owning service; never put it into the client or public
+configuration. The current first-song token is not a default for new communities.
+
+| ID | Required result | Acceptance evidence |
+| --- | --- | --- |
+| W1 | A versioned package opens the wizard on a fresh supported machine and prepares pinned dependencies without source/build/terminal setup. | Artifact/source hashes, platform identity and actual fresh-install/reopen run. |
+| W2 | Cloudflare and Infisical connections select accounts/projects by name, prepare approved secret scopes and retain the generated state password before apply. | Actual account/scope readback and restore with the same encrypted state; no UUID/password copying or secret leakage. |
+| W3 | The operator connects its own ACRCloud, OpenAI and Filebase accounts; the wizard automates supported resource setup and stores credentials in the calling service's scope. Valid free access is accepted. | Real provider checks, resources and credential references, with actual quota/limit checks identified; no mandatory paid plan, Pirate provider-key copying or simulated success. |
+| W4 | Community moderation and publisher keys are provisioned once, durably saved and verified as distinct from each other and the controller. | Signed challenges, Infisical readback, resumed setup using the same addresses, uncertain-write refusal and explicit rotation/trust-update checks. |
+| W5 | Alchemy deploys the community's actual application, private upload storage, D1 migrations and durable admission/publication jobs in the chosen Cloudflare account. | Source/package/profile binding, runtime schema and storage/job round trips; this is more than a setup page. |
+| W6 | The administrator approves registry creation and configuration against verified existing shared contracts. | Canonical clone/config receipts, pinned and retrieved manifest, publisher/origin/signer readback; replay reconciles instead of creating another registry. |
+| W7 | Setup checks administrator and publisher balances, presents fee ceilings and verifies an explicitly approved publisher transfer. | Gas/balance readback, low-balance warning and visible publication hold on depletion; no automatic refill without a separate bounded policy. |
+| W8 | Pirate pairs this community and accepts its moderator only under the controlled grant in funding S9-S12. | Service-side trust, explicit numeric native ceilings, reservation, cutoff and pending-effect reconciliation; public signer configuration alone is insufficient. |
+| W9 | A creator signs into this second origin and links the verified Active wallet through the stable wallet site using the short owner procedure. | Actual browser/passkey return and recipient binding under creator C8/C10/C13; no new wallet charge merely for another community. |
+| W10 | Interrupted setup and publication resume with the same resource, key, grant and transaction identities. | Interruptions around secret persistence, apply, pinning, registration and post publication; no duplicate purchases, mints or posts. |
+| W11 | The operator can update or restore the package with retained deployment identities, secret references and encrypted state. | Same-version restore on a supported machine, independent password recovery, wrong-password refusal and one active deployer; no silent deployment migration. |
+| W12 | A different original song and its lyrics pass community-run moderation, bounded sponsored registration, public retention and fresh-browser playback; rejected/held work stays unpublished. | Web-client D3/D8-D10, funding S1-S12 and applicable creator C1-C13 evidence, including the new covered registration action, seeking/reload and failed-delivery behavior. |
+
+The implementation record must identify which existing acceptance IDs passed,
+the new rows passed, skipped checks, exact deployed profiles and sanitized costs.
+Per-action native ceilings are execution-profile inputs, not invented prices in
+this document. Without them W8/W12 remain unready. A restore or key rotation
+must not turn a submitted uncertain operation into a new funded attempt.
 
 ## Run locally
 
