@@ -20,10 +20,13 @@ import {
   type PublicationIdentity,
 } from "./manifest-core.ts";
 
+import type { PublicationExecutionProfile } from "./publication-profile.ts";
+
 export interface SubmissionProfile extends Omit<PublicationIdentity, "postId"> {
   configurationRevision: number;
   publisher: string;
   moderationSigner: string;
+  execution?: PublicationExecutionProfile;
 }
 export interface Submission {
   submission_id: string;

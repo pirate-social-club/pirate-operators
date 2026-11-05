@@ -26,6 +26,8 @@ async function interpretAdmission(
     body.state === "uncertain"
   )
     return { kind: "unknown" };
+  if (body.state === "held" && body.recovery === "resume_same_job")
+    return { kind: "unknown" };
   if (body.state === "held" || body.state === "rejected")
     return {
       kind: body.state === "held" ? "held" : "rejected",
@@ -80,12 +82,11 @@ async function interpretAdmission(
     };
   return { kind: "confirmed", providerId: expected, value };
 }
-export async function executeAdmission(
+async function admissionBody(
   db: D1Database,
   input: PublicationInput,
   client: ManagedClient,
-  providerEndpoint: string,
-): Promise<OperationResult> {
+) {
   const caps = await createInputCapabilities(
     db,
     input.row,
@@ -109,6 +110,15 @@ export async function executeAdmission(
         : null,
     },
   };
+  return body;
+}
+export async function executeAdmission(
+  db: D1Database,
+  input: PublicationInput,
+  client: ManagedClient,
+  providerEndpoint: string,
+): Promise<OperationResult> {
+  const body = await admissionBody(db, input, client);
   const response = await managedRequest(
       client,
       "/v1/admissions",
@@ -165,4 +175,29 @@ export async function validateAdmissionResult(
     "admission_result_not_reconciled",
     503,
   );
+}
+
+/** Explicit execution continuation: renew transport grants for identical sealed
+ * inputs and wake the same admission. Reconciliation itself remains read-only. */
+export async function resumeAdmissionProcessing(
+  db: D1Database,
+  input: PublicationInput,
+  client: ManagedClient,
+  providerEndpoint: string,
+) {
+  const status = await managedRequest(
+    client,
+    "/v1/admissions/status",
+    "status",
+    { jobId: input.job.job_id },
+  );
+  if (status.status === 404) return false;
+  await interpretAdmission(input, client, status.body, providerEndpoint);
+  if (status.body.recovery !== "resume_same_job") return false;
+  const body = await admissionBody(db, input, client);
+  await managedRequest(client, "/v1/admissions", "admit", body);
+  await managedRequest(client, "/v1/admissions/resume", "resume", {
+    jobId: input.job.job_id,
+  });
+  return true;
 }

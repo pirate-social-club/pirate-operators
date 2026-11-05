@@ -1,4 +1,4 @@
-import type { PrivateKeyAccount } from "viem/accounts";
+import { requireExecutionProfile } from "../packages/community/publication-profile.ts";
 import {
   canonical,
   hashJson,
@@ -14,6 +14,7 @@ import {
   executeAdmission,
   reconcileAdmission,
   validateAdmissionResult,
+  resumeAdmissionProcessing,
 } from "../packages/community/publication-admission.ts";
 import {
   releasePin,
@@ -33,6 +34,7 @@ import type {
   PublicationJob,
   PublicationStep,
 } from "../packages/community/publication-store.ts";
+import { preparedOperation } from "../packages/community/publication.ts";
 import type {
   PublicationDriver,
   OperationResult,
@@ -105,6 +107,7 @@ export function firstSongDriver(
       operation.job_id,
       ports.managed.configuration,
     );
+    requireExecutionProfile(input.authority, ports);
     insist(
       operation.request_hash ===
         hashJson(
@@ -130,6 +133,13 @@ export function firstSongDriver(
     return input;
   };
   const validateMedia = async (input: PublicationInput) => {
+    const registration = object(input.progress.registration),
+      receipt = object(registration.receipt);
+    await validateReleaseResult(input, ports.release, "registration", {
+      kind: "confirmed",
+      providerId: String(receipt.transactionHash),
+      value: registration,
+    });
     for (const step of ["pin_audio", "pin_lyrics", "pin_manifest"] as const)
       await validateReleaseResult(
         input,
@@ -146,6 +156,7 @@ export function firstSongDriver(
         job.job_id,
         ports.managed.configuration,
       );
+      requireExecutionProfile(input.authority, ports);
       return requestValue(
         input,
         step,
@@ -233,4 +244,72 @@ export function firstSongDriver(
       );
     },
   };
+}
+
+/** Used by the authenticated resume route and the owned cron/queue wakeup.
+ * This continuation is distinct from the driver's read-only reconcile method. */
+export async function resumeFirstSongAdmission(
+  ports: FirstSongDriverPorts,
+  jobId: string,
+) {
+  const input = await publicationInput(
+    ports.db,
+    ports.media,
+    jobId,
+    ports.managed.configuration,
+  );
+  requireExecutionProfile(input.authority, ports);
+  if (
+    input.job.phase !== "uncertain" ||
+    input.progress.resumePhase !== "admission"
+  )
+    return false;
+  const operation = await ports.db
+    .prepare(
+      "SELECT * FROM external_operations WHERE job_id=? AND step='admission'",
+    )
+    .bind(jobId)
+    .first<ExternalOperation>();
+  insist(
+    operation &&
+      (operation.status === "running" || operation.status === "uncertain") &&
+      operation.request_hash ===
+        hashJson(
+          requestValue(
+            input,
+            "admission",
+            ports.release.grantHash,
+            ports.managed.origin,
+          ),
+        ),
+    "admission_resume_intent_changed",
+    409,
+  );
+  const preparation = preparedOperation(operation);
+  insist(
+    preparation.replay.kind === "provider_idempotency" &&
+      preparation.replay.key === operation.operation_id,
+    "admission_resume_not_idempotent",
+    503,
+  );
+  await ports.checkServices();
+  const proof = {
+    schema: "pirate.admission-resume-intent/1",
+    operationId: operation.operation_id,
+    admissionId: input.context.admissionId,
+    requestHash: operation.request_hash,
+    serviceOrigin: ports.managed.origin,
+  };
+  await ports.db
+    .prepare(
+      "INSERT INTO external_operation_reconciliations(operation_id,proof_sha256,proof_json,observed_at) VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
+    )
+    .bind(operation.operation_id, hashJson(proof), canonical(proof), Date.now())
+    .run();
+  return resumeAdmissionProcessing(
+    ports.db,
+    input,
+    ports.managed,
+    ports.acrEndpoint,
+  );
 }

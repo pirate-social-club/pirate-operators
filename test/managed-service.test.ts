@@ -360,13 +360,13 @@ test("managed HTTP, retained MP3 windows, provider receipts and signed admission
   }
 });
 
-test("unknown paid outcomes stay uncertain after authenticated resume and retain their quota", async () => {
+test("unknown paid outcomes refuse a new wakeup and retain their quota", async () => {
   const f = await fixture(1001, true);
   try {
     await f.send();
     const id = f.queued[0]!;
     assert.equal(await runAdmission(f.db, f.media, id, f.config), "uncertain");
-    assert.equal((await f.send("resume", { jobId: f.body.jobId })).status, 202);
+    assert.equal((await f.send("resume", { jobId: f.body.jobId })).status, 409);
     assert.equal(await runAdmission(f.db, f.media, id, f.config), "uncertain");
     assert.equal(f.sends(), 1);
     const budgets = await f.db

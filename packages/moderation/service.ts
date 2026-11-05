@@ -1,3 +1,4 @@
+import { admissionRecovery } from "./admission-recovery.ts";
 import { Effect } from "effect";
 import {
   CommunityError,
@@ -88,6 +89,12 @@ export async function managedFetch(
       );
       id = admissionId(pairing.communityId, jobId);
       if (action === "resume") {
+        const previous = await getAdmission(db, id, pairing.communityId);
+        insist(
+          (await admissionRecovery(db, previous)) !== "operator_review",
+          "admission_requires_operator_review",
+          409,
+        );
         await resumeAdmission(db, id, pairing.communityId);
         await config.wake(id);
       }
@@ -100,6 +107,7 @@ export async function managedFetch(
         jobId: row.job_id,
         submissionId: row.submission_id,
         state: row.state,
+        recovery: await admissionRecovery(db, row),
         errorCode: row.error_code,
         result: row.result_json ? JSON.parse(row.result_json) : null,
       },

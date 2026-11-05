@@ -20,7 +20,8 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
     asset = "0x3333333333333333333333333333333333333333";
   let beforeEstimate: (() => void) | undefined;
   const transactions = new Map<Hex, Hex>();
-  let broadcasts = 0;
+  let broadcasts = 0,
+    orphaned = false;
   const transaction = (hash: Hex) => {
     const raw = transactions.get(hash);
     if (!raw) throw new TransactionReceiptNotFoundError({ hash });
@@ -48,6 +49,7 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
       return hash;
     },
     getTransactionReceipt: async ({ hash }: { hash: Hex }) => {
+      if (orphaned) throw new TransactionReceiptNotFoundError({ hash });
       transaction(hash);
       return {
         status: "success",
@@ -112,6 +114,9 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
     },
     codeHash: keccak256(code),
     broadcasts: () => broadcasts,
+    orphan: (value: boolean) => {
+      orphaned = value;
+    },
     mints: () => transactions.size,
   };
 }

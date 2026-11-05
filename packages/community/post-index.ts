@@ -1,4 +1,4 @@
-import type { Hex, PublicClient } from "viem";
+import { decodeEventLog, type Hex, type PublicClient } from "viem";
 import { canonical, insist, token } from "./common.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
 import { fetchPublicIpfs, type IpfsTransport } from "./ipfs.ts";
@@ -200,10 +200,15 @@ export async function indexedPublicPosts(
   head: bigint,
   postId?: string,
 ) {
-  const query = `SELECT r.* FROM public_post_revisions r WHERE r.community_id=? ${postId ? "AND r.post_id=?" : ""} AND r.revision=(SELECT MAX(p.revision) FROM public_post_revisions p WHERE p.community_id=r.community_id AND p.post_id=r.post_id) ORDER BY CAST(r.block_number AS INTEGER) DESC,r.log_index DESC LIMIT 100`;
+  const query = `SELECT r.* FROM public_post_revisions r WHERE r.community_id=? AND CAST(r.block_number AS INTEGER)<=CAST(? AS INTEGER) ${postId ? "AND r.post_id=?" : ""} AND r.revision=(SELECT MAX(p.revision) FROM public_post_revisions p WHERE p.community_id=r.community_id AND p.post_id=r.post_id AND CAST(p.block_number AS INTEGER)<=CAST(? AS INTEGER)) ORDER BY CAST(r.block_number AS INTEGER) DESC,r.log_index DESC LIMIT 100`;
   const rows = await db
       .prepare(query)
-      .bind(current.communityId, ...(postId ? [postId] : []))
+      .bind(
+        current.communityId,
+        head.toString(),
+        ...(postId ? [postId] : []),
+        head.toString(),
+      )
       .all<IndexedPost>(),
     result = [];
   for (const row of rows.results) {
@@ -229,6 +234,46 @@ export async function indexedPublicPosts(
         onchain.manifestSha256 === row.manifest_sha256 &&
         onchain.manifestURI === row.manifest_uri,
       "public_post_state_changed",
+      503,
+    );
+    let receipt;
+    try {
+      receipt = await client.getTransactionReceipt({
+        hash: row.transaction_hash,
+      });
+    } catch {
+      insist(false, "public_post_provenance_unavailable", 503);
+    }
+    const log = receipt.logs.find(
+      (log) =>
+        log.logIndex === row.log_index &&
+        log.address.toLowerCase() === profile.address,
+    );
+    insist(
+      receipt.status === "success" &&
+        receipt.transactionHash === row.transaction_hash &&
+        receipt.blockHash === row.block_hash &&
+        receipt.blockNumber === BigInt(row.block_number) &&
+        log &&
+        log.transactionHash === row.transaction_hash &&
+        log.blockHash === row.block_hash &&
+        log.blockNumber === BigInt(row.block_number),
+      "public_post_provenance_changed",
+      503,
+    );
+    const decoded = publicationEvent(
+      decodeEventLog({
+        abi: postsAbi,
+        eventName: "PostRevisionPublished",
+        topics: log.topics,
+        data: log.data,
+        strict: true,
+      }).args,
+      profile,
+    );
+    insist(
+      canonical(decoded) === canonical(event),
+      "public_post_provenance_changed",
       503,
     );
     const config = history.find(

@@ -317,10 +317,14 @@ export async function validateReleaseResult(
       503,
     );
   else {
-    const post = validatePost(
-        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
-      ),
-      audio = validatedPin(object(input.progress.pin_audio).pin),
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const post = validatePost(JSON.parse(decoded));
+    insist(
+      decoded === canonical(post) && hashJson(post) === pin.sha256,
+      "post_manifest_not_canonical",
+      503,
+    );
+    const audio = validatedPin(object(input.progress.pin_audio).pin),
       lyrics = validatedPin(object(input.progress.pin_lyrics).pin),
       registration = object(input.progress.registration),
       admission = object(input.progress.admission),
