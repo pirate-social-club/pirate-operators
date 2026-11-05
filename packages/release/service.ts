@@ -88,27 +88,63 @@ export async function releaseFetch(
       "not_found",
       404,
     );
-    const { body, current } = await authorizeServiceRequest(
-      db,
-      await jsonBody(request),
-      route.action,
-      service.origin,
-      service.pairings,
-      service.currentConfiguration,
-    );
+    const { body, current, pairing, authorization } =
+      await authorizeServiceRequest(
+        db,
+        await jsonBody(request),
+        route.action,
+        service.origin,
+        service.pairings,
+        service.currentConfiguration,
+      );
     exact(body, route.kind === "pin" ? ["context", "role"] : ["context"]);
     const grant = validateReleaseGrant(service.grant);
+    insist(
+      service.registrationSigner.address.toLowerCase() ===
+        grant.registration.operator,
+      "release_operator_binding_unavailable",
+      503,
+    );
+    const capturedConfig = hashJson(current),
+      capturedPairing = hashJson(pairing);
+    const authorizePurchase = async () => {
+      const fresh = await service.currentConfiguration(pairing),
+        active = service.pairings.find(
+          (p) => p.communityId === pairing.communityId,
+        );
+      insist(
+        active?.enabled && hashJson(active) === capturedPairing,
+        "managed_pairing_changed",
+        403,
+      );
+      insist(
+        hashJson(fresh) === capturedConfig,
+        "community_authority_changed",
+        403,
+      );
+      const now = Math.floor(Date.now() / 1000);
+      insist(
+        grant.expiresAt > now && authorization.expiresAt > now,
+        "release_grant_expired",
+        403,
+      );
+    };
     const pinTransport: IpfsTransport = async (request) => {
       if (new URL(request.url).pathname === "/api/v0/add")
-        insist(
-          grant.expiresAt > Math.floor(Date.now() / 1000),
-          "release_grant_expired",
-          409,
-        );
+        await authorizePurchase();
       return service.pinTransport
         ? service.pinTransport(request)
         : fetch(request);
     };
+    const registrationClient = {
+      ...service.registrationClient,
+      sendRawTransaction: async (
+        parameters: Parameters<PublicClient["sendRawTransaction"]>[0],
+      ) => {
+        await authorizePurchase();
+        return service.registrationClient.sendRawTransaction(parameters);
+      },
+    } as PublicClient;
     const release = await establishRelease(
       db,
       body.context,
@@ -184,7 +220,7 @@ export async function releaseFetch(
         metadata: { uri: metadata.uri, sha256: metadata.sha256 },
         nftMetadata: { uri: nft.uri, sha256: nft.sha256 },
       },
-      service.registrationClient,
+      registrationClient,
       service.registrationSigner,
       route.mode,
     );

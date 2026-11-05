@@ -107,6 +107,14 @@ async function releaseFixture(
           "en",
         ),
       };
+    let beforeMedia: (() => void) | undefined;
+    const releaseMedia = {
+      ...f.media,
+      get: async (key: string) => {
+        beforeMedia?.();
+        return f.media.get(key);
+      },
+    };
     const retained = new Map<string, Uint8Array>();
     let adds = 0;
     const service = {
@@ -173,13 +181,16 @@ async function releaseFixture(
           body: JSON.stringify(signed),
         }),
         f.db,
-        f.media,
+        releaseMedia,
         service,
       );
     };
     return {
       ...f,
       admissionState,
+      beforeMedia: (hook: () => void) => {
+        beforeMedia = hook;
+      },
       sendRelease: send,
       clientRequest: (
         path: string,
@@ -192,7 +203,7 @@ async function releaseFixture(
             publisher,
             configuration,
             transport: (request) =>
-              releaseFetch(request, f.db, f.media, service),
+              releaseFetch(request, f.db, releaseMedia, service),
           },
           path,
           action,
@@ -374,6 +385,39 @@ test("missing public media holds registration before allocating a mint or fee", 
         .first())!.n,
       0,
     );
+    assert.equal(f.adds(), 4);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("publisher rotation during retained-media access prevents a new add", async () => {
+  const f = await releaseFixture();
+  try {
+    f.beforeMedia(() => f.changeAuthority());
+    const response = await f.sendRelease("pin", {
+      context: f.context,
+      role: "audio",
+    });
+    assert.equal(response.status, 202);
+    assert.equal(f.adds(), 0);
+    assert.equal(f.story.broadcasts(), 0);
+  } finally {
+    await f.dispose();
+  }
+});
+test("publisher rotation during registration preflight prevents a new broadcast", async () => {
+  const f = await releaseFixture();
+  try {
+    for (const role of ["audio", "lyrics", "ip_metadata", "nft_metadata"]) {
+      const response = await f.sendRelease("pin", { context: f.context, role });
+      assert.equal(response.status, 200);
+    }
+    f.story.beforeEstimate(() => f.changeAuthority());
+    const response = await f.sendRelease("register", { context: f.context });
+    assert.equal(response.status, 202);
+    assert.equal(f.story.broadcasts(), 0);
+    assert.equal(f.story.mints(), 0);
     assert.equal(f.adds(), 4);
   } finally {
     await f.dispose();

@@ -18,6 +18,7 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
   const code = "0x6000",
     blockHash = `0x${"3".repeat(64)}` as Hex,
     asset = "0x3333333333333333333333333333333333333333";
+  let beforeEstimate: (() => void) | undefined;
   const transactions = new Map<Hex, Hex>();
   let broadcasts = 0;
   const transaction = (hash: Hex) => {
@@ -32,7 +33,10 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
     getTransactionCount: async () => 3,
     getGasPrice: async () => 1000000000n,
     getBalance: async () => 10000000000000000n,
-    estimateGas: async () => 1000000n,
+    estimateGas: async () => {
+      beforeEstimate?.();
+      return 1000000n;
+    },
     sendRawTransaction: async ({
       serializedTransaction,
     }: {
@@ -103,6 +107,9 @@ export function releaseStoryFixture(signer: PrivateKeyAccount) {
   } as unknown as PublicClient;
   return {
     client,
+    beforeEstimate: (hook: () => void) => {
+      beforeEstimate = hook;
+    },
     codeHash: keccak256(code),
     broadcasts: () => broadcasts,
     mints: () => transactions.size,
