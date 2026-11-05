@@ -8,19 +8,7 @@
 export const PROTOCOL_VERSION = 1;
 export const DOCUMENT_VERSION = 1;
 
-export interface CommunityConfig {
-  readonly schema: "pirate.community-config/1";
-  readonly communityId: string;
-  readonly canonicalOrigin: string;
-  readonly apiBase: "/api";
-  readonly protocolVersions: readonly number[];
-  readonly defaultLanguage: string;
-  readonly supportedLanguages: readonly string[];
-  /** Absent in this slice: the signer binding belongs to the discovery interface. */
-  readonly signature?: never;
-  readonly mirrors: readonly string[];
-  readonly fixture?: true;
-}
+export type { CommunityClientConfig as CommunityConfig } from "../../../packages/community/application-api.ts";
 
 export interface PublicAuthor {
   readonly handle: string;
@@ -74,7 +62,7 @@ export interface RemovedPost {
 export type PostRecord = PublicPost | RemovedPost;
 
 export const paths = {
-  config: "/.well-known/pirate-community.json",
+  config: "/.well-known/pirate-client.json",
   page: { community: "/", post: (slug: string) => `/posts/${slug}/` },
   api: {
     community: "/api/public/community",

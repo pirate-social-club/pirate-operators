@@ -12,9 +12,12 @@
     "test": "node --test test/*.test.ts",
     "test:e2e": "playwright test",
     "check:reproducible": "node scripts/reproducible.ts",
-    "check": "npm run typecheck && npm test && npm run build && npm run test:e2e"
+    "check": "npm run typecheck && npm test && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live",
+    "build:live": "vite build --config vite.live.config.ts",
+    "test:e2e:live": "playwright test --config playwright.live.config.ts"
   },
   "dependencies": {
+    "@megaeth-labs/wallet-sdk": "1.0.8",
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
     "@solidjs/web": "2.0.0-rc.0",
     "solid-js": "2.0.0-rc.0"
@@ -29,7 +32,7 @@
     "multiformats": "14.0.5",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
-    "vite": "8.3.1",
+    "vite": "8.3.6",
     "vite-plugin-solid": "3.0.0-next.27"
   },
   "overrides": {
@@ -70,7 +73,7 @@
     "lightningcss": "1.33.0",
     "lightningcss-linux-x64-gnu": "1.33.0",
     "rolldown": "1.2.11",
-    "seroval": "1.6.3",
+    "seroval": "1.6.11",
     "seroval-plugins": "1.5.6",
     "tailwind-merge": "3.6.0",
     "tslib": "2.8.1"

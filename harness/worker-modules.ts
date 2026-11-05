@@ -3,9 +3,19 @@ import { fileDigest } from "./creator-state.ts";
 
 /** Hash raw multipart fields without FormData's UTF-8 decoding. Cloudflare
  * returns binary module fields without filenames, which FormData treats as text. */
-export function workerModuleDigests(bytes: Uint8Array, contentType: string) {
+export function workerModuleDigests(
+  bytes: Uint8Array,
+  contentType: string,
+  expectedNames: readonly string[] = ["index.js", "ika.wasm"],
+) {
+  insist(
+    expectedNames.length > 0 &&
+      expectedNames.every((n) => /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(n)),
+    "invalid_expected_worker_modules",
+    503,
+  );
   if (!contentType.startsWith("multipart/"))
-    return { "index.js": fileDigest(bytes) };
+    return { [expectedNames[0]!]: fileDigest(bytes) };
   const match = /boundary=(?:"([^"]+)"|([^;\s]+))/i.exec(contentType),
     boundary = match?.[1] ?? match?.[2];
   insist(
@@ -36,7 +46,7 @@ export function workerModuleDigests(bytes: Uint8Array, contentType: string) {
       return modules;
     }
     insist(
-      ++parts <= 3 &&
+      ++parts <= expectedNames.length + 1 &&
         data.subarray(cursor, cursor + 2).equals(Buffer.from("\r\n")),
       "invalid_worker_multipart_part",
       503,
@@ -61,7 +71,7 @@ export function workerModuleDigests(bytes: Uint8Array, contentType: string) {
     );
     if (name !== "metadata") {
       insist(
-        ["index.js", "ika.wasm"].includes(name) && !(name in modules),
+        expectedNames.includes(name) && !(name in modules),
         "unexpected_worker_module",
         503,
       );

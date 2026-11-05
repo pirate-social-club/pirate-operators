@@ -7,7 +7,7 @@ import type { CommunityConfig, PostRecord, PublicCommunity, PublicPost } from ".
 export const FIXTURE_CANONICAL_ORIGIN = "http://localhost:4173";
 
 export const fixtureConfig: CommunityConfig = {
-  schema: "pirate.community-config/1",
+  schema: "pirate.community-client-config/1",
   communityId: "fixture-community",
   canonicalOrigin: FIXTURE_CANONICAL_ORIGIN,
   apiBase: "/api",
