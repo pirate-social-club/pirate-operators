@@ -36,9 +36,8 @@ are encrypted, and generated files are scanned for plaintext after each phase.
 The operator curates the exact registry, directory, controller and both HTTPS
 origins. Runtime resolution independently checks the chain ID, directory runtime
 hash, complete configuration event history, retained public manifest hashes,
-current state and canonical block hash. Every new provider purchase rechecks
-that the manifest bytes are exact JCS and historical revocations were valid
-at their own publication block. Every new provider purchase rechecks
+current state and canonical block hash. Manifest bytes must be exact JCS;
+historical revocations must be valid at their own publication block. Every new provider purchase rechecks
 that authority against the immutable job capture. Joining or namespace discovery
 does not grant publication authority in this profile.
 

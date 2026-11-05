@@ -1,0 +1,162 @@
+{
+  "profileHash": "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2",
+  "before": {
+    "at": "2026-11-05T04:53:50.213Z",
+    "resources": [
+      {
+        "name": "pirate-managed-firstsong-20261105",
+        "present": false
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": false
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": false
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": false
+      }
+    ]
+  },
+  "after": {
+    "at": "2026-11-05T04:54:34.667Z",
+    "resources": [
+      {
+        "name": "pirate-managed-firstsong-20261105",
+        "present": true
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-db",
+        "present": true
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-media",
+        "present": true
+      },
+      {
+        "name": "pirate-managed-firstsong-20261105-jobs",
+        "present": true
+      }
+    ]
+  },
+  "logs": [
+    "1793854437030-managed-plan-d1000a6c-f233-4245-90c8-28fd21474ef3.enc",
+    "1793854442199-managed-deploy-c183f748-7526-4146-bcb5-9d502a6feb18.enc"
+  ],
+  "status": {
+    "service": "pirate-managed-moderation/1",
+    "status": "available",
+    "profileHash": "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2"
+  },
+  "schema": "pirate.managed-service-startup/1",
+  "origin": "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev",
+  "sourceCommit": "d7e9f05ba365c2435760a16275eb03fb290dfb35",
+  "bundleSha256": "0x0674b80792e243fff33f387e6d1c995e5c034ca4f8f37739cd75138bf0cc5f94",
+  "credentials": "existing scoped bindings confirmed; no generation or rotation",
+  "stateScan": "passed before and after plan/deploy",
+  "acceptance": "startup and profile only; no real provider admission or first-song claim",
+  "resourceIds": {
+    "worker": {
+      "id": "7e62742bc4ed4677b68ec5668552a72f",
+      "name": "pirate-managed-firstsong-20261105",
+      "created_on": "2026-11-05T04:54:17.54112Z"
+    },
+    "database": {
+      "uuid": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+      "name": "pirate-managed-firstsong-20261105-db"
+    },
+    "media": {
+      "name": "pirate-managed-firstsong-20261105-media"
+    },
+    "queue": {
+      "queue_id": "dc4fcd4d7eae467e8688751b79fb3c09",
+      "queue_name": "pirate-managed-firstsong-20261105-jobs",
+      "created_on": "2026-11-05T04:54:07.673307Z",
+      "modified_on": "2026-11-05T04:54:07.673307Z"
+    }
+  },
+  "unsignedAdmission": {
+    "status": 400,
+    "body": {
+      "error": "invalid_fields"
+    }
+  },
+  "liveSchema": [
+    [
+      {
+        "name": "__alchemy_migrations"
+      },
+      {
+        "name": "_cf_KV"
+      },
+      {
+        "name": "managed_admissions"
+      },
+      {
+        "name": "moderation_provider_calls"
+      },
+      {
+        "name": "moderation_request_nonces"
+      },
+      {
+        "name": "spending_budgets"
+      },
+      {
+        "name": "spending_reservations"
+      },
+      {
+        "name": "transaction_guards"
+      }
+    ],
+    [
+      {
+        "admissions": 0
+      }
+    ],
+    [
+      {
+        "providerCalls": 0
+      }
+    ]
+  ],
+  "consumer": [
+    {
+      "script": "pirate-managed-firstsong-20261105",
+      "settings": {
+        "batch_size": 1,
+        "max_retries": 3,
+        "max_wait_time_ms": 1000,
+        "max_concurrency": 1,
+        "retry_delay": 60
+      },
+      "type": "worker",
+      "queue_name": "pirate-managed-firstsong-20261105-jobs",
+      "queue_id": "dc4fcd4d7eae467e8688751b79fb3c09",
+      "consumer_id": "304066df0ff94bb495e66ebb59e0ef5d",
+      "created_on": "2026-11-05T04:54:27.819817Z"
+    }
+  ],
+  "cron": {
+    "schedules": [
+      {
+        "cron": "* * * * *",
+        "created_on": "2026-11-05T04:54:24.532145Z",
+        "modified_on": "2026-11-05T04:54:24.532145Z"
+      }
+    ]
+  },
+  "healthCheck": {
+    "at": "2026-11-05T05:06:08.243Z",
+    "status": 200,
+    "transport": "Node fetch",
+    "body": {
+      "service": "pirate-managed-moderation/1",
+      "status": "available",
+      "profileHash": "0x7cd0a145323a7e0a6e078722b10ceb469e0a54b43f124ac5b6cfc99fcb68a7c2"
+    }
+  },
+  "pythonProbe": "Python urllib user agent was refused upstream with Cloudflare1010; Node fetch reached the Worker and matched its profile."
+}
