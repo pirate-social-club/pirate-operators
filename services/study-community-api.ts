@@ -12,6 +12,7 @@ import {
 import { studyId } from "../packages/study/operator-contract.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { liveStudy, type StudyCommunityPorts } from "./study-community.ts";
+import { studyPrivateHistory } from "./study-history.ts";
 
 export async function studyCommunityApi(
   request: Request,
@@ -26,8 +27,27 @@ export async function studyCommunityApi(
       ? await accountSession(request, ports.db, context)
       : await authenticatedWrite(request, ports.db, context);
   if (request.method !== "GET") requestOrigin(request, context.origin);
-  const study = liveStudy(ports, session),
-    reply = (value: unknown) => Response.json(value, { headers });
+  const reply = (value: unknown) => Response.json(value, { headers });
+  const history =
+    /^\/api\/study\/lessons\/([a-zA-Z0-9_-]{16,128})\/history$/.exec(
+      url.pathname,
+    );
+  if (history) {
+    insist(request.method === "POST", "method_not_allowed", 405);
+    // Existing private history remains downloadable while practice is disabled.
+    return reply(
+      await studyPrivateHistory(
+        ports.db,
+        {
+          accountId: session.account_id,
+          communityId: context.communityId,
+        },
+        history[1],
+        ports.now,
+      ),
+    );
+  }
+  const study = liveStudy(ports, session);
   if (url.pathname === "/api/study/song") {
     insist(request.method === "GET", "method_not_allowed", 405);
     return reply(await study.song(bytes32(url.searchParams.get("postId"))));

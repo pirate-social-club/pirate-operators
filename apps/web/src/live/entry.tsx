@@ -408,6 +408,7 @@ function App() {
             csrf={session()!.csrf}
             wallet={mossWallet}
             onExit={closeStudy}
+            onLearningActions={(actions) => setLearningActions(actions)}
           />
         </div>
       </Show>

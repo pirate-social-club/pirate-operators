@@ -181,8 +181,9 @@ response, and completion/publication status. Actual Study D1, operator,
 cryptographic and contract behavior remains qualified by the separate service
 tests. Neither set establishes real MOSS/provider acceptance or deployed UI.
 
-Study still needs complete private retention/export, authenticated correction
-controls and the reviewed exact deployment profile. The final V3 publicity policy
+Private Study export is implemented locally as described below. Physical
+deletion, authenticated correction controls and the reviewed exact deployment
+profile remain open. The final V3 publicity policy
 and disclosure pages must be prepared and
 bound to the deployed contract before accepting successor consent. The activity
 text in the enrollment dialog alone does not complete that disclosure gate.
@@ -237,3 +238,27 @@ including consent and recovery. Local fixtures are not deployed acceptance.
 Dance and fresh-operator wizard installation remain follow-ups. Funded rewards
 and mainnet account/USDm qualification remain separate tasks. Nothing in this
 source adoption enables them.
+
+## Private Study export
+
+The authenticated history action downloads the most recently opened Study
+lesson from the account menu. The endpoint requires the account cookie, Origin
+and CSRF, filters all rows by account and community, and reads lesson, attempts
+and the stored publication receipt in one D1 transaction. It calls no speech
+provider or operator and remains usable when new practice is disabled.
+
+The export contains the full private attempt set, including recognized text,
+without the recent-list limit of fifty. A lesson's presentation and take bounds
+permit at most sixty attempts; an oversized history is rejected without silently
+truncating it. The export window ends thirty days after the saved completion or
+lesson deadline. Raw audio, managed keys and cookies are not included. This is
+an operator-held JSON copy, not an encrypted learner vault or an official grade
+import. The account menu retains one opened lesson; a full history index is not
+claimed by this slice.
+
+An expired export is refused. This access check is not physical deletion.
+Deletion and the public-outbox recovery boundary remain required before Study
+release, along with the final factual privacy disclosure. Pending publication
+and unknown transaction outcomes must retain their recovery facts independently
+of any private speech-history copy. No Study deployment is qualified by this
+local export work.

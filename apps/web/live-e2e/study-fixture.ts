@@ -66,6 +66,7 @@ export async function serveStudy(
     lesson: StudyLesson | null = null,
     published = false,
     loseStart = options.loseStart;
+  let historyExpired = false;
   const counts = {
     starts: 0,
     enrollmentRequests: 0,
@@ -204,6 +205,17 @@ export async function serveStudy(
       }
       return json(lesson);
     }
+    if (path.endsWith("/history")) {
+      expect(request.method()).toBe("POST");
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      return historyExpired
+        ? json({ error: "study_history_expired" }, 410)
+        : json({
+            schema: "pirate.study-private-history/1",
+            lessonId: lesson?.lessonId,
+            attempts: [{ heardTranscript: "private fixture words" }],
+          });
+    }
     if (path.endsWith("/publication"))
       return json({
         state: published ? "published" : "pending",
@@ -250,6 +262,9 @@ export async function serveStudy(
     counts,
     releaseSignature: () => releaseSignature?.(),
     releaseEnrollment: () => releaseEnrollment?.(),
+    expireHistory: () => {
+      historyExpired = true;
+    },
     url: `${origin}/?study=${song.postId}`,
     complete() {
       lesson = {

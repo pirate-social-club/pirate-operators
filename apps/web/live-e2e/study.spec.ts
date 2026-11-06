@@ -1,5 +1,40 @@
 import { expect, test } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
+import { readFile } from "node:fs/promises";
+
+test("the account menu downloads saved Study history after exit and reports expiry without another lesson", async ({
+  page,
+}) => {
+  const state = await serveStudy(page);
+  await page.goto(state.url);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(page.getByRole("blockquote")).toBeVisible();
+  const lessonId = new URL(page.url()).searchParams.get("lesson");
+  await page.getByRole("button", { name: "Back to songs" }).click();
+  await page.getByRole("button", { name: "Learning settings" }).click();
+  const pending = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download private history" })
+    .click();
+  const download = await pending;
+  expect(download.suggestedFilename()).toBe(`study-history-${lessonId}.json`);
+  const value = JSON.parse(await readFile((await download.path())!, "utf8"));
+  expect(value.schema).toBe("pirate.study-private-history/1");
+  expect(value.lessonId).toBe(lessonId);
+  state.expireHistory();
+  await page.getByRole("button", { name: "Learning settings" }).click();
+  await page
+    .getByRole("menuitem", { name: "Download private history" })
+    .click();
+  await expect(page.locator(".live-status")).toHaveText(
+    "This private history has expired.",
+  );
+  expect(state.counts.starts).toBe(1);
+  expect(state.counts.enrollmentSubmissions).toBe(1);
+});
 
 test("leaving after enrollment dispatch preserves that authority but does not start a lesson", async ({
   page,

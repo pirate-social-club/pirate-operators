@@ -35,6 +35,7 @@ export function LiveStudy(props: {
   csrf: string;
   wallet: KaraokeWallet;
   onExit(): void;
+  onLearningActions?: (actions: { download: () => Promise<void> }) => void;
 }) {
   const [client, setClient] = createSignal<StudyClient | null>(null),
     [error, setError] = createSignal(""),
@@ -149,6 +150,9 @@ export function LiveStudy(props: {
     }
   }
   function observe(lesson: StudyLesson) {
+    props.onLearningActions?.({
+      download: () => downloadHistory(lesson.lessonId),
+    });
     if (lesson.status === "active") {
       setTerminalId(undefined);
       setChecking(false);
@@ -161,6 +165,21 @@ export function LiveStudy(props: {
     polls = 0;
     setPublication(null);
     void checkPublication(lesson.lessonId);
+  }
+  async function downloadHistory(id: string) {
+    const value = await post(
+      `/api/study/lessons/${encodeURIComponent(id)}/history`,
+      {},
+      props.csrf,
+    );
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `study-history-${id}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
   const publicationMessage = () => {
     const value = publication();
