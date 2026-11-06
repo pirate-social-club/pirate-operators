@@ -21,8 +21,12 @@ import {
 import { firstSong } from "../services/first-song-profile.ts";
 import {
   alignmentRequestMessage,
+  KARAOKE_MAX_SEGMENT_MS,
   type AlignmentRequest,
 } from "../services/karaoke-song.ts";
+import { alignmentResult } from "../packages/alignment/elevenlabs-response.ts";
+import { publishedKaraokeManifest } from "../packages/karaoke/published-manifest.ts";
+import type { KaraokeManifest } from "../packages/protocol/payments.ts";
 import { validateConfig } from "../packages/community/config-manifest.ts";
 import { postsAbi } from "../packages/community/post-chain.ts";
 import { readMp3Probe } from "../packages/moderation/mp3-windows.ts";
@@ -31,6 +35,7 @@ import type { chain } from "./chain.ts";
 import { keys, accounts } from "./runtime.ts";
 import {
   DEFAULT_ALIGNMENT,
+  simulatedAlignment,
   type SimulatedAlignment,
   type SimulatedAlignmentLog,
   type SimulatedStream,
@@ -271,7 +276,7 @@ export async function karaokeLive(
     ],
   });
   try {
-    await mf.ready;
+    const mfUrl = await mf.ready;
     const db = await mf.getD1Database("DB", "storage"),
       media = (await mf.getR2Bucket("MEDIA", "storage")) as unknown as R2Bucket,
       operatorWorker = (await mf.getWorker("operator")) as unknown as Fetcher,
@@ -299,8 +304,10 @@ export async function karaokeLive(
       COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
       KARAOKE_OPERATOR: operatorWorker,
       KARAOKE_OPERATOR_ADDRESS: accounts[2]!.address,
+      // A browser reaches the operator at Miniflare's address through its routes.
       KARAOKE_OPERATOR_ORIGIN:
-        options.operatorOrigin ?? "https://operator.localhost",
+        options.operatorOrigin ??
+        (options.operatorRoutes ? mfUrl.origin : "https://operator.localhost"),
       KARAOKE_SIGNER_PRIVATE_KEY: keys[1]!,
       KARAOKE_COMMUNITY_ADDRESS: accounts[3]!.address,
       KARAOKE_PAYMENT_CHAIN_ID: "31337",
@@ -600,3 +607,38 @@ export async function karaokeLive(
   }
 }
 export type KaraokeLive = Awaited<ReturnType<typeof karaokeLive>>;
+
+/** The timed manifest the simulated provider yields for the published lyrics. */
+export async function expectedKaraoke(
+  alignment: SimulatedAlignment = DEFAULT_ALIGNMENT,
+  stemMs = 120000,
+) {
+  const { durationMs } = await syntheticMp3(stemMs);
+  return publishedKaraokeManifest(
+    firstSongFixture.lyrics,
+    alignmentResult(
+      simulatedAlignment(firstSongFixture.lyrics.sourceText, alignment),
+      firstSongFixture.lyrics,
+      durationMs,
+    ),
+    KARAOKE_MAX_SEGMENT_MS,
+  );
+}
+/** What the simulated provider hears: every word as written, or chosen lines mumbled. */
+export function sungStream(
+  manifest: KaraokeManifest,
+  options: { mumbled?: number[]; fromMs?: number; toMs?: number } = {},
+): SimulatedStream {
+  const from = options.fromMs ?? 0;
+  return {
+    words: manifest.lines
+      .filter((l) => l.startMs >= from && l.endMs <= (options.toMs ?? Infinity))
+      .flatMap((line) =>
+        line.words.map((w) => ({
+          text: options.mumbled?.includes(line.ordinal) ? "mumble" : w.text,
+          start: (w.startMs - from) / 1000,
+          end: (w.endMs - from) / 1000,
+        })),
+      ),
+  };
+}

@@ -33,6 +33,7 @@ import {
 } from "./community-purchases.ts";
 import type { Env } from "./runtime.ts";
 import { call, signatureChainId } from "./service-call.ts";
+import { consentTypes } from "../packages/protocol/records.ts";
 import { D1Store } from "./storage.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { publishedKaraoke } from "./karaoke-song.ts";
@@ -321,6 +322,12 @@ export async function karaokeAttempt(
       return {
         state: "open" as const,
         ticket: await store.get<Signed<Ticket>>(`ticket:${ticketId}`),
+        // From the operator's start, set by the first purchase, on this
+        // clock: the page resumes the song here, whatever its own clock says.
+        elapsedMs:
+          state.open.startedAt === null
+            ? null
+            : Math.max(0, ((await store.now()) - state.open.startedAt) * 1000),
         socketUrl: socketUrl(ports.env),
         proof: await connectionProof(store, ticket.sessionKey, ticketId),
       };
@@ -331,9 +338,22 @@ export async function karaokeAttempt(
   const record = await call<{
     attemptId: Hex;
     consented: boolean;
+    consent: { domain: unknown; message: unknown } | null;
     publication: { state: string; reason?: string } | null;
   }>(env.OPERATOR, "/record", { ticketId });
-  return { state: "finished" as const, result, record };
+  return {
+    state: "finished" as const,
+    result,
+    record: {
+      ...record,
+      // Everything a wallet needs to sign it, without protocol code.
+      consent: record.consent && {
+        ...record.consent,
+        types: consentTypes,
+        primaryType: "Consent" as const,
+      },
+    },
+  };
 }
 
 /** Consent after the socket has closed: the operator checks the learner's signature. */

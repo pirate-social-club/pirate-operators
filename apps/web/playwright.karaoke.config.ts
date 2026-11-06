@@ -37,6 +37,21 @@ export default defineConfig({
         },
       },
     },
+    {
+      name: "live",
+      testMatch: "live.spec.ts",
+      use: {
+        baseURL: "http://localhost:4180",
+        permissions: ["microphone"],
+        launchOptions: {
+          args: [
+            "--autoplay-policy=no-user-gesture-required",
+            "--use-fake-ui-for-media-stream",
+            "--use-fake-device-for-media-stream",
+          ],
+        },
+      },
+    },
   ],
   webServer: [
     {
@@ -50,6 +65,13 @@ export default defineConfig({
       url: "http://127.0.0.1:4179/__fixture/instrumental.wav",
       reuseExistingServer: false,
       timeout: 60000,
+    },
+    {
+      // Serves dist/live, so `vite build --config vite.live.config.ts` runs first.
+      command: "node karaoke-e2e/live-host.ts",
+      url: "http://localhost:4180/__fixture/manifest",
+      reuseExistingServer: false,
+      timeout: 90000,
     },
   ],
 });

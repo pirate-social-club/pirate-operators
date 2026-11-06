@@ -336,6 +336,11 @@ test("a learner sings the published song, reloads, consents, and the grades reac
     assert.deepEqual(finished.record, {
       attemptId: start.body.attemptId,
       consented: false,
+      consent: {
+        ...(socket.ready.consent as object),
+        types: consentTypes,
+        primaryType: "Consent",
+      },
       publication: null,
     });
 

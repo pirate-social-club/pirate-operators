@@ -44,6 +44,8 @@ export interface KaraokeCaptureControls {
   noteFinish(songMs: number): void | Promise<void>;
   stop(): void;
   abort(code: string): void;
+  /** Sends another operator frame, such as a segment purchase, while live. */
+  send(frame: Record<string, unknown>): boolean;
 }
 export interface UseKaraokeCaptureResult {
   playbackGraph: KaraokePlaybackGraph;
@@ -193,6 +195,7 @@ export function useKaraokeCapture(
       setPlaybackInterrupted(false);
       currentController?.stop();
     },
+    send: (frame) => currentController?.send(frame) ?? false,
   };
   return { controls, playbackInterrupted, state, playbackGraph };
 }
