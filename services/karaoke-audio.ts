@@ -1,7 +1,9 @@
 // Live microphone audio on the operator's Karaoke socket. Binary frames use the
 // adopted centralized binary codec; a relay per take streams them to the
 // realtime speech provider and feeds its committed, song-timed words into the
-// existing words path before finish and on disconnect. Learners cannot send
+// existing words path as they arrive, before finish and on disconnect. Words
+// sung before the performance ended still count if they arrive after the
+// operator's timer ended it, until the payment deadline. Learners cannot send
 // recognized words or failure marks once audio is wired. Text frames other
 // than the audio controls go to the existing handler unchanged.
 // See docs/karaoke-capture-handoff.md.
@@ -9,6 +11,7 @@ import { decodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
 import { ElevenLabsKaraokeSttAdapter } from "../packages/karaoke/elevenlabs-realtime.ts";
 import {
   KaraokeAudioRelay,
+  SEEK_WORD_TOLERANCE_MS,
   type KaraokeRelaySnapshot,
 } from "../packages/karaoke/audio-relay.ts";
 import { check, type Signed, type Ticket } from "../packages/protocol/index.ts";
@@ -16,6 +19,7 @@ import {
   RECONNECT_WINDOW_S,
   type KaraokeManifest,
 } from "../packages/protocol/payments.ts";
+import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import { onMessage } from "./karaoke.ts";
 import type { Attempt } from "./karaoke-result.ts";
 import { ServiceState, type Env } from "./runtime.ts";
@@ -45,9 +49,12 @@ export class KaraokeAudioState extends ServiceState {
         "operator_transcription_only",
       );
       if (frame.type === "audio_pause" || frame.type === "audio_seek") {
-        const relay = this.current(ws).relay;
-        if (frame.type === "audio_seek") relay.seek(Number(frame.songMs));
-        else await relay.pause();
+        const { ticketId, attempt, relay } = this.current(ws);
+        if (frame.type === "audio_seek") {
+          const songMs = Number(frame.songMs);
+          relay.seek(songMs);
+          this.reopen(ticketId, attempt, songMs);
+        } else await relay.pause();
         return;
       }
       if (frame.type === "finish") {
@@ -103,6 +110,37 @@ export class KaraokeAudioState extends ServiceState {
     });
     if (decoded.error) throw new Error(decoded.error.code);
     await relay.audio(decoded.frame);
+    // Words reach the scorer as each line's transcript arrives, so the
+    // operator's song-end timer never strands them in the relay.
+    if (relay.hasUndrained()) await this.forward(ws, relay);
+  }
+
+  /**
+   * Words are handed to the scorer as they arrive, so a seek applies the
+   * relay's own rule to them too: words ending after the seek point less the
+   * tolerance are dropped, and failure marks of the replayed lines reopen.
+   */
+  private reopen(ticketId: string, attempt: Attempt, songMs: number) {
+    const keepUntil = songMs - SEEK_WORD_TOLERANCE_MS,
+      key = `words:${ticketId}`,
+      words = this.store.get<KaraokeRecognizedWord[]>(key) ?? [];
+    this.store.set(
+      key,
+      words.filter((w) => w.endMs <= keepUntil),
+    );
+    const ticket = this.store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body,
+      manifest =
+        ticket &&
+        this.store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`),
+      reopened = new Set(
+        (manifest?.lines ?? [])
+          .filter((l) => l.endMs > songMs)
+          .map((l) => l.lineId),
+      );
+    attempt.failedLineIds = attempt.failedLineIds.filter(
+      (id) => !reopened.has(id),
+    );
+    this.store.set(`attempt:${ticketId}`, attempt);
   }
 
   private attachment(ws: WebSocket) {
@@ -156,6 +194,34 @@ export class KaraokeAudioState extends ServiceState {
   /** Hands relay output to the existing words path and scorer, in bounded batches. */
   private async forward(ws: WebSocket, relay: KaraokeAudioRelay) {
     const { words, failedLineIds } = relay.drain();
+    if (words.length === 0 && failedLineIds.length === 0) return;
+    const { ticketId } = this.attachment(ws),
+      attempt = ticketId
+        ? this.store.get<Attempt>(`attempt:${ticketId}`)
+        : undefined;
+    if (ticketId && attempt?.ended && !attempt.closing) {
+      // The timer ended the performance first. What was sung before its end
+      // is still the learner's take, until the payment deadline closes it.
+      const cutoffMs =
+          (attempt.ended.performanceEndedAt - attempt.startedAt) * 1000,
+        stored =
+          this.store.get<KaraokeRecognizedWord[]>(`words:${ticketId}`) ?? [],
+        late = words.filter(
+          (w) =>
+            typeof w.text === "string" &&
+            Number.isFinite(w.startMs) &&
+            Number.isFinite(w.endMs) &&
+            w.startMs >= 0 &&
+            w.endMs >= w.startMs &&
+            w.startMs < cutoffMs,
+        );
+      this.store.set(`words:${ticketId}`, [...stored, ...late].slice(0, 2000));
+      attempt.failedLineIds = [
+        ...new Set([...attempt.failedLineIds, ...failedLineIds]),
+      ];
+      this.store.set(`attempt:${ticketId}`, attempt);
+      return;
+    }
     for (let i = 0; i < words.length; i += BATCH)
       await onMessage(
         ws,
