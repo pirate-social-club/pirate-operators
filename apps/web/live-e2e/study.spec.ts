@@ -2,6 +2,52 @@ import { expect, test } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
 import { readFile } from "node:fs/promises";
 
+test("Study distinguishes corrected and invalidated public results from its saved private lesson", async ({
+  page,
+}) => {
+  const state = await serveStudy(page);
+  await page.goto(state.url);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(page.getByRole("blockquote")).toBeVisible();
+  state.complete();
+  state.revise(2, 1);
+  await page.reload();
+  await expect(
+    page.getByText("Your corrected public learning result is published."),
+  ).toBeVisible();
+  state.revise(3, 5, false);
+  await page
+    .getByRole("button", { name: "Check publication", exact: true })
+    .click();
+  await expect(
+    page.getByText("Your public learning result invalidation is confirming."),
+  ).toBeVisible();
+  state.revise(3, 5);
+  await page
+    .getByRole("button", { name: "Check publication", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "Your public learning result was invalidated. Its public history is preserved.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText("3 of 4 lines matched on the first try."),
+  ).toBeVisible();
+  state.revise(2, 1);
+  await page
+    .getByRole("button", { name: "Check publication", exact: true })
+    .click();
+  await expect(
+    page.getByText("Your corrected public learning result is published."),
+  ).toBeVisible();
+  expect(state.counts.starts).toBe(1);
+  expect(state.counts.signatures).toBe(1);
+});
+
 test("an inconsistent disclosure cannot prompt a signature or start a Study lesson", async ({
   page,
 }) => {

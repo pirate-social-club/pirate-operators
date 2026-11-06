@@ -21,6 +21,7 @@ import {
   erasedStudyReceipt,
   erasePrivateStudyOutbox,
 } from "./study-private-history.ts";
+import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 
 export function studyPublicationQueue(
   db: D1Database,
@@ -29,15 +30,28 @@ export function studyPublicationQueue(
   now = Date.now,
 ) {
   const load = (id: string) => studyOutboxRow(db, owner, id);
-  const view = (row: StudyOutboxRow | null) => ({
-    state: row?.state ?? "unbound",
-    receipt: row?.receipt_json
+  const view = (row: StudyOutboxRow | null) => {
+    const receipt = row?.receipt_json
       ? (JSON.parse(row.receipt_json) as StudyPublicationReceipt)
-      : null,
-  });
+      : null;
+    const stale =
+      receipt?.state === "published" &&
+      receipt.checkedAt * 1000 <= now() - 3600000;
+    return {
+      state: stale ? "pending" : (row?.state ?? "unbound"),
+      receipt: stale
+        ? {
+            ...receipt,
+            state: "pending" as const,
+            confirmed: false,
+            reason: "canonical_audit_due",
+          }
+        : receipt,
+    };
+  };
   return {
     get: async (id: string) => view(await load(id)),
-    async sync(id: string) {
+    async sync(id: string, force = false) {
       const row = await freezeStudyOutbox(db, owner, id);
       if (!row) return null; // No recording authority was obtained.
       const prior = view(row).receipt;
@@ -46,9 +60,11 @@ export function studyPublicationQueue(
         row.terminal_json &&
         JSON.parse(row.terminal_json).completedAt + 30 * 86400 * 1000 <= now();
       if (
-        ((row.state === "private" || row.state === "failed") &&
+        ((row.state === "private" ||
+          (row.state === "failed" && !studyRevisionRecovery(prior))) &&
           !privateExpired) ||
-        (row.state === "published" &&
+        (!force &&
+          row.state === "published" &&
           prior?.confirmed &&
           row.updated_at > now() - 3600000)
       )
@@ -75,6 +91,30 @@ export function studyPublicationQueue(
         terminal: JSON.parse(row.terminal_json!),
         source: JSON.parse(row.source_json) as LyricManifest,
       });
+      const head = receipt.canonicalHead,
+        latest = receipt.canonicalRevision;
+      studyCheck(
+        (!head ||
+          (/^\d{1,24}$/.test(head.number) &&
+            /^0x[0-9a-f]{64}$/.test(head.hash))) &&
+          (!latest ||
+            (head &&
+              receipt.state === "published" &&
+              Number.isInteger(latest.revision) &&
+              latest.revision >= 2 &&
+              latest.revision <= 0xffffffff &&
+              Number.isInteger(latest.status) &&
+              latest.status >= 1 &&
+              latest.status <= 5 &&
+              /^0x[0-9a-f]{64}$/.test(latest.commitment) &&
+              latest.commitment !== receipt.commitment &&
+              /^0x[0-9a-f]{64}$/.test(latest.transactionHash) &&
+              /^\d{1,24}$/.test(latest.blockNumber) &&
+              BigInt(latest.blockNumber) <= BigInt(head.number) &&
+              /^0x[0-9a-f]{64}$/.test(latest.blockHash))),
+        "study_publication_revision_changed",
+        503,
+      );
       studyCheck(
         receipt.sessionId ===
           digest({
@@ -99,6 +139,12 @@ export function studyPublicationQueue(
           (receipt.transactionHash === null ||
             /^0x[0-9a-f]{64}$/.test(receipt.transactionHash)),
         "study_publication_receipt_changed",
+        503,
+      );
+      studyCheck(
+        !prior?.transactionHash ||
+          prior.transactionHash === receipt.transactionHash,
+        "study_publication_transaction_changed",
         503,
       );
       // Compare the old receipt, so an older pending response cannot replace a

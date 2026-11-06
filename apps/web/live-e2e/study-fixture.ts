@@ -68,6 +68,9 @@ export async function serveStudy(
     published = false,
     loseStart = options.loseStart;
   let historyExpired = false;
+  let publicRevision:
+    | { revision: number; status: number; confirmed: boolean }
+    | undefined;
   const counts = {
     starts: 0,
     enrollmentRequests: 0,
@@ -231,11 +234,19 @@ export async function serveStudy(
             attempts: [{ heardTranscript: "private fixture words" }],
           });
     }
-    if (path.endsWith("/publication"))
+    if (path.endsWith("/publication")) {
+      expect(request.method()).toBe("POST");
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       return json({
         state: published ? "published" : "pending",
-        receipt: published ? { confirmed: true } : null,
+        receipt: published
+          ? {
+              confirmed: publicRevision?.confirmed ?? true,
+              ...(publicRevision ? { canonicalRevision: publicRevision } : {}),
+            }
+          : null,
       });
+    }
     if (path.endsWith("/abandon")) {
       counts.abandons++;
       lesson = {
@@ -299,6 +310,10 @@ export async function serveStudy(
     },
     publish() {
       published = true;
+    },
+    revise(revision: number, status: number, confirmed = true) {
+      published = true;
+      publicRevision = { revision, status, confirmed };
     },
   };
 }

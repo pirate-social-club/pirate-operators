@@ -74,7 +74,12 @@ export async function studyCommunityApi(
     return reply(await study.abandon(id));
   }
   if (parts.length === 2 && action === "publication") {
-    insist(request.method === "GET", "method_not_allowed", 405);
+    insist(
+      request.method === "GET" || request.method === "POST",
+      "method_not_allowed",
+      405,
+    );
+    if (request.method === "POST") await study.syncPublication(id, true);
     return reply(await study.publication(id));
   }
   if (parts.length === 2 && action === "attempts") {

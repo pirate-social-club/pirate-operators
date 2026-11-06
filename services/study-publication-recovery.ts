@@ -3,6 +3,7 @@ import { resultClient, retainedTarget } from "./learning-contract.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import { recoverTransactions, type TxRow } from "./operator-tx.ts";
 import type { Env } from "./runtime.ts";
+import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 import {
   resumeStudyPublication,
   type PublicationJob,
@@ -48,6 +49,7 @@ export async function resumeStudyPublications(
         receipt = job.receipt;
       return (
         receipt.state === "pending" ||
+        studyRevisionRecovery(receipt) ||
         (receipt.state === "published" &&
           (!receipt.confirmed || receipt.checkedAt <= store.now() - 3600)) ||
         (["private", "failed"].includes(receipt.state) &&
@@ -73,6 +75,7 @@ export function studyPublicationAlarm(store: ResultStore) {
     const { receipt, privateHistoryExpiresAt, lastTriedAt } =
       value as PublicationJob;
     return receipt.state === "pending" ||
+      studyRevisionRecovery(receipt) ||
       (receipt.state === "published" && !receipt.confirmed)
       ? (store.now() + 30) * 1000
       : receipt.state === "published"

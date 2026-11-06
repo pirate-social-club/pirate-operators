@@ -31,6 +31,12 @@ import { intentOf, txRow } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { Env } from "./runtime.ts";
 import {
+  readStudyRevision,
+  type StudyRevisionSearch,
+} from "./study-revision-reader.ts";
+import type { StudyRevisionEvidence } from "./study-revisions.ts";
+import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
+import {
   closedStudyPublication,
   eraseNeverSubmittedStudy,
   proveNeverSubmittedStudy,
@@ -39,6 +45,8 @@ import {
 } from "./study-private-publication.ts";
 
 export interface PublicationJob {
+  // Absent on earlier rows. Receipt bytes alone do not version cursor progress.
+  observationRevision?: number;
   requestHash: Hex;
   target: ResultsTarget;
   result: TerminalResult;
@@ -50,6 +58,12 @@ export interface PublicationJob {
 }
 const key = (id: string) => "studyPublication:" + id;
 const reference = (id: string) => "study:" + id + ":1";
+const proofKey = (id: string) => "studyRevisionProof:" + id;
+const searchKey = (id: string) => "studyRevisionSearch:" + id;
+interface RevisionUpdate {
+  proof?: StudyRevisionEvidence;
+  search?: StudyRevisionSearch;
+}
 const restore = (result: TerminalResult): TerminalResult => ({
   ...result,
   song: { ...result.song, chainId: BigInt(result.song.chainId) },
@@ -66,20 +80,42 @@ export const studyPublication = (store: ResultStore, id: string) =>
   store.get<PublicationJob>(key(id))?.receipt ??
   closedStudyPublication(store, id)?.receipt;
 
-function saveReceipt(
+export function saveReceipt(
   store: ResultStore,
   id: string,
   job: PublicationJob,
   receipt: StudyPublicationReceipt,
+  revision?: RevisionUpdate,
 ) {
   return store.transaction(() => {
     const current = store.get<PublicationJob>(key(id))!;
     check(current.requestHash === job.requestHash, "study_terminal_changed");
+    const observation = current.observationRevision ?? 0;
+    check(
+      Number.isSafeInteger(observation) &&
+        observation >= 0 &&
+        observation < Number.MAX_SAFE_INTEGER,
+      "invalid_study_observation_revision",
+    );
     // A slow observation cannot overwrite a concurrent publisher's newer state.
-    if (canonical(current.receipt) !== canonical(job.receipt))
+    if (
+      observation !== (job.observationRevision ?? 0) ||
+      canonical(current.receipt) !== canonical(job.receipt)
+    )
       return current.receipt;
-    store.set(key(id), { ...current, receipt });
-    return receipt;
+    const saved = durable(receipt);
+    if (revision) {
+      if (revision.proof) store.set(proofKey(id), durable(revision.proof));
+      else store.delete(proofKey(id));
+      if (revision.search) store.set(searchKey(id), durable(revision.search));
+      else store.delete(searchKey(id));
+    }
+    store.set(key(id), {
+      ...current,
+      observationRevision: observation + 1,
+      receipt: saved,
+    });
+    return saved;
   });
 }
 async function freeze(
@@ -210,8 +246,82 @@ async function observe(
   })) as Hex;
   const intent = intentOf(store, "record_result", reference(id));
   const row = intent?.nonce == null ? undefined : txRow(store, intent.nonce);
+  const proof = store.get<StudyRevisionEvidence>(proofKey(id));
+  let projected: StudyPublicationReceipt | undefined;
+  let revision: RevisionUpdate | undefined;
+  const clean = { ...job.receipt };
+  delete clean.reason;
+  delete clean.canonicalRevision;
+  if (
+    job.receipt.canonicalHead &&
+    BigInt(job.receipt.canonicalHead.number) > head.number &&
+    !(current === zeroHash && row?.raw)
+  ) {
+    projected = {
+      ...clean,
+      state: "failed",
+      confirmed: false,
+      checkedAt: store.now(),
+      reason: "canonical_head_behind",
+    };
+  } else if (
+    current !== zeroHash &&
+    (current !== job.receipt.commitment || proof)
+  ) {
+    try {
+      check(row?.hash, "study_revision_origin_missing");
+      const observed = await readStudyRevision({
+        client,
+        contract: job.target.contract,
+        head,
+        currentCommitment: current,
+        originalHash: row.hash,
+        originalResult: job.result,
+        originalOutcomes: job.outcomes,
+        proof,
+        search: store.get<StudyRevisionSearch>(searchKey(id)),
+      });
+      projected = {
+        ...clean,
+        state: observed.complete ? "published" : "pending",
+        confirmed:
+          observed.complete &&
+          head.number >= BigInt(observed.latest.blockNumber) + 12n,
+        transactionHash: row.hash,
+        checkedAt: store.now(),
+        canonicalHead: { number: String(head.number), hash: head.hash },
+        ...(observed.complete && observed.latest.result.revision > 1
+          ? {
+              canonicalRevision: {
+                revision: observed.latest.result.revision,
+                status: observed.latest.result.status,
+                commitment: observed.latest.commitment,
+                transactionHash: observed.latest.transactionHash,
+                blockNumber: observed.latest.blockNumber,
+                blockHash: observed.latest.blockHash,
+              },
+            }
+          : {}),
+        ...(!observed.complete ? { reason: "revision_history_pending" } : {}),
+      };
+      revision = {
+        proof: observed.complete ? observed.latest : proof,
+        search: observed.search,
+      };
+    } catch {
+      // A known changed canonical result can never reuse favorable old evidence.
+      projected = {
+        ...clean,
+        state: "failed",
+        confirmed: false,
+        checkedAt: store.now(),
+        canonicalHead: { number: String(head.number), hash: head.hash },
+        reason: "canonical_revision_unverified",
+      };
+    }
+  }
   let confirmed = false;
-  if (current === job.receipt.commitment && row?.hash) {
+  if (!projected && current === job.receipt.commitment && row?.hash) {
     const receipt = await client
       .getTransactionReceipt({ hash: row.hash })
       .catch((error: { name?: string }) => {
@@ -239,16 +349,22 @@ async function observe(
     row,
     current,
     timestamp: head.timestamp,
-    receipt: state
-      ? ({
-          ...job.receipt,
-          state,
-          confirmed,
-          transactionHash: row?.hash ?? null,
-          checkedAt: store.now(),
-          ...(state === "failed" ? { reason: "canonical_result_changed" } : {}),
-        } as StudyPublicationReceipt)
-      : null,
+    revision,
+    receipt:
+      projected ??
+      (state
+        ? ({
+            ...clean,
+            state,
+            confirmed,
+            transactionHash: row?.hash ?? null,
+            checkedAt: store.now(),
+            canonicalHead: { number: String(head.number), hash: head.hash },
+            ...(state === "failed"
+              ? { reason: "canonical_result_changed" }
+              : {}),
+          } as StudyPublicationReceipt)
+        : null),
   };
 }
 
@@ -283,10 +399,14 @@ export async function resumeStudyPublication(
   );
   job = { ...job, lastTriedAt: store.now() };
   store.set(key(id), job);
-  if (job.receipt.state === "private" || job.receipt.state === "failed")
+  if (
+    job.receipt.state === "private" ||
+    (job.receipt.state === "failed" && !studyRevisionRecovery(job.receipt))
+  )
     return (await eraseNeverSubmittedStudy(env, store, id, job)) ?? job.receipt;
   const observed = await observe(env, store, id, job);
-  if (observed.receipt) return saveReceipt(store, id, job, observed.receipt);
+  if (observed.receipt)
+    return saveReceipt(store, id, job, observed.receipt, observed.revision);
   // Wait for chain time without charging a transaction that would revert.
   if (BigInt(job.result.completedAt) > observed.timestamp)
     return saveReceipt(store, id, job, {
@@ -350,7 +470,11 @@ export async function resumeStudyPublication(
   const latest = store.get<PublicationJob>(key(id));
   const final = closedStudyPublication(store, id);
   if (final) return final.receipt;
-  if (latest?.receipt.state === "private" || latest?.receipt.state === "failed")
+  if (
+    latest?.receipt.state === "private" ||
+    (latest?.receipt.state === "failed" &&
+      !studyRevisionRecovery(latest.receipt))
+  )
     return latest.receipt;
   await submitResultTransaction(
     env,
@@ -378,6 +502,7 @@ export async function resumeStudyPublication(
         ? { reason: "transaction_reverted" }
         : {}),
     },
+    after.revision,
   );
 }
 export async function publishStudyTerminal(

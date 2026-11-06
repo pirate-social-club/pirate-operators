@@ -129,8 +129,10 @@ export function LiveStudy(props: {
       // Reconcile a saved terminal result before reading its durable receipt.
       await get(`/api/study/lessons/${encodeURIComponent(id)}`);
       if (!active || terminalId() !== id) return;
-      const value = await get<Publication>(
+      const value = await post<Publication>(
         `/api/study/lessons/${encodeURIComponent(id)}/publication`,
+        {},
+        props.csrf,
       );
       if (!active || terminalId() !== id) return;
       setPublication(value);
@@ -184,6 +186,20 @@ export function LiveStudy(props: {
   }
   const publicationMessage = () => {
     const value = publication();
+    if (
+      value?.state === "published" &&
+      value.receipt?.canonicalRevision?.status === 5
+    )
+      return value.receipt.confirmed
+        ? "Your public learning result was invalidated. Its public history is preserved."
+        : "Your public learning result invalidation is confirming.";
+    if (
+      value?.state === "published" &&
+      (value.receipt?.canonicalRevision?.revision ?? 1) > 1
+    )
+      return value.receipt?.confirmed
+        ? "Your corrected public learning result is published."
+        : "Your corrected public learning result is confirming.";
     if (value?.state === "published")
       return value.receipt?.confirmed
         ? "Your public learning result is published."

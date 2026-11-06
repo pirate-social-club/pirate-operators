@@ -343,3 +343,57 @@ fails before a wallet prompt. V2 uses its original links and authority.
 This source does not deploy a contract, activate configuration or request live
 consent. Exact profile binding, independent review and a real testnet journey
 remain required. Existing native and provider recovery evidence is preserved.
+
+## Canonical correction projection
+
+The local operator now reads later canonical Study revisions separately from
+the immutable first-publication job. The original commitment, calldata, intent,
+nonce, signed bytes, transaction hash and conservative spending remain unchanged.
+The receipt exposes the original commitment and transaction plus separate latest
+revision/status/commitment/transaction metadata at a pinned canonical head.
+This projection does not sign or submit a correction, acquire new enrollment,
+reopen a private queue or call speech. Manual authenticated correction controls
+and their exact future execution profile remain open.
+
+The first publication is anchored by its actual successful canonical receipt.
+Later indexed-session events must preserve its context, selected set and ordered
+revision ancestry. An invalidation preserves prior outcomes and a later controller
+restoration is a distinct revision. Canonical block and successful receipt checks
+precede acceptance. A missing, malformed or unavailable changed result cannot
+fall back to the older favorable result. Unverified history stays pending or
+requires operator review; it never becomes qualification evidence.
+
+Each invocation searches at most eight indexed windows of ten thousand blocks.
+The durable reverse cursor retains its exact target, canonical head, unsearched
+range and collected public evidence for the next invocation. Eighty thousand
+blocks is a per-invocation budget, not a total history limit. At most 128 public
+events are retained in a pending search; excess history is refused explicitly,
+never silently truncated or treated as a favorable result. Successful proof and
+search progress are saved in the same receipt compare-and-swap transaction.
+An atomic observation generation changes on every successful save, including
+identical pending receipts in the same whole-second clock tick. A delayed earlier
+observation cannot overwrite newer proof, cursor or receipt state. Older rows
+start at generation zero without changing their native evidence.
+
+An orphaned anchor is reset only after canonical evidence changes. A verified
+reorg can legitimately lower the latest revision; a merely behind RPC head is
+not proof for a favorable downgrade. Loss of the original publication retains
+its existing raw transaction and charge for idempotent recovery. No new nonce
+or replacement publication is created by this projection.
+
+The account-owned publication POST requires the existing Origin and CSRF checks
+and forces a fresh audit. GET reads remain private and cached public receipts
+older than one hour are marked pending until audited. Scheduled audits of
+published results remain hourly; incomplete or unverified revision recovery is
+retried independently. Display metadata does not authorize financial eligibility.
+The live Study view distinguishes corrections, confirming invalidations and
+confirmed invalidations from its saved private practice feedback. Official
+qualification must use independent canonical public readback.
+
+Local contract/D1 tests cover correction after revocation, invalidation,
+controller restoration, verified reorg downgrade, stale reads and two separate
+held-response races at operator and D1 boundaries. They retain the original
+transaction, native intent, spending ledger and provider counts. Separate
+bounded-reader cases cover durable continuation beyond one work budget, missing
+links, changed context, wrong ancestry and noncanonical evidence. Browser tests
+use explicit HTTP/wallet simulations; none is deployed or acoustic acceptance.
