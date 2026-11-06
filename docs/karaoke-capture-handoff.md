@@ -5,9 +5,14 @@ audio frames on the operator's existing Karaoke socket, and the operator's own
 ElevenLabs Scribe v2 realtime connection, whose committed, song-timed words
 reach the existing scorer. It is the second slice recorded in the
 control-plane task pirate-karaoke-capture-20261106. Its base is the display and
-playback slice on feat/karaoke-learner eea9011 (draft PR 28). Every change is a
-new file, except updates to this lane's own test compatibility layer
-`test/karaoke-expect.ts` and acceptance files from PR 28.
+playback slice on feat/karaoke-learner eea9011 (draft PR 28). Most changes are
+new files or updates to this lane's own files from PR 28, such as the test
+compatibility layer `test/karaoke-expect.ts`, the Karaoke workflow and browser
+configuration. The relay repair also changes one existing operator file,
+`services/karaoke.ts`: `settle` is exported, so the audio relay applies the
+take's timers before it stores words, and the `/attempt` route reads the
+attempt again after its awaited signature check instead of writing back a copy
+read before it.
 
 Real song identity, consented LearningRecords publication, segment purchases
 from the learner's screen and the alignment character-timing fallback are the
