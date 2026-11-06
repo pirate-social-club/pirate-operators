@@ -555,6 +555,9 @@ export async function karaokeRoute(
       type: "ready",
       attemptId: next.attemptId,
       resumed,
+      audioSequence: store.get<{ lastSequence: number | null }>(
+        `audioRelay:${ticketId}`,
+      )?.lastSequence ?? 0,
       attemptStart: store.get(`attemptStart:${ticketId}`),
       feedback: store.get(`feedback:${ticketId}`) ?? null,
       consent: consentRequest(
