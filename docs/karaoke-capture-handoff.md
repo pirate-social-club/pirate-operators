@@ -43,9 +43,10 @@ are applied first, as on the words path. In real time the operator's song-end
 timer usually ends the take during the instrumental's outro, before the
 learner's finish. Words sung before the performance ended that arrive after
 that still count, until the payment deadline closes the take. A transcript that
-returns after the learner's socket closed also counts. After an operator
-restart, the persisted words not yet handed over are stored at finish or
-disconnect.
+returns after the learner's socket closed also counts. If the learner never
+returns, the idle relay is finished, so the audio sent before the socket closed
+is committed and measured. After an operator restart, the persisted words not
+yet handed over are stored at finish or disconnect.
 
 Learners can no longer send `words` or `provider_failed` frames on the audio
 socket; only the operator's provider path produces them.
@@ -151,7 +152,7 @@ audio subclass on local anvil, and routes the operator's outbound network, the
 real ElevenLabs address included, to `harness/karaoke-elevenlabs-simulator.ts`.
 The simulator checks the key, mints single-use tokens, accepts the realtime
 messages and returns scripted words on each stream's own clock, optionally
-answering commits late. Eleven cases cover:
+answering commits late. Twelve cases cover:
 
 - the scored path at exact song times, with the request parameters;
 - refused learner words;
@@ -162,9 +163,12 @@ answering commits late. Eleven cases cover:
 - commits that are never acknowledged;
 - a take whose song-end timer fires before the learner's finish;
 - a seek after the provider gave up, whose lines stay unmeasured;
-- a transcript that returns after the learner's socket closed.
+- a transcript that returns after the learner's socket closed;
+- a transcript answered across a learner reconnect.
 
-The last three, and the seek's word check, fail without the forwarding repair.
+The timer, gave-up seek and closed-socket cases, and the seek's word check,
+fail without the forwarding repair. The idle relay's finish runs after a
+35-second timer, so it is not exercised by the suite.
 
 `test/karaoke-operator-audio-client.test.ts` and
 `test/karaoke-capture-controller.test.ts` cover the browser-side rules with
