@@ -148,8 +148,17 @@ Commit e13235e on this branch fixes it in `services/karaoke-audio.ts` and
 transcript arrives. Words sung before the performance ended that arrive after
 the timer ended it still count until the payment deadline. A seek applies the
 relay's tolerance rule to words already with the scorer, and reopens the
-failure marks of replayed lines, as the centralized host did. PR 30 should take
-the same commit before it merges, or be merged through this branch.
+failure marks of replayed lines, as the centralized host did.
+
+That forwarding first ran through the words handler of the socket that carried
+the audio. A reconnect during a provider send could then refuse the hand-over
+as stale after the relay had drained it. PR 30's hosted reconnect scenario
+lost one word that way. Words are now stored for the take whichever socket
+carried them (99a4477), and a regression test covers a song-end timer that
+fires before the learner's finish (0cddd57).
+
+PR 30 carries the same three changes as 34d77aa, 9650c87 and 4ade204, so it can
+merge on its own.
 
 ## Tests
 
