@@ -23,6 +23,14 @@ import {
   verifyCommunityDependencies,
 } from "./community-dependencies.ts";
 import { learningCommunityProfile } from "./learning-community-profile.ts";
+import {
+  applicationInfrastructureSources,
+  writeApplicationInfrastructure,
+} from "./community-infrastructure.ts";
+import {
+  studyReleaseSelection,
+  type StudyReleaseSelection,
+} from "./study-release-profile.ts";
 
 export const communityBase = join(
   homedir(),
@@ -78,9 +86,10 @@ export async function artifactFiles(
   }
   return found.sort();
 }
-export async function communityPackage() {
+export async function communityPackage(study?: StudyReleaseSelection) {
+  const selection = study ? studyReleaseSelection(study) : undefined;
   await verifyCommunityDependencies();
-  const learning = await learningCommunityProfile();
+  const learning = await learningCommunityProfile(selection);
   const run = promisify(execFile),
     clean = {
       PATH: process.env.PATH,
@@ -160,10 +169,8 @@ export async function communityPackage() {
         ...(await ownedModuleGraph("harness/published-replay.ts")),
         ...tracked.stdout.trim().split("\n"),
         ...migrations.map((p) => `apps/community-wizard/infra/migrations/${p}`),
-        "apps/community-wizard/infra/application-alchemy.run.ts",
+        ...applicationInfrastructureSources,
         "docs/deployments/learning-results-testnet-20261106.contract.json",
-        "apps/community-wizard/infra/encrypted-state.ts",
-        "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
         "docs/deployments/first-song-managed-20261105.application-plan-v15.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
@@ -256,7 +263,7 @@ export async function communityPackage() {
         "utf8",
       ),
     ).profileHash as string,
-    reviewedUpdate: {
+    reviewedUpdate: selection?.reviewedUpdate ?? {
       previousPlanPath:
         "docs/deployments/first-song-managed-20261105.application-plan-v15.json",
       previousProfileHash:
@@ -314,12 +321,7 @@ export async function writeCommunityPackage(
     '{"private":true,"type":"module"}\n',
     { mode: 0o600 },
   );
-  await copyFile(
-    "apps/community-wizard/infra/application-alchemy.run.ts",
-    join(cwd, "alchemy.run.ts"),
-  );
-  for (const file of ["encrypted-state.ts", "protected-data.ts"])
-    await copyFile(`apps/community-wizard/infra/${file}`, join(cwd, file));
+  await writeApplicationInfrastructure(cwd);
   for (const file of migrations)
     await copyFile(
       `apps/community-wizard/infra/migrations/${file}`,
