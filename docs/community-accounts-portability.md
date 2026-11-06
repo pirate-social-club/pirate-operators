@@ -1,5 +1,12 @@
 # Community accounts, sponsorship and portability, version 1
 
+The 2026-11-06 [learner-held history specification](learner-history.md) owns
+private language-history portability, optional encrypted backup and tutor access.
+Local community account IDs do not give communities ownership of that history.
+The [compact results amendment](learning-results-v2.md) supersedes the next
+implementation's per-line payment/publication shape; the existing runtime
+observations below remain dated evidence.
+
 Design contract, 2026-11-04. This document separates community identity from
 wallet authority and records the future protocol direction. It does not
 implement another sign-in method, change a contract or enable a deployment.

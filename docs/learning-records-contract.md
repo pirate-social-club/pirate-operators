@@ -1,5 +1,11 @@
 # LearningRecords on-chain encoding, version 1
 
+This is the existing v1 encoding and publisher behavior. The
+[compact public results amendment](learning-results-v2.md) defines the next
+implementation direction and takes precedence for new design work. It requires
+a separately versioned encoding and measured MOSS consent route; this document
+and its existing vectors do not describe that replacement.
+
 This document freezes the byte-level encoding used by
 `contracts/LearningRecords.sol`. The record semantics come from the staged
 learning-records specification (draft 3). This document covers only how those

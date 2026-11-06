@@ -1,5 +1,11 @@
 # Assessment, qualification and reward boundaries
 
+For the next implementation, the [compact public results amendment](../learning-results-v2.md)
+owns publication granularity, service payment modes and the unresolved MOSS
+consent route. [Private learner history](../learner-history.md) owns portable
+tutor data. Existing grading, learning-clock and reward-authority distinctions
+below remain unless that amendment explicitly supersedes them.
+
 These are later implementation boundaries, not new reward contracts or an
 activation decision. Public-post admission, an educational grade, a qualifying
 entry and a payable reward are different records with different authorities.
@@ -86,7 +92,7 @@ review/account assurance and enforcement; owner authorization alone is insuffici
 
 The copied draft and its [source digest](learning-records-source.json) preserve
 the three approved clarifications and label the new recommendations separately.
-No LearningRecords implementation exists.
+LearningRecords v1 is implemented; the compact successor is not.
 Its generic `community` field must bind the directory's bytes32 communityId;
 the payment account address is a separate field, not an interchangeable ID.
 Local song streaks use songKey=(chainId, postsContract, communityId, postId),
