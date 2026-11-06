@@ -104,7 +104,7 @@ export function liveStudy(
     return lyrics;
   }
   async function bound(id: string) {
-    await store.row(owner, id); // Never inspect another account's publication binding.
+    store.state(await store.row(owner, id)); // Owner and privacy tombstone precede binding reads.
     const row = await ports.db
       .prepare(
         "SELECT source_json,binding_json,learner FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
@@ -172,7 +172,8 @@ export function liveStudy(
     await ports.db
       .prepare(
         `INSERT INTO study_publications(lesson_id,account_id,community_id,learner,source_json,binding_json,created_at,updated_at)
-      VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(lesson_id) DO NOTHING`,
+      SELECT ?,?,?,?,?,?,?,? FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=? AND history_deleted_at IS NULL
+      ON CONFLICT(lesson_id) DO NOTHING`,
       )
       .bind(
         lesson.lessonId,
@@ -183,6 +184,9 @@ export function liveStudy(
         JSON.stringify(binding),
         now(),
         now(),
+        lesson.lessonId,
+        owner.accountId,
+        owner.communityId,
       )
       .run();
     const saved = await bound(lesson.lessonId);

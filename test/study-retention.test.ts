@@ -212,7 +212,12 @@ test(
         .bind(lesson.lessonId)
         .first<{ receipt_json: string }>();
       assert.equal(JSON.parse(row!.receipt_json).state, "private");
-      assert.equal(JSON.parse(row!.receipt_json).reason, "enrollment_inactive");
+      assert.equal(
+        JSON.parse(row!.receipt_json).reason,
+        "private_history_expired",
+      );
+      assert.equal(JSON.parse(row!.receipt_json).neverSubmitted, true);
+      assert.equal(JSON.parse(row!.receipt_json).privateHistoryErased, true);
       assert.equal(f.store.entries("tx:").length, count);
       assert.equal(
         f.store.get<{ spent: string }>("sponsor:ledger")!.spent,

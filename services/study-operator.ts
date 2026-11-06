@@ -21,6 +21,7 @@ import {
 import { readStudyAudio } from "./study-spoken.ts";
 import { publishStudyTerminal } from "./study-publication.ts";
 import { STUDY_SOURCE_MAX_BYTES } from "../packages/study/public-source.ts";
+import { closedStudyPublication } from "./study-private-publication.ts";
 import {
   activeEnrollment,
   type BoundEnrollment,
@@ -57,6 +58,10 @@ async function bindStudyLesson(
   store: ResultStore,
   offer: StudyLessonOffer,
 ) {
+  check(
+    !closedStudyPublication(store, offer.lessonId),
+    "study_history_expired",
+  );
   const target = resultsTarget(env, 3),
     key = `studyBinding:${offer.lessonId}`;
   const old = studyBinding(store, offer.lessonId),
@@ -74,6 +79,10 @@ async function bindStudyLesson(
     "study_enrollment_window_too_short",
   );
   return store.transaction(() => {
+    check(
+      !closedStudyPublication(store, offer.lessonId),
+      "study_history_expired",
+    );
     const concurrent = studyBinding(store, offer.lessonId);
     if (concurrent) {
       check(concurrent.offerHash === hash, "study_lesson_binding_changed");
@@ -113,6 +122,10 @@ async function speak(
     parameters && studyId(parameters.lessonId) && studyId(parameters.attemptId),
     "invalid_study_speech_request",
   );
+  check(
+    !closedStudyPublication(store, parameters.lessonId),
+    "study_history_expired",
+  );
   const binding = studyBinding(store, parameters.lessonId);
   check(binding, "study_lesson_not_bound");
   retainedTarget(env, binding.target);
@@ -145,6 +158,7 @@ async function speak(
     key = `studySpeech:${parameters.attemptId}`;
   const previous = store.get<SpeechJob>(key);
   if (previous) {
+    check(previous.expiresAt > store.now(), "study_history_expired");
     check(
       previous.requestHash === requestHash &&
         previous.bindingHash === binding.offerHash,
@@ -165,6 +179,10 @@ async function speak(
     transcriber ?? makeStudyTranscriber(env.ELEVENLABS_API_KEY ?? "");
   const slot = `studySpeechSlot:${parameters.lessonId}:${parameters.presentationNumber}:${parameters.takeNumber}`;
   const inserted = store.transaction(() => {
+    check(
+      !closedStudyPublication(store, parameters.lessonId),
+      "study_history_expired",
+    );
     const concurrent = store.get<SpeechJob>(key);
     if (concurrent) {
       check(
@@ -193,6 +211,11 @@ async function speak(
   try {
     // The same object used by Karaoke and alignment, with no separate quota.
     await env.SPEECH_BUDGET.getByName("elevenlabs-service").claim();
+    check(
+      !closedStudyPublication(store, parameters.lessonId) &&
+        store.now() * 1000 < binding.offer.expiresAt,
+      "study_lesson_expired",
+    );
     dispatched = true;
     const transcript = await provider.transcribe(
       audio.audio,
@@ -211,7 +234,16 @@ async function speak(
         error instanceof StudySpeechError ? error.code : "speech_unavailable",
     };
   }
-  const job = store.get<SpeechJob>(key)!;
+  const job = store.get<SpeechJob>(key);
+  if (
+    !job ||
+    job.expiresAt <= store.now() ||
+    closedStudyPublication(store, parameters.lessonId)
+  )
+    return {
+      state: "unavailable",
+      error: "study_history_expired",
+    } satisfies StudySpeechReceipt;
   store.set(key, { ...job, receipt });
   return receipt;
 }

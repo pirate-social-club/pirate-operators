@@ -14,6 +14,7 @@ import type { StudyTerminalFacts } from "../packages/study/terminal-facts.ts";
 import type { StudyPublicationReceipt } from "../packages/study/publication.ts";
 import type { LyricManifest } from "../packages/community/lyric-manifest.ts";
 import type { StudyOperatorBinding } from "./study-operator.ts";
+import { erasedStudyReceipt } from "./study-private-history.ts";
 
 export interface StudyOutboxRow {
   state: "bound" | StudyPublicationReceipt["state"];
@@ -43,7 +44,12 @@ export async function freezeStudyOutbox(
   id: string,
 ) {
   const row = await studyOutboxRow(db, owner, id);
-  if (!row || row.terminal_json) return row;
+  if (
+    !row ||
+    row.terminal_json ||
+    erasedStudyReceipt(row.receipt_json ? JSON.parse(row.receipt_json) : null)
+  )
+    return row;
   const lessons = new StudyLessonStore(db),
     lesson = await lessons.row(owner, id),
     state = lessons.state(lesson);

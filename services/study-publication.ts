@@ -30,6 +30,13 @@ import {
 import { intentOf, txRow } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { Env } from "./runtime.ts";
+import {
+  closedStudyPublication,
+  eraseNeverSubmittedStudy,
+  proveNeverSubmittedStudy,
+  studyNativeEvidence,
+  STUDY_PRIVATE_RETENTION_SECONDS,
+} from "./study-private-publication.ts";
 
 export interface PublicationJob {
   requestHash: Hex;
@@ -39,6 +46,7 @@ export interface PublicationJob {
   data: Hex;
   receipt: StudyPublicationReceipt;
   lastTriedAt: number;
+  privateHistoryExpiresAt: number;
 }
 const key = (id: string) => "studyPublication:" + id;
 const reference = (id: string) => "study:" + id + ":1";
@@ -55,7 +63,8 @@ const durable = <T>(value: T): T =>
     ),
   );
 export const studyPublication = (store: ResultStore, id: string) =>
-  store.get<PublicationJob>(key(id))?.receipt;
+  store.get<PublicationJob>(key(id))?.receipt ??
+  closedStudyPublication(store, id)?.receipt;
 
 function saveReceipt(
   store: ResultStore,
@@ -156,6 +165,7 @@ async function freeze(
     checkedAt: store.now(),
   };
   store.transaction(() => {
+    if (closedStudyPublication(store, input.lessonId)) return;
     const concurrent = store.get<PublicationJob>(key(input.lessonId));
     check(
       !concurrent || concurrent.requestHash === hash,
@@ -171,6 +181,8 @@ async function freeze(
           data,
           receipt,
           lastTriedAt: store.now(),
+          privateHistoryExpiresAt:
+            input.terminal.completedAt + STUDY_PRIVATE_RETENTION_SECONDS * 1000,
         }),
       );
   });
@@ -245,6 +257,8 @@ export async function resumeStudyPublication(
   store: ResultStore,
   id: string,
 ) {
+  const closed = closedStudyPublication(store, id);
+  if (closed) return closed.receipt;
   let job = store.get<PublicationJob>(key(id));
   check(job, "study_publication_not_found");
   retainedTarget(env, job.target);
@@ -267,10 +281,10 @@ export async function resumeStudyPublication(
         intent.data === job.data),
     "result_transaction_changed",
   );
-  if (job.receipt.state === "private" || job.receipt.state === "failed")
-    return job.receipt;
   job = { ...job, lastTriedAt: store.now() };
   store.set(key(id), job);
+  if (job.receipt.state === "private" || job.receipt.state === "failed")
+    return (await eraseNeverSubmittedStudy(env, store, id, job)) ?? job.receipt;
   const observed = await observe(env, store, id, job);
   if (observed.receipt) return saveReceipt(store, id, job, observed.receipt);
   // Wait for chain time without charging a transaction that would revert.
@@ -306,21 +320,38 @@ export async function resumeStudyPublication(
       !(activities & 2n) ||
       Number(expires) <= store.now()
     ) {
+      // Re-check after asynchronous grant reads. A competing queued native
+      // operation is recovery evidence, even before it receives a nonce.
+      if (
+        !(await proveNeverSubmittedStudy(env, store, id, job)) ||
+        studyNativeEvidence(store, id)
+      )
+        return job.receipt;
       releaseSponsorship(store, sponsorLimits(env), "record_result:" + ref);
       releaseSponsorship(
         store,
         sponsorLimits(env),
         "record_result:study:" + id + ":2",
       );
-      return saveReceipt(store, id, job, {
+      const receipt = saveReceipt(store, id, job, {
         ...job.receipt,
         state: "private",
         confirmed: false,
         reason: "enrollment_inactive",
+        neverSubmitted: true,
         checkedAt: store.now(),
       });
+      return (
+        (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
+        receipt
+      );
     }
   }
+  const latest = store.get<PublicationJob>(key(id));
+  const final = closedStudyPublication(store, id);
+  if (final) return final.receipt;
+  if (latest?.receipt.state === "private" || latest?.receipt.state === "failed")
+    return latest.receipt;
   await submitResultTransaction(
     env,
     store,
@@ -354,6 +385,9 @@ export async function publishStudyTerminal(
   store: ResultStore,
   input: StudyTerminalRequest,
 ) {
+  check(input && studyId(input.lessonId), "invalid_study_terminal");
+  const closed = closedStudyPublication(store, input.lessonId);
+  if (closed) return closed.receipt;
   await freeze(env, store, input);
   return resumeStudyPublication(env, store, input.lessonId);
 }

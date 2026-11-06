@@ -17,6 +17,10 @@ import {
   publishManagedStudy,
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
+import {
+  erasedStudyReceipt,
+  erasePrivateStudyOutbox,
+} from "./study-private-history.ts";
 
 export function studyPublicationQueue(
   db: D1Database,
@@ -37,9 +41,13 @@ export function studyPublicationQueue(
       const row = await freezeStudyOutbox(db, owner, id);
       if (!row) return null; // No recording authority was obtained.
       const prior = view(row).receipt;
+      if (erasedStudyReceipt(prior)) return prior;
+      const privateExpired =
+        row.terminal_json &&
+        JSON.parse(row.terminal_json).completedAt + 30 * 86400 * 1000 <= now();
       if (
-        row.state === "private" ||
-        row.state === "failed" ||
+        ((row.state === "private" || row.state === "failed") &&
+          !privateExpired) ||
         (row.state === "published" &&
           prior?.confirmed &&
           row.updated_at > now() - 3600000)
@@ -81,7 +89,11 @@ export function studyPublicationQueue(
             receipt.state,
           ) &&
           /^0x[0-9a-f]{64}$/.test(receipt.commitment) &&
-          (!prior || prior.commitment === receipt.commitment) &&
+          (!prior ||
+            prior.commitment === receipt.commitment ||
+            (erasedStudyReceipt(receipt) &&
+              prior.state !== "published" &&
+              prior.transactionHash === null)) &&
           typeof receipt.confirmed === "boolean" &&
           Number.isSafeInteger(receipt.checkedAt) &&
           (receipt.transactionHash === null ||
@@ -105,6 +117,7 @@ export function studyPublicationQueue(
           row.receipt_json,
         )
         .run();
+      await erasePrivateStudyOutbox(db, owner, id);
       return view(await load(id)).receipt;
     },
   };

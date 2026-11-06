@@ -9,4 +9,6 @@ export interface StudyPublicationReceipt {
   confirmed: boolean;
   checkedAt: number;
   reason?: string;
+  neverSubmitted?: boolean;
+  privateHistoryErased?: boolean;
 }

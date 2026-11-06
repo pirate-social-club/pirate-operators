@@ -44,11 +44,14 @@ export async function resumeStudyPublications(
   const due = store
     .entries("studyPublication:")
     .filter(({ value }) => {
-      const receipt = (value as PublicationJob).receipt;
+      const job = value as PublicationJob,
+        receipt = job.receipt;
       return (
         receipt.state === "pending" ||
         (receipt.state === "published" &&
-          (!receipt.confirmed || receipt.checkedAt <= store.now() - 3600))
+          (!receipt.confirmed || receipt.checkedAt <= store.now() - 3600)) ||
+        (["private", "failed"].includes(receipt.state) &&
+          job.privateHistoryExpiresAt <= store.now() * 1000)
       );
     })
     .sort(
@@ -67,12 +70,15 @@ export async function resumeStudyPublications(
 }
 export function studyPublicationAlarm(store: ResultStore) {
   return store.entries("studyPublication:").map(({ value }) => {
-    const { receipt } = value as PublicationJob;
+    const { receipt, privateHistoryExpiresAt, lastTriedAt } =
+      value as PublicationJob;
     return receipt.state === "pending" ||
       (receipt.state === "published" && !receipt.confirmed)
       ? (store.now() + 30) * 1000
       : receipt.state === "published"
         ? (receipt.checkedAt + 3600) * 1000
-        : Infinity;
+        : ["private", "failed"].includes(receipt.state)
+          ? Math.max(privateHistoryExpiresAt, (lastTriedAt + 30) * 1000)
+          : Infinity;
   });
 }

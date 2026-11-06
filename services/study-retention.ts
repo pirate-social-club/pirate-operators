@@ -9,6 +9,7 @@ import { STUDY_HISTORY_EXPORT_WINDOW_MS } from "./study-history.ts";
 import { makeStudyLessonService } from "./study-lessons.ts";
 import { makeStudyService } from "./study-spoken.ts";
 import { freezeStudyOutbox } from "./study-outbox.ts";
+import { erasePrivateStudyOutbox } from "./study-private-history.ts";
 
 export async function deleteExpiredStudyHistory(
   db: D1Database,
@@ -69,7 +70,9 @@ export async function deleteExpiredStudyHistory(
     const result = await db.batch([
       db
         .prepare(
-          `UPDATE study_lessons SET state_json='{}',history_deleted_at=?,revision=revision+1
+          `UPDATE study_lessons SET state_json='{}',history_deleted_at=?,revision=revision+1,
+          song_json=CASE WHEN NOT EXISTS(SELECT 1 FROM study_publications WHERE lesson_id=study_lessons.lesson_id) THEN '{}' ELSE song_json END,
+          started_at=CASE WHEN NOT EXISTS(SELECT 1 FROM study_publications WHERE lesson_id=study_lessons.lesson_id) THEN 0 ELSE started_at END
         WHERE lesson_id=? AND account_id=? AND community_id=? AND revision=? AND history_deleted_at IS NULL
         AND json_extract(state_json,'$.status')!='active'
         AND (NOT EXISTS(SELECT 1 FROM study_publications WHERE lesson_id=study_lessons.lesson_id)
@@ -89,6 +92,8 @@ export async function deleteExpiredStudyHistory(
         )
         .bind(row.lesson_id, owner.accountId, owner.communityId, at),
     ]);
+    if (result[0].meta.changes)
+      await erasePrivateStudyOutbox(db, owner, row.lesson_id);
     return result[0].meta.changes;
   };
   let deleted = 0;

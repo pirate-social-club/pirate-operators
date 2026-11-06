@@ -191,7 +191,8 @@ text in the enrollment dialog alone does not complete that disclosure gate.
 ## Durable publication and recovery
 
 The community validates the complete private terminal queue and freezes the
-first-pass facts permitted by the public-result format before operator I/O. The signed request
+first-pass facts permitted by the public-result format before operator I/O.
+The signed request
 contains those facts and the original public source, without private retry,
 mastery, attempt or recognized-text history. A browser cannot supply the result,
 source or outcomes through the private lesson routes. The operator trusts the
@@ -281,17 +282,32 @@ old request from creating a fresh lesson or grant. The menu no longer resumes an
 erased lesson. Subsequent private practice selection uses retained attempts.
 Recovery retains the original source, ordered first-pass facts, grant, receipts,
 unknown transaction intents, raw signed bytes and conservative sponsorship
-accounting remain recoverable independently of private history. The operator's
+accounting for pending, unknown or published work. The operator's
 separate speech receipts already expire thirty days after dispatch, retaining
 spent-slot and binding evidence to prevent new dispatch. Public on-chain
 results remain public. No Study deployment is qualified by local retention work;
 independent review and final factual privacy disclosure remain release gates.
 
-Unpublished first-pass grades and selections remain private. This source still
-retains them in the terminal outbox and operator calldata after a never-submitted
-result becomes private. That actual case is an unresolved retention release
-gate. Its cleanup must prove zero canonical commitment and no queued, allocated
-or signed native intent, preserve unknown-operation and financial evidence, and
-establish a minimal permanent closed-lesson tombstone before erasure. A private
-or failed label alone is insufficient proof. Late speech completion must not
-recreate an erased receipt. No complete private-retention acceptance is claimed.
+Unpublished first-pass grades and selections remain private. After their window
+expires, the operator can erase terminal content only with a pinned canonical
+zero commitment and no queued intent, transaction row or charged reservation
+for any revision. A private or failed label alone is insufficient. It first
+establishes a permanent minimal closed-lesson marker, then removes grades,
+calldata, grade-derived request hashes, source selection and speech receipts.
+The marker refuses subsequent binding or dispatch, and unused reservations are
+released without altering spending or unknown-operation evidence.
+
+The publisher explicitly attests never-submitted terminal privacy before the
+community can erase its expired copy. D1 then removes the terminal facts,
+binding, source, private song link and start time while retaining account,
+community, lesson and request tombstones. Operator alarms and scheduled D1
+cleanup work without a browser. Unavailable chain proof keeps recovery content
+intact for retry. A provider completion after receipt expiry cannot recreate
+private evidence or a deleted attempt. Source qualification, final disclosures,
+real MOSS/provider acceptance and deployment remain separate gates.
+
+An expired draft with no local outbox also loses its local song and start-time
+association in the atomic purge. A late binding response cannot insert an
+outbox after that privacy tombstone, and a replay cannot repeat the binding.
+This does not prove a remote binding is absent. Uncertain remote authority and
+financial evidence remain untouched for reconciliation.

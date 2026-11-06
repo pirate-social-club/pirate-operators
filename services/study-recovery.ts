@@ -27,11 +27,19 @@ export async function recoverStudyLessons(
       (json_extract(l.state_json,'$.status')='active' AND json_extract(l.state_json,'$.expiresAt')<=?) OR
       ((l.history_deleted_at IS NOT NULL OR json_extract(l.state_json,'$.status')!='active') AND
         (p.state IN ('bound','pending') OR (p.state='published' AND
-          (json_extract(p.receipt_json,'$.confirmed')=0 OR p.updated_at<=?)))))
+          (json_extract(p.receipt_json,'$.confirmed')=0 OR p.updated_at<=?)) OR
+          (p.state IN ('private','failed') AND l.history_deleted_at IS NOT NULL
+            AND COALESCE(json_extract(p.receipt_json,'$.privateHistoryErased'),0)!=1 AND p.updated_at<=?))))
     ORDER BY COALESCE(p.updated_at,l.started_at),l.lesson_id LIMIT ?
   `,
     )
-    .bind(ports.config.communityId, now(), now() - 3600000, limit)
+    .bind(
+      ports.config.communityId,
+      now(),
+      now() - 3600000,
+      now() - 3600000,
+      limit,
+    )
     .all<{
       lesson_id: string;
       account_id: string;

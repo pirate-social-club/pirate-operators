@@ -172,6 +172,11 @@ export function makeStudyLessonService(options: {
       const previous = await store.byRequest(owner, requestId);
       if (previous) {
         studyCheck(
+          previous.history_deleted_at == null,
+          "study_history_expired",
+          410,
+        );
+        studyCheck(
           previous.song_json === JSON.stringify(song),
           "study_request_conflict",
           409,
