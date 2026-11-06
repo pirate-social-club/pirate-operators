@@ -37,7 +37,9 @@ provider word's stream timestamps back to song time through the frames it sent,
 and drops a word whose ends straddle a backward seek. Committed words reach
 the existing `words` path and scorer as each line's transcript arrives, again
 before the take finishes, and whenever the learner's socket closes, so words
-already heard count even if the learner never returns. In real time the
+already heard count even if the learner never returns. They are stored for
+the take whichever of the learner's sockets carried the audio, so a reconnect
+can never strand them. In real time the
 operator's song-end timer usually ends the take during the instrumental's
 outro, before the learner's finish. Words sung before the performance ended
 that arrive after that still count, until the payment deadline closes the take.

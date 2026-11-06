@@ -1,7 +1,8 @@
 // Live microphone audio on the operator's Karaoke socket. Binary frames use the
 // adopted centralized binary codec; a relay per take streams them to the
-// realtime speech provider and feeds its committed, song-timed words into the
-// existing words path as they arrive, before finish and on disconnect. Words
+// realtime speech provider and stores its committed, song-timed words as the
+// take's recognized words as they arrive, before finish and on disconnect,
+// whichever of the learner's sockets carried the audio. Words
 // sung before the performance ended still count if they arrive after the
 // operator's timer ended it, until the payment deadline. Learners cannot send
 // recognized words or failure marks once audio is wired. Text frames other
@@ -20,7 +21,6 @@ import {
   type KaraokeManifest,
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
-import { onMessage } from "./karaoke.ts";
 import type { Attempt } from "./karaoke-result.ts";
 import { ServiceState, type Env } from "./runtime.ts";
 
@@ -30,7 +30,8 @@ export interface KaraokeAudioEnv extends Env {
 }
 
 const LEARNER_FORBIDDEN = new Set(["words", "provider_failed"]);
-const BATCH = 100;
+/** The words path's limit per take (services/karaoke.ts). */
+const MAX_WORDS = 2000;
 
 export class KaraokeAudioState extends ServiceState {
   private readonly relays = new Map<string, KaraokeAudioRelay>();
@@ -62,7 +63,7 @@ export class KaraokeAudioState extends ServiceState {
         const relay = ticketId ? this.relays.get(ticketId) : undefined;
         if (ticketId && relay) {
           await relay.finish();
-          await this.forward(ws, relay);
+          this.forward(ticketId, relay);
           this.relays.delete(ticketId);
         }
       }
@@ -85,7 +86,7 @@ export class KaraokeAudioState extends ServiceState {
       : undefined;
     if (relay && attempt?.generation === generation) {
       // Words heard so far reach the scorer even if the learner never returns.
-      await this.forward(ws, relay).catch(() => undefined);
+      this.forward(ticketId!, relay);
       this.idle.set(
         ticketId!,
         setTimeout(
@@ -112,7 +113,7 @@ export class KaraokeAudioState extends ServiceState {
     await relay.audio(decoded.frame);
     // Words reach the scorer as each line's transcript arrives, so the
     // operator's song-end timer never strands them in the relay.
-    if (relay.hasUndrained()) await this.forward(ws, relay);
+    this.forward(ticketId, relay);
   }
 
   /**
@@ -191,50 +192,39 @@ export class KaraokeAudioState extends ServiceState {
     return { ticketId, attempt, relay };
   }
 
-  /** Hands relay output to the existing words path and scorer, in bounded batches. */
-  private async forward(ws: WebSocket, relay: KaraokeAudioRelay) {
-    const { words, failedLineIds } = relay.drain();
-    if (words.length === 0 && failedLineIds.length === 0) return;
-    const { ticketId } = this.attachment(ws),
-      attempt = ticketId
-        ? this.store.get<Attempt>(`attempt:${ticketId}`)
-        : undefined;
-    if (ticketId && attempt?.ended && !attempt.closing) {
-      // The timer ended the performance first. What was sung before its end
-      // is still the learner's take, until the payment deadline closes it.
-      const cutoffMs =
-          (attempt.ended.performanceEndedAt - attempt.startedAt) * 1000,
-        stored =
-          this.store.get<KaraokeRecognizedWord[]>(`words:${ticketId}`) ?? [],
-        late = words.filter(
-          (w) =>
-            typeof w.text === "string" &&
-            Number.isFinite(w.startMs) &&
-            Number.isFinite(w.endMs) &&
-            w.startMs >= 0 &&
-            w.endMs >= w.startMs &&
-            w.startMs < cutoffMs,
-        );
-      this.store.set(`words:${ticketId}`, [...stored, ...late].slice(0, 2000));
-      attempt.failedLineIds = [
-        ...new Set([...attempt.failedLineIds, ...failedLineIds]),
-      ];
-      this.store.set(`attempt:${ticketId}`, attempt);
-      return;
+  /**
+   * Hands relay output to the take's stored words with the existing words
+   * checks. The relay belongs to the ticket, not to a socket: a hand-over that
+   * runs while the learner reconnects must never be refused as a stale
+   * connection after the relay has drained. Drain and store run with no await
+   * between them. A take the timer ended keeps what was sung before its
+   * performance ended, and nothing changes once the payment deadline closes it.
+   */
+  private forward(ticketId: string, relay: KaraokeAudioRelay) {
+    const attempt = this.store.get<Attempt>(`attempt:${ticketId}`);
+    if (!attempt || attempt.closing || !relay.hasUndrained()) return;
+    const { words, failedLineIds } = relay.drain(),
+      cutoffMs = attempt.ended
+        ? (attempt.ended.performanceEndedAt - attempt.startedAt) * 1000
+        : Number.POSITIVE_INFINITY,
+      key = `words:${ticketId}`,
+      accepted = words.filter(
+        (w) =>
+          typeof w.text === "string" &&
+          Number.isFinite(w.startMs) &&
+          Number.isFinite(w.endMs) &&
+          w.startMs >= 0 &&
+          w.endMs >= w.startMs &&
+          w.startMs < cutoffMs,
+      );
+    if (accepted.length > 0) {
+      const stored = this.store.get<KaraokeRecognizedWord[]>(key) ?? [];
+      this.store.set(key, [...stored, ...accepted].slice(0, MAX_WORDS));
+      if (!attempt.ended) attempt.lastAudioAt = this.store.now();
     }
-    for (let i = 0; i < words.length; i += BATCH)
-      await onMessage(
-        ws,
-        { type: "words", words: words.slice(i, i + BATCH) },
-        this.env,
-        this.store,
-      );
-    for (let i = 0; i < failedLineIds.length; i += BATCH)
-      await onMessage(
-        ws,
-        { type: "provider_failed", lineIds: failedLineIds.slice(i, i + BATCH) },
-        this.env,
-        this.store,
-      );
+    attempt.failedLineIds = [
+      ...new Set([...attempt.failedLineIds, ...failedLineIds]),
+    ];
+    this.store.set(`attempt:${ticketId}`, attempt);
   }
 }
