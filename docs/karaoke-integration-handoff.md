@@ -158,7 +158,7 @@ carried them (99a4477), and a regression test covers a song-end timer that
 fires before the learner's finish (0cddd57).
 
 An independent review of that repair then found more, all fixed here as
-25f30f6 and 12ac8df:
+25f30f6, 12ac8df and the cherry-pick of 7dc23d4:
 
 - A backward seek erased failure marks, turning lines the provider had given
   up on into silent ones.
@@ -169,13 +169,15 @@ An independent review of that repair then found more, all fixed here as
 - A superseded socket could finish the take.
 - The relay's finish raced the last acknowledgement's follow-up commit and
   marked the last line unmeasured.
+- A dead or reconnecting provider stream at finish left its lines silent
+  instead of unmeasured.
 
 Every change the relay persists now hands its new words over, commit requests
 are serialized, and finish waits for commits in flight. Regression tests cover
 each case that a test can reach.
 
-PR 30 carries the same changes as 34d77aa, 9650c87, 4ade204, b1186df and
-e0a8000, so it can merge on its own.
+PR 30 carries the same changes as 34d77aa, 9650c87, 4ade204, b1186df, e0a8000
+and 7dc23d4, so it can merge on its own.
 
 ## Tests
 
