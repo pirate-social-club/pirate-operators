@@ -196,7 +196,37 @@ test(
         finalized: true,
         generation: 1,
       };
-      store.set(`words:${ticketId}`, sungWords(manifest));
+      const observed = sungWords(manifest).filter(
+        (word) => word.startMs < 6000,
+      );
+      store.set(`words:${ticketId}`, observed);
+      const unknownCoverage = resultBody(
+        store,
+        ticket,
+        manifest,
+        quote,
+        quoteIdOf(quote),
+        attempt,
+        new Map(),
+        0,
+      );
+      assert.deepEqual(
+        unknownCoverage.lines.map((line) => line.status),
+        ["unmeasured", "unmeasured", "unmeasured", "unattempted"],
+      );
+      // This pure grading fixture explicitly supplies resolved provider
+      // coverage; recognized words by themselves are not its proof.
+      store.set(`audioRelay:${ticketId}`, {
+        words: observed,
+        failedLineIds: [],
+        forwardedWords: observed.length,
+        forwardedFailedLineIds: [],
+        lastSequence: 60,
+        lastAudioEndMs: 6000,
+        resolvedThroughMs: 6000,
+        sttSequence: 1,
+        terminal: null,
+      });
       const result = resultBody(
         store,
         ticket,

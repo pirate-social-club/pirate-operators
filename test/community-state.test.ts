@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
+import { build } from "esbuild";
 import {
   accountSession,
   authenticatedWrite,
@@ -24,13 +25,39 @@ const context = {
 const wallet = "0x1111111111111111111111111111111111111111";
 const signature = "0x1234";
 const verifyFixtureSignature = async () => true;
+// Run concurrent D1 work with the native Worker binding. The fixture keeps
+// its account, session and request-security assertions in the host.
+const concurrentLoginWorker = await build({
+  stdin: {
+    resolveDir: process.cwd(),
+    contents: `
+      import { loginChallenge, loginVerify } from './packages/community/accounts.ts';
+      export default { async fetch(request, env) {
+        if (request.method !== 'POST' || new URL(request.url).pathname !== '/fixture/concurrent-logins')
+          return new Response('not_found', { status: 404 });
+        const { context, wallet, signature } = await request.json();
+        const challenges = await Promise.all(Array.from({ length: 8 },
+          () => loginChallenge(env.DB, context, wallet)));
+        const sessions = await Promise.all(challenges.map(c =>
+          loginVerify(env.DB, context, c.id, signature, async () => true)));
+        return Response.json(sessions);
+      }};
+    `,
+  },
+  bundle: true,
+  write: false,
+  format: "esm",
+  platform: "browser",
+  external: ["node:*"],
+});
 async function fixture() {
   // The pinned local engine supports dates through August 6. This fixture tests
   // D1 semantics, not the November 4 deployed Worker's compatibility profile.
   const runtime = new Miniflare({
     modules: true,
-    script: "export default {fetch(){return new Response('fixture')}}",
+    script: concurrentLoginWorker.outputFiles[0].text,
     compatibilityDate: "2026-08-06",
+    compatibilityFlags: ["nodejs_compat"],
     d1Databases: ["DB"],
   });
   try {
@@ -50,7 +77,24 @@ async function fixture() {
         .filter(Boolean);
       await db.batch(statements.map((s) => db.prepare(s)));
     }
-    return { db, dispose: () => runtime.dispose() };
+    return {
+      db,
+      async concurrentLogins() {
+        const response = await runtime.dispatchFetch(
+          origin + "/fixture/concurrent-logins",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ context, wallet, signature }),
+          },
+        );
+        assert.equal(response.status, 200);
+        return (await response.json()) as Awaited<
+          ReturnType<typeof loginVerify>
+        >[];
+      },
+      dispose: () => runtime.dispose(),
+    };
   } catch (error) {
     await runtime.dispose();
     throw error;
@@ -64,14 +108,9 @@ const keys = [
 test("concurrent verified MOSS logins converge on one private account and separate author", async () => {
   const f = await fixture();
   try {
-    const challenges = await Promise.all(
-      Array.from({ length: 8 }, () => loginChallenge(f.db, context, wallet)),
-    );
-    const sessions = await Promise.all(
-      challenges.map((c) =>
-        loginVerify(f.db, context, c.id, signature, verifyFixtureSignature),
-      ),
-    );
+    const sessions = await f.concurrentLogins();
+    assert.equal(sessions.length, 8);
+    assert.equal(new Set(sessions.map((session) => session.cookie)).size, 8);
     const account = await f.db
       .prepare("SELECT * FROM community_accounts")
       .all<{ account_id: string; author_id: string }>();
