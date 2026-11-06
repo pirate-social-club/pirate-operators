@@ -8,7 +8,7 @@ export class SpeechBudget extends DurableObject<{
   async claim() {
     const limit = Number(this.env.SPEECH_DAILY_LIMIT);
     check(
-      Number.isSafeInteger(limit) && limit > 0,
+      Number.isSafeInteger(limit) && limit >= 0,
       "speech_budget_unconfigured",
     );
     const day = Math.floor(Date.now() / 86400000);
@@ -22,10 +22,12 @@ export class SpeechBudget extends DurableObject<{
           cap: number;
         }>("SELECT used, cap FROM speech_days WHERE day = ?", day)
         .toArray()[0];
-      check(!row || row.cap === limit, "speech_budget_changed");
-      check((row?.used ?? 0) < limit, "speech_budget_exhausted");
+      // Zero disables the app quota for the owner-operated MVP. Usage is still
+      // counted; the provider account determines paid-service availability.
+      check(!row || row.cap === limit || limit === 0, "speech_budget_changed");
+      check(limit === 0 || (row?.used ?? 0) < limit, "speech_budget_exhausted");
       this.ctx.storage.sql.exec(
-        "INSERT INTO speech_days VALUES (?, 1, ?) ON CONFLICT(day) DO UPDATE SET used = used + 1",
+        "INSERT INTO speech_days VALUES (?, 1, ?) ON CONFLICT(day) DO UPDATE SET used = used + 1, cap = excluded.cap",
         day,
         limit,
       );

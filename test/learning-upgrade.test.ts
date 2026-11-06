@@ -16,7 +16,7 @@ test("learning deployment preserves existing resources, spending and release int
   const next = {
     ...old,
     migrations: [...old.migrations, "0008_karaoke.sql"],
-    learning: await learningCommunityProfile(),
+    learning: { ...(await learningCommunityProfile()), speechDailyCalls: 10 },
     acceptance: "testnet learning",
     sourceHashes: { fixture: "next" },
   };

@@ -53,10 +53,18 @@ function ledger(store: TxStore, limits: SponsorLimits): Ledger {
   const old = store.get<Ledger>("sponsor:ledger");
   check(
     !old ||
-      Object.entries(profile).every(([k, v]) => old[k as keyof Ledger] === v),
+      Object.entries(profile).every(([k, v]) =>
+        k === "cap"
+          ? BigInt(old.cap) <= BigInt(v)
+          : old[k as keyof Ledger] === v,
+      ),
     "sponsor_profile_changed",
   );
-  return old ?? { ...profile, spent: "0", reserved: "0" };
+  // Raising the configured ceiling is an explicit operator deployment. Keep
+  // every charge/reservation; restarts and calendar changes never refill it.
+  return old
+    ? { ...old, cap: profile.cap }
+    : { ...profile, spent: "0", reserved: "0" };
 }
 export function reserveSponsorship(
   store: TxStore,

@@ -19,10 +19,43 @@ export interface DirectoryProfile {
   deploymentBlock: bigint;
   directoryCodeHash: Hex;
 }
+export interface ConfigurationLog {
+  args: {
+    communityId: Hex;
+    revision: bigint;
+    controller: Address;
+    publisher: Address;
+    operatorPayments: Address;
+    learningRecords: Address;
+    sha256Digest: Hex;
+    uri: string;
+  };
+  blockNumber: bigint;
+  blockHash: Hex;
+  transactionHash: Hex;
+  logIndex: number;
+}
+export interface DirectoryCheckpoint {
+  nextBlock: bigint;
+  blockHash: Hex;
+  logs: ConfigurationLog[];
+  documents: Map<string, string>;
+}
+export interface DirectoryHistoryCache {
+  load(): Promise<DirectoryCheckpoint | undefined>;
+  save(
+    previous: DirectoryCheckpoint | undefined,
+    head: bigint,
+    hash: Hex,
+    logs: ConfigurationLog[],
+    history: CommunityConfig[],
+  ): Promise<void>;
+}
 export async function readConfigurationHistory(
   client: PublicClient,
   profile: DirectoryProfile,
   send?: IpfsTransport,
+  cache?: DirectoryHistoryCache,
 ): Promise<CommunityConfig[]> {
   insist(
     (await client.getChainId()) === profile.chainId,
@@ -36,25 +69,24 @@ export async function readConfigurationHistory(
   );
   const head = await client.getBlockNumber({ cacheTime: 0 });
   insist(head >= profile.deploymentBlock + 1n, "directory_not_confirmed", 503);
-  const blockNumber = head - 1n,
-    block = await client.getBlock({ blockNumber });
-  const code = await client.getCode({
-    address: profile.directory,
-    blockNumber,
-  });
+  const blockNumber = head - 1n;
+  const [block, code, row] = await Promise.all([
+    client.getBlock({ blockNumber }),
+    client.getCode({ address: profile.directory, blockNumber }),
+    client.readContract({
+      address: profile.directory,
+      abi: directoryAbi,
+      functionName: "getCommunity",
+      args: [profile.communityId],
+      blockNumber,
+    }),
+  ]);
   const { keccak256 } = await import("viem");
   insist(
     code && keccak256(code) === profile.directoryCodeHash,
     "directory_code_changed",
     503,
   );
-  const row = await client.readContract({
-    address: profile.directory,
-    abi: directoryAbi,
-    functionName: "getCommunity",
-    args: [profile.communityId],
-    blockNumber,
-  });
   insist(
     row.registry.toLowerCase() === profile.registry &&
       row.configurationRevision > 0n &&
@@ -62,12 +94,16 @@ export async function readConfigurationHistory(
     "invalid_directory_configuration",
     503,
   );
-  const logs = [];
-  for (
-    let fromBlock = profile.deploymentBlock;
-    fromBlock <= blockNumber;
-    fromBlock += 10000n
-  ) {
+  const saved = await cache?.load();
+  const logs: ConfigurationLog[] =
+    saved?.logs.filter((log) => log.blockNumber <= blockNumber) ?? [];
+  // The pinned contract increments its revision for every configuration event.
+  // An unchanged revision proves that intervening blocks contain no new entry.
+  const start =
+    logs.length === Number(row.configurationRevision)
+      ? blockNumber + 1n
+      : (saved?.nextBlock ?? profile.deploymentBlock);
+  for (let fromBlock = start; fromBlock <= blockNumber; fromBlock += 10000n) {
     logs.push(
       ...(await client.getLogs({
         address: profile.directory,
@@ -93,6 +129,14 @@ export async function readConfigurationHistory(
     503,
   );
   const history: CommunityConfig[] = [];
+  const content: IpfsTransport | undefined = saved
+    ? async (request) => {
+        for (const [uri, bytes] of saved.documents)
+          if (new URL(request.url).pathname === "/ipfs/" + uri.slice(7))
+            return new Response(bytes);
+        return (send ?? fetch)(request);
+      }
+    : send;
   for (const log of logs) {
     const event = log.args;
     insist(
@@ -104,7 +148,7 @@ export async function readConfigurationHistory(
       event.uri,
       event.sha256Digest,
       65536,
-      send,
+      content,
     );
     const decoded = new TextDecoder("utf-8", {
         fatal: true,
@@ -148,9 +192,15 @@ export async function readConfigurationHistory(
     "directory_chain_reorganized",
     503,
   );
+  if (cache && (!saved || blockNumber >= saved.nextBlock))
+    await cache.save(saved, blockNumber, block.hash!, logs, history);
   return history;
 }
 
-export async function readConfiguration(client: PublicClient, profile: DirectoryProfile, send?: IpfsTransport): Promise<CommunityConfig> {
+export async function readConfiguration(
+  client: PublicClient,
+  profile: DirectoryProfile,
+  send?: IpfsTransport,
+): Promise<CommunityConfig> {
   return (await readConfigurationHistory(client, profile, send)).at(-1)!;
 }

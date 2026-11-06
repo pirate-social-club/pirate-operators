@@ -1,5 +1,5 @@
 {
-  "profileHash": "0xd718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c",
+  "profileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -73,7 +73,7 @@
       "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
       "apps/web/package-lock.json": "0xa378c07517256bf0df176b2f052e103e47df67cb1c1c7b58d530b5cb982fc766",
       "apps/web/package.json": "0xff3a2828be3e6d1ca03b1463e44155643a878649cc8591b59635f08000157dce",
-      "apps/web/src/api-contract.ts": "0x33ded3ef4d7acbc93f2d050914a0ac29daa0870e282649b82e0e90235219feb0",
+      "apps/web/src/api-contract.ts": "0x84f995caaa9291923f96777b3b4e9cce8e989bf471c36e9fb5ebcc66ecdf236c",
       "apps/web/src/karaoke/activity-progress-header.tsx": "0xef7b50fbbb79abd7b32c27799ffcde14525f068e902cfb2a5d2530e879a19f2e",
       "apps/web/src/karaoke/activity-results.tsx": "0xb350854d4ce5a7cb8884da3b9daa7a9aae52c799dca5b160c477fb6e3f87e28e",
       "apps/web/src/karaoke/capture-processor.ts": "0x8e0e7e98108b9f03bcd4c4d812d3f8f888e4f4ba64b041c2716d126120ecb534",
@@ -87,7 +87,7 @@
       "apps/web/src/karaoke/practice-surface.tsx": "0x6d58ec0ee749c627d4921da96630c5fa396236ade6201efa6b4299f93952c568",
       "apps/web/src/karaoke/results-model.ts": "0x7e359aba7292563678ea6d81335a1b636b75c4ccb41806e3b4ee1297537ac16e",
       "apps/web/src/karaoke/route-states.tsx": "0xcb1212ae576e7c98f424817795c7dd0494365fd635229d29f255f51b27c41400",
-      "apps/web/src/karaoke/scoring-feedback.ts": "0x1e61025b57d425f34b3ba59dff088a28c7bea66b757023a207a967d590688a08",
+      "apps/web/src/karaoke/scoring-feedback.ts": "0x82c16b4e19fcb8252817988760cbde15f20d52ab1b2a13c2d9ef9ca3724b9a72",
       "apps/web/src/karaoke/style.css": "0xfa8fbe483697172ef66275fbcc4e3c6dd0e701c1e6e3cadac112612757252cf9",
       "apps/web/src/karaoke/ui.ts": "0xb3428ca5805e7849a504e2a013e6d6372291f9422d29882c5faaccb655fd0102",
       "apps/web/src/karaoke/use-karaoke-capture.ts": "0x77f262fe6d59c6ca9ba4bef2b63369e255b229e0a7292da2d242c0b67246c161",
@@ -95,7 +95,7 @@
       "apps/web/src/live/draft.ts": "0xacaa78c922e8d2b9c67b09b1680695c41a1672eead15f7e68ab6f066b9cf4a2c",
       "apps/web/src/live/entry.tsx": "0x05037bd79413d90b937eb4ad1be4ed582051f04a7dc0b935df086e0bb383c3fc",
       "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
-      "apps/web/src/live/karaoke.tsx": "0xa4f2b3dbf95d23d3cfe5524ff7e39f54efb853287097e69cc5bdbbec98c6177f",
+      "apps/web/src/live/karaoke.tsx": "0x17f702aedfa058263b0c1cdd453e1c3b880b6317133e2dc335d04c43bebf7747",
       "apps/web/src/live/public/images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
       "apps/web/src/live/stem-upload.tsx": "0xfe4bbc5901d6ff0c5fb23d2ae7786b8f793c6259c717079d1ece57fbed17ed27",
       "apps/web/src/live/style.css": "0x8bc8c33b7e68039cb3e4af60d686784fb335ba1d51934a08e9d73f41c45d97d6",
@@ -105,7 +105,7 @@
       "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
-      "docs/deployments/first-song-managed-20261105.application-plan-v11.json": "0xc5d5d22db3e1f0caa89a75577f38ccc182249815b096171722230ef6ee52368f",
+      "docs/deployments/first-song-managed-20261105.application-plan-v12.json": "0xf7acdf6ac898d71c83945caa9ef17de4783114f16c7131a165e27e2098f83f5f",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
       "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xde898d22b5d5c09fcfa4686a00c691cd3a019fa7e8556ce75a6366469205f315",
       "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
@@ -115,7 +115,7 @@
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-dependencies.ts": "0xa93dd63aa41df73bfc55f3e6465fcaff76a44f634515354584bfbde2986bdb29",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
-      "harness/community-package.ts": "0xe763d23c92f209af4c5efe2093609782160b76e09f0c1a4ec5e33f40f0a26462",
+      "harness/community-package.ts": "0xdf72c56183a88916d5b79bf8b30a33b89d720af4339317ea65b56162a2393887",
       "harness/community-release.ts": "0x90cc8a2133b2da660dedda93cf118847e2e5762d676176b407e46e2b340bb10d",
       "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
@@ -125,7 +125,7 @@
       "harness/curated-upgrade.ts": "0xba5b348e8375651e9b085acb717c662433cfd9447e58446511d1047eaa541a2e",
       "harness/first-song-peers.ts": "0x38509d1167378c427325e09f8a8c5524d2f7164ea97a11e7b9090578be2e4d12",
       "harness/first-song-upgrade.ts": "0xbe8cf0b82863ccb7784d0b15cbc6af3fe3e5b81812015c91b4c322a9083e2dc9",
-      "harness/learning-community-profile.ts": "0x0cd6f093b348613612114b793c1f8e717cfb783287ba699c8c3665bf99af6a7c",
+      "harness/learning-community-profile.ts": "0xdae3afabdc004ccad2b40bddc8de18d25d27b30169bd8beca92f4d88360e0d33",
       "harness/managed-inventory.ts": "0xd2bffd03ae47eb58813b0626708d194d6f11266f29ac94b0c2506c6c3d114aa3",
       "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
       "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
@@ -150,18 +150,19 @@
       "packages/community/chain.ts": "0x2e0325107d9faf91af30a841a700c67d74b00657be61383ea5d45f0f7b469aee",
       "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
       "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
+      "packages/community/configuration-index.ts": "0x863a32d11638163984c4b5bacaf969f09e7d7b2bea7989fff2f3beeb5aa86337",
       "packages/community/creator-connections.ts": "0x2face2362aa2de228c67e054a1988f80362153512836c92f78fcf1f2c37e46e2",
       "packages/community/creator-receipt.ts": "0x288ebb38eac5f0d6706302f9ef437feec180131e7274e7bd9ee6de8af6d53318",
       "packages/community/creator-service.ts": "0xc34dfa09f6a7be0674f8968948ae4d05eabb13f611ec9c3b2b145dbcafe061e0",
       "packages/community/curated-amendment.ts": "0x15d1862bdee7f165276d221034e1b5bda2b3abd6e0f1f04534e711f12a7fced7",
-      "packages/community/directory-reader.ts": "0x29ce627ea680e84dea54cf756ceb8e55e273c64bf801cc704e957f070a84545c",
+      "packages/community/directory-reader.ts": "0x74d9bae2563a43276f9dd9b3e3db8d68d0d71ecfb3fe9fdf4bbcea5781f8fee0",
       "packages/community/input-capabilities.ts": "0x4cbd52f51cd4f663f688312b5cacca3ddfd74a08b6a8e66ebde1ca8b1ea7eed7",
       "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
       "packages/community/lyric-manifest.ts": "0x2ad233d75e1baf69e51d62c77b1852eddcd8677d942b7f5bf2b8b4167b3cdce9",
       "packages/community/managed-client.ts": "0x2aaf09c7ad18d04026d965c6f76b5562df384c64b98c1c15b9ab0afc33ac7308",
       "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
       "packages/community/owner-policy.ts": "0x2749adcbb50c6c28fe496190e58266cebfcb5d7429c010c6a20d7ed2a3152a25",
-      "packages/community/post-chain.ts": "0x561d71ec8702e330594db671ea3d67faf04e346a6ad111274a8766a2d3dc6480",
+      "packages/community/post-chain.ts": "0x9cf9e6ba749d0d4f7750b6d32c66083fccef1530ed95005103127a70756879b1",
       "packages/community/post-index.ts": "0xe46d71685be4c70a270538e419881a2d34eca5568abc570418c981f3b11a456b",
       "packages/community/post-manifest.ts": "0xa673dec90e9f89018c7dd14a7a371c434f0e061bae3d8568dcde8d111e39f9fa",
       "packages/community/publication-admission.ts": "0x4333fcc04edf10fd471f75cd821d21f5427076c19b94e110fc080c0fa98831e9",
@@ -193,7 +194,7 @@
       "packages/release/artifacts.ts": "0x51f8a0954c9890363a55f0f5b03ad014ece6e3b87977a00691ad4921579a9e6a",
       "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
       "services/chain.ts": "0x9c4d71e9cf9c256b1f079acbd4cadc06f38cbafd7947127e0bde56ce27a7c631",
-      "services/community-application.ts": "0x363bf7001443ffc0183da5a5724470161e959925cae47cde06924e3687c8569b",
+      "services/community-application.ts": "0x1095c005bb55d80e88cdfb237a85f882d4656125395bc6a6282c8fcd92eccb5e",
       "services/community-jobs.ts": "0x25e4580a5db4ebf0cc0bb090b1d284d3488597de5d4e1d09c52241f02925cf02",
       "services/community-public.ts": "0xfb079d5cb8423082670c6890fd5390674ad09f1a1f7a682113c60ddda5641e5e",
       "services/community-purchases.ts": "0xb67d8d81ca73978dafde120de79ef371d9bd168ccd5682e4324eb96ae764ec76",
@@ -208,8 +209,8 @@
       "services/service-call.ts": "0xf7300d46a2b584d271e431a91d324bda038f9350bf08e19f05688b0e8ca2edf7",
       "services/storage.ts": "0x4b9ac339d3534bf26d8d27adcc0168bf6ee76232c70edfde23ed37575dc2bcb8"
     },
-    "bundleSha256": "0x4d870b8bd379e2c304619a4703f5e0e7ddc412aaf475fbc1c1351b73e2fc265e",
-    "bundleBytes": 873373,
+    "bundleSha256": "0xe26c2cc31ec95098fdaeec41931a58c803e622186f84f9ad5fd4915bc58d4f5b",
+    "bundleBytes": 877528,
     "assets": {
       ".vite/manifest.json": "0x09dd479c8ee52d5222cecdcd0f8bb07adec12e4472d6057554018827a5bd2cbd",
       "app/assets/capture-processor-Di3k79aW.js": "0x97fc42534dd5a5e20c9bf241a30a39aa1652fe0cf1d7fc4857b0d0f57c782975",
@@ -396,10 +397,10 @@
     },
     "creatorProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v11.json",
-      "previousProfileHash": "0xc920a71787dd80a7140a345b1dee58a480bad96902063bef71488eab45057bba",
-      "expectedExecutionSha256": "0x9be024d73948f79c96d985f618ff1719970fa536b6afe08aad156a21f7b94bfd",
-      "expectedResultSha256": "0x1ea5153ca5599458afcea6d6fe27b4546a0030d3df43b2e91da28059cae5be66"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v12.json",
+      "previousProfileHash": "0xd718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c",
+      "expectedExecutionSha256": "0x69df74adc16fadf1b7b2385d3157eda9a54a1a23c699b02cdf7ab65980b621c4",
+      "expectedResultSha256": "0x402978fe556081d4fb472466fb6e0e95d4f634bcfb28c677ee1de1d2527ff614"
     },
     "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     "credentialBinding": {
@@ -424,7 +425,7 @@
       "maximumRegistrationFee": "100000000000000",
       "maximumPublicationFee": "30000000000000"
     },
-    "acceptance": "Karaoke enrollment, automatic whole-run publication, bounded speech, retained private history download and revocation on MegaETH testnet",
+    "acceptance": "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet",
     "learning": {
       "chainId": 6343,
       "contract": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
@@ -433,7 +434,7 @@
       "operatorWorker": "pirate-learning-testnet-v2",
       "operatorOrigin": "https://pirate-learning-testnet-v2.piratesocialclub.workers.dev",
       "accounting": "internal",
-      "speechDailyCalls": 10,
+      "speechDailyCalls": 0,
       "historyRetentionDays": 30,
       "providerCredential": {
         "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
@@ -441,7 +442,7 @@
         "path": "/services/api-next",
         "key": "ELEVENLABS_API_KEY"
       },
-      "acceptance": "Karaoke enrollment, automatic whole-run publication, bounded speech, retained private history download and revocation on MegaETH testnet"
+      "acceptance": "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet"
     },
     "recovery": "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker."
   }
