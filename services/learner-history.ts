@@ -6,6 +6,7 @@ import type {
 import type { Store } from "./runtime.ts";
 import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 import { check } from "../packages/protocol/index.ts";
+import type { Attempt } from "./karaoke-result.ts";
 
 /** Private transport evidence, without PCM, recognized text or credentials. */
 export function learnerHistoryDiagnostics(
@@ -13,12 +14,33 @@ export function learnerHistoryDiagnostics(
   ticketId: string,
 ) {
   const relay = store.get<KaraokeRelaySnapshot>(`audioRelay:${ticketId}`);
+  const feedback = store.get<{ lineScores: { scoredLineIndex: number }[] }>(
+    `feedback:${ticketId}`,
+  );
+  const attempt = store.get<Attempt>(`attempt:${ticketId}`);
   return {
     lastAudioSequence: relay?.lastSequence ?? null,
     lastAudioEndMs: relay?.lastAudioEndMs ?? null,
     providerMessageSequence: relay?.sttSequence ?? 0,
     providerTerminal: relay?.terminal ?? null,
     failedLineCount: relay?.failedLineIds.length ?? 0,
+    resolvedThroughMs: relay?.resolvedThroughMs ?? null,
+    feedbackThroughMs:
+      store.get<number>(`feedbackWatermark:${ticketId}`) ?? null,
+    feedbackLineCount: feedback?.lineScores.length ?? 0,
+    feedbackLatestLineIndex:
+      feedback?.lineScores.at(-1)?.scoredLineIndex ?? null,
+    attempt: attempt
+      ? {
+          startedAt: attempt.startedAt,
+          connected: attempt.connected,
+          disconnectedAt: attempt.disconnectedAt,
+          lastAudioAt: attempt.lastAudioAt,
+          endedAt: attempt.ended?.endedAt ?? null,
+          performanceEndedAt: attempt.ended?.performanceEndedAt ?? null,
+          endStatus: attempt.ended?.status ?? null,
+        }
+      : null,
   };
 }
 
