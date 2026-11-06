@@ -318,7 +318,7 @@ The immutable V3 candidate is services/learning-policy-v3.ts. Its terms and
 privacy pages are served at /learning/v3/terms and /learning/v3/privacy. The
 publicity commitment is keccak256 of the exact UTF-8 terms, two newline bytes,
 and exact privacy text, without normalization or a trailing newline:
-0x12f4496f0498838a59732f5f46c3019b2adcb47314788d155c74ff228cfe3b3a.
+0x9b68b19eb83315c5e26352717b6ceddf4e665d6773932e5a0ad6cbda495fa56c.
 The original V2 /terms and /privacy response bytes and their deployed commitment
 0xed087bbce3b42c61236f9c26795f3b1b43e626ded9ac4a75bb97f43138791143
 remain unchanged. A future document revision needs a new versioned publication;
