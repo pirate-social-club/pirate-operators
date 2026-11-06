@@ -5,9 +5,10 @@ import { canonical, check, digest } from "../packages/protocol/index.ts";
 import {
   resultCommitment,
   resultPeriod,
+  unpackStudyOutcomes,
   type TerminalResult,
 } from "../packages/protocol/learning-results-v3.ts";
-import { terminalStudyBundle } from "../packages/study/result-adapter.ts";
+import { studyFactsBundle } from "../packages/study/terminal-facts.ts";
 import type {
   StudyTerminalRequest,
   StudyPublicationReceipt,
@@ -77,7 +78,13 @@ async function freeze(
   store: ResultStore,
   input: StudyTerminalRequest,
 ) {
-  check(input && studyId(input.lessonId), "invalid_study_terminal");
+  check(
+    input &&
+      studyId(input.lessonId) &&
+      Object.keys(input).sort().join() ===
+        ["lessonId", "source", "terminal"].sort().join(),
+    "invalid_study_terminal",
+  );
   const hash = digest(input) as Hex;
   const old = store.get<PublicationJob>(key(input.lessonId));
   if (old) {
@@ -95,14 +102,14 @@ async function freeze(
     "study_enrollment_mismatch",
   );
   check(
-    input.state.startedAt === binding.offer.startedAt &&
-      input.state.expiresAt === binding.offer.expiresAt &&
-      input.state.completedAt! <= store.now() * 1000 + 999 &&
+    input.terminal.startedAt === binding.offer.startedAt &&
+      input.terminal.expiresAt === binding.offer.expiresAt &&
+      input.terminal.completedAt <= store.now() * 1000 + 999 &&
       digest(input.source) === binding.offer.sourceDigest &&
       input.source.communityId === env.COMMUNITY_ID,
     "study_terminal_binding_changed",
   );
-  const bundle = terminalStudyBundle({
+  const bundle = studyFactsBundle({
     ...input,
     enrollment: binding.enrollment,
     learner: binding.offer.learner,
@@ -112,10 +119,12 @@ async function freeze(
   check(
     bundle.result.exercisesHash === binding.exercisesHash &&
       canonical(
-        input.state.items.map((item) => ({
-          lineId: item.line.lineId,
-          language: item.line.language,
-        })),
+        unpackStudyOutcomes(bundle.outcomes, bundle.result.linesTotal).map(
+          (item) => ({
+            lineId: input.source.lines[item.sourceOrdinal - 1].lineId,
+            language: input.source.language,
+          }),
+        ),
       ) ===
         canonical(
           binding.offer.exercises.map(({ lineId, language }) => ({

@@ -190,11 +190,15 @@ text in the enrollment dialog alone does not complete that disclosure gate.
 
 ## Durable publication and recovery
 
-The community sends a signed terminal snapshot from its owned D1 lesson and
-original source/grant binding. A browser cannot supply the result, source or
-outcomes through the private lesson routes. The operator validates terminal
-semantics and exact source/selection, freezes the applicable completion-period
-policy and persists only the compact public bundle and calldata before sending.
+The community validates the complete private terminal queue and freezes the
+first-pass facts permitted by the public-result format before operator I/O. The signed request
+contains those facts and the original public source, without private retry,
+mastery, attempt or recognized-text history. A browser cannot supply the result,
+source or outcomes through the private lesson routes. The operator trusts the
+existing authenticated community issuer's queue attestation and independently
+validates terminal time/status, completed coverage, source, ordered selection and
+the original enrollment binding. It freezes the completion-period policy and
+persists only the compact public bundle and calldata before sending.
 Transcripts, recordings and private attempt identifiers never enter calldata.
 
 The D1 publication row is an outbox. Lost responses leave it retryable; retries
@@ -256,9 +260,38 @@ an operator-held JSON copy, not an encrypted learner vault or an official grade
 import. The account menu retains one opened lesson; a full history index is not
 claimed by this slice.
 
-An expired export is refused. This access check is not physical deletion.
-Deletion and the public-outbox recovery boundary remain required before Study
-release, along with the final factual privacy disclosure. Pending publication
-and unknown transaction outcomes must retain their recovery facts independently
-of any private speech-history copy. No Study deployment is qualified by this
-local export work.
+An expired export is refused immediately. Migration 0010 adds a private-history
+deletion marker and compact terminal outbox. Scheduled bounded deletion erases
+the expired attempt rows and replaces the private queue with an empty object,
+even when new practice is disabled. It first consumes grades durably saved
+before a lesson deadline and closes unattended lessons without another speech
+request. Unknown dispatch remains unmeasured rather than becoming wrong.
+One failed row is reported after other selected rows can progress. Due rows
+with the fewest previous cleanup attempts go first, so even a full batch of bad
+rows cannot repeatedly hide later due work. Retry bookkeeping changes neither
+the queue revision nor the deletion marker. Retention, posting wakeups and public
+Study recovery each run independently; their original errors are reported
+together after all stages. A posting outage cannot suppress retention, and a
+retention error cannot suppress public recovery. Deletion
+runs at the next successful scheduled sweep; a failed validation remains visible
+and requires repair rather than silently discarding public recovery evidence.
+
+Minimal account/community, lesson/request and public song tombstones prevent an
+old request from creating a fresh lesson or grant. The menu no longer resumes an
+erased lesson. Subsequent private practice selection uses retained attempts.
+Recovery retains the original source, ordered first-pass facts, grant, receipts,
+unknown transaction intents, raw signed bytes and conservative sponsorship
+accounting remain recoverable independently of private history. The operator's
+separate speech receipts already expire thirty days after dispatch, retaining
+spent-slot and binding evidence to prevent new dispatch. Public on-chain
+results remain public. No Study deployment is qualified by local retention work;
+independent review and final factual privacy disclosure remain release gates.
+
+Unpublished first-pass grades and selections remain private. This source still
+retains them in the terminal outbox and operator calldata after a never-submitted
+result becomes private. That actual case is an unresolved retention release
+gate. Its cleanup must prove zero canonical commitment and no queued, allocated
+or signed native intent, preserve unknown-operation and financial evidence, and
+establish a minimal permanent closed-lesson tombstone before erasure. A private
+or failed label alone is insufficient proof. Late speech completion must not
+recreate an erased receipt. No complete private-retention acceptance is claimed.

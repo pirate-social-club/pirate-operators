@@ -76,6 +76,7 @@ import { studyCommunityApi } from "./study-community-api.ts";
 import { studyAvailable, type StudyEnv } from "./study-community.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
+import { deleteExpiredStudyHistory } from "./study-retention.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
@@ -590,16 +591,24 @@ export async function communityFetch(
   }
 }
 export async function communityScheduled(env: CommunityEnv, provided?: CommunityDependencies) {
-  await recoverCommunityJobs(env.DB, env.JOBS);
-  if (!env.STUDY_RESULTS_V3_CONTRACT) return;
-  const ports = provided ?? dependencies(env), config = await ports.configuration();
-  insist(config.communityId === firstSong.directoryProfile.communityId &&
-    config.app.origin === firstSong.origin, "community_configuration_changed", 503);
-  await recoverStudyLessons({
-    env, db: env.DB, config,
-    reads: ports.publicReads ?? { client: megaethReadClient(), profile: publicPostsProfile() },
-    now: ports.now,
-  });
+  const failures: unknown[] = [];
+  try { await deleteExpiredStudyHistory(env.DB, firstSong.directoryProfile.communityId, provided?.now); }
+  catch (error) { failures.push(error); }
+  try { await recoverCommunityJobs(env.DB, env.JOBS); }
+  catch (error) { failures.push(error); }
+  if (env.STUDY_RESULTS_V3_CONTRACT) {
+    try {
+      const ports = provided ?? dependencies(env), config = await ports.configuration();
+      insist(config.communityId === firstSong.directoryProfile.communityId &&
+        config.app.origin === firstSong.origin, "community_configuration_changed", 503);
+      await recoverStudyLessons({
+        env, db: env.DB, config,
+        reads: ports.publicReads ?? { client: megaethReadClient(), profile: publicPostsProfile() },
+        now: ports.now,
+      });
+    } catch (error) { failures.push(error); }
+  }
+  if (failures.length) throw new AggregateError(failures, "community_scheduled_failed");
 }
 
 export default {

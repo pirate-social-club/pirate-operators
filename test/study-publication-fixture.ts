@@ -19,6 +19,7 @@ import type {
   StudyTerminalRequest,
   StudyPublicationReceipt,
 } from "../packages/study/publication.ts";
+import { terminalStudyFacts } from "../packages/study/result-adapter.ts";
 import type { StudyOperatorPorts } from "../services/study-operator-client.ts";
 
 export async function json<T>(response: Response) {
@@ -144,10 +145,15 @@ export async function studyPublicationFixture(port: number) {
           .bind(id)
           .first<{ state_json: string; source_json: string }>();
         assert.ok(row);
+        const source = JSON.parse(row.source_json);
         return {
           lessonId: id,
-          state: JSON.parse(row.state_json),
-          source: JSON.parse(row.source_json),
+          source,
+          terminal: terminalStudyFacts({
+            lessonId: id,
+            state: JSON.parse(row.state_json),
+            source,
+          }),
         };
       },
     };

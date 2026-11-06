@@ -21,11 +21,11 @@ export async function recoverStudyLessons(
   const rows = await ports.db
     .prepare(
       `
-    SELECT l.lesson_id,l.account_id,l.community_id,p.learner
+    SELECT l.lesson_id,l.account_id,l.community_id,l.history_deleted_at,p.learner
     FROM study_lessons l LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
     WHERE l.community_id=? AND (
       (json_extract(l.state_json,'$.status')='active' AND json_extract(l.state_json,'$.expiresAt')<=?) OR
-      (json_extract(l.state_json,'$.status')!='active' AND
+      ((l.history_deleted_at IS NOT NULL OR json_extract(l.state_json,'$.status')!='active') AND
         (p.state IN ('bound','pending') OR (p.state='published' AND
           (json_extract(p.receipt_json,'$.confirmed')=0 OR p.updated_at<=?)))))
     ORDER BY COALESCE(p.updated_at,l.started_at),l.lesson_id LIMIT ?
@@ -37,14 +37,18 @@ export async function recoverStudyLessons(
       account_id: string;
       community_id: string;
       learner: string | null;
+      history_deleted_at: number | null;
     }>();
   for (const row of rows.results) {
     try {
       if (row.learner) {
-        await liveStudy(ports, {
+        const live = liveStudy(ports, {
           account_id: row.account_id,
           wallet: row.learner,
-        }).get(row.lesson_id);
+        });
+        if (row.history_deleted_at != null)
+          await live.syncPublication(row.lesson_id);
+        else await live.get(row.lesson_id);
       } else {
         // A draft whose grant binding never completed cannot have paid speech.
         // Close it privately; do not invent a learner or acquire a new grant.

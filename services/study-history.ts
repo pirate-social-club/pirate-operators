@@ -15,6 +15,7 @@ interface LessonRow {
   lesson_id: string;
   revision: number;
   state_json: string;
+  history_deleted_at: number | null;
 }
 type AttemptRow = Parameters<typeof attemptView>[0];
 
@@ -27,7 +28,7 @@ export async function studyPrivateHistory(
   const rows = await db.batch([
     db
       .prepare(
-        "SELECT lesson_id,revision,state_json FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=?",
+        "SELECT lesson_id,revision,state_json,history_deleted_at FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=?",
       )
       .bind(id, owner.accountId, owner.communityId),
     // A lesson allows at most 20 graded presentations with three takes each.
@@ -45,6 +46,7 @@ export async function studyPrivateHistory(
   ]);
   const lesson = rows[0].results[0] as unknown as LessonRow | undefined;
   studyCheck(lesson, "study_lesson_not_found", 404);
+  studyCheck(lesson.history_deleted_at == null, "study_history_expired", 410);
   const state = JSON.parse(lesson.state_json) as LessonState;
   const completedAt = state.completedAt ?? state.expiresAt;
   studyCheck(

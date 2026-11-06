@@ -38,7 +38,9 @@ test(
       assert.equal(row.mined, null);
       const ledger = f.store.get("sponsor:ledger");
       const changed = await f.terminal(lesson.lessonId);
-      changed.state.items[0].firstPassOutcome = "correct";
+      changed.terminal.outcomes = (changed.terminal.outcomes.slice(0, 6) +
+        "01" +
+        changed.terminal.outcomes.slice(8)) as `0x${string}`;
       await assert.rejects(
         publishManagedStudy(f.operator, changed),
         /study_terminal_changed/,

@@ -26,6 +26,7 @@ export async function communityRuntime() {
       "0007_owner_curated.sql",
       "0008_karaoke.sql",
       "0009_study.sql",
+      "0010_study_retention.sql",
     ]) {
       const sql = await readFile(
         new URL(

@@ -15,6 +15,7 @@ export interface LessonRow {
   revision: number;
   state_json: string;
   song_json: string;
+  history_deleted_at: number | null;
 }
 export class StudyLessonStore {
   readonly db: D1Database;
@@ -32,6 +33,7 @@ export class StudyLessonStore {
     return row;
   }
   state(row: LessonRow): LessonState {
+    studyCheck(row.history_deleted_at == null, "study_history_expired", 410);
     const state: LessonState = JSON.parse(row.state_json);
     studyCheck(
       state.policy === STUDY_QUEUE_POLICY,
@@ -43,7 +45,7 @@ export class StudyLessonStore {
   async latest(owner: StudyPrincipal, song: StudySong) {
     return this.db
       .prepare(
-        "SELECT * FROM study_lessons WHERE account_id=? AND community_id=? AND song_json=? ORDER BY started_at DESC,rowid DESC LIMIT 1",
+        "SELECT * FROM study_lessons WHERE account_id=? AND community_id=? AND song_json=? AND history_deleted_at IS NULL ORDER BY started_at DESC,rowid DESC LIMIT 1",
       )
       .bind(owner.accountId, owner.communityId, JSON.stringify(song))
       .first<LessonRow>();

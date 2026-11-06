@@ -5,7 +5,11 @@ import {
   studyCheck,
   type StudyPrincipal,
 } from "../packages/study/contracts.ts";
-import { StudyLessonStore } from "../packages/study/lesson-store.ts";
+import {
+  freezeStudyOutbox,
+  studyOutboxRow,
+  type StudyOutboxRow,
+} from "./study-outbox.ts";
 import type { StudyPublicationReceipt } from "../packages/study/publication.ts";
 import type { LyricManifest } from "../packages/community/lyric-manifest.ts";
 import type { StudyOperatorBinding } from "./study-operator.ts";
@@ -14,30 +18,14 @@ import {
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
 
-interface Row {
-  state: "bound" | StudyPublicationReceipt["state"];
-  source_json: string;
-  binding_json: string;
-  receipt_json: string | null;
-  updated_at: number;
-}
 export function studyPublicationQueue(
   db: D1Database,
   operator: StudyOperatorPorts,
   owner: StudyPrincipal,
   now = Date.now,
 ) {
-  const lessons = new StudyLessonStore(db);
-  const load = async (id: string) => {
-    await lessons.row(owner, id);
-    return db
-      .prepare(
-        "SELECT state,source_json,binding_json,receipt_json,updated_at FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
-      )
-      .bind(id, owner.accountId, owner.communityId)
-      .first<Row>();
-  };
-  const view = (row: Row | null) => ({
+  const load = (id: string) => studyOutboxRow(db, owner, id);
+  const view = (row: StudyOutboxRow | null) => ({
     state: row?.state ?? "unbound",
     receipt: row?.receipt_json
       ? (JSON.parse(row.receipt_json) as StudyPublicationReceipt)
@@ -46,10 +34,8 @@ export function studyPublicationQueue(
   return {
     get: async (id: string) => view(await load(id)),
     async sync(id: string) {
-      const row = await load(id);
+      const row = await freezeStudyOutbox(db, owner, id);
       if (!row) return null; // No recording authority was obtained.
-      const state = lessons.state(await lessons.row(owner, id));
-      if (state.status === "active") return null;
       const prior = view(row).receipt;
       if (
         row.state === "private" ||
@@ -78,7 +64,7 @@ export function studyPublicationQueue(
         .run();
       const receipt = await publishManagedStudy(operator, {
         lessonId: id,
-        state,
+        terminal: JSON.parse(row.terminal_json!),
         source: JSON.parse(row.source_json) as LyricManifest,
       });
       studyCheck(

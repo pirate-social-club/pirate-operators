@@ -1,11 +1,9 @@
 // Build public outcomes only from a durably closed lesson snapshot.
-import { zeroHash, type Address, type Hex } from "viem";
+import type { Address, Hex } from "viem";
 import type { LyricManifest } from "../community/lyric-manifest.ts";
-import { canonical, check, digest } from "../protocol/index.ts";
+import { canonical, check } from "../protocol/index.ts";
 import {
   packStudyOutcomes,
-  studyExercisesHash,
-  STUDY_SCORING_POLICY_HASH,
   type TerminalResult,
 } from "../protocol/learning-results-v3.ts";
 import {
@@ -14,6 +12,7 @@ import {
   type LessonState,
 } from "./lesson.ts";
 import { studySourceSelection } from "./public-source.ts";
+import { studyFactsBundle, type StudyTerminalFacts } from "./terminal-facts.ts";
 
 export interface StudyPublicationGrant {
   id: Hex;
@@ -39,7 +38,14 @@ export function terminalStudyBundle(input: StudyBundleInput): {
   result: TerminalResult;
   outcomes: Hex;
 } {
-  const { state, enrollment, source } = input;
+  return studyFactsBundle({ ...input, terminal: terminalStudyFacts(input) });
+}
+
+/** Validate the private queue before retaining only its permitted public facts. */
+export function terminalStudyFacts(
+  input: Pick<StudyBundleInput, "lessonId" | "state" | "source">,
+): StudyTerminalFacts {
+  const { state, source } = input;
   const completed = state.status === "completed";
   check(
     state.policy === STUDY_QUEUE_POLICY &&
@@ -71,9 +77,7 @@ export function terminalStudyBundle(input: StudyBundleInput): {
     "invalid_study_time",
   );
   check(
-    input.lessonId.length > 0 &&
-      input.lessonId.length <= 128 &&
-      enrollment.id !== zeroHash,
+    input.lessonId.length > 0 && input.lessonId.length <= 128,
     "invalid_study_publication_identity",
   );
   const ordinals = state.items.map((item) => {
@@ -138,15 +142,6 @@ export function terminalStudyBundle(input: StudyBundleInput): {
           state.items.some((item) => !item.resolved)),
     "invalid_study_completion",
   );
-  const startedAt = Math.floor(state.startedAt / 1000),
-    completedAt = Math.floor(state.completedAt! / 1000);
-  check(
-    Number.isSafeInteger(enrollment.issuedAt) &&
-      Number.isSafeInteger(enrollment.expiresAt) &&
-      startedAt >= enrollment.issuedAt &&
-      completedAt < enrollment.expiresAt,
-    "study_enrollment_mismatch",
-  );
   const outcomes = packStudyOutcomes(
     state.items.map((item, i) => ({
       sourceOrdinal: ordinals[i],
@@ -154,33 +149,11 @@ export function terminalStudyBundle(input: StudyBundleInput): {
     })),
   );
   return {
-    result: {
-      sessionId: digest({
-        schema: "pirate.study-result-id/1",
-        enrollmentId: enrollment.id,
-        lessonId: input.lessonId,
-      }),
-      learner: input.learner,
-      enrollmentId: enrollment.id,
-      song: {
-        chainId: BigInt(source.chainId),
-        posts: source.postsContract,
-        communityId: source.communityId,
-        postId: source.postId,
-      },
-      contentRevision: selected.hash,
-      exercisesHash: studyExercisesHash(ordinals),
-      linesTotal: state.items.length,
-      activity: 2,
-      grader: input.grader,
-      scoringPolicy: STUDY_SCORING_POLICY_HASH,
-      qualificationPolicy: input.qualificationPolicy,
-      startedAt: BigInt(startedAt),
-      completedAt: BigInt(completedAt),
-      status: completed ? 1 : state.status === "abandoned" ? 2 : 3,
-      revision: 1,
-      supersedes: zeroHash,
-    },
+    schema: "pirate.study-terminal-facts/1",
+    startedAt: state.startedAt,
+    completedAt: state.completedAt!,
+    expiresAt: state.expiresAt,
+    status: state.status as StudyTerminalFacts["status"],
     outcomes,
   };
 }

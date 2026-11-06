@@ -8,6 +8,8 @@ CREATE TABLE study_lessons (
   state_json TEXT NOT NULL CHECK(json_valid(state_json)),
   revision INTEGER NOT NULL DEFAULT 0,
   started_at INTEGER NOT NULL,
+  history_deleted_at INTEGER,
+  history_cleanup_attempts INTEGER NOT NULL DEFAULT 0 CHECK(history_cleanup_attempts>=0),
   UNIQUE(account_id,community_id,request_id),
   UNIQUE(lesson_id,account_id,community_id)
 );

@@ -4,7 +4,9 @@ import { zeroHash } from "viem";
 import {
   completedStudyBundle,
   terminalStudyBundle,
+  terminalStudyFacts,
 } from "../packages/study/result-adapter.ts";
+import { studyFactsBundle } from "../packages/study/terminal-facts.ts";
 import { closeStudyLesson, newLesson } from "../packages/study/lesson.ts";
 import { studySourceSelection } from "../packages/study/public-source.ts";
 import {
@@ -14,6 +16,36 @@ import {
   unpackStudyOutcomes,
 } from "../packages/protocol/learning-results-v3.ts";
 import { studyResultFixture } from "./study-result-fixture.ts";
+
+test("public Study recovery facts reject private fields and completed absence", () => {
+  const { input } = studyResultFixture();
+  const { state: _privateQueue, ...publicBinding } = input;
+  const terminal = terminalStudyFacts(input);
+  const request = { ...publicBinding, terminal };
+  assert.equal(
+    studyFactsBundle(request).outcomes,
+    "0x000702000201000a01000401",
+  );
+  assert.throws(
+    () =>
+      studyFactsBundle({
+        ...request,
+        terminal: {
+          ...terminal,
+          heardTranscript: "private",
+        } as typeof terminal,
+      }),
+    /invalid_study_terminal_facts/,
+  );
+  assert.throws(
+    () =>
+      studyFactsBundle({
+        ...request,
+        terminal: { ...terminal, outcomes: "0x000704000201000a01000401" },
+      }),
+    /invalid_study_first_pass/,
+  );
+});
 
 test("Study has an independent byte vector and keeps first-pass misses after mastery", () => {
   const { state, bundle } = studyResultFixture();

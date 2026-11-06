@@ -247,6 +247,7 @@ export function liveStudy(
     owner,
     lessons,
     publication: publications.get,
+    syncPublication: publications.sync,
     async song(postId: Hex) {
       const lyrics = await publishedLyrics(
         ports.db,
