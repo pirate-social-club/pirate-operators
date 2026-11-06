@@ -34,15 +34,18 @@ centralized adapter: a single-use token minted with Pirate's `xi-api-key`, then
 provider stores audio. It asks for a commit when a lyric line's end has been
 sent and not yet covered, and on pause and finish. The adapter maps each
 provider word's stream timestamps back to song time through the frames it sent,
-and drops a word whose ends straddle a backward seek. Committed words reach
-the existing `words` path and scorer as each line's transcript arrives, again
-before the take finishes, and whenever the learner's socket closes, so words
-already heard count even if the learner never returns. They are stored for
-the take whichever of the learner's sockets carried the audio, so a reconnect
-can never strand them. In real time the
-operator's song-end timer usually ends the take during the instrumental's
-outro, before the learner's finish. Words sung before the performance ended
-that arrive after that still count, until the payment deadline closes the take.
+and drops a word whose ends straddle a backward seek. Committed words are
+stored as the take's recognized words as soon as the relay keeps them. Every
+change the relay persists hands its new words over, so they never wait for
+another frame, the learner's finish or a reconnect. They are stored for the
+take, whichever of the learner's sockets carried the audio. The take's timers
+are applied first, as on the words path. In real time the operator's song-end
+timer usually ends the take during the instrumental's outro, before the
+learner's finish. Words sung before the performance ended that arrive after
+that still count, until the payment deadline closes the take. A transcript that
+returns after the learner's socket closed also counts. After an operator
+restart, the persisted words not yet handed over are stored at finish or
+disconnect.
 
 Learners can no longer send `words` or `provider_failed` frames on the audio
 socket; only the operator's provider path produces them.
@@ -62,11 +65,14 @@ These follow the centralized client, session host and reducer.
   only after that suspend completes, keeps one frame sequence across
   reconnects and never replays audio. A socket superseded by the learner's
   newer connection (close 4409) does not reconnect.
-- The operator refuses audio whose sequence does not increase.
+- The operator refuses audio whose sequence does not increase. Only the live
+  socket can finish the take.
 - On a backward seek the relay drops words ending after the seek point minus
   300 ms, drops any commit reaching past it and its late words, and reopens
-  lines after it. Words already handed to the scorer follow the same rule, and
-  the failure marks of the reopened lines are cleared.
+  lines after it. Words already handed to the scorer follow the same rule, in
+  the relay and in the take, so the relay's 2000-word limit counts only words
+  still in the take. Failure marks already handed over stay. A line the relay
+  gave up on stays unmeasured, never silent.
 - A dropped provider stream reconnects after 250 ms, doubling to at most 2 s,
   five times. Up to 600 frames are buffered during the outage and replayed.
   The dead stream's unacknowledged commit is orphaned.
@@ -91,7 +97,8 @@ Two deliberate changes from the centralized code:
 Known limits: after a backward seek the adapter's commit frontier
 stays at the highest song time sent, as in the centralized adapter. Relay state
 other than its persisted words and failure marks lives in memory, so an operator
-restart mid-take loses the provider stream. Live per-line scores and partial
+restart mid-take loses the provider stream, and a commit pending at the restart
+is never answered. Live per-line scores and partial
 transcripts are not sent to the learner; the operator's signed result remains
 the outcome.
 
@@ -143,14 +150,21 @@ All 47 upstream cases in those files pass.
 audio subclass on local anvil, and routes the operator's outbound network, the
 real ElevenLabs address included, to `harness/karaoke-elevenlabs-simulator.ts`.
 The simulator checks the key, mints single-use tokens, accepts the realtime
-messages and returns scripted words on each stream's own clock. Nine cases
-cover the scored path at exact song times and request parameters, refused
-learner words, a dropped provider stream with replay and an orphaned commit, a
-terminal error, a missing credential, a backward seek, a learner reconnect on
-the same provider stream with refused regressed audio, commits that are never
-acknowledged, and a take whose song-end timer fires before the learner's finish.
-That last case fails without the forwarding fix: no words reach the scorer while
-the take is sung, and the last line's words arrive after the timer.
+messages and returns scripted words on each stream's own clock, optionally
+answering commits late. Eleven cases cover:
+
+- the scored path at exact song times, with the request parameters;
+- refused learner words;
+- a dropped provider stream, with replay and an orphaned commit;
+- a terminal error and a missing credential;
+- a backward seek, including the relay's and the take's words agreeing;
+- a learner reconnect on the same provider stream, with regressed audio refused;
+- commits that are never acknowledged;
+- a take whose song-end timer fires before the learner's finish;
+- a seek after the provider gave up, whose lines stay unmeasured;
+- a transcript that returns after the learner's socket closed.
+
+The last three, and the seek's word check, fail without the forwarding repair.
 
 `test/karaoke-operator-audio-client.test.ts` and
 `test/karaoke-capture-controller.test.ts` cover the browser-side rules with
