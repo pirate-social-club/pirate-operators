@@ -10,7 +10,6 @@ const line = (
   words: [string, number, number][],
 ): KaraokeTimedLine => ({
   lineId: id(ordinal),
-  lineVersion: 1,
   ordinal,
   text,
   startMs: words[0][1],
