@@ -83,8 +83,9 @@ function loaded(store: Store, ticketId: string) {
   const manifest = ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
   return { ticket, manifest };
 }
-const songOf = (env: Env, ticket: Ticket): SongKey =>
-  standInSong(recordsChain(env), ticket.communityId, ticket.songHash);
+/** A published song's key from its manifest; the stand-in only for local skeleton songs. */
+const songOf = (env: Env, ticket: Ticket, manifest: KaraokeManifest): SongKey =>
+  manifest.song ?? standInSong(recordsChain(env), ticket.communityId, ticket.songHash);
 
 /** The consent the learner is asked to sign for one attempt; deterministic per attempt. */
 export function consentFor(
@@ -97,7 +98,7 @@ export function consentFor(
   return {
     learner: ticket.participant,
     attemptId,
-    songKey: songKeyOf(songOf(env, ticket)),
+    songKey: songKeyOf(songOf(env, ticket, manifest)),
     contentRevision: ticket.manifestSha256,
     linesRoot: linesRootOf(manifest),
     linesTotal: manifest.lines.length,
@@ -169,15 +170,17 @@ const consentDigestOf = (env: Env, consent: Consent) =>
     primaryType: "Consent",
     message: consentMessage(consent),
   });
-const openData = (env: Env, ticket: Ticket, stored: StoredConsent) =>
-  encodeFunctionData({
+const openData = (env: Env, ticket: Ticket, manifest: KaraokeManifest, stored: StoredConsent) => {
+  const song = songOf(env, ticket, manifest);
+  return encodeFunctionData({
     abi: recordsAbi,
     functionName: "openAttempt",
     args: [{ ...stored.consent, expiresAt: BigInt(stored.consent.expiresAt) }, openingSignature(stored), {
-      ...songOf(env, ticket),
-      chainId: BigInt(recordsChain(env)),
+      ...song,
+      chainId: BigInt(song.chainId),
     }],
   });
+};
 function lineData(manifest: KaraokeManifest, attemptId: Hex, outcome: LineOutcome, ordinal: number) {
   const line = manifest.lines[ordinal - 1];
   check(line.lineId === outcome.lineId && line.lineVersion === outcome.lineVersion, "line_list_mismatch");
@@ -314,7 +317,7 @@ export async function publish(env: Env, store: Store, ticketId: string) {
       throw new Error("simulated_crash_before_open");
     }
   }
-  enqueue(store, "record_open", attemptId, records, openData(env, ticket, stored), RECORD_GAS.open);
+  enqueue(store, "record_open", attemptId, records, openData(env, ticket, manifest, stored), RECORD_GAS.open);
   const opened = await step(env, store, "record_open", attemptId);
   if (opened === undefined) return publication;
   if (!opened) return failed(store, ticketId, publication, "open_reverted");

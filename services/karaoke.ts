@@ -30,7 +30,7 @@ import {
   refreshRedemptions,
 } from "./purchases.ts";
 import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
-import { acceptConsent, consentRequest, correct, publish } from "./records.ts";
+import { acceptConsent, consentRequest, correct, publicationOf, publish } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
 const load = (store: Store, ticketId: string) => {
@@ -191,6 +191,7 @@ export async function karaokeRoute(
       ticket.operator === env.OPERATOR_ADDRESS &&
         ticket.quoteId === quoteIdOf(quote) &&
         ticket.manifestSha256 === digest(input.manifest) &&
+        ticket.songHash === input.manifest.songHash &&
         ticket.expiresAt > store.now(),
       "invalid_ticket",
     );
@@ -211,6 +212,26 @@ export async function karaokeRoute(
     // The correction is recorded here; operator ticks publish it.
     const corrected = await correct(env, store, await body<Parameters<typeof correct>[2]>(request));
     return Response.json({ revision: corrected.revision });
+  }
+  if (url.pathname === "/consent") {
+    // The same consent the socket accepts, for a learner whose attempt has
+    // ended or whose socket closed: only the learner's signature is accepted.
+    const input = await body<{ ticketId: string; signature: Hex }>(request);
+    const attempt = store.get<Attempt>(`attempt:${input.ticketId}`);
+    check(attempt, "attempt_not_found");
+    await acceptConsent(env, store, input.ticketId, attempt, input.signature);
+    return Response.json({ consented: true, attemptId: attempt.attemptId });
+  }
+  if (url.pathname === "/record") {
+    // What the learner's screen shows about the on-chain record.
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    const attempt = store.get<Attempt>(`attempt:${ticketId}`);
+    check(attempt, "attempt_not_found");
+    return Response.json({
+      attemptId: attempt.attemptId,
+      consented: store.get(`consent:${ticketId}`) !== undefined,
+      publication: publicationOf(store, ticketId) ?? null,
+    });
   }
   if (url.pathname === "/result") {
     const { ticketId } = await body<{ ticketId: string }>(request);

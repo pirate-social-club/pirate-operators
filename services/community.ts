@@ -25,6 +25,7 @@ import {
 import {
   communityTick,
   ensureTicket,
+  trustedQuote,
   openTicket,
   settleTicket,
   signAdmissionPurchase,
@@ -34,24 +35,6 @@ import { body, call, type Env, signatureChainId } from "./runtime.ts";
 import type { AsyncStore } from "./storage.ts";
 
 const rewardPolicy = { minRewardScoreBps: 7000, maxUnmeasuredBps: 1000 };
-
-/** Fetches and checks the operator's quote against the community's payment profile. */
-async function trustedQuote(env: Env, store: AsyncStore) {
-  const signed = await call<Signed<OperatorQuote>>(env.OPERATOR, "/quote", {});
-  const quote = await verify(signed, "quote", env.OPERATOR_ADDRESS, signatureChainId(env));
-  const now = await store.now();
-  check(
-    quote.operator === env.OPERATOR_ADDRESS &&
-      quote.chainId === Number(env.PAYMENT_CHAIN_ID) &&
-      quote.token.toLowerCase() === env.PAYMENT_TOKEN?.toLowerCase() &&
-      quote.payments.toLowerCase() === env.PAYMENTS_CONTRACT?.toLowerCase() &&
-      quote.validFrom <= now &&
-      now < quote.validUntil,
-    "untrusted_quote",
-  );
-  await store.set(`quote:${quoteIdOf(quote)}`, quote);
-  return quote;
-}
 
 export async function community(request: Request, env: Env, store: AsyncStore) {
   const path = new URL(request.url).pathname;

@@ -9,6 +9,7 @@ import {
   type Hex,
 } from "viem";
 import { check, digest } from "./index.ts";
+import { songKeyOf } from "./records.ts";
 
 export const RECONNECT_WINDOW_S = 30;
 export const PAYMENT_GRACE_S = 10;
@@ -126,23 +127,50 @@ export interface ManifestSegment {
   endMs: number;
   lineIds: string[];
 }
+/**
+ * The published post a manifest belongs to, in LearningRecords song-key form.
+ * When present, `songHash` is its song key, so a ticket's signed manifest
+ * digest also binds the song identity the operator records.
+ */
+export interface ManifestSong {
+  chainId: number;
+  posts: Address;
+  communityId: Hex;
+  postId: Hex;
+}
 export interface KaraokeManifest {
   manifestVersion: "pirate.karaoke.manifest/1";
   songHash: Hex;
   lines: ManifestLine[];
   segments: ManifestSegment[];
+  song?: ManifestSong;
 }
+/** Local fixture IDs, or the bytes32 occurrence IDs of a published lyric manifest. */
+const LINE_ID = /^(?:[A-Za-z0-9_-]{1,64}|0x[0-9a-f]{64})$/;
+const BYTES32 = /^0x[0-9a-f]{64}$/;
 
 /** Every scored line belongs to exactly one segment; no line is split. */
 export function validateManifest(manifest: KaraokeManifest, maxSegmentMs: number) {
   check(manifest.manifestVersion === "pirate.karaoke.manifest/1", "invalid_manifest");
   check(manifest.lines.length > 0 && manifest.lines.length <= 500, "invalid_manifest");
+  if (manifest.song !== undefined) {
+    const song = manifest.song;
+    check(
+      Number.isSafeInteger(song.chainId) &&
+        song.chainId > 0 &&
+        /^0x[0-9a-f]{40}$/.test(song.posts) &&
+        BYTES32.test(song.communityId) &&
+        BYTES32.test(song.postId) &&
+        manifest.songHash === songKeyOf(song),
+      "invalid_manifest",
+    );
+  }
   const lines = new Map<string, ManifestLine>();
   manifest.lines.forEach((line, i) => {
     check(
       line.ordinal === i + 1 &&
         !lines.has(line.lineId) &&
-        /^[A-Za-z0-9_-]{1,64}$/.test(line.lineId) &&
+        LINE_ID.test(line.lineId) &&
         Number.isSafeInteger(line.lineVersion) &&
         line.lineVersion >= 1 &&
         line.startMs >= 0 &&
