@@ -1,0 +1,22 @@
+(node:2600193) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ independent readers replay the retained public run without inventing a pre-policy day (76.705052ms)
+✔ same-day retries deduplicate, tied ranks leave gaps, and ineligible learners retain history without a rank (115.849134ms)
+✔ correction repairs the original day/policy; invalidation and controller restoration never create duplicate days (123.939733ms)
+✔ abandonment preserves assessed outcomes; unattempted stays in denominator and missing measurement remains null (50.210907ms)
+✔ an unavailable new policy cannot fall back to the previous policy (28.380307ms)
+✔ future eligibility and streak expiry use the supplied evaluation time without another result (77.317485ms)
+✔ completion at 16:59:59 and 17:00:00 uses different learning days despite later publication (27.322515ms)
+✔ a replaced chain suffix rebuilds from empty and cannot retain an orphaned qualifying day (35.504246ms)
+✔ a shortened grader manifest cannot discard failed or unreached source lines (23.378556ms)
+✔ incomplete coverage is rejected even when its supplied commitment is internally consistent (22.674059ms)
+✔ changed policy bytes cannot lower a threshold and retroactive activation is refused (27.360326ms)
+✔ independent SQL scope unit: five songs in one period earn one community day and five song days (10.815753ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 12
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1053.060617

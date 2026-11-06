@@ -1,0 +1,200 @@
+{
+  "records": [
+    {
+      "key": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74:0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+      "contract": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74",
+      "community": "6343:0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "song": "0x73f24b23512e340848f9311a4cd07827508b8852337e5a8a0649a752358c9161",
+      "learner": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+      "period": 4,
+      "activity": 1,
+      "grader": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "scoring": "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d",
+      "policy": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "status": 1,
+      "verified": true,
+      "outcomes": [
+        {
+          "ordinal": 1,
+          "status": 1,
+          "grade": 9661
+        },
+        {
+          "ordinal": 2,
+          "status": 1,
+          "grade": 6611
+        },
+        {
+          "ordinal": 3,
+          "status": 1,
+          "grade": 7101
+        },
+        {
+          "ordinal": 4,
+          "status": 1,
+          "grade": 8534
+        },
+        {
+          "ordinal": 5,
+          "status": 1,
+          "grade": 9697
+        },
+        {
+          "ordinal": 6,
+          "status": 1,
+          "grade": 9674
+        },
+        {
+          "ordinal": 7,
+          "status": 1,
+          "grade": 9685
+        },
+        {
+          "ordinal": 8,
+          "status": 1,
+          "grade": 8382
+        },
+        {
+          "ordinal": 9,
+          "status": 1,
+          "grade": 8335
+        },
+        {
+          "ordinal": 10,
+          "status": 1,
+          "grade": 8990
+        },
+        {
+          "ordinal": 11,
+          "status": 1,
+          "grade": 9676
+        },
+        {
+          "ordinal": 12,
+          "status": 1,
+          "grade": 3030
+        },
+        {
+          "ordinal": 13,
+          "status": 1,
+          "grade": 7281
+        },
+        {
+          "ordinal": 14,
+          "status": 1,
+          "grade": 9686
+        },
+        {
+          "ordinal": 15,
+          "status": 1,
+          "grade": 6567
+        },
+        {
+          "ordinal": 16,
+          "status": 1,
+          "grade": 5888
+        },
+        {
+          "ordinal": 17,
+          "status": 1,
+          "grade": 9661
+        },
+        {
+          "ordinal": 18,
+          "status": 1,
+          "grade": 7499
+        },
+        {
+          "ordinal": 19,
+          "status": 1,
+          "grade": 8186
+        },
+        {
+          "ordinal": 20,
+          "status": 1,
+          "grade": 9687
+        },
+        {
+          "ordinal": 21,
+          "status": 1,
+          "grade": 5867
+        },
+        {
+          "ordinal": 22,
+          "status": 1,
+          "grade": 9720
+        },
+        {
+          "ordinal": 23,
+          "status": 2,
+          "grade": null
+        }
+      ],
+      "header": {
+        "sessionId": "0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+        "learner": "0xa1FFB1ae235aA526188F6faCdc34eEf1AB4fDAe3",
+        "enrollmentId": "0x881c557d805b4b6a033c90bbd9ff1b44a7cd6058307c812ee952111f0d63e07f",
+        "song": {
+          "chainId": "6343",
+          "posts": "0xA5c155058dD8C6Befae7Dcb6562277dAD77F6045",
+          "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+          "postId": "0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e"
+        },
+        "contentRevision": "0xc34fa14f5ef8eb4b8b98e548baec5557dbcdaedae52092ffea7ef6828a03ecfe",
+        "exercisesHash": "0x2cb8154800fe67ce78a7afcd96485aa7d38104b897baf2e601075d5d24c57c09",
+        "linesTotal": 23,
+        "activity": 1,
+        "grader": "0x14B90A55657D9695A727254EAec5E0e32D20d602",
+        "scoringPolicy": "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d",
+        "qualificationPolicy": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "startedAt": "1793957831",
+        "completedAt": "1793958006",
+        "status": 1,
+        "revision": 1,
+        "supersedes": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "wire": "0x00010125bd00020119d30003011bbd000401215600050125e100060125ca00070125d500080120be000901208f000a01231e000b0125cc000c010bd6000d011c71000e0125d6000f0119a7001001170000110125bd0012011d4b0013011ffa00140125d700150116eb00160125f80017020000",
+      "commitment": "0x1d1557caaa1051345e329890e4389b8dc235ef741f47db76f568b8d0f6c89903",
+      "problems": []
+    }
+  ],
+  "policies": [
+    {
+      "contract": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74",
+      "hash": "0x1666cd182f8fed52dd49b575f4fb5081e6c8af40fbe855cc38d7c19bce06438c",
+      "period": 5,
+      "document": {
+        "activity": 1,
+        "clockVersion": 1,
+        "graders": [
+          "0x14b90a55657d9695a727254eaec5e0e32d20d602"
+        ],
+        "maxUnmeasuredBps": 1000,
+        "minScoreBps": 7000,
+        "rewards": false,
+        "schema": "pirate.learning-policy/2",
+        "scoringPolicies": [
+          "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d"
+        ],
+        "terminalStatuses": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "version": "pirate.karaoke-testnet/2026-11-06/1"
+      }
+    }
+  ],
+  "eligibility": [],
+  "rows": [],
+  "days": [],
+  "scores": [
+    {
+      "key": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74:0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+      "lines": 23,
+      "unmeasured": 0,
+      "scoreBps": 7800
+    }
+  ]
+}

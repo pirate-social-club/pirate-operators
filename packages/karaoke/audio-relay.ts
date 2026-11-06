@@ -35,6 +35,8 @@ export interface KaraokeRelaySnapshot {
   forwardedWords: number;
   forwardedFailedLineIds: string[];
   lastSequence: number | null;
+  /** Last received song-time boundary; absent in snapshots saved before this field. */
+  lastAudioEndMs?: number;
   sttSequence: number;
   terminal: string | null;
 }
@@ -124,7 +126,20 @@ export class KaraokeAudioRelay {
       frame.sequence <= this.state.lastSequence
     )
       throw new KaraokeAudioError("sequence_out_of_order");
+    // A fresh take starts at zero even if its first frames never arrive. An
+    // older snapshot with received audio but no saved boundary is unknown;
+    // do not retroactively invent loss over its already-measured history.
+    const previousEnd =
+      this.state.lastAudioEndMs ??
+      (this.state.lastSequence === null ? 0 : undefined);
     this.state.lastSequence = frame.sequence;
+    this.state.lastAudioEndMs = frame.songEndMs;
+    if (previousEnd !== undefined && frame.songStartMs > previousEnd) {
+      // A replacement socket can lose queued audio from its predecessor. A
+      // later provider acknowledgement cannot measure that missing interval.
+      this.failRange(previousEnd, frame.songStartMs, false);
+      this.save();
+    }
     if (this.closed || this.state.terminal !== null) return this.save();
     this.submittedMs = Math.max(this.submittedMs, frame.songEndMs);
     if (this.reconnecting) {
@@ -176,6 +191,9 @@ export class KaraokeAudioRelay {
     }
     this.coveredMs = Math.min(this.coveredMs, songMs);
     this.submittedMs = songMs;
+    // An explicit seek deliberately changes the audio cursor. It is distinct
+    // from an unexplained gap between consecutive received frames.
+    this.state.lastAudioEndMs = songMs;
     this.save();
   }
 
