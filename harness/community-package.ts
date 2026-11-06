@@ -18,6 +18,7 @@ import { build } from "esbuild";
 import { hashJson, hashText, insist } from "../packages/community/common.ts";
 import { fileDigest } from "./creator-state.ts";
 import { firstSong } from "../services/first-song-profile.ts";
+import { learningCommunityProfile } from "./learning-community-profile.ts";
 
 export const communityBase = join(
   homedir(),
@@ -74,6 +75,7 @@ export async function artifactFiles(
   return found.sort();
 }
 export async function communityPackage() {
+  const learning = await learningCommunityProfile();
   const run = promisify(execFile),
     clean = {
       PATH: process.env.PATH,
@@ -281,7 +283,8 @@ export async function communityPackage() {
       maximumPublicationFee: "30000000000000",
     },
     acceptance:
-      "Managed first-song ROOT publication, interrupted processing and anonymous playback after reload",
+      learning.acceptance,
+    learning,
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
   };

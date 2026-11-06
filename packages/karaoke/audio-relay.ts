@@ -206,17 +206,6 @@ export class KaraokeAudioRelay {
     );
   }
 
-  /** Words and failed lines not yet given to the scorer; marks them forwarded. */
-  /** True when words or failure marks have arrived since the last drain. */
-  hasUndrained(): boolean {
-    return (
-      this.state.words.length > this.state.forwardedWords ||
-      this.state.failedLineIds.some(
-        (id) => !this.state.forwardedFailedLineIds.includes(id),
-      )
-    );
-  }
-
   drain(): { words: KaraokeRecognizedWord[]; failedLineIds: string[] } {
     const words = this.state.words.slice(this.state.forwardedWords);
     const failedLineIds = this.state.failedLineIds.filter(

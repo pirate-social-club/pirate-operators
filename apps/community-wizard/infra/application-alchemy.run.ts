@@ -59,8 +59,20 @@ export default Alchemy.Stack(
         COMMUNITY_PUBLISHER_PRIVATE_KEY: Config.Redacted(
           "COMMUNITY_PUBLISHER_PRIVATE_KEY",
         ),
+        ALIGNMENT_ELEVENLABS_API_KEY: Config.Redacted("LEARNING_ELEVENLABS_API_KEY"),
+        KARAOKE_SERVICE_MODE: "internal",
+        KARAOKE_OPERATOR_ADDRESS: process.env.LEARNING_OPERATOR_ADDRESS!,
+        KARAOKE_OPERATOR_ORIGIN: process.env.LEARNING_OPERATOR_ORIGIN!,
+        KARAOKE_SIGNER_PRIVATE_KEY: Config.Redacted("LEARNING_ISSUER_PRIVATE_KEY"),
+        KARAOKE_COMMUNITY_ADDRESS: process.env.LEARNING_ISSUER_ADDRESS!,
+        KARAOKE_PAYMENT_CHAIN_ID: "6343",
+        KARAOKE_SIGNATURE_CHAIN_ID: "6343",
+        KARAOKE_PAYMENT_TOKEN: "0x0000000000000000000000000000000000000000",
+        KARAOKE_RPC_URL: "https://carrot.megaeth.com/rpc",
+        KARAOKE_SPEECH_BUDGET: Cloudflare.DurableObject("SpeechBudget", { scriptName: "pirate-learning-testnet-v2" }),
       },
     });
+    yield* app.bind`learning-operator`({ bindings: [{ type: "service", name: "KARAOKE_OPERATOR", service: "pirate-learning-testnet-v2" }] });
     yield* Cloudflare.Queues.Consumer("Consumer", {
       queueId: JOBS.queueId,
       scriptName: app.workerName,

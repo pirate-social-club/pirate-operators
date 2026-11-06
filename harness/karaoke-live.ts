@@ -6,6 +6,7 @@
 // OperatorPayments and LearningRecords. The stems are generated stand-ins.
 // Local acceptance only; nothing here is packaged or deployed.
 import { build } from "esbuild";
+import { digest } from "../packages/protocol/index.ts";
 import { Miniflare } from "miniflare";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -157,6 +158,7 @@ export const controller = privateKeyToAccount(`0x${"13".repeat(32)}`);
 export const SIMULATED_KEY = "simulated-elevenlabs-key";
 
 export interface LiveOptions {
+  internalResults?: boolean;
   evm: LocalChain;
   now: number;
   streams: SimulatedStream[];
@@ -209,6 +211,9 @@ export async function karaokeLive(
         }),
       ],
     );
+  const resultsV2 = options.internalResults ? await evm.deploy("LearningResultsV2", [accounts[3].address, config.communityId, digest("fixture-publicity")]) : undefined;
+  if (resultsV2) await evm.write(resultsV2, "LearningResultsV2", "setGrader", [accounts[2].address, 1, true], 3);
+  if (resultsV2) config.learningRecords = resultsV2.toLowerCase() as Address;
   const [operator, simulator] = await Promise.all([
     bundle("services/karaoke-audio-runtime.ts"),
     bundle("harness/karaoke-elevenlabs-simulator.ts"),
@@ -241,7 +246,8 @@ export async function karaokeLive(
           PAYMENT_CHAIN_ID: "31337",
           PAYMENT_TOKEN: evm.paymentToken,
           PAYMENTS_CONTRACT: evm.paymentsContract,
-          RECORDS_CONTRACT: evm.recordsContract,
+          ...(resultsV2 ? { RESULTS_V2_CONTRACT: resultsV2, SERVICE_MODE: "internal", HISTORY_RETENTION_DAYS: "30",
+            SPONSOR_CAP_WEI: "1000000000000000000", SPONSOR_GAS_PRICE_WEI: "10000000000", SPONSOR_GAS_LIMIT: "2000000", SPONSOR_DATA_FEE_WEI: "0" } : { RECORDS_CONTRACT: evm.recordsContract }),
           COMMUNITY_ADDRESS: accounts[3]!.address,
           ACCOUNT_DELEGATE: evm.mockAccount,
           ACCOUNT_INITIALIZER: evm.mockInitializer,
@@ -302,6 +308,7 @@ export async function karaokeLive(
       APPLICATION_PROFILE_HASH: `0x${"a".repeat(64)}`,
       CREATOR_PROFILE_HASH: `0x${"b".repeat(64)}`,
       COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
+      ...(resultsV2 ? { KARAOKE_SERVICE_MODE: "internal", KARAOKE_SPEECH_BUDGET: { getByName: () => ({ claim: async () => ({ fixture: true }) }) } } : {}),
       KARAOKE_OPERATOR: operatorWorker,
       KARAOKE_OPERATOR_ADDRESS: accounts[2]!.address,
       // A browser reaches the operator at Miniflare's address through its routes.
@@ -347,8 +354,14 @@ export async function karaokeLive(
       },
       now: () => now * 1000,
     };
-    const app = (path: string, init: RequestInit = {}) =>
-      communityFetch(new Request(firstSong.origin + path, init), env, ports);
+    const app = async (path: string, init: RequestInit = {}) => {
+      const response = await communityFetch(new Request(firstSong.origin + path, init), env, ports);
+      // Anvil automining can advance a block past the simulated wall clock.
+      // Real enrollment cannot authorize a practice start before its inclusion.
+      if (resultsV2 && path === "/api/karaoke/enrollment" && response.ok)
+        await at(Math.max(now, Number((await evm.publicClient.getBlock()).timestamp)));
+      return response;
+    };
     const json = async <T>(response: Response) => ({
       status: response.status,
       value: (await response.json()) as T,
@@ -581,6 +594,7 @@ export async function karaokeLive(
       };
     return {
       mf,
+    resultsV2,
       persist,
       config,
       env,

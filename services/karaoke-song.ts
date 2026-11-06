@@ -164,6 +164,7 @@ async function verifiedRequest(
 }
 
 export interface AlignmentRunPorts {
+  beforeSend?: () => Promise<void>;
   apiKey?: string;
   transport?: ProviderTransport;
   now?: () => number;
@@ -230,6 +231,7 @@ export async function runSongAlignment(
         const stored = await stemBytes(media, stem),
           vocal = new Uint8Array(await stored.arrayBuffer());
         insist(sha256(vocal) === stem.sha256, "published_stem_changed", 503);
+        await ports.beforeSend?.();
         return sendAlignment({
           vocal,
           vocalSha256: stem.sha256,

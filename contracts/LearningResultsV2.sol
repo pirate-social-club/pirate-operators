@@ -30,18 +30,21 @@ contract LearningResultsV2 {
         uint64 expiresAt;
         uint64 nonce;
     }
+
     struct Grant {
         bytes32 id;
         uint256 activities;
         uint64 issuedAt;
         uint64 expiresAt;
     }
+
     struct Song {
         uint256 chainId;
         address posts;
         bytes32 communityId;
         bytes32 postId;
     }
+
     struct Result {
         bytes32 sessionId;
         address learner;
@@ -60,7 +63,11 @@ contract LearningResultsV2 {
         uint32 revision;
         bytes32 supersedes;
     }
-    struct Activation { bytes32 policy; uint64 period; }
+
+    struct Activation {
+        bytes32 policy;
+        uint64 period;
+    }
     mapping(address => uint64) public nextNonce;
     mapping(address => Grant) public enrollments;
     mapping(address => mapping(uint8 => bool)) public graders;
@@ -73,21 +80,36 @@ contract LearningResultsV2 {
     event Revoked(address indexed learner, bytes32 indexed enrollmentId, uint64 nonce);
     event PolicyActivated(bytes32 indexed policyHash, string policyURI, uint64 effectivePeriod, uint8 clockVersion);
     event EligibilityChanged(address indexed learner, bool eligible, uint64 effectiveAt, bytes32 reasonCode);
-    event ResultPublished(bytes32 indexed sessionId, address indexed learner, uint32 indexed revision,
-        Result result, bytes outcomes, bytes32 commitment);
+    event ResultPublished(
+        bytes32 indexed sessionId,
+        address indexed learner,
+        uint32 indexed revision,
+        Result result,
+        bytes outcomes,
+        bytes32 commitment,
+        address publisher
+    );
     event ResultInvalidated(bytes32 indexed sessionId, uint32 indexed revision, bytes32 reason);
 
-    modifier onlyController() { require(msg.sender == controller, "not_controller"); _; }
+    modifier onlyController() {
+        require(msg.sender == controller, "not_controller");
+        _;
+    }
 
     constructor(address authority, bytes32 community, bytes32 publicity) {
         require(authority != address(0) && community != 0 && publicity != 0, "invalid_configuration");
         controller = authority;
         communityId = community;
         publicityPolicy = publicity;
-        DOMAIN_SEPARATOR = keccak256(abi.encode(
-            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-            keccak256("Pirate Learning Results"), keccak256("2"), block.chainid, address(this)
-        ));
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Pirate Learning Results"),
+                keccak256("2"),
+                block.chainid,
+                address(this)
+            )
+        );
         emit ControllerChanged(authority);
     }
 
@@ -109,8 +131,10 @@ contract LearningResultsV2 {
 
     /// @notice Anyone may relay a learner's enrollment; the relay gains no authority.
     function enroll(Enrollment calldata e, bytes calldata signature) external {
-        require(e.learner != address(0) && e.communityId == communityId && e.publicityPolicy == publicityPolicy,
-            "invalid_enrollment");
+        require(
+            e.learner != address(0) && e.communityId == communityId && e.publicityPolicy == publicityPolicy,
+            "invalid_enrollment"
+        );
         require(e.activities == 1 && e.expiresAt > block.timestamp, "invalid_scope");
         require(e.nonce == nextNonce[e.learner], "stale_nonce");
         bytes32 id = enrollmentDigest(e);
@@ -127,7 +151,9 @@ contract LearningResultsV2 {
     /// @notice Direct account call or sponsored relay of an authenticated revocation.
     function revoke(address learner, uint64 nonce, bytes calldata signature) external {
         require(learner != address(0) && nonce == nextNonce[learner], "stale_nonce");
-        require(msg.sender == learner || _valid(learner, revocationDigest(learner, nonce), signature), "invalid_consent");
+        require(
+            msg.sender == learner || _valid(learner, revocationDigest(learner, nonce), signature), "invalid_consent"
+        );
         bytes32 id = enrollments[learner].id;
         nextNonce[learner] = nonce + 1;
         delete enrollments[learner];
@@ -140,20 +166,29 @@ contract LearningResultsV2 {
     }
 
     function activatePolicy(bytes32 policy, string calldata uri, uint64 period) external onlyController {
-        require(policy != 0 && period > (block.timestamp < EPOCH_START ? 0 : (block.timestamp - EPOCH_START) / PERIOD_SECONDS),
-            "activation_not_prospective");
-        require(activations.length == 0 || period > activations[activations.length - 1].period, "activation_not_increasing");
+        require(
+            policy != 0
+                && period > (block.timestamp < EPOCH_START ? 0 : (block.timestamp - EPOCH_START) / PERIOD_SECONDS),
+            "activation_not_prospective"
+        );
+        require(
+            activations.length == 0 || period > activations[activations.length - 1].period, "activation_not_increasing"
+        );
         activations.push(Activation(policy, period));
         emit PolicyActivated(policy, uri, period, 1);
     }
 
     function policyFor(uint64 period) public view returns (bytes32) {
-        for (uint256 i = activations.length; i > 0; --i)
+        for (uint256 i = activations.length; i > 0; --i) {
             if (activations[i - 1].period <= period) return activations[i - 1].policy;
+        }
         return bytes32(0);
     }
 
-    function setEligibility(address learner, bool eligible, uint64 effectiveAt, bytes32 reason) external onlyController {
+    function setEligibility(address learner, bool eligible, uint64 effectiveAt, bytes32 reason)
+        external
+        onlyController
+    {
         emit EligibilityChanged(learner, eligible, effectiveAt, reason);
     }
 
@@ -163,14 +198,17 @@ contract LearningResultsV2 {
         require(r.revision == 1 && r.supersedes == 0 && commitments[r.sessionId] == 0, "duplicate_or_revision");
         require(msg.sender == r.grader && graders[r.grader][r.activity], "not_grader");
         Grant memory grant = enrollments[r.learner];
-        require(grant.id != 0 && grant.id == r.enrollmentId && block.timestamp < grant.expiresAt,
-            "enrollment_inactive");
+        require(grant.id != 0 && grant.id == r.enrollmentId && block.timestamp < grant.expiresAt, "enrollment_inactive");
         require(r.activity == KARAOKE && grant.activities & 1 != 0, "unsupported_activity");
-        require(r.startedAt >= grant.issuedAt && r.completedAt >= r.startedAt && r.completedAt <= block.timestamp,
-            "invalid_time");
-        require(r.sessionId != 0 && r.learner != address(0) && r.song.posts != address(0) && r.song.chainId != 0 &&
-            r.song.communityId != 0 && r.song.postId != 0 && r.contentRevision != 0 && r.scoringPolicy != 0,
-            "invalid_context");
+        require(
+            r.startedAt >= grant.issuedAt && r.completedAt >= r.startedAt && r.completedAt <= block.timestamp,
+            "invalid_time"
+        );
+        require(
+            r.sessionId != 0 && r.learner != address(0) && r.song.posts != address(0) && r.song.chainId != 0
+                && r.song.communityId != 0 && r.song.postId != 0 && r.contentRevision != 0 && r.scoringPolicy != 0,
+            "invalid_context"
+        );
         require(r.qualificationPolicy == policyFor(periodOf(r.completedAt)), "wrong_policy");
         require(r.status >= 1 && r.status <= 4, "invalid_terminal_status");
         _coverage(r.linesTotal, r.exercisesHash, outcomes);
@@ -179,10 +217,15 @@ contract LearningResultsV2 {
 
     /// @notice Previous data proves immutable context without storing every field.
     /// Corrections remain possible after publication consent expires or is revoked.
-    function correct(Result calldata previous, bytes calldata oldOutcomes, bytes calldata outcomes, uint8 status) external {
+    function correct(Result calldata previous, bytes calldata oldOutcomes, bytes calldata outcomes, uint8 status)
+        external
+    {
         _previous(previous, oldOutcomes);
-        require(msg.sender == controller ||
-            (previous.status != 5 && msg.sender == previous.grader && graders[msg.sender][previous.activity]), "not_corrector");
+        require(
+            msg.sender == controller
+                || (previous.status != 5 && msg.sender == previous.grader && graders[msg.sender][previous.activity]),
+            "not_corrector"
+        );
         require(status >= 1 && status <= 4, "invalid_terminal_status");
         _coverage(previous.linesTotal, previous.exercisesHash, outcomes);
         require(keccak256(outcomes) != keccak256(oldOutcomes) || status != previous.status, "no_change");
@@ -215,7 +258,7 @@ contract LearningResultsV2 {
     function _record(Result memory r, bytes memory outcomes) private {
         bytes32 commitment = commitmentOf(r, outcomes);
         commitments[r.sessionId] = commitment;
-        emit ResultPublished(r.sessionId, r.learner, r.revision, r, outcomes, commitment);
+        emit ResultPublished(r.sessionId, r.learner, r.revision, r, outcomes, commitment, msg.sender);
     }
 
     function _coverage(uint16 count, bytes32 exerciseHash, bytes calldata outcomes) private pure {
@@ -242,16 +285,22 @@ contract LearningResultsV2 {
         if (learner.code.length != 0) {
             try ResultConsent1271(learner).isValidSignature(digest, signature) returns (bytes4 magic) {
                 return magic == 0x1626ba7e;
-            } catch { return false; }
+            } catch {
+                return false;
+            }
         }
         if (signature.length != 65) return false;
-        bytes32 r; bytes32 s; uint8 v;
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
         assembly {
             r := calldataload(signature.offset)
             s := calldataload(add(signature.offset, 32))
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
-        if (uint256(s) > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0 || (v != 27 && v != 28)) return false;
+        if (uint256(s) > 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0 || (v != 27 && v != 28)) {
+            return false;
+        }
         address signer = ecrecover(digest, v, r, s);
         return signer != address(0) && signer == learner;
     }

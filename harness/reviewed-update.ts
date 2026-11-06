@@ -3,6 +3,7 @@ import {
   publishedBaselines,
 } from "./published-state.ts";
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
+import { assertLearningApplicationUpgrade, learningApplicationBaseline } from "./learning-community-profile.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
@@ -106,6 +107,8 @@ export async function reviewedPredecessor(
         packaged.profile,
         "application",
       );
+    else if (previous.profileHash === learningApplicationBaseline)
+      assertLearningApplicationUpgrade(object(previous.profile), packaged.profile);
     else
       insist(false, "reviewed_update_changes_resource_or_spending_intent", 409);
   }

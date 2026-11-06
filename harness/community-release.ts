@@ -275,12 +275,24 @@ async function main() {
     );
     const keys = JSON.parse(await readFile(keyPath, "utf8")),
       publisherKey = keys.keys.operator;
+    const issuerKey = keys.keys.communityAdmin;
     insist(
       keys.chainId === 6343 &&
         privateKeyToAccount(publisherKey).address.toLowerCase() ===
           profile.publisher,
       "community_publisher_identity_changed",
       409,
+    );
+    insist(
+      privateKeyToAccount(issuerKey).address.toLowerCase() ===
+        profile.learning.issuer,
+      "learning_issuer_changed",
+      409,
+    );
+    const speech = await get(
+      profile.learning.providerCredential.projectId,
+      profile.learning.providerCredential.path,
+      profile.learning.providerCredential.key,
     );
     await bindCommunityPublisher(sdk, profile, publisherKey, get);
     await restoreCommunityState(directory, profile, password);
@@ -300,8 +312,13 @@ async function main() {
         REGISTRATION_OPERATOR_ADDRESS:
           profile.releaseGrant.registration.operator,
         POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+        LEARNING_ELEVENLABS_API_KEY: speech,
+        LEARNING_OPERATOR_ADDRESS: profile.learning.operator,
+        LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,
+        LEARNING_ISSUER_ADDRESS: profile.learning.issuer,
+        LEARNING_ISSUER_PRIVATE_KEY: issuerKey,
       },
-      secrets = [password, publisherKey, token],
+      secrets = [password, publisherKey, token, issuerKey, speech],
       logs: string[] = [];
     for (const command of ["plan", "deploy"]) {
       await inspectPrivateFiles(cwd, secrets);

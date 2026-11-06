@@ -40,6 +40,7 @@ import { publishedKaraoke } from "./karaoke-song.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
 export interface KaraokeEnv {
+  KARAOKE_SPEECH_BUDGET?: DurableObjectNamespace<import("./speech-budget.ts").SpeechBudget>;
   KARAOKE_SERVICE_MODE?: "internal";
   KARAOKE_OPERATOR?: Fetcher;
   KARAOKE_OPERATOR_ADDRESS?: string;
@@ -401,4 +402,11 @@ export async function karaokeHistory(ports: KaraokePorts, learner: KaraokeLearne
   const env = runtimeEnv(ports.env, ports.config), store = new KaraokeStore(ports.db, ports.now ?? Date.now);
   const ticketId = bytes32(value.ticketId), ticket = await ownedTicket(store, learner.wallet, ticketId);
   return call(env.OPERATOR, "/history", { ticketId, proof: await connectionProof(store, ticket.body.sessionKey, ticketId) });
+}
+
+export async function karaokeRevokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
+  const env = runtimeEnv(ports.env, ports.config);
+  check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
+  return call(env.OPERATOR, "/enrollment/revoke", { learner: learner.wallet,
+    ...(value.signature ? { nonce: String(object(value.message).nonce), signature: value.signature } : {}) });
 }

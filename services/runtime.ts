@@ -186,10 +186,15 @@ export class ServiceState extends DurableObject<Env> {
       // Reconcile unknown receipts and abandoned takes independently of browsers.
       const attempts = this.store.entries("attempt:");
       const pending = attempts.some(({ key, value }) => !(value as { finalized?: boolean }).finalized ||
-        this.store.get<{ state: string }>(`publicationV2:${key.slice(8)}`)?.state === "pending");
+        ((publication) => publication?.state === "pending" || (publication?.state === "published" && !publication.confirmed))(
+          this.store.get<{ state: string; confirmed?: boolean }>(`publicationV2:${key.slice(8)}`)));
       const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
+      const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
       const expiries = this.store.entries("history:").map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
-      const due = Math.min(...expiries, pending ? Date.now() + 5000 : unsettled ? Date.now() + 30000 : Infinity);
+      const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
+        .filter((publication) => publication.state === "published" && publication.confirmed)
+        .map((publication) => ((publication.checkedAt ?? this.store.now()) + 3600) * 1000);
+      const due = Math.min(...expiries, ...audits, pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
       if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
     }
   }

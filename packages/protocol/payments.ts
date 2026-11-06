@@ -145,6 +145,7 @@ export interface KaraokeManifest {
   lines: ManifestLine[];
   segments: ManifestSegment[];
   song?: ManifestSong;
+  source?: { lyricsRevision: number; lyricsSha256: Hex };
 }
 /** Local fixture IDs, or the bytes32 occurrence IDs of a published lyric manifest. */
 const LINE_ID = /^(?:[A-Za-z0-9_-]{1,64}|0x[0-9a-f]{64})$/;

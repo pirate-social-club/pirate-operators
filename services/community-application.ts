@@ -61,6 +61,7 @@ import {
 import {
   karaokeAttempt,
   karaokeEnrollment,
+  karaokeRevokeEnrollment,
   karaokeHistory,
   karaokeConsent,
   karaokePurchase,
@@ -306,6 +307,10 @@ export async function communityFetch(
             apiKey: env.ALIGNMENT_ELEVENLABS_API_KEY,
             transport: ports.alignmentTransport,
             now: ports.now,
+            beforeSend: env.KARAOKE_SERVICE_MODE === "internal" ? async () => {
+              insist(env.KARAOKE_SPEECH_BUDGET, "speech_budget_unconfigured", 503);
+              await env.KARAOKE_SPEECH_BUDGET.getByName("elevenlabs-service").claim();
+            } : undefined,
           },
         ),
       );
@@ -351,6 +356,7 @@ export async function communityFetch(
       const capabilities: CommunityCapabilities = {
         schema: "pirate.community-capabilities/1",
         signIn: true,
+        ...(env.KARAOKE_SERVICE_MODE === "internal" ? { learningServiceMode: "internal" as const } : {}),
         creatorConnection: await ports.creatorHealth(),
         upload: releaseReady,
         publication: releaseReady,
@@ -400,8 +406,7 @@ export async function communityFetch(
         405,
       );
       return reply(
-        { ...await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
-          ...(env.KARAOKE_SERVICE_MODE === "internal" ? { serviceMode: "internal" } : {}) },
+        await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
       );
     }
     const instrumental =
@@ -457,6 +462,8 @@ export async function communityFetch(
       const session = await authenticatedWrite(request, env.DB, context);
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollment/revoke")
+        return reply(await karaokeRevokeEnrollment(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/enrollment")
         return reply(await karaokeEnrollment(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/tickets")

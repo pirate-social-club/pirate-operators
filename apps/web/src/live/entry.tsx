@@ -279,6 +279,7 @@ function App() {
             title={singing()!.title}
             csrf={session()!.csrf}
             wallet={mossWallet}
+            serviceMode={capabilities()?.learningServiceMode}
             onExit={() => setSinging(null)}
           />
         </div>

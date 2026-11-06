@@ -23,6 +23,7 @@ import {
 import { firstSong } from "../../../services/first-song-profile.ts";
 import { digest } from "../../../packages/protocol/index.ts";
 import type { KaraokeManifest } from "../../../packages/protocol/payments.ts";
+import { readPublicResults } from "../../../packages/records/results-v2.ts";
 import { readLearner } from "../../../packages/records/reader.ts";
 import { LIVE_ALIGNMENT, LIVE_STEM_MS, LIVE_PORT } from "./live-fixture.ts";
 
@@ -87,6 +88,7 @@ async function asset(request: Request) {
 const manifest = await expectedKaraoke(LIVE_ALIGNMENT, LIVE_STEM_MS);
 const live = await karaokeLive({
   evm,
+  internalResults: process.env.KARAOKE_RESULTS_V2 === "1",
   now: Number((await evm.publicClient.getBlock()).timestamp) + 1,
   alignment: LIVE_ALIGNMENT,
   stemMs: LIVE_STEM_MS,
@@ -136,7 +138,7 @@ const send = (
     "content-type": "application/json",
     "cache-control": "no-store",
   });
-  response.end(JSON.stringify(value));
+  response.end(JSON.stringify(value, (_, v) => typeof v === "bigint" ? String(v) : v));
 };
 const learnerOf = (value: unknown) => {
   const index = Number(value);
@@ -176,6 +178,9 @@ createServer(async (request, response) => {
     if (url.pathname === "/__fixture/operator")
       return send(response, 200, {
         attempts: (await live.operatorState("attempt:")).map((r) => r.value),
+        publications: await live.operatorState("publicationV2:"),
+        bundles: await live.operatorState("workV2:"),
+        transactions: (await live.operatorState("tx:")).map(({value}) => { const {raw, ...row} = value as Record<string, unknown>; return row; }),
         simulator: await live.simulatorLog(),
       });
     if (url.pathname === "/__fixture/records") {
@@ -187,6 +192,12 @@ createServer(async (request, response) => {
           ),
         )
       ).value;
+      if (live.resultsV2) {
+        const results = await readPublicResults({ rpcUrl: evm.rpcUrl, contract: live.resultsV2, fromBlock: 0n,
+          toBlock: await evm.publicClient.getBlockNumber({ cacheTime: 0 }), manifest: async (revision) => digest(timed) === revision ? timed : undefined,
+          authenticateSource: async (candidate) => candidate.source?.lyricsSha256 === timed.source?.lyricsSha256 && candidate.lines.length === 23 });
+        return send(response, 200, results.filter((r) => r.result.learner.toLowerCase() === learner.address.toLowerCase()));
+      }
       return send(
         response,
         200,

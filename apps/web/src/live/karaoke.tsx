@@ -21,7 +21,7 @@ import { get, post } from "./api.ts";
 export interface KaraokeConsentRequest {
   domain: Record<string, unknown>;
   types: Record<string, unknown>;
-  primaryType: "Consent" | "Enrollment";
+  primaryType: "Consent" | "Enrollment" | "Revocation";
   message: Record<string, unknown>;
 }
 export interface KaraokeWallet {
@@ -29,7 +29,6 @@ export interface KaraokeWallet {
   signConsent(request: KaraokeConsentRequest): Promise<string>;
 }
 interface TimedSong {
-  serviceMode?: "internal";
   lines: KaraokeTimedLine[];
   segments: { segmentId: string; startMs: number; endMs: number }[];
 }
@@ -72,6 +71,7 @@ export function LiveKaraoke(props: {
   title: string;
   csrf: string;
   wallet: KaraokeWallet;
+  serviceMode?: "internal";
   onExit: () => void;
 }) {
   const [song, setSong] = createSignal<TimedSong | null>(null),
@@ -90,6 +90,7 @@ export function LiveKaraoke(props: {
     playback: HTMLAudioElement | null = null,
     buying = false,
     songMs = 0,
+    pollingPublication: string | null = null,
     disposed = false;
   onCleanup(() => {
     disposed = true;
@@ -116,7 +117,22 @@ export function LiveKaraoke(props: {
         result: view.result.body,
         record: view.record,
       });
+      if (props.serviceMode === "internal" && !["published", "failed", "private"].includes(view.record.publication?.state ?? ""))
+        void watchPublication(view.result.body.ticketId);
     }
+  }
+  async function watchPublication(ticketId: string) {
+    if (pollingPublication === ticketId) return;
+    pollingPublication = ticketId;
+    try {
+      for (let i = 0; i < 90 && !disposed && finished()?.ticketId === ticketId; i++) {
+        await sleep(1000);
+        const view = await attemptView().catch(() => null);
+        if (view?.state !== "finished" || view.result.body.ticketId !== ticketId) return;
+        apply(view);
+        if (["published", "failed", "private"].includes(view.record.publication?.state ?? "")) return;
+      }
+    } finally { if (pollingPublication === ticketId) pollingPublication = null; }
   }
   // Loaded once, as the live page loads its feed: writes land after awaits.
   void (async () => {
@@ -159,7 +175,7 @@ export function LiveKaraoke(props: {
   async function buyAhead() {
     const current = take(),
       timed = song();
-    if (!current || !timed || timed.serviceMode === "internal" || !attemptStart || buying) return;
+    if (!current || !timed || props.serviceMode === "internal" || !attemptStart || buying) return;
     buying = true;
     try {
       for (const segment of timed.segments) {
@@ -199,7 +215,7 @@ export function LiveKaraoke(props: {
     setStarting(true);
     try {
       if (!take()) {
-        if (song()?.serviceMode === "internal") {
+        if (props.serviceMode === "internal") {
           const enrollment = await post<KaraokeConsentRequest & { active?: boolean; pending?: boolean }>("/api/karaoke/enrollment", {}, props.csrf);
           if (enrollment.pending) throw new Error("Your enrollment is still being confirmed. Try again shortly.");
           if (!enrollment.active) {
@@ -296,6 +312,14 @@ export function LiveKaraoke(props: {
       setSaving(false);
     }
   }
+  async function revokeEnrollment() {
+    try {
+      const request = await post<KaraokeConsentRequest>("/api/karaoke/enrollment/revoke", {}, props.csrf);
+      const signature = await props.wallet.signConsent(request);
+      const answer = await post<{ state: string }>("/api/karaoke/enrollment/revoke", { message: request.message, signature }, props.csrf);
+      setNotice(answer.state === "success" ? "Public enrollment stopped. Earlier publications remain public." : "Your revocation is being confirmed.");
+    } catch { setNotice("Your enrollment could not be stopped yet. Try again."); }
+  }
   async function downloadHistory(ticketId: string) {
     try {
       const history = await post("/api/karaoke/history", { ticketId }, props.csrf);
@@ -319,6 +343,7 @@ export function LiveKaraoke(props: {
           when={state !== "published"}
           fallback={<p class="text-sm">Saved to your learning record.</p>}
         >
+          <Show when={state !== "private"} fallback={<p class="text-sm">This take stays private because its enrollment is no longer active.</p>}>
           <Show
             when={state !== "failed"}
             fallback={<p class="text-sm">This score couldn't be saved.</p>}
@@ -334,9 +359,11 @@ export function LiveKaraoke(props: {
               </Show>
             </Show>
           </Show>
+          </Show>
         </Show>
-        <Show when={song()?.serviceMode === "internal"}>
+        <Show when={props.serviceMode === "internal"}>
           <Button variant="ghost" onClick={() => void downloadHistory(current.ticketId)}>Download private history</Button>
+          <Button variant="ghost" onClick={() => void revokeEnrollment()}>Stop public enrollment</Button>
         </Show>
         <Button
           variant="ghost"

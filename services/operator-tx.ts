@@ -3,14 +3,14 @@
 // call. Dispatching an intent allocates its nonce exactly once; transaction
 // status is then tracked per nonce until the nonce is consumed on chain, even
 // after the purchase it was meant for has been confirmed or has failed.
-import { keccak256, type Address, type Hex } from "viem";
+import { decodeFunctionResult, encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { check } from "../packages/protocol/index.ts";
 import {
   receiptSucceeded,
   type Receipt,
 } from "../packages/protocol/payments.ts";
-import { gasPrice, pendingNonce, receiptOf, sendRaw } from "./chain.ts";
+import { gasPrice, pendingNonce, receiptOf, sendRaw, rpc } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
 
 /** Record intents are sent in order by the publisher (services/records.ts), never by recovery. */
@@ -80,6 +80,15 @@ export const intentOf = (store: TxStore, kind: TxKind, ref: string) =>
 export const txRow = (store: TxStore, nonce: number) =>
   store.get<TxRow>(txKey(nonce));
 const realtime = (env: Env) => env.REALTIME_RPC === "1";
+const dataFeeAbi = parseAbi(["function getL1Fee(bytes data) view returns (uint256)"]);
+async function checkDataFee(env: Env, row: TxRow) {
+  if (!env.RESULTS_V2_CONTRACT || row.chainId === 31337) return;
+  check(env.SPONSOR_DATA_FEE_WEI && /^\d+$/.test(env.SPONSOR_DATA_FEE_WEI), "data_fee_limit_unconfigured");
+  const data = encodeFunctionData({ abi: dataFeeAbi, functionName: "getL1Fee", args: [row.raw!] });
+  const response = await rpc<Hex>(env.RPC_URL, "eth_call", [{ to: "0x420000000000000000000000000000000000000F", data }, "latest"]);
+  const fee = decodeFunctionResult({ abi: dataFeeAbi, functionName: "getL1Fee", data: response });
+  check(fee <= BigInt(env.SPONSOR_DATA_FEE_WEI), "data_fee_above_limit");
+}
 
 /** Synchronous and idempotent: records the work before anything can fail. */
 export function enqueue(
@@ -229,6 +238,7 @@ export async function dispatch(
     store.delete("fault:crash-before-broadcast");
     throw new Error("simulated_crash_before_broadcast");
   }
+  await checkDataFee(env, row);
   const receipt =
     (await receiptOf(env.RPC_URL, row.hash!)) ??
     (await sendRaw(env.RPC_URL, row.raw!, row.hash!, realtime(env)));
@@ -254,6 +264,7 @@ export async function recoverTransactions(env: Env, store: TxStore) {
     const row = value as TxRow;
     if (row.mined) continue;
     const ready = await signed(env, store, row.nonce);
+    await checkDataFee(env, ready);
     const receipt =
       (await receiptOf(env.RPC_URL, ready.hash!)) ??
       (await sendRaw(env.RPC_URL, ready.raw!, ready.hash!, realtime(env)));

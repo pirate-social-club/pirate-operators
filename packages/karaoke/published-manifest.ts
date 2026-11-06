@@ -6,6 +6,7 @@
 // at its first word and ends at its last, and section cues are not scored.
 // Nothing is interpolated: a line without usable timing makes the song
 // unavailable for Karaoke rather than fabricated.
+import { hashJson } from "../community/common.ts";
 import { check } from "../protocol/index.ts";
 import {
   validateManifest,
@@ -98,6 +99,7 @@ export function publishedKaraokeManifest(
         lineIds: [line.lineId],
       })),
       song,
+      source: { lyricsRevision: lyrics.revision, lyricsSha256: hashJson(lyrics) },
     };
   validateManifest(manifest, maxSegmentMs);
   return manifest;

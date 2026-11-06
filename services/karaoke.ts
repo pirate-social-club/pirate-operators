@@ -39,7 +39,7 @@ import {
 } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
-import { activeEnrollment, acceptEnrollment, bindEnrollment, enrollmentRequest, publicationV2, publishV2, resumeEnrollments } from "./learning-results.ts";
+import { activeEnrollment, acceptEnrollment, acceptRevocation, revocationRequest, bindEnrollment, correctV2, enrollmentRequest, publicationV2, publishV2, resumeEnrollments } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 
@@ -266,6 +266,13 @@ export async function karaokeRoute(
     if (store.get(`pendingEnrollment:${learner.toLowerCase()}`)) return Response.json({ pending: true });
     return Response.json(await enrollmentRequest(env, learner, store.now()));
   }
+  if (url.pathname === "/enrollment/revoke") {
+    const { learner, nonce, signature } = await body<{ learner: Address; nonce?: string; signature?: Hex }>(request);
+    if (!signature) return Response.json(await revocationRequest(env, learner));
+    check(nonce !== undefined, "nonce_required");
+    const row = await acceptRevocation(env, store, learner, BigInt(nonce), signature);
+    return Response.json({ state: row?.mined?.status ?? "pending" });
+  }
   if (url.pathname === "/enrollment") {
     const { enrollment: input, signature } = await body<{ enrollment: Record<string, string>; signature: Hex }>(request);
     const enrollment: Enrollment = { learner: input.learner as Address, communityId: input.communityId as Hex,
@@ -317,7 +324,7 @@ export async function karaokeRoute(
     // Local control, like /__fault: production corrections need an
     // authenticated operator path that does not exist yet.
     // The correction is recorded here; operator ticks publish it.
-    const corrected = await correct(
+    const corrected = await (env.RESULTS_V2_CONTRACT ? correctV2 : correct)(
       env,
       store,
       await body<Parameters<typeof correct>[2]>(request),
