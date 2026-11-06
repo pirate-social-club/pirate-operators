@@ -166,6 +166,7 @@ async function main() {
     "application",
   );
   await qualifyCommunityConsumer(directory, password, cloudEnv);
+  await qualifyApplicationPeers(profile, values["reviewed-update"] === true);
   if (!values.execute) {
     // Read-only ownership check: authenticate original state without restoring it.
     const { unseal } = await import(
@@ -202,7 +203,6 @@ async function main() {
     );
     return;
   }
-  await qualifyApplicationPeers(profile);
   await privateDirectory(directory);
   const lockPath = join(directory, "execution.lock"),
     lock = await open(lockPath, "wx", 0o600),

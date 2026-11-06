@@ -24,12 +24,15 @@ export interface SimulatedStream {
   answerCommits?: number;
   /** Answers each commit after this delay, as a slow provider does. */
   commitDelayMs?: number;
+  /** Hold replies until the local test explicitly releases them. */
+  holdCommits?: boolean;
 }
 export interface SimulatedStreamLog {
   params: Record<string, string>;
   chunks: number;
   audioMs: number;
   commits: number;
+  heldCommits?: number;
   emitted: string[];
   sampleRates: number[];
 }
@@ -41,6 +44,9 @@ export class SimulatedScribeStream {
   private readonly drop: () => void;
   private readonly emitted = new Set<number>();
   private ended = false;
+  private holding: boolean;
+  private readonly held: number[] = [];
+  private polling = false;
 
   constructor(
     script: SimulatedStream,
@@ -49,6 +55,7 @@ export class SimulatedScribeStream {
     drop: () => void,
   ) {
     this.script = script;
+    this.holding = script.holdCommits === true;
     this.send = send;
     this.drop = drop;
     this.log = {
@@ -105,12 +112,38 @@ export class SimulatedScribeStream {
         this.log.commits > this.script.answerCommits)
     )
       return;
+    if (this.holding) {
+      this.held.push(this.log.audioMs);
+      this.log.heldCommits = this.held.length;
+      this.pollRelease();
+      return;
+    }
     if (this.script.commitDelayMs) {
       const audioMs = this.log.audioMs;
       setTimeout(() => this.answer(audioMs), this.script.commitDelayMs);
       return;
     }
     this.answer(this.log.audioMs);
+  }
+
+  releaseCommits(): number {
+    this.holding = false;
+    return this.held.length;
+  }
+
+  private pollRelease(): void {
+    if (this.polling || this.ended) return;
+    this.polling = true;
+    // Schedule in the provider socket's context. The HTTP control changes only
+    // a flag; sending on that socket from another request is forbidden by workerd.
+    setTimeout(() => {
+      this.polling = false;
+      if (this.ended) return;
+      if (this.holding) return this.pollRelease();
+      const pending = this.held.splice(0);
+      this.log.heldCommits = 0;
+      pending.forEach((audioMs) => this.answer(audioMs));
+    }, 10);
   }
 
   /** Emits every scripted word that ends within the audio heard by the commit. */
@@ -244,6 +277,16 @@ export default {
         minted,
         streams: streams.map((s) => s.log),
         alignment,
+      });
+    if (
+      url.pathname === "/__simulator/release-commits" &&
+      request.method === "POST"
+    )
+      return Response.json({
+        released: streams.reduce(
+          (sum, stream) => sum + stream.releaseCommits(),
+          0,
+        ),
       });
     if (url.hostname !== "api.elevenlabs.io") {
       // The operator's other outbound traffic is the loopback chain RPC only.
