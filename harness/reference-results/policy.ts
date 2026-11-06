@@ -13,7 +13,7 @@ export function policyDocument(
 ): ReferencePolicyDocument | undefined {
   try {
     if (activity === 2) return studyPolicy(snapshot, uri, hash);
-    const d = publicDocument(snapshot, uri, hash);
+    const d = publicDocument(snapshot, uri, hash, 65536);
     const fields = [
       "schema",
       "version",

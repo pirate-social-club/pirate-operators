@@ -1,8 +1,9 @@
 // Independent V3 Study wire/source/qualification checks. No production Study
 // codec, selection, grading, result reducer or qualification helper is imported.
 import { hexToBytes, keccak256, sha256, toHex, type Hex } from "viem";
+import { fullLyrics } from "./lyrics.ts";
 import type { Header, ReferenceSnapshot } from "./facts.ts";
-import { canonical, publicDocument, requireFact } from "./checks.ts";
+import { publicDocument, requireFact } from "./checks.ts";
 
 // Frozen public scoring-version identifier. This literal is configuration, not
 // a call into the application's scoring or queue implementation.
@@ -68,71 +69,16 @@ const identity = (text: string) =>
     .replace(/[\p{P}\p{S}]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
-const hex32 = (value: unknown) =>
-  typeof value === "string" && /^0x[0-9a-f]{64}$/.test(value);
 export function studySource(
   r: Header,
   source: Record<string, any>,
   outcomes: ReferenceStudyOutcome[],
 ) {
-  requireFact(
-    Object.keys(source).sort().join(",") ===
-      [
-        "schema",
-        "chainId",
-        "postsContract",
-        "communityId",
-        "postId",
-        "revision",
-        "language",
-        "sourceText",
-        "sourceSha256",
-        "lines",
-      ]
-        .sort()
-        .join(",") &&
-      source.schema === "pirate.song-lyrics/1" &&
-      BigInt(source.chainId) === r.song.chainId &&
-      source.postsContract === r.song.posts.toLowerCase() &&
-      source.communityId === r.song.communityId &&
-      source.postId === r.song.postId &&
-      Number.isSafeInteger(source.revision) &&
-      source.revision >= 1 &&
-      typeof source.language === "string" &&
-      /^(und|[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$/.test(source.language) &&
-      typeof source.sourceText === "string" &&
-      source.sourceText.length <= 32768 &&
-      sha256(toHex(source.sourceText)) === source.sourceSha256 &&
-      Array.isArray(source.lines) &&
-      source.lines.length <= 2000 &&
-      sha256(toHex(canonical(source))) === r.contentRevision,
-    "study_source_binding_changed",
-  );
-  const textLines = source.sourceText
-    .split(/\r?\n/)
-    .filter((text: string) => text.trim().length > 0);
-  requireFact(
-    textLines.length === source.lines.length,
-    "study_source_shortened",
-  );
-  const ids = new Set<string>(),
-    seen = new Set<string>(),
+  const lines = fullLyrics(source, r.song, r.contentRevision);
+  const seen = new Set<string>(),
     eligible = new Set<number>();
-  for (let i = 0; i < source.lines.length; i++) {
-    const line = source.lines[i];
-    requireFact(
-      Object.keys(line).sort().join(",") ===
-        ["lineId", "lineVersion", "order", "text"].sort().join(",") &&
-        line.order === i &&
-        line.text === textLines[i] &&
-        hex32(line.lineId) &&
-        !ids.has(line.lineId) &&
-        Number.isSafeInteger(line.lineVersion) &&
-        line.lineVersion >= 1 &&
-        line.lineVersion <= 1000000,
-      "study_source_occurrence_changed",
-    );
-    ids.add(line.lineId);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const normalized = identity(line.text);
     if (
       !normalized ||
@@ -156,7 +102,7 @@ export function studyPolicy(
   uri: string,
   hash: Hex,
 ) {
-  const d = publicDocument(snapshot, uri, hash);
+  const d = publicDocument(snapshot, uri, hash, 65536);
   requireFact(
     Object.keys(d).sort().join(",") ===
       [
@@ -225,4 +171,14 @@ export function studyScore(outcomes: readonly ReferenceStudyOutcome[]) {
     qualifies:
       graded === outcomes.length && correct * 10 >= outcomes.length * 7,
   };
+}
+
+/** Full source bytes are captured from their published media URI, which may
+ * use a UnixFS CID. A digest cannot manufacture that URI for large documents. */
+export function studyDocument(snapshot: ReferenceSnapshot, hash: Hex) {
+  for (const [uri, wire] of Object.entries(snapshot.documents)) {
+    if (sha256(wire) === hash)
+      return publicDocument(snapshot, uri, hash, 1024 * 1024);
+  }
+  throw Error("reference_study_document_unavailable");
 }

@@ -1,5 +1,6 @@
 // Wire facts only are shared with the production reader. No reduction helpers.
 import { parseAbi, hexToBytes, type Address, type Hex } from "viem";
+import { resultsV3Abi } from "../../packages/protocol/learning-results-v3.ts";
 import { base32 } from "multiformats/bases/base32";
 import {
   resultsAbi,
@@ -17,7 +18,21 @@ export const abi = [
     "event ResultInvalidated(bytes32 indexed sessionId,uint32 indexed revision,bytes32 reason)",
   ]),
 ] as const;
+export const v3Abi = [
+  ...resultsV3Abi,
+  ...parseAbi([
+    "event ControllerChanged(address controller)",
+    "event GraderSet(address indexed grader,uint8 indexed activity,bool allowed)",
+    "event ResultInvalidated(bytes32 indexed sessionId,uint32 indexed revision,bytes32 reason)",
+  ]),
+] as const;
+export function abiFor(version: 2 | 3 = 2) {
+  if (version !== 2 && version !== 3)
+    throw Error("reference_unsupported_contract_version");
+  return version === 3 ? v3Abi : abi;
+}
 export interface ContractProfile {
+  version?: 2 | 3;
   address: Address;
   fromBlock: string;
   codeHash: Hex;
@@ -54,6 +69,7 @@ export interface RawReceipt {
   logs: RawLog[];
 }
 export interface RawContractState {
+  version?: 2 | 3;
   address: Address;
   communityId: Hex;
   publicityPolicy: Hex;

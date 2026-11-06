@@ -23,6 +23,10 @@ export function evidenceClient(snapshot: ReferenceSnapshot) {
         BigInt(l.blockNumber) > options.toBlock
       )
         continue;
+      if (!options.event && !options.abi) {
+        result.push(log(l));
+        continue;
+      }
       try {
         const event = decodeEventLog({
           abi: options.event ? [options.event] : options.abi,
@@ -80,7 +84,11 @@ export function evidenceClient(snapshot: ReferenceSnapshot) {
         (c) => c.address.toLowerCase() === address.toLowerCase(),
       );
       if (s && functionName === "commitments") return s.commitments[args[0]];
-      if (s && functionName === "policyFor") return s.policies[String(args[0])];
+      if (s && functionName === "VERSION") return s.version ?? 2;
+      if (s && functionName === "policyFor")
+        return s.policies[
+          s.version === 3 ? `${args[0]}:${args[1]}` : String(args[0])
+        ];
       if (s && functionName === "communityId") return s.communityId;
       if (s && functionName === "publicityPolicy") return s.publicityPolicy;
       throw Error("raw_contract_read_missing");
