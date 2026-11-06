@@ -29,6 +29,7 @@ export async function community(evm: Chain, label: string) {
     paymentToken: evm.paymentToken,
     paymentsContract: evm.paymentsContract,
     recordsContract: evm.recordsContract,
+    bindings: { ACCOUNT_DELEGATE: evm.mockAccount, ACCOUNT_INITIALIZER: evm.mockInitializer },
     now: start,
     cutoff: start + 100000,
   });

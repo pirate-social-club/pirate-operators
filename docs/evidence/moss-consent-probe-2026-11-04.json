@@ -1,0 +1,57 @@
+{
+  "kind": "moss-consent-probe",
+  "recordedAt": "2026-11-04T16:52:58.802Z",
+  "chainId": 6343,
+  "records": "0x0eae432258c5954cf3d06e707acb3490a2f20a12",
+  "hosting": "temporary Worker pirate-moss-consent-probe on workers.dev, deleted after capture",
+  "signer": "the workspace_owner's MOSS test wallet, signed with its passkey in a browser",
+  "consent": {
+    "learner": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+    "attemptId": "0xb2cd06f4d6495ee3cf9963edd0699d8739eef7dda7057e6aec43bf09c51ae452",
+    "songKey": "0x1c17e45d85a8d42fa12b1cb35f4d36e83e7cd967b4901f6b25f5ca77ad226f82",
+    "contentRevision": "0x37210aab2e1040ebff70e8aef563ce0978010f66b20f09caee407f2b70f6fa9c",
+    "linesRoot": "0x307f78ef4bd386a2dec53316e75f678f689bb009e935b531f2f0fe44ae632c07",
+    "linesTotal": 4,
+    "activity": "0xb638468fc981c0cce13fc8cf2e1ab0eb36a00936238b57ca41068baad84761cb",
+    "grader": "0x14B90A55657D9695A727254EAec5E0e32D20d602",
+    "scoringPolicy": "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d",
+    "expiresAt": "1794415966"
+  },
+  "analysis": {
+    "learner": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+    "learnerCode": "0x",
+    "message": {
+      "bytes": 1921,
+      "hash": "0xc077b9b23d7121b43b7244f17e4286fc73a5faabc7ca4580ebb62dfae351c803",
+      "erc6492": false,
+      "erc8010": true,
+      "erc8010Parts": {
+        "delegate": "0xf655611abe392f35cbb36181d920a302c4df2284",
+        "authorizationChainId": 0,
+        "authorizationNonce": 0,
+        "initializer": "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
+        "initDataBytes": 932,
+        "innerSignatureBytes": 609
+      },
+      "verifiedOverRpc": true
+    },
+    "consent": {
+      "bytes": 1921,
+      "hash": "0x026306329d4aff92f8251a5cbc87c8f535f952cb778c82388f639c37f5ece412",
+      "erc6492": false,
+      "erc8010": true,
+      "erc8010Parts": {
+        "delegate": "0xf655611abe392f35cbb36181d920a302c4df2284",
+        "authorizationChainId": 0,
+        "authorizationNonce": 0,
+        "initializer": "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
+        "initDataBytes": 932,
+        "innerSignatureBytes": 609
+      },
+      "verifiedOverRpc": true,
+      "openAttemptAsSigned": "reverts: Execution reverted with reason: invalid_consent.",
+      "openAttemptWithInnerSignature": "reverts: Execution reverted with reason: invalid_consent."
+    }
+  },
+  "signatures": "full signatures retained privately outside the repository; hashes above"
+}

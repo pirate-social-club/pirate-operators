@@ -34,6 +34,15 @@ export interface Env {
   REALTIME_RPC?: string;
   /** LearningRecords on the payment chain; publication is off without it. */
   RECORDS_CONTRACT?: string;
+  /**
+   * The only EIP-7702 delegate and initializer the operator will activate a
+   * learner's account with: MOSS's account proxy and orchestrator on MegaETH.
+   */
+  ACCOUNT_DELEGATE?: string;
+  ACCOUNT_INITIALIZER?: string;
+  /** The operator quote's validity window, in seconds. */
+  QUOTE_VALID_FROM?: string;
+  QUOTE_VALID_UNTIL?: string;
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }
