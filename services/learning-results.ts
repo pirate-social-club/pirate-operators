@@ -24,6 +24,7 @@ import {
 import type { Env } from "./runtime.ts";
 import {
   activeEnrollment,
+  checkLearningDisclosure,
   type BoundEnrollment,
 } from "./learning-enrollment.ts";
 import {
@@ -84,6 +85,7 @@ export async function bindEnrollment(
   const destination = previous
     ? enrollmentTarget(env, store, previous)
     : resultsTarget(env);
+  await checkLearningDisclosure(env, destination);
   const grant = await activeEnrollment(env, learner, destination);
   check(store.now() >= grant.issuedAt, "enrollment_not_active_yet");
   check(!previous || previous.id === grant.id, "enrollment_changed");

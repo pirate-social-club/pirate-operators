@@ -1,4 +1,5 @@
 // Factual testnet pilot disclosures. The public-field policy is pinned at enrollment.
+import { learningV3PolicyPage } from "./learning-policy-v3.ts";
 export const learningTerms = `This community is a testnet learning pilot. Sponsored practice is limited by the available community allowance and may pause when that allowance is exhausted. Testnet results do not earn money, prizes or funded rewards.
 
 Enabling public learning results authorizes automatic publication of each Karaoke run, including abandoned, expired and unsuccessful runs. Results include your MOSS wallet address, the song and content revision, final per-line outcomes and grades, completion time, and the applicable assessment policies. You approve enrollment once, until its expiry or your revocation. Scoring policies can change prospectively within this disclosed public-data scope. You may decline enrollment; public-record Karaoke then remains unavailable.
@@ -15,7 +16,7 @@ export function learningPolicyPage(path: string): Response | null {
       ? learningTerms
       : path === "/privacy"
         ? learningPrivacy
-        : undefined;
+        : learningV3PolicyPage(path);
   if (!text) return null;
   return new Response(text, {
     headers: {

@@ -2,11 +2,32 @@ import { expect, test } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
 import { readFile } from "node:fs/promises";
 
+test("an inconsistent disclosure cannot prompt a signature or start a Study lesson", async ({
+  page,
+}) => {
+  const state = await serveStudy(page, { disclosureMismatch: true });
+  await page.goto(state.url);
+  await expect(page.getByRole("alert")).toHaveText(
+    "This enrollment disclosure changed. Reload and try again.",
+  );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(state.counts.signatures).toBe(0);
+  expect(state.counts.enrollmentSubmissions).toBe(0);
+  expect(state.counts.starts).toBe(0);
+});
+
 test("the account menu downloads saved Study history after exit and reports expiry without another lesson", async ({
   page,
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
+  const disclosure = page.getByRole("dialog");
+  await expect(
+    disclosure.getByRole("link", { name: "Terms", exact: true }),
+  ).toHaveAttribute("href", "/learning/v3/terms");
+  await expect(
+    disclosure.getByRole("link", { name: "Privacy", exact: true }),
+  ).toHaveAttribute("href", "/learning/v3/privacy");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Continue", exact: true })

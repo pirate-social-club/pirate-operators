@@ -181,12 +181,12 @@ response, and completion/publication status. Actual Study D1, operator,
 cryptographic and contract behavior remains qualified by the separate service
 tests. Neither set establishes real MOSS/provider acceptance or deployed UI.
 
-Private Study export is implemented locally as described below. Physical
-deletion, authenticated correction controls and the reviewed exact deployment
-profile remain open. The final V3 publicity policy
-and disclosure pages must be prepared and
-bound to the deployed contract before accepting successor consent. The activity
-text in the enrollment dialog alone does not complete that disclosure gate.
+Private Study export and bounded deletion are implemented locally as described
+below. Authenticated correction controls and the reviewed exact deployment
+profile remain open. Versioned V3 disclosures are prepared as described below;
+their independent qualification and exact deployed binding must pass before
+accepting successor consent. The activity text in the enrollment dialog alone
+does not complete that disclosure gate.
 
 ## Durable publication and recovery
 
@@ -311,3 +311,35 @@ association in the atomic purge. A late binding response cannot insert an
 outbox after that privacy tombstone, and a replay cannot repeat the binding.
 This does not prove a remote binding is absent. Uncertain remote authority and
 financial evidence remain untouched for reconciliation.
+
+## Versioned successor disclosure
+
+The immutable V3 candidate is services/learning-policy-v3.ts. Its terms and
+privacy pages are served at /learning/v3/terms and /learning/v3/privacy. The
+publicity commitment is keccak256 of the exact UTF-8 terms, two newline bytes,
+and exact privacy text, without normalization or a trailing newline:
+0x12f4496f0498838a59732f5f46c3019b2adcb47314788d155c74ff228cfe3b3a.
+The original V2 /terms and /privacy response bytes and their deployed commitment
+0xed087bbce3b42c61236f9c26795f3b1b43e626ded9ac4a75bb97f43138791143
+remain unchanged. A future document revision needs a new versioned publication;
+do not edit an accepted document in place.
+
+The text discloses both activities, permanent wallet-linked terminal records,
+Study selection and immutable first-pass outcomes, corrections and invalidation,
+and the absence of funded pilot rewards. Both speech adapters enable provider
+logging; no fixed provider retention period or zero-retention promise is made.
+The thirty-day export and scheduled cleanup bounds are distinct from permanent
+public results, replay tombstones and uncertain native or remote recovery data.
+Never-submitted private-content erasure still requires the recorded proof.
+
+Fresh V3 enrollment requests and acceptance require the known document hash on
+the destination contract before account activation, native intent or allocation.
+New practice checks before the active-grant shortcut, and operator binding and
+new Study speech enforce the same boundary. Replayed saved speech receipts,
+historical result recovery and revocation remain separate. Both activity dialogs
+link the versioned disclosure matching their signed policy; inconsistent metadata
+fails before a wallet prompt. V2 uses its original links and authority.
+
+This source does not deploy a contract, activate configuration or request live
+consent. Exact profile binding, independent review and a real testnet journey
+remain required. Existing native and provider recovery evidence is preserved.

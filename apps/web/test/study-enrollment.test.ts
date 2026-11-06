@@ -4,6 +4,7 @@ import {
   ensureStudyEnrollment,
   type StudyEnrollmentView,
 } from "../src/live/study-enrollment.ts";
+import { enrollmentDisclosure } from "../src/live/learning-consent.ts";
 
 const target = {
   version: 3 as const,
@@ -12,10 +13,16 @@ const target = {
 };
 const request: StudyEnrollmentView = {
   target,
-  domain: { chainId: 6343, verifyingContract: target.contract },
+  domain: { chainId: 6343, verifyingContract: target.contract, version: "3" },
   types: {},
   primaryType: "Enrollment",
-  message: { activities: "3" },
+  message: { activities: "3", publicityPolicy: `0x${"9".repeat(64)}` },
+  disclosure: {
+    version: 3,
+    termsUrl: "/learning/v3/terms",
+    privacyUrl: "/learning/v3/privacy",
+    publicityPolicy: `0x${"9".repeat(64)}`,
+  },
 };
 function fixture(view: StudyEnrollmentView = request) {
   const calls: string[] = [];
@@ -48,6 +55,31 @@ test("Study signs only after disclosure and accepts existing successor authority
   await ensureStudyEnrollment(active.ports);
   assert.deepEqual(active.calls, []);
 });
+
+test("Karaoke's shared consent links retain V2 and require matching V3 publicity", () => {
+  assert.deepEqual(
+    enrollmentDisclosure({
+      domain: { version: "2" },
+      types: {},
+      primaryType: "Enrollment",
+      message: { activities: "1" },
+    }),
+    { termsUrl: "/terms", privacyUrl: "/privacy" },
+  );
+  assert.equal(
+    enrollmentDisclosure(request as never).termsUrl,
+    "/learning/v3/terms",
+  );
+  assert.throws(
+    () =>
+      enrollmentDisclosure({
+        ...request,
+        target: { ...target, version: 2 },
+        domain: { version: "3" },
+      } as never),
+    /disclosure changed/,
+  );
+});
 test("Study cancellation, pending consent and wrong generation never sign or submit", async () => {
   const cancelled = fixture();
   cancelled.ports.confirm = async () => false;
@@ -59,6 +91,21 @@ test("Study cancellation, pending consent and wrong generation never sign or sub
     { target, active: true, activities: 1 },
     { ...request, domain: { ...request.domain, chainId: 1 } },
     { ...request, message: { activities: "1" } },
+    { ...request, disclosure: undefined },
+    {
+      ...request,
+      disclosure: {
+        ...request.disclosure!,
+        termsUrl: "https://other.example/terms",
+      },
+    },
+    {
+      ...request,
+      disclosure: {
+        ...request.disclosure!,
+        publicityPolicy: `0x${"8".repeat(64)}`,
+      },
+    },
   ]) {
     const f = fixture(view);
     await assert.rejects(ensureStudyEnrollment(f.ports));

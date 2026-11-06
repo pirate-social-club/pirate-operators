@@ -33,6 +33,7 @@ import type {
   KaraokeConsentRequest,
   KaraokeWallet,
 } from "./learning-consent.ts";
+import { enrollmentDisclosure } from "./learning-consent.ts";
 export type {
   KaraokeConsentRequest,
   KaraokeWallet,
@@ -101,6 +102,10 @@ export function LiveKaraoke(props: {
     } | null>(null),
     [consentOpen, setConsentOpen] = createSignal(false),
     [consentActivities, setConsentActivities] = createSignal("Karaoke"),
+    [consentLinks, setConsentLinks] = createSignal({
+      termsUrl: "/terms",
+      privacyUrl: "/privacy",
+    }),
     [starting, setStarting] = createSignal(false),
     [resume, setResume] = createSignal<{
       elapsedMs: number;
@@ -119,6 +124,7 @@ export function LiveKaraoke(props: {
     consentAnswer?.(false);
   });
   const confirmEnrollment = (request: KaraokeConsentRequest) => {
+    setConsentLinks(enrollmentDisclosure(request));
     const activities = String(request.message.activities);
     if (
       !["1", "2", "3"].includes(activities) ||
@@ -575,11 +581,11 @@ export function LiveKaraoke(props: {
             </DialogDescription>
           </DialogHeader>
           <p class="text-sm text-muted-foreground">
-            <a href="/terms" target="_blank" rel="noopener">
+            <a href={consentLinks().termsUrl} target="_blank" rel="noopener">
               Terms
             </a>{" "}
             ·{" "}
-            <a href="/privacy" target="_blank" rel="noopener">
+            <a href={consentLinks().privacyUrl} target="_blank" rel="noopener">
               Privacy
             </a>
           </p>

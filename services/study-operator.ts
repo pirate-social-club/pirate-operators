@@ -24,6 +24,7 @@ import { STUDY_SOURCE_MAX_BYTES } from "../packages/study/public-source.ts";
 import { closedStudyPublication } from "./study-private-publication.ts";
 import {
   activeEnrollment,
+  checkLearningDisclosure,
   type BoundEnrollment,
 } from "./learning-enrollment.ts";
 import {
@@ -72,6 +73,7 @@ async function bindStudyLesson(
     return old;
   }
   const exercisesHash = validateStudyOffer(offer, store.now());
+  await checkLearningDisclosure(env, target);
   const enrollment = await activeEnrollment(env, offer.learner, target, 2);
   check(
     enrollment.issuedAt * 1000 <= offer.startedAt &&
@@ -167,6 +169,7 @@ async function speak(
     return previous.receipt;
   }
   check(store.now() * 1000 < binding.offer.expiresAt, "study_lesson_expired");
+  await checkLearningDisclosure(env, binding.target);
   const active = await activeEnrollment(
     env,
     binding.offer.learner,

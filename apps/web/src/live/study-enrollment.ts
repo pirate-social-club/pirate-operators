@@ -2,6 +2,7 @@ import type {
   KaraokeConsentRequest,
   KaraokeWallet,
 } from "./learning-consent.ts";
+import { enrollmentDisclosure } from "./learning-consent.ts";
 
 export type StudyEnrollmentView = Partial<KaraokeConsentRequest> & {
   active?: boolean;
@@ -53,6 +54,7 @@ export async function ensureStudyEnrollment(ports: Ports): Promise<void> {
   )
     throw new Error("This enrollment changed. Reload and try again.");
   const request = view as KaraokeConsentRequest;
+  enrollmentDisclosure(request);
   const confirmed = await ports.confirm(request);
   stillOpen();
   if (!confirmed)

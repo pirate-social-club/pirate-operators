@@ -33,6 +33,10 @@ import {
 } from "./learning-contract.ts";
 import type { Env } from "./runtime.ts";
 import { STUDY_LESSON_LIFETIME_MS } from "../packages/study/lesson.ts";
+import {
+  learningV3Disclosure,
+  learningV3PublicityPolicy,
+} from "./learning-policy-v3.ts";
 
 export interface BoundEnrollment {
   // Absent only on pre-successor V2 records. Never infer V3 for these rows.
@@ -41,6 +45,19 @@ export interface BoundEnrollment {
   id: Hex;
   issuedAt: number;
   expiresAt: number;
+}
+
+/** Only new practice/consent uses this gate; historical recovery remains separate. */
+export async function checkLearningDisclosure(
+  env: Env,
+  destination: ResultsTarget,
+) {
+  if (destination.version !== 3) return;
+  const publicity = await read<Hex>(env, destination, "publicityPolicy");
+  check(
+    publicity.toLowerCase() === learningV3PublicityPolicy,
+    "learning_disclosure_mismatch",
+  );
 }
 /** Read every configured generation; a failed read cannot imply consent stopped. */
 export async function learningEnrollments(
@@ -121,6 +138,11 @@ export async function enrollmentRequest(
     read<Hex>(env, destination, "publicityPolicy"),
     read<Hex>(env, destination, "communityId"),
   ]);
+  if (destination.version === 3)
+    check(
+      publicityPolicy.toLowerCase() === learningV3PublicityPolicy,
+      "learning_disclosure_mismatch",
+    );
   const message = {
     learner,
     communityId,
@@ -131,6 +153,7 @@ export async function enrollmentRequest(
   };
   return {
     target: destination,
+    ...(destination.version === 3 ? { disclosure: learningV3Disclosure } : {}),
     domain: contractDomain(destination),
     types: enrollmentTypes,
     primaryType: "Enrollment" as const,
@@ -148,6 +171,7 @@ export async function enrollmentForPractice(
   activity: 1 | 2 = 1,
 ) {
   destination = retainedTarget(env, destination);
+  await checkLearningDisclosure(env, destination);
   check(activity === 1 || destination.version === 3, "unsupported_activity");
   const pending = () => !!store.get(pendingEnrollmentKey(destination, learner));
   if (activity === 2 && pending())
@@ -180,6 +204,14 @@ export async function acceptEnrollment(
   destination: ResultsTarget = resultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
+  if (destination.version === 3) {
+    // Check before account activation, pending intent or sponsorship allocation.
+    await checkLearningDisclosure(env, destination);
+    check(
+      e.publicityPolicy.toLowerCase() === learningV3PublicityPolicy,
+      "learning_disclosure_mismatch",
+    );
+  }
   check(
     e.communityId.toLowerCase() === env.COMMUNITY_ID.toLowerCase(),
     "wrong_community",

@@ -20,6 +20,7 @@ import type {
   KaraokeConsentRequest,
   KaraokeWallet,
 } from "./learning-consent.ts";
+import { enrollmentDisclosure } from "./learning-consent.ts";
 import {
   ensureStudyEnrollment,
   type StudyEnrollmentView,
@@ -254,11 +255,27 @@ export function LiveStudy(props: {
             </DialogDescription>
           </DialogHeader>
           <p>
-            <a href="/terms" target="_blank" rel="noopener">
+            <a
+              href={
+                consent()
+                  ? enrollmentDisclosure(consent()!).termsUrl
+                  : undefined
+              }
+              target="_blank"
+              rel="noopener"
+            >
               Terms
             </a>{" "}
             ·{" "}
-            <a href="/privacy" target="_blank" rel="noopener">
+            <a
+              href={
+                consent()
+                  ? enrollmentDisclosure(consent()!).privacyUrl
+                  : undefined
+              }
+              target="_blank"
+              rel="noopener"
+            >
               Privacy
             </a>
           </p>

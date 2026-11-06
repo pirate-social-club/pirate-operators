@@ -58,6 +58,7 @@ export async function serveStudy(
     available?: boolean;
     loseStart?: boolean;
     delaySignature?: boolean;
+    disclosureMismatch?: boolean;
     delayEnrollment?: boolean;
   } = {},
 ) {
@@ -185,10 +186,24 @@ export async function serveStudy(
           ? { target, active: true, activities: 3 }
           : {
               target,
+              disclosure: {
+                version: 3,
+                termsUrl: "/learning/v3/terms",
+                privacyUrl: "/learning/v3/privacy",
+                publicityPolicy: `0x${(options.disclosureMismatch ? "8" : "9").repeat(64)}`,
+              },
               primaryType: "Enrollment",
               types: {},
-              domain: { chainId: 6343, verifyingContract: target.contract },
-              message: { activities: "3", learner: `0x${"7".repeat(40)}` },
+              domain: {
+                chainId: 6343,
+                verifyingContract: target.contract,
+                version: "3",
+              },
+              message: {
+                activities: "3",
+                learner: `0x${"7".repeat(40)}`,
+                publicityPolicy: `0x${"9".repeat(64)}`,
+              },
             },
       );
     }
