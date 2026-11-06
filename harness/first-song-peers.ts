@@ -5,12 +5,18 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { keccak256, sha256 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { insist, object, bytes32 } from "../packages/community/common.ts";
+import {
+  insist,
+  object,
+  bytes32,
+  hashJson,
+} from "../packages/community/common.ts";
 import {
   storyReadClient,
   storyTestnet,
   rootRegistrationData,
 } from "../packages/community/registration-chain.ts";
+import { publishedStateHash } from "./published-state.ts";
 import type { communityPackage } from "./community-package.ts";
 import type { managedPackage } from "./managed-package.ts";
 
@@ -130,8 +136,51 @@ export async function qualifyRegistrationFunding(
     transactionsSent: 0,
   };
 }
+type ApplicationProfile = Awaited<
+  ReturnType<typeof communityPackage>
+>["profile"];
+
+/** A completed publication's grant is never renewed by a source-only update. */
+export function assertApplicationPeers(
+  profile: ApplicationProfile,
+  native: Record<string, unknown>,
+  managed: Record<string, unknown>,
+  now: number,
+  reviewedUpdate = false,
+) {
+  const release = object(managed.release);
+  const expiredPublishedUpdate =
+    reviewedUpdate &&
+    !!profile.reviewedUpdate &&
+    object(profile.curatedState).schema ===
+      "pirate.published-first-song-state/1" &&
+    hashJson(profile.curatedState) === publishedStateHash &&
+    profile.releaseGrant.expiresAt <= now &&
+    release.configured === false &&
+    (release.grantSha256 === undefined ||
+      release.grantSha256 === profile.releaseGrant.sha256) &&
+    (release.registrationOperator === undefined ||
+      release.registrationOperator ===
+        profile.releaseGrant.registration.operator) &&
+    (release.expiresAt === undefined ||
+      release.expiresAt === profile.releaseGrant.expiresAt);
+  insist(
+    native.profileHash === profile.creatorProfileHash &&
+      native.testnet === true &&
+      managed.profileHash === profile.managedProfileHash &&
+      (expiredPublishedUpdate ||
+        (release.configured === true &&
+          release.grantSha256 === profile.releaseGrant.sha256 &&
+          release.registrationOperator ===
+            profile.releaseGrant.registration.operator &&
+          profile.releaseGrant.expiresAt > now)),
+    "application_release_peer_unqualified",
+    503,
+  );
+}
 export async function qualifyApplicationPeers(
-  profile: Awaited<ReturnType<typeof communityPackage>>["profile"],
+  profile: ApplicationProfile,
+  reviewedUpdate = false,
 ) {
   const get = async (url: string) => {
     const response = await fetch(url, {
@@ -142,22 +191,16 @@ export async function qualifyApplicationPeers(
     return object(await response.json());
   };
   const [native, managed] = await Promise.all([
-      get("https://pirate-wallet-test.piratesocialclub.workers.dev/api/health"),
-      get(
-        "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev/health",
-      ),
-    ]),
-    release = object(managed.release);
-  insist(
-    native.profileHash === profile.creatorProfileHash &&
-      native.testnet === true &&
-      managed.profileHash === profile.managedProfileHash &&
-      release.configured === true &&
-      release.grantSha256 === profile.releaseGrant.sha256 &&
-      release.registrationOperator ===
-        profile.releaseGrant.registration.operator &&
-      profile.releaseGrant.expiresAt > Math.floor(Date.now() / 1000),
-    "application_release_peer_unqualified",
-    503,
+    get("https://pirate-wallet-test.piratesocialclub.workers.dev/api/health"),
+    get(
+      "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev/health",
+    ),
+  ]);
+  assertApplicationPeers(
+    profile,
+    native,
+    managed,
+    Math.floor(Date.now() / 1000),
+    reviewedUpdate,
   );
 }

@@ -217,3 +217,7 @@ networking unavailable.
    socket through the client's `send`; they belong to the integration slice.
 5. The Privacy Policy must say that Karaoke audio is sent to ElevenLabs, which
    stores it, and that the operator keeps recognized words and scores.
+
+## Controlled delayed-reconnect fixture
+
+The four-path test-only port from 1d108f83eb3b7925c807814a20ae5796515d9fb7 replaces the timing-dependent delayed-reply case. It waits for 45 chunks to reach the provider simulator, holds its old acknowledgement, reconnects the learner and checks the authenticated ready cursor. Only then does it release the old acknowledgement, in the original provider socket's request context. Old words must arrive before any new audio is sent; the final four outcomes remain assessed and only one provider stream exists. The fixture neither relaxes the production two-second acknowledgement deadline nor changes loss classification. It does not establish the cause of a historical reconnect failure without those counters.

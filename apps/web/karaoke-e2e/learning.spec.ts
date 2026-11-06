@@ -66,8 +66,8 @@ test("one enrollment sponsors repeated terminal publications, history export and
       lines: { status: string }[];
     }[];
   for (let run = 1; run <= 2; run++) {
+    await page.getByRole("button", { name: "Start karaoke" }).click();
     if (run === 1) {
-      await page.getByRole("button", { name: "Start karaoke" }).click();
       const consent = page.getByRole("dialog", {
         name: "Enable public learning results",
       });
@@ -75,10 +75,7 @@ test("one enrollment sponsors repeated terminal publications, history export and
       await consent
         .getByRole("button", { name: "Continue", exact: true })
         .click();
-    } else
-      await page
-        .getByRole("button", { name: "Sing again", exact: true })
-        .click();
+    }
     await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
       timeout: 25000,
     });
@@ -121,8 +118,18 @@ test("one enrollment sponsors repeated terminal publications, history export and
       const receipt = JSON.parse(await readFile(path!, "utf8"));
       expect(receipt).toBeTruthy();
       expect(JSON.stringify(receipt)).toContain("scribe_v2_realtime");
+      await page.reload();
+      await expect(
+        page.getByRole("button", { name: "Sign out" }),
+      ).toBeVisible();
       await page.getByRole("button", { name: "Sing", exact: true }).click();
-      await expect(page.getByRole("region", { name: "Results" })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Start karaoke" }),
+      ).toBeVisible();
+      await expect(page.getByRole("region", { name: "Results" })).toHaveCount(
+        0,
+      );
+      expect((await records()).length).toBe(1);
     }
   }
   await page.getByRole("button", { name: "Learning settings" }).click();
@@ -133,4 +140,123 @@ test("one enrollment sponsors repeated terminal publications, history export and
     ),
   ).toBeVisible({ timeout: 20000 });
   expect((await records()).length).toBe(2);
+});
+
+test("missing server feedback stops playback and can reconnect the same open take", async ({
+  page,
+}) => {
+  let suppressFeedback = true;
+  await page.routeWebSocket(
+    (url) => url.pathname.endsWith("/attempt"),
+    (route) => {
+      const server = route.connectToServer();
+      server.onMessage((message) => {
+        if (
+          suppressFeedback &&
+          typeof message === "string" &&
+          JSON.parse(message).type === "line_scores"
+        )
+          return;
+        route.send(message);
+      });
+    },
+  );
+  await page.goto("/?learner=7");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  const consent = page.getByRole("dialog", {
+    name: "Enable public learning results",
+  });
+  await consent.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
+    { timeout: 35000 },
+  );
+  expect(
+    await page
+      .locator(".live-karaoke audio")
+      .evaluate((audio: HTMLAudioElement) => audio.paused),
+  ).toBe(true);
+  await expect(page.getByRole("region", { name: "Results" })).toHaveCount(0);
+  const state = async () =>
+    (await (await page.request.get("/__fixture/operator")).json()) as {
+      attempts: { ticketId: string; ended: unknown | null }[];
+      audio: { ticketId: string; lastSequence: number }[];
+    };
+  const before = await state();
+  const open = before.attempts.filter((attempt) => attempt.ended === null);
+  expect(open).toHaveLength(1);
+  const ticketId = open[0].ticketId;
+  const previousSequence = before.audio.find(
+    (row) => row.ticketId === ticketId,
+  )!.lastSequence;
+  suppressFeedback = false;
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await state()).audio.find((row) => row.ticketId === ticketId)!
+          .lastSequence,
+      { timeout: 5000 },
+    )
+    .toBeGreaterThan(previousSequence);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
+    timeout: 5000,
+  });
+  expect((await state()).attempts).toHaveLength(before.attempts.length);
+  await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
+    timeout: 20000,
+  });
+});
+
+test("a rejected ready cursor leaves a visible retry instead of a permanent startup spinner", async ({
+  page,
+}) => {
+  await page.routeWebSocket(
+    (url) => url.pathname.endsWith("/attempt"),
+    (route) => {
+      const server = route.connectToServer();
+      server.onMessage((message) => {
+        if (typeof message === "string") {
+          const frame = JSON.parse(message);
+          if (frame.type === "ready") {
+            route.send(JSON.stringify({ ...frame, audioSequence: -1 }));
+            return;
+          }
+        }
+        route.send(message);
+      });
+    },
+  );
+  await page.goto("/?learner=6");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await page
+    .getByRole("dialog", { name: "Enable public learning results" })
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "The scoring connection stopped. Press Start karaoke to try again.",
+    { timeout: 20000 },
+  );
+  await expect(
+    page.getByRole("button", { name: "Start karaoke" }),
+  ).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start singing" })).toHaveCount(
+    0,
+  );
+  expect(
+    await page
+      .locator(".live-karaoke audio")
+      .evaluate((audio: HTMLAudioElement) => audio.paused),
+  ).toBe(true);
 });

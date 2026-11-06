@@ -55,8 +55,12 @@ import {
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireStudySpeech } from "./study-operator.ts";
 import { resumeStudyPublications, recoverLearningTransactions } from "./study-publication-recovery.ts";
-import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 import { retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
+import {
+  expireLearnerHistory,
+  learnerHistoryDiagnostics,
+  saveLearnerHistory,
+} from "./learner-history.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
@@ -302,9 +306,12 @@ export async function karaokeRoute(
       "history_not_found",
     );
     expireLearnerHistory(store);
-    const history = store.get(`history:${ticketId}`);
+    const history = store.get<Record<string, unknown>>(`history:${ticketId}`);
     check(history, "history_not_found");
-    return Response.json(history);
+    return Response.json({
+      ...history,
+      diagnostics: learnerHistoryDiagnostics(store, ticketId),
+    });
   }
   if (url.pathname === "/enrollment/list") {
     const { learner } = await body<{ learner: Address }>(request);

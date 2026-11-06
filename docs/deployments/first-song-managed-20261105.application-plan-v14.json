@@ -1,0 +1,450 @@
+{
+  "profileHash": "0x52175c558c976aeabde7b1ab416bd98c5fbaafe5d617c0d7cb01798e22daa253",
+  "profile": {
+    "schema": "pirate.community-application-plan/1",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "prefix": "pirate-first-song-20261105",
+    "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "stage": "setup",
+    "resources": [
+      {
+        "logical": "App",
+        "type": "Cloudflare.Worker",
+        "id": "a29dd318429e42eda7846ea4997ad999",
+        "attributes": {
+          "workerId": "a29dd318429e42eda7846ea4997ad999",
+          "workerName": "pirate-first-song-20261105"
+        }
+      },
+      {
+        "logical": "Database",
+        "type": "Cloudflare.D1Database",
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7",
+        "attributes": {
+          "databaseId": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+        }
+      },
+      {
+        "logical": "Media",
+        "type": "Cloudflare.R2.Bucket",
+        "id": "pirate-first-song-20261105-media",
+        "attributes": {
+          "bucketName": "pirate-first-song-20261105-media"
+        }
+      },
+      {
+        "logical": "Jobs",
+        "type": "Cloudflare.Queues.Queue",
+        "id": "fe031cd96fbb47579585eb10154f785d",
+        "attributes": {
+          "queueId": "fe031cd96fbb47579585eb10154f785d"
+        }
+      }
+    ],
+    "predecessorState": {
+      "pirate-first-song-20261105/setup/App.json": "0x0ccbeb432c0540ff0e3cdc3c4533640caeaf11706bda8198055674067c993d5d",
+      "pirate-first-song-20261105/setup/Database.json": "0xd79b4414bac86a60e785d72d12bfc451de8693e43abf8261eed750e0c066b8be",
+      "pirate-first-song-20261105/setup/Media.json": "0x7fd264126cd5e0080f09b7c01b6892ccd14bbfce849d39519cd9f6041f5339a6",
+      "pirate-first-song-20261105/setup/Jobs.json": "0x828fc3e16558a794d15ba89a87b40eb21269b81542c77fa8fee4d338caa1134c",
+      "pirate-first-song-20261105/setup/__stack_output__.json": "0x4f279d39e434b111a76f316b6c9f108d52ccc675bdf082dc336bd0a304569aa0"
+    },
+    "predecessorWorkerSha256": "0x0455cb37f0c1f86eacd2eba2a070ef3befa9881d83fe9d90c0e5aae529000aee",
+    "sourceHashes": {
+      "apps/community-wizard/infra/application-alchemy.run.ts": "0xf1567db10780479bcc527461a69a040b18b9ebb6677a7f97a366b200eeb159bf",
+      "apps/community-wizard/infra/encrypted-state.ts": "0x4a36806a68e63ffc4ec8585c75551cd59f922e8e0e15a8033174cbbc20d64fe3",
+      "apps/community-wizard/infra/migrations/0001_setup.sql": "0x7c316355896c3df6df63cc21f2bd591c7c55bba7797bd5304aa36c8ae6f0a198",
+      "apps/community-wizard/infra/migrations/0002_first_song.sql": "0xd88276395d3bf52dfbaaa3eee87c5c37b189f71b1cc111ab8de7558fb3ee30f4",
+      "apps/community-wizard/infra/migrations/0003_publication_journal.sql": "0xd237b45579b4bfc08f9c661766cc9b19526c4fd6477ad8eaadf0e4bdb9ef6653",
+      "apps/community-wizard/infra/migrations/0004_creator_connection.sql": "0x8f255b6011ecadb867a5de3ed39591b7a4cf4e551239e3e75f1046e7656c5094",
+      "apps/community-wizard/infra/migrations/0005_input_capabilities.sql": "0xaec7a48315d12c6ae057b8a8c65995884fad81de790b08dd30aac2d86e2ada44",
+      "apps/community-wizard/infra/migrations/0006_song_stems.sql": "0x40ea7ecdaaae016ecb06bf9627e5d7a6b4cdfdc00b8a1c59643691cd8a495702",
+      "apps/community-wizard/infra/migrations/0007_owner_curated.sql": "0x0c7d454e2b93f8d5d22bc30cc09df8b02e518c533aa22784cc8784d5e718d4cb",
+      "apps/community-wizard/infra/migrations/0008_karaoke.sql": "0x38935e04bc135a2f8dd6e0e62e16ca6dac4a20046ef749c022bedf0f5bf95859",
+      "apps/community-wizard/infra/protected-data.ts": "0x12378aa5ea4c60b5e1f78e454a74f3d9cc4b4d6b0beefd160004c9fb26319a4f",
+      "apps/community-wizard/package-lock.json": "0xb15ea36636a432c2b7a6652e9443e496518a9073e81775c2cb10e3ed065fef72",
+      "apps/community-wizard/package.json": "0xeaf678494ff26f78379a93e3a9bbfe64e3e2ccaa8fecfb21d9e7d354f9818386",
+      "apps/community-wizard/server/diagnostics.ts": "0xd97c6fc9bc5fa87b52dd84991d9c892c49f0028a1250ea5c9573d991004493cf",
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
+      "apps/community-wizard/server/state-inspection.ts": "0x608538f901cca6bcda5e1d52ef13181f88a1d6a9fb89cd74a8de50313a6f4ae7",
+      "apps/community-wizard/server/state.ts": "0x4af1b6dc95930c7ab4ba659c5aa8c9c5a765bda8ac3f80ef800a482f22fda1ff",
+      "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "apps/web/package-lock.json": "0xa378c07517256bf0df176b2f052e103e47df67cb1c1c7b58d530b5cb982fc766",
+      "apps/web/package.json": "0xff3a2828be3e6d1ca03b1463e44155643a878649cc8591b59635f08000157dce",
+      "apps/web/src/api-contract.ts": "0x84f995caaa9291923f96777b3b4e9cce8e989bf471c36e9fb5ebcc66ecdf236c",
+      "apps/web/src/karaoke/activity-progress-header.tsx": "0xef7b50fbbb79abd7b32c27799ffcde14525f068e902cfb2a5d2530e879a19f2e",
+      "apps/web/src/karaoke/activity-results.tsx": "0xb350854d4ce5a7cb8884da3b9daa7a9aae52c799dca5b160c477fb6e3f87e28e",
+      "apps/web/src/karaoke/capture-processor.ts": "0x8e0e7e98108b9f03bcd4c4d812d3f8f888e4f4ba64b041c2716d126120ecb534",
+      "apps/web/src/karaoke/entry.tsx": "0x6a110a7def752495f541938cca3d0702075062afb49d1c48c7abb1a73bc86fc9",
+      "apps/web/src/karaoke/index.html": "0xc0699950243048ed45e82126222ff46aab365586236023270e8304d7940cffb8",
+      "apps/web/src/karaoke/karaoke.css": "0xb666449a911a37ed97fb01dcb34f84511381a701964e2c41a6ff571619945464",
+      "apps/web/src/karaoke/lyric-stage.tsx": "0x7ec9e04de526d1da35611b32cfe219f538541e2fe149bc0c14e9a193b7e08fe6",
+      "apps/web/src/karaoke/mic-capture-browser.ts": "0xb0e34bc33c5e21cbd60087a016ba75cd85c23c9a468e0ea2bb10584b24f828a5",
+      "apps/web/src/karaoke/playback-graph.ts": "0xc431b7bc988a01ee6ba1a1d66a14c0221430810cf4a1b7a98ad8746de29ad46e",
+      "apps/web/src/karaoke/playback-renewal.ts": "0x7968895e9d426871cdd7034f117819b2e0ab219c638493416705699fe79aff06",
+      "apps/web/src/karaoke/practice-surface.tsx": "0x6d58ec0ee749c627d4921da96630c5fa396236ade6201efa6b4299f93952c568",
+      "apps/web/src/karaoke/results-model.ts": "0x7e359aba7292563678ea6d81335a1b636b75c4ccb41806e3b4ee1297537ac16e",
+      "apps/web/src/karaoke/route-states.tsx": "0xcb1212ae576e7c98f424817795c7dd0494365fd635229d29f255f51b27c41400",
+      "apps/web/src/karaoke/scoring-feedback.ts": "0x82c16b4e19fcb8252817988760cbde15f20d52ab1b2a13c2d9ef9ca3724b9a72",
+      "apps/web/src/karaoke/style.css": "0xfa8fbe483697172ef66275fbcc4e3c6dd0e701c1e6e3cadac112612757252cf9",
+      "apps/web/src/karaoke/ui.ts": "0xb3428ca5805e7849a504e2a013e6d6372291f9422d29882c5faaccb655fd0102",
+      "apps/web/src/karaoke/use-karaoke-capture.ts": "0x77f262fe6d59c6ca9ba4bef2b63369e255b229e0a7292da2d242c0b67246c161",
+      "apps/web/src/live/api.ts": "0x7a45a70c87c16d2878e4c72ea54bbd3ad3f630d8efdf8ad2f175df39dd7c931e",
+      "apps/web/src/live/draft.ts": "0xacaa78c922e8d2b9c67b09b1680695c41a1672eead15f7e68ab6f066b9cf4a2c",
+      "apps/web/src/live/entry.tsx": "0x05037bd79413d90b937eb4ad1be4ed582051f04a7dc0b935df086e0bb383c3fc",
+      "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
+      "apps/web/src/live/karaoke.tsx": "0x17f702aedfa058263b0c1cdd453e1c3b880b6317133e2dc335d04c43bebf7747",
+      "apps/web/src/live/public/images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
+      "apps/web/src/live/stem-upload.tsx": "0xfe4bbc5901d6ff0c5fb23d2ae7786b8f793c6259c717079d1ece57fbed17ed27",
+      "apps/web/src/live/style.css": "0x8bc8c33b7e68039cb3e4af60d686784fb335ba1d51934a08e9d73f41c45d97d6",
+      "apps/web/src/live/upload.tsx": "0x3b9839a8f7a8344a326a4b6a05517ee75bd962eaf460dc7554173b7d7beeb3b4",
+      "apps/web/src/model.ts": "0xea04473fea519ed852de4d8c64b92aa3556fd4b21bc74ae4e2fd788de3bf4976",
+      "apps/web/src/ui.ts": "0xd541b05537a20cf7f489dd710b0aab4d1dd86f086f111a167687783c8b2e4013",
+      "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
+      "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
+      "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
+      "docs/deployments/first-song-managed-20261105.application-plan-v13.json": "0x55e65fe1982d7d61010477d81312aa3220fa6f22d16794c71870e59b008d2596",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xde898d22b5d5c09fcfa4686a00c691cd3a019fa7e8556ce75a6366469205f315",
+      "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
+      "docs/deployments/first-song-managed-20261105.published-state.json": "0xa25728e283703dd7f68488c5a27a035033549099056626f24092f55e70697559",
+      "docs/deployments/learning-results-testnet-20261106.contract.json": "0x7632d49b565018f86dc072e8e1a1adcb4dc7d002880c3eb09e81583a0c3cb3d7",
+      "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
+      "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
+      "harness/community-dependencies.ts": "0xa93dd63aa41df73bfc55f3e6465fcaff76a44f634515354584bfbde2986bdb29",
+      "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
+      "harness/community-package.ts": "0xd0e765522be85d6763ac28deb9075a072e3fe216081f17cfc1f94172e1bc34f7",
+      "harness/community-release.ts": "0x90cc8a2133b2da660dedda93cf118847e2e5762d676176b407e46e2b340bb10d",
+      "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
+      "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
+      "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
+      "harness/curated-release-plan.ts": "0x7bd56c1d6f44dca50ab5a168c2d7276d49c4d1680307d48a98f8fadb2ea42d62",
+      "harness/curated-state.ts": "0x82b41a052abd36fcc4560f98bc77743fec76b3da66b3b08171e9634b9095a5e7",
+      "harness/curated-upgrade.ts": "0xba5b348e8375651e9b085acb717c662433cfd9447e58446511d1047eaa541a2e",
+      "harness/first-song-peers.ts": "0x38509d1167378c427325e09f8a8c5524d2f7164ea97a11e7b9090578be2e4d12",
+      "harness/first-song-upgrade.ts": "0xbe8cf0b82863ccb7784d0b15cbc6af3fe3e5b81812015c91b4c322a9083e2dc9",
+      "harness/learning-community-profile.ts": "0xdae3afabdc004ccad2b40bddc8de18d25d27b30169bd8beca92f4d88360e0d33",
+      "harness/managed-inventory.ts": "0xd2bffd03ae47eb58813b0626708d194d6f11266f29ac94b0c2506c6c3d114aa3",
+      "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
+      "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
+      "harness/megaeth/deployment-journal.ts": "0x9a72ebb5c9594bc8468e0278c1f7774389c3401111b284e857bc30f4020294d7",
+      "harness/owned-module-graph.ts": "0x4044b731fa65d81befb564c6afc8ca28137add3e417871869ed9b3f7cba04f0d",
+      "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
+      "harness/published-registration.ts": "0x1ecc72571da38531a055fc47c41c7e43218442c34432f01930e325befa726d0f",
+      "harness/published-replay.ts": "0x97f88208529cda9bc84897363a70b5923ea86b0947023b7c2700fe12f6823631",
+      "harness/published-state.ts": "0x28e1c7ed64850eb86bbd351364aa6709c3a5844fc65a5529e01a1a9fb8613224",
+      "harness/reviewed-update.ts": "0x3549ebb322fa99a6f7640c1cd6bf92b99382f9467edbf4703924112bd368582e",
+      "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
+      "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
+      "package.json": "0x37adb68464b8e20157cea2b8c68379fe0a73c24ec3b559678ba79b43fd3797a5",
+      "packages/alignment/elevenlabs-response.ts": "0xb256d79da48b14db0b4d42a0e5d59253e37379ba6c71bd53fec0549f77a2ae56",
+      "packages/alignment/elevenlabs.ts": "0xea68d67f390e728e87908d0b7790c4d883501602da6a473c0cc8e51eaece8101",
+      "packages/alignment/limits.ts": "0xb6780eaa2e625d81b10fd7864f07e806d7fcc5af641c243eceb47aa3cc016951",
+      "packages/alignment/operation.ts": "0x0a304029c3c0e57a08351ea33a64f639d51772a8698ed3683b260fe58fcc61c1",
+      "packages/community/accounts.ts": "0x28d2f1847bed1fc58549f4cc6e105ced6956d8480a19fc0210a8fa24bb2ef1f2",
+      "packages/community/adopt-curated.ts": "0x3d674d35d898b99a935e8ef150dd652b9296988ec7634f7c3f075ce5fd61523b",
+      "packages/community/application-api.ts": "0xa7b412214f2eeb7812aa1df711a91f2296d7f0b185e855d279448d773eecc0ad",
+      "packages/community/budgets.ts": "0x7ef33f135d54cac53e4ce50bf1fcd13783b21fad41649c6df86d2657579a5afe",
+      "packages/community/chain.ts": "0x54ee774539c7d80858c21e7ee8792c47ca30ebea20c660d4538fdb5b1d094c63",
+      "packages/community/common.ts": "0x6e6a1242ddbb3a1fd33bde782abe0c034eed671b81fd77301f72622fc32e2208",
+      "packages/community/config-manifest.ts": "0x3daab7cac7d406aef203ee777da11f1fb10e1c699f40df6a972a42bd1069a50a",
+      "packages/community/configuration-index.ts": "0x863a32d11638163984c4b5bacaf969f09e7d7b2bea7989fff2f3beeb5aa86337",
+      "packages/community/creator-connections.ts": "0x2face2362aa2de228c67e054a1988f80362153512836c92f78fcf1f2c37e46e2",
+      "packages/community/creator-receipt.ts": "0x288ebb38eac5f0d6706302f9ef437feec180131e7274e7bd9ee6de8af6d53318",
+      "packages/community/creator-service.ts": "0xc34dfa09f6a7be0674f8968948ae4d05eabb13f611ec9c3b2b145dbcafe061e0",
+      "packages/community/curated-amendment.ts": "0x15d1862bdee7f165276d221034e1b5bda2b3abd6e0f1f04534e711f12a7fced7",
+      "packages/community/directory-reader.ts": "0x27031fe55a1e41a669f2040057c554ba3592dda7f6186d48a6bb38fde9e12649",
+      "packages/community/input-capabilities.ts": "0x4cbd52f51cd4f663f688312b5cacca3ddfd74a08b6a8e66ebde1ca8b1ea7eed7",
+      "packages/community/ipfs.ts": "0x7607ac9528cda43fbcc86ebbaf5b6078e07e21fce5cb03caecfd297289a88278",
+      "packages/community/lyric-manifest.ts": "0x2ad233d75e1baf69e51d62c77b1852eddcd8677d942b7f5bf2b8b4167b3cdce9",
+      "packages/community/managed-client.ts": "0x2aaf09c7ad18d04026d965c6f76b5562df384c64b98c1c15b9ab0afc33ac7308",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/owner-policy.ts": "0x2749adcbb50c6c28fe496190e58266cebfcb5d7429c010c6a20d7ed2a3152a25",
+      "packages/community/post-chain.ts": "0x9cf9e6ba749d0d4f7750b6d32c66083fccef1530ed95005103127a70756879b1",
+      "packages/community/post-index.ts": "0x353a1eadd544bbd14ff802715ccea4d05f8506ad65a97cd28a165d2cc2ab691a",
+      "packages/community/post-manifest.ts": "0xa673dec90e9f89018c7dd14a7a371c434f0e061bae3d8568dcde8d111e39f9fa",
+      "packages/community/publication-admission.ts": "0x4333fcc04edf10fd471f75cd821d21f5427076c19b94e110fc080c0fa98831e9",
+      "packages/community/publication-input.ts": "0x8d9005662aa93528266e067eb2cebf2c7be1fc544a8e4c9fdd2f22d1df6fee9a",
+      "packages/community/publication-posting.ts": "0x50990be560f47cb93a526a995be88777a0b4059ea89df01c69fc55bd024bd767",
+      "packages/community/publication-profile.ts": "0x20574b3176756023e05af7e8c5e8675a29dbc27750fede2a2283eb0d1f248c8a",
+      "packages/community/publication-release.ts": "0x8733b84bc6593e29104a9e5d6351a12822ef3d0a52554a3316bb275368031195",
+      "packages/community/publication-store.ts": "0xd7b2eea27223ae468d7b51846514ee72c036fe5eb8c45b53347c8d2e742fd435",
+      "packages/community/publication.ts": "0x009478261d49a7001ffcb39e3542edcea06e74939d5be5270acab3a55a6e2f19",
+      "packages/community/registration-chain.ts": "0xecc45aabffecb9317ca93aaea2e5706a947ce4ca8f6fc210bb11b4a3e00df354",
+      "packages/community/stems.ts": "0x849fc49d2b4ba0c96ec7983da09d6062735085747169f74b1fb4ac9aaa357ba9",
+      "packages/community/submissions.ts": "0x8b132471dd08bd97c42b43ecb723114c60b51a0cecf112144244c62ab621d4e8",
+      "packages/community/uploads.ts": "0x9ef47ac4dc48a3251a3e5e2b58ffedeaf2e01ce9bf0058cee2b817cf1bdeac93",
+      "packages/karaoke/published-manifest.ts": "0xafcd3bc98e5fcf309105cbadb08535b627aa7ed7201fad67e1beb4eecbb161b1",
+      "packages/moderation/acrcloud.ts": "0x30c06bbb7ae2f58dda1bf8949291e344a4cacff69c65ab86dd443048173b6700",
+      "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
+      "packages/moderation/admission.ts": "0x7aa188e45e608aec2314bb18f279f31035dd4f5bbd181d868b5e3df37d347e86",
+      "packages/moderation/capabilities.ts": "0xeb416f6f35cf14df1e4e5a13861f0de1a0a1bbe623058d3c55fe79e440690e98",
+      "packages/moderation/curated-admission.ts": "0xc21141d866f671b6480e86e81716378ada0fa740cd429fdf2773dfc3afe114d6",
+      "packages/moderation/evidence.ts": "0x5b2167bcdd54d958e6ea0fa21159cbc5feb4c220936db0218a8bbbba4017637f",
+      "packages/moderation/mp3-frames.ts": "0x8712e19179ab02f7fa92dd6877bd575cb4786e21342635efd8ce4d0d6215d771",
+      "packages/moderation/mp3-windows.ts": "0x62052fa6973db9412579fc89f04d42afe4a39059ee4a0f398aa3970fac27df14",
+      "packages/moderation/pairing.ts": "0x6cb00be855dd778b4192a5c037d1df8a98bcbe620963b59b3afeb6107f6659ff",
+      "packages/moderation/provider-http.ts": "0xcc3108927aa1bc589126d5346cfdaa5db2a7e0540d2f7d79c25e1a388a989905",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "packages/protocol/payments.ts": "0x3424f35c5a0a8bc156c68975048a5aafc366f9f1246a11b9bb6f3936311c1be3",
+      "packages/protocol/records.ts": "0xf7bcbac794e8804b459fee72322dcb84a0fb9267f685758de6b867e92ac24961",
+      "packages/records/result-manifest.ts": "0x87823d55caf2717f3e307eb83b17adb64eece9b5f1d41aff70d2cd32eb244eb9",
+      "packages/release/artifacts.ts": "0x51f8a0954c9890363a55f0f5b03ad014ece6e3b87977a00691ad4921579a9e6a",
+      "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
+      "services/chain.ts": "0x9c4d71e9cf9c256b1f079acbd4cadc06f38cbafd7947127e0bde56ce27a7c631",
+      "services/community-application.ts": "0x182bddd314b3fc898cb0b4c9bd1b1c939635e261286dbc81f0895a3959f815b8",
+      "services/community-jobs.ts": "0x25e4580a5db4ebf0cc0bb090b1d284d3488597de5d4e1d09c52241f02925cf02",
+      "services/community-public.ts": "0x883030e1a560931c9edee85795f8d2a609c61c0988df01b2dfc738a517dac797",
+      "services/community-purchases.ts": "0xb67d8d81ca73978dafde120de79ef371d9bd168ccd5682e4324eb96ae764ec76",
+      "services/community-release-api.ts": "0xbaa82f28b339534328563cc4bf3945d116ab8bd17ba80fcf9f8e55c726540635",
+      "services/configuration-health.ts": "0x0cdfc5564c0cec1cd7d335d2c60c26cc0b4a048bc46fd92db568835c3d7fbe94",
+      "services/first-song-driver.ts": "0xb05731648abc3bc409d42357ec9c0d845fbc49886959202b59bc5ef7124ebb24",
+      "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
+      "services/first-song-runtime.ts": "0x12698f50e1e22534585f1ba638cf4a93259c06e53e6e325d93cd3fe889d613a0",
+      "services/karaoke-community.ts": "0x417bc466fe10500f9acd078a122df2a8b752692122b1bce3c6653cd21bf574b4",
+      "services/karaoke-song.ts": "0xd3c208ff9f7f39f4c380a473718e1896ad39ceca5b64ce3155c90f20fd7a5919",
+      "services/learning-policy-pages.ts": "0x7d94c72edf637400be3b7bccd217c4e26b4d0818bb73e6ee0674648525cb1399",
+      "services/request-timing.ts": "0x9630ee6b765ee28a2e254eaa22f60867d2eb58f25a6190f8d45ab0572a176eb1",
+      "services/service-call.ts": "0xf7300d46a2b584d271e431a91d324bda038f9350bf08e19f05688b0e8ca2edf7",
+      "services/storage.ts": "0x4b9ac339d3534bf26d8d27adcc0168bf6ee76232c70edfde23ed37575dc2bcb8"
+    },
+    "bundleSha256": "0x93b778c559b2baa919b877f346deeac74390c2d501d47b68917bd9fe05d061f9",
+    "bundleBytes": 878589,
+    "assets": {
+      ".vite/manifest.json": "0x09dd479c8ee52d5222cecdcd0f8bb07adec12e4472d6057554018827a5bd2cbd",
+      "app/assets/capture-processor-Di3k79aW.js": "0x97fc42534dd5a5e20c9bf241a30a39aa1652fe0cf1d7fc4857b0d0f57c782975",
+      "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
+      "app/assets/index-Byp_nxt3.css": "0x1e5035ce545510e910393f1394e5b1880af12cd2d8b5b6458216d837f705683e",
+      "app/assets/index-o73od_pi.js": "0xf31cfbf0bb1f11ba86cb8be60f3b566e7d27d2ce3c12ee8907a20defe8ce5fbb",
+      "images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
+      "index.html": "0x1b5a5b1dc7f2ca68ca4216d37ba77f7538e1365316e91196dd5b87602736593c"
+    },
+    "migrations": [
+      "0001_setup.sql",
+      "0002_first_song.sql",
+      "0003_publication_journal.sql",
+      "0004_creator_connection.sql",
+      "0005_input_capabilities.sql",
+      "0006_song_stems.sql",
+      "0007_owner_curated.sql",
+      "0008_karaoke.sql"
+    ],
+    "releaseGrant": {
+      "sha256": "0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "configurationRevision": 2,
+      "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+      "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+      "expiresAt": 1793974341,
+      "pins": {
+        "sha256": "0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+        "period": "first-song-20261105-v1",
+        "maximumAdds": 5
+      },
+      "registration": {
+        "sha256": "0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+        "period": "first-song-20261105-v1",
+        "operator": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+        "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+        "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+        "maximumGas": "10000000",
+        "maximumGasPrice": "10000000",
+        "maximumTotalFee": "100000000000000",
+        "expiresAt": 1793974341,
+        "codeHashes": {
+          "workflow": "0xeae615f93fa4dcdad0e8ac35c6732c54bf0a2a8eaec9b072362d2a08aa7aa2c2",
+          "nft": "0xea926deba1719db0be4988e0c1992733441a05cbe00aebc5f5ebb3b5d613223d",
+          "registry": "0x16a5e60a8c09daebb083bd3f8ffc704cb1d86e20662b3aa948cdea9a2a5f9f32"
+        }
+      }
+    },
+    "curatedState": {
+      "schema": "pirate.published-first-song-state/1",
+      "observedAt": "2026-11-05T20:26:16.469Z",
+      "originalHeldStateSha256": "0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c",
+      "application": {
+        "community_accounts": {
+          "count": 1,
+          "sha256": "0x1152813534dfaf1425f55aca44c655261a10ebc77fd6d5d67f6a4de5de1b507a"
+        },
+        "credential_bindings": {
+          "count": 1,
+          "sha256": "0x28759de97c767b4378f44eded9ee4f48edf4500bab117099a28cdf94ae879931"
+        },
+        "creator_bindings": {
+          "count": 1,
+          "sha256": "0x42c8378c328ed0844fe8dccb12dbd58ee6917464528f7c7470b57565fba0a4a7"
+        },
+        "media_submissions": {
+          "count": 1,
+          "sha256": "0x2cc1478f76d44390390eba484c229d0d200efcf9609026b344efa92497bbbca1"
+        },
+        "publication_jobs": {
+          "count": 1,
+          "sha256": "0xa73931e6f2b1b2d1d671cfb52d088aae55c321d056b48f49f10b97590654c9c2"
+        },
+        "external_operations": {
+          "count": 7,
+          "sha256": "0x9ea74b801d582d2568633ff78bad3f6382b2e1991d76319a1a669123dfdbedc1"
+        },
+        "media_stems": {
+          "count": 2,
+          "sha256": "0x00f8574fbf33d7b0f61d265a375752f2349320235f38c68764d88caac9a7e3cb"
+        },
+        "publication_amendments": {
+          "count": 1,
+          "sha256": "0xf704f7cfc3c2be94d9e510dfaa705210b64bbd978ddc3ea4e18b1501472ccda0"
+        },
+        "external_operation_reconciliations": {
+          "count": 1,
+          "sha256": "0x1aeba6d0739d78a2ade976da384d2348efa028a3c178b9d2f2da033540802625"
+        },
+        "moderation_input_capabilities": {
+          "count": 3,
+          "sha256": "0x18e4b8c4063a5d2c81822cba0e85df704918e64c1b771ddfe761c1e258f3bddf"
+        },
+        "spending_budgets": {
+          "count": 2,
+          "sha256": "0x0c115fda05a3814acdb901c4ce7d41f597871e98f2a77710d1b73b6894a55cd1"
+        },
+        "spending_reservations": {
+          "count": 2,
+          "sha256": "0x3546c0bb7e6127a7ce14c4f9ee7c52581f39de8c601039779022fe5d91c23c01"
+        }
+      },
+      "managed": {
+        "managed_admissions": {
+          "count": 1,
+          "sha256": "0xc85c0b97b7d4f8193f6b31415bc3efba552bdbfd48167d8ccfc86a5249fe6168"
+        },
+        "moderation_provider_calls": {
+          "count": 3,
+          "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
+        },
+        "spending_budgets": {
+          "count": 6,
+          "sha256": "0x9d2816779f075f7f4c3007276411e6ac614f7aa68cbe236465b3fbb0914dbd52"
+        },
+        "spending_reservations": {
+          "count": 14,
+          "sha256": "0x2dadf3552064a08d7b2eadc11f6f4a4029af4015d4998e2ea006af32a70970d3"
+        },
+        "managed_releases": {
+          "count": 1,
+          "sha256": "0xb85fab505aeaa449846c108ebf308ad9d0c36e8d432884f4ce4f6f43210f5201"
+        },
+        "funded_pins": {
+          "count": 5,
+          "sha256": "0xc148a7dc6876aa69359e3611ce5c0583d73dea3a462502bb18b7b501f3bd97b8"
+        },
+        "funded_registrations": {
+          "count": 1,
+          "sha256": "0x1f27c94de938bff9fc507ff108aff36ea7c233a7e0e9b3c12160df54a412e3ec"
+        },
+        "curated_admissions": {
+          "count": 1,
+          "sha256": "0xad364a6ab27bfe7a4d4ee9fe7cdaa3ce4eb5a99beb74c62311cfab0bdb35aaff"
+        },
+        "moderation_request_nonces": {
+          "count": 15,
+          "sha256": "0x489a07654386c1941069c7c02920b2513c6da5409ffd249988139ca513526c22"
+        }
+      },
+      "registration": {
+        "input": {
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadata": {
+            "uri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+            "sha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0"
+          },
+          "nftMetadata": {
+            "uri": "ipfs://bafkreiayekujyl55oopvsg3ul2gldhydegrdjsmogydjme4lqaiedlezqa",
+            "sha256": "0x1822a89c2fbd739f591b745e8cb19f0321a234c98e360696138b801041ac9980"
+          }
+        },
+        "receipt": {
+          "assetId": "0x2e5f4be36d644f6afdbcd3ffa89bb4e1b34cd256",
+          "blockHash": "0xb5b3ea093fb1d301ab97648ef274c1959f6804a58ab8bb176c7e74f9fa64e3b5",
+          "blockNumber": "25922296",
+          "chainId": 1315,
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadataSha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+          "metadataUri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+          "network": "aeneid",
+          "nftContract": "0xc32a8a0ff3beddda58393d022af433e78739fabc",
+          "protocol": "story",
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "status": "confirmed",
+          "tokenId": "4619",
+          "transactionHash": "0x5945d76b02eefb4a38351c75f86d4c45ffa981439d58e14cc7c194a1180059a0"
+        },
+        "operatorNonceAfter": 1
+      }
+    },
+    "managedProfileHash": "0xdaff75fad62b99c881e0e50b706e12a3fc8e26264e01f41c9d7494d61d4bc3ea",
+    "queueConsumer": {
+      "logical": "Consumer",
+      "queueId": "fe031cd96fbb47579585eb10154f785d",
+      "scriptName": "pirate-first-song-20261105",
+      "batchSize": 1,
+      "maxConcurrency": 1,
+      "maxRetries": 3,
+      "retryDelay": 60
+    },
+    "creatorProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
+    "reviewedUpdate": {
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v13.json",
+      "previousProfileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
+      "expectedExecutionSha256": "0x3995013b0c85631f5753fb7935ce7f26ac9375408fda0cccd3a3501accca2caf",
+      "expectedResultSha256": "0x34564ec31ccbff60714589cbd08c59af463eb06eb73f6cdfe6fcc979475b43b7"
+    },
+    "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+    "credentialBinding": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "path": "/services/pirate-first-song-20261105",
+      "name": "COMMUNITY_PUBLISHER_PRIVATE_KEY"
+    },
+    "stateProtection": {
+      "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
+      "environment": "staging",
+      "path": "/communities/first-song-20261105-runner"
+    },
+    "bounds": {
+      "executionSeconds": 900,
+      "newResources": 1,
+      "nativeTransactions": 0,
+      "providerRequests": 24,
+      "registrationTransactions": 1,
+      "publicationTransactions": 1,
+      "publicPins": 5,
+      "maximumRegistrationFee": "100000000000000",
+      "maximumPublicationFee": "30000000000000"
+    },
+    "acceptance": "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet",
+    "learning": {
+      "chainId": 6343,
+      "contract": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+      "operator": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "issuer": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+      "operatorWorker": "pirate-learning-testnet-v2",
+      "operatorOrigin": "https://pirate-learning-testnet-v2.piratesocialclub.workers.dev",
+      "accounting": "internal",
+      "speechDailyCalls": 0,
+      "historyRetentionDays": 30,
+      "providerCredential": {
+        "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+        "environment": "staging",
+        "path": "/services/api-next",
+        "key": "ELEVENLABS_API_KEY"
+      },
+      "acceptance": "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet"
+    },
+    "recovery": "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker."
+  }
+}

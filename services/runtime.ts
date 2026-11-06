@@ -182,7 +182,10 @@ export class ServiceState extends DurableObject<Env> {
     ws.close(code, reason);
   }
   private async schedule() {
-    if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now() + 5000);
+    const due = Date.now() + 5000;
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing === null || existing > due)
+      await this.ctx.storage.setAlarm(due);
   }
   async alarm() {
     try { await tick(this.env, this.store); }
