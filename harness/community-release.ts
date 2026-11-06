@@ -1,3 +1,4 @@
+import { communityDependencyModules } from "./community-dependencies.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
 import { qualifyCommunityConsumer } from "./community-consumer.ts";
@@ -246,9 +247,7 @@ async function main() {
           directory,
           { profile, profileHash },
           {
-            "deployment/node_modules": resolve(
-              "apps/community-wizard/node_modules",
-            ),
+            "deployment/node_modules": communityDependencyModules,
           },
         );
       }
@@ -331,7 +330,7 @@ async function main() {
             "--signal=TERM",
             "--kill-after=15s",
             `${remaining}s`,
-            resolve("apps/community-wizard/node_modules/.bin/alchemy"),
+            join(communityDependencyModules, ".bin/alchemy"),
             command,
             "--stage",
             "setup",

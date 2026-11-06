@@ -8,6 +8,7 @@
 // unavailable for Karaoke rather than fabricated.
 import { hashJson } from "../community/common.ts";
 import { check } from "../protocol/index.ts";
+import { resultManifestBytes } from "../records/result-manifest.ts";
 import {
   validateManifest,
   type KaraokeManifest,
@@ -102,5 +103,6 @@ export function publishedKaraokeManifest(
       source: { lyricsRevision: lyrics.revision, lyricsSha256: hashJson(lyrics) },
     };
   validateManifest(manifest, maxSegmentMs);
+  resultManifestBytes(manifest);
   return manifest;
 }

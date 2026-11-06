@@ -18,6 +18,7 @@ import {
   text,
 } from "../packages/community/common.ts";
 import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
+import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import {
   beginCreatorConnection,
@@ -103,7 +104,8 @@ function dependencies(env: CommunityEnv): CommunityDependencies {
     async configuration() {
       return (await configurationHistory()).at(-1)!;
     },
-    publicReads: { client: megaethReadClient(), profile: publicPostsProfile(), configurationHistory },
+    publicReads: { client: megaethReadClient(), profile: publicPostsProfile(), configurationHistory,
+      manifestAvailable: async (hash) => !!await publicResultManifest(hash) },
     async verifyLogin(address, message, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);

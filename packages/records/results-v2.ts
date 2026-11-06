@@ -20,6 +20,7 @@ import {
   type LineStatus,
 } from "../protocol/payments.ts";
 import { songKeyOf } from "../protocol/records.ts";
+import { publicResultManifest } from "./result-manifest.ts";
 
 export interface ResultEvidence {
   result: TerminalResult;
@@ -114,7 +115,7 @@ export async function readPublicResults(source: {
   contract: Address;
   fromBlock: bigint;
   toBlock: bigint;
-  manifest: (revision: Hex) => Promise<KaraokeManifest | undefined>;
+  manifest?: (revision: Hex) => Promise<KaraokeManifest | undefined>;
   authenticateSource?: (manifest: KaraokeManifest) => Promise<boolean>;
 }) {
   const client = createPublicClient({ transport: http(source.rpcUrl) });
@@ -137,7 +138,7 @@ export async function readPublicResults(source: {
         blockNumber: log.blockNumber,
         logIndex: log.logIndex,
       })),
-    source.manifest,
+    source.manifest ?? publicResultManifest,
     source.authenticateSource,
   );
   const after = await client.getBlock({ blockNumber: source.toBlock });

@@ -18,6 +18,7 @@ import { build } from "esbuild";
 import { hashJson, hashText, insist } from "../packages/community/common.ts";
 import { fileDigest } from "./creator-state.ts";
 import { firstSong } from "../services/first-song-profile.ts";
+import { communityDependencyModules, verifyCommunityDependencies } from "./community-dependencies.ts";
 import { learningCommunityProfile } from "./learning-community-profile.ts";
 
 export const communityBase = join(
@@ -75,6 +76,7 @@ export async function artifactFiles(
   return found.sort();
 }
 export async function communityPackage() {
+  await verifyCommunityDependencies();
   const learning = await learningCommunityProfile();
   const run = promisify(execFile),
     clean = {
@@ -85,7 +87,7 @@ export async function communityPackage() {
       NO_COLOR: "1",
     };
   const cli = await run(
-    resolve("apps/community-wizard/node_modules/.bin/alchemy"),
+    join(communityDependencyModules, ".bin/alchemy"),
     ["--version"],
     { env: clean, timeout: 30000, maxBuffer: 65536 },
   );
@@ -327,7 +329,7 @@ export async function writeCommunityPackage(
     await copyFile(join("apps/web/dist/live", file), target);
   }
   const modules = join(cwd, "node_modules"),
-    expected = resolve("apps/community-wizard/node_modules");
+    expected = communityDependencyModules;
   try {
     await symlink(expected, modules, "dir");
   } catch (error) {

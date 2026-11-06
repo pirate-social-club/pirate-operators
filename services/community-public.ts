@@ -21,6 +21,7 @@ export interface PublicReadPorts {
   profile: PostsProfile;
   transport?: IpfsTransport;
   configurationHistory?: () => Promise<readonly CommunityConfig[]>;
+  manifestAvailable?: (hash: import("viem").Hex) => Promise<boolean>;
 }
 export async function publicSongs(
   db: D1Database,
@@ -28,7 +29,7 @@ export async function publicSongs(
   ports: PublicReadPorts,
   postId?: string,
 ) {
-  const history = ports.configurationHistory ? await ports.configurationHistory() : [config];
+  const history = [...(ports.configurationHistory ? await ports.configurationHistory() : [config])];
   const scan = await syncPublicPosts(
     db,
     ports.client,

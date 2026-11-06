@@ -128,6 +128,8 @@ async function prepared(ports: KaraokePorts, postId: Hex) {
     quote = await trustedQuote(env, store);
   validateManifest(manifest, quote.maxSegmentMs);
   const manifestSha256 = digest(manifest) as Hex;
+  if (ports.env.KARAOKE_SERVICE_MODE === "internal" && ports.reads.manifestAvailable)
+    insist(await ports.reads.manifestAvailable(manifestSha256), "public_result_manifest_unavailable", 503);
   await store.set(`manifest:${manifestSha256}`, manifest);
   await store.set(`manifestFor:${manifest.songHash}`, manifestSha256);
   return { env, store, manifest, manifestSha256, quote };
