@@ -334,6 +334,81 @@ test("a valid late-open ticket still expires before completion and rejects later
   }
 });
 
+test("disconnect after the nominal cutoff keeps a fully measured run completed", async () => {
+  const c = await internal("post-cutoff-close", [
+    {
+      words: sungAudioWords(
+        AUDIO_MANIFEST,
+        AUDIO_MANIFEST.lines.map((l) => l.lineId),
+      ),
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    const duration = songEndMs(a.manifest);
+    const nominal = a.start.body.startedAt + Math.ceil(duration / 1000);
+    await c.sing(a.socket, a, 0, duration + 100);
+    await resolved(c, a, duration);
+    await c.at(nominal + 1);
+    a.socket.ws.close();
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+            .value as StoredAttempt
+        ).disconnectedAt ===
+        nominal + 1
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("socket_close_not_processed");
+    }
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.equal(r.status, "completed");
+    assert.equal(r.performanceEndedAt, nominal);
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      Array(4).fill("assessed"),
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("pre-cutoff disconnect stays abandoned and cannot resume after the cutoff", async () => {
+  const c = await internal("pre-cutoff-resume", []);
+  try {
+    const a = await c.attempt();
+    const nominal =
+      a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000);
+    await c.at(nominal - 1);
+    a.socket.ws.close();
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+            .value as StoredAttempt
+        ).disconnectedAt ===
+        nominal - 1
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("socket_close_not_processed");
+    }
+    await c.at(nominal + 1);
+    assert.deepEqual(await c.reconnect(a), {
+      refused: { error: "attempt_closed" },
+    });
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.equal(r.status, "abandoned");
+    assert.equal(r.performanceEndedAt, nominal - 1);
+    assert.equal(r.endedAt, nominal);
+    assert.equal((await c.simulator()).minted, 0);
+  } finally {
+    await c.dispose();
+  }
+});
+
 test("received audio without provider acknowledgement is never measured silence", async () => {
   const c = await internal("unacknowledged-audio", [
     { words: [], ignoreCommits: true },

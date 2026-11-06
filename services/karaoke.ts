@@ -118,9 +118,14 @@ export function settle(store: Store, env: Env, ticketId: string) {
     const events: [number, Status][] = [];
     if (attempt.disconnectedAt !== null)
       events.push([attempt.disconnectedAt + RECONNECT_WINDOW_S, "abandoned"]);
+    const completed =
+      attempt.connected ||
+      (internal &&
+        attempt.disconnectedAt !== null &&
+        attempt.disconnectedAt >= nominalEnd);
     events.push([
-      nominalEnd + (internal ? INTERNAL_COMPLETION_GRACE_S : 0),
-      attempt.connected ? "completed" : "abandoned",
+      nominalEnd + (internal && completed ? INTERNAL_COMPLETION_GRACE_S : 0),
+      completed ? "completed" : "abandoned",
     ]);
     events.push([
       Math.min(
