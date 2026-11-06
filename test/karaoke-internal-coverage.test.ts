@@ -14,6 +14,10 @@ import {
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 import type { SimulatedStream } from "../harness/karaoke-elevenlabs-simulator.ts";
+import {
+  INTERNAL_COMPLETION_GRACE_S,
+  type Attempt as StoredAttempt,
+} from "../services/karaoke-result.ts";
 let evm: Chain;
 before(async () => {
   evm = await startChain(19079);
@@ -39,6 +43,7 @@ async function terminal(c: C, a: A, at?: number) {
     at ??
       a.start.body.startedAt +
         Math.ceil(songEndMs(a.manifest) / 1000) +
+        INTERNAL_COMPLETION_GRACE_S +
         PAYMENT_GRACE_S +
         1,
   );
@@ -178,10 +183,227 @@ test("abandonment preserves a covered line and separates missing measurement fro
       a.start.body.startedAt + 3 + RECONNECT_WINDOW_S + PAYMENT_GRACE_S + 1,
     );
     assert.equal(r.status, "abandoned");
+    assert.equal(r.performanceEndedAt, a.start.body.startedAt + 3);
     assert.deepEqual(
       r.lines.map((l) => l.status),
       ["assessed", "unmeasured", "unattempted", "unattempted"],
     );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("late final audio fits the bounded ingress grace without moving the performance or payment cutoff", async () => {
+  const c = await internal("late-final-frame", [
+    {
+      words: sungAudioWords(
+        AUDIO_MANIFEST,
+        AUDIO_MANIFEST.lines.map((l) => l.lineId),
+      ),
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    const durationMs = songEndMs(a.manifest);
+    const nominal = a.start.body.startedAt + Math.ceil(durationMs / 1000);
+    await c.sing(a.socket, a, 0, durationMs - 100);
+    await resolved(c, a, a.manifest.lines.at(-2)!.endMs);
+    // Model floor-second start at +999 ms, a 100 ms capture/flush and 500 ms
+    // delivery independently. The real handler then receives at this second.
+    const arrivalMs =
+      a.start.body.startedAt * 1000 + 999 + durationMs + 100 + 500;
+    const arrivalSecond = Math.floor(arrivalMs / 1000);
+    assert.equal(arrivalSecond, nominal + 1);
+    await c.at(arrivalSecond);
+    const pending = (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+      .value as StoredAttempt;
+    assert.equal(pending.ended, null);
+    await c.sing(a.socket, a, durationMs - 100, durationMs + 100);
+    await resolved(c, a, durationMs);
+    a.socket.send({ type: "finish" });
+    for (let i = 0; i < 100; i++) {
+      const ended = (
+        (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+          .value as StoredAttempt
+      ).ended;
+      if (ended) {
+        assert.equal(ended.endedAt, arrivalSecond);
+        assert.equal(ended.performanceEndedAt, nominal);
+        assert.equal(ended.paymentDeadline, nominal + PAYMENT_GRACE_S);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("explicit_finish_not_processed");
+    }
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.equal(r.performanceEndedAt, nominal);
+    assert.equal(r.status, "completed");
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      Array(4).fill("assessed"),
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("the completion decision grace is finite and does not invent missing measurement", async () => {
+  const c = await internal("bounded-final-frame", []);
+  try {
+    const a = await c.attempt();
+    const nominal =
+      a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000);
+    await c.at(nominal + INTERNAL_COMPLETION_GRACE_S);
+    const ended = (
+      (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+        .value as StoredAttempt
+    ).ended!;
+    assert.equal(ended.status, "completed");
+    assert.equal(ended.performanceEndedAt, nominal);
+    assert.equal(ended.endedAt, nominal + INTERNAL_COMPLETION_GRACE_S);
+    assert.equal(ended.paymentDeadline, nominal + PAYMENT_GRACE_S);
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      Array(4).fill("unmeasured"),
+    );
+    assert.ok(r.lines.every((l) => l.scoreBps === null));
+    assert.equal((await c.simulator()).minted, 0);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("genuine early finish keeps its earlier performance and payment cutoff", async () => {
+  const c = await internal("early-finish", []);
+  try {
+    const a = await c.attempt();
+    const finish = a.start.body.startedAt + 3;
+    await c.at(finish);
+    a.socket.send({ type: "finish" });
+    // Process finish before advancing the clock; the normal state route only reads.
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+            .value as StoredAttempt
+        ).ended
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("explicit_finish_not_processed");
+    }
+    const r = await terminal(c, a, finish + PAYMENT_GRACE_S);
+    assert.equal(r.performanceEndedAt, finish);
+    assert.equal(r.endedAt, finish);
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      ["unmeasured", "unmeasured", "unattempted", "unattempted"],
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a valid late-open ticket still expires before completion and rejects later audio", async () => {
+  const c = await internal("hard-ticket-expiry", []);
+  try {
+    const a = await c.attempt(5, async (signed) =>
+      c.at(signed.body.expiresAt - 1),
+    );
+    assert.equal(a.start.body.startedAt, a.ticket.body.expiresAt - 1);
+    const expiry = a.ticket.body.expiresAt;
+    await c.at(expiry);
+    const ended = (
+      (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+        .value as StoredAttempt
+    ).ended!;
+    assert.equal(ended.status, "expired");
+    assert.equal(ended.endedAt, expiry);
+    assert.equal(ended.performanceEndedAt, expiry);
+    await c.sing(a.socket, a, 0, 100);
+    const r = await terminal(c, a, expiry + PAYMENT_GRACE_S);
+    assert.equal(r.performanceEndedAt, expiry);
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      ["unmeasured", "unattempted", "unattempted", "unattempted"],
+    );
+    assert.equal((await c.simulator()).minted, 0);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("disconnect after the nominal cutoff keeps a fully measured run completed", async () => {
+  const c = await internal("post-cutoff-close", [
+    {
+      words: sungAudioWords(
+        AUDIO_MANIFEST,
+        AUDIO_MANIFEST.lines.map((l) => l.lineId),
+      ),
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    const duration = songEndMs(a.manifest);
+    const nominal = a.start.body.startedAt + Math.ceil(duration / 1000);
+    await c.sing(a.socket, a, 0, duration + 100);
+    await resolved(c, a, duration);
+    await c.at(nominal + 1);
+    a.socket.ws.close();
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+            .value as StoredAttempt
+        ).disconnectedAt ===
+        nominal + 1
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("socket_close_not_processed");
+    }
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.equal(r.status, "completed");
+    assert.equal(r.performanceEndedAt, nominal);
+    assert.deepEqual(
+      r.lines.map((l) => l.status),
+      Array(4).fill("assessed"),
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("pre-cutoff disconnect stays abandoned and cannot resume after the cutoff", async () => {
+  const c = await internal("pre-cutoff-resume", []);
+  try {
+    const a = await c.attempt();
+    const nominal =
+      a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000);
+    await c.at(nominal - 1);
+    a.socket.ws.close();
+    for (let i = 0; i < 100; i++) {
+      if (
+        (
+          (await c.state(`attempt:${a.ticket.body.ticketId}`))[0]
+            .value as StoredAttempt
+        ).disconnectedAt ===
+        nominal - 1
+      )
+        break;
+      await new Promise((r) => setTimeout(r, 20));
+      if (i === 99) assert.fail("socket_close_not_processed");
+    }
+    await c.at(nominal + 1);
+    assert.deepEqual(await c.reconnect(a), {
+      refused: { error: "attempt_closed" },
+    });
+    const r = await terminal(c, a, nominal + PAYMENT_GRACE_S);
+    assert.equal(r.status, "abandoned");
+    assert.equal(r.performanceEndedAt, nominal - 1);
+    assert.equal(r.endedAt, nominal);
+    assert.equal((await c.simulator()).minted, 0);
   } finally {
     await c.dispose();
   }
