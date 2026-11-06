@@ -10,10 +10,23 @@ import { body, signatureChainId } from "./service-call.ts";
 // Pure helpers live apart so Node-run modules can use them without Workers imports.
 export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
+import type { SpeechBudget } from "./speech-budget.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<ServiceState>;
   ROLE: string;
+  /** Explicit testnet v2 profile; legacy skeleton fixtures remain local only. */
+  RESULTS_V2_CONTRACT?: string;
+  SERVICE_MODE?: "internal";
+  SPONSOR_CAP_WEI?: string;
+  SPONSOR_GAS_PRICE_WEI?: string;
+  SPONSOR_GAS_LIMIT?: string;
+  SPONSOR_DATA_FEE_WEI?: string;
+  SPEECH_DAILY_LIMIT?: string;
+  SPEECH_BUDGET?: DurableObjectNamespace<SpeechBudget>;
+  HISTORY_RETENTION_DAYS?: string;
+  OPERATOR_PROFILE?: string;
+  APPROVED_ACTIVATION_ACCOUNT?: string;
   LOCAL_ONLY: string;
   PRIVATE_KEY: Hex;
   COMMUNITY: Fetcher;
@@ -54,6 +67,7 @@ export class Store {
   constructor(
     private readonly storage: DurableObjectStorage,
     readonly initialNow = 1800000000,
+    private readonly liveClock = false,
   ) {
     this.sql = storage.sql;
     this.sql.exec(
@@ -86,6 +100,7 @@ export class Store {
       .map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
   }
   now() {
+    if (this.liveClock) return Math.floor(Date.now() / 1000);
     return this.get<number>("clock") ?? this.initialNow;
   }
   /** Runs every write in `fn` as one SQLite transaction: all of them land, or none. */
@@ -100,11 +115,15 @@ export class ServiceState extends DurableObject<Env> {
     this.store = new Store(
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
+      env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2",
     );
   }
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
+      if (path.startsWith("/__") && this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2")
+        return new Response("not_found", { status: 404 });
+      if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") await this.schedule();
       if (path === "/__clock") {
         const { now } = await body<{ now: number }>(request);
         check(
@@ -158,6 +177,22 @@ export class ServiceState extends DurableObject<Env> {
     onClose(ws, this.store);
     ws.close(code, reason);
   }
+  private async schedule() {
+    if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now() + 5000);
+  }
+  async alarm() {
+    try { await tick(this.env, this.store); }
+    finally {
+      // Reconcile unknown receipts and abandoned takes independently of browsers.
+      const attempts = this.store.entries("attempt:");
+      const pending = attempts.some(({ key, value }) => !(value as { finalized?: boolean }).finalized ||
+        this.store.get<{ state: string }>(`publicationV2:${key.slice(8)}`)?.state === "pending");
+      const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
+      const expiries = this.store.entries("history:").map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
+      const due = Math.min(...expiries, pending ? Date.now() + 5000 : unsettled ? Date.now() + 30000 : Infinity);
+      if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
+    }
+  }
 }
 /** The community runs in its Worker on D1; only the operator keeps a Durable Object. */
 async function communityFetch(request: Request, env: Env) {
@@ -181,7 +216,11 @@ async function communityFetch(request: Request, env: Env) {
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     check(
-      env.LOCAL_ONLY === "pirate-local-skeleton",
+      env.LOCAL_ONLY === "pirate-local-skeleton" ||
+        (env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2" && env.ROLE === "operator" &&
+          env.PAYMENT_CHAIN_ID === "6343" && env.SERVICE_MODE === "internal" &&
+          !!env.RESULTS_V2_CONTRACT && !!env.SPEECH_BUDGET && !!env.SPONSOR_CAP_WEI &&
+          !!env.SPONSOR_GAS_PRICE_WEI && !!env.SPONSOR_GAS_LIMIT && !!env.SPONSOR_DATA_FEE_WEI),
       "local_configuration_required",
     );
     if (env.ROLE === "community") return communityFetch(request, env);

@@ -21,7 +21,10 @@ export type TxKind =
   | "record_initialize"
   | "record_open"
   | "record_line"
-  | "record_complete";
+  | "record_complete"
+  | "record_enroll"
+  | "record_revoke"
+  | "record_result";
 /** A signed EIP-7702 authorization, as JSON stores it. */
 export interface StoredAuthorization {
   address: Address;

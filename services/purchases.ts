@@ -34,13 +34,14 @@ import type { Env, Store } from "./runtime.ts";
 export function operatorQuote(env: Env): OperatorQuote {
   const zero = "0x0000000000000000000000000000000000000000" as Address;
   return {
+    ...(env.SERVICE_MODE === "internal" ? { serviceMode: "internal" as const } : {}),
     operator: env.OPERATOR_ADDRESS,
     recipient: env.OPERATOR_ADDRESS,
     chainId: supportedChain(Number(env.PAYMENT_CHAIN_ID ?? 31337)),
     payments: (env.PAYMENTS_CONTRACT ?? zero) as Address,
     token: (env.PAYMENT_TOKEN ?? zero) as Address,
     admissionPrice: "2000",
-    segmentPrice: env.SEGMENT_PRICE ?? "1000",
+    segmentPrice: env.SERVICE_MODE === "internal" ? "0" : env.SEGMENT_PRICE ?? "1000",
     scoringPolicy: "karaoke-scoring/5",
     maxSegmentMs: 10000,
     maxUnpaidRun: 2,

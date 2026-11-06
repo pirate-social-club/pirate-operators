@@ -1,5 +1,5 @@
 // Operator side of per-line karaoke billing (docs/operator-payments.md 5).
-import { verifyMessage, type Hex } from "viem";
+import { verifyMessage, type Hex, type Address } from "viem";
 import {
   check,
   digest,
@@ -38,6 +38,10 @@ import {
   publish,
 } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
+
+import { activeEnrollment, acceptEnrollment, bindEnrollment, enrollmentRequest, publicationV2, publishV2, resumeEnrollments } from "./learning-results.ts";
+import type { Enrollment } from "../packages/protocol/learning-results.ts";
+import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
@@ -97,7 +101,7 @@ function settle(store: Store, env: Env, ticketId: string) {
       "expired",
     ]);
     let run = 0;
-    for (const segment of manifest.segments) {
+    for (const segment of env.SERVICE_MODE === "internal" ? [] : manifest.segments) {
       const segmentEnd = attempt.startedAt + Math.ceil(segment.endMs / 1000);
       if (segmentEnd > now) break;
       run = purchaseReceived(store, ticket.ticketId, segment.segmentId)
@@ -126,6 +130,7 @@ async function advance(env: Env, store: Store, ticketId: string) {
   // failed or slow refresh leaves purchases pending for the next tick; it never
   // blocks timers, capture or finalization.
   if (
+    env.SERVICE_MODE !== "internal" &&
     loaded.ticket &&
     loaded.manifest &&
     loaded.attempt &&
@@ -138,6 +143,19 @@ async function advance(env: Env, store: Store, ticketId: string) {
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
   if (!ticket || !manifest) return;
+  if (env.SERVICE_MODE === "internal") {
+    const current = store.get<Attempt>(`attempt:${ticketId}`)!;
+    const quote = operatorQuote(env);
+    const result = resultBody(store, ticket, manifest, quote, quoteIdOf(quote), current, new Map(), 0);
+    const signed = await sign("result", result, env.PRIVATE_KEY, signatureChainId(env));
+    store.transaction(() => {
+      if (store.get<Attempt>(`attempt:${ticketId}`)?.finalized) return;
+      store.set(`result:${ticketId}`, signed);
+      saveLearnerHistory(store, result, manifest, Number(env.HISTORY_RETENTION_DAYS));
+      store.set(`attempt:${ticketId}`, { ...current, finalized: true });
+    });
+    return;
+  }
   // The closure is an intent like any redemption: persisted first, sent once.
   enqueue(
     store,
@@ -181,11 +199,14 @@ async function advance(env: Env, store: Store, ticketId: string) {
   });
 }
 export async function tick(env: Env, store: Store) {
+  expireLearnerHistory(store);
+  if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
   for (const { key } of store.entries("attempt:")) {
     const ticketId = key.slice("attempt:".length);
     try {
       await advance(env, store, ticketId);
-      await publish(env, store, ticketId);
+      if (env.RESULTS_V2_CONTRACT) await publishV2(env, store, ticketId);
+      else await publish(env, store, ticketId);
     } catch {
       // Left for the next tick or recovery; one attempt never blocks the rest.
     }
@@ -228,6 +249,30 @@ export async function karaokeRoute(
   ctx: DurableObjectState,
 ): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/history" && env.SERVICE_MODE === "internal") {
+    const { ticketId, proof } = await body<{ ticketId: string; proof: Hex }>(request);
+    const { ticket } = load(store, ticketId);
+    check(ticket && await verifyMessage({ address: ticket.sessionKey, message: `connect:${ticketId}`, signature: proof }), "history_not_found");
+    expireLearnerHistory(store);
+    const history = store.get(`history:${ticketId}`);
+    check(history, "history_not_found");
+    return Response.json(history);
+  }
+  if (url.pathname === "/enrollment/request") {
+    check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
+    const { learner } = await body<{ learner: Address }>(request);
+    try { await activeEnrollment(env, learner); return Response.json({ active: true }); }
+    catch (error) { if (!(error instanceof Error) || error.message !== "enrollment_required") throw error; }
+    if (store.get(`pendingEnrollment:${learner.toLowerCase()}`)) return Response.json({ pending: true });
+    return Response.json(await enrollmentRequest(env, learner, store.now()));
+  }
+  if (url.pathname === "/enrollment") {
+    const { enrollment: input, signature } = await body<{ enrollment: Record<string, string>; signature: Hex }>(request);
+    const enrollment: Enrollment = { learner: input.learner as Address, communityId: input.communityId as Hex,
+      publicityPolicy: input.publicityPolicy as Hex, activities: BigInt(input.activities), expiresAt: BigInt(input.expiresAt), nonce: BigInt(input.nonce) };
+    const row = await acceptEnrollment(env, store, enrollment, signature);
+    return Response.json({ state: row?.mined?.status ?? "pending" });
+  }
   if (url.pathname === "/quote") {
     const quote = operatorQuote(env);
     return Response.json(
@@ -257,6 +302,7 @@ export async function karaokeRoute(
     );
     const old = store.get<Signed<Ticket>>(`ticket:${ticket.ticketId}`);
     if (old) check(digest(old) === digest(input.ticket), "ticket_conflict");
+    if (env.RESULTS_V2_CONTRACT) await bindEnrollment(env, store, ticket.ticketId, ticket.participant);
     store.set(`ticket:${ticket.ticketId}`, input.ticket);
     store.set(`manifest:${ticket.manifestSha256}`, input.manifest);
     return Response.json({ prepared: true });
@@ -286,6 +332,15 @@ export async function karaokeRoute(
     check(attempt, "attempt_not_found");
     await acceptConsent(env, store, input.ticketId, attempt, input.signature);
     return Response.json({ consented: true, attemptId: attempt.attemptId });
+  }
+  if (url.pathname === "/attempt-start" && env.SERVICE_MODE === "internal") {
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    return Response.json(store.get(`attemptStart:${ticketId}`) ?? null);
+  }
+  if (url.pathname === "/record" && env.RESULTS_V2_CONTRACT) {
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    check(store.get<Attempt>(`attempt:${ticketId}`), "attempt_not_found");
+    return Response.json({ consented: true, consent: null, publication: publicationV2(store, ticketId) ?? null });
   }
   if (url.pathname === "/record") {
     // What the learner's screen shows about the on-chain record.
@@ -333,6 +388,7 @@ export async function karaokeRoute(
     "upgrade_required",
   );
   const resumed = attempt !== undefined;
+  if (env.RESULTS_V2_CONTRACT && !resumed) await bindEnrollment(env, store, ticketId, ticket.participant);
   // Only the newest connection is live: older sockets for this ticket close,
   // and their later messages or close events are ignored.
   const generation = (attempt?.generation ?? 0) + 1;

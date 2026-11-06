@@ -269,6 +269,7 @@ export async function trustedQuote(env: Env, store: AsyncStore) {
   check(
     quote.operator === env.OPERATOR_ADDRESS &&
       quote.chainId === Number(env.PAYMENT_CHAIN_ID) &&
+      (quote.serviceMode === "internal") === (env.SERVICE_MODE === "internal") &&
       quote.token.toLowerCase() === env.PAYMENT_TOKEN?.toLowerCase() &&
       quote.payments.toLowerCase() === env.PAYMENTS_CONTRACT?.toLowerCase() &&
       quote.validFrom <= now &&

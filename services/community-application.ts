@@ -35,6 +35,7 @@ import type {
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
+import { learningPolicyPage } from "./learning-policy-pages.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
 import { communityReleaseApi } from "./community-release-api.ts";
@@ -59,6 +60,8 @@ import {
 } from "./karaoke-song.ts";
 import {
   karaokeAttempt,
+  karaokeEnrollment,
+  karaokeHistory,
   karaokeConsent,
   karaokePurchase,
   karaokeTicket,
@@ -153,6 +156,8 @@ export async function communityFetch(
       Response.json(value, { status, headers: security });
   try {
     insist(url.origin === firstSong.origin, "wrong_community_host", 403);
+    const policy = learningPolicyPage(url.pathname);
+    if (policy) return policy;
     const context = {
       communityId: firstSong.directoryProfile.communityId,
       origin: firstSong.origin,
@@ -395,7 +400,8 @@ export async function communityFetch(
         405,
       );
       return reply(
-        await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
+        { ...await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
+          ...(env.KARAOKE_SERVICE_MODE === "internal" ? { serviceMode: "internal" } : {}) },
       );
     }
     const instrumental =
@@ -449,6 +455,10 @@ export async function communityFetch(
         return reply({ authenticated: true, csrf: verified.csrf });
       }
       const session = await authenticatedWrite(request, env.DB, context);
+      if (url.pathname === "/api/karaoke/history")
+        return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollment")
+        return reply(await karaokeEnrollment(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/tickets")
         return reply(await karaokeTicket(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/purchases")

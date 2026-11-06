@@ -182,7 +182,18 @@ export class KaraokeAudioState extends ServiceState {
           endMs,
         })),
         createAdapter: apiKey
-          ? () => new ElevenLabsKaraokeSttAdapter({ apiKey })
+          ? () => {
+              const adapter = new ElevenLabsKaraokeSttAdapter({ apiKey });
+              if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") {
+                const start = adapter.start.bind(adapter);
+                adapter.start = async (input) => {
+                  check(this.env.SPEECH_BUDGET, "speech_budget_unconfigured");
+                  await this.env.SPEECH_BUDGET.getByName("elevenlabs-service").claim();
+                  await start(input);
+                };
+              }
+              return adapter;
+            }
           : null,
         restore: this.store.get<KaraokeRelaySnapshot>(key),
         persist: (snapshot) => this.store.set(key, snapshot),

@@ -21,7 +21,7 @@ import { get, post } from "./api.ts";
 export interface KaraokeConsentRequest {
   domain: Record<string, unknown>;
   types: Record<string, unknown>;
-  primaryType: "Consent";
+  primaryType: "Consent" | "Enrollment";
   message: Record<string, unknown>;
 }
 export interface KaraokeWallet {
@@ -29,6 +29,7 @@ export interface KaraokeWallet {
   signConsent(request: KaraokeConsentRequest): Promise<string>;
 }
 interface TimedSong {
+  serviceMode?: "internal";
   lines: KaraokeTimedLine[];
   segments: { segmentId: string; startMs: number; endMs: number }[];
 }
@@ -158,7 +159,7 @@ export function LiveKaraoke(props: {
   async function buyAhead() {
     const current = take(),
       timed = song();
-    if (!current || !timed || !attemptStart || buying) return;
+    if (!current || !timed || timed.serviceMode === "internal" || !attemptStart || buying) return;
     buying = true;
     try {
       for (const segment of timed.segments) {
@@ -198,6 +199,18 @@ export function LiveKaraoke(props: {
     setStarting(true);
     try {
       if (!take()) {
+        if (song()?.serviceMode === "internal") {
+          const enrollment = await post<KaraokeConsentRequest & { active?: boolean; pending?: boolean }>("/api/karaoke/enrollment", {}, props.csrf);
+          if (enrollment.pending) throw new Error("Your enrollment is still being confirmed. Try again shortly.");
+          if (!enrollment.active) {
+            if (!window.confirm("Enable public learning results? Your line grades, song and completion time will be permanently public under your wallet address. See Terms and Privacy before continuing.")) {
+              setStarting(false); return;
+            }
+            const signature = await props.wallet.signConsent(enrollment);
+            const accepted = await post<{ state: string }>("/api/karaoke/enrollment", { enrollment: enrollment.message, signature }, props.csrf);
+            if (accepted.state !== "success") throw new Error("Your enrollment is pending. Try again once it is confirmed.");
+          }
+        }
         const issued = await post<{
           ticket: { body: { ticketId: string } };
           socketUrl: string;
@@ -283,6 +296,14 @@ export function LiveKaraoke(props: {
       setSaving(false);
     }
   }
+  async function downloadHistory(ticketId: string) {
+    try {
+      const history = await post("/api/karaoke/history", { ticketId }, props.csrf);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(history, null, 2)], { type: "application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = `learning-history-${ticketId}.json`;
+      link.click(); URL.revokeObjectURL(url);
+    } catch { setNotice("Your private history could not be downloaded."); }
+  }
   const recordSlot = () => {
     const current = finished();
     if (!current) return undefined;
@@ -313,6 +334,9 @@ export function LiveKaraoke(props: {
               </Show>
             </Show>
           </Show>
+        </Show>
+        <Show when={song()?.serviceMode === "internal"}>
+          <Button variant="ghost" onClick={() => void downloadHistory(current.ticketId)}>Download private history</Button>
         </Show>
         <Button
           variant="ghost"

@@ -242,13 +242,12 @@ function App() {
         <Show
           when={session()}
           fallback={
-            <Button
-              variant="outline"
-              disabled={busy() || !boot()}
-              onClick={() => void run(signIn)}
-            >
-              Sign in with MOSS
-            </Button>
+            <div>
+              <Button variant="outline" disabled={busy() || !boot()} onClick={() => void run(signIn)}>
+                Sign in with MOSS
+              </Button>
+              <p class="live-muted"><a href="/terms" target="_blank" rel="noopener">Terms</a> · <a href="/privacy" target="_blank" rel="noopener">Privacy</a></p>
+            </div>
           }
         >
           {(current) => (

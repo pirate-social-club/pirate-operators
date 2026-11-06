@@ -20,6 +20,7 @@ export const MAX_AUTHORIZATION_LIFETIME_S = 3600;
 export const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
 
 export interface OperatorQuote {
+  serviceMode?: "internal";
   operator: Address;
   recipient: Address;
   chainId: number;
@@ -271,6 +272,7 @@ export function rewardScore(lines: readonly Pick<LineOutcome, "status" | "scoreB
 }
 
 export interface KaraokeResultBody {
+  serviceMode?: "internal";
   attemptId: Hex;
   ticketId: Hex;
   communityId: string;
@@ -343,7 +345,10 @@ export function verifyKaraokeResult(
       "invalid_line_outcome",
     );
   });
-  check(result.billing.length === manifest.segments.length, "billing_list_mismatch");
+  const internal = quote.serviceMode === "internal";
+  check((result.serviceMode === "internal") === internal, "service_mode_mismatch");
+  check(result.billing.length === (internal ? 0 : manifest.segments.length), "billing_list_mismatch");
+  if (internal) check(result.lines.every((line) => line.status !== "unpaid"), "internal_coverage_mismatch");
   const status = new Map(result.lines.map((l) => [l.lineId, l.status]));
   const digests = new Set<string>();
   let paidCount = 0;

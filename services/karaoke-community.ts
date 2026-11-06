@@ -40,6 +40,7 @@ import { publishedKaraoke } from "./karaoke-song.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
 export interface KaraokeEnv {
+  KARAOKE_SERVICE_MODE?: "internal";
   KARAOKE_OPERATOR?: Fetcher;
   KARAOKE_OPERATOR_ADDRESS?: string;
   /** The operator's public origin, where the learner's socket connects. */
@@ -67,7 +68,7 @@ const configured = (env: KaraokeEnv, config: CommunityConfig) =>
     env.KARAOKE_PAYMENT_CHAIN_ID &&
     env.KARAOKE_PAYMENT_TOKEN &&
     env.KARAOKE_RPC_URL &&
-    config.operatorPayments !== "0x0000000000000000000000000000000000000000"
+    (env.KARAOKE_SERVICE_MODE === "internal" || config.operatorPayments !== "0x0000000000000000000000000000000000000000")
   );
 export const karaokeAvailable = configured;
 
@@ -75,6 +76,7 @@ export const karaokeAvailable = configured;
 function runtimeEnv(env: KaraokeEnv, config: CommunityConfig): Env {
   insist(configured(env, config), "karaoke_unavailable", 503);
   return {
+    SERVICE_MODE: env.KARAOKE_SERVICE_MODE,
     OPERATOR: env.KARAOKE_OPERATOR!,
     OPERATOR_ADDRESS: env.KARAOKE_OPERATOR_ADDRESS as Address,
     PRIVATE_KEY: env.KARAOKE_SIGNER_PRIVATE_KEY as Hex,
@@ -222,6 +224,7 @@ export async function karaokePurchase(
 ) {
   const env = runtimeEnv(ports.env, ports.config),
     store = new KaraokeStore(ports.db, ports.now ?? Date.now);
+  check(env.SERVICE_MODE !== "internal", "purchases_disabled");
   try {
     return await signSegmentPurchase(env, store, learner.wallet as Address, {
       ticketId: bytes32(value.ticketId),
@@ -312,6 +315,14 @@ export async function karaokeAttempt(
   if (!ticketId) return { state: "none" as const };
   const ticket = (await ownedTicket(store, wallet, ticketId)).body,
     result = await boundResult(env, store, ticket);
+  if (state?.open?.ticketId === ticketId && env.SERVICE_MODE === "internal" && !result) {
+    const signedStart = await call<Signed<AttemptStart> | null>(env.OPERATOR, "/attempt-start", { ticketId });
+    if (signedStart) {
+      const start = await verify(signedStart, "attempt_start", env.OPERATOR_ADDRESS, signatureChainId(env));
+      check(start.ticketId === ticketId, "attempt_start_mismatch");
+      state.open.startedAt = start.startedAt;
+    }
+  }
   if (state?.open?.ticketId === ticketId) {
     // A ticket that never produced a result is released once it expires.
     if (!result && (await store.now()) >= state.open.expiresAt) {
@@ -374,4 +385,20 @@ export async function karaokeConsent(
       signature: object(value).signature,
     },
   );
+}
+
+/** Standing consent is requested before ticket preparation; the operator verifies it. */
+export async function karaokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
+  const env = runtimeEnv(ports.env, ports.config);
+  check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
+  if (!value.signature) return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet });
+  const enrollment = object(value.enrollment);
+  check(String(enrollment.learner).toLowerCase() === learner.wallet.toLowerCase(), "wrong_learner");
+  return call(env.OPERATOR, "/enrollment", { enrollment, signature: value.signature });
+}
+
+export async function karaokeHistory(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
+  const env = runtimeEnv(ports.env, ports.config), store = new KaraokeStore(ports.db, ports.now ?? Date.now);
+  const ticketId = bytes32(value.ticketId), ticket = await ownedTicket(store, learner.wallet, ticketId);
+  return call(env.OPERATOR, "/history", { ticketId, proof: await connectionProof(store, ticket.body.sessionKey, ticketId) });
 }

@@ -6,6 +6,13 @@ frozen ABI. Public per-line grades remain the target. The publication unit
 changes to one terminal result for a whole learning session. MOSS consent,
 exact encoding and independent-provider settlement remain release gates.
 
+The workspace_owner subsequently authorized the reviewed testnet-first plan.
+The [testnet implementation](learning-results-testnet.md) selects standing
+Karaoke enrollment, revocation blocking pending initial publication, immutable
+community binding and the explicit contract/indexer manifest-verification
+split. Those choices supersede the per-session consent wording below for this
+testnet implementation. Mainnet work follows deployed testnet acceptance.
+
 This amendment takes precedence over draft 3's per-line transaction/storage
 shape and version 1's mandatory per-line payment mechanism for the next
 implementation. It retains draft 3's public terminal coverage, corrections,

@@ -49,7 +49,7 @@ export interface Attempt {
  * runs over paid lines only.
  */
 export function resultBody(
-  store: Store,
+  store: Pick<Store, "get">,
   ticket: Ticket,
   manifest: KaraokeManifest,
   quote: OperatorQuote,
@@ -59,14 +59,14 @@ export function resultBody(
   closedAtBlock: number,
 ): KaraokeResultBody {
   const ended = attempt.ended!;
-  const billing: BillingEntry[] = manifest.segments.map((segment) => ({
+  const billing: BillingEntry[] = quote.serviceMode === "internal" ? [] : manifest.segments.map((segment) => ({
     segmentId: segment.segmentId,
     take: 0,
     lineIds: segment.lineIds,
     redemption: paid.get(segment.segmentId) ?? null,
   }));
   const paidLines = new Set(
-    billing.filter((b) => b.redemption).flatMap((b) => b.lineIds),
+    quote.serviceMode === "internal" ? manifest.lines.map((l) => l.lineId) : billing.filter((b) => b.redemption).flatMap((b) => b.lineIds),
   );
   const words = store.get<KaraokeRecognizedWord[]>(`words:${ticket.ticketId}`) ?? [];
   const buckets = bucketRecognizedWordsIntoLines({
@@ -127,6 +127,7 @@ export function resultBody(
   const reward = rewardScore(lines);
   const paidCount = billing.filter((b) => b.redemption).length;
   return {
+    ...(quote.serviceMode === "internal" ? { serviceMode: "internal" as const } : {}),
     attemptId: attempt.attemptId,
     ticketId: ticket.ticketId,
     communityId: ticket.communityId,
