@@ -34,6 +34,8 @@ export interface KaraokeOperatorReady {
   type: "ready";
   attemptId: string;
   resumed: boolean;
+  /** Last sequence accepted by the operator, preserved across page reloads. */
+  audioSequence?: number;
   [key: string]: unknown;
 }
 export interface KaraokeOperatorClientOptions {
@@ -238,8 +240,29 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
         message.type === "ready" &&
         typeof message.attemptId === "string"
       ) {
+        const cursor =
+          message.audioSequence === undefined && message.resumed !== true
+            ? 0
+            : message.audioSequence;
+        if (
+          typeof cursor !== "number" ||
+          !Number.isSafeInteger(cursor) ||
+          cursor < 0 ||
+          cursor >= 0xffff_ffff
+        ) {
+          this.options.onError?.({
+            code: "karaoke_audio_cursor_invalid",
+            message: "The audio connection could not be resumed.",
+          });
+          this.shutdown("aborted");
+          return;
+        }
         ready = true;
         this.attemptId = message.attemptId;
+        // A fresh page has no local cursor; an in-memory reconnect may have
+        // already sent later frames. Neither case replays previously sent audio.
+        this.sequence = Math.max(this.sequence, cursor);
+        this.chunkId = Math.max(this.chunkId, this.sequence);
         this.reconnectAttempts = 0;
         const reconnect = this.everLive;
         this.everLive = true;

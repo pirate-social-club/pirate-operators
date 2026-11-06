@@ -5,7 +5,13 @@
 // tap-to-continue recovery, and a closed context aborts the take. The take
 // opens the operator's ticket socket instead of a centralized session.
 // See docs/karaoke-capture-handoff.md.
-import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  type Accessor,
+} from "solid-js";
 import {
   createKaraokeCaptureController,
   type KaraokeCaptureController,
@@ -36,7 +42,7 @@ export interface UseKaraokeCaptureOptions {
 export interface KaraokeCaptureControls {
   attachPlaybackElement(element: HTMLAudioElement | null): void;
   resumePlayback(): Promise<boolean>;
-  start(songMs: number): void;
+  start(songMs: number): Promise<void>;
   noteTime(songMs: number): void;
   notePlay(songMs: number): void;
   notePause(songMs: number): void | Promise<void>;
@@ -51,6 +57,7 @@ export interface UseKaraokeCaptureResult {
   playbackGraph: KaraokePlaybackGraph;
   playbackInterrupted: Accessor<boolean>;
   state: Accessor<KaraokeCaptureState | null>;
+  readyFor(ticketId: string): boolean;
   controls: KaraokeCaptureControls;
 }
 
@@ -87,56 +94,62 @@ export function useKaraokeCapture(
   });
   let playbackElement: HTMLAudioElement | null = null;
   let currentController: KaraokeCaptureController | null = null;
-  createEffect(
-    () => options.enabled,
-    (enabled) => {
-      if (!enabled) {
-        recoveryGeneration += 1;
-        currentController = null;
-        setState(null);
-        return;
-      }
-      const controller = createKaraokeCaptureController({
-        createCaptureEngine: ({ onChunk, onError }) =>
-          new KaraokeMicCapture({
-            deps: createBrowserMicCaptureDeps(
-              options.workletModuleUrl ??
-                new URL(workletModuleUrl, import.meta.url),
-              () => playbackGraph.acquire(),
-            ),
-            onChunk,
-            onError,
-          }),
-        createClient: (hooks) =>
-          new KaraokeOperatorAudioClient({
-            ...hooks,
-            ticketId: options.ticketId,
-            openSocket: options.openSocket,
-          }),
-        deferCaptureUntilPlaying: true,
-        getPlaybackPosition: () =>
-          playbackElement
-            ? {
-                songMs: playbackElement.currentTime * 1000,
-                playbackRate: playbackElement.playbackRate,
-              }
-            : null,
-        onMessage: (message) => options.onMessage?.(message),
-      });
-      currentController = controller;
-      setState(controller.getState());
-      const unsubscribe = controller.subscribe((next) => {
-        if (next.status !== "active") recoveryGeneration += 1;
-        setState(next);
-      });
-      return () => {
-        recoveryGeneration += 1;
-        unsubscribe();
-        controller.dispose();
-        if (currentController === controller) currentController = null;
-      };
-    },
+  let controllerTicketId: string | null = null;
+  const enabledTicketId = createMemo(() =>
+    options.enabled ? options.ticketId : null,
   );
+  createEffect(enabledTicketId, (ticketId) => {
+    if (!ticketId) {
+      recoveryGeneration += 1;
+      currentController = null;
+      controllerTicketId = null;
+      setState(null);
+      return;
+    }
+    const controller = createKaraokeCaptureController({
+      createCaptureEngine: ({ onChunk, onError }) =>
+        new KaraokeMicCapture({
+          deps: createBrowserMicCaptureDeps(
+            options.workletModuleUrl ??
+              new URL(workletModuleUrl, import.meta.url),
+            () => playbackGraph.acquire(),
+          ),
+          onChunk,
+          onError,
+        }),
+      createClient: (hooks) =>
+        new KaraokeOperatorAudioClient({
+          ...hooks,
+          ticketId,
+          openSocket: options.openSocket,
+        }),
+      deferCaptureUntilPlaying: true,
+      getPlaybackPosition: () =>
+        playbackElement
+          ? {
+              songMs: playbackElement.currentTime * 1000,
+              playbackRate: playbackElement.playbackRate,
+            }
+          : null,
+      onMessage: (message) => options.onMessage?.(message),
+    });
+    currentController = controller;
+    controllerTicketId = ticketId;
+    setState(controller.getState());
+    const unsubscribe = controller.subscribe((next) => {
+      if (next.status !== "active") recoveryGeneration += 1;
+      setState(next);
+    });
+    return () => {
+      recoveryGeneration += 1;
+      unsubscribe();
+      controller.dispose();
+      if (currentController === controller) {
+        currentController = null;
+        controllerTicketId = null;
+      }
+    };
+  });
   const controls: KaraokeCaptureControls = {
     attachPlaybackElement: (element) => {
       if (element !== playbackElement) recoveryGeneration += 1;
@@ -188,7 +201,7 @@ export function useKaraokeCapture(
     start: (songMs) => {
       recoveryGeneration += 1;
       setPlaybackInterrupted(false);
-      void currentController?.start(songMs);
+      return currentController?.start(songMs) ?? Promise.resolve();
     },
     stop: () => {
       recoveryGeneration += 1;
@@ -197,5 +210,12 @@ export function useKaraokeCapture(
     },
     send: (frame) => currentController?.send(frame) ?? false,
   };
-  return { controls, playbackInterrupted, state, playbackGraph };
+  return {
+    controls,
+    playbackInterrupted,
+    state,
+    playbackGraph,
+    readyFor: (ticketId) =>
+      controllerTicketId === ticketId && currentController !== null,
+  };
 }

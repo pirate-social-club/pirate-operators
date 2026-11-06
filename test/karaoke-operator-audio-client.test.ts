@@ -23,9 +23,17 @@ class FakeSocket implements KaraokeOperatorSocket {
   emit(type: string, event: unknown) {
     for (const listener of this.listeners[type] ?? []) listener(event);
   }
-  ready(attemptId = "0xattempt") {
+  ready(
+    attemptId = "0xattempt",
+    context: { resumed?: boolean; audioSequence?: unknown } = {},
+  ) {
     this.emit("message", {
-      data: JSON.stringify({ type: "ready", attemptId, resumed: false }),
+      data: JSON.stringify({
+        type: "ready",
+        attemptId,
+        resumed: false,
+        ...context,
+      }),
     });
   }
   frames(ticketId: string, attemptId = "0xattempt") {
@@ -140,6 +148,55 @@ test("a dropped socket suspends capture once, reconnects with backoff, resumes o
       .map((f) => [f.sequence, f.songStartMs, f.songEndMs]),
     [[2, 5_000, 5_100]],
   );
+});
+
+test("a fresh page continues the operator cursor and chunk identity without replaying audio", () => {
+  const { client, sockets } = harness();
+  client.start();
+  sockets[0].ready("0xattempt", { resumed: true, audioSequence: 45 });
+  client.setCaptureAnchor({ captureMs: 0, songMs: 4500, playbackRate: 1 });
+  client.pushAudio(chunk(), 100);
+  assert.deepEqual(
+    sockets[0].frames("0xticket").map((f) => [f.sequence, f.chunkId]),
+    [[46, 46]],
+  );
+  client.close();
+});
+
+test("an invalid or missing resumed cursor aborts before sending audio", () => {
+  for (const audioSequence of [
+    undefined,
+    null,
+    "45",
+    -1,
+    1.5,
+    0xffff_ffff,
+    0x1_0000_0000,
+  ]) {
+    const { client, sockets, events } = harness();
+    client.start();
+    sockets[0].ready("0xattempt", { resumed: true, audioSequence });
+    client.setCaptureAnchor({ captureMs: 0, songMs: 4500, playbackRate: 1 });
+    client.pushAudio(chunk(), 100);
+    assert.equal(client.getPhase(), "aborted", String(audioSequence));
+    assert.deepEqual(sockets[0].sent, []);
+    assert.ok(events.includes("error:karaoke_audio_cursor_invalid"));
+  }
+});
+
+test("an in-memory reconnect keeps its later sent cursor when the operator saw fewer frames", async () => {
+  const { client, sockets, timers } = harness();
+  client.start();
+  sockets[0].ready();
+  client.setCaptureAnchor({ captureMs: 0, songMs: 0, playbackRate: 1 });
+  client.pushAudio(chunk(), 100);
+  sockets[0].emit("close", { code: 1006 });
+  timers.shift()!.run();
+  sockets[1].ready("0xattempt", { resumed: true, audioSequence: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  client.pushAudio(chunk(), 10100);
+  assert.equal(sockets[1].frames("0xticket")[0].sequence, 2);
+  client.close();
 });
 
 test("reconnects stop after five attempts, and a superseded socket never reconnects", () => {

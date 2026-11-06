@@ -1,7 +1,7 @@
 // Live transport adapter for the centralized Karaoke presentation. Internal
 // accounting uses standing enrollment and one automatic terminal publication.
 // A reload resumes an open take or shows its canonical completion screen.
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import {
   karaokeStageLinesOf,
   type KaraokeTimedLine,
@@ -18,6 +18,7 @@ import {
   KaraokeRouteLoadFailureState,
 } from "../karaoke/route-states.tsx";
 import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
+import { ScoringResponseWatch } from "../karaoke/scoring-response-watch.ts";
 import {
   Dialog,
   DialogContent,
@@ -113,6 +114,7 @@ export function LiveKaraoke(props: {
     buying = false,
     songMs = 0,
     disposed = false;
+  const scoringResponses = new ScoringResponseWatch();
   let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
     disposed = true;
@@ -132,6 +134,8 @@ export function LiveKaraoke(props: {
 
   const attemptView = () =>
     get<AttemptView>(`/api/karaoke/attempt?postId=${props.postId}`);
+  const retainHistoryDownload = (ticketId: string) =>
+    props.onLearningActions?.({ download: () => downloadHistory(ticketId) });
   function apply(view: AttemptView) {
     if (view.state === "open") {
       setTake({
@@ -155,9 +159,7 @@ export function LiveKaraoke(props: {
         },
         record: view.record,
       });
-      props.onLearningActions?.({
-        download: () => downloadHistory(view.result.body.ticketId),
-      });
+      retainHistoryDownload(view.result.body.ticketId);
     }
   }
   async function loadSong() {
@@ -167,7 +169,12 @@ export function LiveKaraoke(props: {
       setSong(
         await get<TimedSong>(`/api/public/posts/${props.postId}/karaoke`),
       );
-      apply(await attemptView());
+      const previous = await attemptView();
+      // A new visit offers a new take. Keep the retained history downloadable;
+      // only an open take resumes here. Current-run completion still uses apply.
+      if (previous.state === "finished")
+        retainHistoryDownload(previous.result.body.ticketId);
+      else apply(previous);
     } catch {
       setSong(null);
     }
@@ -198,8 +205,66 @@ export function LiveKaraoke(props: {
           acceptFeedback(message.feedback as Record<string, unknown>);
         void buyAhead();
       } else if (message.type === "line_scores") acceptFeedback(message);
+      else if (message.type === "error") {
+        // The operator's deadline can precede the media element's final event.
+        // Late tail frames then mean completion, not a failed connection.
+        if (message.code === "attempt_closed") {
+          if (capture.state()?.status === "active") void finish(songMs);
+        } else
+          stopFailedScoring(
+            "The scoring connection stopped. Press Start karaoke to try again.",
+          );
+      }
     },
   });
+
+  function stopFailedScoring(message: string) {
+    scoringResponses.reset();
+    setStarting(false);
+    setNotice(message);
+    capture.controls.abort("karaoke_scoring_unavailable");
+  }
+  createEffect(
+    () => {
+      const state = capture.state();
+      if (
+        state?.status !== "error" ||
+        state.error?.code === "karaoke_scoring_unavailable"
+      )
+        return null;
+      return (
+        state.micError?.message ??
+        "The scoring connection stopped. Press Start karaoke to try again."
+      );
+    },
+    (message) => {
+      if (message) {
+        setStarting(false);
+        setNotice(message);
+      }
+    },
+  );
+
+  function watchScoringResponses(ms: number) {
+    const expected =
+      song()?.lines.filter((line) => line.endMs <= ms).length ?? 0;
+    if (
+      scoringResponses.expired({
+        playing:
+          capture.state()?.status === "active" &&
+          !!playback &&
+          !playback.paused &&
+          !playback.seeking &&
+          !capture.playbackInterrupted(),
+        expected,
+        received: feedback()?.lineScores.length ?? 0,
+        now: performance.now(),
+      })
+    )
+      stopFailedScoring(
+        "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
+      );
+  }
 
   function acceptFeedback(message: Record<string, unknown>) {
     if (!Array.isArray(message.lineScores)) return;
@@ -271,9 +336,33 @@ export function LiveKaraoke(props: {
     for (let i = 0; i < 150 && !ready(); i++) await sleep(20);
   }
   async function start(fromMs: number) {
+    scoringResponses.reset();
     setStarting(true);
     try {
-      if (!take()) {
+      let currentTake = take();
+      if (currentTake && capture.state()?.status === "error") {
+        const current = await attemptView();
+        if (current.state === "open") {
+          apply(current);
+          currentTake = {
+            ticketId: current.ticket.body.ticketId,
+            socketUrl: current.socketUrl,
+            proof: current.proof,
+          };
+        } else {
+          if (current.state === "finished")
+            retainHistoryDownload(current.result.body.ticketId);
+          setTake(null);
+          currentTake = null;
+          setFinished(null);
+          setFeedback(null);
+          setResume(null);
+          fromMs = 0;
+          if (playback) playback.currentTime = 0;
+        }
+      }
+      setNotice(null);
+      if (!currentTake) {
         if (props.serviceMode === "internal") {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
@@ -308,13 +397,19 @@ export function LiveKaraoke(props: {
         attemptStart = null;
         setFinished(null);
         setFeedback(null);
-        setTake({
+        currentTake = {
           ticketId: issued.ticket.body.ticketId,
           socketUrl: issued.socketUrl,
           proof: issued.proof,
-        });
-        await until(() => capture.state() !== null);
+        };
+        setTake(currentTake);
       }
+      const ticketId = currentTake.ticketId;
+      await until(() => capture.readyFor(ticketId));
+      if (!capture.readyFor(ticketId))
+        throw new Error(
+          "The microphone connection could not be prepared. Try again.",
+        );
       const resumed = resume();
       if (resumed) {
         fromMs = resumed.elapsedMs + (performance.now() - resumed.at);
@@ -322,7 +417,7 @@ export function LiveKaraoke(props: {
         setResume(null);
       }
       songMs = fromMs;
-      capture.controls.start(fromMs);
+      await capture.controls.start(fromMs);
     } catch (failure) {
       setStarting(false);
       setNotice(
@@ -330,6 +425,8 @@ export function LiveKaraoke(props: {
           ? failure.message
           : "This take couldn't start.",
       );
+    } finally {
+      setStarting(false);
     }
   }
   /**
@@ -341,7 +438,9 @@ export function LiveKaraoke(props: {
     if (finished()) return "ended" as const;
     const status = capture.state()?.status ?? "idle";
     if (status === "ended") return "finishing" as const;
-    return starting() && status === "idle" ? ("connecting" as const) : status;
+    return starting() && (status === "idle" || status === "error")
+      ? ("connecting" as const)
+      : status;
   };
   async function refreshUntil(done: (view: AttemptView) => boolean) {
     for (let i = 0; i < 90 && !disposed; i++) {
@@ -424,11 +523,18 @@ export function LiveKaraoke(props: {
               onTimeChange={(ms) => {
                 songMs = ms;
                 capture.controls.noteTime(ms);
+                watchScoringResponses(ms);
                 void buyAhead();
               }}
               onPlay={(ms) => capture.controls.notePlay(ms)}
-              onPause={(ms) => capture.controls.notePause(ms)}
-              onSeek={(ms) => capture.controls.noteSeek(ms)}
+              onPause={(ms) => {
+                scoringResponses.reset();
+                return capture.controls.notePause(ms);
+              }}
+              onSeek={(ms) => {
+                scoringResponses.reset();
+                capture.controls.noteSeek(ms);
+              }}
               onFinish={(ms) => void finish(ms)}
             />
           )}

@@ -13,6 +13,7 @@ import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import type { SimulatedWord } from "../harness/karaoke-elevenlabs-simulator.ts";
 import { fixtureLyrics, fixtureManifest } from "../harness/karaoke-fixture.ts";
 import { encodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
+import { KaraokeOperatorAudioClient } from "../packages/karaoke/operator-audio-client.ts";
 import { startChain, stopChain, type Chain } from "./payments-fixture.ts";
 import { audioCommunity } from "./karaoke-audio-fixture.ts";
 
@@ -372,6 +373,70 @@ test("missing leading learner audio is unmeasured before the first provider fram
     assert.ok(result.lines.slice(0, 2).every((line) => line.scoreBps === null));
     assert.equal((await c.simulator()).minted, 1);
   } finally {
+    await c.dispose();
+  }
+});
+
+test("a fresh page capture client resumes the Worker audio cursor without rejected leading frames", async () => {
+  const c = await audioCommunity(evm, "fresh-page", [
+    { words: sung(manifest, ALL) },
+  ]);
+  let client: KaraokeOperatorAudioClient | undefined;
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 4500);
+    await c.waitForProviderChunks(45);
+    const rejoined = await c.reconnect(a);
+    const messages: Record<string, unknown>[] = [];
+    const errors: string[] = [];
+    client = new KaraokeOperatorAudioClient({
+      ticketId: a.ticket.body.ticketId,
+      openSocket: () => ({
+        send: (data) => rejoined.ws.send(data),
+        close: (code, reason) => rejoined.ws.close(code, reason),
+        addEventListener(
+          type: "message" | "close" | "error",
+          listener: (event: any) => void,
+        ) {
+          rejoined.ws.addEventListener(type, listener);
+          // openAttempt already consumed this real, authenticated ready packet.
+          // Deliver that exact packet to the freshly constructed browser client.
+          if (type === "message")
+            queueMicrotask(() =>
+              listener({ data: JSON.stringify(rejoined.ready) }),
+            );
+        },
+      }),
+      onMessage: (message) => messages.push(message),
+      onError: (error) => errors.push(error.code),
+    });
+    client.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    client.setCaptureAnchor({ captureMs: 0, songMs: 4500, playbackRate: 1 });
+    client.pushAudio(new ArrayBuffer(3200), 100);
+    let sequence = 0;
+    for (let i = 0; i < 100; i++) {
+      const [row] = await c.state(`audioRelay:${a.ticket.body.ticketId}`);
+      sequence = (row?.value as { lastSequence: number }).lastSequence;
+      if (
+        sequence === 46 ||
+        errors.length ||
+        messages.some((m) => m.type === "error")
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.equal(sequence, 46, JSON.stringify({ messages, errors }));
+    const log = await c.waitForProviderChunks(46);
+    assert.equal(log.minted, 1);
+    assert.deepEqual(errors, []);
+    assert.equal(
+      messages.some((m) => m.type === "error"),
+      false,
+    );
+  } finally {
+    client?.close();
     await c.dispose();
   }
 });

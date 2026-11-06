@@ -73,6 +73,10 @@ These follow the centralized client, session host and reducer.
   newer connection (close 4409) does not reconnect.
 - The operator refuses audio whose sequence does not increase. Only the live
   socket can finish the take.
+  Its authenticated ready packet includes the last accepted audio sequence, so
+  a fresh page continues that cursor. Accepted sequence state is saved before
+  provider I/O. In-memory reconnects keep any later local cursor and never replay
+  audio. A resumed packet missing a valid cursor aborts visibly before capture.
 - A song-time gap between received audio frames marks overlapping lines
   unmeasured. Provider commits cannot turn audio that never arrived into
   measured silence. The last received boundary survives a relay snapshot;

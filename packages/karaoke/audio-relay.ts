@@ -149,12 +149,14 @@ export class KaraokeAudioRelay {
       if (this.buffer.length > MAX_RECONNECT_BUFFER_FRAMES) this.buffer.shift();
       return this.save();
     }
+    // The next connection must see every accepted sequence even while provider
+    // startup or a commit is awaiting I/O. Persist before crossing that boundary.
+    this.save();
     await this.ensureStarted();
     if (this.adapter === null || this.state.terminal !== null)
       return this.save();
     await this.adapter.sendPcm16(frame);
     await this.requestCommitIfDue();
-    this.save();
   }
 
   /** The learner paused; commit what has been heard so far. */

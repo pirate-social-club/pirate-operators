@@ -53,7 +53,11 @@ import {
   resumeEnrollments,
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
-import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
+import {
+  expireLearnerHistory,
+  learnerHistoryDiagnostics,
+  saveLearnerHistory,
+} from "./learner-history.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
@@ -297,9 +301,12 @@ export async function karaokeRoute(
       "history_not_found",
     );
     expireLearnerHistory(store);
-    const history = store.get(`history:${ticketId}`);
+    const history = store.get<Record<string, unknown>>(`history:${ticketId}`);
     check(history, "history_not_found");
-    return Response.json(history);
+    return Response.json({
+      ...history,
+      diagnostics: learnerHistoryDiagnostics(store, ticketId),
+    });
   }
   if (url.pathname === "/enrollment/request") {
     check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
@@ -539,6 +546,9 @@ export async function karaokeRoute(
       type: "ready",
       attemptId: next.attemptId,
       resumed,
+      audioSequence: store.get<{ lastSequence: number | null }>(
+        `audioRelay:${ticketId}`,
+      )?.lastSequence ?? 0,
       attemptStart: store.get(`attemptStart:${ticketId}`),
       feedback: store.get(`feedback:${ticketId}`) ?? null,
       consent: consentRequest(

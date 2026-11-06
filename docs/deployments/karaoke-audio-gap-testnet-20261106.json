@@ -1,0 +1,60 @@
+{
+  "schema": "pirate.karaoke-audio-gap-deployment/1",
+  "chainId": 6343,
+  "reviewedSource": "06b9d7a0fedbd455b2aec849999db57b08946c5f",
+  "merge": "c4a27f4437b1e70b8d259b25c19c2c80b6e5abaf",
+  "observedAt": "2026-11-06T16:11:55.326Z",
+  "operatorOrigin": "https://pirate-learning-testnet-v2.piratesocialclub.workers.dev",
+  "previousModule": {
+    "operator.mjs": "0x6300ae8693cd74faa72751670d32fc1c637c8aa24babf253e7c5b89e78c25a09"
+  },
+  "deployedModule": {
+    "operator.mjs": "0x721b3c26c0a475bd3449057d214a728222d475bddf3c800f13d8d0b27d24f4ec"
+  },
+  "bindingCount": 31,
+  "bindingsUnchanged": true,
+  "durableObjects": [
+    {
+      "name": "SPEECH_BUDGET",
+      "type": "durable_object_namespace",
+      "class_name": "SpeechBudget",
+      "namespace_id": "1d24c70bd33c4649913e85eec71bed61"
+    },
+    {
+      "name": "STATE",
+      "type": "durable_object_namespace",
+      "class_name": "ServiceState",
+      "namespace_id": "651f657dc67143ff998d62f6165a5e2c"
+    }
+  ],
+  "quoteWindow": {
+    "validFrom": 1793955327,
+    "validUntil": 1796547387
+  },
+  "quoteUnchanged": true,
+  "predeploymentOpenTickets": 0,
+  "application": {
+    "status": 200,
+    "health": {
+      "schema": "pirate.community-application/1",
+      "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+      "profileHash": "0x52175c558c976aeabde7b1ab416bd98c5fbaafe5d617c0d7cb01798e22daa253",
+      "infrastructure": "provisioned",
+      "firstSong": "ready",
+      "signIn": "available",
+      "creatorConnection": "available"
+    }
+  },
+  "publicBinding": {
+    "head": "34271108",
+    "blockHash": "0x9f2f9051c86c58af9e852db12aa8473e6da50d45d0469c4bf871dc49bb7cd754",
+    "learningResults": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+    "codeHash": "0x65d365c9cc7d2c1138c583a5cd272728e40a04b44a0994989655ab5a48f885fe",
+    "learner": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+    "enrollmentId": "0x881c557d805b4b6a033c90bbd9ff1b44a7cd6058307c812ee952111f0d63e07f",
+    "issuedAt": "1793956856",
+    "expiresAt": "1796548800",
+    "period5Policy": "0x1666cd182f8fed52dd49b575f4fb5081e6c8af40fbe855cc38d7c19bce06438c"
+  },
+  "scope": "Operator code update only; no community deployment, contract write, activation, enrollment, provider start, reward or mainnet action. The four intended live cases and post-policy independent reconstruction remain open."
+}

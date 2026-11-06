@@ -122,7 +122,33 @@ test("a reload resumes the open take where the song is and still scores it", asy
     timeout: 20000,
   });
   await openSong(page);
+  // The old page is gone and no new capture has started. Retained grades alone
+  // cannot prove that this fresh page's audio is accepted by the same take.
+  const paused = await fixture<{
+    attempts: { ticketId: string; ended: unknown | null }[];
+    audio: { ticketId: string; lastSequence: number }[];
+  }>(page, "/__fixture/operator");
+  const active = paused.attempts.filter((attempt) => attempt.ended === null);
+  expect(active).toHaveLength(1);
+  const cursor = paused.audio.find(
+    (row) => row.ticketId === active[0].ticketId,
+  )!;
+  expect(cursor).toBeTruthy();
   await page.getByRole("button", { name: "Start karaoke" }).click();
+  await expect
+    .poll(
+      async () => {
+        const current = await fixture<{
+          audio: { ticketId: string; lastSequence: number }[];
+        }>(page, "/__fixture/operator");
+        return (
+          current.audio.find((row) => row.ticketId === cursor.ticketId)
+            ?.lastSequence ?? 0
+        );
+      },
+      { timeout: 5000 },
+    )
+    .toBeGreaterThan(cursor.lastSequence);
   // Resumed at the take's elapsed time on the operator's clock, not from zero.
   await expect
     .poll(() => songMs(page), { timeout: 15000 })
@@ -131,7 +157,8 @@ test("a reload resumes the open take where the song is and still scores it", asy
     timeout: 90000,
   });
   const record = await published(page, 6);
-  // Lines sung before the reload were heard; the rest may be silent.
+  // Audio after reload is accepted above. This simulated transcript assertion
+  // separately preserves the grades already measured before reload.
   expect(
     record.lines.filter((line) => line.status === "assessed").length,
   ).toBeGreaterThan(2);
