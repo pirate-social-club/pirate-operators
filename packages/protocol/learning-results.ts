@@ -67,6 +67,7 @@ export const resultStruct =
 export const songStruct =
   "struct Song { uint256 chainId; address posts; bytes32 communityId; bytes32 postId; }";
 export const resultsAbi = parseAbi([
+  "function activatePolicy(bytes32 policy,string uri,uint64 period)",
   enrollmentStruct,
   songStruct,
   resultStruct,

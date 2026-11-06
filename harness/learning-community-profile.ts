@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { canonical, insist, object } from "../packages/community/common.ts";
 
 export const learningApplicationBaseline =
-  "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279";
+  "0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c";
 export async function learningCommunityProfile() {
   const deployment = object(
     JSON.parse(

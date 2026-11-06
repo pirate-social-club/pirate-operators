@@ -96,7 +96,14 @@ const executable = resolve(
 );
 const child = spawn(
   executable,
-  [deploy ? "deploy" : "plan", config, "--stage", "testnet", "--no-input"],
+  [
+    deploy ? "deploy" : "plan",
+    config,
+    "--stage",
+    "testnet",
+    "--no-input",
+    ...(deploy ? ["--yes"] : []),
+  ],
   {
     cwd: join(state, "alchemy"),
     env,

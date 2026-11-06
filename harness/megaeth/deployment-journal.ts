@@ -180,7 +180,7 @@ export async function deploymentJournal(
       async send(
         step: string,
         intent: DeploymentIntent,
-        boundary?: (stage: "prepared" | "broadcast") => Promise<void>,
+        boundary?: (stage: "prepared" | "before_broadcast" | "broadcast") => Promise<void>,
       ) {
         insist(!sending, "deployment_send_already_running", 409);
         sending = true;
@@ -273,6 +273,7 @@ export async function deploymentJournal(
             );
             // Reuse the signed bytes even if a previous send response was lost.
             // No replacement nonce, fee bump or separately signed deployment.
+            await boundary?.("before_broadcast");
             await client
               .sendRawTransaction({ serializedTransaction: stored.raw })
               .catch(() => {});

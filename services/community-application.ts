@@ -17,7 +17,7 @@ import {
   requestOrigin,
   text,
 } from "../packages/community/common.ts";
-import { readConfiguration } from "../packages/community/directory-reader.ts";
+import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import {
   beginCreatorConnection,
@@ -94,13 +94,16 @@ export interface CommunityDependencies {
   now?: () => number;
 }
 function dependencies(env: CommunityEnv): CommunityDependencies {
+  let history: ReturnType<typeof readConfigurationHistory> | undefined;
+  const configurationHistory = () => history ??= readConfigurationHistory(megaethReadClient(), {
+    ...firstSong.directoryProfile,
+    deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
+  });
   return {
     async configuration() {
-      return readConfiguration(megaethReadClient(), {
-        ...firstSong.directoryProfile,
-        deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
-      });
+      return (await configurationHistory()).at(-1)!;
     },
+    publicReads: { client: megaethReadClient(), profile: publicPostsProfile(), configurationHistory },
     async verifyLogin(address, message, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);

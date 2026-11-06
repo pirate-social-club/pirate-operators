@@ -80,7 +80,7 @@ export async function reviewedPredecessor(
     "reviewed_update_plan_changed",
     409,
   );
-  if (previous.profileHash === publishedBaselines.application)
+  if (previous.profileHash === publishedBaselines.application && !packaged.profile.learning)
     assertPublishedUpgrade(
       object(previous.profile),
       packaged.profile,

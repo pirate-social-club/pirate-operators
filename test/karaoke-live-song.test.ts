@@ -169,3 +169,19 @@ test("without Pirate's provider key alignment is unavailable and nothing is sent
     await live.dispose();
   }
 });
+
+test("configuring a records successor keeps songs from earlier public configurations readable", async () => {
+  const live = await karaokeLive({ evm, now: 1800000000, streams: [] });
+  try {
+    await live.publish();
+    const previous = structuredClone(live.config);
+    live.config.configurationRevision++;
+    live.ports.publicReads!.configurationHistory = async () => [previous, live.config];
+    const feed = await live.get<{posts: {manifest: {postId: string}}[]}>(null, "/api/feed");
+    assert.equal(feed.status, 200, JSON.stringify(feed.value));
+    assert.deepEqual(feed.value.posts.map(p => p.manifest.postId), [firstSongFixture.postId]);
+    const aligned = await live.align();
+    assert.equal(aligned.status, 200, JSON.stringify(aligned.value));
+    assert.equal(aligned.value.state, "complete");
+  } finally { await live.dispose(); }
+});

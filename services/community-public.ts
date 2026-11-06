@@ -20,6 +20,7 @@ export interface PublicReadPorts {
   client: PublicClient;
   profile: PostsProfile;
   transport?: IpfsTransport;
+  configurationHistory?: () => Promise<readonly CommunityConfig[]>;
 }
 export async function publicSongs(
   db: D1Database,
@@ -27,11 +28,12 @@ export async function publicSongs(
   ports: PublicReadPorts,
   postId?: string,
 ) {
+  const history = ports.configurationHistory ? await ports.configurationHistory() : [config];
   const scan = await syncPublicPosts(
     db,
     ports.client,
     ports.profile,
-    [config],
+    history,
     config,
     ports.transport,
   );
@@ -40,7 +42,7 @@ export async function publicSongs(
     db,
     ports.client,
     ports.profile,
-    [config],
+    history,
     config,
     scan.head,
     postId,
