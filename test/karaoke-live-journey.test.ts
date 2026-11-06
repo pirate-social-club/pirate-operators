@@ -119,28 +119,18 @@ async function liveSong(streams: (m: KaraokeManifest) => SimulatedStream[]) {
 }
 
 type Session = Awaited<ReturnType<KaraokeLive["signIn"]>>;
-async function ticketFor(
-  live: KaraokeLive,
-  session: Session,
-  sessionKey: PrivateKeyAccount,
-) {
+async function ticketFor(live: KaraokeLive, session: Session) {
   const issued = await live.post<{
     ticket: Signed<Ticket>;
     socketUrl: string;
+    proof: Hex;
     error?: string;
-  }>(session, "/api/karaoke/tickets", {
-    postId: firstSongFixture.postId,
-    sessionKey: sessionKey.address,
-  });
+  }>(session, "/api/karaoke/tickets", { postId: firstSongFixture.postId });
   assert.equal(issued.status, 200, JSON.stringify(issued.value));
   return issued.value;
 }
-async function connect(
-  live: KaraokeLive,
-  ticketId: Hex,
-  sessionKey: PrivateKeyAccount,
-) {
-  const socket = await openAttempt(live.mf, ticketId, sessionKey);
+async function connect(live: KaraokeLive, ticketId: Hex, proof: Hex) {
+  const socket = await openAttempt(live.mf, ticketId, { proof });
   assert(!("refused" in socket), JSON.stringify(socket));
   return socket as Attempt;
 }
@@ -192,6 +182,7 @@ async function sing(
 type AttemptView = {
   state: "none" | "open" | "finished";
   ticket?: Signed<Ticket>;
+  proof?: Hex;
   result?: Signed<KaraokeResultBody>;
   record?: {
     consented: boolean;
@@ -244,7 +235,6 @@ test("a learner sings the published song, reloads, consents, and the grades reac
   const { live, manifest } = await liveSong((m) => [stream(m), stream(m)]);
   try {
     const learner = accounts[5]!,
-      sessionKey = privateKeyToAccount(generatePrivateKey()),
       postId = firstSongFixture.postId;
     assert.equal(
       (await live.get(null, `/api/karaoke/posts/${postId}/instrumental`))
@@ -260,12 +250,14 @@ test("a learner sings the published song, reloads, consents, and the grades reac
     assert.ok((await audio.arrayBuffer()).byteLength > 100000);
     assert.equal((await current(live, session)).value.state, "none");
 
-    const { ticket, socketUrl } = await ticketFor(live, session, sessionKey);
+    const { ticket, socketUrl, proof } = await ticketFor(live, session);
     const ticketId = ticket.body.ticketId;
     assert.equal(socketUrl, "wss://operator.localhost/attempt");
     assert.equal(ticket.body.songHash, songKeyOf(manifest.song!));
     assert.equal(ticket.body.participant, learner.address.toLowerCase());
-    let socket = await connect(live, ticketId, sessionKey);
+    // The browser never holds the session key, only this ticket's proof.
+    assert.notEqual(ticket.body.sessionKey, ticket.body.participant);
+    let socket = await connect(live, ticketId, proof);
     const start = socket.ready.attemptStart!;
     const offered = socket.ready.consent as { message: Consent };
     assert.equal(offered.message.songKey, songKeyOf(manifest.song!));
@@ -278,30 +270,21 @@ test("a learner sings the published song, reloads, consents, and the grades reac
       start,
     );
 
-    // A reload mid-take: the page asks for its open attempt, gets the same
-    // ticket for the same session key, and resumes on a new socket.
+    // A reload mid-take, even in another tab: the page asks for its open
+    // attempt, gets the same ticket and proof, and resumes on a new socket.
     socket.close();
     const reloaded = await current(live, session);
     assert.equal(reloaded.value.state, "open");
     assert.equal(reloaded.value.ticket!.body.ticketId, ticketId);
     assert.equal(
-      (await ticketFor(live, session, sessionKey)).ticket.body.ticketId,
+      (await ticketFor(live, session)).ticket.body.ticketId,
       ticketId,
     );
-    const other = await live.post<{ error: string }>(
-      session,
-      "/api/karaoke/tickets",
-      {
-        postId,
-        sessionKey: privateKeyToAccount(generatePrivateKey()).address,
-      },
-    );
-    assert.deepEqual(
-      [other.status, other.value.error],
-      [409, "different_session_key"],
-    );
-    socket = await connect(live, ticketId, sessionKey);
+    socket = await connect(live, ticketId, reloaded.value.proof!);
     assert.equal(socket.ready.resumed, true);
+    // Another learner's session sees none of it.
+    const stranger = await live.signIn(accounts[7]!);
+    assert.equal((await current(live, stranger)).value.state, "none");
 
     for (const segment of manifest.segments.slice(1)) {
       const line = manifest.lines.find((l) => l.lineId === segment.lineIds[0])!;
@@ -411,11 +394,7 @@ test("a learner sings the published song, reloads, consents, and the grades reac
     const redeemed = (await live.operatorState("redemption:")).length;
     assert.equal(redeemed, manifest.segments.length - 1);
     // The ticket is settled, so a second take starts with a new ticket.
-    const second = await ticketFor(
-      live,
-      session,
-      privateKeyToAccount(generatePrivateKey()),
-    );
+    const second = await ticketFor(live, session);
     assert.notEqual(second.ticket.body.ticketId, ticketId);
   } finally {
     await live.dispose();
@@ -427,12 +406,11 @@ test("a MOSS account consents with an ERC-8010 activation and its grades publish
   try {
     // A fresh account with no code, with a separate key standing in for its passkey.
     const learner = privateKeyToAccount(generatePrivateKey()),
-      passkey = privateKeyToAccount(generatePrivateKey()),
-      sessionKey = privateKeyToAccount(generatePrivateKey());
+      passkey = privateKeyToAccount(generatePrivateKey());
     const session = await live.signIn(learner);
-    const { ticket } = await ticketFor(live, session, sessionKey);
+    const { ticket, proof } = await ticketFor(live, session);
     const ticketId = ticket.body.ticketId;
-    const socket = await connect(live, ticketId, sessionKey);
+    const socket = await connect(live, ticketId, proof);
     const start = socket.ready.attemptStart!;
     const offered = socket.ready.consent as {
       domain: {

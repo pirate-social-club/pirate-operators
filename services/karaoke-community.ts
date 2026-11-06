@@ -3,7 +3,8 @@
 // existing community purchase code runs unchanged on the application's D1
 // database (migration 0008) with the real clock. The operator is reached by
 // service binding; the learner's socket goes to the operator's public origin.
-import { isAddress, type Address, type Hex } from "viem";
+import type { Address, Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { bytes32, insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import {
@@ -128,24 +129,54 @@ async function prepared(ports: KaraokePorts, postId: Hex) {
   return { env, store, manifest, manifestSha256, quote };
 }
 
-/** One open ticket per learner; a retry with the same session key returns it. */
+/**
+ * The ticket's session key is held here, per ticket, and only its connection
+ * proof is given to the signed-in learner. Any tab or reload of the same
+ * learner can then reconnect, and the browser needs no key material. The key
+ * authorizes only that ticket's operator socket; records still need the
+ * learner's own consent signature.
+ */
+async function sessionKeyFor(
+  store: KaraokeStore,
+  current: WalletState | undefined,
+  songHash: Hex,
+) {
+  if (current?.open && current.open.songHash === songHash)
+    return current.open.sessionKey;
+  const secret = generatePrivateKey(),
+    address = privateKeyToAccount(secret).address;
+  await store.set(`sessionSecret:${address}`, secret);
+  return address;
+}
+async function connectionProof(
+  store: KaraokeStore,
+  sessionKey: Address,
+  ticketId: Hex,
+) {
+  const secret = await store.get<Hex>(`sessionSecret:${sessionKey}`);
+  insist(secret, "session_key_unavailable", 409);
+  return privateKeyToAccount(secret).signMessage({
+    message: `connect:${ticketId}`,
+  });
+}
+
+/** One open ticket per learner; a retry for the same song returns it. */
 export async function karaokeTicket(
   ports: KaraokePorts,
   learner: KaraokeLearner,
   value: Record<string, unknown>,
 ) {
-  const postId = bytes32(value.postId),
-    sessionKey = value.sessionKey;
-  insist(
-    typeof sessionKey === "string" && isAddress(sessionKey),
-    "invalid_session_key",
-    400,
-  );
+  const postId = bytes32(value.postId);
   const { env, store, manifest, manifestSha256, quote } = await prepared(
       ports,
       postId,
     ),
     wallet = learner.wallet as Address,
+    sessionKey = await sessionKeyFor(
+      store,
+      await store.get<WalletState>(`wallet:${wallet}`),
+      manifest.songHash,
+    ),
     now = await store.now(),
     lastEndMs = manifest.segments.at(-1)!.endMs,
     open = await openTicket(
@@ -153,7 +184,7 @@ export async function karaokeTicket(
       wallet,
       {
         songHash: manifest.songHash,
-        sessionKey: sessionKey as Address,
+        sessionKey,
         quoteId: quoteIdOf(quote),
         manifestSha256,
         maxPaidSegments: manifest.segments.length,
@@ -179,6 +210,7 @@ export async function karaokeTicket(
   return {
     ticket: await ensureTicket(env, store, wallet, open),
     socketUrl: socketUrl(ports.env),
+    proof: await connectionProof(store, open.sessionKey, open.ticketId),
   };
 }
 
@@ -290,6 +322,7 @@ export async function karaokeAttempt(
         state: "open" as const,
         ticket: await store.get<Signed<Ticket>>(`ticket:${ticketId}`),
         socketUrl: socketUrl(ports.env),
+        proof: await connectionProof(store, ticket.sessionKey, ticketId),
       };
     await settleTicket(env, store, wallet, ticketId, true);
     await store.set(`lastTicket:${wallet}:${postId}`, ticketId);
