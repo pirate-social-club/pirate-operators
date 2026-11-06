@@ -1,0 +1,65 @@
+name: Study client
+on:
+  push:
+    paths:
+      - "apps/web/**"
+      - "packages/study/**"
+      - "packages/scoring/english-phonetics.ts"
+      - "services/study-spoken.ts"
+      - "services/study-lessons.ts"
+      - "test/study-*.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/study.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/study/**"
+      - "packages/scoring/english-phonetics.ts"
+      - "services/study-spoken.ts"
+      - "services/study-lessons.ts"
+      - "test/study-*.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/study.yml"
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      - name: Install server and browser fixture dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/web
+      - name: Typecheck the web client
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Build the Study screen
+        working-directory: apps/web
+        run: node_modules/.bin/vite build --config vite.study.config.ts
+      - name: Install matching Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Run all four Study browser scenarios with external networking unavailable
+        working-directory: apps/web
+        run: |
+          sudo --preserve-env=PATH,HOME unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            node_modules/.bin/playwright test --config playwright.study.config.ts
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: study-browser-results
+          path: .local/study-browser-results/
