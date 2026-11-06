@@ -16,10 +16,18 @@ import { karaokeAudioWorkers } from "../harness/karaoke-audio-workers.ts";
 import type {
   SimulatedStream,
   SimulatedStreamLog,
+  SimulatedWord,
 } from "../harness/karaoke-elevenlabs-simulator.ts";
 import { encodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
+import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 import type { Signed, Song, Ticket } from "../packages/protocol/index.ts";
-import type { KaraokeResultBody } from "../packages/protocol/payments.ts";
+import {
+  PAYMENT_GRACE_S,
+  songEndMs,
+  type KaraokeResultBody,
+  type KaraokeManifest,
+} from "../packages/protocol/payments.ts";
+import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import { chainTime, type Chain } from "./payments-fixture.ts";
 
 let songs = 0;
@@ -197,6 +205,36 @@ export async function audioCommunity(
     result,
     state,
     simulator,
+    async releaseProviderCommits() {
+      const worker = await runtime.mf.getWorker("elevenlabs");
+      const response = await worker.fetch(
+        "http://simulator.localhost/__simulator/release-commits",
+        { method: "POST" },
+      );
+      assert.equal(response.status, 200);
+      return (await response.json()) as { released: number };
+    },
+    async deliveryDiagnostics(a: A) {
+      const log = await simulator();
+      const relay = (await state(`audioRelay:${a.ticket.body.ticketId}`))[0]
+        ?.value as KaraokeRelaySnapshot | undefined;
+      return JSON.stringify({
+        minted: log.minted,
+        streams: log.streams.map((stream) => ({
+          chunks: stream.chunks,
+          audioMs: stream.audioMs,
+          commits: stream.commits,
+          emittedWords: stream.emitted.length,
+        })),
+        relay: relay && {
+          lastSequence: relay.lastSequence,
+          lastAudioEndMs: relay.lastAudioEndMs,
+          words: relay.words.length,
+          failedLineIds: relay.failedLineIds,
+          terminal: relay.terminal,
+        },
+      });
+    },
     async waitForProviderChunks(count: number) {
       let log = await simulator();
       for (let i = 0; i < 100; i++) {
@@ -218,3 +256,54 @@ export async function audioCommunity(
     dispose: () => runtime.mf.dispose(),
   };
 }
+
+type C = Awaited<ReturnType<typeof audioCommunity>>;
+type A = Awaited<ReturnType<C["attempt"]>>;
+
+/** The fixture's reference words for the chosen lines, shifted onto a stream clock. */
+export const sungAudioWords = (
+  manifest: KaraokeManifest,
+  lineIds: string[],
+  streamOffsetMs = 0,
+  text?: string,
+): SimulatedWord[] =>
+  manifest.lines
+    .filter((line) => lineIds.includes(line.lineId))
+    .flatMap((line) =>
+      line.words.map((word) => ({
+        text: text ?? word.text,
+        start: (word.startMs - streamOffsetMs) / 1000,
+        end: (word.endMs - streamOffsetMs) / 1000,
+      })),
+    );
+// The fixture manifest's line and word timing is fixed; the song only sets its hash.
+export const AUDIO_MANIFEST = fixtureManifest({
+  communityId: "fixture-community",
+  audio: "0x00",
+  title: "timing",
+  lyrics: fixtureLyrics,
+  artwork: "original-cover-fixture-v1",
+  original: true,
+});
+export const AUDIO_LINES = ["line-01", "line-02", "line-03", "line-04"];
+
+export async function finishAudioAttempt(c: C, a: A, socket = a.socket) {
+  await c.at(
+    a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000) - 1,
+  );
+  socket.send({ type: "finish" });
+  // Finishing waits for the provider's last commit, so poll until the take ends.
+  const ticketId = a.ticket.body.ticketId;
+  for (let i = 0; i < 100; i++) {
+    const [row] = await c.state(`attempt:${ticketId}`);
+    if ((row?.value as { ended?: unknown } | undefined)?.ended) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await c.at(c.now() + PAYMENT_GRACE_S);
+  const result = await c.result(ticketId);
+  assert.equal(result.status, 200, JSON.stringify(result.value));
+  return result.value.body;
+}
+export const storedAudioWords = async (c: C, a: A) =>
+  ((await c.state(`words:${a.ticket.body.ticketId}`))[0]?.value ??
+    []) as KaraokeRecognizedWord[];
