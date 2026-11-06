@@ -39,16 +39,15 @@ import {
   publish,
 } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
+import { enrollmentForPractice } from "./learning-enrollment.ts";
 
 import {
   learningEnrollments,
-  activeEnrollment,
   acceptEnrollment,
   acceptRevocation,
   revocationRequest,
   bindEnrollment,
   correctV2,
-  enrollmentRequest,
   publicationV2,
   publishV2,
   resumeEnrollments,
@@ -57,7 +56,7 @@ import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireStudySpeech } from "./study-operator.ts";
 import { resumeStudyPublications, recoverLearningTransactions } from "./study-publication-recovery.ts";
 import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
-import { pendingEnrollmentKey, retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
+import { retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
@@ -313,18 +312,10 @@ export async function karaokeRoute(
   }
   if (url.pathname === "/enrollment/request") {
     check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
-    const { learner, target } = await body<{ learner: Address; target?: ResultsTarget }>(request);
-    const destination = target ? retainedTarget(env, target) : resultsTarget(env);
-    try {
-      const grant = await activeEnrollment(env, learner, destination);
-      return Response.json({ active: true, target: destination, activities: grant.activities });
-    } catch (error) {
-      if (!(error instanceof Error) || error.message !== "enrollment_required")
-        throw error;
-    }
-    if (store.get(pendingEnrollmentKey(destination, learner)))
-      return Response.json({ pending: true, target: destination });
-    return Response.json(await enrollmentRequest(env, learner, store.now(), destination));
+    const { learner, target, activity } = await body<{ learner: Address; target?: ResultsTarget; activity?: "study" }>(request);
+    check(activity === undefined || activity === "study", "unsupported_activity");
+    const destination = target ? retainedTarget(env, target) : resultsTarget(env, activity === "study" ? 3 : undefined);
+    return Response.json(await enrollmentForPractice(env, store, learner, destination, activity === "study" ? 2 : 1));
   }
   if (url.pathname === "/enrollment/revoke") {
     const { learner, nonce, signature, target } = await body<{

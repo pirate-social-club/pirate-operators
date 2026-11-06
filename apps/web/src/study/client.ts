@@ -24,10 +24,13 @@ export function createStudyClient(
   csrf: () => string,
   initialLessonId?: string,
   onOpened?: (id: string) => void,
+  beforeStart?: () => Promise<void>,
+  active?: () => boolean,
 ): StudyClient {
   let lessonId = initialLessonId,
     startRequestId = crypto.randomUUID();
   async function call(path: string, init: RequestInit = {}) {
+    if (active?.() === false) throw new Error("Study was closed.");
     const response = await fetch("/api/study/lessons" + path, {
       ...init,
       credentials: "same-origin",
@@ -61,6 +64,7 @@ export function createStudyClient(
     return lesson;
   }
   async function start() {
+    await beforeStart?.();
     return remember(
       await call("", {
         method: "POST",

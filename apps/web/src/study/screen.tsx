@@ -15,7 +15,10 @@ import type { StudyClient } from "./client.ts";
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 import "./style.css";
 
-export function StudyScreen(props: { client: StudyClient }) {
+export function StudyScreen(props: {
+  client: StudyClient;
+  onLesson?: (lesson: StudyLesson) => void;
+}) {
   const [lesson, setLesson] = createSignal<StudyLesson | null>(null),
     [miss, setMiss] = createSignal<StudyAttempt | null>(null);
   const [phase, setPhase] = createSignal<
@@ -47,6 +50,7 @@ export function StudyScreen(props: { client: StudyClient }) {
   });
   function install(value: StudyLesson) {
     setLesson(value);
+    props.onLesson?.(value);
     setMiss(null);
   }
   async function load(restart = false) {
@@ -60,6 +64,11 @@ export function StudyScreen(props: { client: StudyClient }) {
         : props.client.load());
       if (active && version === generation) install(value);
     } catch (e) {
+      if (restart && active && version === generation) {
+        // Abandon may have succeeded before enrollment or the next start failed.
+        const saved = await props.client.load().catch(() => null);
+        if (saved && active && version === generation) install(saved);
+      }
       if (active && version === generation)
         setError(
           e instanceof Error
@@ -74,6 +83,7 @@ export function StudyScreen(props: { client: StudyClient }) {
   function apply(result: StudyLessonSubmission) {
     if (!active) return;
     setLesson(result.lesson);
+    props.onLesson?.(result.lesson);
     if (result.attempt.state === "assessed" && result.attempt.grade) {
       sounds.play(result.attempt.grade.correct ? "correct" : "incorrect");
       // The queue has already advanced server-side. Hold only the just-spent

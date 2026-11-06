@@ -73,7 +73,7 @@ import {
   type KaraokeEnv,
 } from "./karaoke-community.ts";
 import { studyCommunityApi } from "./study-community-api.ts";
-import type { StudyEnv } from "./study-community.ts";
+import { studyAvailable, type StudyEnv } from "./study-community.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
@@ -402,6 +402,7 @@ export async function communityFetch(
         /* Fail closed while a required peer is unavailable. */
       }
       const capabilities: CommunityCapabilities = {
+        study: studyAvailable(env, config),
         schema: "pirate.community-capabilities/1",
         signIn: true,
         ...(env.KARAOKE_SERVICE_MODE === "internal"

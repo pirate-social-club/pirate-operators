@@ -11,6 +11,7 @@ import {
 } from "./api.ts";
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
+import { LiveStudy } from "./study.tsx";
 import {
   stopPublicEnrollment,
   type LearningEnrollments,
@@ -73,8 +74,29 @@ function App() {
       postId: string;
       title: string;
     } | null>(null),
+    [studying, setStudying] = createSignal<{
+      postId: string;
+      title: string;
+    } | null>(null),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
+  const practiceOpen = () => singing() !== null || studying() !== null;
+  function openStudy(song: { postId: string; title: string }) {
+    setLearningActions(null);
+    const url = new URL(location.href);
+    if (url.searchParams.get("study") !== song.postId)
+      url.searchParams.delete("lesson");
+    url.searchParams.set("study", song.postId);
+    history.replaceState(null, "", url);
+    setStudying(song);
+  }
+  function closeStudy() {
+    setStudying(null);
+    const url = new URL(location.href);
+    url.searchParams.delete("study");
+    url.searchParams.delete("lesson");
+    history.replaceState(null, "", url);
+  }
   let popup: Window | null = null,
     timer: ReturnType<typeof setTimeout> | undefined,
     stopped = false;
@@ -106,6 +128,10 @@ function App() {
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
     setFeed(posts);
+    const requested = new URL(location.href).searchParams.get("study");
+    const song = posts.posts.find((post) => post.manifest.postId === requested);
+    if (session() && caps.study && song)
+      openStudy({ postId: song.manifest.postId, title: song.manifest.title });
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -141,8 +167,8 @@ function App() {
       id: challenge.id,
       signature: signed.signature,
     });
-    await refreshSession();
-    setStatus("Signed in. Connect your creator wallet to begin a release.");
+    await refresh();
+    setStatus("Signed in. Choose a song to study or sing.");
   }
   async function revokeLearning() {
     const current = session();
@@ -281,7 +307,7 @@ function App() {
   });
   return (
     <>
-      <header class="live-header" inert={singing() !== null}>
+      <header class="live-header" inert={practiceOpen()}>
         <a href="/" class="live-brand">
           pirate<span>/ community</span>
         </a>
@@ -374,7 +400,18 @@ function App() {
           />
         </div>
       </Show>
-      <main class="live-main" inert={singing() !== null}>
+      <Show when={studying() && session()}>
+        <div class="live-study-overlay">
+          <LiveStudy
+            postId={studying()!.postId}
+            title={studying()!.title}
+            csrf={session()!.csrf}
+            wallet={mossWallet}
+            onExit={closeStudy}
+          />
+        </div>
+      </Show>
+      <main class="live-main" inert={practiceOpen()}>
         <section class="live-intro">
           <p class="live-kicker">INDEPENDENT MUSIC</p>
           <h1>{name()}</h1>
@@ -486,6 +523,19 @@ function App() {
                       Sing
                     </Button>
                   </Show>
+                  <Show when={session() && capabilities()?.study}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        openStudy({
+                          postId: song.manifest.postId,
+                          title: song.manifest.title,
+                        })
+                      }
+                    >
+                      Study
+                    </Button>
+                  </Show>
                   <Show when={song.lyricsText}>
                     <details>
                       <summary>Lyrics</summary>
@@ -506,7 +556,7 @@ function App() {
           </Show>
         </section>
       </main>
-      <footer class="live-footer" inert={singing() !== null}>
+      <footer class="live-footer" inert={practiceOpen()}>
         A community of independent creators. Creator ownership stays with your
         wallet.
       </footer>

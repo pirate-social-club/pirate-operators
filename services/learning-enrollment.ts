@@ -32,6 +32,7 @@ import {
   type ResultsTarget,
 } from "./learning-contract.ts";
 import type { Env } from "./runtime.ts";
+import { STUDY_LESSON_LIFETIME_MS } from "../packages/study/lesson.ts";
 
 export interface BoundEnrollment {
   // Absent only on pre-successor V2 records. Never infer V3 for these rows.
@@ -135,6 +136,41 @@ export async function enrollmentRequest(
     primaryType: "Enrollment" as const,
     message,
   };
+}
+
+/** Allow publication grace plus a minute for the following start request.
+ * The binding still checks the actual lesson deadline against the grant. */
+export async function enrollmentForPractice(
+  env: Env,
+  store: ResultStore,
+  learner: Address,
+  destination: ResultsTarget,
+  activity: 1 | 2 = 1,
+) {
+  destination = retainedTarget(env, destination);
+  check(activity === 1 || destination.version === 3, "unsupported_activity");
+  const pending = () => !!store.get(pendingEnrollmentKey(destination, learner));
+  if (activity === 2 && pending())
+    return { pending: true as const, target: destination };
+  try {
+    const grant = await activeEnrollment(env, learner, destination, activity);
+    if (
+      activity === 1 ||
+      grant.expiresAt >=
+        store.now() + Math.ceil(STUDY_LESSON_LIFETIME_MS / 1000) + 120
+    )
+      return {
+        active: true as const,
+        target: destination,
+        activities: grant.activities,
+        expiresAt: grant.expiresAt,
+      };
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== "enrollment_required")
+      throw error;
+  }
+  if (pending()) return { pending: true as const, target: destination };
+  return enrollmentRequest(env, learner, store.now(), destination);
 }
 export async function acceptEnrollment(
   env: Env,

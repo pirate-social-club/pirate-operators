@@ -400,7 +400,10 @@ export async function karaokeEnrollments(ports: KaraokePorts, learner: KaraokeLe
 export async function karaokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
-  if (!value.signature) return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet, target: value.target });
+  if (!value.signature) {
+    check(value.activity === undefined || value.activity === "study", "unsupported_activity");
+    return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet, target: value.target, activity: value.activity });
+  }
   const enrollment = object(value.enrollment);
   check(String(enrollment.learner).toLowerCase() === learner.wallet.toLowerCase(), "wrong_learner");
   return call(env.OPERATOR, "/enrollment", { enrollment, signature: value.signature, target: value.target });

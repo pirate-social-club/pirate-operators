@@ -155,9 +155,34 @@ V2 journal and verify unchanged signed bytes, charges and usage observations.
 No infrastructure profile or deployed resource has been upgraded by this work.
 
 The application migration, authenticated routes, managed speech bridge, terminal
-publication queue and expiry schedule are implemented locally. Study still needs
-complete private retention/export, the live page and enrollment renewal
-when the existing grant cannot cover a new lesson. The final V3 publicity policy
+publication queue and expiry schedule are implemented locally. The live feed now
+offers Study only when the V3 service matches the directory configuration. A
+Study link resumes after MOSS sign-in without creator-wallet or membership gates.
+New lessons request V3 Study authority and renew a grant that cannot cover a
+full lesson and publication grace. Loading an existing lesson keeps its frozen
+grant. New Study work waits while renewal is pending, and reuse includes an
+extra minute of request headroom beyond the contract's publication grace.
+The binding still checks the actual saved lesson deadline. The client retains
+its lesson URL, recovers a lost start response through
+the saved latest lesson, and distinguishes private completion from pending or
+confirmed public publication. Closing the screen preserves the active lesson
+until it is resumed or reaches its saved deadline.
+
+Leaving Study stops new enrollment, lesson and recording dispatch after pending
+requests or wallet signing return. It cannot undo a request already sent. A
+submitted enrollment or terminal publication keeps its original recovery path;
+closing the screen is not revocation. The browser regression reproduces the
+earlier late-signature dispatch and checks both sides of that boundary.
+
+The built live app's browser tests use an explicitly simulated HTTP peer and
+wallet signing transport. They cover disclosure cancellation before lesson
+creation, ordinary sign-in, no duplicate enrollment/start on reload or a lost
+response, and completion/publication status. Actual Study D1, operator,
+cryptographic and contract behavior remains qualified by the separate service
+tests. Neither set establishes real MOSS/provider acceptance or deployed UI.
+
+Study still needs complete private retention/export, authenticated correction
+controls and the reviewed exact deployment profile. The final V3 publicity policy
 and disclosure pages must be prepared and
 bound to the deployed contract before accepting successor consent. The activity
 text in the enrollment dialog alone does not complete that disclosure gate.
