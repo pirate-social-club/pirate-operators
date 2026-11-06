@@ -34,10 +34,13 @@ centralized adapter: a single-use token minted with Pirate's `xi-api-key`, then
 provider stores audio. It asks for a commit when a lyric line's end has been
 sent and not yet covered, and on pause and finish. The adapter maps each
 provider word's stream timestamps back to song time through the frames it sent,
-and drops a word whose ends straddle a backward seek. Committed words are kept
-by the relay and handed to the existing `words` path and scorer before the
-take finishes, and whenever the learner's socket closes, so words already
-heard reach the scorer even if the learner never returns.
+and drops a word whose ends straddle a backward seek. Committed words reach
+the existing `words` path and scorer as each line's transcript arrives, again
+before the take finishes, and whenever the learner's socket closes, so words
+already heard count even if the learner never returns. In real time the
+operator's song-end timer usually ends the take during the instrumental's
+outro, before the learner's finish. Words sung before the performance ended
+that arrive after that still count, until the payment deadline closes the take.
 
 Learners can no longer send `words` or `provider_failed` frames on the audio
 socket; only the operator's provider path produces them.
@@ -60,7 +63,8 @@ These follow the centralized client, session host and reducer.
 - The operator refuses audio whose sequence does not increase.
 - On a backward seek the relay drops words ending after the seek point minus
   300 ms, drops any commit reaching past it and its late words, and reopens
-  lines after it.
+  lines after it. Words already handed to the scorer follow the same rule, and
+  the failure marks of the reopened lines are cleared.
 - A dropped provider stream reconnects after 250 ms, doubling to at most 2 s,
   five times. Up to 600 frames are buffered during the outage and replayed.
   The dead stream's unacknowledged commit is orphaned.
@@ -82,8 +86,7 @@ Two deliberate changes from the centralized code:
    intermittently before the change and passed five consecutive full runs after
    it. A chunk starting earlier than that still aborts.
 
-Known limits: words handed to the scorer at a disconnect are final, so a later
-seek cannot remove them. After a backward seek the adapter's commit frontier
+Known limits: after a backward seek the adapter's commit frontier
 stays at the highest song time sent, as in the centralized adapter. Relay state
 other than its persisted words and failure marks lives in memory, so an operator
 restart mid-take loses the provider stream. Live per-line scores and partial
@@ -138,12 +141,14 @@ All 47 upstream cases in those files pass.
 audio subclass on local anvil, and routes the operator's outbound network, the
 real ElevenLabs address included, to `harness/karaoke-elevenlabs-simulator.ts`.
 The simulator checks the key, mints single-use tokens, accepts the realtime
-messages and returns scripted words on each stream's own clock. Eight cases
+messages and returns scripted words on each stream's own clock. Nine cases
 cover the scored path at exact song times and request parameters, refused
 learner words, a dropped provider stream with replay and an orphaned commit, a
 terminal error, a missing credential, a backward seek, a learner reconnect on
-the same provider stream with refused regressed audio, and commits that are
-never acknowledged.
+the same provider stream with refused regressed audio, commits that are never
+acknowledged, and a take whose song-end timer fires before the learner's finish.
+That last case fails without the forwarding fix: no words reach the scorer while
+the take is sung, and the last line's words arrive after the timer.
 
 `test/karaoke-operator-audio-client.test.ts` and
 `test/karaoke-capture-controller.test.ts` cover the browser-side rules with
