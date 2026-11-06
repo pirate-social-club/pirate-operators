@@ -51,20 +51,39 @@ function fixture(
   };
 }
 
-test("a restored audio boundary retains gap evidence after it reaches the scorer", async () => {
+test("a restored unresolved prefix and later audio gap retain failure evidence", async () => {
   const first = fixture();
   await first.relay.audio(frame(1, 0, 2000));
   const restored = fixture(first.snapshot());
   await first.relay.close();
   try {
     await restored.relay.audio(frame(2, 4500, 4600));
-    assert.deepEqual(restored.relay.drain().failedLineIds, ["gap"]);
+    assert.deepEqual(restored.relay.drain().failedLineIds, ["first", "gap"]);
     restored.relay.seek(0);
     await restored.relay.audio(frame(3, 0, 100));
-    assert.deepEqual(restored.snapshot().failedLineIds, ["gap"]);
+    assert.deepEqual(restored.snapshot().failedLineIds, ["first", "gap"]);
     assert.deepEqual(restored.relay.drain().failedLineIds, []);
   } finally {
     await restored.relay.close();
+  }
+});
+
+test("a read-only snapshot drain does not preempt a live provider's pending acknowledgement", async () => {
+  const original = fixture();
+  await original.relay.audio(frame(1, 0, 2000));
+  const restored = new KaraokeAudioRelay({
+    sessionId: "session",
+    attemptId: "attempt",
+    lines: [{ lineId: "first", startMs: 0, endMs: 2000 }],
+    createAdapter: null,
+    restore: original.snapshot(),
+  });
+  try {
+    assert.deepEqual(restored.drain().failedLineIds, []);
+    assert.equal(restored.measuredThroughMs, 0);
+  } finally {
+    await original.relay.close();
+    await restored.close();
   }
 });
 
@@ -115,18 +134,37 @@ test("a fresh missing prefix is unmeasured while an initial explicit seek is del
   }
 });
 
-test("an older snapshot does not invent prefix loss but detects later missing audio", async () => {
+test("an unknown legacy boundary cannot be filled by a fresh provider stream", async () => {
   const original = fixture();
   await original.relay.audio(frame(1, 0, 2000));
   const snapshot = original.snapshot();
+  delete snapshot.lastAudioEndMs;
+  delete snapshot.resolvedThroughMs;
+  await original.relay.close();
+  const restored = fixture(snapshot);
+  try {
+    await restored.relay.audio(frame(2, 4500, 4600));
+    assert.deepEqual(restored.relay.drain().failedLineIds, ["first", "gap"]);
+    await restored.relay.audio(frame(3, 6300, 6400));
+    assert.deepEqual(restored.relay.drain().failedLineIds, ["last"]);
+  } finally {
+    await restored.relay.close();
+  }
+});
+
+test("a missing received boundary preserves the recorded provider resolution frontier", async () => {
+  const original = fixture();
+  await original.relay.audio(frame(1, 0, 2000));
+  const snapshot = original.snapshot();
+  // Explicit acknowledged-coverage provenance for this snapshot boundary case.
+  snapshot.resolvedThroughMs = 2000;
   delete snapshot.lastAudioEndMs;
   await original.relay.close();
   const restored = fixture(snapshot);
   try {
     await restored.relay.audio(frame(2, 4500, 4600));
-    assert.deepEqual(restored.relay.drain().failedLineIds, []);
-    await restored.relay.audio(frame(3, 6300, 6400));
-    assert.deepEqual(restored.relay.drain().failedLineIds, ["last"]);
+    assert.deepEqual(restored.relay.drain().failedLineIds, ["gap"]);
+    assert.equal(restored.relay.measuredThroughMs, 2000);
   } finally {
     await restored.relay.close();
   }

@@ -21,6 +21,7 @@ import {
   type KaraokeRecognizedWord,
 } from "../packages/scoring/scoring.ts";
 import type { Store } from "./runtime.ts";
+import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 
 export interface Attempt {
   ticketId: Hex;
@@ -76,6 +77,32 @@ export function resultBody(
   );
   const words =
     store.get<KaraokeRecognizedWord[]>(`words:${ticket.ticketId}`) ?? [];
+  const relay = store.get<KaraokeRelaySnapshot>(
+    `audioRelay:${ticket.ticketId}`,
+  );
+  const failed = new Set([
+    ...attempt.failedLineIds,
+    ...(relay?.failedLineIds ?? []),
+  ]);
+  if (quote.serviceMode === "internal") {
+    const cutoffMs = Math.max(
+      0,
+      (ended.performanceEndedAt - attempt.startedAt) * 1000,
+    );
+    const resolved = relay?.resolvedThroughMs;
+    for (const line of manifest.lines) {
+      // Timer/alarm finalization cannot assume missing trailing audio was
+      // measured silence. Keep reached separate from received, and preserve
+      // the existing cutoff for a line interrupted by abandonment.
+      if (
+        line.startMs < cutoffMs &&
+        (resolved === undefined ||
+          !Number.isFinite(resolved) ||
+          resolved < Math.min(line.endMs, cutoffMs))
+      )
+        failed.add(line.lineId);
+    }
+  }
   const buckets = bucketRecognizedWordsIntoLines({
     lines: manifest.lines.map((line, i) => ({
       lineId: line.lineId,
@@ -90,7 +117,7 @@ export function resultBody(
     nowMs: songEndMs(manifest) + 1000,
     finalizedReason: "session_end",
   }).map((bucket) =>
-    attempt.failedLineIds.includes(bucket.lineId)
+    failed.has(bucket.lineId)
       ? { ...bucket, finalizedReason: "provider_failed" as const }
       : bucket,
   );

@@ -39,6 +39,8 @@ export async function karaokeAudioWorkers(
     recordsContract?: string;
     /** Omitted to exercise an operator without a provider credential. */
     elevenLabsApiKey?: string;
+    /** Exercise the deployed accounting mode with local fixture controls. */
+    serviceMode?: "internal";
     streams: SimulatedStream[];
     /** Miniflare routes that reach the operator directly, e.g. for a browser. */
     operatorRoutes?: string[];
@@ -67,7 +69,11 @@ export async function karaokeAudioWorkers(
       };
   const [service, operator, simulator] = await Promise.all([
     bundle("services/runtime.ts"),
-    bundle("services/karaoke-audio-runtime.ts"),
+    bundle(
+      options.serviceMode === "internal"
+        ? "harness/karaoke-internal-audio-runtime.ts"
+        : "services/karaoke-audio-runtime.ts",
+    ),
     bundle("harness/karaoke-elevenlabs-simulator.ts"),
   ]);
   const rpcOnly = async (request: Request) => {
@@ -106,6 +112,9 @@ export async function karaokeAudioWorkers(
           CUTOFF: String(options.cutoff ?? 1800000100),
           INITIAL_NOW: String(options.now ?? 1800000000),
           SIGNATURE_CHAIN_ID: "31337",
+          ...(options.serviceMode === "internal"
+            ? { SERVICE_MODE: "internal", HISTORY_RETENTION_DAYS: "30" }
+            : {}),
           ...payments,
           ...(role === "operator" && options.elevenLabsApiKey
             ? { ELEVENLABS_API_KEY: options.elevenLabsApiKey }

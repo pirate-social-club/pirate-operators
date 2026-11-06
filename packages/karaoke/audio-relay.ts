@@ -37,6 +37,9 @@ export interface KaraokeRelaySnapshot {
   lastSequence: number | null;
   /** Last received song-time boundary; absent in snapshots saved before this field. */
   lastAudioEndMs?: number;
+  /** Resolved provider frontier; failed intervals remain in failedLineIds.
+   * Absent in older snapshots, whose measurement coverage is unknown. */
+  resolvedThroughMs?: number;
   sttSequence: number;
   terminal: string | null;
 }
@@ -101,6 +104,12 @@ export class KaraokeAudioRelay {
         terminal: null,
       },
     );
+    this.coveredMs = this.state.resolvedThroughMs ?? 0;
+    this.submittedMs = this.state.lastAudioEndMs ?? this.coveredMs;
+    if (options.restore && options.createAdapter !== null)
+      // The old provider stream cannot acknowledge audio after a restart.
+      // A new stream's later acknowledgement must not cover that lost tail.
+      this.failRange(this.coveredMs, this.submittedMs, false);
     this.setTimer =
       options.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
     this.clearTimer =
@@ -126,15 +135,13 @@ export class KaraokeAudioRelay {
       frame.sequence <= this.state.lastSequence
     )
       throw new KaraokeAudioError("sequence_out_of_order");
-    // A fresh take starts at zero even if its first frames never arrive. An
-    // older snapshot with received audio but no saved boundary is unknown;
-    // do not retroactively invent loss over its already-measured history.
-    const previousEnd =
-      this.state.lastAudioEndMs ??
-      (this.state.lastSequence === null ? 0 : undefined);
+    // With no received boundary, only the durable resolution frontier can be
+    // trusted. A fresh stream must not turn an unknown legacy prefix into
+    // measured audio merely by acknowledging later frames.
+    const previousEnd = this.state.lastAudioEndMs ?? this.coveredMs;
     this.state.lastSequence = frame.sequence;
     this.state.lastAudioEndMs = frame.songEndMs;
-    if (previousEnd !== undefined && frame.songStartMs > previousEnd) {
+    if (frame.songStartMs > previousEnd) {
       // A replacement socket can lose queued audio from its predecessor. A
       // later provider acknowledgement cannot measure that missing interval.
       this.failRange(previousEnd, frame.songStartMs, false);
@@ -352,6 +359,9 @@ export class KaraokeAudioRelay {
     ) {
       this.coveredMs = Math.max(this.coveredMs, pending.frontierMs);
       this.settlePending();
+      // Keep acknowledged coverage and words durable before another commit
+      // can cross an I/O boundary or the Worker can restart.
+      this.save();
       await this.requestCommitIfDue();
     }
     this.save();
@@ -442,6 +452,7 @@ export class KaraokeAudioRelay {
   }
 
   private save(): void {
+    this.state.resolvedThroughMs = this.coveredMs;
     this.options.persist?.(structuredClone(this.state));
   }
 }
