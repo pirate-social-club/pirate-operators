@@ -21,6 +21,7 @@ import { readConfigurationHistory } from "../packages/community/directory-reader
 import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
+import { RequestTiming } from "./request-timing.ts";
 import {
   beginCreatorConnection,
   completeCreatorConnection,
@@ -95,19 +96,28 @@ export interface CommunityDependencies {
   alignmentTransport?: ProviderTransport;
   now?: () => number;
 }
-function dependencies(env: CommunityEnv): CommunityDependencies {
-  const client = megaethReadClient();
+function dependencies(
+  env: CommunityEnv,
+  timing = new RequestTiming(),
+): CommunityDependencies {
+  const client = megaethReadClient((method, ms) =>
+    timing.record(`rpc_${method}`, ms),
+  );
+  const transport = (request: Request) =>
+    timing.measure("ipfs", () => fetch(request));
   const directory = {
     ...firstSong.directoryProfile,
     deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
   };
   let history: ReturnType<typeof readConfigurationHistory> | undefined;
   const configurationHistory = () =>
-    (history ??= readConfigurationHistory(
-      client,
-      directory,
-      undefined,
-      directoryHistoryCache(env.DB, client, directory),
+    (history ??= timing.measure("configuration", () =>
+      readConfigurationHistory(
+        client,
+        directory,
+        transport,
+        directoryHistoryCache(env.DB, client, directory),
+      ),
     ));
   return {
     async configuration() {
@@ -115,6 +125,7 @@ function dependencies(env: CommunityEnv): CommunityDependencies {
     },
     publicReads: {
       client,
+      transport,
       profile: publicPostsProfile(),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
@@ -126,10 +137,12 @@ function dependencies(env: CommunityEnv): CommunityDependencies {
     },
     async creatorHealth() {
       try {
-        const response = await fetch(creatorServiceOrigin + "/api/health", {
-            redirect: "manual",
-            signal: AbortSignal.timeout(15000),
-          }),
+        const response = await timing.measure("creator", () =>
+            fetch(creatorServiceOrigin + "/api/health", {
+              redirect: "manual",
+              signal: AbortSignal.timeout(15000),
+            }),
+          ),
           body = await jsonBody(response);
         return (
           response.ok &&
@@ -167,12 +180,16 @@ function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
 export async function communityFetch(
   request: Request,
   env: CommunityEnv,
-  ports = dependencies(env),
+  ports?: CommunityDependencies,
 ): Promise<Response> {
+  const timing = new RequestTiming();
+  ports ??= dependencies(env, timing);
   const url = new URL(request.url),
     security = headers(env),
-    reply = (value: unknown, status = 200) =>
-      Response.json(value, { status, headers: security });
+    reply = (value: unknown, status = 200) => {
+      security.set("server-timing", timing.header());
+      return Response.json(value, { status, headers: security });
+    };
   try {
     insist(url.origin === firstSong.origin, "wrong_community_host", 403);
     const policy = learningPolicyPage(url.pathname);
@@ -416,7 +433,10 @@ export async function communityFetch(
       config,
       publicReads,
     );
-    if (publicResource) return publicResource;
+    if (publicResource) {
+      publicResource.headers.set("server-timing", timing.header());
+      return publicResource;
+    }
     const karaokePorts = {
       env,
       db: env.DB,
@@ -457,6 +477,7 @@ export async function communityFetch(
         stemHeaders = new Headers(stem.headers);
       for (const [name, value] of security)
         if (name !== "cache-control") stemHeaders.set(name, value);
+      stemHeaders.set("server-timing", timing.header());
       return new Response(stem.body, { headers: stemHeaders });
     }
     if (url.pathname === "/api/karaoke/attempt") {

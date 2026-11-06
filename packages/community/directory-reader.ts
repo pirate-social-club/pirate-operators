@@ -70,7 +70,7 @@ export async function readConfigurationHistory(
   const head = await client.getBlockNumber({ cacheTime: 0 });
   insist(head >= profile.deploymentBlock + 1n, "directory_not_confirmed", 503);
   const blockNumber = head - 1n;
-  const [block, code, row] = await Promise.all([
+  const [block, code, row, saved] = await Promise.all([
     client.getBlock({ blockNumber }),
     client.getCode({ address: profile.directory, blockNumber }),
     client.readContract({
@@ -80,6 +80,7 @@ export async function readConfigurationHistory(
       args: [profile.communityId],
       blockNumber,
     }),
+    cache?.load(),
   ]);
   const { keccak256 } = await import("viem");
   insist(
@@ -94,7 +95,6 @@ export async function readConfigurationHistory(
     "invalid_directory_configuration",
     503,
   );
-  const saved = await cache?.load();
   const logs: ConfigurationLog[] =
     saved?.logs.filter((log) => log.blockNumber <= blockNumber) ?? [];
   // The pinned contract increments its revision for every configuration event.

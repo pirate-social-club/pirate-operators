@@ -12,15 +12,23 @@ Before deployment, the observed health request took 33372 milliseconds and the f
 
 The standalone readCommunityPosts and sourceAuthenticator functions are public reconstruction paths, rather than scans performed by every application request. Their eventual hosted indexer layout is not a prerequisite for this request-path fix. Two independent public-result reconstructions are still required before official board acceptance.
 
+The workspace_owner's 13:28 UTC samples were slower: health took 11.3–12.8 seconds and feed took 5.0–7.9 seconds. The earlier three warmed samples do not establish typical latency. The follow-up removes health's second verification of the same song index and overlaps independent cache and receipt reads. It retains current authority, canonical checkpoint and content verification on every request. No shared authority cache or freshness grace period is added. Server-Timing exposes request-local elapsed time and aggregate RPC, IPFS and creator durations and call counts. Overlapping durations can add up to more than total elapsed time. Arguments and response contents are never included. Startup prerequisite request timings are distinct from the time to microphone readiness and audible playback.
+
+The temporary diagnostic sign-in exposed an old deployment assumption that no learner accounts could be added after first-song publication. Release qualification now permits additions to the two sign-in tables while requiring their original account and credential-binding rows to remain byte-identical. Every other retained table, including spending and publication evidence, still matches its exact historical digest. No account or retained state is deleted to make a release pass.
+
 ## Owner-operated MVP
 
 The workspace_owner approved increasing the testnet native sponsorship allowance from 50000000000000 to 500000000000000 wei. An explicit operator configuration increase preserves previous charges and outstanding reservations. It keeps the transaction gas ceiling and gas-price ceiling. Neither a restart nor a new day refills the lifetime allowance. Correction-reservation optimization is deferred.
 
 The later workspace_owner direction drops additional application speech-budget machinery for this MVP. The existing provider-start counter remains available for usage observation, with zero in SPEECH_DAILY_LIMIT disabling the app quota. It preserves current-day usage and basic session/retry bounds. The operator will monitor the provider bill. No provider-account billing, top-up or subscription setting is changed. This replaces the briefly approved proposal for a new 100-start daily quota.
 
+After an uncapped claim, changing back to a nonzero speech quota in the same UTC day fails closed with speech_budget_changed until midnight. This operational limitation remains documented; the current deployment stays uncapped.
+
 ## Remaining live evidence
 
 The prospective qualification policy starts at 17:00 UTC on 2026-11-06. The remaining cases are a genuine completed performance that qualifies, browser abandonment with unreached lines unattempted, an authenticated controller correction, and revocation of a separate test identity before initial publication. Read public cases back from chain and IPFS, and verify the revoked case stays private. A replayed vocal track or a synthetic assertion is not an honest learner performance. These cases remain open until observed.
+
+Use an existing dedicated EOA test wallet for the separate-account contract revocation check. It does not require activating another MOSS account and does not establish live MOSS revocation. The single approved learner activation cannot authorize another account. Before mainnet, sponsored enrollment admission still needs an explicit decision about arbitrary wallets exhausting the finite allowance. That decision adds no new gate to this unlisted testnet community.
 
 The active Study task owns the successor contract. Its deployment must retain Karaoke, bind the actual ordered selected Study exercises and preserve V2 public history. It is a potential mainnet candidate after qualification, not mainnet authorization. Testnet rewards are not a learning-launch dependency. Draft PR 31 was closed after its final relay fixes were compared with current source; its published branch remains preserved.
 
