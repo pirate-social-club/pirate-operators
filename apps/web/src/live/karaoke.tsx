@@ -7,11 +7,10 @@ import {
   type KaraokeTimedLine,
 } from "../../../../packages/karaoke/manifest-lines.ts";
 import { KaraokePracticeSurface } from "../karaoke/practice-surface.tsx";
-import type { KaraokeResultBody } from "../../../../packages/protocol/payments.ts";
-type KaraokeOperatorResult = Pick<
-  KaraokeResultBody,
-  "status" | "summary" | "lines" | "unmeasuredCount" | "presentation"
->;
+import type {
+  KaraokeOperatorResult,
+  KaraokeLineFeedback as LineFeedback,
+} from "../api-contract.ts";
 import { useKaraokeCapture } from "../karaoke/use-karaoke-capture.ts";
 import { Button } from "../ui.ts";
 import {
@@ -19,7 +18,6 @@ import {
   KaraokeRouteLoadFailureState,
 } from "../karaoke/route-states.tsx";
 import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
-import type { LineFeedback } from "../../../../services/karaoke-feedback.ts";
 import {
   Dialog,
   DialogContent,

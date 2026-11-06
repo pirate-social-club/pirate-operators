@@ -3,7 +3,7 @@
   "scope": "centralized Karaoke presentation restored; no contract or public-result revision",
   "centralizedRevision": "c7cb87835a1858a1955c820b03d566365e6d42db",
   "communityProfileHash": "0xd718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c",
-  "operatorBundleSha256": "8ebd293585dcaad4986879bc08b55f3c6231f6428a8ca62ee7cc2eb7fb8e7025",
+  "operatorBundleSha256": "f016ea64ccfa4cae592fa9d753da6855145371f17f8c6f720ebba8092703b2cd",
   "sourceParity": "eight presentation files and CSS, with import/type adapters only",
   "screens": {
     "widths": [
@@ -29,11 +29,32 @@
     "webTests": 34,
     "localAcceptance": "passed",
     "playbackCaptureAndReloadBrowserTests": 6,
-    "standingEnrollmentPublicationExportRevocationBrowserTests": 1
+    "standingEnrollmentPublicationExportRevocationBrowserTests": 1,
+    "standaloneWebTypecheckWithoutRootDependencies": "passed",
+    "upstreamCaptureFixIncluded": true,
+    "typeOnlyBuildRepair": "all seven live asset digests identical to the deployed reviewed profile"
   },
   "retainedRun": {
     "signedBodyReplaced": false,
     "publicPublicationRevised": false,
     "canonicalPresentationAvailable": true
+  },
+  "live": {
+    "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+    "health": {
+      "schema": "pirate.community-application/1",
+      "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+      "profileHash": "0xd718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c",
+      "infrastructure": "provisioned",
+      "firstSong": "ready",
+      "signIn": "available",
+      "creatorConnection": "available"
+    },
+    "verifiedAssets": [
+      "index.html",
+      "app/assets/index-o73od_pi.js",
+      "app/assets/index-Byp_nxt3.css",
+      "images/error-ghost.svg"
+    ]
   }
 }

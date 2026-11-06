@@ -1,5 +1,5 @@
 // Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; type and import adapters only.
-import type { LineFeedback as KaraokeLineScore } from "../../../../services/karaoke-feedback.ts";
+import type { KaraokeLineFeedback as KaraokeLineScore } from "../api-contract.ts";
 interface KaraokeScoringState { lineScores: readonly KaraokeLineScore[]; latestLineId: string | null }
 import type { KaraokeLineRating } from "./lyric-stage.tsx";
 

@@ -168,3 +168,5 @@ enrollment used 340557 gas at 1000000 wei per gas. These are separate from
 recurring terminal-publication costs. The
 [MOSS receipts](deployments/learning-results-testnet-20261106.moss.json)
 record the one-time account path separately from the terminal publication receipt.
+
+The parity update is live on the existing first-song testnet origin with application profile d718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c. Public HTTP retrieval matched the tested HTML, JavaScript, CSS and error artwork. The [parity receipt](deployments/learning-results-testnet-20261106.ui-parity.json) records this verification. A later client-only type boundary repair passes a standalone web check without root service dependencies and emits identical bytes for all seven deployed assets; it needs no runtime reapply. The operator also includes the published capture repair that classifies audio abandoned by a dead provider stream as unmeasured. Earlier authenticated publications are not automatically rewritten.
