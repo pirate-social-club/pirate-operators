@@ -213,3 +213,50 @@ test("missing server feedback stops playback and can reconnect the same open tak
     timeout: 20000,
   });
 });
+
+test("a rejected ready cursor leaves a visible retry instead of a permanent startup spinner", async ({
+  page,
+}) => {
+  await page.routeWebSocket(
+    (url) => url.pathname.endsWith("/attempt"),
+    (route) => {
+      const server = route.connectToServer();
+      server.onMessage((message) => {
+        if (typeof message === "string") {
+          const frame = JSON.parse(message);
+          if (frame.type === "ready") {
+            route.send(JSON.stringify({ ...frame, audioSequence: -1 }));
+            return;
+          }
+        }
+        route.send(message);
+      });
+    },
+  );
+  await page.goto("/?learner=6");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await page
+    .getByRole("dialog", { name: "Enable public learning results" })
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "The scoring connection stopped. Press Start karaoke to try again.",
+    { timeout: 20000 },
+  );
+  await expect(
+    page.getByRole("button", { name: "Start karaoke" }),
+  ).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Start singing" })).toHaveCount(
+    0,
+  );
+  expect(
+    await page
+      .locator(".live-karaoke audio")
+      .evaluate((audio: HTMLAudioElement) => audio.paused),
+  ).toBe(true);
+});

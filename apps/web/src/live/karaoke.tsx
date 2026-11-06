@@ -225,11 +225,22 @@ export function LiveKaraoke(props: {
     capture.controls.abort("karaoke_scoring_unavailable");
   }
   createEffect(
-    () => capture.state()?.micError,
-    (error) => {
-      if (error) {
+    () => {
+      const state = capture.state();
+      if (
+        state?.status !== "error" ||
+        state.error?.code === "karaoke_scoring_unavailable"
+      )
+        return null;
+      return (
+        state.micError?.message ??
+        "The scoring connection stopped. Press Start karaoke to try again."
+      );
+    },
+    (message) => {
+      if (message) {
         setStarting(false);
-        setNotice(error.message);
+        setNotice(message);
       }
     },
   );
@@ -406,7 +417,7 @@ export function LiveKaraoke(props: {
         setResume(null);
       }
       songMs = fromMs;
-      capture.controls.start(fromMs);
+      await capture.controls.start(fromMs);
     } catch (failure) {
       setStarting(false);
       setNotice(
@@ -414,6 +425,8 @@ export function LiveKaraoke(props: {
           ? failure.message
           : "This take couldn't start.",
       );
+    } finally {
+      setStarting(false);
     }
   }
   /**

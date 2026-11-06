@@ -42,7 +42,7 @@ export interface UseKaraokeCaptureOptions {
 export interface KaraokeCaptureControls {
   attachPlaybackElement(element: HTMLAudioElement | null): void;
   resumePlayback(): Promise<boolean>;
-  start(songMs: number): void;
+  start(songMs: number): Promise<void>;
   noteTime(songMs: number): void;
   notePlay(songMs: number): void;
   notePause(songMs: number): void | Promise<void>;
@@ -201,7 +201,7 @@ export function useKaraokeCapture(
     start: (songMs) => {
       recoveryGeneration += 1;
       setPlaybackInterrupted(false);
-      void currentController?.start(songMs);
+      return currentController?.start(songMs) ?? Promise.resolve();
     },
     stop: () => {
       recoveryGeneration += 1;
