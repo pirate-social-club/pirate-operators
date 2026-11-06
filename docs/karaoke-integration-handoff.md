@@ -157,8 +157,25 @@ lost one word that way. Words are now stored for the take whichever socket
 carried them (99a4477), and a regression test covers a song-end timer that
 fires before the learner's finish (0cddd57).
 
-PR 30 carries the same three changes as 34d77aa, 9650c87 and 4ade204, so it can
-merge on its own.
+An independent review of that repair then found more, all fixed here as
+25f30f6 and 12ac8df:
+
+- A backward seek erased failure marks, turning lines the provider had given
+  up on into silent ones.
+- The relay's word limit counted dropped words.
+- The hand-over skipped the take's timers.
+- A transcript returning after the learner's last frame, or after the socket
+  closed, could be discarded by the idle timer.
+- A superseded socket could finish the take.
+- The relay's finish raced the last acknowledgement's follow-up commit and
+  marked the last line unmeasured.
+
+Every change the relay persists now hands its new words over, commit requests
+are serialized, and finish waits for commits in flight. Regression tests cover
+each case that a test can reach.
+
+PR 30 carries the same changes as 34d77aa, 9650c87, 4ade204, b1186df and
+e0a8000, so it can merge on its own.
 
 ## Tests
 
