@@ -3,7 +3,7 @@ import type {
   StudyLesson,
   StudySong,
 } from "../../../../packages/study/lesson.ts";
-import type { StudyPublicationReceipt } from "../../../../packages/study/publication.ts";
+import type { StudyPublicationReceipt } from "../../../../packages/study/publication-view.ts";
 import { createStudyClient, type StudyClient } from "../study/client.ts";
 import { StudyScreen } from "../study/screen.tsx";
 import { Button } from "../ui.ts";
