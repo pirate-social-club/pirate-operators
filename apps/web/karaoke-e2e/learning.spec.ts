@@ -66,8 +66,8 @@ test("one enrollment sponsors repeated terminal publications, history export and
       lines: { status: string }[];
     }[];
   for (let run = 1; run <= 2; run++) {
+    await page.getByRole("button", { name: "Start karaoke" }).click();
     if (run === 1) {
-      await page.getByRole("button", { name: "Start karaoke" }).click();
       const consent = page.getByRole("dialog", {
         name: "Enable public learning results",
       });
@@ -75,10 +75,7 @@ test("one enrollment sponsors repeated terminal publications, history export and
       await consent
         .getByRole("button", { name: "Continue", exact: true })
         .click();
-    } else
-      await page
-        .getByRole("button", { name: "Sing again", exact: true })
-        .click();
+    }
     await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
       timeout: 25000,
     });
@@ -121,8 +118,18 @@ test("one enrollment sponsors repeated terminal publications, history export and
       const receipt = JSON.parse(await readFile(path!, "utf8"));
       expect(receipt).toBeTruthy();
       expect(JSON.stringify(receipt)).toContain("scribe_v2_realtime");
+      await page.reload();
+      await expect(
+        page.getByRole("button", { name: "Sign out" }),
+      ).toBeVisible();
       await page.getByRole("button", { name: "Sing", exact: true }).click();
-      await expect(page.getByRole("region", { name: "Results" })).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Start karaoke" }),
+      ).toBeVisible();
+      await expect(page.getByRole("region", { name: "Results" })).toHaveCount(
+        0,
+      );
+      expect((await records()).length).toBe(1);
     }
   }
   await page.getByRole("button", { name: "Learning settings" }).click();
@@ -133,4 +140,44 @@ test("one enrollment sponsors repeated terminal publications, history export and
     ),
   ).toBeVisible({ timeout: 20000 });
   expect((await records()).length).toBe(2);
+});
+
+test("missing server line feedback stops playback instead of silently finishing the song", async ({
+  page,
+}) => {
+  await page.routeWebSocket(
+    (url) => url.pathname.endsWith("/attempt"),
+    (route) => {
+      const server = route.connectToServer();
+      server.onMessage((message) => {
+        if (
+          typeof message === "string" &&
+          JSON.parse(message).type === "line_scores"
+        )
+          return;
+        route.send(message);
+      });
+    },
+  );
+  await page.goto("/?learner=7");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  const consent = page.getByRole("dialog", {
+    name: "Enable public learning results",
+  });
+  await consent.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Live scoring isn't responding. Playback stopped. Start a new take.",
+    { timeout: 35000 },
+  );
+  expect(
+    await page
+      .locator(".live-karaoke audio")
+      .evaluate((audio: HTMLAudioElement) => audio.paused),
+  ).toBe(true);
+  await expect(page.getByRole("region", { name: "Results" })).toHaveCount(0);
 });

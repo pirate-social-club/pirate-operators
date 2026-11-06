@@ -24,6 +24,10 @@ export class TestState extends ServiceState {
         result: this.store.get('result:expired') });
     }
     if (path === '/test/alarm') return Response.json({ alarm: await this.ctx.storage.getAlarm(), now: this.store.now() });
+    if (path === '/test/later-alarm') {
+      await this.ctx.storage.setAlarm(Date.now() + 3600000);
+      return Response.json({ scheduled: true });
+    }
     return super.fetch(request);
   }
 }
@@ -107,6 +111,15 @@ test("deployed profile hides fixture controls, schedules work and removes expire
     ).json()) as { now: number; alarm: number };
     assert.ok(Math.abs(timing.now - Math.floor(Date.now() / 1000)) < 2);
     assert.ok(timing.alarm > Date.now());
+    await mf.dispatchFetch("http://worker/test/later-alarm");
+    await mf.dispatchFetch("http://worker/quote");
+    const rescheduled = (await (
+      await mf.dispatchFetch("http://worker/test/alarm")
+    ).json()) as { alarm: number };
+    assert.ok(
+      rescheduled.alarm <= Date.now() + 5000,
+      "new work must preempt the previous publication's hourly audit",
+    );
     const expired = await (
       await mf.dispatchFetch("http://worker/test/retention")
     ).json();

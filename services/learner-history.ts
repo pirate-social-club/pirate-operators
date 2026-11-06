@@ -4,7 +4,23 @@ import type {
   KaraokeResultBody,
 } from "../packages/protocol/payments.ts";
 import type { Store } from "./runtime.ts";
+import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 import { check } from "../packages/protocol/index.ts";
+
+/** Private transport evidence, without PCM, recognized text or credentials. */
+export function learnerHistoryDiagnostics(
+  store: Pick<Store, "get">,
+  ticketId: string,
+) {
+  const relay = store.get<KaraokeRelaySnapshot>(`audioRelay:${ticketId}`);
+  return {
+    lastAudioSequence: relay?.lastSequence ?? null,
+    lastAudioEndMs: relay?.lastAudioEndMs ?? null,
+    providerMessageSequence: relay?.sttSequence ?? 0,
+    providerTerminal: relay?.terminal ?? null,
+    failedLineCount: relay?.failedLineIds.length ?? 0,
+  };
+}
 
 export function saveLearnerHistory(
   store: Store,
