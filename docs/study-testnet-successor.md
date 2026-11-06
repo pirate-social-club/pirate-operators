@@ -21,8 +21,8 @@ presentation resolves a line. The lesson ends at all resolved lines or
 min(20, 3 \* selectedLineCount) graded presentations. A known provider failure
 permits an ungraded retry; an unknown dispatch pauses without automatic
 redispatch. Neither consumes a graded presentation or becomes an incorrect
-first-pass answer. Every actual provider start still consumes the global
-speech allowance, including failed and unknown starts.
+first-pass answer. Every actual provider start remains recorded by the shared
+usage counter, including failed and unknown starts.
 
 Publish first-pass correctness for each selected exercise. A later correct
 repeat never replaces a first-pass miss. The centralized policy at api-next
@@ -33,15 +33,22 @@ by importing the component.
 
 ## Protocol work required before release
 
+The local contract format is now frozen in
+[LearningResultsV3](contracts/learning-results-v3.md), with a new contract,
+typed Study codec, completed-lesson adapter and independent source/result reader.
+These components are not connected to the deployed application yet. The
+non-completed terminal runtime paths and live publication integration remain open.
+
 LearningResultsV2 accepts only Karaoke and complete ordered lyric coverage.
 Study requires a new contract and typed outcome encoding. The implementation
 must bind the complete frozen ordered exercise set, not interpret the four to
 ten selected lines as the first four to ten lines of the whole song. Binary
 Study outcomes must remain distinct from Karaoke lyric/timing scores.
 
-Freeze the successor ABI, domain version, activity mask, exercise encoding,
-source-manifest authentication, prospective qualification policy and independent
-test vectors before connecting publication. A new verifying contract requires
+The frozen successor defines its ABI, domain version, activity mask, exercise
+encoding, source-manifest authentication and prospective qualification policy.
+Its local checks include an independent literal byte/hash vector and actual
+contract publication/readback. A new verifying contract requires
 new learner publication authority; the existing V2 enrollment cannot silently
 be transferred or reused. Preserve its historical grants and result reads.
 
@@ -68,13 +75,20 @@ verified published lyric manifest. Do not mount the acceptance fixture as the
 live authentication or speech handler. Keep provider secrets within Pirate's
 managed service and its established secret/runtime workflow.
 
-Use the existing shared SpeechBudget object, including the same object name
-and binding namespace used by Karaoke and alignment. A second Worker or Study
-counter would multiply the allowance. The current configured ten starts per
-UTC day cannot cover one maximum Study lesson. Select and record the live
-count and bounded provider acceptance profile before real calls. The counter
-pins a day's cap; do not reset usage or silently raise the same day's cap.
-This source baseline changes no live count and spends nothing.
+The November 6 owner direction recorded in the stabilization task at
+control-plane b45a696 supersedes the earlier shared-speech-quota gate in the
+component handoff. The owner will monitor the provider bill and chose no
+application speech quota for this MVP. The stabilization writer owns the
+successor where zero in the existing speech-limit setting means observation
+without a quota. Adopt that reviewed source when available, retain current-day
+usage and session/retry bounds, and make no provider-account billing changes.
+
+Study must use that same observation object, name and binding namespace as
+Karaoke and alignment. Do not create an independent quota, reset counters or
+add a budget-revision subsystem. Prepare a finite real-provider acceptance
+journey and measure its actual cost. The separately approved native sponsorship
+increase is manual and retains spent/reserved amounts and the gas-price ceiling.
+This source checkpoint changes no deployed budget and spends nothing.
 
 Keep Study's existing feedback and progression behavior. Compose the live
 route with the shared sign-in and publication disclosure, and include its
