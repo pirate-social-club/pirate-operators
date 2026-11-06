@@ -71,9 +71,12 @@ import {
   karaokeTicket,
   type KaraokeEnv,
 } from "./karaoke-community.ts";
+import { studyCommunityApi } from "./study-community-api.ts";
+import type { StudyEnv } from "./study-community.ts";
+import { StudyError } from "../packages/study/contracts.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
-export interface CommunityEnv extends FirstSongRuntimeEnv, KaraokeEnv {
+export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ jobId: string }>;
@@ -471,6 +474,8 @@ export async function communityFetch(
         ),
       );
     }
+    const study = await studyCommunityApi(request, { ...karaokePorts, env }, context, security);
+    if (study) return study;
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
@@ -553,11 +558,11 @@ export async function communityFetch(
     return reply(
       {
         error:
-          error instanceof CommunityError
+          (error instanceof CommunityError || error instanceof StudyError)
             ? error.code
             : "community_service_unavailable",
       },
-      error instanceof CommunityError ? error.status : 503,
+      error instanceof CommunityError || error instanceof StudyError ? error.status : 503,
     );
   }
 }

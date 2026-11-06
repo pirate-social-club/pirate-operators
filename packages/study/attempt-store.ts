@@ -182,11 +182,12 @@ export class StudyAttemptStore {
     grade: StudyAttempt["grade"],
     failure: string | null,
     now: number,
+    expectedState: "assessing" | "uncertain" = "assessing",
   ) {
     await this.db
       .prepare(
         `UPDATE study_attempts SET state=?,grade_json=?,failure=?,completed_at=?
-        WHERE attempt_id=? AND account_id=? AND community_id=? AND state='assessing'
+        WHERE attempt_id=? AND account_id=? AND community_id=? AND state=?
         AND (lesson_id IS NULL OR EXISTS(SELECT 1 FROM study_lessons l
           WHERE l.lesson_id=study_attempts.lesson_id
           AND json_extract(l.state_json,'$.status')='active'
@@ -201,6 +202,7 @@ export class StudyAttemptStore {
         id,
         owner.accountId,
         owner.communityId,
+        expectedState,
         now,
       )
       .run();

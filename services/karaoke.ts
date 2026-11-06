@@ -54,6 +54,7 @@ import {
   resumeEnrollments,
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
+import { expireStudySpeech } from "./study-operator.ts";
 import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 import { pendingEnrollmentKey, retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
 
@@ -235,6 +236,7 @@ async function advance(env: Env, store: Store, ticketId: string) {
 }
 export async function tick(env: Env, store: Store) {
   expireLearnerHistory(store);
+  expireStudySpeech(store);
   if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
   for (const { key } of store.entries("attempt:")) {
     const ticketId = key.slice("attempt:".length);

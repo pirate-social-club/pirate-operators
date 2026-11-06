@@ -75,16 +75,34 @@ Leaving the browser without that action is recovered through the fixed expiry.
 Only a saved grade advances the queue. Atomic closure retains first passes,
 marks submitted but ungraded work unmeasured and unreached work unattempted,
 and prevents late provider responses or new claims from changing the result.
-The live cron, route and publication queue still need to call these paths.
+The application routes now call these paths. The live cron and publication
+queue remain open.
 
 ## Integration and budget boundary
 
-The imported SQL is component schema, not an already applied application
-migration. Register the next actual migration, compose private no-store routes
-using the existing account/Origin/CSRF checks, and derive references from the
-verified published lyric manifest. Do not mount the acceptance fixture as the
-live authentication or speech handler. Keep provider secrets within Pirate's
-managed service and its established secret/runtime workflow.
+Application migration 0009 now registers lessons, attempts and their frozen
+publication bindings. It has been exercised with the preceding migrations in
+local D1, but has not been applied to a deployment. The community routes use
+the existing session, Origin and CSRF checks, return private no-store responses
+and resolve songs through the authenticated public post/lyric reader.
+
+Each lesson binds the full source hash, selected source ordinals and its
+learner's exact V3 enrollment before recording. The grant must cover the lesson
+and one minute of publication margin. Later attempts use the frozen source.
+The managed operator verifies signed requests from the existing community ticket
+issuer before reading audio. The signature binds chain, community, operator,
+contract, path, short expiry, parameters and exact body bytes. A service binding
+alone does not authorize its public HTTP endpoint.
+
+The operator alone holds the provider credential. Speech uses the same
+observation object as Karaoke and alignment. Before dispatch it saves a durable
+attempt and a unique presentation/take slot. Replays return the saved outcome,
+including after a lost response. The community can recover a matching saved
+receipt without sending audio again; a changed digest or context cannot grade.
+Unknown outcomes remain ungraded. Recovery must finish before the lesson
+deadline and cannot reopen an abandoned or expired lesson. If recovery misses
+that deadline, the submitted line remains unmeasured. Raw audio is not persisted;
+the private operator receipt expires after thirty days.
 
 The November 6 owner direction recorded in the stabilization task at
 control-plane b45a696 supersedes the earlier shared-speech-quota gate in the
@@ -135,9 +153,11 @@ Local tests also restart the SQLite runtime with an actual pre-broadcast local
 V2 journal and verify unchanged signed bytes, charges and usage observations.
 No infrastructure profile or deployed resource has been upgraded by this work.
 
-Study still needs the actual application migration, authenticated live routes,
-managed speech and terminal publication queue, private retention/export and live
-page. The final V3 publicity policy and disclosure pages must be prepared and
+The application migration, authenticated routes and managed speech bridge are
+implemented locally. Study still needs its terminal publication queue and expiry
+schedule, complete private retention/export, live page and enrollment renewal
+when the existing grant cannot cover a new lesson. The final V3 publicity policy
+and disclosure pages must be prepared and
 bound to the deployed contract before accepting successor consent. The activity
 text in the enrollment dialog alone does not complete that disclosure gate.
 

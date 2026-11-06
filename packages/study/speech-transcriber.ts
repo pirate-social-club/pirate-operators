@@ -5,12 +5,30 @@ export interface StudyTranscript {
   text: string;
   language: string | null;
 }
+export interface StudySpeechContext {
+  lessonId: string;
+  attemptId: string;
+  lineId: string;
+  presentationNumber: number;
+  takeNumber: number;
+  durationMs: number;
+}
 export interface StudyTranscriber {
   readonly providerRetention: "stored";
+  // Read an already dispatched request. This must never start speech service.
+  recover?(
+    context: StudySpeechContext,
+    audioDigest: string,
+  ): Promise<
+    | { state: "assessed"; transcript: StudyTranscript }
+    | { state: "unavailable"; error: string }
+    | null
+  >;
   transcribe(
     audio: Uint8Array,
     contentType: string,
     language: string,
+    context?: StudySpeechContext,
   ): Promise<StudyTranscript>;
 }
 export class StudySpeechError extends Error {

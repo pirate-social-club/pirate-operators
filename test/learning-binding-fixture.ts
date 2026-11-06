@@ -19,10 +19,12 @@ import { operatorQuote } from "../services/purchases.ts";
 import type { Env } from "../services/runtime.ts";
 
 /** Explicit local contracts and JSON journal; no public network or provider. */
-export async function learningBindingFixture(port: number) {
+export async function learningBindingFixture(
+  port: number,
+  communityId = digest("binding-community"),
+) {
   const evm = await chain(port);
-  const communityId = digest("binding-community"),
-    publicityPolicy = digest("binding-publicity");
+  const publicityPolicy = digest("binding-publicity");
   const v2 = await evm.deploy("LearningResultsV2", [
     accounts[3].address,
     communityId,

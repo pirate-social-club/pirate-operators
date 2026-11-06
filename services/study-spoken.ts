@@ -85,8 +85,11 @@ export async function readStudyAudio(request: Request) {
 export function makeStudyService(options: {
   db: D1Database;
   transcriber: StudyTranscriber;
-  // Resolve only a currently published, visible song/manifest through trusted public reads.
-  resolveLine(selection: StudySelection): Promise<StudyLine>;
+  // Lesson-linked attempts resolve the frozen, authenticated published source.
+  resolveLine(
+    selection: StudySelection,
+    lesson: StudyAttemptLesson | null,
+  ): Promise<StudyLine>;
   now?: () => number;
 }) {
   const store = new StudyAttemptStore(options.db),
@@ -119,14 +122,67 @@ export function makeStudyService(options: {
         403,
       );
       const line = validateStudyLine(
-        await options.resolveLine(requested),
+        await options.resolveLine(requested, lesson),
         requested,
       );
       return store.open(owner, requestId, line, now(), lesson);
     },
     async get(owner: StudyPrincipal, id: string) {
       principal(owner);
-      return attemptView(await store.get(owner, id));
+      const row = await store.get(owner, id);
+      if (
+        options.transcriber.recover &&
+        (row.state === "assessing" || row.state === "uncertain") &&
+        row.lesson_id &&
+        row.audio_digest &&
+        row.audio_duration_ms
+      ) {
+        // Recovery cannot reopen a closed lesson or grade after its deadline.
+        const active = await options.db
+          .prepare(
+            `SELECT 1 FROM study_lessons WHERE lesson_id=? AND account_id=?
+          AND community_id=? AND json_extract(state_json,'$.status')='active'
+          AND json_extract(state_json,'$.currentAttemptId')=?
+          AND json_extract(state_json,'$.expiresAt')>?`,
+          )
+          .bind(row.lesson_id, owner.accountId, owner.communityId, id, now())
+          .first();
+        if (active) {
+          const line: StudyLine = JSON.parse(row.line_json);
+          // Unavailable status storage is not evidence of a failed dispatch.
+          const receipt = await options.transcriber
+            .recover(
+              {
+                lessonId: row.lesson_id,
+                attemptId: id,
+                lineId: line.lineId,
+                presentationNumber: row.presentation_number!,
+                takeNumber: row.take_number!,
+                durationMs: row.audio_duration_ms,
+              },
+              row.audio_digest,
+            )
+            .catch(() => null);
+          if (receipt)
+            return store.finish(
+              owner,
+              id,
+              receipt.state,
+              receipt.state === "assessed"
+                ? gradeTranscriptV2(
+                    line.text,
+                    receipt.transcript.text,
+                    line.language,
+                    row.policy,
+                  )
+                : null,
+              receipt.state === "unavailable" ? receipt.error : null,
+              now(),
+              row.state,
+            );
+        }
+      }
+      return attemptView(row);
     },
     async list(owner: StudyPrincipal, input?: unknown) {
       principal(owner);
@@ -154,6 +210,16 @@ export function makeStudyService(options: {
               audio,
               contentType,
               line.language,
+              row.lesson_id
+                ? {
+                    lessonId: row.lesson_id,
+                    attemptId: id,
+                    lineId: line.lineId,
+                    presentationNumber: row.presentation_number!,
+                    takeNumber: row.take_number!,
+                    durationMs,
+                  }
+                : undefined,
             );
             const grade = gradeTranscriptV2(
               line.text,

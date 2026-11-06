@@ -5,8 +5,9 @@ on:
       - "apps/web/**"
       - "packages/study/**"
       - "packages/scoring/english-phonetics.ts"
-      - "services/study-spoken.ts"
-      - "services/study-lessons.ts"
+      - "services/study-*.ts"
+      - "services/community-application.ts"
+      - "apps/community-wizard/infra/migrations/**"
       - "test/study-*.ts"
       - "package.json"
       - "package-lock.json"
@@ -16,8 +17,9 @@ on:
       - "apps/web/**"
       - "packages/study/**"
       - "packages/scoring/english-phonetics.ts"
-      - "services/study-spoken.ts"
-      - "services/study-lessons.ts"
+      - "services/study-*.ts"
+      - "services/community-application.ts"
+      - "apps/community-wizard/infra/migrations/**"
       - "test/study-*.ts"
       - "package.json"
       - "package-lock.json"
@@ -50,7 +52,7 @@ jobs:
       - name: Install matching Chromium
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
-      - name: Run all four Study browser scenarios with external networking unavailable
+      - name: Run Study browser scenarios with external networking unavailable
         working-directory: apps/web
         run: |
           sudo --preserve-env=PATH,HOME unshare --net bash -c '
