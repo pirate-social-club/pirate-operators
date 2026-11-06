@@ -233,7 +233,7 @@ export async function indexedPublicPosts(
     const event = eventFor(row, profile);
     if (quarantined(event, BigInt(row.block_number), history, current))
       continue;
-    const [onchain, block] = await Promise.all([
+    const [onchain, block, receipt] = await Promise.all([
       client.readContract({
         address: profile.address,
         abi: postsAbi,
@@ -242,6 +242,9 @@ export async function indexedPublicPosts(
         blockNumber: head,
       }),
       client.getBlock({ blockNumber: BigInt(row.block_number) }),
+      client.getTransactionReceipt({ hash: row.transaction_hash }).catch(() => {
+        insist(false, "public_post_provenance_unavailable", 503);
+      }),
     ]);
     insist(
       block.hash === row.block_hash &&
@@ -254,14 +257,7 @@ export async function indexedPublicPosts(
       "public_post_state_changed",
       503,
     );
-    let receipt;
-    try {
-      receipt = await client.getTransactionReceipt({
-        hash: row.transaction_hash,
-      });
-    } catch {
-      insist(false, "public_post_provenance_unavailable", 503);
-    }
+    insist(receipt, "public_post_provenance_unavailable", 503);
     const log = receipt.logs.find(
       (log) =>
         log.logIndex === row.log_index &&

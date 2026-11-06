@@ -29,7 +29,11 @@ export async function publicSongs(
   ports: PublicReadPorts,
   postId?: string,
 ) {
-  const history = [...(ports.configurationHistory ? await ports.configurationHistory() : [config])];
+  const history = [
+    ...(ports.configurationHistory
+      ? await ports.configurationHistory()
+      : [config]),
+  ];
   const scan = await syncPublicPosts(
     db,
     ports.client,
@@ -183,15 +187,18 @@ export async function firstSongPublicReady(
   ports: PublicReadPorts,
 ) {
   try {
-    const songs = await publicSongViews(db, config, ports);
+    const songs = await publicSongs(db, config, ports);
     if (!songs.length) return false;
-    const playback = await publicSongResource(
-      new Request(config.app.origin + songs[0]!.audioUrl),
-      db,
-      config,
-      ports,
+    for (const { post } of songs)
+      await publicLyricManifest(post, ports.transport);
+    const audio = songs[0]!.post.media.find((m) => m.role === "audio")!;
+    const { bytes } = await fetchPublicIpfs(
+      audio.uri,
+      audio.sha256,
+      audio.byteLength,
+      ports.transport,
     );
-    return playback?.status === 200;
+    return bytes.length === audio.byteLength;
   } catch {
     return false;
   }

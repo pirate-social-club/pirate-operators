@@ -21,6 +21,7 @@ import {
 } from "../services/first-song-driver.ts";
 import { configuration } from "./fixtures/release-admission.ts";
 import { firstSongJobFixture } from "./fixtures/first-song-job.ts";
+import { firstSongPublicReady } from "../services/community-public.ts";
 
 test("sealed upload resumes across managed admission, pinning, ROOT mint and pending post; public chain reconstruction preserves private separation", async () => {
   const fixture = await firstSongJobFixture({ loseFirstPinResponse: true }),
@@ -205,6 +206,38 @@ test("sealed upload resumes across managed admission, pinning, ROOT mint and pen
       managed.context.recipient,
     );
     assert.equal(JSON.stringify(feed).includes(session.account_id), false);
+    const getHead = posts.client.getBlockNumber;
+    let heads = 0;
+    posts.client.getBlockNumber = async (...args) => {
+      heads++;
+      return getHead(...args);
+    };
+    const reads = {
+      client: posts.client,
+      profile: posts.profile,
+      transport: managed.service.pinTransport,
+    };
+    try {
+      assert.equal(
+        await firstSongPublicReady(community.db, configuration, reads),
+        true,
+      );
+      assert.equal(heads, 1, "readiness must authenticate the post only once");
+      const audio = feed[0]!.post.media.find((m) => m.role === "audio")!;
+      assert.equal(
+        await firstSongPublicReady(community.db, configuration, {
+          ...reads,
+          transport: async (request) =>
+            new URL(request.url).pathname.endsWith(audio.uri.slice(7))
+              ? new Response("changed audio")
+              : reads.transport(request),
+        }),
+        false,
+        "missing or changed playback bytes cannot report ready",
+      );
+    } finally {
+      posts.client.getBlockNumber = getHead;
+    }
     const pretty = new TextEncoder().encode(
         JSON.stringify(feed[0]!.post, null, 2),
       ),

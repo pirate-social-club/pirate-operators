@@ -71,6 +71,29 @@ export async function capturePublishedState(db: D1Database, side: CuratedSide) {
   }
   return captured;
 }
+export function assertRetainedPublishedState(
+  captured: Awaited<ReturnType<typeof capturePublishedState>>,
+  expected: Record<string, { count: number; sha256: string }>,
+  side: CuratedSide,
+) {
+  const summary = { ...captured.summary };
+  // This pinned publication predates learner sign-in. Keep its one original
+  // account and credential binding byte-for-byte while allowing additions.
+  if (side === "application")
+    for (const table of ["community_accounts", "credential_bindings"]) {
+      const original = expected[table];
+      if (
+        original?.count === 1 &&
+        captured.rows[table]?.some((row) => hashJson([row]) === original.sha256)
+      )
+        summary[table] = original;
+    }
+  insist(
+    hashJson(summary) === hashJson(expected),
+    "published_state_changed",
+    409,
+  );
+}
 export async function qualifyRetainedState(
   token: string,
   accountId: string,
@@ -94,10 +117,10 @@ export async function qualifyRetainedState(
     readOnlyRemoteDb(token, accountId, curatedDatabases[side]),
     side,
   );
-  insist(
-    hashJson(captured.summary) === hashJson(object(expected)[side]),
-    "published_state_changed",
-    409,
+  assertRetainedPublishedState(
+    captured,
+    object(expected)[side] as Record<string, { count: number; sha256: string }>,
+    side,
   );
   return captured.summary;
 }
