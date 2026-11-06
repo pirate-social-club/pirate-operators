@@ -75,6 +75,7 @@ export class KaraokeAudioRelay {
   private reconnecting = false;
   private buffer: KaraokeClientBinaryFrame[] = [];
   private pending: PendingCommit | null = null;
+  private requesting: Promise<boolean> | null = null;
   private readonly droppedCommits = new Set<string>();
   private coveredMs = 0;
   private submittedMs = 0;
@@ -147,11 +148,17 @@ export class KaraokeAudioRelay {
     if (!Number.isFinite(songMs) || songMs < 0)
       throw new KaraokeAudioError("invalid_seek");
     const keepUntil = songMs - SEEK_WORD_TOLERANCE_MS;
-    const forwarded = this.state.words.slice(0, this.state.forwardedWords);
+    const kept = (word: KaraokeRecognizedWord) => word.endMs <= keepUntil;
+    // Forwarded words follow the same rule: the operator drops them from the
+    // take too, so only words still counted stay within the retained limit.
+    const forwarded = this.state.words
+      .slice(0, this.state.forwardedWords)
+      .filter(kept);
     const retained = this.state.words
       .slice(this.state.forwardedWords)
-      .filter((word) => word.endMs <= keepUntil);
+      .filter(kept);
     this.state.words = [...forwarded, ...retained];
+    this.state.forwardedWords = forwarded.length;
     const reopened = new Set(
       this.lines.filter((l) => l.endMs > songMs).map((l) => l.lineId),
     );
@@ -171,12 +178,32 @@ export class KaraokeAudioRelay {
   /** Commits the remaining audio, waits for it and closes the provider stream. */
   async finish(): Promise<void> {
     if (this.adapter !== null && this.state.terminal === null) {
-      await this.waitForPending();
+      // Settle every commit in flight first, including one an acknowledgement
+      // has just started: the adapter has one commit slot, and a refused final
+      // commit would mark audio it is still measuring as unmeasured.
+      for (
+        let i = 0;
+        i < 16 && (this.requesting !== null || this.pending !== null);
+        i++
+      ) {
+        if (this.requesting !== null) await this.requesting.catch(() => false);
+        else await this.waitForPending();
+      }
       const committed = await this.requestCommit();
       if (committed) await this.waitForPending();
       else this.failRange(this.coveredMs, this.submittedMs, true);
     }
     await this.close();
+  }
+
+  /** True when words or failure marks have arrived since the last drain. */
+  hasUndrained(): boolean {
+    return (
+      this.state.words.length > this.state.forwardedWords ||
+      this.state.failedLineIds.some(
+        (id) => !this.state.forwardedFailedLineIds.includes(id),
+      )
+    );
   }
 
   /** Words and failed lines not yet given to the scorer; marks them forwarded. */
@@ -314,7 +341,19 @@ export class KaraokeAudioRelay {
     if (due) await this.requestCommit();
   }
 
-  private async requestCommit(): Promise<boolean> {
+  /** One commit request at a time; a concurrent caller shares its outcome. */
+  private requestCommit(): Promise<boolean> {
+    if (this.requesting !== null) return this.requesting;
+    const request = this.issueCommit();
+    this.requesting = request;
+    const clear = () => {
+      if (this.requesting === request) this.requesting = null;
+    };
+    request.then(clear, clear);
+    return request;
+  }
+
+  private async issueCommit(): Promise<boolean> {
     if (this.adapter === null || this.pending !== null)
       return this.pending !== null;
     const handle = await this.adapter.commit();

@@ -81,7 +81,7 @@ const purchaseReceived = (store: Store, ticketId: Hex, segmentId: string) => {
  * Synchronous timer evaluation: ends the attempt at the first terminal event
  * that has occurred, and marks it closing once the payment deadline passes.
  */
-function settle(store: Store, env: Env, ticketId: string) {
+export function settle(store: Store, env: Env, ticketId: string) {
   const { ticket, manifest, attempt } = load(store, ticketId);
   if (!ticket || !manifest || !attempt || attempt.closing) return attempt;
   const now = store.now();
@@ -372,7 +372,7 @@ export async function karaokeRoute(
   if (url.pathname !== "/attempt") return null;
   const ticketId = url.searchParams.get("ticketId") ?? "";
   await advance(env, store, ticketId);
-  const { ticket, attempt } = load(store, ticketId);
+  const { ticket } = load(store, ticketId);
   check(ticket && ticket.expiresAt > store.now(), "expired_ticket");
   check(
     await verifyMessage({
@@ -382,6 +382,8 @@ export async function karaokeRoute(
     }),
     "wrong_session_key",
   );
+  // Read after the await: the relay may have handed words over meanwhile.
+  const { attempt } = load(store, ticketId);
   check(!attempt?.ended, "attempt_closed");
   check(
     request.headers.get("Upgrade")?.toLowerCase() === "websocket",

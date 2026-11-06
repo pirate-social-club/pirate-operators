@@ -5,6 +5,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PAYMENT_GRACE_S,
+  RECONNECT_WINDOW_S,
   songEndMs,
   type KaraokeManifest,
 } from "../packages/protocol/payments.ts";
@@ -253,6 +254,14 @@ test("a seek drops words after the seek point and re-measures the replayed lines
       words.map((w) => w.text),
       manifest.lines.flatMap((l) => l.words.map((w) => w.text)),
     );
+    // The relay drops the same words, so its retained limit counts only these.
+    const [snapshot] = await c.state(`audioRelay:${a.ticket.body.ticketId}`);
+    assert.deepEqual(
+      (snapshot?.value as { words: KaraokeRecognizedWord[] }).words.map(
+        (w) => w.text,
+      ),
+      words.map((w) => w.text),
+    );
   } finally {
     await c.dispose();
   }
@@ -359,6 +368,95 @@ test("words count when the song-end timer ends the take before the learner finis
       (await storedWords(c, a)).map((w) => w.text),
       expected.map((w) => w.text),
     );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a seek after the provider gave up leaves its lines unmeasured, never silent", async () => {
+  // Without a credential the relay gives up on every line at the first frame.
+  const c = await audioCommunity(
+    evm,
+    "gave-up-seek",
+    [{ words: sung(manifest, ALL) }],
+    null,
+  );
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 3000);
+    a.socket.send({ type: "audio_seek", songMs: 0 });
+    await c.sing(a.socket, a, 0, 22500);
+    const result = await finish(c, a);
+    assert.deepEqual(
+      result.lines.map((l) => l.status),
+      ["unmeasured", "unmeasured", "unmeasured", "unmeasured"],
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a transcript that returns after the learner's socket closed still counts", async () => {
+  // The provider answers each commit 0.8 s late, well inside the relay's 2 s
+  // acknowledgement limit; the learner leaves at once.
+  const c = await audioCommunity(evm, "late-transcript", [
+    { words: sung(manifest, ALL), commitDelayMs: 800 },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    const leftAt = c.now();
+    await c.sing(a.socket, a, 0, 4500);
+    a.socket.close();
+    const heard = a.manifest.lines
+      .filter((l) => l.lineId === "line-01" || l.lineId === "line-02")
+      .flatMap((l) => l.words.map((w) => w.text));
+    for (let i = 0; i < 60; i++) {
+      if ((await storedWords(c, a)).length >= heard.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.deepEqual(
+      (await storedWords(c, a)).map((w) => w.text),
+      heard,
+    );
+    // The learner never returns: the take ends after the reconnect window.
+    await c.at(leftAt + RECONNECT_WINDOW_S + 1);
+    await c.at(c.now() + PAYMENT_GRACE_S);
+    const result = await c.result(a.ticket.body.ticketId);
+    assert.equal(result.status, 200, JSON.stringify(result.value));
+    assert.equal(result.value.body.status, "abandoned");
+    assert.deepEqual(
+      result.value.body.lines.map((l) => l.status),
+      ["assessed", "assessed", "unattempted", "unattempted"],
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a transcript answered across a learner reconnect still counts", async () => {
+  // Line 2's commit is still unanswered when the learner's socket is replaced.
+  const c = await audioCommunity(evm, "late-rejoin", [
+    { words: sung(manifest, ALL), commitDelayMs: 800 },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 4500);
+    const rejoined = await c.reconnect(a);
+    assert.equal(rejoined.ready.resumed, true);
+    await c.sing(rejoined, a, 4500, 22500);
+    const result = await finish(c, a, rejoined);
+    assert.deepEqual(
+      result.lines.map((l) => l.status),
+      ["assessed", "assessed", "assessed", "assessed"],
+    );
+    assert.deepEqual(
+      (await storedWords(c, a)).map((w) => w.text),
+      manifest.lines.flatMap((l) => l.words.map((w) => w.text)),
+    );
+    assert.equal((await c.simulator()).minted, 1);
   } finally {
     await c.dispose();
   }
