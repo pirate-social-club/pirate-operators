@@ -1,5 +1,4 @@
-// Only a durably completed snapshot is admitted by this adapter. Abandonment
-// and expiry need their own closed-state runtime path before publication.
+// Build public outcomes only from a durably closed lesson snapshot.
 import { zeroHash, type Address, type Hex } from "viem";
 import type { LyricManifest } from "../community/lyric-manifest.ts";
 import { canonical, check, digest } from "../protocol/index.ts";
@@ -23,7 +22,7 @@ export interface StudyPublicationGrant {
 }
 
 /** Grant must be the enrollment snapshot saved when this lesson was opened. */
-export function completedStudyBundle(input: {
+export interface StudyBundleInput {
   lessonId: string;
   state: LessonState;
   source: LyricManifest;
@@ -31,22 +30,44 @@ export function completedStudyBundle(input: {
   learner: Address;
   grader: Address;
   qualificationPolicy: Hex;
-}): { result: TerminalResult; outcomes: Hex } {
+}
+export function completedStudyBundle(input: StudyBundleInput) {
+  check(input.state.status === "completed", "study_not_completed");
+  return terminalStudyBundle(input);
+}
+export function terminalStudyBundle(input: StudyBundleInput): {
+  result: TerminalResult;
+  outcomes: Hex;
+} {
   const { state, enrollment, source } = input;
+  const completed = state.status === "completed";
   check(
     state.policy === STUDY_QUEUE_POLICY &&
-      state.status === "completed" &&
+      (completed ||
+        state.status === "abandoned" ||
+        state.status === "expired") &&
       state.currentIndex === null &&
       state.currentAttemptId === null &&
-      (state.completionReason === "all_resolved" ||
-        state.completionReason === "presentation_budget"),
-    "study_not_completed",
+      (completed
+        ? (state.completionReason === "all_resolved" ||
+            state.completionReason === "presentation_budget") &&
+          state.terminalAbsences === null
+        : state.completionReason ===
+            (state.status === "expired" ? "deadline" : "left") &&
+          Array.isArray(state.terminalAbsences) &&
+          state.terminalAbsences.length === state.items.length),
+    "study_not_terminal",
   );
   check(
     Number.isSafeInteger(state.startedAt) &&
       state.startedAt >= 0 &&
       Number.isSafeInteger(state.completedAt) &&
-      state.completedAt! >= state.startedAt,
+      state.completedAt! >= state.startedAt &&
+      Number.isSafeInteger(state.expiresAt) &&
+      state.expiresAt > state.startedAt &&
+      (state.status === "expired"
+        ? state.completedAt === state.expiresAt
+        : state.completedAt! < state.expiresAt),
     "invalid_study_time",
   );
   check(
@@ -81,12 +102,21 @@ export function completedStudyBundle(input: {
     );
     check(
       Number.isInteger(item.presentations) &&
-        item.presentations >= 1 &&
+        item.presentations >= 0 &&
         item.presentations <= 3 &&
-        (item.firstPassOutcome === "correct" ||
-          item.firstPassOutcome === "incorrect") &&
+        (item.presentations > 0
+          ? item.firstPassOutcome === "correct" ||
+            item.firstPassOutcome === "incorrect"
+          : item.firstPassOutcome === null) &&
+        (!completed || item.presentations > 0) &&
+        (completed ||
+          (item.presentations > 0
+            ? state.terminalAbsences![i] === null
+            : state.terminalAbsences![i] === "unmeasured" ||
+              state.terminalAbsences![i] === "unattempted")) &&
         typeof item.mastered === "boolean" &&
         item.resolved === (item.mastered || item.presentations === 3) &&
+        (item.presentations !== 0 || (!item.mastered && !item.resolved)) &&
         (item.firstPassOutcome !== "correct" ||
           (item.mastered && item.presentations === 1)) &&
         (item.presentations !== 1 ||
@@ -99,9 +129,12 @@ export function completedStudyBundle(input: {
     state.presentationCount ===
       state.items.reduce((sum, item) => sum + item.presentations, 0) &&
       state.presentationCount <= cap &&
-      (state.completionReason === "all_resolved"
-        ? state.items.every((item) => item.resolved)
-        : state.presentationCount === cap &&
+      (completed
+        ? state.completionReason === "all_resolved"
+          ? state.items.every((item) => item.resolved)
+          : state.presentationCount === cap &&
+            state.items.some((item) => !item.resolved)
+        : state.presentationCount < cap &&
           state.items.some((item) => !item.resolved)),
     "invalid_study_completion",
   );
@@ -117,7 +150,7 @@ export function completedStudyBundle(input: {
   const outcomes = packStudyOutcomes(
     state.items.map((item, i) => ({
       sourceOrdinal: ordinals[i],
-      status: item.firstPassOutcome!,
+      status: item.firstPassOutcome ?? state.terminalAbsences![i]!,
     })),
   );
   return {
@@ -144,7 +177,7 @@ export function completedStudyBundle(input: {
       qualificationPolicy: input.qualificationPolicy,
       startedAt: BigInt(startedAt),
       completedAt: BigInt(completedAt),
-      status: 1,
+      status: completed ? 1 : state.status === "abandoned" ? 2 : 3,
       revision: 1,
       supersedes: zeroHash,
     },

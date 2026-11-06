@@ -10,6 +10,7 @@ import type {
   StudyLesson,
   StudyLessonSubmission,
 } from "../../../../packages/study/lesson.ts";
+import { STUDY_MAX_TAKES } from "../../../../packages/study/lesson.ts";
 import type { StudyClient } from "./client.ts";
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 import "./style.css";
@@ -29,7 +30,8 @@ export function StudyScreen(props: { client: StudyClient }) {
     generation = 0;
   const blocked = () =>
     lesson()?.current?.attempt?.state === "assessing" ||
-    lesson()?.current?.attempt?.state === "uncertain";
+    lesson()?.current?.attempt?.state === "uncertain" ||
+    (lesson()?.current?.takeNumber ?? 0) > STUDY_MAX_TAKES;
   const visibleLine = () => miss()?.line ?? lesson()?.current?.line;
   function cleanup() {
     clearTimeout(timer);
@@ -232,7 +234,7 @@ export function StudyScreen(props: { client: StudyClient }) {
       >
         {(value) => (
           <>
-            <Show when={value().status !== "completed" || miss()}>
+            <Show when={value().status === "active" || miss()}>
               <header>
                 <span class="study-eyebrow">STUDY</span>
                 <p>
@@ -259,9 +261,8 @@ export function StudyScreen(props: { client: StudyClient }) {
                       when={!blocked()}
                       fallback={
                         <p role="status">
-                          We couldn't confirm the recording's outcome. Recording
-                          is paused for this lesson. Choose Study again to start
-                          a new lesson, or leave Study.
+                          Recording is paused for this lesson. Choose Study
+                          again to start a new lesson, or leave Study.
                         </p>
                       }
                     >
@@ -311,12 +312,24 @@ export function StudyScreen(props: { client: StudyClient }) {
                 )}
               </Show>
             </Show>
-            <Show when={value().status === "completed" && !miss()}>
-              <h1>Lesson complete</h1>
+            <Show when={value().status !== "active" && !miss()}>
+              <h1>
+                {value().status === "completed"
+                  ? "Lesson complete"
+                  : value().status === "expired"
+                    ? "Lesson expired"
+                    : "Lesson ended"}
+              </h1>
               <p>
                 {value().progress.firstPassCorrect} of {value().progress.total}{" "}
                 lines matched on the first try.
               </p>
+              <Show when={value().status !== "completed"}>
+                <p>
+                  Your saved answers are kept. Unfinished lines do not count as
+                  wrong answers.
+                </p>
+              </Show>
               <button
                 onClick={() => void load(true)}
                 disabled={phase() !== "idle"}

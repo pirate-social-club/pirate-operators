@@ -35,9 +35,10 @@ by importing the component.
 
 The local contract format is now frozen in
 [LearningResultsV3](contracts/learning-results-v3.md), with a new contract,
-typed Study codec, completed-lesson adapter and independent source/result reader.
+typed Study codec, terminal-lesson adapter and independent source/result reader.
 These components are not connected to the deployed application yet. The
-non-completed terminal runtime paths and live publication integration remain open.
+local lesson service now closes abandoned and expired lessons durably; live
+publication integration remains open.
 
 LearningResultsV2 accepts only Karaoke and complete ordered lyric coverage.
 Study requires a new contract and typed outcome encoding. The implementation
@@ -66,6 +67,16 @@ or unresolved lesson cannot be turned into a completed qualifying lesson by
 the adapter. Public data excludes transcripts, recordings, private attempt IDs
 and retry history.
 
+The local runtime fixes a one-hour deadline when a lesson starts. A delayed
+expiry sweep retains that deadline as the terminal time. Three takes per graded
+presentation bound known-failure retries; uncertainty still prevents redispatch.
+Study again explicitly abandons the previous active lesson before opening one.
+Leaving the browser without that action is recovered through the fixed expiry.
+Only a saved grade advances the queue. Atomic closure retains first passes,
+marks submitted but ungraded work unmeasured and unreached work unattempted,
+and prevents late provider responses or new claims from changing the result.
+The live cron, route and publication queue still need to call these paths.
+
 ## Integration and budget boundary
 
 The imported SQL is component schema, not an already applied application
@@ -82,6 +93,8 @@ application speech quota for this MVP. The stabilization writer owns the
 successor where zero in the existing speech-limit setting means observation
 without a quota. Adopt that reviewed source when available, retain current-day
 usage and session/retry bounds, and make no provider-account billing changes.
+The imported Study-only 100-attempt daily admission quota has been removed to
+match that direction. This does not reset existing usage observations.
 
 Study must use that same observation object, name and binding namespace as
 Karaoke and alignment. Do not create an independent quota, reset counters or

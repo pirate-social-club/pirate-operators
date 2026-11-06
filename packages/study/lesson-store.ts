@@ -1,4 +1,9 @@
-import { StudyError, studyCheck, type StudyPrincipal } from "./contracts.ts";
+import {
+  StudyError,
+  studyCheck,
+  type StudyPrincipal,
+  type StudyAttempt,
+} from "./contracts.ts";
 import {
   STUDY_QUEUE_POLICY,
   type LessonState,
@@ -118,5 +123,61 @@ export class StudyLessonStore {
       )
       .run();
     return result.meta.changes === 1;
+  }
+  async submittedLines(owner: StudyPrincipal, id: string) {
+    const rows = await this.db
+      .prepare(
+        "SELECT DISTINCT json_extract(line_json,'$.lineId') AS line_id FROM study_attempts WHERE lesson_id=? AND account_id=? AND community_id=? AND audio_digest IS NOT NULL",
+      )
+      .bind(id, owner.accountId, owner.communityId)
+      .all<{ line_id: string }>();
+    return new Set(rows.results.map((row) => row.line_id));
+  }
+  async close(
+    owner: StudyPrincipal,
+    row: LessonRow,
+    state: LessonState,
+    current: StudyAttempt | null,
+  ) {
+    // The current attempt's state is a second CAS input. If claim/finish won,
+    // reread it before freezing absence or grade. The batch seals pending takes
+    // only after a successful closure (or an already terminal competing close).
+    const result = await this.db.batch([
+      this.db
+        .prepare(
+          `UPDATE study_lessons SET state_json=?,revision=revision+1
+        WHERE lesson_id=? AND account_id=? AND community_id=? AND revision=?
+        AND json_extract(state_json,'$.status')='active'
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM study_attempts
+          WHERE attempt_id=? AND lesson_id=study_lessons.lesson_id AND state=?))`,
+        )
+        .bind(
+          JSON.stringify(state),
+          row.lesson_id,
+          owner.accountId,
+          owner.communityId,
+          row.revision,
+          current?.attemptId ?? null,
+          current?.attemptId ?? null,
+          current?.state ?? null,
+        ),
+      this.db
+        .prepare(
+          `UPDATE study_attempts SET
+        failure='study_lesson_closed',completed_at=?,
+        state=CASE WHEN state='ready' THEN 'unavailable' ELSE 'uncertain' END
+        WHERE lesson_id=? AND account_id=? AND community_id=?
+        AND state IN ('ready','assessing')
+        AND EXISTS(SELECT 1 FROM study_lessons WHERE lesson_id=study_attempts.lesson_id
+          AND json_extract(state_json,'$.status')!='active')`,
+        )
+        .bind(
+          state.completedAt,
+          row.lesson_id,
+          owner.accountId,
+          owner.communityId,
+        ),
+    ]);
+    return result[0].meta.changes === 1;
   }
 }

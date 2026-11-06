@@ -83,9 +83,13 @@ Terminal status codes remain 1 completed, 2 abandoned, 3 expired, 4 payment
 missing and 5 invalidated. An active lesson cannot publish. The adapter must
 read a durably closed snapshot before constructing a terminal bundle. It keeps
 already graded first passes and records missing measurements or unreached
-exercises explicitly for non-completed sessions. Runtime abandonment, expiry
-and unknown-provider reconciliation must be wired and tested before deployment;
-contract support alone does not establish that runtime behavior.
+exercises explicitly for non-completed sessions. The local runtime now closes
+abandoned and expired lessons with a fixed one-hour deadline, bounded takes,
+optimistic state checks and an atomic database closure. Saved grades survive
+closure; late provider responses cannot add grades or start new dispatches.
+Submitted ungraded work is unmeasured, while unreached work is unattempted.
+The live routes, expiry sweep and publication queue still need integration and
+deployed acceptance; local runtime checks do not establish deployment.
 
 The scoring policy binds say-it-back grading script*aware_token_phonetic_v4,
 lesson queue pirate.study.lesson-queue/1, the frozen four-to-ten selection,

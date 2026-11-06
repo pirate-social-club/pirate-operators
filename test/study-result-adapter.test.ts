@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { zeroHash } from "viem";
-import { completedStudyBundle } from "../packages/study/result-adapter.ts";
+import {
+  completedStudyBundle,
+  terminalStudyBundle,
+} from "../packages/study/result-adapter.ts";
+import { closeStudyLesson, newLesson } from "../packages/study/lesson.ts";
 import { studySourceSelection } from "../packages/study/public-source.ts";
 import {
   packStudyOutcomes,
@@ -169,4 +173,62 @@ test("presentation-budget completion preserves every first pass, including unres
   assert.equal(outcomes.length, 8);
   assert(outcomes.every((x) => x.status === "incorrect"));
   assert.equal(studyFirstPassScore(outcomes).qualifies, false);
+});
+
+test("abandoned and expired bundles preserve the full frozen selection and absence reasons", () => {
+  const f = studyResultFixture(),
+    state = newLesson(
+      f.state.song,
+      f.state.items.map((x) => x.line),
+      f.state.startedAt,
+    );
+  // One saved first-pass miss, followed by an ungraded provider dispatch.
+  state.items[0] = {
+    ...f.state.items[0],
+    presentations: 1,
+    mastered: false,
+    resolved: false,
+    lastQueueOrdinal: 0,
+  };
+  state.presentationCount = 1;
+  state.currentIndex = 1;
+  for (const status of ["abandoned", "expired"] as const) {
+    const closed = closeStudyLesson(
+      state,
+      status,
+      status === "expired" ? state.expiresAt : state.startedAt + 5000,
+      new Set([state.items[0].line.lineId, state.items[1].line.lineId]),
+    );
+    const input = { ...f.input, state: closed },
+      bundle = terminalStudyBundle(input);
+    assert.equal(bundle.result.status, status === "abandoned" ? 2 : 3);
+    assert.equal(bundle.result.exercisesHash, f.bundle.result.exercisesHash);
+    assert.equal(
+      bundle.result.contentRevision,
+      f.bundle.result.contentRevision,
+    );
+    assert.deepEqual(unpackStudyOutcomes(bundle.outcomes, 4), [
+      { sourceOrdinal: 7, status: "incorrect" },
+      { sourceOrdinal: 2, status: "unmeasured" },
+      { sourceOrdinal: 10, status: "unattempted" },
+      { sourceOrdinal: 4, status: "unattempted" },
+    ]);
+    assert.equal(
+      studyFirstPassScore(unpackStudyOutcomes(bundle.outcomes, 4)).qualifies,
+      false,
+    );
+    const changed = structuredClone(input);
+    changed.state.terminalAbsences![0] = "unattempted";
+    assert.throws(
+      () => terminalStudyBundle(changed),
+      /invalid_study_first_pass/,
+    );
+    changed.state.terminalAbsences = null;
+    assert.throws(() => terminalStudyBundle(changed), /study_not_terminal/);
+    assert.throws(() => completedStudyBundle(input), /study_not_completed/);
+  }
+  assert.throws(
+    () => terminalStudyBundle({ ...f.input, state }),
+    /study_not_terminal/,
+  );
 });

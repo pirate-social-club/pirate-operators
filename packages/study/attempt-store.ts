@@ -91,11 +91,12 @@ export class StudyAttemptStore {
     now: number,
     lesson: StudyAttemptLesson | null = null,
   ) {
-    // Atomic per-account daily admission bound. Conflicting retries reuse their row.
+    // The owner-operated MVP has no application speech quota. The lesson
+    // service bounds presentations/retries; conflicting requests reuse a row.
     await this.db
       .prepare(
         `INSERT INTO study_attempts(attempt_id,account_id,community_id,request_id,line_json,started_at,policy,lesson_id,presentation_number,take_number,state)
-      SELECT ?,?,?,?,?,?,?,?,?,?,'ready' WHERE (SELECT COUNT(*) FROM study_attempts WHERE account_id=? AND community_id=? AND started_at>=?)<100
+      VALUES(?,?,?,?,?,?,?,?,?,?,'ready')
       ON CONFLICT(account_id,community_id,request_id) DO NOTHING`,
       )
       .bind(
@@ -109,9 +110,6 @@ export class StudyAttemptStore {
         lesson?.lessonId ?? null,
         lesson?.presentationNumber ?? null,
         lesson?.takeNumber ?? null,
-        owner.accountId,
-        owner.communityId,
-        now - 86400000,
       )
       .run();
     const row = await this.db
@@ -120,7 +118,7 @@ export class StudyAttemptStore {
       )
       .bind(owner.accountId, owner.communityId, requestId)
       .first<Row>();
-    studyCheck(row, "study_daily_limit", 429);
+    studyCheck(row, "study_attempt_unavailable", 503);
     studyCheck(
       row.line_json === JSON.stringify(line) &&
         row.lesson_id === (lesson?.lessonId ?? null) &&
@@ -149,9 +147,15 @@ export class StudyAttemptStore {
     studyCheck(row.started_at + 300000 >= now, "study_recording_expired", 409);
     const result = await this.db
       .prepare(
-        "UPDATE study_attempts SET state='assessing',audio_digest=?,audio_duration_ms=? WHERE attempt_id=? AND account_id=? AND community_id=? AND state='ready'",
+        `UPDATE study_attempts SET state='assessing',audio_digest=?,audio_duration_ms=?
+        WHERE attempt_id=? AND account_id=? AND community_id=? AND state='ready'
+        AND (lesson_id IS NULL OR EXISTS(SELECT 1 FROM study_lessons l
+          WHERE l.lesson_id=study_attempts.lesson_id
+          AND json_extract(l.state_json,'$.status')='active'
+          AND json_extract(l.state_json,'$.currentAttemptId')=study_attempts.attempt_id
+          AND json_extract(l.state_json,'$.expiresAt')>?))`,
       )
-      .bind(digest, durationMs, id, owner.accountId, owner.communityId)
+      .bind(digest, durationMs, id, owner.accountId, owner.communityId, now)
       .run();
     if (result.meta.changes !== 1) {
       studyCheck(
@@ -181,7 +185,13 @@ export class StudyAttemptStore {
   ) {
     await this.db
       .prepare(
-        "UPDATE study_attempts SET state=?,grade_json=?,failure=?,completed_at=? WHERE attempt_id=? AND account_id=? AND community_id=? AND state='assessing'",
+        `UPDATE study_attempts SET state=?,grade_json=?,failure=?,completed_at=?
+        WHERE attempt_id=? AND account_id=? AND community_id=? AND state='assessing'
+        AND (lesson_id IS NULL OR EXISTS(SELECT 1 FROM study_lessons l
+          WHERE l.lesson_id=study_attempts.lesson_id
+          AND json_extract(l.state_json,'$.status')='active'
+          AND json_extract(l.state_json,'$.currentAttemptId')=study_attempts.attempt_id
+          AND json_extract(l.state_json,'$.expiresAt')>?))`,
       )
       .bind(
         state,
@@ -191,6 +201,7 @@ export class StudyAttemptStore {
         id,
         owner.accountId,
         owner.communityId,
+        now,
       )
       .run();
     return attemptView(await this.get(owner, id));

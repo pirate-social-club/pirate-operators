@@ -12,6 +12,8 @@ import {
 export type StudySong = Omit<StudySelection, "lineId">;
 export const STUDY_LESSON_SCHEMA = "pirate.study.lesson/1" as const;
 export const STUDY_QUEUE_POLICY = "pirate.study.lesson-queue/1" as const;
+export const STUDY_LESSON_LIFETIME_MS = 60 * 60 * 1000;
+export const STUDY_MAX_TAKES = 3;
 export const studyPresentationCap = (total: number) => Math.min(20, 3 * total);
 export const songOf = (line: StudySelection): StudySong => ({
   chainId: line.chainId,
@@ -42,9 +44,16 @@ export interface LessonState {
   song: StudySong;
   items: LessonItem[];
   startedAt: number;
+  expiresAt: number;
   completedAt: number | null;
-  status: "active" | "completed";
-  completionReason: "all_resolved" | "presentation_budget" | null;
+  status: "active" | "completed" | "abandoned" | "expired";
+  completionReason:
+    | "all_resolved"
+    | "presentation_budget"
+    | "left"
+    | "deadline"
+    | null;
+  terminalAbsences: ("unattempted" | "unmeasured" | null)[] | null;
   presentationCount: number;
   currentIndex: number | null;
   currentAttemptId: string | null;
@@ -57,6 +66,7 @@ export interface StudyLesson {
   lessonId: string;
   song: StudySong;
   startedAt: number;
+  expiresAt: number;
   completedAt: number | null;
   status: LessonState["status"];
   completionReason: LessonState["completionReason"];
@@ -110,7 +120,15 @@ export function newLesson(
   song: StudySong,
   lines: StudyLine[],
   now: number,
+  expiresAt = now + STUDY_LESSON_LIFETIME_MS,
 ): LessonState {
+  studyCheck(
+    Number.isSafeInteger(now) &&
+      Number.isSafeInteger(expiresAt) &&
+      expiresAt > now &&
+      expiresAt <= now + STUDY_LESSON_LIFETIME_MS,
+    "invalid_study_deadline",
+  );
   studyCheck(
     lines.length >= 4 && lines.length <= 10,
     "insufficient_study_lines",
@@ -129,14 +147,47 @@ export function newLesson(
       firstPassOutcome: null,
     })),
     startedAt: now,
+    expiresAt,
     completedAt: null,
     status: "active",
     completionReason: null,
+    terminalAbsences: null,
     presentationCount: 0,
     currentIndex: 0,
     currentAttemptId: null,
     lastAttemptId: null,
     takeNumber: 1,
+  };
+}
+
+/** Closure preserves first-pass facts and covers every frozen selected line. */
+export function closeStudyLesson(
+  state: LessonState,
+  status: "abandoned" | "expired",
+  now: number,
+  submittedLineIds: ReadonlySet<string>,
+): LessonState {
+  studyCheck(state.status === "active", "study_lesson_changed", 409);
+  studyCheck(
+    Number.isSafeInteger(now) &&
+      now >= state.startedAt &&
+      (status === "expired" ? now === state.expiresAt : now < state.expiresAt),
+    "invalid_study_close_time",
+  );
+  return {
+    ...structuredClone(state),
+    status,
+    completedAt: now,
+    completionReason: status === "expired" ? "deadline" : "left",
+    terminalAbsences: state.items.map((item) =>
+      item.firstPassOutcome !== null
+        ? null
+        : submittedLineIds.has(item.line.lineId)
+          ? "unmeasured"
+          : "unattempted",
+    ),
+    currentIndex: null,
+    currentAttemptId: null,
   };
 }
 export function consumeLessonGrade(

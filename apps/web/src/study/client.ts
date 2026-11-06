@@ -42,9 +42,7 @@ export function createStudyClient(
           ? "Sign in again to continue Study."
           : body.error === "study_recording_too_short"
             ? "Record for at least one second, then try again."
-            : body.error === "study_daily_limit"
-              ? "Study is busy. Try again later."
-              : "Your answer could not be saved. Try again.",
+            : "Your answer could not be saved. Try again.",
       );
     }
     return response.json();
@@ -81,6 +79,10 @@ export function createStudyClient(
       return latest ? remember(latest) : start();
     },
     async restart() {
+      if (lessonId)
+        await call("/" + encodeURIComponent(lessonId) + "/abandon", {
+          method: "POST",
+        });
       startRequestId = crypto.randomUUID();
       return start();
     },

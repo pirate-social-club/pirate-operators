@@ -225,3 +225,50 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   ).toBeEnabled();
   await context.close();
 });
+
+test("expired and paused lessons retain their history when Study again opens a new lesson", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  const first = (await (await request.get("/__fixture")).json()).lesson;
+  await request.patch("/__fixture", { data: { advanceMs: 3600001 } });
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Lesson expired" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Unfinished lines do not count as wrong answers/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).not.toBeVisible();
+  await page.getByRole("button", { name: "Study again" }).click();
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  const second = (await (await request.get("/__fixture")).json()).lesson;
+  expect(second.lessonId).not.toBe(first.lessonId);
+  expect(
+    (await (await request.get("/api/study/lessons/" + first.lessonId)).json())
+      .status,
+  ).toBe("expired");
+  await request.patch("/__fixture", { data: { failure: "unknown" } });
+  await record(page);
+  await expect(
+    page.getByText(/Recording is paused for this lesson/),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Study again" }).click();
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  const ended = await (
+    await request.get("/api/study/lessons/" + second.lessonId)
+  ).json();
+  expect(ended.status).toBe("abandoned");
+  expect(ended.progress.firstPassGraded).toBe(0);
+  expect((await (await request.get("/__fixture")).json()).calls).toBe(1);
+});

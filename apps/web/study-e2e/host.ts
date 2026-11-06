@@ -58,9 +58,11 @@ const song = songOf(lines[0]),
 let heard = lines[0].text,
   failure: "known_failed" | "unknown" | null = null,
   lostResponse = false,
+  clock = Date.now(),
   calls = 0;
 const attempts = makeStudyService({
   db,
+  now: () => clock,
   resolveLine: async (selected) => {
     const line = lines.find((line) => line.lineId === selected.lineId);
     if (!line) throw new StudyError("fixture_line_not_found", 404);
@@ -77,6 +79,7 @@ const attempts = makeStudyService({
 });
 const lessons = makeStudyLessonService({
   db,
+  now: () => clock,
   attempts,
   resolveLines: async () => lines,
 });
@@ -102,6 +105,7 @@ const server = createServer(async (req, res) => {
         heard?: string;
         failure?: boolean | "known_failed" | "unknown";
         lostResponse?: boolean;
+        advanceMs?: number;
       };
       if (req.method === "POST") {
         await db.prepare("DELETE FROM study_attempts").run();
@@ -110,6 +114,7 @@ const server = createServer(async (req, res) => {
         heard = lines[0].text;
         failure = null;
         lostResponse = false;
+        clock = Date.now();
       }
       if (body.heard !== undefined) heard = body.heard;
       if (body.failure !== undefined)
@@ -120,6 +125,7 @@ const server = createServer(async (req, res) => {
               ? null
               : body.failure;
       if (body.lostResponse !== undefined) lostResponse = body.lostResponse;
+      if (body.advanceMs !== undefined) clock += body.advanceMs;
       response = Response.json({ fixture: true });
     } else if (path === "/__fixture")
       response = Response.json({
@@ -150,41 +156,49 @@ const server = createServer(async (req, res) => {
           { status: 201 },
         );
       } else {
-        const match = path.match(
-          /^\/api\/study\/lessons\/([^/]+)(?:\/attempts(?:\/([^/]+)\/audio)?)?$/,
-        );
-        if (!match) throw new StudyError("not_found", 404);
-        if (req.method === "GET")
-          response = Response.json(await lessons.get(owner, match[1]));
-        else if (req.method === "POST" && path.endsWith("/attempts")) {
-          const body = (await request.json()) as {
-            presentationNumber: number;
-            takeNumber: number;
-          };
-          response = Response.json(
-            await lessons.openAttempt(
-              owner,
-              match[1],
-              body.presentationNumber,
-              body.takeNumber,
-            ),
+        const abandon = path.match(/^\/api\/study\/lessons\/([^/]+)\/abandon$/);
+        if (abandon && req.method === "POST") {
+          response = Response.json(await lessons.abandon(owner, abandon[1]));
+        } else {
+          const match = path.match(
+            /^\/api\/study\/lessons\/([^/]+)(?:\/attempts(?:\/([^/]+)\/audio)?)?$/,
           );
-        } else if (req.method === "PUT" && match[2]) {
-          response = await Effect.runPromise(
-            Effect.match(lessons.submit(owner, match[1], match[2], request), {
-              onSuccess: (value) => Response.json(value),
-              onFailure: (error) =>
-                Response.json({ error: error.code }, { status: error.status }),
-            }),
-          );
-          if (lostResponse) {
-            lostResponse = false;
+          if (!match) throw new StudyError("not_found", 404);
+          if (req.method === "GET")
+            response = Response.json(await lessons.get(owner, match[1]));
+          else if (req.method === "POST" && path.endsWith("/attempts")) {
+            const body = (await request.json()) as {
+              presentationNumber: number;
+              takeNumber: number;
+            };
             response = Response.json(
-              { error: "fixture_response_lost" },
-              { status: 503 },
+              await lessons.openAttempt(
+                owner,
+                match[1],
+                body.presentationNumber,
+                body.takeNumber,
+              ),
             );
-          }
-        } else throw new StudyError("not_found", 404);
+          } else if (req.method === "PUT" && match[2]) {
+            response = await Effect.runPromise(
+              Effect.match(lessons.submit(owner, match[1], match[2], request), {
+                onSuccess: (value) => Response.json(value),
+                onFailure: (error) =>
+                  Response.json(
+                    { error: error.code },
+                    { status: error.status },
+                  ),
+              }),
+            );
+            if (lostResponse) {
+              lostResponse = false;
+              response = Response.json(
+                { error: "fixture_response_lost" },
+                { status: 503 },
+              );
+            }
+          } else throw new StudyError("not_found", 404);
+        }
       }
     } else {
       const file = resolve(

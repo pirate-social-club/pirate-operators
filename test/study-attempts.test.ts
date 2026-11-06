@@ -324,7 +324,7 @@ test("audio streams enforce actual byte bounds and container type before paid di
   );
   assert.equal(cancelled, true);
 });
-test("daily admission bound is atomic while retained request replay remains available", async () => {
+test("owner-operated Study has no daily quota and retained request replay remains available", async () => {
   const f = await fixture();
   try {
     const first = await f.service.open(
@@ -349,10 +349,12 @@ test("daily admission bound is atomic while retained request replay remains avai
           ),
       ),
     );
-    await assert.rejects(
-      f.service.open(owner, "new-request-at-limit", selectionOf(line)),
-      /study_daily_limit/,
+    const next = await f.service.open(
+      owner,
+      "new-request-after-100",
+      selectionOf(line),
     );
+    assert.notEqual(next.attemptId, first.attemptId);
     assert.equal(
       (await f.service.open(owner, "retained-request-id", selectionOf(line)))
         .attemptId,

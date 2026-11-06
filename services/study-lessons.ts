@@ -10,6 +10,8 @@ import {
 } from "../packages/study/contracts.ts";
 import {
   STUDY_LESSON_SCHEMA,
+  STUDY_MAX_TAKES,
+  closeStudyLesson,
   consumeLessonGrade,
   newLesson,
   studyPresentationCap,
@@ -57,8 +59,38 @@ export function makeStudyLessonService(options: {
     for (let retry = 0; retry < 12; retry++) {
       const row = await store.row(owner, id),
         state = store.state(row);
-      if (!state.currentAttemptId || state.status !== "active") return row;
-      let attempt = await options.attempts.get(owner, state.currentAttemptId);
+      if (state.status !== "active") return row;
+      let attempt = state.currentAttemptId
+        ? await options.attempts.get(owner, state.currentAttemptId)
+        : null;
+      // Consume a grade durably saved before the deadline, even after restart.
+      // A provider response after the deadline cannot save a new grade.
+      if (attempt?.state === "assessed") {
+        if (
+          await store.update(
+            owner,
+            row,
+            consumeLessonGrade(state, attempt, attempt.completedAt!),
+          )
+        )
+          continue;
+        continue;
+      }
+      if (now() >= state.expiresAt) {
+        await store.close(
+          owner,
+          row,
+          closeStudyLesson(
+            state,
+            "expired",
+            state.expiresAt,
+            await store.submittedLines(owner, id),
+          ),
+          attempt,
+        );
+        continue;
+      }
+      if (!attempt) return row;
       if (attempt.state === "ready" && attempt.startedAt + 300000 < now()) {
         await attempts.expireReady(owner, attempt.attemptId, now());
         attempt = await options.attempts.get(owner, attempt.attemptId);
@@ -106,6 +138,7 @@ export function makeStudyLessonService(options: {
       lessonId: row.lesson_id,
       song: s.song,
       startedAt: s.startedAt,
+      expiresAt: s.expiresAt,
       completedAt: s.completedAt,
       status: s.status,
       completionReason: s.completionReason,
@@ -180,6 +213,55 @@ export function makeStudyLessonService(options: {
       const row = await store.latest(owner, song);
       return row ? service.get(owner, row.lesson_id) : null;
     },
+    async abandon(owner: StudyPrincipal, id: string) {
+      ownerFor(owner);
+      for (let retry = 0; retry < 12; retry++) {
+        const row = await reconcile(owner, id),
+          s = store.state(row);
+        if (s.status !== "active") return view(owner, row);
+        const current = s.currentAttemptId
+          ? await options.attempts.get(owner, s.currentAttemptId)
+          : null;
+        if (current?.state === "assessed") continue;
+        const closedAt = now(),
+          expired = closedAt >= s.expiresAt;
+        if (
+          await store.close(
+            owner,
+            row,
+            closeStudyLesson(
+              s,
+              expired ? "expired" : "abandoned",
+              expired ? s.expiresAt : closedAt,
+              await store.submittedLines(owner, id),
+            ),
+            current,
+          )
+        )
+          return service.get(owner, id);
+      }
+      throw new StudyError("study_lesson_busy", 409);
+    },
+    async expirePending(limit = 50) {
+      studyCheck(
+        Number.isInteger(limit) && limit > 0 && limit <= 100,
+        "invalid_study_scan_limit",
+      );
+      const rows = await options.db
+        .prepare(
+          `SELECT lesson_id,account_id,community_id
+        FROM study_lessons WHERE json_extract(state_json,'$.status')='active'
+        AND json_extract(state_json,'$.expiresAt')<=? ORDER BY started_at,lesson_id LIMIT ?`,
+        )
+        .bind(now(), limit)
+        .all<{ lesson_id: string; account_id: string; community_id: string }>();
+      for (const row of rows.results)
+        await service.get(
+          { accountId: row.account_id, communityId: row.community_id },
+          row.lesson_id,
+        );
+      return rows.results.length;
+    },
     async openAttempt(
       owner: StudyPrincipal,
       id: string,
@@ -198,6 +280,7 @@ export function makeStudyLessonService(options: {
           "study_lesson_changed",
           409,
         );
+        studyCheck(s.takeNumber <= STUDY_MAX_TAKES, "study_retry_limit", 409);
         if (s.currentAttemptId)
           return {
             attempt: await options.attempts.get(owner, s.currentAttemptId),
