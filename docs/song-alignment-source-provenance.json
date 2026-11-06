@@ -31,12 +31,24 @@
       "commit": "f017e8014001a31d07b9e2de891e0907ad194b50",
       "path": "packages/platform-cf/src/media-processing-runtime.ts",
       "sha256": "0x31c8572af32c393ba6573cd74ef1ba6bc2d9623441e3ab22fff438d0907997d1"
+    },
+    {
+      "repository": "api-next",
+      "commit": "a5c63b8db01d4359344d33c31d294a00fbeadb20",
+      "path": "packages/platform-cf/src/karaoke-readiness-repository.ts",
+      "sha256": "0x87478be3aed243ef6c7fd8fca2a285d2b6f0430054d59f46eda86ab6f0981a81"
+    },
+    {
+      "repository": "api-next",
+      "commit": "a5c63b8db01d4359344d33c31d294a00fbeadb20",
+      "path": "packages/domain/src/study/lyric-line-identity.ts",
+      "sha256": "0x111bef1b58201c4c241659788f1cef05fea2e5388afc8274c48fa1a146d2076f"
     }
   ],
-  "boundary": "Independent request/response adaptation and existing vocal-source binding. No runtime imports from the centralized system. Preserve the exact supplied transcript and immutable lyric occurrence IDs. The current parser requires valid word timing evidence; centralized character-only fallback is not implemented. Durable once-per-revision processing and bounded-row storage are independently owned here.",
+  "boundary": "Independent request/response adaptation and existing vocal-source binding. No runtime imports from the centralized system. Preserve the exact supplied transcript and immutable lyric occurrence IDs. Word timings are used when every word binds to its character span; otherwise the centralized character fallback groups character timings into words at whitespace (api-next a5c63b8, unchanged from f017e80 in these files). The request is the centralized byte-exact multipart body. Durable once-per-revision processing and bounded-row storage are independently owned here.",
   "documentation": [
     "https://elevenlabs.io/docs/api-reference/forced-alignment/create",
     "https://developers.cloudflare.com/d1/platform/limits/"
   ],
-  "status": "offline foundation; no provider execution or runtime deployment"
+  "status": "offline foundation plus the community application's controller-signed operation; no provider execution or runtime deployment"
 }

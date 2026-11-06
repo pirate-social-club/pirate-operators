@@ -8,10 +8,20 @@ on:
       - "packages/scoring/**"
       - "services/karaoke*.ts"
       - "services/runtime.ts"
+      - "services/community*.ts"
+      - "services/records.ts"
+      - "services/storage.ts"
+      - "services/service-call.ts"
+      - "packages/alignment/**"
+      - "packages/community/**"
+      - "packages/records/**"
+      - "apps/community-wizard/infra/migrations/**"
+      - "fixtures/first-song/**"
       - "harness/karaoke-*.ts"
       - "harness/runtime.ts"
       - "harness/chain.ts"
       - "test/karaoke-*.ts"
+      - "test/song-alignment-*.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/karaoke.yml"
@@ -23,10 +33,20 @@ on:
       - "packages/scoring/**"
       - "services/karaoke*.ts"
       - "services/runtime.ts"
+      - "services/community*.ts"
+      - "services/records.ts"
+      - "services/storage.ts"
+      - "services/service-call.ts"
+      - "packages/alignment/**"
+      - "packages/community/**"
+      - "packages/records/**"
+      - "apps/community-wizard/infra/migrations/**"
+      - "fixtures/first-song/**"
       - "harness/karaoke-*.ts"
       - "harness/runtime.ts"
       - "harness/chain.ts"
       - "test/karaoke-*.ts"
+      - "test/song-alignment-*.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/karaoke.yml"
@@ -35,7 +55,7 @@ permissions:
 jobs:
   karaoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,24 +73,26 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm ci --ignore-scripts --prefix apps/web
-      - name: Adopted Karaoke unit tests and the operator audio transport
+      - name: Karaoke unit tests, the operator audio transport and the published-song journey
         run: |
           sudo --preserve-env=PATH,HOME unshare --net bash -c '
             set -euo pipefail
             ip link set lo up
-            node --test --test-concurrency=1 test/karaoke-*.test.ts
+            node --test --test-concurrency=1 test/karaoke-*.test.ts test/song-alignment-*.test.ts
             node --test apps/web/test/karaoke-*.test.ts
           '
       - name: Typecheck the web client
         working-directory: apps/web
         run: npm run typecheck
-      - name: Build the Karaoke screen
+      - name: Build the Karaoke screen and the live community page
         working-directory: apps/web
-        run: node_modules/.bin/vite build --config vite.karaoke.config.ts
+        run: |
+          node_modules/.bin/vite build --config vite.karaoke.config.ts
+          node_modules/.bin/vite build --config vite.live.config.ts
       - name: Install matching Chromium
         working-directory: apps/web
         run: npx playwright install --with-deps chromium
-      - name: Karaoke playback and live-capture browser scenarios, external networking unavailable
+      - name: Karaoke playback, live capture and published-song browser journeys, external networking unavailable
         working-directory: apps/web
         run: |
           sudo --preserve-env=PATH,HOME unshare --net bash -c '
