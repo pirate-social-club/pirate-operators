@@ -1,0 +1,41 @@
+/* Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke.css; see docs/karaoke-learner-handoff.md. */
+.karaoke-stage { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 24rem; overflow: hidden; }
+.karaoke-stage-lines { position: absolute; inset: 50% 0 auto; display: flex; box-sizing: border-box; width: 100%; max-width: 56rem; margin: auto; transform: translateY(-50%); flex-direction: column; gap: 2rem; padding: 1rem; text-align: center; }
+/* width:100% is load-bearing. `margin: 0 auto` on a column flex item stops it
+   stretching, so without an explicit width the line is sized by its content.
+   `overflow-wrap: anywhere` then drives min-content to a single character and,
+   because each word is an inline-block token, the line collapses to one word
+   per row on a narrow viewport. `break-word` breaks only on real overflow and
+   leaves intrinsic sizing alone. */
+.karaoke-line { width: 100%; max-width: 48rem; margin-inline: auto; overflow-wrap: break-word; text-wrap: balance; }
+.karaoke-line-cue, .karaoke-line-next { color: var(--muted-foreground); }
+.karaoke-line-next { opacity: .82; }
+.karaoke-token { position: relative; display: inline-block; color: var(--foreground); white-space: pre-wrap; }
+.karaoke-token[data-token-state="complete"] { color: var(--warning); }
+.karaoke-token-fill { position: absolute; inset: 0 auto 0 0; overflow: hidden; color: var(--warning); white-space: nowrap; pointer-events: none; }
+.karaoke-stage-rating { position: absolute; left: 50%; top: calc(50% - 8rem); z-index: 1; display: flex; flex-direction: column; align-items: center; gap: .125rem; padding: .5rem 1.25rem; border-radius: var(--radius-xl); pointer-events: none; text-align: center; transform: translate(-50%, -50%); animation: karaoke-rating-pop 1.6s cubic-bezier(.22, 1, .36, 1) forwards; }
+.karaoke-stage-rating-static { opacity: 1; transform: translate(-50%, -50%); animation: none; }
+.karaoke-stage-rating-label { font-family: var(--font-sans); font-size: 1.5rem; font-weight: 800; letter-spacing: .04em; line-height: 1; text-transform: uppercase; }
+.karaoke-stage-rating-points { font-family: var(--font-sans); font-size: 1rem; font-weight: 700; line-height: 1; }
+.karaoke-stage-rating[data-rating-tone="success"] { color: var(--success); text-shadow: 0 0 1.5rem color-mix(in oklab, var(--success) 45%, transparent); }
+.karaoke-stage-rating[data-rating-tone="info"] { color: var(--info); text-shadow: 0 0 1.5rem color-mix(in oklab, var(--info) 45%, transparent); }
+.karaoke-stage-rating[data-rating-tone="warning"] { color: var(--warning); text-shadow: 0 0 1.5rem color-mix(in oklab, var(--warning) 45%, transparent); }
+.karaoke-stage-rating[data-rating-tone="destructive"] { color: var(--destructive); text-shadow: 0 0 1.5rem color-mix(in oklab, var(--destructive) 45%, transparent); }
+@keyframes karaoke-rating-pop { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.7); } 18% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); } 30% { transform: translate(-50%, -50%) scale(1); } 72% { opacity: 1; transform: translate(-50%, -55%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -75%) scale(.96); } }
+/* The global reduced-motion rule collapses every animation to its end state,
+   and the pop ends faded out, so the rating would never show. Hold it still
+   and visible instead; the next rating replaces it, as in the static variant. */
+@media (prefers-reduced-motion: reduce) {
+  .karaoke-stage-rating { animation-name: karaoke-rating-hold; }
+}
+@keyframes karaoke-rating-hold { from, to { opacity: 1; transform: translate(-50%, -50%); } }
+@media (max-width: 480px) {
+  .karaoke-stage { min-height: 20rem; }
+  .karaoke-stage-lines { gap: 1.625rem; padding-inline: 1rem; }
+  .karaoke-stage:has(.karaoke-line-cue) .karaoke-stage-lines { transform: translateY(calc(-50% + 2.5rem)); }
+  /* 28px active / 20px next is the reviewed mobile karaoke type scale. */
+  .karaoke-line { font-size: 1.75rem; line-height: 1.25; }
+  .karaoke-line-cue { font-size: 1.5rem; line-height: 1.25; }
+  .karaoke-line-next { font-size: 1.25rem; }
+  .karaoke-stage-rating { top: calc(50% - 7rem); }
+}

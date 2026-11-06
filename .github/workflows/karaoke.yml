@@ -1,0 +1,85 @@
+name: Karaoke client
+on:
+  push:
+    paths:
+      - "apps/web/**"
+      - "packages/karaoke/**"
+      - "packages/protocol/**"
+      - "packages/scoring/**"
+      - "services/karaoke*.ts"
+      - "services/runtime.ts"
+      - "harness/karaoke-*.ts"
+      - "harness/runtime.ts"
+      - "harness/chain.ts"
+      - "test/karaoke-*.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/karaoke.yml"
+  pull_request:
+    paths:
+      - "apps/web/**"
+      - "packages/karaoke/**"
+      - "packages/protocol/**"
+      - "packages/scoring/**"
+      - "services/karaoke*.ts"
+      - "services/runtime.ts"
+      - "harness/karaoke-*.ts"
+      - "harness/runtime.ts"
+      - "harness/chain.ts"
+      - "test/karaoke-*.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/karaoke.yml"
+permissions:
+  contents: read
+jobs:
+  karaoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+      # anvil runs the disposable local chain that publication pays on.
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+      - name: Install root and web dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/web
+      - name: Adopted Karaoke unit tests and the operator audio transport
+        run: |
+          sudo --preserve-env=PATH,HOME unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            node --test --test-concurrency=1 test/karaoke-*.test.ts
+            node --test apps/web/test/karaoke-*.test.ts
+          '
+      - name: Typecheck the web client
+        working-directory: apps/web
+        run: npm run typecheck
+      - name: Build the Karaoke screen
+        working-directory: apps/web
+        run: node_modules/.bin/vite build --config vite.karaoke.config.ts
+      - name: Install matching Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+      - name: Karaoke playback and live-capture browser scenarios, external networking unavailable
+        working-directory: apps/web
+        run: |
+          sudo --preserve-env=PATH,HOME unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            node_modules/.bin/playwright test --config playwright.karaoke.config.ts
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: karaoke-browser-results
+          path: .local/karaoke-browser-results/
