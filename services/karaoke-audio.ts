@@ -1,9 +1,9 @@
 // Live microphone audio on the operator's Karaoke socket. Binary frames use the
 // adopted centralized binary codec; a relay per take streams them to the
-// realtime speech provider and stores its committed, song-timed words as the
-// take's recognized words as they arrive, before finish and on disconnect,
-// whichever of the learner's sockets carried the audio. Words
-// sung before the performance ended still count if they arrive after the
+// realtime speech provider. Whenever the relay persists new committed,
+// song-timed words, they are stored as the take's recognized words, whichever
+// of the learner's sockets carried the audio, after the take's timers apply.
+// Words sung before the performance ended still count if they arrive after the
 // operator's timer ended it, until the payment deadline. Learners cannot send
 // recognized words or failure marks once audio is wired. Text frames other
 // than the audio controls go to the existing handler unchanged.
@@ -22,6 +22,7 @@ import {
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import type { Attempt } from "./karaoke-result.ts";
+import { settle } from "./karaoke.ts";
 import { ServiceState, type Env } from "./runtime.ts";
 
 export interface KaraokeAudioEnv extends Env {
@@ -50,21 +51,28 @@ export class KaraokeAudioState extends ServiceState {
         "operator_transcription_only",
       );
       if (frame.type === "audio_pause" || frame.type === "audio_seek") {
-        const { ticketId, attempt, relay } = this.current(ws);
+        const { ticketId, relay } = this.current(ws);
         if (frame.type === "audio_seek") {
           const songMs = Number(frame.songMs);
           relay.seek(songMs);
-          this.reopen(ticketId, attempt, songMs);
+          this.reopen(ticketId, songMs);
         } else await relay.pause();
         return;
       }
       if (frame.type === "finish") {
-        const { ticketId } = this.attachment(ws);
-        const relay = ticketId ? this.relays.get(ticketId) : undefined;
-        if (ticketId && relay) {
-          await relay.finish();
-          this.forward(ticketId, relay);
-          this.relays.delete(ticketId);
+        const { ticketId, generation } = this.attachment(ws);
+        const attempt = ticketId
+          ? this.store.get<Attempt>(`attempt:${ticketId}`)
+          : undefined;
+        // Only the live socket finishes the take; a superseded one cannot
+        // tear down the relay its replacement is using.
+        if (ticketId && attempt?.generation === generation) {
+          const relay = this.relays.get(ticketId);
+          if (relay) {
+            await relay.finish();
+            this.forward(ticketId, relay);
+            this.relays.delete(ticketId);
+          } else this.forwardStored(ticketId);
         }
       }
       return await super.webSocketMessage(ws, message);
@@ -84,21 +92,26 @@ export class KaraokeAudioState extends ServiceState {
     const attempt = ticketId
       ? this.store.get<Attempt>(`attempt:${ticketId}`)
       : undefined;
-    if (relay && attempt?.generation === generation) {
+    if (ticketId && attempt?.generation === generation) {
       // Words heard so far reach the scorer even if the learner never returns.
-      this.forward(ticketId!, relay);
-      this.idle.set(
-        ticketId!,
-        setTimeout(
-          () => {
-            this.idle.delete(ticketId!);
-            if (this.relays.get(ticketId!) === relay)
-              this.relays.delete(ticketId!);
-            void relay.close();
-          },
-          (RECONNECT_WINDOW_S + 5) * 1000,
-        ),
-      );
+      if (!relay) this.forwardStored(ticketId);
+      else {
+        this.forward(ticketId, relay);
+        this.idle.set(
+          ticketId,
+          setTimeout(
+            () => {
+              this.idle.delete(ticketId);
+              if (this.relays.get(ticketId) === relay)
+                this.relays.delete(ticketId);
+              // Closing settles any commit still pending; what it yields, and
+              // anything that arrived since the socket closed, still counts.
+              void relay.close().then(() => this.forward(ticketId, relay));
+            },
+            (RECONNECT_WINDOW_S + 5) * 1000,
+          ),
+        );
+      }
     }
     super.webSocketClose(ws, code, reason);
   }
@@ -111,17 +124,16 @@ export class KaraokeAudioState extends ServiceState {
     });
     if (decoded.error) throw new Error(decoded.error.code);
     await relay.audio(decoded.frame);
-    // Words reach the scorer as each line's transcript arrives, so the
-    // operator's song-end timer never strands them in the relay.
-    this.forward(ticketId, relay);
   }
 
   /**
    * Words are handed to the scorer as they arrive, so a seek applies the
-   * relay's own rule to them too: words ending after the seek point less the
-   * tolerance are dropped, and failure marks of the replayed lines reopen.
+   * relay's own word rule to the stored words too: words ending after the seek
+   * point less the tolerance are dropped. Failure marks already handed over
+   * stay, as the relay keeps them: a line the relay gave up on, or can no
+   * longer measure, must stay unmeasured rather than become silent.
    */
-  private reopen(ticketId: string, attempt: Attempt, songMs: number) {
+  private reopen(ticketId: string, songMs: number) {
     const keepUntil = songMs - SEEK_WORD_TOLERANCE_MS,
       key = `words:${ticketId}`,
       words = this.store.get<KaraokeRecognizedWord[]>(key) ?? [];
@@ -129,19 +141,6 @@ export class KaraokeAudioState extends ServiceState {
       key,
       words.filter((w) => w.endMs <= keepUntil),
     );
-    const ticket = this.store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body,
-      manifest =
-        ticket &&
-        this.store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`),
-      reopened = new Set(
-        (manifest?.lines ?? [])
-          .filter((l) => l.endMs > songMs)
-          .map((l) => l.lineId),
-      );
-    attempt.failedLineIds = attempt.failedLineIds.filter(
-      (id) => !reopened.has(id),
-    );
-    this.store.set(`attempt:${ticketId}`, attempt);
   }
 
   private attachment(ws: WebSocket) {
@@ -166,43 +165,74 @@ export class KaraokeAudioState extends ServiceState {
     this.idle.delete(ticketId);
     let relay = this.relays.get(ticketId);
     if (!relay) {
-      const ticket = this.store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
-      const manifest =
-        ticket &&
-        this.store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
-      check(manifest, "protocol_error");
-      const key = `audioRelay:${ticketId}`;
-      const apiKey = (this.env as KaraokeAudioEnv).ELEVENLABS_API_KEY;
-      relay = new KaraokeAudioRelay({
-        sessionId: ticketId,
-        attemptId: attempt.attemptId,
-        lines: manifest.lines.map(({ lineId, startMs, endMs }) => ({
-          lineId,
-          startMs,
-          endMs,
-        })),
-        createAdapter: apiKey
-          ? () => new ElevenLabsKaraokeSttAdapter({ apiKey })
-          : null,
-        restore: this.store.get<KaraokeRelaySnapshot>(key),
-        persist: (snapshot) => this.store.set(key, snapshot),
-      });
+      relay = this.relayFor(ticketId, attempt, true);
+      check(relay, "protocol_error");
       this.relays.set(ticketId, relay);
     }
     return { ticketId, attempt, relay };
   }
 
   /**
+   * The take's relay, restored from its snapshot. Every change it persists
+   * hands new words over at once, so words that arrive after the learner's
+   * last frame, or after the socket closed, never wait for another event.
+   */
+  private relayFor(ticketId: string, attempt: Attempt, live: boolean) {
+    const ticket = this.store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
+    const manifest =
+      ticket &&
+      this.store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
+    if (!manifest) return undefined;
+    const key = `audioRelay:${ticketId}`;
+    const apiKey = (this.env as KaraokeAudioEnv).ELEVENLABS_API_KEY;
+    let queued = false;
+    const relay: KaraokeAudioRelay = new KaraokeAudioRelay({
+      sessionId: ticketId,
+      attemptId: attempt.attemptId,
+      lines: manifest.lines.map(({ lineId, startMs, endMs }) => ({
+        lineId,
+        startMs,
+        endMs,
+      })),
+      createAdapter:
+        live && apiKey
+          ? () => new ElevenLabsKaraokeSttAdapter({ apiKey })
+          : null,
+      restore: this.store.get<KaraokeRelaySnapshot>(key),
+      persist: (snapshot) => {
+        this.store.set(key, snapshot);
+        if (!live || queued) return;
+        // After the relay's own state change completes, not inside it.
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          this.forward(ticketId, relay);
+        });
+      },
+    });
+    return relay;
+  }
+
+  /** After a restart there is no relay in memory; its snapshot's words still count. */
+  private forwardStored(ticketId: string) {
+    const attempt = this.store.get<Attempt>(`attempt:${ticketId}`);
+    const relay = attempt && this.relayFor(ticketId, attempt, false);
+    if (relay) this.forward(ticketId, relay);
+  }
+
+  /**
    * Hands relay output to the take's stored words with the existing words
-   * checks. The relay belongs to the ticket, not to a socket: a hand-over that
-   * runs while the learner reconnects must never be refused as a stale
-   * connection after the relay has drained. Drain and store run with no await
-   * between them. A take the timer ended keeps what was sung before its
-   * performance ended, and nothing changes once the payment deadline closes it.
+   * checks. The relay belongs to the ticket, not to a socket, so no reconnect
+   * can refuse a hand-over after the relay has drained. The take's timers are
+   * applied first, as the words path does. Settling, draining and storing run
+   * with no await between them. A take that has ended keeps what was sung
+   * before its performance ended, and nothing changes once the payment
+   * deadline closes it.
    */
   private forward(ticketId: string, relay: KaraokeAudioRelay) {
-    const attempt = this.store.get<Attempt>(`attempt:${ticketId}`);
-    if (!attempt || attempt.closing || !relay.hasUndrained()) return;
+    if (!relay.hasUndrained()) return;
+    const attempt = settle(this.store, this.env, ticketId);
+    if (!attempt || attempt.closing) return;
     const { words, failedLineIds } = relay.drain(),
       cutoffMs = attempt.ended
         ? (attempt.ended.performanceEndedAt - attempt.startedAt) * 1000

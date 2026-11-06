@@ -22,6 +22,8 @@ export interface SimulatedStream {
   ignoreCommits?: boolean;
   /** Answers only this many commits, then ignores the rest. */
   answerCommits?: number;
+  /** Answers each commit after this delay, as a slow provider does. */
+  commitDelayMs?: number;
 }
 export interface SimulatedStreamLog {
   params: Record<string, string>;
@@ -103,12 +105,22 @@ export class SimulatedScribeStream {
         this.log.commits > this.script.answerCommits)
     )
       return;
+    if (this.script.commitDelayMs) {
+      const audioMs = this.log.audioMs;
+      setTimeout(() => this.answer(audioMs), this.script.commitDelayMs);
+      return;
+    }
+    this.answer(this.log.audioMs);
+  }
+
+  /** Emits every scripted word that ends within the audio heard by the commit. */
+  private answer(audioMs: number): void {
+    if (this.ended) return;
     const due = this.script.words
       .map((word, index) => ({ word, index }))
       .filter(
         ({ word, index }) =>
-          !this.emitted.has(index) &&
-          word.end * 1000 <= this.log.audioMs + 1e-6,
+          !this.emitted.has(index) && word.end * 1000 <= audioMs + 1e-6,
       );
     due.forEach(({ index }) => this.emitted.add(index));
     const words = due.flatMap(({ word }, i) => [

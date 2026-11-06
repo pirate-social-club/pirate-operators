@@ -147,11 +147,17 @@ export class KaraokeAudioRelay {
     if (!Number.isFinite(songMs) || songMs < 0)
       throw new KaraokeAudioError("invalid_seek");
     const keepUntil = songMs - SEEK_WORD_TOLERANCE_MS;
-    const forwarded = this.state.words.slice(0, this.state.forwardedWords);
+    const kept = (word: KaraokeRecognizedWord) => word.endMs <= keepUntil;
+    // Forwarded words follow the same rule: the operator drops them from the
+    // take too, so only words still counted stay within the retained limit.
+    const forwarded = this.state.words
+      .slice(0, this.state.forwardedWords)
+      .filter(kept);
     const retained = this.state.words
       .slice(this.state.forwardedWords)
-      .filter((word) => word.endMs <= keepUntil);
+      .filter(kept);
     this.state.words = [...forwarded, ...retained];
+    this.state.forwardedWords = forwarded.length;
     const reopened = new Set(
       this.lines.filter((l) => l.endMs > songMs).map((l) => l.lineId),
     );
@@ -179,7 +185,6 @@ export class KaraokeAudioRelay {
     await this.close();
   }
 
-  /** Words and failed lines not yet given to the scorer; marks them forwarded. */
   /** True when words or failure marks have arrived since the last drain. */
   hasUndrained(): boolean {
     return (
@@ -190,6 +195,7 @@ export class KaraokeAudioRelay {
     );
   }
 
+  /** Words and failed lines not yet given to the scorer; marks them forwarded. */
   drain(): { words: KaraokeRecognizedWord[]; failedLineIds: string[] } {
     const words = this.state.words.slice(this.state.forwardedWords);
     const failedLineIds = this.state.failedLineIds.filter(
