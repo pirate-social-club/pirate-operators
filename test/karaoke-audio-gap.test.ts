@@ -78,3 +78,35 @@ test("contiguous audio and explicit forward and backward seeks invent no gap fai
     await relay.close();
   }
 });
+
+test("a fresh missing prefix is unmeasured while an initial explicit seek is deliberate", async () => {
+  const fresh = fixture(),
+    seeking = fixture();
+  try {
+    await fresh.relay.audio(frame(46, 4500, 4600));
+    assert.deepEqual(fresh.relay.drain().failedLineIds, ["first", "gap"]);
+    seeking.relay.seek(4500);
+    await seeking.relay.audio(frame(46, 4500, 4600));
+    assert.deepEqual(seeking.relay.drain().failedLineIds, []);
+  } finally {
+    await fresh.relay.close();
+    await seeking.relay.close();
+  }
+});
+
+test("an older snapshot does not invent prefix loss but detects later missing audio", async () => {
+  const original = fixture();
+  await original.relay.audio(frame(1, 0, 2000));
+  const snapshot = original.snapshot();
+  delete snapshot.lastAudioEndMs;
+  await original.relay.close();
+  const restored = fixture(snapshot);
+  try {
+    await restored.relay.audio(frame(2, 4500, 4600));
+    assert.deepEqual(restored.relay.drain().failedLineIds, []);
+    await restored.relay.audio(frame(3, 6300, 6400));
+    assert.deepEqual(restored.relay.drain().failedLineIds, ["last"]);
+  } finally {
+    await restored.relay.close();
+  }
+});

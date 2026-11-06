@@ -352,6 +352,30 @@ test("a learner audio gap across reconnect is unmeasured while delivered lines s
   }
 });
 
+test("missing leading learner audio is unmeasured before the first provider frame", async () => {
+  const c = await audioCommunity(evm, "leading-gap", [
+    {
+      words: sung(manifest, ["line-03", "line-04"], 4500),
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 4500, { drop: true });
+    await c.sing(a.socket, a, 4500, 22500);
+    await c.waitForProviderChunks(180);
+    const result = await finish(c, a);
+    assert.deepEqual(
+      result.lines.map((line) => line.status),
+      ["unmeasured", "unmeasured", "assessed", "assessed"],
+    );
+    assert.ok(result.lines.slice(0, 2).every((line) => line.scoreBps === null));
+    assert.equal((await c.simulator()).minted, 1);
+  } finally {
+    await c.dispose();
+  }
+});
+
 test("commits the provider never acknowledges time out as unmeasured lines", async () => {
   const c = await audioCommunity(evm, "silent-provider", [
     { words: sung(manifest, ALL), ignoreCommits: true },

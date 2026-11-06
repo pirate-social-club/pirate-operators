@@ -132,24 +132,32 @@ export async function audioCommunity(
     }
   };
   let sequence = 0;
-  /** Sends 100 ms PCM16 frames covering [fromMs, toMs) of song time, paced lightly. */
-  const sing = async (socket: Attempt, a: A, fromMs: number, toMs: number) => {
+  /** Sends 100 ms PCM16 frames covering [fromMs, toMs), or drops them to
+   * simulate transport loss while retaining the client's sequence counter. */
+  const sing = async (
+    socket: Attempt,
+    a: A,
+    fromMs: number,
+    toMs: number,
+    options: { drop?: boolean } = {},
+  ) => {
     for (let ms = fromMs; ms < toMs; ms += 100) {
       sequence += 1;
-      socket.ws.send(
-        encodeKaraokeBinaryFrame({
-          protocolVersion: 1,
-          sessionId: a.ticket.body.ticketId,
-          attemptId: a.start.body.attemptId,
-          sequence,
-          type: "audio_chunk",
-          chunkId: sequence,
-          pcm16: new ArrayBuffer(3200),
-          sampleRate: 16000,
-          songStartMs: ms,
-          songEndMs: ms + 100,
-        }),
-      );
+      if (!options.drop)
+        socket.ws.send(
+          encodeKaraokeBinaryFrame({
+            protocolVersion: 1,
+            sessionId: a.ticket.body.ticketId,
+            attemptId: a.start.body.attemptId,
+            sequence,
+            type: "audio_chunk",
+            chunkId: sequence,
+            pcm16: new ArrayBuffer(3200),
+            sampleRate: 16000,
+            songStartMs: ms,
+            songEndMs: ms + 100,
+          }),
+        );
       await new Promise((resolve) => setTimeout(resolve, 4));
     }
   };

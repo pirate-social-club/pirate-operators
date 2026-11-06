@@ -126,7 +126,12 @@ export class KaraokeAudioRelay {
       frame.sequence <= this.state.lastSequence
     )
       throw new KaraokeAudioError("sequence_out_of_order");
-    const previousEnd = this.state.lastAudioEndMs;
+    // A fresh take starts at zero even if its first frames never arrive. An
+    // older snapshot with received audio but no saved boundary is unknown;
+    // do not retroactively invent loss over its already-measured history.
+    const previousEnd =
+      this.state.lastAudioEndMs ??
+      (this.state.lastSequence === null ? 0 : undefined);
     this.state.lastSequence = frame.sequence;
     this.state.lastAudioEndMs = frame.songEndMs;
     if (previousEnd !== undefined && frame.songStartMs > previousEnd) {
