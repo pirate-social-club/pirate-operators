@@ -227,7 +227,8 @@ export class KaraokeAudioState extends ServiceState {
           try {
             this.forward(ticketId, relay);
           } catch {
-            // Nothing was drained; the next persisted change hands it over.
+            // A failure before draining is retried by the next persisted
+            // change; storage failures are the Durable Object's to surface.
           }
         });
       },
