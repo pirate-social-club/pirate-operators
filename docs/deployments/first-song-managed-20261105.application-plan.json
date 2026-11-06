@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x0abd402e7e27c5a73bd6b7819a33af3a7dbeb005ed21beb79c880cbadb6cc2f4",
+  "profileHash": "0x33ff339608365921377c4a6d012a721a3a4324e4d9d794f30a04067e669d1c4d",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -91,12 +91,12 @@
       "apps/web/src/karaoke/scoring-response-watch.ts": "0xe0f708d0936a7841a58b8be7137303d5a2965d6272673366cf56f3322e30d07b",
       "apps/web/src/karaoke/style.css": "0xfa8fbe483697172ef66275fbcc4e3c6dd0e701c1e6e3cadac112612757252cf9",
       "apps/web/src/karaoke/ui.ts": "0xb3428ca5805e7849a504e2a013e6d6372291f9422d29882c5faaccb655fd0102",
-      "apps/web/src/karaoke/use-karaoke-capture.ts": "0xe60d21b3500376e70a30f30db0c395911afce8c6cdda7df8b018ed9ebe2b8224",
+      "apps/web/src/karaoke/use-karaoke-capture.ts": "0x73422f7a502978b3c2827f4e7e19ded1363f9eb2811f0e57983b990ba129b74f",
       "apps/web/src/live/api.ts": "0x7a45a70c87c16d2878e4c72ea54bbd3ad3f630d8efdf8ad2f175df39dd7c931e",
       "apps/web/src/live/draft.ts": "0xacaa78c922e8d2b9c67b09b1680695c41a1672eead15f7e68ab6f066b9cf4a2c",
       "apps/web/src/live/entry.tsx": "0x05037bd79413d90b937eb4ad1be4ed582051f04a7dc0b935df086e0bb383c3fc",
       "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
-      "apps/web/src/live/karaoke.tsx": "0x8af9028a7f3f38679d682cca1c5ab252289ef8f028d17555da6e18693d8deee7",
+      "apps/web/src/live/karaoke.tsx": "0x3299cf180eafc528de98b41eff16a95dd3977284384c9ac680f3e81803530d94",
       "apps/web/src/live/public/images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
       "apps/web/src/live/stem-upload.tsx": "0xfe4bbc5901d6ff0c5fb23d2ae7786b8f793c6259c717079d1ece57fbed17ed27",
       "apps/web/src/live/style.css": "0x8bc8c33b7e68039cb3e4af60d686784fb335ba1d51934a08e9d73f41c45d97d6",
@@ -106,7 +106,7 @@
       "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
       "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
       "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
-      "docs/deployments/first-song-managed-20261105.application-plan-v14.json": "0xad338b8168c5dc449a4a61ac84280ef4f96a22c54db866121b4df4703212e51b",
+      "docs/deployments/first-song-managed-20261105.application-plan-v15.json": "0x3f9f71fabb5ac5fe8e072c237f363d438f2718beee37a1e16759eb20e5b20478",
       "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
       "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0xde898d22b5d5c09fcfa4686a00c691cd3a019fa7e8556ce75a6366469205f315",
       "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
@@ -116,7 +116,7 @@
       "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
       "harness/community-dependencies.ts": "0xa93dd63aa41df73bfc55f3e6465fcaff76a44f634515354584bfbde2986bdb29",
       "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
-      "harness/community-package.ts": "0xd024416c10b937b5b0eed2c199484ed9a082857f512aa4906e09167a379787ac",
+      "harness/community-package.ts": "0x8fc46eaedaa6104177493a28337da22e4668be374f2f9eed331c0a8d9166f418",
       "harness/community-release.ts": "0x621a723ee80dd2df924c23cb83abcd0ea44a84a2d4745c093716e88e73bda131",
       "harness/community-result.ts": "0x91bd357a99ad8253d1fb3e57fa67ddec20bd80e5345026136a3b204585709e63",
       "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
@@ -214,13 +214,13 @@
     "bundleSha256": "0x93b778c559b2baa919b877f346deeac74390c2d501d47b68917bd9fe05d061f9",
     "bundleBytes": 878589,
     "assets": {
-      ".vite/manifest.json": "0xc10e7f566ebe5dbed359ac40aa80cc8e340a39b37d1b2e05eddec2ddb74103c3",
+      ".vite/manifest.json": "0x026cfda895b4b964268745a95aa3d24f416793c003c5f5328f5b0624512acfa7",
       "app/assets/capture-processor-Di3k79aW.js": "0x97fc42534dd5a5e20c9bf241a30a39aa1652fe0cf1d7fc4857b0d0f57c782975",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
       "app/assets/index-Byp_nxt3.css": "0x1e5035ce545510e910393f1394e5b1880af12cd2d8b5b6458216d837f705683e",
-      "app/assets/index-DZU9AX4L.js": "0xdcacdb9d851f165e81ad4b84ea38d7c1814f8f9f77e2ec46098bc0fb071d8213",
+      "app/assets/index-DFegKkJ9.js": "0x44adc6b659645c126a4435ea18879cc304e1ba53f272ebce4dba70958555d11d",
       "images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
-      "index.html": "0x4335db6482645e3b2c21ff55c0eb14e07decaf863bea0edb53d5a33075a48513"
+      "index.html": "0xe8c27ea65c14b921f5768945395ea5a6a8edd783f618c2c55e117b156aa8b9e2"
     },
     "migrations": [
       "0001_setup.sql",
@@ -399,10 +399,10 @@
     },
     "creatorProfileHash": "0x6d850963da1da92d2ad963f3fddca7245ee2f72f49672164fe6bc2b5352a54eb",
     "reviewedUpdate": {
-      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v14.json",
-      "previousProfileHash": "0x52175c558c976aeabde7b1ab416bd98c5fbaafe5d617c0d7cb01798e22daa253",
-      "expectedExecutionSha256": "0x7d6d75f878af38a119d836ddafffff5d2b85825b02a98f6f7c7561b30f771b6f",
-      "expectedResultSha256": "0x217237562e64d690fbea90febb67e9d042ccff6aa434e3fa87226d0242e82def"
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v15.json",
+      "previousProfileHash": "0x0abd402e7e27c5a73bd6b7819a33af3a7dbeb005ed21beb79c880cbadb6cc2f4",
+      "expectedExecutionSha256": "0x5153a060a6e10056f6345a94a9998d14ec8759e0edc1aa6da8de56f0096418bf",
+      "expectedResultSha256": "0x8a48ddcaefab7013207ffdb984bddf7e64b86486e42f9c5d91821fdac5bf4534"
     },
     "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     "credentialBinding": {

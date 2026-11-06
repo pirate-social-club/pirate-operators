@@ -86,6 +86,70 @@ function harness(
   return { client, sockets, timers, events };
 }
 
+test("a scoring recovery reuses the ticket and cursor, rejects late old feedback and resumes without replay", async () => {
+  const received: string[] = [];
+  const { client, sockets, timers, events } = harness({
+    onMessage: (m) => received.push(String(m.type)),
+  });
+  assert.equal(client.reconnect(), false);
+  client.start();
+  sockets[0].ready();
+  client.setCaptureAnchor({ captureMs: 1000, songMs: 0, playbackRate: 1 });
+  client.pushAudio(chunk(), 1100);
+  assert.equal(client.reconnect(), true);
+  assert.equal(client.getPhase(), "reconnecting");
+  assert.equal(sockets[0].closed, 1000);
+  sockets[0].emit("message", {
+    data: JSON.stringify({ type: "old-feedback" }),
+  });
+  timers.find((t) => t.ms === 250)!.run();
+  sockets[1].ready("0xattempt", { resumed: true, audioSequence: 1 });
+  await new Promise((r) => setTimeout(r, 0));
+  client.pushAudio(chunk(), 10100);
+  assert.deepEqual(
+    sockets[1].frames("0xticket").map((f) => f.sequence),
+    [2],
+  );
+  assert.deepEqual(received, ["ready", "ready"]);
+  assert.equal(events.filter((e) => e === "suspend").length, 1);
+  assert.equal(events.filter((e) => e === "resume").length, 1);
+  timers.find((t) => t.ms === 10000)!.run();
+  assert.equal(
+    client.getPhase(),
+    "live",
+    "a ready response cancels the recovery deadline",
+  );
+  client.close();
+});
+
+test("a scoring recovery with no ready response stops after its deadline and cannot reopen", () => {
+  const { client, sockets, timers, events } = harness();
+  client.start();
+  sockets[0].ready();
+  assert.equal(client.reconnect(), true);
+  timers.find((t) => t.ms === 250)!.run();
+  assert.equal(sockets.length, 2);
+  timers.find((t) => t.ms === 10000)!.run();
+  assert.equal(client.getPhase(), "aborted");
+  assert.equal(sockets[1].closed, 1000);
+  assert.ok(events.includes("error:karaoke_recovery_timeout"));
+  assert.equal(client.reconnect(), false);
+  timers.find((t) => t.ms === 250)!.run();
+  assert.equal(sockets.length, 2);
+});
+
+test("closing still closes the wire when a phase observer throws", () => {
+  const { client, sockets } = harness({
+    onPhaseChange: (phase) => {
+      if (phase === "closed") throw Error("observer_failed");
+    },
+  });
+  client.start();
+  sockets[0].ready();
+  assert.throws(() => client.close(), /observer_failed/);
+  assert.equal(sockets[0].closed, 1000);
+});
+
 test("audio is framed only while live and anchored, with mapped song ranges", () => {
   const { client, sockets } = harness();
   client.start();
