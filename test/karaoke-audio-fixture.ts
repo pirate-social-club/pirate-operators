@@ -37,9 +37,10 @@ export async function audioCommunity(
   streams: SimulatedStream[],
   /** Null runs the operator without a provider credential. */
   elevenLabsApiKey: string | null = "simulated-elevenlabs-key",
+  options: { serviceMode?: "internal" } = {},
 ) {
   const start = (await chainTime(evm)) + 1;
-  const runtime = await karaokeAudioWorkers({
+  const workerOptions = {
     rpcUrl: evm.rpcUrl,
     paymentToken: evm.paymentToken,
     paymentsContract: evm.paymentsContract,
@@ -48,7 +49,9 @@ export async function audioCommunity(
     cutoff: start + 100000,
     elevenLabsApiKey: elevenLabsApiKey ?? undefined,
     streams,
-  });
+    ...options,
+  };
+  let runtime = await karaokeAudioWorkers(workerOptions);
   let now = start;
   const at = async (t: number) => {
     now = t;
@@ -57,7 +60,11 @@ export async function audioCommunity(
       await evm.rpc("evm_mine", []);
     }
     for (const role of roles) {
-      const r = await post(runtime.mf, role, "/__clock", { now: t });
+      const path =
+        role === "operator" && options.serviceMode === "internal"
+          ? "/__fixture/alarm"
+          : "/__clock";
+      const r = await post(runtime.mf, role, path, { now: t });
       assert.equal(r.status, 200, JSON.stringify(r.value));
     }
   };
@@ -196,7 +203,9 @@ export async function audioCommunity(
     };
   };
   return {
-    runtime,
+    get runtime() {
+      return runtime;
+    },
     at,
     now: () => now,
     attempt,
@@ -205,6 +214,11 @@ export async function audioCommunity(
     result,
     state,
     simulator,
+    async restart() {
+      const persist = runtime.persist;
+      await runtime.mf.dispose();
+      runtime = await karaokeAudioWorkers(workerOptions, persist);
+    },
     async releaseProviderCommits() {
       const worker = await runtime.mf.getWorker("elevenlabs");
       const response = await worker.fetch(
