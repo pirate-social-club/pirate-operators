@@ -50,6 +50,7 @@ export interface KaraokeCaptureControls {
   noteFinish(songMs: number): void | Promise<void>;
   stop(): void;
   abort(code: string): void;
+  reconnect(): boolean;
   /** Sends another operator frame, such as a segment purchase, while live. */
   send(frame: Record<string, unknown>): boolean;
 }
@@ -151,6 +152,7 @@ export function useKaraokeCapture(
     };
   });
   const controls: KaraokeCaptureControls = {
+    reconnect: () => currentController?.reconnect() ?? false,
     attachPlaybackElement: (element) => {
       if (element !== playbackElement) recoveryGeneration += 1;
       playbackElement = element;
