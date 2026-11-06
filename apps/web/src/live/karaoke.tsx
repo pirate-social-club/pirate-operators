@@ -212,7 +212,7 @@ export function LiveKaraoke(props: {
           if (capture.state()?.status === "active") void finish(songMs);
         } else
           stopFailedScoring(
-            "The scoring connection stopped. Start a new take.",
+            "The scoring connection stopped. Press Start karaoke to try again.",
           );
       }
     },
@@ -251,7 +251,7 @@ export function LiveKaraoke(props: {
       })
     )
       stopFailedScoring(
-        "Live scoring isn't responding. Playback stopped. Start a new take.",
+        "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
       );
   }
 
@@ -328,7 +328,30 @@ export function LiveKaraoke(props: {
     scoringResponses.reset();
     setStarting(true);
     try {
-      if (!take()) {
+      let currentTake = take();
+      if (currentTake && capture.state()?.status === "error") {
+        const current = await attemptView();
+        if (current.state === "open") {
+          apply(current);
+          currentTake = {
+            ticketId: current.ticket.body.ticketId,
+            socketUrl: current.socketUrl,
+            proof: current.proof,
+          };
+        } else {
+          if (current.state === "finished")
+            retainHistoryDownload(current.result.body.ticketId);
+          setTake(null);
+          currentTake = null;
+          setFinished(null);
+          setFeedback(null);
+          setResume(null);
+          fromMs = 0;
+          if (playback) playback.currentTime = 0;
+        }
+      }
+      setNotice(null);
+      if (!currentTake) {
         if (props.serviceMode === "internal") {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
@@ -363,13 +386,19 @@ export function LiveKaraoke(props: {
         attemptStart = null;
         setFinished(null);
         setFeedback(null);
-        setTake({
+        currentTake = {
           ticketId: issued.ticket.body.ticketId,
           socketUrl: issued.socketUrl,
           proof: issued.proof,
-        });
-        await until(() => capture.state() !== null);
+        };
+        setTake(currentTake);
       }
+      const ticketId = currentTake.ticketId;
+      await until(() => capture.readyFor(ticketId));
+      if (!capture.readyFor(ticketId))
+        throw new Error(
+          "The microphone connection could not be prepared. Try again.",
+        );
       const resumed = resume();
       if (resumed) {
         fromMs = resumed.elapsedMs + (performance.now() - resumed.at);
@@ -396,7 +425,9 @@ export function LiveKaraoke(props: {
     if (finished()) return "ended" as const;
     const status = capture.state()?.status ?? "idle";
     if (status === "ended") return "finishing" as const;
-    return starting() && status === "idle" ? ("connecting" as const) : status;
+    return starting() && (status === "idle" || status === "error")
+      ? ("connecting" as const)
+      : status;
   };
   async function refreshUntil(done: (view: AttemptView) => boolean) {
     for (let i = 0; i < 90 && !disposed; i++) {

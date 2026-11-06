@@ -17,7 +17,10 @@ const frame = (sequence: number, songStartMs: number, songEndMs: number) => ({
   songStartMs,
   songEndMs,
 });
-function fixture(restore?: KaraokeRelaySnapshot) {
+function fixture(
+  restore?: KaraokeRelaySnapshot,
+  start: () => Promise<void> = async () => {},
+) {
   let saved: KaraokeRelaySnapshot | undefined;
   const relay = new KaraokeAudioRelay({
     sessionId: "session",
@@ -31,7 +34,7 @@ function fixture(restore?: KaraokeRelaySnapshot) {
     // real Worker sockets, provider commits, word mapping and final grading.
     createAdapter: () => ({
       streamGeneration: "fixture",
-      start: async () => {},
+      start,
       sendPcm16: async () => {},
       commit: async () => null,
       close: async () => {},
@@ -43,6 +46,7 @@ function fixture(restore?: KaraokeRelaySnapshot) {
   });
   return {
     relay,
+    lastSnapshot: () => saved,
     snapshot: () => JSON.parse(JSON.stringify(saved!)) as KaraokeRelaySnapshot,
   };
 }
@@ -61,6 +65,23 @@ test("a restored audio boundary retains gap evidence after it reaches the scorer
     assert.deepEqual(restored.relay.drain().failedLineIds, []);
   } finally {
     await restored.relay.close();
+  }
+});
+
+test("the accepted audio cursor is durable while provider startup is still pending", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const f = fixture(undefined, () => pending);
+  const audio = f.relay.audio(frame(1, 0, 100));
+  try {
+    assert.equal(f.lastSnapshot()?.lastSequence, 1);
+    assert.equal(f.lastSnapshot()?.lastAudioEndMs, 100);
+  } finally {
+    release();
+    await audio;
+    await f.relay.close();
   }
 });
 

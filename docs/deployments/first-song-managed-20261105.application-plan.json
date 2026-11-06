@@ -1,5 +1,5 @@
 {
-  "profileHash": "0x29cd3396865e4843efd9dd6da6160a5746042e3a0ccb5254c87e9c61b96e642b",
+  "profileHash": "0x871271d78e37a593e84c735f24cabd1a473ea09831096ea67bef1dce160d2c37",
   "profile": {
     "schema": "pirate.community-application-plan/1",
     "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
@@ -91,12 +91,12 @@
       "apps/web/src/karaoke/scoring-response-watch.ts": "0xe0f708d0936a7841a58b8be7137303d5a2965d6272673366cf56f3322e30d07b",
       "apps/web/src/karaoke/style.css": "0xfa8fbe483697172ef66275fbcc4e3c6dd0e701c1e6e3cadac112612757252cf9",
       "apps/web/src/karaoke/ui.ts": "0xb3428ca5805e7849a504e2a013e6d6372291f9422d29882c5faaccb655fd0102",
-      "apps/web/src/karaoke/use-karaoke-capture.ts": "0x77f262fe6d59c6ca9ba4bef2b63369e255b229e0a7292da2d242c0b67246c161",
+      "apps/web/src/karaoke/use-karaoke-capture.ts": "0x046f976eeae2a585a870a241f33fef95c4aab27505f7025d28640d8bc6c71d4a",
       "apps/web/src/live/api.ts": "0x7a45a70c87c16d2878e4c72ea54bbd3ad3f630d8efdf8ad2f175df39dd7c931e",
       "apps/web/src/live/draft.ts": "0xacaa78c922e8d2b9c67b09b1680695c41a1672eead15f7e68ab6f066b9cf4a2c",
       "apps/web/src/live/entry.tsx": "0x05037bd79413d90b937eb4ad1be4ed582051f04a7dc0b935df086e0bb383c3fc",
       "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
-      "apps/web/src/live/karaoke.tsx": "0x32355337f7290f0e4db0b8ad01ce3ae97a53905cbed9d6507a8f04d32d7a1f3a",
+      "apps/web/src/live/karaoke.tsx": "0x4a2fb4bd6143ca98fc5560f76d3f2bd5cf14c5fdfee0131378f32f98df586de7",
       "apps/web/src/live/public/images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
       "apps/web/src/live/stem-upload.tsx": "0xfe4bbc5901d6ff0c5fb23d2ae7786b8f793c6259c717079d1ece57fbed17ed27",
       "apps/web/src/live/style.css": "0x8bc8c33b7e68039cb3e4af60d686784fb335ba1d51934a08e9d73f41c45d97d6",
@@ -214,13 +214,13 @@
     "bundleSha256": "0x93b778c559b2baa919b877f346deeac74390c2d501d47b68917bd9fe05d061f9",
     "bundleBytes": 878589,
     "assets": {
-      ".vite/manifest.json": "0x0803a30b683ca2cc07d322eadd2f1beb212b0b26806970a30abef1540fcf5757",
+      ".vite/manifest.json": "0x199e5b87e917f196dcc1de7202836d21790284fa92b157bb1b5baab36226dd4f",
       "app/assets/capture-processor-Di3k79aW.js": "0x97fc42534dd5a5e20c9bf241a30a39aa1652fe0cf1d7fc4857b0d0f57c782975",
       "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
       "app/assets/index-Byp_nxt3.css": "0x1e5035ce545510e910393f1394e5b1880af12cd2d8b5b6458216d837f705683e",
-      "app/assets/index-D-BZMTsU.js": "0xa06bb1a12b3844d4edfe55bceec9f899ba0f83dd81cad321b46dcd810d07cbbf",
+      "app/assets/index-CXy3CtTH.js": "0x1980eb1054dc920c818d0fb5da8016ea48268a25fd92855b25a9e918f6680c28",
       "images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
-      "index.html": "0xc0b9aded6cbec2ce97abc129d28de3e2ad8c02b1b0ddd0a8ae496d91da08eac0"
+      "index.html": "0x00f98deea57ef06ce9601d3eab945ee85414242e79e6fc65b19e2e843d6003d4"
     },
     "migrations": [
       "0001_setup.sql",

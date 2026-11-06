@@ -178,6 +178,13 @@ createServer(async (request, response) => {
     if (url.pathname === "/__fixture/operator")
       return send(response, 200, {
         attempts: (await live.operatorState("attempt:")).map((r) => r.value),
+        audio: (await live.operatorState("audioRelay:")).map(
+          ({ key, value }) => ({
+            ticketId: key.slice("audioRelay:".length),
+            lastSequence: (value as { lastSequence: number | null })
+              .lastSequence,
+          }),
+        ),
         publications: await live.operatorState("publicationV2:"),
         bundles: await live.operatorState("workV2:"),
         transactions: (await live.operatorState("tx:")).map(({value}) => { const {raw, ...row} = value as Record<string, unknown>; return row; }),

@@ -142,15 +142,17 @@ test("one enrollment sponsors repeated terminal publications, history export and
   expect((await records()).length).toBe(2);
 });
 
-test("missing server line feedback stops playback instead of silently finishing the song", async ({
+test("missing server feedback stops playback and can reconnect the same open take", async ({
   page,
 }) => {
+  let suppressFeedback = true;
   await page.routeWebSocket(
     (url) => url.pathname.endsWith("/attempt"),
     (route) => {
       const server = route.connectToServer();
       server.onMessage((message) => {
         if (
+          suppressFeedback &&
           typeof message === "string" &&
           JSON.parse(message).type === "line_scores"
         )
@@ -171,7 +173,7 @@ test("missing server line feedback stops playback instead of silently finishing 
   });
   await consent.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "Live scoring isn't responding. Playback stopped. Start a new take.",
+    "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
     { timeout: 35000 },
   );
   expect(
@@ -180,4 +182,34 @@ test("missing server line feedback stops playback instead of silently finishing 
       .evaluate((audio: HTMLAudioElement) => audio.paused),
   ).toBe(true);
   await expect(page.getByRole("region", { name: "Results" })).toHaveCount(0);
+  const state = async () =>
+    (await (await page.request.get("/__fixture/operator")).json()) as {
+      attempts: { ticketId: string; ended: unknown | null }[];
+      audio: { ticketId: string; lastSequence: number }[];
+    };
+  const before = await state();
+  const open = before.attempts.filter((attempt) => attempt.ended === null);
+  expect(open).toHaveLength(1);
+  const ticketId = open[0].ticketId;
+  const previousSequence = before.audio.find(
+    (row) => row.ticketId === ticketId,
+  )!.lastSequence;
+  suppressFeedback = false;
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await state()).audio.find((row) => row.ticketId === ticketId)!
+          .lastSequence,
+      { timeout: 5000 },
+    )
+    .toBeGreaterThan(previousSequence);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
+    timeout: 5000,
+  });
+  expect((await state()).attempts).toHaveLength(before.attempts.length);
+  await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
+    timeout: 20000,
+  });
 });
