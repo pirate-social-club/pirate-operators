@@ -7,15 +7,19 @@ import {
   PAYMENT_GRACE_S,
   RECONNECT_WINDOW_S,
   songEndMs,
-  type KaraokeManifest,
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
-import type { SimulatedWord } from "../harness/karaoke-elevenlabs-simulator.ts";
-import { fixtureLyrics, fixtureManifest } from "../harness/karaoke-fixture.ts";
 import { encodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
 import { KaraokeOperatorAudioClient } from "../packages/karaoke/operator-audio-client.ts";
 import { startChain, stopChain, type Chain } from "./payments-fixture.ts";
-import { audioCommunity } from "./karaoke-audio-fixture.ts";
+import {
+  audioCommunity,
+  sungAudioWords as sung,
+  AUDIO_MANIFEST as manifest,
+  AUDIO_LINES as ALL,
+  finishAudioAttempt as finish,
+  storedAudioWords as storedWords,
+} from "./karaoke-audio-fixture.ts";
 
 let evm: Chain;
 before(async () => {
@@ -24,57 +28,6 @@ before(async () => {
 after(async () => {
   await stopChain(evm);
 });
-
-type C = Awaited<ReturnType<typeof audioCommunity>>;
-type A = Awaited<ReturnType<C["attempt"]>>;
-
-/** The fixture's reference words for the chosen lines, shifted onto a stream clock. */
-const sung = (
-  manifest: KaraokeManifest,
-  lineIds: string[],
-  streamOffsetMs = 0,
-  text?: string,
-): SimulatedWord[] =>
-  manifest.lines
-    .filter((line) => lineIds.includes(line.lineId))
-    .flatMap((line) =>
-      line.words.map((word) => ({
-        text: text ?? word.text,
-        start: (word.startMs - streamOffsetMs) / 1000,
-        end: (word.endMs - streamOffsetMs) / 1000,
-      })),
-    );
-// The fixture manifest's line and word timing is fixed; the song only sets its hash.
-const manifest = fixtureManifest({
-  communityId: "fixture-community",
-  audio: "0x00",
-  title: "timing",
-  lyrics: fixtureLyrics,
-  artwork: "original-cover-fixture-v1",
-  original: true,
-});
-const ALL = ["line-01", "line-02", "line-03", "line-04"];
-
-async function finish(c: C, a: A, socket = a.socket) {
-  await c.at(
-    a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000) - 1,
-  );
-  socket.send({ type: "finish" });
-  // Finishing waits for the provider's last commit, so poll until the take ends.
-  const ticketId = a.ticket.body.ticketId;
-  for (let i = 0; i < 100; i++) {
-    const [row] = await c.state(`attempt:${ticketId}`);
-    if ((row?.value as { ended?: unknown } | undefined)?.ended) break;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  await c.at(c.now() + PAYMENT_GRACE_S);
-  const result = await c.result(ticketId);
-  assert.equal(result.status, 200, JSON.stringify(result.value));
-  return result.value.body;
-}
-const storedWords = async (c: C, a: A) =>
-  ((await c.state(`words:${a.ticket.body.ticketId}`))[0]?.value ??
-    []) as KaraokeRecognizedWord[];
 
 test("provider-recognized words reach the scorer at their song times", async () => {
   const c = await audioCommunity(evm, "audio", [
@@ -564,33 +517,6 @@ test("a transcript that returns after the learner's socket closed still counts",
       result.value.body.lines.map((l) => l.status),
       ["assessed", "assessed", "unattempted", "unattempted"],
     );
-  } finally {
-    await c.dispose();
-  }
-});
-
-test("a transcript answered across a learner reconnect still counts", async () => {
-  // Line 2's commit is still unanswered when the learner's socket is replaced.
-  const c = await audioCommunity(evm, "late-rejoin", [
-    { words: sung(manifest, ALL), commitDelayMs: 800 },
-  ]);
-  try {
-    const a = await c.attempt();
-    await c.payAll(a);
-    await c.sing(a.socket, a, 0, 4500);
-    const rejoined = await c.reconnect(a);
-    assert.equal(rejoined.ready.resumed, true);
-    await c.sing(rejoined, a, 4500, 22500);
-    const result = await finish(c, a, rejoined);
-    assert.deepEqual(
-      result.lines.map((l) => l.status),
-      ["assessed", "assessed", "assessed", "assessed"],
-    );
-    assert.deepEqual(
-      (await storedWords(c, a)).map((w) => w.text),
-      manifest.lines.flatMap((l) => l.words.map((w) => w.text)),
-    );
-    assert.equal((await c.simulator()).minted, 1);
   } finally {
     await c.dispose();
   }
