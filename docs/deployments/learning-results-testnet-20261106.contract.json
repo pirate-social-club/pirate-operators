@@ -1,0 +1,28 @@
+{
+  "chainId": 6343,
+  "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+  "learningResults": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+  "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+  "grader": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+  "publicityPolicy": "0xed087bbce3b42c61236f9c26795f3b1b43e626ded9ac4a75bb97f43138791143",
+  "codeHash": "0x65d365c9cc7d2c1138c583a5cd272728e40a04b44a0994989655ab5a48f885fe",
+  "sourceCommit": "24eecb4c6bf7f2b34b38f17c048f432de1e7c40b",
+  "maximumTotalWei": "152000000000000",
+  "transactions": {
+    "deploy": {
+      "hash": "0xf374c7b1bb5bc185d448ba9c03d58bc9a442b94937ad9fcf651ec7c42b1a4f13",
+      "block": "34243087",
+      "gasUsed": "117556831",
+      "gasPriceWei": "1000000",
+      "status": "success"
+    },
+    "grader": {
+      "hash": "0x1b6551e7aec570d91f8efa945d7f675f574effaaf0f7df9d20e16cb125d29369",
+      "block": "34243088",
+      "gasUsed": "108552",
+      "gasPriceWei": "1000000",
+      "status": "success"
+    }
+  },
+  "directoryConfiguration": "pending"
+}

@@ -18,12 +18,16 @@ intervals, and words bound to their actual character spans. Standalone CR
 remains within its retained lyric occurrence; CRLF/LF follow the manifest's
 existing boundaries without normalization.
 
-The current parser requires valid word timing evidence. The centralized
-character-only fallback is not implemented, so a character-only response is
-unavailable rather than fabricated word timing. General browser/device
-acceptance and the authenticated runtime, scoped provider binding and reviewed
-deployment/execution package remain outstanding. No provider call is established
-by local tests or by this document.
+The parser uses word timings when every provider word binds to its exact
+character span, and otherwise the centralized character fallback of api-next
+a5c63b8: character timings grouped into words at whitespace. A response whose
+characters do not reproduce the text, or whose word entries are malformed,
+remains unavailable; nothing is interpolated. The request body is the
+centralized byte-exact multipart encoding, because FormData rewrites line
+breaks to CRLF. The community application runs the operation on the
+controller's signed request; see docs/karaoke-integration-handoff.md. The
+reviewed deployment and execution package remain outstanding. No provider call
+is established by local tests or by this document.
 
 The durable operation identity is community, post and lyric revision. A new
 grant cannot replenish it. Status for a missing operation creates nothing;
@@ -59,4 +63,5 @@ Future runtime wiring must keep the expected origin, current configuration and
 signing role server-controlled, gate capability issuance by the exact finite
 post/lyric grant, and hash/probe downloaded vocal bytes before the provider send.
 A read capability, community session or provider key alone cannot authorize an
-alignment purchase. No route or deployed service currently imports this helper.
+alignment purchase. The vocal read capability helper is still imported by no
+route; the community application reads its own sealed vocal stem directly.

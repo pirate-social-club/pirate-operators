@@ -11,8 +11,47 @@ import {
 } from "./api.ts";
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
+import {
+  LiveKaraoke,
+  type KaraokeWallet,
+  type LearningActions,
+} from "./karaoke.tsx";
+
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/overlays/dropdown-menu/dropdown-menu";
+import { buttonVariants } from "@/components/actions/button/button";
+import { IconGearSix } from "@/components/media/icons";
 
 const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
+async function moss() {
+  const { mega } = await import("@megaeth-labs/wallet-sdk");
+  await mega.initialise({
+    network: "testnet",
+    logging: "error",
+    debug: false,
+    handshakeTimeoutMs: 45000,
+  });
+  return mega;
+}
+/** The learner's consent, signed by their MOSS account. */
+const mossWallet: KaraokeWallet = {
+  async signConsent(request) {
+    const mega = await moss();
+    await mega.connect();
+    // MOSS validates typed data itself; the SDK README names the payload "value".
+    const { message, ...typed } = request;
+    let signed = await mega.signData({ data: { ...typed, message } });
+    if (signed.status === "error")
+      signed = await mega.signData({ data: { ...typed, value: message } });
+    if (signed.status !== "success" || !signed.signature)
+      throw new Error("Your score wasn't signed.");
+    return signed.signature;
+  },
+};
 const shortened = (address: string) =>
   `${address.slice(0, 8)}…${address.slice(-6)}`;
 function App() {
@@ -23,6 +62,12 @@ function App() {
       createSignal<CommunityCapabilities | null>(null),
     [feed, setFeed] = createSignal<CommunityFeed | null>(null),
     [busy, setBusy] = createSignal(false),
+    [learningActions, setLearningActions] =
+      createSignal<LearningActions | null>(null),
+    [singing, setSinging] = createSignal<{
+      postId: string;
+      title: string;
+    } | null>(null),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
   let popup: Window | null = null,
@@ -76,13 +121,7 @@ function App() {
   }
   async function signIn() {
     setStatus("Opening MOSS…");
-    const { mega } = await import("@megaeth-labs/wallet-sdk");
-    await mega.initialise({
-      network: "testnet",
-      logging: "error",
-      debug: false,
-      handshakeTimeoutMs: 45000,
-    });
+    const mega = await moss();
     setStatus("Continue in MOSS to sign in.");
     const account = await mega.connect();
     if (!account?.address) throw new Error("MOSS sign-in was cancelled.");
@@ -99,6 +138,35 @@ function App() {
     });
     await refreshSession();
     setStatus("Signed in. Connect your creator wallet to begin a release.");
+  }
+  async function revokeLearning() {
+    const current = session();
+    if (!current) return;
+    const active = await post<{ active?: boolean }>(
+      "/api/karaoke/enrollment",
+      {},
+      current.csrf,
+    );
+    if (!active.active) {
+      setStatus("Public learning results are not enabled for this wallet.");
+      return;
+    }
+    const request = await post<import("./karaoke.tsx").KaraokeConsentRequest>(
+      "/api/karaoke/enrollment/revoke",
+      {},
+      current.csrf,
+    );
+    const signature = await mossWallet.signConsent(request);
+    const result = await post<{ state: string }>(
+      "/api/karaoke/enrollment/revoke",
+      { message: request.message, signature },
+      current.csrf,
+    );
+    setStatus(
+      result.state === "success"
+        ? "Public enrollment stopped. Earlier publications remain public."
+        : "Revocation is pending confirmation. Public enrollment has not stopped yet.",
+    );
   }
   async function finishConnection(connectionId: string, state: string) {
     const current = session();
@@ -209,7 +277,7 @@ function App() {
   });
   return (
     <>
-      <header class="live-header">
+      <header class="live-header" inert={singing() !== null}>
         <a href="/" class="live-brand">
           pirate<span>/ community</span>
         </a>
@@ -219,13 +287,24 @@ function App() {
         <Show
           when={session()}
           fallback={
-            <Button
-              variant="outline"
-              disabled={busy() || !boot()}
-              onClick={() => void run(signIn)}
-            >
-              Sign in with MOSS
-            </Button>
+            <div>
+              <Button
+                variant="outline"
+                disabled={busy() || !boot()}
+                onClick={() => void run(signIn)}
+              >
+                Sign in with MOSS
+              </Button>
+              <p class="live-muted">
+                <a href="/terms" target="_blank" rel="noopener">
+                  Terms
+                </a>{" "}
+                ·{" "}
+                <a href="/privacy" target="_blank" rel="noopener">
+                  Privacy
+                </a>
+              </p>
+            </div>
           }
         >
           {(current) => (
@@ -233,6 +312,33 @@ function App() {
               <span title={current().mossAddress}>
                 {shortened(current().mossAddress)}
               </span>
+              <Show when={capabilities()?.learningServiceMode === "internal"}>
+                <DropdownMenu placement="bottom-end">
+                  <DropdownMenuTrigger
+                    class={buttonVariants({ variant: "ghost" })}
+                    aria-label="Learning settings"
+                  >
+                    <IconGearSix class="size-5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <Show when={learningActions()}>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void run(async () => {
+                            await learningActions()!.download();
+                            setStatus("Private history downloaded.");
+                          })
+                        }
+                      >
+                        Download private history
+                      </DropdownMenuItem>
+                    </Show>
+                    <DropdownMenuItem onSelect={() => void run(revokeLearning)}>
+                      Stop public enrollment
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </Show>
               <Button
                 variant="ghost"
                 disabled={busy()}
@@ -240,6 +346,7 @@ function App() {
                   void run(async () => {
                     await post("/api/logout", {}, current().csrf);
                     setSession(null);
+                    setLearningActions(null);
                     setStatus("Signed out.");
                   })
                 }
@@ -250,7 +357,20 @@ function App() {
           )}
         </Show>
       </header>
-      <main class="live-main">
+      <Show when={singing() && session()}>
+        <div class="live-karaoke-overlay">
+          <LiveKaraoke
+            postId={singing()!.postId}
+            title={singing()!.title}
+            csrf={session()!.csrf}
+            wallet={mossWallet}
+            serviceMode={capabilities()?.learningServiceMode}
+            onExit={() => setSinging(null)}
+            onLearningActions={(actions) => setLearningActions(actions)}
+          />
+        </div>
+      </Show>
+      <main class="live-main" inert={singing() !== null}>
         <section class="live-intro">
           <p class="live-kicker">INDEPENDENT MUSIC</p>
           <h1>{name()}</h1>
@@ -349,6 +469,19 @@ function App() {
                     </p>
                   </Show>
                   <audio controls preload="metadata" src={song.audioUrl} />
+                  <Show when={session()}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setSinging({
+                          postId: song.manifest.postId,
+                          title: song.manifest.title,
+                        })
+                      }
+                    >
+                      Sing
+                    </Button>
+                  </Show>
                   <Show when={song.lyricsText}>
                     <details>
                       <summary>Lyrics</summary>
@@ -369,7 +502,7 @@ function App() {
           </Show>
         </section>
       </main>
-      <footer class="live-footer">
+      <footer class="live-footer" inert={singing() !== null}>
         A community of independent creators. Creator ownership stays with your
         wallet.
       </footer>

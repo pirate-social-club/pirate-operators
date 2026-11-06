@@ -9,6 +9,7 @@ import {
   type VerifyLogin,
 } from "../packages/community/accounts.ts";
 import {
+  bytes32,
   CommunityError,
   cookie,
   insist,
@@ -16,7 +17,8 @@ import {
   requestOrigin,
   text,
 } from "../packages/community/common.ts";
-import { readConfiguration } from "../packages/community/directory-reader.ts";
+import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
+import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import {
   beginCreatorConnection,
@@ -34,6 +36,7 @@ import type {
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
+import { learningPolicyPage } from "./learning-policy-pages.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
 import { communityReleaseApi } from "./community-release-api.ts";
@@ -50,9 +53,25 @@ import {
   type PublicReadPorts,
 } from "./community-public.ts";
 import { runCommunityJob, recoverCommunityJobs } from "./community-jobs.ts";
+import type { ProviderTransport } from "../packages/moderation/provider-http.ts";
+import {
+  instrumentalResponse,
+  publishedKaraoke,
+  runSongAlignment,
+} from "./karaoke-song.ts";
+import {
+  karaokeAttempt,
+  karaokeEnrollment,
+  karaokeRevokeEnrollment,
+  karaokeHistory,
+  karaokeConsent,
+  karaokePurchase,
+  karaokeTicket,
+  type KaraokeEnv,
+} from "./karaoke-community.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
-export interface CommunityEnv extends FirstSongRuntimeEnv {
+export interface CommunityEnv extends FirstSongRuntimeEnv, KaraokeEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ jobId: string }>;
@@ -62,6 +81,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv {
   APPLICATION_PROFILE_HASH: string;
   CREATOR_PROFILE_HASH: string;
   COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
+  /** Pirate's provider key for the one forced alignment per lyric revision. */
+  ALIGNMENT_ELEVENLABS_API_KEY?: string;
 }
 export interface CommunityDependencies {
   configuration(): Promise<CommunityConfig>;
@@ -70,15 +91,21 @@ export interface CommunityDependencies {
   creatorTransport?: CreatorConnectionService["transport"];
   releaseRuntime?(config: CommunityConfig): FirstSongDriverPorts;
   publicReads?: PublicReadPorts;
+  alignmentTransport?: ProviderTransport;
+  now?: () => number;
 }
 function dependencies(env: CommunityEnv): CommunityDependencies {
+  let history: ReturnType<typeof readConfigurationHistory> | undefined;
+  const configurationHistory = () => history ??= readConfigurationHistory(megaethReadClient(), {
+    ...firstSong.directoryProfile,
+    deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
+  });
   return {
     async configuration() {
-      return readConfiguration(megaethReadClient(), {
-        ...firstSong.directoryProfile,
-        deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
-      });
+      return (await configurationHistory()).at(-1)!;
     },
+    publicReads: { client: megaethReadClient(), profile: publicPostsProfile(), configurationHistory,
+      manifestAvailable: async (hash) => !!await publicResultManifest(hash) },
     async verifyLogin(address, message, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
@@ -102,7 +129,18 @@ function dependencies(env: CommunityEnv): CommunityDependencies {
     },
   };
 }
-function headers() {
+function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
+  // The learner's Karaoke socket connects to the operator's origin.
+  let operatorSocket = "";
+  try {
+    if (env.KARAOKE_OPERATOR_ORIGIN) {
+      const origin = new URL(env.KARAOKE_OPERATOR_ORIGIN);
+      origin.protocol = origin.protocol === "http:" ? "ws:" : "wss:";
+      operatorSocket = ` ${origin.origin}`;
+    }
+  } catch {
+    /* An invalid origin leaves Karaoke without a socket, never the page. */
+  }
   return new Headers({
     "cache-control": "no-store",
     "x-content-type-options": "nosniff",
@@ -110,8 +148,7 @@ function headers() {
     "x-frame-options": "DENY",
     "permissions-policy":
       'publickey-credentials-create=(self "https://account.megaeth.com"), publickey-credentials-get=(self "https://account.megaeth.com")',
-    "content-security-policy":
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'",
+    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com${operatorSocket}; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
   });
 }
 export async function communityFetch(
@@ -120,11 +157,13 @@ export async function communityFetch(
   ports = dependencies(env),
 ): Promise<Response> {
   const url = new URL(request.url),
-    security = headers(),
+    security = headers(env),
     reply = (value: unknown, status = 200) =>
       Response.json(value, { status, headers: security });
   try {
     insist(url.origin === firstSong.origin, "wrong_community_host", 403);
+    const policy = learningPolicyPage(url.pathname);
+    if (policy) return policy;
     const context = {
       communityId: firstSong.directoryProfile.communityId,
       origin: firstSong.origin,
@@ -256,6 +295,31 @@ export async function communityFetch(
       });
       return reply(result);
     }
+    if (url.pathname === "/api/operator/song-alignment") {
+      insist(request.method === "POST" && !url.search, "not_found", 404);
+      requestOrigin(request, context.origin);
+      // Only the community controller's short-lived signed request buys the
+      // one forced alignment of a published lyric revision.
+      const signed = await jsonBody(request, 16 * 1024);
+      return reply(
+        await runSongAlignment(
+          env.DB,
+          env.MEDIA,
+          await configuration(),
+          publicReads,
+          signed,
+          {
+            apiKey: env.ALIGNMENT_ELEVENLABS_API_KEY,
+            transport: ports.alignmentTransport,
+            now: ports.now,
+            beforeSend: env.KARAOKE_SERVICE_MODE === "internal" ? async () => {
+              insist(env.KARAOKE_SPEECH_BUDGET, "speech_budget_unconfigured", 503);
+              await env.KARAOKE_SPEECH_BUDGET.getByName("elevenlabs-service").claim();
+            } : undefined,
+          },
+        ),
+      );
+    }
     const release = await communityReleaseApi(
       request,
       env,
@@ -297,6 +361,7 @@ export async function communityFetch(
       const capabilities: CommunityCapabilities = {
         schema: "pirate.community-capabilities/1",
         signIn: true,
+        ...(env.KARAOKE_SERVICE_MODE === "internal" ? { learningServiceMode: "internal" as const } : {}),
         creatorConnection: await ports.creatorHealth(),
         upload: releaseReady,
         publication: releaseReady,
@@ -329,6 +394,59 @@ export async function communityFetch(
       publicReads,
     );
     if (publicResource) return publicResource;
+    const karaokePorts = {
+      env,
+      db: env.DB,
+      config,
+      reads: publicReads,
+      now: ports.now,
+    };
+    const timed = /^\/api\/public\/posts\/(0x[0-9a-f]{64})\/karaoke$/.exec(
+      url.pathname,
+    );
+    if (timed) {
+      insist(
+        request.method === "GET" && !url.search,
+        "method_not_allowed",
+        405,
+      );
+      return reply(
+        await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
+      );
+    }
+    const instrumental =
+      /^\/api\/karaoke\/posts\/(0x[0-9a-f]{64})\/instrumental$/.exec(
+        url.pathname,
+      );
+    if (instrumental) {
+      insist(
+        request.method === "GET" && !url.search,
+        "method_not_allowed",
+        405,
+      );
+      await accountSession(request, env.DB, context);
+      const stem = await instrumentalResponse(
+          env.DB,
+          env.MEDIA,
+          config,
+          instrumental[1] as Hex,
+        ),
+        stemHeaders = new Headers(stem.headers);
+      for (const [name, value] of security)
+        if (name !== "cache-control") stemHeaders.set(name, value);
+      return new Response(stem.body, { headers: stemHeaders });
+    }
+    if (url.pathname === "/api/karaoke/attempt") {
+      insist(request.method === "GET", "method_not_allowed", 405);
+      const session = await accountSession(request, env.DB, context);
+      return reply(
+        await karaokeAttempt(
+          karaokePorts,
+          session,
+          bytes32(url.searchParams.get("postId")),
+        ),
+      );
+    }
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
@@ -347,6 +465,18 @@ export async function communityFetch(
         return reply({ authenticated: true, csrf: verified.csrf });
       }
       const session = await authenticatedWrite(request, env.DB, context);
+      if (url.pathname === "/api/karaoke/history")
+        return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollment/revoke")
+        return reply(await karaokeRevokeEnrollment(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollment")
+        return reply(await karaokeEnrollment(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/tickets")
+        return reply(await karaokeTicket(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/purchases")
+        return reply(await karaokePurchase(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/consent")
+        return reply(await karaokeConsent(karaokePorts, session, body));
       if (
         url.pathname === "/api/creator/connect" ||
         url.pathname === "/api/creator/complete"

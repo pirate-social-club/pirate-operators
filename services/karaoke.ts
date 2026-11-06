@@ -1,5 +1,5 @@
 // Operator side of per-line karaoke billing (docs/operator-payments.md 5).
-import { verifyMessage, type Hex } from "viem";
+import { verifyMessage, type Hex, type Address } from "viem";
 import {
   check,
   digest,
@@ -17,6 +17,7 @@ import {
   PAYMENT_GRACE_S,
   RECONNECT_WINDOW_S,
   type KaraokeManifest,
+  type KaraokeResultBody,
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
@@ -30,12 +31,34 @@ import {
   refreshRedemptions,
 } from "./purchases.ts";
 import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
-import { acceptConsent, consentRequest, correct, publish } from "./records.ts";
+import {
+  acceptConsent,
+  consentRequest,
+  correct,
+  publicationOf,
+  publish,
+} from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
+
+import {
+  activeEnrollment,
+  acceptEnrollment,
+  acceptRevocation,
+  revocationRequest,
+  bindEnrollment,
+  correctV2,
+  enrollmentRequest,
+  publicationV2,
+  publishV2,
+  resumeEnrollments,
+} from "./learning-results.ts";
+import type { Enrollment } from "../packages/protocol/learning-results.ts";
+import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
-  const manifest = ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
+  const manifest =
+    ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
   const attempt = store.get<Attempt>(`attempt:${ticketId}`);
   return { ticket, manifest, attempt };
 };
@@ -47,7 +70,9 @@ type Status = NonNullable<Attempt["ended"]>["status"];
 function end(attempt: Attempt, endedAt: number, status: Status) {
   if (attempt.ended) return;
   const performanceEndedAt =
-    attempt.disconnectedAt === null ? endedAt : Math.min(endedAt, attempt.disconnectedAt);
+    attempt.disconnectedAt === null
+      ? endedAt
+      : Math.min(endedAt, attempt.disconnectedAt);
   attempt.ended = {
     endedAt,
     performanceEndedAt,
@@ -57,7 +82,10 @@ function end(attempt: Attempt, endedAt: number, status: Status) {
 }
 /** For the unpaid-run stop: a purchase received and still being redeemed counts. */
 const purchaseReceived = (store: Store, ticketId: Hex, segmentId: string) => {
-  const state = redemptionRow(store, unitHash(segmentUnit(ticketId, segmentId, 0)))?.state;
+  const state = redemptionRow(
+    store,
+    unitHash(segmentUnit(ticketId, segmentId, 0)),
+  )?.state;
   return state === "confirmed" || state === "submitted";
 };
 
@@ -78,23 +106,33 @@ export function settle(store: Store, env: Env, ticketId: string) {
       attempt.connected ? "completed" : "abandoned",
     ]);
     events.push([
-      Math.min(ticket.expiresAt, attempt.startedAt + Math.ceil(ticket.maxDurationMs / 1000)),
+      Math.min(
+        ticket.expiresAt,
+        attempt.startedAt + Math.ceil(ticket.maxDurationMs / 1000),
+      ),
       "expired",
     ]);
     let run = 0;
-    for (const segment of manifest.segments) {
+    for (const segment of env.SERVICE_MODE === "internal"
+      ? []
+      : manifest.segments) {
       const segmentEnd = attempt.startedAt + Math.ceil(segment.endMs / 1000);
       if (segmentEnd > now) break;
-      run = purchaseReceived(store, ticket.ticketId, segment.segmentId) ? 0 : run + 1;
+      run = purchaseReceived(store, ticket.ticketId, segment.segmentId)
+        ? 0
+        : run + 1;
       if (run >= operatorQuote(env).maxUnpaidRun) {
         events.push([segmentEnd, "payment_missing"]);
         break;
       }
     }
-    const due = events.filter(([at]) => at <= now).sort((a, b) => a[0] - b[0])[0];
+    const due = events
+      .filter(([at]) => at <= now)
+      .sort((a, b) => a[0] - b[0])[0];
     if (due) end(attempt, due[0], due[1]);
   }
-  if (attempt.ended && now >= attempt.ended.paymentDeadline) attempt.closing = { block: null };
+  if (attempt.ended && now >= attempt.ended.paymentDeadline)
+    attempt.closing = { block: null };
   store.set(`attempt:${ticketId}`, attempt);
   return attempt;
 }
@@ -105,12 +143,52 @@ async function advance(env: Env, store: Store, ticketId: string) {
   // Purchase state comes from the contract before the stop rule reads it. A
   // failed or slow refresh leaves purchases pending for the next tick; it never
   // blocks timers, capture or finalization.
-  if (loaded.ticket && loaded.manifest && loaded.attempt && !loaded.attempt.ended)
-    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest).catch(() => undefined);
+  if (
+    env.SERVICE_MODE !== "internal" &&
+    loaded.ticket &&
+    loaded.manifest &&
+    loaded.attempt &&
+    !loaded.attempt.ended
+  )
+    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest).catch(
+      () => undefined,
+    );
   const attempt = settle(store, env, ticketId);
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
   if (!ticket || !manifest) return;
+  if (env.SERVICE_MODE === "internal") {
+    const current = store.get<Attempt>(`attempt:${ticketId}`)!;
+    const quote = operatorQuote(env);
+    const result = resultBody(
+      store,
+      ticket,
+      manifest,
+      quote,
+      quoteIdOf(quote),
+      current,
+      new Map(),
+      0,
+    );
+    const signed = await sign(
+      "result",
+      result,
+      env.PRIVATE_KEY,
+      signatureChainId(env),
+    );
+    store.transaction(() => {
+      if (store.get<Attempt>(`attempt:${ticketId}`)?.finalized) return;
+      store.set(`result:${ticketId}`, signed);
+      saveLearnerHistory(
+        store,
+        result,
+        manifest,
+        Number(env.HISTORY_RETENTION_DAYS),
+      );
+      store.set(`attempt:${ticketId}`, { ...current, finalized: true });
+    });
+    return;
+  }
   // The closure is an intent like any redemption: persisted first, sent once.
   enqueue(
     store,
@@ -133,7 +211,16 @@ async function advance(env: Env, store: Store, ticketId: string) {
     throw new Error("simulated_crash_before_result");
   }
   const quote = operatorQuote(env);
-  const finalBody = resultBody(store, ticket, manifest, quote, quoteIdOf(quote), current, paid, block);
+  const finalBody = resultBody(
+    store,
+    ticket,
+    manifest,
+    quote,
+    quoteIdOf(quote),
+    current,
+    paid,
+    block,
+  );
   store.set(
     `result:${ticketId}`,
     await sign("result", finalBody, env.PRIVATE_KEY, signatureChainId(env)),
@@ -145,11 +232,14 @@ async function advance(env: Env, store: Store, ticketId: string) {
   });
 }
 export async function tick(env: Env, store: Store) {
+  expireLearnerHistory(store);
+  if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
   for (const { key } of store.entries("attempt:")) {
     const ticketId = key.slice("attempt:".length);
     try {
       await advance(env, store, ticketId);
-      await publish(env, store, ticketId);
+      if (env.RESULTS_V2_CONTRACT) await publishV2(env, store, ticketId);
+      else await publish(env, store, ticketId);
     } catch {
       // Left for the next tick or recovery; one attempt never blocks the rest.
     }
@@ -163,12 +253,26 @@ export async function recover(env: Env, store: Store) {
 }
 
 /** Accepts a segment purchase for an attempt that is still open for payment. */
-async function acceptSegment(env: Env, store: Store, input: SignedPurchase, socketTicketId?: string) {
+async function acceptSegment(
+  env: Env,
+  store: Store,
+  input: SignedPurchase,
+  socketTicketId?: string,
+) {
   const ticketId = input?.purchase?.ticketId;
-  return acceptPurchase(env, store, input, { kind: "segment", socketTicketId }, () => {
-    const attempt = settle(store, env, ticketId);
-    check(attempt && !attempt.closing && !attempt.finalized, "attempt_closed");
-  });
+  return acceptPurchase(
+    env,
+    store,
+    input,
+    { kind: "segment", socketTicketId },
+    () => {
+      const attempt = settle(store, env, ticketId);
+      check(
+        attempt && !attempt.closing && !attempt.finalized,
+        "attempt_closed",
+      );
+    },
+  );
 }
 
 export async function karaokeRoute(
@@ -178,24 +282,103 @@ export async function karaokeRoute(
   ctx: DurableObjectState,
 ): Promise<Response | null> {
   const url = new URL(request.url);
+  if (url.pathname === "/history" && env.SERVICE_MODE === "internal") {
+    const { ticketId, proof } = await body<{ ticketId: string; proof: Hex }>(
+      request,
+    );
+    const { ticket } = load(store, ticketId);
+    check(
+      ticket &&
+        (await verifyMessage({
+          address: ticket.sessionKey,
+          message: `connect:${ticketId}`,
+          signature: proof,
+        })),
+      "history_not_found",
+    );
+    expireLearnerHistory(store);
+    const history = store.get(`history:${ticketId}`);
+    check(history, "history_not_found");
+    return Response.json(history);
+  }
+  if (url.pathname === "/enrollment/request") {
+    check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
+    const { learner } = await body<{ learner: Address }>(request);
+    try {
+      await activeEnrollment(env, learner);
+      return Response.json({ active: true });
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "enrollment_required")
+        throw error;
+    }
+    if (store.get(`pendingEnrollment:${learner.toLowerCase()}`))
+      return Response.json({ pending: true });
+    return Response.json(await enrollmentRequest(env, learner, store.now()));
+  }
+  if (url.pathname === "/enrollment/revoke") {
+    const { learner, nonce, signature } = await body<{
+      learner: Address;
+      nonce?: string;
+      signature?: Hex;
+    }>(request);
+    if (!signature) return Response.json(await revocationRequest(env, learner));
+    check(nonce !== undefined, "nonce_required");
+    const row = await acceptRevocation(
+      env,
+      store,
+      learner,
+      BigInt(nonce),
+      signature,
+    );
+    return Response.json({ state: row?.mined?.status ?? "pending" });
+  }
+  if (url.pathname === "/enrollment") {
+    const { enrollment: input, signature } = await body<{
+      enrollment: Record<string, string>;
+      signature: Hex;
+    }>(request);
+    const enrollment: Enrollment = {
+      learner: input.learner as Address,
+      communityId: input.communityId as Hex,
+      publicityPolicy: input.publicityPolicy as Hex,
+      activities: BigInt(input.activities),
+      expiresAt: BigInt(input.expiresAt),
+      nonce: BigInt(input.nonce),
+    };
+    const row = await acceptEnrollment(env, store, enrollment, signature);
+    return Response.json({ state: row?.mined?.status ?? "pending" });
+  }
   if (url.pathname === "/quote") {
     const quote = operatorQuote(env);
-    return Response.json(await sign("quote", quote, env.PRIVATE_KEY, signatureChainId(env)));
+    return Response.json(
+      await sign("quote", quote, env.PRIVATE_KEY, signatureChainId(env)),
+    );
   }
   if (url.pathname === "/prepare") {
-    const input = await body<{ ticket: Signed<Ticket>; manifest: KaraokeManifest }>(request);
-    const ticket = await verify(input.ticket, "ticket", env.ISSUER, signatureChainId(env));
+    const input = await body<{
+      ticket: Signed<Ticket>;
+      manifest: KaraokeManifest;
+    }>(request);
+    const ticket = await verify(
+      input.ticket,
+      "ticket",
+      env.ISSUER,
+      signatureChainId(env),
+    );
     const quote = operatorQuote(env);
     validateManifest(input.manifest, quote.maxSegmentMs);
     check(
-      ticket.operator === env.OPERATOR_ADDRESS &&
+      ticket.operator.toLowerCase() === env.OPERATOR_ADDRESS.toLowerCase() &&
         ticket.quoteId === quoteIdOf(quote) &&
         ticket.manifestSha256 === digest(input.manifest) &&
+        ticket.songHash === input.manifest.songHash &&
         ticket.expiresAt > store.now(),
       "invalid_ticket",
     );
     const old = store.get<Signed<Ticket>>(`ticket:${ticket.ticketId}`);
     if (old) check(digest(old) === digest(input.ticket), "ticket_conflict");
+    if (env.RESULTS_V2_CONTRACT)
+      await bindEnrollment(env, store, ticket.ticketId, ticket.participant);
     store.set(`ticket:${ticket.ticketId}`, input.ticket);
     store.set(`manifest:${ticket.manifestSha256}`, input.manifest);
     return Response.json({ prepared: true });
@@ -204,19 +387,91 @@ export async function karaokeRoute(
     const input = await body<SignedPurchase>(request);
     return Response.json({ paid: await acceptSegment(env, store, input) });
   }
-  if (url.pathname === "/recover") return Response.json(await recover(env, store));
+  if (url.pathname === "/recover")
+    return Response.json(await recover(env, store));
   if (url.pathname === "/__correct") {
     // Local control, like /__fault: production corrections need an
     // authenticated operator path that does not exist yet.
     // The correction is recorded here; operator ticks publish it.
-    const corrected = await correct(env, store, await body<Parameters<typeof correct>[2]>(request));
+    const corrected = await (env.RESULTS_V2_CONTRACT ? correctV2 : correct)(
+      env,
+      store,
+      await body<Parameters<typeof correct>[2]>(request),
+    );
     return Response.json({ revision: corrected.revision });
+  }
+  if (url.pathname === "/consent") {
+    // The same consent the socket accepts, for a learner whose attempt has
+    // ended or whose socket closed: only the learner's signature is accepted.
+    const input = await body<{ ticketId: string; signature: Hex }>(request);
+    const attempt = store.get<Attempt>(`attempt:${input.ticketId}`);
+    check(attempt, "attempt_not_found");
+    await acceptConsent(env, store, input.ticketId, attempt, input.signature);
+    return Response.json({ consented: true, attemptId: attempt.attemptId });
+  }
+  if (url.pathname === "/attempt-start" && env.SERVICE_MODE === "internal") {
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    return Response.json(store.get(`attemptStart:${ticketId}`) ?? null);
+  }
+  if (url.pathname === "/record" && env.RESULTS_V2_CONTRACT) {
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    check(store.get<Attempt>(`attempt:${ticketId}`), "attempt_not_found");
+    return Response.json({
+      consented: true,
+      consent: null,
+      publication: publicationV2(store, ticketId) ?? null,
+    });
+  }
+  if (url.pathname === "/record") {
+    // What the learner's screen shows about the on-chain record.
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    const attempt = store.get<Attempt>(`attempt:${ticketId}`);
+    check(attempt, "attempt_not_found");
+    return Response.json({
+      attemptId: attempt.attemptId,
+      consented: store.get(`consent:${ticketId}`) !== undefined,
+      // The same request the socket's ready message offers, for a reload.
+      consent:
+        consentRequest(
+          env,
+          store,
+          ticketId,
+          attempt.attemptId,
+          attempt.startedAt,
+        ) ?? null,
+      publication: publicationOf(store, ticketId) ?? null,
+    });
   }
   if (url.pathname === "/result") {
     const { ticketId } = await body<{ ticketId: string }>(request);
     await advance(env, store, ticketId);
-    const result = store.get(`result:${ticketId}`);
+    const result = store.get<Signed<KaraokeResultBody>>(`result:${ticketId}`);
     check(result, "result_not_final");
+    // Enrich older private receipts for display without revising public grades.
+    if (
+      !result.body.presentation &&
+      env.SERVICE_MODE === "internal" &&
+      store.get(`words:${ticketId}`)
+    ) {
+      const { ticket, manifest, attempt } = load(store, ticketId);
+      if (ticket && manifest && attempt?.ended) {
+        const quote = operatorQuote(env);
+        const enriched = resultBody(
+          store,
+          ticket,
+          manifest,
+          quote,
+          quoteIdOf(quote),
+          attempt,
+          new Map(),
+          result.body.closedAtBlock,
+        );
+        return Response.json({
+          ...result,
+          presentation: enriched.presentation,
+        });
+      }
+    }
     return Response.json(result);
   }
   if (url.pathname !== "/attempt") return null;
@@ -235,8 +490,13 @@ export async function karaokeRoute(
   // Read after the await: the relay may have handed words over meanwhile.
   const { attempt } = load(store, ticketId);
   check(!attempt?.ended, "attempt_closed");
-  check(request.headers.get("Upgrade")?.toLowerCase() === "websocket", "upgrade_required");
+  check(
+    request.headers.get("Upgrade")?.toLowerCase() === "websocket",
+    "upgrade_required",
+  );
   const resumed = attempt !== undefined;
+  if (env.RESULTS_V2_CONTRACT && !resumed)
+    await bindEnrollment(env, store, ticketId, ticket.participant);
   // Only the newest connection is live: older sockets for this ticket close,
   // and their later messages or close events are ignored.
   const generation = (attempt?.generation ?? 0) + 1;
@@ -262,7 +522,11 @@ export async function karaokeRoute(
       `attemptStart:${ticketId}`,
       await sign(
         "attempt_start",
-        { ticketId: next.ticketId, attemptId: next.attemptId, startedAt: next.startedAt },
+        {
+          ticketId: next.ticketId,
+          attemptId: next.attemptId,
+          startedAt: next.startedAt,
+        },
         env.PRIVATE_KEY,
         signatureChainId(env),
       ),
@@ -276,7 +540,14 @@ export async function karaokeRoute(
       attemptId: next.attemptId,
       resumed,
       attemptStart: store.get(`attemptStart:${ticketId}`),
-      consent: consentRequest(env, store, ticketId, next.attemptId, next.startedAt),
+      feedback: store.get(`feedback:${ticketId}`) ?? null,
+      consent: consentRequest(
+        env,
+        store,
+        ticketId,
+        next.attemptId,
+        next.startedAt,
+      ),
     }),
   );
   return new Response(null, { status: 101, webSocket: pair[0] });
@@ -288,7 +559,12 @@ type Frame =
   | { type: "provider_failed"; lineIds: string[] }
   | { type: "finish" }
   | { type: "consent"; signature: Hex };
-export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: Store) {
+export async function onMessage(
+  ws: WebSocket,
+  frame: Frame,
+  env: Env,
+  store: Store,
+) {
   const { ticketId, generation } = ws.deserializeAttachment() as {
     ticketId: string;
     generation: number;
@@ -301,7 +577,9 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     await advance(env, store, ticketId);
     try {
       const paid = await acceptSegment(env, store, frame, ticketId);
-      ws.send(JSON.stringify({ type: "paid", segmentId: paid.segmentId, take: 0 }));
+      ws.send(
+        JSON.stringify({ type: "paid", segmentId: paid.segmentId, take: 0 }),
+      );
     } catch (error) {
       ws.send(
         JSON.stringify({
@@ -317,9 +595,16 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     const attempt = store.get<Attempt>(`attempt:${ticketId}`)!;
     try {
       await acceptConsent(env, store, ticketId, attempt, frame.signature);
-      ws.send(JSON.stringify({ type: "consented", attemptId: attempt.attemptId }));
+      ws.send(
+        JSON.stringify({ type: "consented", attemptId: attempt.attemptId }),
+      );
     } catch (error) {
-      ws.send(JSON.stringify({ type: "error", code: error instanceof Error ? error.message : "invalid_consent" }));
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: error instanceof Error ? error.message : "invalid_consent",
+        }),
+      );
     }
     return;
   }
@@ -330,8 +615,13 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
   if (frame.type === "finish") end(attempt, store.now(), "completed");
   else if (frame.type === "provider_failed") {
     // Local simulated provider only: marks lines whose measurement failed.
-    check(Array.isArray(frame.lineIds) && frame.lineIds.length <= 100, "protocol_error");
-    attempt.failedLineIds = [...new Set([...attempt.failedLineIds, ...frame.lineIds])];
+    check(
+      Array.isArray(frame.lineIds) && frame.lineIds.length <= 100,
+      "protocol_error",
+    );
+    attempt.failedLineIds = [
+      ...new Set([...attempt.failedLineIds, ...frame.lineIds]),
+    ];
   } else if (frame.type === "words") {
     check(
       Array.isArray(frame.words) &&
@@ -359,7 +649,9 @@ export function onClose(ws: WebSocket, store: Store) {
     ticketId?: string;
     generation?: number;
   };
-  const attempt = ticketId ? store.get<Attempt>(`attempt:${ticketId}`) : undefined;
+  const attempt = ticketId
+    ? store.get<Attempt>(`attempt:${ticketId}`)
+    : undefined;
   // A superseded socket closing never disconnects its replacement.
   if (attempt && !attempt.ended && attempt.generation === generation) {
     attempt.connected = false;

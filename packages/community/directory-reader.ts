@@ -19,11 +19,11 @@ export interface DirectoryProfile {
   deploymentBlock: bigint;
   directoryCodeHash: Hex;
 }
-export async function readConfiguration(
+export async function readConfigurationHistory(
   client: PublicClient,
   profile: DirectoryProfile,
   send?: IpfsTransport,
-): Promise<CommunityConfig> {
+): Promise<CommunityConfig[]> {
   insist(
     (await client.getChainId()) === profile.chainId,
     "wrong_application_chain",
@@ -148,5 +148,9 @@ export async function readConfiguration(
     "directory_chain_reorganized",
     503,
   );
-  return history.at(-1)!;
+  return history;
+}
+
+export async function readConfiguration(client: PublicClient, profile: DirectoryProfile, send?: IpfsTransport): Promise<CommunityConfig> {
+  return (await readConfigurationHistory(client, profile, send)).at(-1)!;
 }

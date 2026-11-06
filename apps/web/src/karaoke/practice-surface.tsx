@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-practice-surface.tsx; only imports changed.
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import type { JSX } from "@solidjs/web";
 import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import {

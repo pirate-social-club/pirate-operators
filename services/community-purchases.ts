@@ -25,7 +25,8 @@ import {
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
 import { readPayments } from "./chain.ts";
-import { call, signatureChainId, type Env } from "./runtime.ts";
+import type { Env } from "./runtime.ts";
+import { call, signatureChainId } from "./service-call.ts";
 import type { AsyncStore } from "./storage.ts";
 
 /** Per-wallet sponsorship allowance. The contract deposit caps the community. */
@@ -258,4 +259,23 @@ export async function communityTick(env: Env, store: AsyncStore) {
     if (open && now >= open.expiresAt)
       await settleTicket(env, store, key.slice("wallet:".length) as Address, open.ticketId, false);
   }
+}
+
+/** Fetches and checks the operator's quote against the community's payment profile. */
+export async function trustedQuote(env: Env, store: AsyncStore) {
+  const signed = await call<Signed<OperatorQuote>>(env.OPERATOR, "/quote", {});
+  const quote = await verify(signed, "quote", env.OPERATOR_ADDRESS, signatureChainId(env));
+  const now = await store.now();
+  check(
+    quote.operator.toLowerCase() === env.OPERATOR_ADDRESS.toLowerCase() &&
+      quote.chainId === Number(env.PAYMENT_CHAIN_ID) &&
+      (quote.serviceMode === "internal") === (env.SERVICE_MODE === "internal") &&
+      quote.token.toLowerCase() === env.PAYMENT_TOKEN?.toLowerCase() &&
+      quote.payments.toLowerCase() === env.PAYMENTS_CONTRACT?.toLowerCase() &&
+      quote.validFrom <= now &&
+      now < quote.validUntil,
+    "untrusted_quote",
+  );
+  await store.set(`quote:${quoteIdOf(quote)}`, quote);
+  return quote;
 }

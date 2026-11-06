@@ -23,20 +23,26 @@ export interface AsyncStore {
 
 export class D1Store implements AsyncStore {
   private ready?: Promise<unknown>;
-  constructor(
-    readonly db: D1Database,
-    readonly initialNow = 1800000000,
-  ) {}
+  readonly db: D1Database;
+  readonly initialNow: number;
+  /** A fixed identifier; never caller input. */
+  readonly table: string;
+  constructor(db: D1Database, initialNow = 1800000000, table = "records") {
+    check(/^[a-z_]{1,40}$/.test(table), "invalid_store_table");
+    this.db = db;
+    this.initialNow = initialNow;
+    this.table = table;
+  }
   private init() {
     this.ready ??= this.db
-      .prepare("CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+      .prepare(`CREATE TABLE IF NOT EXISTS ${this.table} (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
       .run();
     return this.ready;
   }
   private async raw(key: string) {
     await this.init();
     const row = await this.db
-      .prepare("SELECT value FROM records WHERE key = ?")
+      .prepare(`SELECT value FROM ${this.table} WHERE key = ?`)
       .bind(key)
       .first<{ value: string }>();
     return row?.value;
@@ -48,18 +54,18 @@ export class D1Store implements AsyncStore {
   async set(key: string, value: unknown) {
     await this.init();
     await this.db
-      .prepare("INSERT OR REPLACE INTO records (key, value) VALUES (?, ?)")
+      .prepare(`INSERT OR REPLACE INTO ${this.table} (key, value) VALUES (?, ?)`)
       .bind(key, JSON.stringify(value))
       .run();
   }
   async delete(key: string) {
     await this.init();
-    await this.db.prepare("DELETE FROM records WHERE key = ?").bind(key).run();
+    await this.db.prepare(`DELETE FROM ${this.table} WHERE key = ?`).bind(key).run();
   }
   async take<T>(key: string) {
     await this.init();
     const row = await this.db
-      .prepare("DELETE FROM records WHERE key = ? RETURNING value")
+      .prepare(`DELETE FROM ${this.table} WHERE key = ? RETURNING value`)
       .bind(key)
       .first<{ value: string }>();
     return row ? (JSON.parse(row.value) as T) : undefined;
@@ -67,7 +73,7 @@ export class D1Store implements AsyncStore {
   async insertIfAbsent(key: string, value: unknown) {
     await this.init();
     const result = await this.db
-      .prepare("INSERT INTO records (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+      .prepare(`INSERT INTO ${this.table} (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`)
       .bind(key, JSON.stringify(value))
       .run();
     return result.meta.changes === 1;
@@ -76,7 +82,7 @@ export class D1Store implements AsyncStore {
     await this.init();
     const result = await this.db
       .prepare(
-        "INSERT INTO records (key, value) SELECT ?1, ?2 WHERE (SELECT COUNT(*) FROM records WHERE substr(key, 1, length(?3)) = ?3) < ?4 ON CONFLICT(key) DO NOTHING",
+        `INSERT INTO ${this.table} (key, value) SELECT ?1, ?2 WHERE (SELECT COUNT(*) FROM ${this.table} WHERE substr(key, 1, length(?3)) = ?3) < ?4 ON CONFLICT(key) DO NOTHING`,
       )
       .bind(key, JSON.stringify(value), prefix, limit)
       .run();
@@ -90,11 +96,11 @@ export class D1Store implements AsyncStore {
       const result =
         before === undefined
           ? await this.db
-              .prepare("INSERT INTO records (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+              .prepare(`INSERT INTO ${this.table} (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`)
               .bind(key, text)
               .run()
           : await this.db
-              .prepare("UPDATE records SET value = ? WHERE key = ? AND value = ?")
+              .prepare(`UPDATE ${this.table} SET value = ? WHERE key = ? AND value = ?`)
               .bind(text, key, before)
               .run();
       if (result.meta.changes === 1) return value;
@@ -105,7 +111,7 @@ export class D1Store implements AsyncStore {
     await this.init();
     const rows = await this.db
       // Prefix match without LIKE: D1 refuses long LIKE patterns.
-      .prepare("SELECT key, value FROM records WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key")
+      .prepare(`SELECT key, value FROM ${this.table} WHERE substr(key, 1, length(?1)) = ?1 ORDER BY key`)
       .bind(prefix)
       .all<{ key: string; value: string }>();
     return rows.results.map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));

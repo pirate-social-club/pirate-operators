@@ -2,12 +2,19 @@
 @import "@pirate/web-solid-ui/styles/tokens.css";
 @source "./entry.tsx";
 @source "./upload.tsx";
+@source "./karaoke.tsx";
+@source "../karaoke/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog-presentation.tsx";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dropdown-menu";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/actions/icon-button";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/type";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/feedback/spinner";
 
 :root {
   color-scheme: dark;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
   background: #0e1411;
   color: #eef0e9;
   font-synthesis: none;
@@ -16,6 +23,8 @@
   box-sizing: border-box;
 }
 body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   margin: 0;
   min-height: 100dvh;
 }
@@ -283,4 +292,17 @@ button:disabled {
   .live-song {
     padding: 22px;
   }
+}
+
+/* Karaoke takes the whole viewport while a song is sung. */
+.live-karaoke-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--background, #0e1411);
+}
+.live-karaoke {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }

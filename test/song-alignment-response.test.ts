@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createLyrics } from "../packages/community/lyric-manifest.ts";
-import { alignmentWords } from "../packages/alignment/elevenlabs-response.ts";
+import {
+  alignmentResult,
+  alignmentWords,
+  isSectionCue,
+} from "../packages/alignment/elevenlabs-response.ts";
 
 const identity = {
   chainId: 31337,
@@ -59,10 +63,14 @@ test("alignment rejects a changed transcript, incomplete words and extra fields"
     () => alignmentWords(changed, lyrics, 10000),
     /alignment_transcript_mismatch/,
   );
+  // Unbound words fall back to the character timings, as in the centralized
+  // adapter, so an incomplete word list is not a failure on its own.
   const incomplete = structuredClone(good);
   incomplete.words.pop();
+  assert.equal(alignmentResult(incomplete, lyrics, 10000).mode, "character");
+  const cueOnly = createLyrics(identity, "[Intro]", "en");
   assert.throws(
-    () => alignmentWords(incomplete, lyrics, 10000),
+    () => alignmentWords(response(cueOnly.sourceText), cueOnly, 10000),
     /incomplete_alignment_words/,
   );
   assert.throws(() =>
@@ -84,9 +92,14 @@ test("alignment rejects reordered or out-of-duration timings and mismatched word
   );
   const span = structuredClone(good);
   span.words[0]!.end = 0.1;
-  assert.throws(
-    () => alignmentWords(span, lyrics, 10000),
-    /alignment_word_character_mismatch/,
+  const fallback = alignmentResult(span, lyrics, 10000);
+  assert.equal(fallback.mode, "character");
+  assert.deepEqual(
+    fallback.words.map((w) => [w.text, w.startMs, w.endMs]),
+    [
+      ["Baby", 0, 400],
+      ["blues", 500, 1000],
+    ],
   );
 });
 test("alignment permits only the centralized five-millisecond quantization overlap", () => {
@@ -122,4 +135,77 @@ test("alignment maps bare CR, CRLF, blank lines and repetitions to the exact ret
         : [lyrics.lines[0]!.lineId, lyrics.lines[0]!.lineId],
     );
   }
+});
+test("character-only alignment groups characters at whitespace on the retained occurrences", () => {
+  const lyrics = createLyrics(
+      identity,
+      "[Verse 1]\nHold on\n(Instrumental)\nHold on",
+      "en",
+    ),
+    good = response(lyrics.sourceText),
+    words = alignmentResult({ ...good, words: [] }, lyrics, 10000);
+  assert.equal(words.mode, "character");
+  assert.deepEqual(
+    words.words.map((w) => [w.lineId, w.wordIndex, w.text, w.startMs, w.endMs]),
+    [
+      [lyrics.lines[1]!.lineId, 0, "Hold", 1000, 1400],
+      [lyrics.lines[1]!.lineId, 1, "on", 1500, 1700],
+      [lyrics.lines[3]!.lineId, 0, "Hold", 3300, 3700],
+      [lyrics.lines[3]!.lineId, 1, "on", 3800, 4000],
+    ],
+  );
+  // Word timings that do bind keep word mode with the same occurrences.
+  const bound = alignmentResult(good, lyrics, 10000);
+  assert.equal(bound.mode, "word");
+  assert.deepEqual(
+    bound.words.map((w) => w.lineId),
+    words.words.map((w) => w.lineId),
+  );
+});
+test("character fallback refuses mixed whitespace entries and words across lines", () => {
+  const lyrics = createLyrics(identity, "Hold on\nBaby", "en"),
+    good = response(lyrics.sourceText);
+  const mixed = structuredClone(good);
+  mixed.characters.splice(3, 2, { text: "d ", start: 0.3, end: 0.5 });
+  assert.throws(
+    () => alignmentResult({ ...mixed, words: [] }, lyrics, 10000),
+    /invalid_alignment_character/,
+  );
+  const across = structuredClone(good);
+  across.words = [
+    { text: "Hold", start: 0, end: 0.4, loss: 0 },
+    { text: "on", start: 0.5, end: 0.7, loss: 0 },
+    { text: "Baby", start: 0.8, end: 1.2, loss: 0 },
+  ];
+  assert.equal(alignmentResult(across, lyrics, 10000).mode, "word");
+  assert.equal(isSectionCue("[Chorus]"), true);
+  assert.equal(isSectionCue("(Instrumental solo)"), true);
+  assert.equal(isSectionCue("[a [b]"), false);
+  assert.equal(isSectionCue("Hold on"), false);
+});
+
+test("provider word separators and whole section labels retain sung word timings", () => {
+  const lyrics = createLyrics(identity, "[Verse 1]\nHold on", "en");
+  const good = response(lyrics.sourceText);
+  good.words = [
+    { text: "[Verse 1]", start: 0, end: 0.9, loss: 0 },
+    { text: "\n", start: 0.9, end: 1, loss: 0 },
+    { text: "Hold", start: 1, end: 1.4, loss: 0.2 },
+    { text: " ", start: 1.4, end: 1.5, loss: 0 },
+    { text: "on", start: 1.5, end: 1.7, loss: 0.2 },
+  ];
+  const aligned = alignmentResult(good, lyrics, 10000);
+  assert.equal(aligned.mode, "word");
+  assert.deepEqual(
+    aligned.words.map((w) => [w.lineId, w.text, w.startMs, w.endMs]),
+    [
+      [lyrics.lines[1].lineId, "Hold", 1000, 1400],
+      [lyrics.lines[1].lineId, "on", 1500, 1700],
+    ],
+  );
+  good.words[3].start = 1;
+  assert.throws(
+    () => alignmentResult(good, lyrics, 10000),
+    /reordered_alignment_timing/,
+  );
 });

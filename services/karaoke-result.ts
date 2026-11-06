@@ -1,5 +1,6 @@
 import type { Address, Hex } from "viem";
 import { digest, type Ticket } from "../packages/protocol/index.ts";
+import { karaokePresentation } from "./karaoke-feedback.ts";
 import {
   lineReached,
   rewardScore,
@@ -49,7 +50,7 @@ export interface Attempt {
  * runs over paid lines only.
  */
 export function resultBody(
-  store: Store,
+  store: Pick<Store, "get">,
   ticket: Ticket,
   manifest: KaraokeManifest,
   quote: OperatorQuote,
@@ -59,16 +60,22 @@ export function resultBody(
   closedAtBlock: number,
 ): KaraokeResultBody {
   const ended = attempt.ended!;
-  const billing: BillingEntry[] = manifest.segments.map((segment) => ({
-    segmentId: segment.segmentId,
-    take: 0,
-    lineIds: segment.lineIds,
-    redemption: paid.get(segment.segmentId) ?? null,
-  }));
+  const billing: BillingEntry[] =
+    quote.serviceMode === "internal"
+      ? []
+      : manifest.segments.map((segment) => ({
+          segmentId: segment.segmentId,
+          take: 0,
+          lineIds: segment.lineIds,
+          redemption: paid.get(segment.segmentId) ?? null,
+        }));
   const paidLines = new Set(
-    billing.filter((b) => b.redemption).flatMap((b) => b.lineIds),
+    quote.serviceMode === "internal"
+      ? manifest.lines.map((l) => l.lineId)
+      : billing.filter((b) => b.redemption).flatMap((b) => b.lineIds),
   );
-  const words = store.get<KaraokeRecognizedWord[]>(`words:${ticket.ticketId}`) ?? [];
+  const words =
+    store.get<KaraokeRecognizedWord[]>(`words:${ticket.ticketId}`) ?? [];
   const buckets = bucketRecognizedWordsIntoLines({
     lines: manifest.lines.map((line, i) => ({
       lineId: line.lineId,
@@ -89,18 +96,28 @@ export function resultBody(
   );
   const reached = new Set(
     manifest.lines
-      .filter((line) => lineReached(line, attempt.startedAt, ended.performanceEndedAt))
+      .filter((line) =>
+        lineReached(line, attempt.startedAt, ended.performanceEndedAt),
+      )
       .map((line) => line.lineId),
   );
   const paidScores = buckets
-    .filter((bucket) => paidLines.has(bucket.lineId) && reached.has(bucket.lineId))
+    .filter(
+      (bucket) => paidLines.has(bucket.lineId) && reached.has(bucket.lineId),
+    )
     .map((bucket) => scoreKaraokeLine({ bucket }));
   const compensated = new Map(
-    applyTimingOffsetCompensation(paidScores).lineScores.map((s) => [s.lineId, s]),
+    applyTimingOffsetCompensation(paidScores).lineScores.map((s) => [
+      s.lineId,
+      s,
+    ]),
   );
   const lines: LineOutcome[] = manifest.lines.map((line) => {
     const score = compensated.get(line.lineId);
-    const outcome = (status: LineOutcome["status"], scoreBps: number | null) => ({
+    const outcome = (
+      status: LineOutcome["status"],
+      scoreBps: number | null,
+    ) => ({
       lineId: line.lineId,
       lineVersion: line.lineVersion,
       status,
@@ -127,6 +144,9 @@ export function resultBody(
   const reward = rewardScore(lines);
   const paidCount = billing.filter((b) => b.redemption).length;
   return {
+    ...(quote.serviceMode === "internal"
+      ? { serviceMode: "internal" as const }
+      : {}),
     attemptId: attempt.attemptId,
     ticketId: ticket.ticketId,
     communityId: ticket.communityId,
@@ -145,6 +165,7 @@ export function resultBody(
     endedAt: ended.endedAt,
     closedAtBlock,
     summary,
+    presentation: karaokePresentation(session, paidScores),
     summaryHash: digest(summary),
     lines,
     billing,

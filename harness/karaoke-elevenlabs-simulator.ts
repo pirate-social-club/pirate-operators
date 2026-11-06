@@ -1,7 +1,9 @@
-// Simulated ElevenLabs realtime speech-to-text, for local acceptance only. It
-// implements the single-use token mint and the realtime socket messages that
-// packages/karaoke/elevenlabs-realtime.ts uses, with scripted word timestamps
-// relative to each stream's own audio cursor. Never packaged or deployed.
+// Simulated ElevenLabs realtime speech-to-text and forced alignment, for local
+// acceptance only. It implements the single-use token mint and the realtime
+// socket messages that packages/karaoke/elevenlabs-realtime.ts uses, with
+// scripted word timestamps relative to each stream's own audio cursor, and
+// the forced-alignment response shape packages/alignment parses, with
+// deterministic timings for the exact submitted text. Never packaged or deployed.
 
 /** Seconds from the start of the provider stream, as the provider reports them. */
 export interface SimulatedWord {
@@ -147,20 +149,102 @@ export class SimulatedScribeStream {
   }
 }
 
+/** Deterministic forced-alignment timings for whatever text is submitted. */
+export interface SimulatedAlignment {
+  /** "words" binds words to characters; "characters" omits words, as a
+   * character-only provider response does; "unbound" returns words that do
+   * not cover their characters, so the parser must fall back. */
+  mode: "words" | "characters" | "unbound";
+  startMs: number;
+  charMs: number;
+  spaceMs: number;
+  lineGapMs: number;
+}
+export const DEFAULT_ALIGNMENT: SimulatedAlignment = {
+  mode: "words",
+  startMs: 2000,
+  charMs: 55,
+  spaceMs: 45,
+  lineGapMs: 700,
+};
+export interface SimulatedAlignmentLog {
+  requests: number;
+  textSha256: string[];
+  fileBytes: number[];
+}
+/** Character timings in provider seconds, then words as maximal non-space runs. */
+export function simulatedAlignment(text: string, script: SimulatedAlignment) {
+  const characters: { text: string; start: number; end: number }[] = [];
+  let t = script.startMs;
+  for (const character of Array.from(text)) {
+    const duration =
+      character === "\n" || character === "\r"
+        ? script.lineGapMs
+        : /\s/u.test(character)
+          ? script.spaceMs
+          : script.charMs;
+    characters.push({
+      text: character,
+      start: t / 1000,
+      end: (t + duration) / 1000,
+    });
+    t += duration;
+  }
+  type Word = { text: string; start: number; end: number; loss: number };
+  const words: Word[] = [];
+  let current: Word | null = null;
+  for (const c of characters) {
+    if (/\s/u.test(c.text)) {
+      if (current !== null) words.push(current);
+      current = null;
+    } else if (current === null)
+      current = { text: c.text, start: c.start, end: c.end, loss: 0.1 };
+    else {
+      current.text += c.text;
+      current.end = c.end;
+    }
+  }
+  if (current !== null) words.push(current);
+  return {
+    characters,
+    words:
+      script.mode === "characters"
+        ? []
+        : script.mode === "unbound"
+          ? words.map((w) => ({ ...w, end: w.start }))
+          : words,
+    loss: 0.1,
+  };
+}
+
 interface SimulatorEnv {
   SIM_API_KEY: string;
   SIM_STREAMS: string;
+  SIM_ALIGNMENT?: string;
   RPC_ORIGIN?: string;
 }
 const tokens = new Set<string>();
 const streams: SimulatedScribeStream[] = [];
+const alignment: SimulatedAlignmentLog = {
+  requests: 0,
+  textSha256: [],
+  fileBytes: [],
+};
 let minted = 0;
+const hex = (bytes: ArrayBuffer) =>
+  [...new Uint8Array(bytes)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
 export default {
   async fetch(request: Request, env: SimulatorEnv): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/__simulator/log")
-      return Response.json({ minted, streams: streams.map((s) => s.log) });
+      return Response.json({
+        minted,
+        streams: streams.map((s) => s.log),
+        alignment,
+      });
     if (url.hostname !== "api.elevenlabs.io") {
       // The operator's other outbound traffic is the loopback chain RPC only.
       if (!env.RPC_ORIGIN || url.origin !== env.RPC_ORIGIN)
@@ -184,6 +268,28 @@ export default {
       const token = `simulated-${++minted}`;
       tokens.add(token);
       return Response.json({ token });
+    }
+    if (url.pathname === "/v1/forced-alignment" && request.method === "POST") {
+      if (request.headers.get("xi-api-key") !== env.SIM_API_KEY)
+        return Response.json({ detail: "invalid_api_key" }, { status: 401 });
+      const form = await request.formData(),
+        file = form.get("file"),
+        text = form.get("text");
+      if (!(file instanceof File) || typeof text !== "string")
+        return Response.json({ detail: "invalid_request" }, { status: 422 });
+      alignment.requests++;
+      alignment.fileBytes.push(file.size);
+      alignment.textSha256.push(
+        hex(
+          await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
+        ),
+      );
+      const script = env.SIM_ALIGNMENT
+        ? (JSON.parse(env.SIM_ALIGNMENT) as SimulatedAlignment)
+        : DEFAULT_ALIGNMENT;
+      return Response.json(simulatedAlignment(text, script), {
+        headers: { "x-request-id": `alignment-${alignment.requests}` },
+      });
     }
     if (url.pathname === "/v1/speech-to-text/realtime") {
       const token = url.searchParams.get("token") ?? "";

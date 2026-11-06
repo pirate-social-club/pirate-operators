@@ -67,7 +67,8 @@ export interface KaraokeCaptureControllerOptions {
     | "close"
     | "setCaptureAnchor"
     | "clearCaptureAnchor"
-  >;
+  > &
+    Partial<Pick<KaraokeOperatorAudioClient, "send">>;
   /** Samples the actual media element, independently of capture delivery. */
   getPlaybackPosition?: () => { songMs: number; playbackRate: number } | null;
   /** Production waits for playing, including after stalls and reconnects. */
@@ -85,6 +86,8 @@ export interface KaraokeCaptureController {
   noteFinish(songMs: number): Promise<void>;
   stop(): void;
   abort(code: string): void;
+  /** Sends another operator frame, such as a segment purchase, while live. */
+  send(frame: Record<string, unknown>): boolean;
   dispose(): void;
 }
 
@@ -379,6 +382,11 @@ export function createKaraokeCaptureController(
         error: { code, message: "Karaoke take aborted" },
         status: "error",
       });
+    },
+    send(frame) {
+      if (!client?.send || !live()) return false;
+      client.send(frame);
+      return true;
     },
     dispose() {
       if (disposed) return;

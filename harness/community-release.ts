@@ -1,3 +1,4 @@
+import { communityDependencyModules } from "./community-dependencies.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
 import { qualifyCommunityConsumer } from "./community-consumer.ts";
@@ -122,9 +123,10 @@ async function main() {
     "community_live_source_changed",
     409,
   );
+  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:application-health");
   const live = await fetch(profile.origin + "/health", {
       redirect: "error",
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(90000),
     }),
     health = object(await live.json());
   insist(
@@ -137,6 +139,7 @@ async function main() {
     409,
   );
   const sdk = await infisicalAuth().client();
+  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:retained-state");
   const get = async (projectId: string, path: string, name: string) => {
     const secret = await sdk.secrets().getSecret({
       projectId,
@@ -246,9 +249,7 @@ async function main() {
           directory,
           { profile, profileHash },
           {
-            "deployment/node_modules": resolve(
-              "apps/community-wizard/node_modules",
-            ),
+            "deployment/node_modules": communityDependencyModules,
           },
         );
       }
@@ -275,12 +276,24 @@ async function main() {
     );
     const keys = JSON.parse(await readFile(keyPath, "utf8")),
       publisherKey = keys.keys.operator;
+    const issuerKey = keys.keys.communityAdmin;
     insist(
       keys.chainId === 6343 &&
         privateKeyToAccount(publisherKey).address.toLowerCase() ===
           profile.publisher,
       "community_publisher_identity_changed",
       409,
+    );
+    insist(
+      privateKeyToAccount(issuerKey).address.toLowerCase() ===
+        profile.learning.issuer,
+      "learning_issuer_changed",
+      409,
+    );
+    const speech = await get(
+      profile.learning.providerCredential.projectId,
+      profile.learning.providerCredential.path,
+      profile.learning.providerCredential.key,
     );
     await bindCommunityPublisher(sdk, profile, publisherKey, get);
     await restoreCommunityState(directory, profile, password);
@@ -300,8 +313,13 @@ async function main() {
         REGISTRATION_OPERATOR_ADDRESS:
           profile.releaseGrant.registration.operator,
         POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+        LEARNING_ELEVENLABS_API_KEY: speech,
+        LEARNING_OPERATOR_ADDRESS: profile.learning.operator,
+        LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,
+        LEARNING_ISSUER_ADDRESS: profile.learning.issuer,
+        LEARNING_ISSUER_PRIVATE_KEY: issuerKey,
       },
-      secrets = [password, publisherKey, token],
+      secrets = [password, publisherKey, token, issuerKey, speech],
       logs: string[] = [];
     for (const command of ["plan", "deploy"]) {
       await inspectPrivateFiles(cwd, secrets);
@@ -314,7 +332,7 @@ async function main() {
             "--signal=TERM",
             "--kill-after=15s",
             `${remaining}s`,
-            resolve("apps/community-wizard/node_modules/.bin/alchemy"),
+            join(communityDependencyModules, ".bin/alchemy"),
             command,
             "--stage",
             "setup",
@@ -384,6 +402,8 @@ async function main() {
   }
 }
 main().catch((error) => {
+  if (process.env.PIRATE_RELEASE_DEBUG === "1" && error instanceof Error)
+    console.error(JSON.stringify({ type: error.name, frames: error.stack?.split("\n").filter((line) => /^\s+at /.test(line)).slice(0, 6) }));
   console.error(
     error instanceof CommunityError
       ? error.code

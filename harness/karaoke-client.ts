@@ -42,9 +42,13 @@ export interface Message {
 export async function openAttempt(
   mf: Miniflare,
   ticketId: string,
-  sessionKey: PrivateKeyAccount,
+  /** The session key, or a connection proof its holder issued. */
+  sessionKey: PrivateKeyAccount | { proof: string },
 ) {
-  const proof = await sessionKey.signMessage({ message: `connect:${ticketId}` });
+  const proof =
+    "proof" in sessionKey
+      ? sessionKey.proof
+      : await sessionKey.signMessage({ message: `connect:${ticketId}` });
   const worker = await mf.getWorker("operator");
   const response = await worker.fetch(
     `http://operator.localhost/attempt?ticketId=${ticketId}&proof=${proof}`,
@@ -66,7 +70,10 @@ export async function openAttempt(
     new Promise<Message>((resolve, reject) => {
       const queued = queue.shift();
       if (queued) return resolve(queued);
-      const timer = setTimeout(() => reject(new Error("socket_timeout")), 10000);
+      const timer = setTimeout(
+        () => reject(new Error("socket_timeout")),
+        10000,
+      );
       waiters.push((m) => {
         clearTimeout(timer);
         resolve(m);
@@ -74,7 +81,8 @@ export async function openAttempt(
     });
   const send = (value: unknown) => ws.send(JSON.stringify(value));
   const ready = await next();
-  if (ready.type !== "ready") throw new Error(`expected_ready:${JSON.stringify(ready)}`);
+  if (ready.type !== "ready")
+    throw new Error(`expected_ready:${JSON.stringify(ready)}`);
   return {
     ws,
     ready,
@@ -88,7 +96,10 @@ export async function openAttempt(
     close: () => ws.close(1000, "done"),
   };
 }
-export type Attempt = Exclude<Awaited<ReturnType<typeof openAttempt>>, { refused: unknown }>;
+export type Attempt = Exclude<
+  Awaited<ReturnType<typeof openAttempt>>,
+  { refused: unknown }
+>;
 
 /** Asks the community to sign the purchase for one segment, take 0. */
 export const requestPurchase = (

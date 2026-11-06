@@ -1,0 +1,83 @@
+{
+  "chainId": 6343,
+  "manifest": {
+    "schema": "pirate.community-config/1",
+    "chainId": 6343,
+    "directory": "0x7d67b9d276aa8c91a3579900a44bbb3096752e8a",
+    "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+    "registry": "0x7a385a404d98ce83747650f7ca254004b8d59609",
+    "tld": "firstsong-20261105",
+    "configurationRevision": 3,
+    "postsContract": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+    "controller": "0x274f223809f00cbdd51d05de3abc8fd3368fde16",
+    "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+    "operatorPayments": "0x0000000000000000000000000000000000000000",
+    "learningRecords": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+    "app": {
+      "label": "app",
+      "tokenGeneration": "0",
+      "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+      "httpsAlias": null,
+      "hnsIngress": "none"
+    },
+    "feed": {
+      "endpoint": "https://pirate-first-song-20261105.piratesocialclub.workers.dev/api/feed",
+      "signingKeyId": "community-publisher-6343-v1"
+    },
+    "policies": {
+      "admission": {
+        "version": "pirate-owner-curated/2026-11-05/1",
+        "sha256": "0xeac6c5663b1942264851404e8a713b43eb222335338a8f68a2d09ad083b26d97"
+      },
+      "moderationSigner": "0xa67ac40bc3d5e1b25d7da5ca2e8585f335a37329"
+    },
+    "publisherRevocations": []
+  },
+  "previous": "0x8b10102a5a64ec57f401b9cdf42a060b34f2a9a7a63a31975db1b56ef436a536",
+  "configPin": {
+    "uri": "ipfs://bafkreidx4u7qkoweainbrqzmbuyftlv32yqjgdpmsot4yts6bbr7gzlbdu",
+    "sha256": "0x77e53f053ac4021a18c32c0d3059aebbd620930dec93a7cc4e5e0863f365611d",
+    "byteLength": 1143,
+    "mediaType": "application/json"
+  },
+  "policy": {
+    "schema": "pirate.learning-policy/2",
+    "version": "pirate.karaoke-testnet/2026-11-06/1",
+    "clockVersion": 1,
+    "activity": 1,
+    "graders": [
+      "0x14b90a55657d9695a727254eaec5e0e32d20d602"
+    ],
+    "scoringPolicies": [
+      "0x05279d1991c5ad3c9cf75b8805b78af5865660ceee75f2dd88b15a1dd9a9f89d"
+    ],
+    "terminalStatuses": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "minScoreBps": 7000,
+    "maxUnmeasuredBps": 1000,
+    "rewards": false
+  },
+  "policyPin": {
+    "uri": "ipfs://bafkreiawm3grql4p5vjn2snvox2pwueb43ek6qh35bk4yogxygn44bsdrq",
+    "sha256": "0x1666cd182f8fed52dd49b575f4fb5081e6c8af40fbe855cc38d7c19bce06438c",
+    "byteLength": 349,
+    "mediaType": "application/json"
+  },
+  "effectivePeriod": "5",
+  "maximumGasPriceWei": "1000000",
+  "gasPerTransaction": "1500000",
+  "maximumExecutionFeeWei": "3000000000000",
+  "dataFeeReservePerTransactionWei": "100000000000",
+  "pinAdds": 2,
+  "transactions": 2,
+  "profileHash": "0x64a34ba3393bd7c6d97bb436512d1d1904360902809956d2c519e0bc76190173",
+  "configurationTransaction": "0x5d21bc81cd8c7845eea1ddbdc7e56845f24eeee53cf3411fd8273e8bc9852dc3",
+  "policyTransaction": "0x13b82313a5754c0ee0dfc06d37622fc1081c68ef98fcf21c3e7c3f3be3476da0",
+  "configurationBlock": "34243525",
+  "policyBlock": "34243530",
+  "namespaceVerification": "invalidated by configuration change; community remains permanently unlisted"
+}

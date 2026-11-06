@@ -26,6 +26,7 @@ export interface CommunitySessionView {
   pendingConnection: CreatorConnectionView | null;
 }
 export interface CommunityCapabilities {
+  learningServiceMode?: "internal";
   schema: "pirate.community-capabilities/1";
   signIn: boolean;
   creatorConnection: boolean;
@@ -71,4 +72,27 @@ export interface CommunityJobView {
   phase: string;
   errorCode: string | null;
   resumable: boolean;
+}
+
+/** Private operator presentation; public chain outcomes use their own protocol. */
+export interface KaraokeLineFeedback {
+  lineId: string;
+  scoredLineIndex: number;
+  score: number;
+  uncertain: boolean;
+}
+export interface KaraokeOperatorResult {
+  status: "completed" | "abandoned" | "expired" | "payment_missing";
+  summary: { scoreBps: number };
+  lines: readonly { status: string; scoreBps: number | null }[];
+  unmeasuredCount: number;
+  presentation?: {
+    finalScore: number;
+    lyricsScore: number;
+    timingScore: number | null;
+    timingTrend: "early" | "late" | "mixed" | "on_time";
+    scoredLineCount: number;
+    uncertainLineCount: number;
+    bestCombo: number;
+  };
 }

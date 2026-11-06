@@ -1,0 +1,30 @@
+{
+  "chainId": 6343,
+  "contract": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+  "scope": "actual learner terminal publication; no word-level private history",
+  "sessionId": "0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+  "revision": 1,
+  "commitment": "0x1d1557caaa1051345e329890e4389b8dc235ef741f47db76f568b8d0f6c89903",
+  "lines": 23,
+  "outcomes": {
+    "assessed": 22,
+    "silent": 1
+  },
+  "publication": {
+    "transaction": "0xfa57f08208d03624210cb148f6248fac2bd8122df49e86b8274328515ca3dda8",
+    "block": "34247564",
+    "gasUsed": "328299",
+    "gasPriceWei": "1000000",
+    "status": "success"
+  },
+  "publicReconstruction": {
+    "head": "34247609",
+    "blockHash": "0x2231f1143702c8d6f549a0320594830a4d8aebc61bd77a96cfba608cbd845888",
+    "verified": true,
+    "problems": [],
+    "qualificationPolicy": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "learningPeriod": "4",
+    "qualifyingCredit": false,
+    "reason": "Completed before prospective qualification policy became effective"
+  }
+}

@@ -112,6 +112,10 @@ export class KaraokeAudioRelay {
   get terminal(): string | null {
     return this.state.terminal;
   }
+  /** Audio covered by a settled provider commit, including measured silence. */
+  get measuredThroughMs(): number {
+    return this.coveredMs;
+  }
 
   /** One learner audio frame, in sequence order across reconnects. */
   async audio(frame: KaraokeClientBinaryFrame): Promise<void> {
@@ -210,7 +214,6 @@ export class KaraokeAudioRelay {
     );
   }
 
-  /** Words and failed lines not yet given to the scorer; marks them forwarded. */
   drain(): { words: KaraokeRecognizedWord[]; failedLineIds: string[] } {
     const words = this.state.words.slice(this.state.forwardedWords);
     const failedLineIds = this.state.failedLineIds.filter(

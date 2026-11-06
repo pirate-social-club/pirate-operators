@@ -1,16 +1,32 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Address, Hex } from "viem";
-import { check, supportedChain } from "../packages/protocol/index.ts";
+import { check } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
 import { operator } from "./operator.ts";
 import { onClose, onMessage, tick } from "./karaoke.ts";
 import { communityTick } from "./community-purchases.ts";
 import { D1Store, localControl } from "./storage.ts";
+import { body, signatureChainId } from "./service-call.ts";
+// Pure helpers live apart so Node-run modules can use them without Workers imports.
+export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
+import type { SpeechBudget } from "./speech-budget.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<ServiceState>;
   ROLE: string;
+  /** Explicit testnet v2 profile; legacy skeleton fixtures remain local only. */
+  RESULTS_V2_CONTRACT?: string;
+  SERVICE_MODE?: "internal";
+  SPONSOR_CAP_WEI?: string;
+  SPONSOR_GAS_PRICE_WEI?: string;
+  SPONSOR_GAS_LIMIT?: string;
+  SPONSOR_DATA_FEE_WEI?: string;
+  SPEECH_DAILY_LIMIT?: string;
+  SPEECH_BUDGET?: DurableObjectNamespace<SpeechBudget>;
+  HISTORY_RETENTION_DAYS?: string;
+  OPERATOR_PROFILE?: string;
+  APPROVED_ACTIVATION_ACCOUNT?: string;
   LOCAL_ONLY: string;
   PRIVATE_KEY: Hex;
   COMMUNITY: Fetcher;
@@ -34,6 +50,15 @@ export interface Env {
   REALTIME_RPC?: string;
   /** LearningRecords on the payment chain; publication is off without it. */
   RECORDS_CONTRACT?: string;
+  /**
+   * The only EIP-7702 delegate and initializer the operator will activate a
+   * learner's account with: MOSS's account proxy and orchestrator on MegaETH.
+   */
+  ACCOUNT_DELEGATE?: string;
+  ACCOUNT_INITIALIZER?: string;
+  /** The operator quote's validity window, in seconds. */
+  QUOTE_VALID_FROM?: string;
+  QUOTE_VALID_UNTIL?: string;
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }
@@ -42,6 +67,7 @@ export class Store {
   constructor(
     private readonly storage: DurableObjectStorage,
     readonly initialNow = 1800000000,
+    private readonly liveClock = false,
   ) {
     this.sql = storage.sql;
     this.sql.exec(
@@ -74,31 +100,13 @@ export class Store {
       .map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
   }
   now() {
+    if (this.liveClock) return Math.floor(Date.now() / 1000);
     return this.get<number>("clock") ?? this.initialNow;
   }
   /** Runs every write in `fn` as one SQLite transaction: all of them land, or none. */
   transaction<T>(fn: () => T): T {
     return this.storage.transactionSync(fn);
   }
-}
-export async function call<T>(
-  binding: Fetcher,
-  path: string,
-  body: unknown,
-): Promise<T> {
-  const response = await binding.fetch(`http://service${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const value = (await response.json()) as { error?: string };
-  check(response.ok, value.error ?? `upstream_${response.status}`);
-  return value as T;
-}
-export async function body<T>(request: Request): Promise<T> {
-  const text = await request.text();
-  check(text.length <= 32000, "request_too_large");
-  return JSON.parse(text) as T;
 }
 export class ServiceState extends DurableObject<Env> {
   readonly store: Store;
@@ -107,11 +115,15 @@ export class ServiceState extends DurableObject<Env> {
     this.store = new Store(
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
+      env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2",
     );
   }
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
+      if (path.startsWith("/__") && this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2")
+        return new Response("not_found", { status: 404 });
+      if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") await this.schedule();
       if (path === "/__clock") {
         const { now } = await body<{ now: number }>(request);
         check(
@@ -165,6 +177,27 @@ export class ServiceState extends DurableObject<Env> {
     onClose(ws, this.store);
     ws.close(code, reason);
   }
+  private async schedule() {
+    if (await this.ctx.storage.getAlarm() === null) await this.ctx.storage.setAlarm(Date.now() + 5000);
+  }
+  async alarm() {
+    try { await tick(this.env, this.store); }
+    finally {
+      // Reconcile unknown receipts and abandoned takes independently of browsers.
+      const attempts = this.store.entries("attempt:");
+      const pending = attempts.some(({ key, value }) => !(value as { finalized?: boolean }).finalized ||
+        ((publication) => publication?.state === "pending" || (publication?.state === "published" && !publication.confirmed))(
+          this.store.get<{ state: string; confirmed?: boolean }>(`publicationV2:${key.slice(8)}`)));
+      const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
+      const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
+      const expiries = this.store.entries("history:").map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
+      const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
+        .filter((publication) => publication.state === "published" && publication.confirmed)
+        .map((publication) => ((publication.checkedAt ?? this.store.now()) + 3600) * 1000);
+      const due = Math.min(...expiries, ...audits, pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
+      if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
+    }
+  }
 }
 /** The community runs in its Worker on D1; only the operator keeps a Durable Object. */
 async function communityFetch(request: Request, env: Env) {
@@ -188,7 +221,11 @@ async function communityFetch(request: Request, env: Env) {
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     check(
-      env.LOCAL_ONLY === "pirate-local-skeleton",
+      env.LOCAL_ONLY === "pirate-local-skeleton" ||
+        (env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2" && env.ROLE === "operator" &&
+          env.PAYMENT_CHAIN_ID === "6343" && env.SERVICE_MODE === "internal" &&
+          !!env.RESULTS_V2_CONTRACT && !!env.SPEECH_BUDGET && !!env.SPONSOR_CAP_WEI &&
+          !!env.SPONSOR_GAS_PRICE_WEI && !!env.SPONSOR_GAS_LIMIT && !!env.SPONSOR_DATA_FEE_WEI),
       "local_configuration_required",
     );
     if (env.ROLE === "community") return communityFetch(request, env);
@@ -197,7 +234,3 @@ export default {
     );
   },
 };
-
-export function signatureChainId(env: Env) {
-  return supportedChain(Number(env.SIGNATURE_CHAIN_ID ?? 31337));
-}

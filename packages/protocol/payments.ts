@@ -9,6 +9,7 @@ import {
   type Hex,
 } from "viem";
 import { check, digest } from "./index.ts";
+import { songKeyOf } from "./records.ts";
 
 export const RECONNECT_WINDOW_S = 30;
 export const PAYMENT_GRACE_S = 10;
@@ -19,6 +20,7 @@ export const MAX_AUTHORIZATION_LIFETIME_S = 3600;
 export const ZERO_BYTES32 = `0x${"0".repeat(64)}` as Hex;
 
 export interface OperatorQuote {
+  serviceMode?: "internal";
   operator: Address;
   recipient: Address;
   chainId: number;
@@ -78,7 +80,11 @@ export const purchaseMessage = (p: Purchase) => ({
   validAfter: BigInt(p.validAfter),
   expiresAt: BigInt(p.expiresAt),
 });
-export const purchaseDigestOf = (p: Purchase, chainId: number, payments: Address) =>
+export const purchaseDigestOf = (
+  p: Purchase,
+  chainId: number,
+  payments: Address,
+) =>
   hashTypedData({
     domain: purchaseDomain(chainId, payments),
     types: purchaseTypes,
@@ -126,23 +132,60 @@ export interface ManifestSegment {
   endMs: number;
   lineIds: string[];
 }
+/**
+ * The published post a manifest belongs to, in LearningRecords song-key form.
+ * When present, `songHash` is its song key, so a ticket's signed manifest
+ * digest also binds the song identity the operator records.
+ */
+export interface ManifestSong {
+  chainId: number;
+  posts: Address;
+  communityId: Hex;
+  postId: Hex;
+}
 export interface KaraokeManifest {
   manifestVersion: "pirate.karaoke.manifest/1";
   songHash: Hex;
   lines: ManifestLine[];
   segments: ManifestSegment[];
+  song?: ManifestSong;
+  source?: { lyricsRevision: number; lyricsSha256: Hex };
 }
+/** Local fixture IDs, or the bytes32 occurrence IDs of a published lyric manifest. */
+const LINE_ID = /^(?:[A-Za-z0-9_-]{1,64}|0x[0-9a-f]{64})$/;
+const BYTES32 = /^0x[0-9a-f]{64}$/;
 
 /** Every scored line belongs to exactly one segment; no line is split. */
-export function validateManifest(manifest: KaraokeManifest, maxSegmentMs: number) {
-  check(manifest.manifestVersion === "pirate.karaoke.manifest/1", "invalid_manifest");
-  check(manifest.lines.length > 0 && manifest.lines.length <= 500, "invalid_manifest");
+export function validateManifest(
+  manifest: KaraokeManifest,
+  maxSegmentMs: number,
+) {
+  check(
+    manifest.manifestVersion === "pirate.karaoke.manifest/1",
+    "invalid_manifest",
+  );
+  check(
+    manifest.lines.length > 0 && manifest.lines.length <= 500,
+    "invalid_manifest",
+  );
+  if (manifest.song !== undefined) {
+    const song = manifest.song;
+    check(
+      Number.isSafeInteger(song.chainId) &&
+        song.chainId > 0 &&
+        /^0x[0-9a-f]{40}$/.test(song.posts) &&
+        BYTES32.test(song.communityId) &&
+        BYTES32.test(song.postId) &&
+        manifest.songHash === songKeyOf(song),
+      "invalid_manifest",
+    );
+  }
   const lines = new Map<string, ManifestLine>();
   manifest.lines.forEach((line, i) => {
     check(
       line.ordinal === i + 1 &&
         !lines.has(line.lineId) &&
-        /^[A-Za-z0-9_-]{1,64}$/.test(line.lineId) &&
+        LINE_ID.test(line.lineId) &&
         Number.isSafeInteger(line.lineVersion) &&
         line.lineVersion >= 1 &&
         line.startMs >= 0 &&
@@ -186,8 +229,11 @@ export const songEndMs = (manifest: KaraokeManifest) =>
  * A line is reached when it begins before the performance cutoff, measured
  * from `startedAt`. The result builder and the verifier share this rule.
  */
-export const lineReached = (line: ManifestLine, startedAt: number, performanceEndedAt: number) =>
-  line.startMs < (performanceEndedAt - startedAt) * 1000;
+export const lineReached = (
+  line: ManifestLine,
+  startedAt: number,
+  performanceEndedAt: number,
+) => line.startMs < (performanceEndedAt - startedAt) * 1000;
 
 /** Section 5.4: "early", "open", or "closed" once the segment has passed. */
 export function paymentWindow(
@@ -206,7 +252,12 @@ export function paymentWindow(
  * `unattempted`: the attempt ended before the line began, whether or not it
  * was paid ahead. It carries no score and counts zero toward the reward.
  */
-export type LineStatus = "assessed" | "silent" | "unpaid" | "unmeasured" | "unattempted";
+export type LineStatus =
+  | "assessed"
+  | "silent"
+  | "unpaid"
+  | "unmeasured"
+  | "unattempted";
 /** The educational record: a score exists only for paid, measured, recognized singing. */
 export interface LineOutcome {
   lineId: string;
@@ -229,12 +280,15 @@ export interface BillingEntry {
 }
 
 /** Reward accounting: unpaid, silent and unattempted count zero; unmeasured leaves the denominator. */
-export function rewardScore(lines: readonly Pick<LineOutcome, "status" | "scoreBps">[]) {
+export function rewardScore(
+  lines: readonly Pick<LineOutcome, "status" | "scoreBps">[],
+) {
   const linesTotal = lines.length;
   const unmeasuredCount = lines.filter((l) => l.status === "unmeasured").length;
   const denominator = linesTotal - unmeasuredCount;
   let sum = 0;
-  for (const line of lines) if (line.status === "assessed") sum += line.scoreBps!;
+  for (const line of lines)
+    if (line.status === "assessed") sum += line.scoreBps!;
   return {
     linesTotal,
     unmeasuredCount,
@@ -243,6 +297,7 @@ export function rewardScore(lines: readonly Pick<LineOutcome, "status" | "scoreB
 }
 
 export interface KaraokeResultBody {
+  serviceMode?: "internal";
   attemptId: Hex;
   ticketId: Hex;
   communityId: string;
@@ -263,6 +318,15 @@ export interface KaraokeResultBody {
   endedAt: number;
   closedAtBlock: number;
   summary: { scoreBps: number; coverageBps: number; scoringVersion: number };
+  presentation?: {
+    finalScore: number;
+    lyricsScore: number;
+    timingScore: number | null;
+    timingTrend: import("../scoring/scoring.ts").KaraokeTimingTrend;
+    scoredLineCount: number;
+    uncertainLineCount: number;
+    bestCombo: number;
+  };
   summaryHash: Hex;
   lines: LineOutcome[];
   billing: BillingEntry[];
@@ -290,13 +354,15 @@ export function verifyKaraokeResult(
       Number.isSafeInteger(result.endedAt) &&
       result.startedAt <= result.performanceEndedAt &&
       result.performanceEndedAt <= result.endedAt &&
-      result.performanceEndedAt - result.startedAt <= Math.ceil(songEndMs(manifest) / 1000),
+      result.performanceEndedAt - result.startedAt <=
+        Math.ceil(songEndMs(manifest) / 1000),
     "invalid_timing",
   );
   result.lines.forEach((line, i) => {
     const expected = manifest.lines[i];
     check(
-      line.lineId === expected.lineId && line.lineVersion === expected.lineVersion,
+      line.lineId === expected.lineId &&
+        line.lineVersion === expected.lineVersion,
       "line_list_mismatch",
     );
     // Exactly the lines that begin after the cutoff are unattempted.
@@ -306,7 +372,9 @@ export function verifyKaraokeResult(
       "reachability_mismatch",
     );
     check(
-      ["assessed", "silent", "unpaid", "unmeasured", "unattempted"].includes(line.status) &&
+      ["assessed", "silent", "unpaid", "unmeasured", "unattempted"].includes(
+        line.status,
+      ) &&
         (line.status === "assessed"
           ? Number.isSafeInteger(line.scoreBps) &&
             line.scoreBps! >= 0 &&
@@ -315,7 +383,20 @@ export function verifyKaraokeResult(
       "invalid_line_outcome",
     );
   });
-  check(result.billing.length === manifest.segments.length, "billing_list_mismatch");
+  const internal = quote.serviceMode === "internal";
+  check(
+    (result.serviceMode === "internal") === internal,
+    "service_mode_mismatch",
+  );
+  check(
+    result.billing.length === (internal ? 0 : manifest.segments.length),
+    "billing_list_mismatch",
+  );
+  if (internal)
+    check(
+      result.lines.every((line) => line.status !== "unpaid"),
+      "internal_coverage_mismatch",
+    );
   const status = new Map(result.lines.map((l) => [l.lineId, l.status]));
   const digests = new Set<string>();
   let paidCount = 0;
@@ -333,7 +414,8 @@ export function verifyKaraokeResult(
       check(
         r.chainId === quote.chainId &&
           r.payments.toLowerCase() === quote.payments.toLowerCase() &&
-          r.unit === unitHash(segmentUnit(result.ticketId, segment.segmentId, 0)) &&
+          r.unit ===
+            unitHash(segmentUnit(result.ticketId, segment.segmentId, 0)) &&
           !digests.has(r.digest),
         "billing_list_mismatch",
       );
@@ -344,7 +426,8 @@ export function verifyKaraokeResult(
       check(
         r
           ? status.get(lineId) !== "unpaid"
-          : status.get(lineId) === "unpaid" || status.get(lineId) === "unattempted",
+          : status.get(lineId) === "unpaid" ||
+              status.get(lineId) === "unattempted",
         "line_payment_mismatch",
       );
   });
@@ -357,7 +440,8 @@ export function verifyKaraokeResult(
       result.unmeasuredCount === reward.unmeasuredCount &&
       result.rewardScoreBps === reward.rewardScoreBps &&
       result.paidCount === paidCount &&
-      result.paidAmount === (BigInt(paidCount) * BigInt(quote.segmentPrice)).toString(),
+      result.paidAmount ===
+        (BigInt(paidCount) * BigInt(quote.segmentPrice)).toString(),
     "result_arithmetic_mismatch",
   );
   return reward;
@@ -372,7 +456,8 @@ export function qualifies(result: KaraokeResultBody, policy: RewardPolicy) {
     result.mode === "performance" &&
     result.rewardScoreBps !== null &&
     result.rewardScoreBps >= policy.minRewardScoreBps &&
-    result.unmeasuredCount * 10000 <= policy.maxUnmeasuredBps * result.linesTotal
+    result.unmeasuredCount * 10000 <=
+      policy.maxUnmeasuredBps * result.linesTotal
   );
 }
 

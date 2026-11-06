@@ -4,3 +4,4 @@
 // docs/karaoke-capture-handoff.md.
 export { default } from "./runtime.ts";
 export { KaraokeAudioState as ServiceState } from "./karaoke-audio.ts";
+export { SpeechBudget } from "./speech-budget.ts";

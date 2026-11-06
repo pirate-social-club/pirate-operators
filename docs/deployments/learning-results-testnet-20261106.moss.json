@@ -1,0 +1,21 @@
+{
+  "chainId": 6343,
+  "contract": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+  "scope": "actual MOSS activation and ERC-1271 standing enrollment; no learner performance or payment settlement",
+  "enrollmentId": "0x881c557d805b4b6a033c90bbd9ff1b44a7cd6058307c812ee952111f0d63e07f",
+  "signatureBytes": 737,
+  "enrollment": {
+    "transaction": "0x9a9720035bf8c28c46e84f5e9375fca6618570110191a40a04facaf758bce98d",
+    "block": "34246400",
+    "gasUsed": "340557",
+    "gasPriceWei": "1000000",
+    "status": "success"
+  },
+  "activation": {
+    "transaction": "0xf022e9de5680ac27068634bb0621ea5e49186132fa19dc32c3b7fc4ac2b610d8",
+    "block": "34246399",
+    "gasUsed": "327442",
+    "gasPriceWei": "1000000",
+    "status": "success"
+  }
+}

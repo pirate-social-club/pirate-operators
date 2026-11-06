@@ -18,6 +18,11 @@ import { build } from "esbuild";
 import { hashJson, hashText, insist } from "../packages/community/common.ts";
 import { fileDigest } from "./creator-state.ts";
 import { firstSong } from "../services/first-song-profile.ts";
+import {
+  communityDependencyModules,
+  verifyCommunityDependencies,
+} from "./community-dependencies.ts";
+import { learningCommunityProfile } from "./learning-community-profile.ts";
 
 export const communityBase = join(
   homedir(),
@@ -74,6 +79,8 @@ export async function artifactFiles(
   return found.sort();
 }
 export async function communityPackage() {
+  await verifyCommunityDependencies();
+  const learning = await learningCommunityProfile();
   const run = promisify(execFile),
     clean = {
       PATH: process.env.PATH,
@@ -83,7 +90,7 @@ export async function communityPackage() {
       NO_COLOR: "1",
     };
   const cli = await run(
-    resolve("apps/community-wizard/node_modules/.bin/alchemy"),
+    join(communityDependencyModules, ".bin/alchemy"),
     ["--version"],
     { env: clean, timeout: 30000, maxBuffer: 65536 },
   );
@@ -130,6 +137,7 @@ export async function communityPackage() {
       "--exclude-standard",
       "--",
       "apps/web/src/live",
+      "apps/web/src/karaoke",
       "apps/web/src/ui.ts",
       "apps/web/src/api-contract.ts",
       "apps/web/src/model.ts",
@@ -153,10 +161,11 @@ export async function communityPackage() {
         ...tracked.stdout.trim().split("\n"),
         ...migrations.map((p) => `apps/community-wizard/infra/migrations/${p}`),
         "apps/community-wizard/infra/application-alchemy.run.ts",
+        "docs/deployments/learning-results-testnet-20261106.contract.json",
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v8.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v11.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
         "docs/deployments/first-song-managed-20261105.published-state.json",
         releaseGrantPath,
@@ -249,13 +258,13 @@ export async function communityPackage() {
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v8.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v11.json",
       previousProfileHash:
-        "0x23fed40c87eee9dc22b71169d56553a40419b8283ea141437cab6d67aa73e279",
+        "0xc920a71787dd80a7140a345b1dee58a480bad96902063bef71488eab45057bba",
       expectedExecutionSha256:
-        "0xdad0e349a5f8597651419e6197b5b283e98ce3841c2d7928541fde4e1c60e17a",
+        "0x9be024d73948f79c96d985f618ff1719970fa536b6afe08aad156a21f7b94bfd",
       expectedResultSha256:
-        "0x3840b06de61e936e13ac33fd2953d872647d26eca841de73561744701a010c3e",
+        "0x1ea5153ca5599458afcea6d6fe27b4546a0030d3df43b2e91da28059cae5be66",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {
@@ -280,8 +289,8 @@ export async function communityPackage() {
       maximumRegistrationFee: releaseGrant.registration.maximumTotalFee,
       maximumPublicationFee: "30000000000000",
     },
-    acceptance:
-      "Managed first-song ROOT publication, interrupted processing and anonymous playback after reload",
+    acceptance: learning.acceptance,
+    learning,
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
   };
@@ -323,7 +332,7 @@ export async function writeCommunityPackage(
     await copyFile(join("apps/web/dist/live", file), target);
   }
   const modules = join(cwd, "node_modules"),
-    expected = resolve("apps/community-wizard/node_modules");
+    expected = communityDependencyModules;
   try {
     await symlink(expected, modules, "dir");
   } catch (error) {

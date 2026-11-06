@@ -6,7 +6,10 @@ import {
   fetchPublicIpfs,
   type IpfsTransport,
 } from "../packages/community/ipfs.ts";
-import { validateLyrics } from "../packages/community/lyric-manifest.ts";
+import {
+  validateLyrics,
+  type LyricManifest,
+} from "../packages/community/lyric-manifest.ts";
 import {
   syncPublicPosts,
   indexedPublicPosts,
@@ -17,6 +20,8 @@ export interface PublicReadPorts {
   client: PublicClient;
   profile: PostsProfile;
   transport?: IpfsTransport;
+  configurationHistory?: () => Promise<readonly CommunityConfig[]>;
+  manifestAvailable?: (hash: import("viem").Hex) => Promise<boolean>;
 }
 export async function publicSongs(
   db: D1Database,
@@ -24,11 +29,12 @@ export async function publicSongs(
   ports: PublicReadPorts,
   postId?: string,
 ) {
+  const history = [...(ports.configurationHistory ? await ports.configurationHistory() : [config])];
   const scan = await syncPublicPosts(
     db,
     ports.client,
     ports.profile,
-    [config],
+    history,
     config,
     ports.transport,
   );
@@ -37,11 +43,39 @@ export async function publicSongs(
     db,
     ports.client,
     ports.profile,
-    [config],
+    history,
     config,
     scan.head,
     postId,
   );
+}
+type PublicPost = Awaited<ReturnType<typeof publicSongs>>[number]["post"];
+/** A published post's pinned lyric manifest, bound to that exact post. */
+export async function publicLyricManifest(
+  post: PublicPost,
+  transport?: IpfsTransport,
+): Promise<LyricManifest | undefined> {
+  const lyric = post.media.find((m) => m.role === "lyrics");
+  if (!lyric) return undefined;
+  const { bytes } = await fetchPublicIpfs(
+      lyric.uri,
+      lyric.sha256,
+      lyric.byteLength,
+      transport,
+    ),
+    decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+    manifest = validateLyrics(JSON.parse(decoded));
+  insist(
+    decoded === canonical(manifest) &&
+      hashJson(manifest) === lyric.sha256 &&
+      manifest.communityId === post.communityId &&
+      manifest.postsContract === post.postsContract &&
+      manifest.postId === post.postId &&
+      manifest.chainId === post.chainId,
+    "public_lyrics_binding_changed",
+    503,
+  );
+  return manifest;
 }
 export async function publicSongViews(
   db: D1Database,
@@ -51,29 +85,8 @@ export async function publicSongViews(
   const records = await publicSongs(db, config, ports),
     views: PublicSongView[] = [];
   for (const { post, transactionHash } of records) {
-    const lyric = post.media.find((m) => m.role === "lyrics");
-    let lyricsText: string | undefined;
-    if (lyric) {
-      const { bytes } = await fetchPublicIpfs(
-          lyric.uri,
-          lyric.sha256,
-          lyric.byteLength,
-          ports.transport,
-        ),
-        decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        manifest = validateLyrics(JSON.parse(decoded));
-      insist(
-        decoded === canonical(manifest) &&
-          hashJson(manifest) === lyric.sha256 &&
-          manifest.communityId === post.communityId &&
-          manifest.postsContract === post.postsContract &&
-          manifest.postId === post.postId &&
-          manifest.chainId === post.chainId,
-        "public_lyrics_binding_changed",
-        503,
-      );
-      lyricsText = manifest.sourceText;
-    }
+    const lyricsText = (await publicLyricManifest(post, ports.transport))
+      ?.sourceText;
     views.push({
       manifest: {
         schema: post.schema,

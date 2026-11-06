@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-results-model.ts; only imports changed.
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import { clampResultPercent, resultHeadline, type ActivityResultStat } from "./activity-results.tsx";
 import type { KaraokeSessionSummary, KaraokeTimingTrend } from "../../../../packages/scoring/scoring.ts";
 
