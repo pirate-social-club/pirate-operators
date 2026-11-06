@@ -89,3 +89,82 @@ public reconstruction at the same canonical head, including correction and
 reorg fixtures. Publish and inspect the exact deployment package and bindings,
 align the real song under a bounded execution and complete a real learner run.
 No live deployment or provider success is implied by local tests.
+
+## Testnet candidate, 2026-11-06
+
+The candidate contract is `0xc26d3b5df9e191148424323bb61ee019e432dc74`
+on MegaETH testnet 6343. Directory configuration revision 3 selects it. The
+application remains at the existing first-song origin and the operator is
+`pirate-learning-testnet-v2`. Alchemy retains the existing application resource
+identities and its authenticated dependency preservation copy. The exact
+[contract receipts](deployments/learning-results-testnet-20261106.contract.json)
+and [configuration and policy](deployments/learning-results-testnet-20261106.configuration.json)
+are retained with this source. This section does not claim completed learner acceptance.
+
+The pilot qualification policy starts at learning period 5, on 2026-11-06 at
+17:00 UTC. It accepts Karaoke terminal outcomes, requires 70 percent over the
+fixed eligible denominator and permits at most 10 percent unmeasured lines.
+Earlier periods earn no qualifying day. Delayed publication keeps its original
+day and policy. No funded rewards are enabled.
+
+The first song now has real forced alignment for all 23 sung lines. The provider rejected the first request before processing. A separately
+bounded recovery request succeeded after the workspace_owner resolved the issue. Both responses were retained. The provider includes whitespace
+separators and whole section labels in its word list; the parser accepts those
+while retaining timing, loss, transcript and occurrence checks. Reprocessing the
+successful saved response bought no additional provider work.
+
+A timed manifest is limited to one 262144-byte raw IPFS block. Its public
+SHA-256 result revision therefore determines its CID directly. The first timed
+manifest is 18233 bytes and is pinned at
+`ipfs://bafkreigdj6qu6xxy5nfyxghfjc5oyvkx3pg25wxfecjp72t662biua7m7y`.
+Practice admission checks its public availability. A public reader can retrieve
+that manifest and authenticate its complete ordered lyric set using historical
+post and configuration evidence, without the community database or API.
+
+Read-only simulations against the deployed testnet contract, using synthetic
+EOA consent and state overrides, estimated the following execution gas. All
+simulation calls succeeded. These are not funded learner publications or
+mainnet operating quotes; MOSS enrollment measurement remains separate.
+
+| Operation | Estimated gas |
+| --- | ---: |
+| Enroll once, EOA | 234973 |
+| Publish 23 lines | 333539 |
+| Correct 23 lines | 333647 |
+| Publish 40 lines | 388049 |
+| Correct 40 lines | 401681 |
+| Revoke, EOA | 123438 |
+
+The pilot service allowance is a fixed lifetime 50000000000000 wei, with a
+1000000 wei gas-price ceiling, 1500000 gas per transaction and a conservative
+100000000000 wei data-fee reserve. Session admission reserves publication and
+one correction atomically; enrollment also reserves a future revocation. The
+service charges the full maximum rather than silently recycling unused gas.
+The shared speech allowance is ten starts per UTC day, including alignment,
+reconnects and uncertain sends. The two alignment requests consumed that same
+allowance. None of these controls refills the native sponsorship allowance.
+Service controls and point-in-time L1 fee quotes do not independently constrain
+a compromised signing key; funded-key and inclusion-fee exposure still need
+qualification before mainnet.
+
+Private history remains an interim operator-held thirty-day receipt with an
+authenticated download. It is not the learner vault. Study, independent-provider
+escrow, rewards, per-community pseudonyms and automatic records deployment by
+the wizard remain later work. Adding Study requires a result adapter and a
+contract successor; this deployed contract authorizes Karaoke only. Mainnet work starts only after deployed testnet
+learner acceptance, correction/recovery qualification and complete cost measurement.
+
+The workspace_owner observed slow page loading, an awkward enrollment alert
+and an indefinite audio-start spinner during live acceptance. The requested
+disposition is to record the UI and load-performance issues for later work,
+without a visual redesign in this task. The functional startup defect is a
+case-sensitive address comparison between deployment profiles; the equivalent
+Ethereum addresses must compare equally. The browser fixture now deliberately
+uses mixed address casing across its community and operator.
+
+Actual sponsored MOSS activation and ERC-1271 enrollment succeeded on testnet.
+The retained enrollment signature was 737 bytes. Activation used 327442 gas and
+enrollment used 340557 gas at 1000000 wei per gas. These are separate from
+recurring terminal-publication costs. The
+[MOSS receipts](deployments/learning-results-testnet-20261106.moss.json)
+record this actual path without claiming a completed learner performance.

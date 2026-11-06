@@ -161,7 +161,7 @@ export async function communityPackage() {
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v9.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v10.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
         "docs/deployments/first-song-managed-20261105.published-state.json",
         releaseGrantPath,
@@ -254,13 +254,13 @@ export async function communityPackage() {
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v9.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v10.json",
       previousProfileHash:
-        "0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c",
+        "0xd329a748a12ae01c989e57b0702a7e47c6ce4c5b15e31a04dae21755781c1b0d",
       expectedExecutionSha256:
-        "0xa5e6fd305a10382422a7005b805728dbf43f9e5f9d6e61b043b8ee7e5e9afe76",
+        "0x4574ef9f9034bc1076545b682265d163470e04d6b99966c9fb5325f76cde3e6c",
       expectedResultSha256:
-        "0x8dde25380465f803f07f3b8b932d107f900bd2be4db7c81be088d9dbdbaca2e6",
+        "0x0e03f52c759d951d6e39dfef84bfdd202e8c5558065afbd43a83802dc43a84b5",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {

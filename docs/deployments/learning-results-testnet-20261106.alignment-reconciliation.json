@@ -1,0 +1,10 @@
+{
+  "mode": "send",
+  "operation": "0xd7dac2917880550cb76f3e12a9c23947a6e600f0391c400c0fed93c2e1a4e074",
+  "receiptSha256": "0xa367c61e08bdd0f4a670fc68e857ea120124ece2d1e56427d60e5556243b5864",
+  "resultSha256": "0xfe398970f4f5174e9d24ab52652b47c1dba610002f0f496a43426ba9b640229f",
+  "providerRequests": 0,
+  "scoredLines": 23,
+  "words": 210,
+  "alignmentMode": "character"
+}

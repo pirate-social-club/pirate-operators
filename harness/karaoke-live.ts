@@ -310,7 +310,7 @@ export async function karaokeLive(
       COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
       ...(resultsV2 ? { KARAOKE_SERVICE_MODE: "internal", KARAOKE_SPEECH_BUDGET: { getByName: () => ({ claim: async () => ({ fixture: true }) }) } } : {}),
       KARAOKE_OPERATOR: operatorWorker,
-      KARAOKE_OPERATOR_ADDRESS: accounts[2]!.address,
+      KARAOKE_OPERATOR_ADDRESS: resultsV2 ? accounts[2]!.address.toLowerCase() : accounts[2]!.address,
       // A browser reaches the operator at Miniflare's address through its routes.
       KARAOKE_OPERATOR_ORIGIN:
         options.operatorOrigin ??

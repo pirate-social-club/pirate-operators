@@ -123,9 +123,10 @@ async function main() {
     "community_live_source_changed",
     409,
   );
+  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:application-health");
   const live = await fetch(profile.origin + "/health", {
       redirect: "error",
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(90000),
     }),
     health = object(await live.json());
   insist(
@@ -138,6 +139,7 @@ async function main() {
     409,
   );
   const sdk = await infisicalAuth().client();
+  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:retained-state");
   const get = async (projectId: string, path: string, name: string) => {
     const secret = await sdk.secrets().getSecret({
       projectId,
@@ -400,6 +402,8 @@ async function main() {
   }
 }
 main().catch((error) => {
+  if (process.env.PIRATE_RELEASE_DEBUG === "1" && error instanceof Error)
+    console.error(JSON.stringify({ type: error.name, frames: error.stack?.split("\n").filter((line) => /^\s+at /.test(line)).slice(0, 6) }));
   console.error(
     error instanceof CommunityError
       ? error.code

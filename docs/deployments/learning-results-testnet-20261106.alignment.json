@@ -1,0 +1,1501 @@
+{
+  "chainId": 6343,
+  "postId": "0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e",
+  "state": "complete",
+  "vocal": {
+    "sha256": "0xba4ecd77dac09a5d27c78cb1ac4c346183da2046b74117bd1ee9f300efb69b94",
+    "duration_ms": 186672,
+    "byte_length": 3015716
+  },
+  "lyricsRevision": 1,
+  "manifestSha256": "0xc34fa14f5ef8eb4b8b98e548baec5557dbcdaedae52092ffea7ef6828a03ecfe",
+  "manifestUri": "ipfs://bafkreigdj6qu6xxy5nfyxghfjc5oyvkx3pg25wxfecjp72t662biua7m7y",
+  "manifestBytes": 18233,
+  "scoredLines": 23,
+  "provider": "ElevenLabs forced alignment",
+  "maximumProviderRequests": 1,
+  "maximumPinAdds": 1,
+  "learnerPerformance": "none",
+  "manifest": {
+    "manifestVersion": "pirate.karaoke.manifest/1",
+    "songHash": "0x73f24b23512e340848f9311a4cd07827508b8852337e5a8a0649a752358c9161",
+    "lines": [
+      {
+        "lineId": "0x7ebfde50eec24b3eb89e27fb6ade8350290e9cb1f3b89af0cb1ca67d9c6f7022",
+        "lineVersion": 1,
+        "ordinal": 1,
+        "text": "I'm feeling lonely for those jazz blues only",
+        "startMs": 19240,
+        "endMs": 23280,
+        "words": [
+          {
+            "text": "I'm",
+            "startMs": 19240,
+            "endMs": 19440
+          },
+          {
+            "text": "feeling",
+            "startMs": 19600,
+            "endMs": 19940
+          },
+          {
+            "text": "lonely",
+            "startMs": 20040,
+            "endMs": 20780
+          },
+          {
+            "text": "for",
+            "startMs": 21260,
+            "endMs": 21520
+          },
+          {
+            "text": "those",
+            "startMs": 21580,
+            "endMs": 21800
+          },
+          {
+            "text": "jazz",
+            "startMs": 21920,
+            "endMs": 22280
+          },
+          {
+            "text": "blues",
+            "startMs": 22320,
+            "endMs": 22620
+          },
+          {
+            "text": "only",
+            "startMs": 22680,
+            "endMs": 23280
+          }
+        ]
+      },
+      {
+        "lineId": "0xda9badc373c1441341ea81f14fa3eafefaeb718a06c78ef6fc46c1220dd7510c",
+        "lineVersion": 1,
+        "ordinal": 2,
+        "text": "Since I heard those jazzin' babies play them",
+        "startMs": 24160,
+        "endMs": 28220,
+        "words": [
+          {
+            "text": "Since",
+            "startMs": 24160,
+            "endMs": 24500
+          },
+          {
+            "text": "I",
+            "startMs": 24680,
+            "endMs": 24740
+          },
+          {
+            "text": "heard",
+            "startMs": 24820,
+            "endMs": 25140
+          },
+          {
+            "text": "those",
+            "startMs": 25200,
+            "endMs": 25820
+          },
+          {
+            "text": "jazzin'",
+            "startMs": 25980,
+            "endMs": 26480
+          },
+          {
+            "text": "babies",
+            "startMs": 26600,
+            "endMs": 27140
+          },
+          {
+            "text": "play",
+            "startMs": 27160,
+            "endMs": 27500
+          },
+          {
+            "text": "them",
+            "startMs": 27560,
+            "endMs": 28220
+          }
+        ]
+      },
+      {
+        "lineId": "0xba206892848e122d1dc979f052fb7bc412ca3d4dcd9cfe2f92d103777a892a9f",
+        "lineVersion": 1,
+        "ordinal": 3,
+        "text": "Each time I hear them, Lawdy, how I weep and moan",
+        "startMs": 28780,
+        "endMs": 33220,
+        "words": [
+          {
+            "text": "Each",
+            "startMs": 28780,
+            "endMs": 28960
+          },
+          {
+            "text": "time",
+            "startMs": 29080,
+            "endMs": 29320
+          },
+          {
+            "text": "I",
+            "startMs": 29460,
+            "endMs": 29520
+          },
+          {
+            "text": "hear",
+            "startMs": 29580,
+            "endMs": 29780
+          },
+          {
+            "text": "them,",
+            "startMs": 29860,
+            "endMs": 30200
+          },
+          {
+            "text": "Lawdy,",
+            "startMs": 30680,
+            "endMs": 31180
+          },
+          {
+            "text": "how",
+            "startMs": 31300,
+            "endMs": 31580
+          },
+          {
+            "text": "I",
+            "startMs": 31620,
+            "endMs": 31840
+          },
+          {
+            "text": "weep",
+            "startMs": 31920,
+            "endMs": 32200
+          },
+          {
+            "text": "and",
+            "startMs": 32240,
+            "endMs": 32560
+          },
+          {
+            "text": "moan",
+            "startMs": 32740,
+            "endMs": 33220
+          }
+        ]
+      },
+      {
+        "lineId": "0x9bf1e29e53e25168f6bd2f05c542b1dc6ba280e52b1d8892b688f4c17f4d2a72",
+        "lineVersion": 1,
+        "ordinal": 4,
+        "text": "To hear that old slide trombone and that moanin' saxophone",
+        "startMs": 36740,
+        "endMs": 42940,
+        "words": [
+          {
+            "text": "To",
+            "startMs": 36740,
+            "endMs": 36960
+          },
+          {
+            "text": "hear",
+            "startMs": 37020,
+            "endMs": 37180
+          },
+          {
+            "text": "that",
+            "startMs": 37240,
+            "endMs": 37400
+          },
+          {
+            "text": "old",
+            "startMs": 37460,
+            "endMs": 37700
+          },
+          {
+            "text": "slide",
+            "startMs": 37860,
+            "endMs": 38540
+          },
+          {
+            "text": "trombone",
+            "startMs": 38680,
+            "endMs": 39740
+          },
+          {
+            "text": "and",
+            "startMs": 40100,
+            "endMs": 40200
+          },
+          {
+            "text": "that",
+            "startMs": 40260,
+            "endMs": 40400
+          },
+          {
+            "text": "moanin'",
+            "startMs": 40520,
+            "endMs": 41000
+          },
+          {
+            "text": "saxophone",
+            "startMs": 41320,
+            "endMs": 42940
+          }
+        ]
+      },
+      {
+        "lineId": "0x3c683dac5b8e8869fd0d26d086f277177f7013b27227c46c01eae486c4939c77",
+        "lineVersion": 1,
+        "ordinal": 5,
+        "text": "I feel like rippin' when those jazzin', dippin'",
+        "startMs": 47120,
+        "endMs": 50720,
+        "words": [
+          {
+            "text": "I",
+            "startMs": 47120,
+            "endMs": 47200
+          },
+          {
+            "text": "feel",
+            "startMs": 47340,
+            "endMs": 47580
+          },
+          {
+            "text": "like",
+            "startMs": 47640,
+            "endMs": 47820
+          },
+          {
+            "text": "rippin'",
+            "startMs": 47920,
+            "endMs": 48480
+          },
+          {
+            "text": "when",
+            "startMs": 49040,
+            "endMs": 49260
+          },
+          {
+            "text": "those",
+            "startMs": 49320,
+            "endMs": 49500
+          },
+          {
+            "text": "jazzin',",
+            "startMs": 49620,
+            "endMs": 50160
+          },
+          {
+            "text": "dippin'",
+            "startMs": 50280,
+            "endMs": 50720
+          }
+        ]
+      },
+      {
+        "lineId": "0xa2a4dc94ef24f0e2c8bbc3ed2d6fa91205f9525639af4d54601086566ecdcf60",
+        "lineVersion": 1,
+        "ordinal": 6,
+        "text": "Babies play, they harmonize together",
+        "startMs": 51940,
+        "endMs": 55320,
+        "words": [
+          {
+            "text": "Babies",
+            "startMs": 51940,
+            "endMs": 52440
+          },
+          {
+            "text": "play,",
+            "startMs": 52540,
+            "endMs": 53040
+          },
+          {
+            "text": "they",
+            "startMs": 53400,
+            "endMs": 53620
+          },
+          {
+            "text": "harmonize",
+            "startMs": 53700,
+            "endMs": 54620
+          },
+          {
+            "text": "together",
+            "startMs": 54680,
+            "endMs": 55320
+          }
+        ]
+      },
+      {
+        "lineId": "0x673a75d44bfd5d903302c6e829219e464457e2c178c6c0ad92758afbc39203d8",
+        "lineVersion": 1,
+        "ordinal": 7,
+        "text": "I'd rather hear them than to have a million dollars in my hand",
+        "startMs": 56420,
+        "endMs": 60840,
+        "words": [
+          {
+            "text": "I'd",
+            "startMs": 56420,
+            "endMs": 56560
+          },
+          {
+            "text": "rather",
+            "startMs": 56620,
+            "endMs": 56940
+          },
+          {
+            "text": "hear",
+            "startMs": 57020,
+            "endMs": 57200
+          },
+          {
+            "text": "them",
+            "startMs": 57280,
+            "endMs": 57540
+          },
+          {
+            "text": "than",
+            "startMs": 57760,
+            "endMs": 57960
+          },
+          {
+            "text": "to",
+            "startMs": 58060,
+            "endMs": 58220
+          },
+          {
+            "text": "have",
+            "startMs": 58340,
+            "endMs": 58680
+          },
+          {
+            "text": "a",
+            "startMs": 58780,
+            "endMs": 58860
+          },
+          {
+            "text": "million",
+            "startMs": 58940,
+            "endMs": 59380
+          },
+          {
+            "text": "dollars",
+            "startMs": 59460,
+            "endMs": 59940
+          },
+          {
+            "text": "in",
+            "startMs": 60000,
+            "endMs": 60140
+          },
+          {
+            "text": "my",
+            "startMs": 60220,
+            "endMs": 60420
+          },
+          {
+            "text": "hand",
+            "startMs": 60500,
+            "endMs": 60840
+          }
+        ]
+      },
+      {
+        "lineId": "0xdb865975aaefa8245c0137be8635842a2d19887a0cb89ba87d3fac6ea7eac2a1",
+        "lineVersion": 1,
+        "ordinal": 8,
+        "text": "Jazz baby blues play somethin' that you can understand",
+        "startMs": 64400,
+        "endMs": 71860,
+        "words": [
+          {
+            "text": "Jazz",
+            "startMs": 64400,
+            "endMs": 64819
+          },
+          {
+            "text": "baby",
+            "startMs": 64879,
+            "endMs": 65140
+          },
+          {
+            "text": "blues",
+            "startMs": 65200,
+            "endMs": 65660
+          },
+          {
+            "text": "play",
+            "startMs": 65680,
+            "endMs": 66140
+          },
+          {
+            "text": "somethin'",
+            "startMs": 66320,
+            "endMs": 66920
+          },
+          {
+            "text": "that",
+            "startMs": 67860,
+            "endMs": 68060
+          },
+          {
+            "text": "you",
+            "startMs": 68240,
+            "endMs": 68360
+          },
+          {
+            "text": "can",
+            "startMs": 68460,
+            "endMs": 68680
+          },
+          {
+            "text": "understand",
+            "startMs": 68780,
+            "endMs": 71860
+          }
+        ]
+      },
+      {
+        "lineId": "0x99c0f1e0bc5ba2a05095ccfd2f911ed78638b7ef46b889f0d9741e9d95b99aef",
+        "lineVersion": 1,
+        "ordinal": 9,
+        "text": "Those jazzin' blues are driving me insane",
+        "startMs": 74620,
+        "endMs": 77660,
+        "words": [
+          {
+            "text": "Those",
+            "startMs": 74620,
+            "endMs": 74840
+          },
+          {
+            "text": "jazzin'",
+            "startMs": 74920,
+            "endMs": 75400
+          },
+          {
+            "text": "blues",
+            "startMs": 75460,
+            "endMs": 75800
+          },
+          {
+            "text": "are",
+            "startMs": 75840,
+            "endMs": 75980
+          },
+          {
+            "text": "driving",
+            "startMs": 76040,
+            "endMs": 76600
+          },
+          {
+            "text": "me",
+            "startMs": 76640,
+            "endMs": 76760
+          },
+          {
+            "text": "insane",
+            "startMs": 76800,
+            "endMs": 77660
+          }
+        ]
+      },
+      {
+        "lineId": "0xabdf3bba5eaa6617b21e28490dff12e40c08af6b1c69198001828ab34560169a",
+        "lineVersion": 1,
+        "ordinal": 10,
+        "text": "There's nothin' to them but that blue refrain",
+        "startMs": 79120,
+        "endMs": 82640,
+        "words": [
+          {
+            "text": "There's",
+            "startMs": 79120,
+            "endMs": 79420
+          },
+          {
+            "text": "nothin'",
+            "startMs": 79460,
+            "endMs": 79720
+          },
+          {
+            "text": "to",
+            "startMs": 79840,
+            "endMs": 79980
+          },
+          {
+            "text": "them",
+            "startMs": 80040,
+            "endMs": 80260
+          },
+          {
+            "text": "but",
+            "startMs": 80340,
+            "endMs": 80560
+          },
+          {
+            "text": "that",
+            "startMs": 80620,
+            "endMs": 80800
+          },
+          {
+            "text": "blue",
+            "startMs": 80860,
+            "endMs": 81220
+          },
+          {
+            "text": "refrain",
+            "startMs": 81740,
+            "endMs": 82640
+          }
+        ]
+      },
+      {
+        "lineId": "0x6e4494f3ccf7c9c6307fde0461fa78ff2c3ffec06a6312033d6b1697bddf0e98",
+        "lineVersion": 1,
+        "ordinal": 11,
+        "text": "Don't want no sugar in my tea",
+        "startMs": 83680,
+        "endMs": 86320,
+        "words": [
+          {
+            "text": "Don't",
+            "startMs": 83680,
+            "endMs": 83940
+          },
+          {
+            "text": "want",
+            "startMs": 83980,
+            "endMs": 84200
+          },
+          {
+            "text": "no",
+            "startMs": 84260,
+            "endMs": 84400
+          },
+          {
+            "text": "sugar",
+            "startMs": 84560,
+            "endMs": 84860
+          },
+          {
+            "text": "in",
+            "startMs": 84920,
+            "endMs": 85080
+          },
+          {
+            "text": "my",
+            "startMs": 85140,
+            "endMs": 85780
+          },
+          {
+            "text": "tea",
+            "startMs": 85940,
+            "endMs": 86320
+          }
+        ]
+      },
+      {
+        "lineId": "0xd547cd493f06d83b721ec8e109b2be1303a671cc61632cb5f90ca94b13e11df7",
+        "lineVersion": 1,
+        "ordinal": 12,
+        "text": "Jazz baby blues are sweet enough for me",
+        "startMs": 88180,
+        "endMs": 90640,
+        "words": [
+          {
+            "text": "Jazz",
+            "startMs": 88180,
+            "endMs": 88520
+          },
+          {
+            "text": "baby",
+            "startMs": 88560,
+            "endMs": 88860
+          },
+          {
+            "text": "blues",
+            "startMs": 88920,
+            "endMs": 89260
+          },
+          {
+            "text": "are",
+            "startMs": 89300,
+            "endMs": 89440
+          },
+          {
+            "text": "sweet",
+            "startMs": 89560,
+            "endMs": 89760
+          },
+          {
+            "text": "enough",
+            "startMs": 89820,
+            "endMs": 90160
+          },
+          {
+            "text": "for",
+            "startMs": 90200,
+            "endMs": 90300
+          },
+          {
+            "text": "me",
+            "startMs": 90420,
+            "endMs": 90640
+          }
+        ]
+      },
+      {
+        "lineId": "0x60aeaf5e7e51bfe3db8c0d50e924575530e3be22500103596ef7411fee25b048",
+        "lineVersion": 1,
+        "ordinal": 13,
+        "text": "For when the band starts jazzin', peaches shivers on the tree",
+        "startMs": 91520,
+        "endMs": 97580,
+        "words": [
+          {
+            "text": "For",
+            "startMs": 91520,
+            "endMs": 91720
+          },
+          {
+            "text": "when",
+            "startMs": 91760,
+            "endMs": 91920
+          },
+          {
+            "text": "the",
+            "startMs": 91960,
+            "endMs": 92020
+          },
+          {
+            "text": "band",
+            "startMs": 92120,
+            "endMs": 92500
+          },
+          {
+            "text": "starts",
+            "startMs": 92620,
+            "endMs": 93300
+          },
+          {
+            "text": "jazzin',",
+            "startMs": 93400,
+            "endMs": 93960
+          },
+          {
+            "text": "peaches",
+            "startMs": 94560,
+            "endMs": 95060
+          },
+          {
+            "text": "shivers",
+            "startMs": 95140,
+            "endMs": 95760
+          },
+          {
+            "text": "on",
+            "startMs": 95860,
+            "endMs": 96640
+          },
+          {
+            "text": "the",
+            "startMs": 96720,
+            "endMs": 97040
+          },
+          {
+            "text": "tree",
+            "startMs": 97200,
+            "endMs": 97580
+          }
+        ]
+      },
+      {
+        "lineId": "0xabc3c28e4a245903b157487f2c7469371b4046769a33672d154bc06ef02b8096",
+        "lineVersion": 1,
+        "ordinal": 14,
+        "text": "Each time I hear those blues, I wanna scream",
+        "startMs": 101520,
+        "endMs": 104460,
+        "words": [
+          {
+            "text": "Each",
+            "startMs": 101520,
+            "endMs": 101700
+          },
+          {
+            "text": "time",
+            "startMs": 101800,
+            "endMs": 102020
+          },
+          {
+            "text": "I",
+            "startMs": 102140,
+            "endMs": 102180
+          },
+          {
+            "text": "hear",
+            "startMs": 102240,
+            "endMs": 102380
+          },
+          {
+            "text": "those",
+            "startMs": 102460,
+            "endMs": 102680
+          },
+          {
+            "text": "blues,",
+            "startMs": 102760,
+            "endMs": 103060
+          },
+          {
+            "text": "I",
+            "startMs": 103220,
+            "endMs": 103240
+          },
+          {
+            "text": "wanna",
+            "startMs": 103340,
+            "endMs": 103640
+          },
+          {
+            "text": "scream",
+            "startMs": 103720,
+            "endMs": 104460
+          }
+        ]
+      },
+      {
+        "lineId": "0xbaee35edaed9e516f4244d0ad01717ceba34f2f0a8142c8e9c84f0042169fad5",
+        "lineVersion": 1,
+        "ordinal": 15,
+        "text": "To hear the clarinet and that violin",
+        "startMs": 106040,
+        "endMs": 109260,
+        "words": [
+          {
+            "text": "To",
+            "startMs": 106040,
+            "endMs": 106180
+          },
+          {
+            "text": "hear",
+            "startMs": 106280,
+            "endMs": 106440
+          },
+          {
+            "text": "the",
+            "startMs": 106480,
+            "endMs": 106560
+          },
+          {
+            "text": "clarinet",
+            "startMs": 106680,
+            "endMs": 107260
+          },
+          {
+            "text": "and",
+            "startMs": 107300,
+            "endMs": 107480
+          },
+          {
+            "text": "that",
+            "startMs": 107540,
+            "endMs": 107700
+          },
+          {
+            "text": "violin",
+            "startMs": 107800,
+            "endMs": 109260
+          }
+        ]
+      },
+      {
+        "lineId": "0xb5be7e5a2d322243a2bebc98f091388f2c4479506822363c989f054655c8e122",
+        "lineVersion": 1,
+        "ordinal": 16,
+        "text": "Listen at that piano man jazzin' some",
+        "startMs": 110500,
+        "endMs": 113140,
+        "words": [
+          {
+            "text": "Listen",
+            "startMs": 110500,
+            "endMs": 110780
+          },
+          {
+            "text": "at",
+            "startMs": 110820,
+            "endMs": 110980
+          },
+          {
+            "text": "that",
+            "startMs": 111040,
+            "endMs": 111160
+          },
+          {
+            "text": "piano",
+            "startMs": 111260,
+            "endMs": 111660
+          },
+          {
+            "text": "man",
+            "startMs": 111740,
+            "endMs": 112140
+          },
+          {
+            "text": "jazzin'",
+            "startMs": 112260,
+            "endMs": 112640
+          },
+          {
+            "text": "some",
+            "startMs": 112800,
+            "endMs": 113140
+          }
+        ]
+      },
+      {
+        "lineId": "0xd65fe8fd7701a96da1aa570af6124d248c9ca6898c4fb701c19a1f4439e47c8a",
+        "lineVersion": 1,
+        "ordinal": 17,
+        "text": "Oh, it makes me think of the good things that my sweet daddy's done",
+        "startMs": 113780,
+        "endMs": 117680,
+        "words": [
+          {
+            "text": "Oh,",
+            "startMs": 113780,
+            "endMs": 114200
+          },
+          {
+            "text": "it",
+            "startMs": 114320,
+            "endMs": 114420
+          },
+          {
+            "text": "makes",
+            "startMs": 114460,
+            "endMs": 114660
+          },
+          {
+            "text": "me",
+            "startMs": 114700,
+            "endMs": 114780
+          },
+          {
+            "text": "think",
+            "startMs": 114900,
+            "endMs": 115080
+          },
+          {
+            "text": "of",
+            "startMs": 115120,
+            "endMs": 115180
+          },
+          {
+            "text": "the",
+            "startMs": 115220,
+            "endMs": 115260
+          },
+          {
+            "text": "good",
+            "startMs": 115380,
+            "endMs": 115540
+          },
+          {
+            "text": "things",
+            "startMs": 115640,
+            "endMs": 115880
+          },
+          {
+            "text": "that",
+            "startMs": 115940,
+            "endMs": 116120
+          },
+          {
+            "text": "my",
+            "startMs": 116180,
+            "endMs": 116380
+          },
+          {
+            "text": "sweet",
+            "startMs": 116480,
+            "endMs": 116720
+          },
+          {
+            "text": "daddy's",
+            "startMs": 116800,
+            "endMs": 117220
+          },
+          {
+            "text": "done",
+            "startMs": 117260,
+            "endMs": 117680
+          }
+        ]
+      },
+      {
+        "lineId": "0x4b7f35ab4b7438c7c4d547a8ce1c609b876e4072cedda447e7db04157942eab4",
+        "lineVersion": 1,
+        "ordinal": 18,
+        "text": "'Cause when the band starts jazzin', play 'em 'til the sergeant comes",
+        "startMs": 117700,
+        "endMs": 124800,
+        "words": [
+          {
+            "text": "'Cause",
+            "startMs": 117700,
+            "endMs": 118480
+          },
+          {
+            "text": "when",
+            "startMs": 118540,
+            "endMs": 118660
+          },
+          {
+            "text": "the",
+            "startMs": 118700,
+            "endMs": 118760
+          },
+          {
+            "text": "band",
+            "startMs": 118880,
+            "endMs": 119240
+          },
+          {
+            "text": "starts",
+            "startMs": 119400,
+            "endMs": 120040
+          },
+          {
+            "text": "jazzin',",
+            "startMs": 120160,
+            "endMs": 120800
+          },
+          {
+            "text": "play",
+            "startMs": 121180,
+            "endMs": 121480
+          },
+          {
+            "text": "'em",
+            "startMs": 121500,
+            "endMs": 121640
+          },
+          {
+            "text": "'til",
+            "startMs": 121700,
+            "endMs": 122040
+          },
+          {
+            "text": "the",
+            "startMs": 122100,
+            "endMs": 122140
+          },
+          {
+            "text": "sergeant",
+            "startMs": 122300,
+            "endMs": 123560
+          },
+          {
+            "text": "comes",
+            "startMs": 123720,
+            "endMs": 124800
+          }
+        ]
+      },
+      {
+        "lineId": "0xf4cae3e9291ac4a19623a4f3f26ec4090cb219052769ee51bcdf03c10c8c3fa2",
+        "lineVersion": 1,
+        "ordinal": 19,
+        "text": "Now wouldn't that good music drive you insane?",
+        "startMs": 153820,
+        "endMs": 156800,
+        "words": [
+          {
+            "text": "Now",
+            "startMs": 153820,
+            "endMs": 154000
+          },
+          {
+            "text": "wouldn't",
+            "startMs": 154100,
+            "endMs": 154340
+          },
+          {
+            "text": "that",
+            "startMs": 154400,
+            "endMs": 154540
+          },
+          {
+            "text": "good",
+            "startMs": 154660,
+            "endMs": 154820
+          },
+          {
+            "text": "music",
+            "startMs": 154920,
+            "endMs": 155280
+          },
+          {
+            "text": "drive",
+            "startMs": 155360,
+            "endMs": 155740
+          },
+          {
+            "text": "you",
+            "startMs": 155800,
+            "endMs": 155900
+          },
+          {
+            "text": "insane?",
+            "startMs": 155960,
+            "endMs": 156800
+          }
+        ]
+      },
+      {
+        "lineId": "0x791293dea8099dfa5a24cef22fd453d401be326f3320234fa764a58ece062829",
+        "lineVersion": 1,
+        "ordinal": 20,
+        "text": "There's nothin' to them but that blue refrain",
+        "startMs": 158120,
+        "endMs": 161760,
+        "words": [
+          {
+            "text": "There's",
+            "startMs": 158120,
+            "endMs": 158420
+          },
+          {
+            "text": "nothin'",
+            "startMs": 158460,
+            "endMs": 158700
+          },
+          {
+            "text": "to",
+            "startMs": 158840,
+            "endMs": 159000
+          },
+          {
+            "text": "them",
+            "startMs": 159060,
+            "endMs": 159220
+          },
+          {
+            "text": "but",
+            "startMs": 159300,
+            "endMs": 159520
+          },
+          {
+            "text": "that",
+            "startMs": 159580,
+            "endMs": 159900
+          },
+          {
+            "text": "blue",
+            "startMs": 160300,
+            "endMs": 160520
+          },
+          {
+            "text": "refrain",
+            "startMs": 160600,
+            "endMs": 161760
+          }
+        ]
+      },
+      {
+        "lineId": "0x85446361d93fa15f521cfc39df2ffd86d277628dc0bd476820c681acfcb96f6f",
+        "lineVersion": 1,
+        "ordinal": 21,
+        "text": "When that cornet and flute begin to play",
+        "startMs": 162400,
+        "endMs": 164980,
+        "words": [
+          {
+            "text": "When",
+            "startMs": 162400,
+            "endMs": 162620
+          },
+          {
+            "text": "that",
+            "startMs": 162680,
+            "endMs": 162800
+          },
+          {
+            "text": "cornet",
+            "startMs": 162920,
+            "endMs": 163380
+          },
+          {
+            "text": "and",
+            "startMs": 163420,
+            "endMs": 163500
+          },
+          {
+            "text": "flute",
+            "startMs": 163600,
+            "endMs": 163820
+          },
+          {
+            "text": "begin",
+            "startMs": 163880,
+            "endMs": 164260
+          },
+          {
+            "text": "to",
+            "startMs": 164300,
+            "endMs": 164440
+          },
+          {
+            "text": "play",
+            "startMs": 164500,
+            "endMs": 164980
+          }
+        ]
+      },
+      {
+        "lineId": "0xd9403fc952ac05bc1fcb64eb7a2101409900bc0509e4a87cebd07f8e6b9e7a9d",
+        "lineVersion": 1,
+        "ordinal": 22,
+        "text": "Oh, it makes me get up and throw my little self away",
+        "startMs": 165680,
+        "endMs": 169020,
+        "words": [
+          {
+            "text": "Oh,",
+            "startMs": 165680,
+            "endMs": 166020
+          },
+          {
+            "text": "it",
+            "startMs": 166160,
+            "endMs": 166280
+          },
+          {
+            "text": "makes",
+            "startMs": 166340,
+            "endMs": 166580
+          },
+          {
+            "text": "me",
+            "startMs": 166620,
+            "endMs": 166700
+          },
+          {
+            "text": "get",
+            "startMs": 166800,
+            "endMs": 166940
+          },
+          {
+            "text": "up",
+            "startMs": 167000,
+            "endMs": 167080
+          },
+          {
+            "text": "and",
+            "startMs": 167120,
+            "endMs": 167180
+          },
+          {
+            "text": "throw",
+            "startMs": 167260,
+            "endMs": 167520
+          },
+          {
+            "text": "my",
+            "startMs": 167580,
+            "endMs": 167760
+          },
+          {
+            "text": "little",
+            "startMs": 167820,
+            "endMs": 168040
+          },
+          {
+            "text": "self",
+            "startMs": 168220,
+            "endMs": 168500
+          },
+          {
+            "text": "away",
+            "startMs": 168580,
+            "endMs": 169020
+          }
+        ]
+      },
+      {
+        "lineId": "0xab092a88239634086fb95d0c6c2e61436b5fe3973ad27e3fdaf2ac11a43b43b9",
+        "lineVersion": 1,
+        "ordinal": 23,
+        "text": "Just play those good old jazzin' baby blues all night and day",
+        "startMs": 169740,
+        "endMs": 174980,
+        "words": [
+          {
+            "text": "Just",
+            "startMs": 169740,
+            "endMs": 169920
+          },
+          {
+            "text": "play",
+            "startMs": 169960,
+            "endMs": 170180
+          },
+          {
+            "text": "those",
+            "startMs": 170240,
+            "endMs": 170420
+          },
+          {
+            "text": "good",
+            "startMs": 170520,
+            "endMs": 170660
+          },
+          {
+            "text": "old",
+            "startMs": 170720,
+            "endMs": 171440
+          },
+          {
+            "text": "jazzin'",
+            "startMs": 171580,
+            "endMs": 172020
+          },
+          {
+            "text": "baby",
+            "startMs": 172620,
+            "endMs": 172900
+          },
+          {
+            "text": "blues",
+            "startMs": 172980,
+            "endMs": 173480
+          },
+          {
+            "text": "all",
+            "startMs": 173560,
+            "endMs": 173860
+          },
+          {
+            "text": "night",
+            "startMs": 173960,
+            "endMs": 174240
+          },
+          {
+            "text": "and",
+            "startMs": 174300,
+            "endMs": 174500
+          },
+          {
+            "text": "day",
+            "startMs": 174600,
+            "endMs": 174980
+          }
+        ]
+      }
+    ],
+    "segments": [
+      {
+        "segmentId": "s1",
+        "startMs": 19240,
+        "endMs": 23280,
+        "lineIds": [
+          "0x7ebfde50eec24b3eb89e27fb6ade8350290e9cb1f3b89af0cb1ca67d9c6f7022"
+        ]
+      },
+      {
+        "segmentId": "s2",
+        "startMs": 24160,
+        "endMs": 28220,
+        "lineIds": [
+          "0xda9badc373c1441341ea81f14fa3eafefaeb718a06c78ef6fc46c1220dd7510c"
+        ]
+      },
+      {
+        "segmentId": "s3",
+        "startMs": 28780,
+        "endMs": 33220,
+        "lineIds": [
+          "0xba206892848e122d1dc979f052fb7bc412ca3d4dcd9cfe2f92d103777a892a9f"
+        ]
+      },
+      {
+        "segmentId": "s4",
+        "startMs": 36740,
+        "endMs": 42940,
+        "lineIds": [
+          "0x9bf1e29e53e25168f6bd2f05c542b1dc6ba280e52b1d8892b688f4c17f4d2a72"
+        ]
+      },
+      {
+        "segmentId": "s5",
+        "startMs": 47120,
+        "endMs": 50720,
+        "lineIds": [
+          "0x3c683dac5b8e8869fd0d26d086f277177f7013b27227c46c01eae486c4939c77"
+        ]
+      },
+      {
+        "segmentId": "s6",
+        "startMs": 51940,
+        "endMs": 55320,
+        "lineIds": [
+          "0xa2a4dc94ef24f0e2c8bbc3ed2d6fa91205f9525639af4d54601086566ecdcf60"
+        ]
+      },
+      {
+        "segmentId": "s7",
+        "startMs": 56420,
+        "endMs": 60840,
+        "lineIds": [
+          "0x673a75d44bfd5d903302c6e829219e464457e2c178c6c0ad92758afbc39203d8"
+        ]
+      },
+      {
+        "segmentId": "s8",
+        "startMs": 64400,
+        "endMs": 71860,
+        "lineIds": [
+          "0xdb865975aaefa8245c0137be8635842a2d19887a0cb89ba87d3fac6ea7eac2a1"
+        ]
+      },
+      {
+        "segmentId": "s9",
+        "startMs": 74620,
+        "endMs": 77660,
+        "lineIds": [
+          "0x99c0f1e0bc5ba2a05095ccfd2f911ed78638b7ef46b889f0d9741e9d95b99aef"
+        ]
+      },
+      {
+        "segmentId": "s10",
+        "startMs": 79120,
+        "endMs": 82640,
+        "lineIds": [
+          "0xabdf3bba5eaa6617b21e28490dff12e40c08af6b1c69198001828ab34560169a"
+        ]
+      },
+      {
+        "segmentId": "s11",
+        "startMs": 83680,
+        "endMs": 86320,
+        "lineIds": [
+          "0x6e4494f3ccf7c9c6307fde0461fa78ff2c3ffec06a6312033d6b1697bddf0e98"
+        ]
+      },
+      {
+        "segmentId": "s12",
+        "startMs": 88180,
+        "endMs": 90640,
+        "lineIds": [
+          "0xd547cd493f06d83b721ec8e109b2be1303a671cc61632cb5f90ca94b13e11df7"
+        ]
+      },
+      {
+        "segmentId": "s13",
+        "startMs": 91520,
+        "endMs": 97580,
+        "lineIds": [
+          "0x60aeaf5e7e51bfe3db8c0d50e924575530e3be22500103596ef7411fee25b048"
+        ]
+      },
+      {
+        "segmentId": "s14",
+        "startMs": 101520,
+        "endMs": 104460,
+        "lineIds": [
+          "0xabc3c28e4a245903b157487f2c7469371b4046769a33672d154bc06ef02b8096"
+        ]
+      },
+      {
+        "segmentId": "s15",
+        "startMs": 106040,
+        "endMs": 109260,
+        "lineIds": [
+          "0xbaee35edaed9e516f4244d0ad01717ceba34f2f0a8142c8e9c84f0042169fad5"
+        ]
+      },
+      {
+        "segmentId": "s16",
+        "startMs": 110500,
+        "endMs": 113140,
+        "lineIds": [
+          "0xb5be7e5a2d322243a2bebc98f091388f2c4479506822363c989f054655c8e122"
+        ]
+      },
+      {
+        "segmentId": "s17",
+        "startMs": 113780,
+        "endMs": 117680,
+        "lineIds": [
+          "0xd65fe8fd7701a96da1aa570af6124d248c9ca6898c4fb701c19a1f4439e47c8a"
+        ]
+      },
+      {
+        "segmentId": "s18",
+        "startMs": 117700,
+        "endMs": 124800,
+        "lineIds": [
+          "0x4b7f35ab4b7438c7c4d547a8ce1c609b876e4072cedda447e7db04157942eab4"
+        ]
+      },
+      {
+        "segmentId": "s19",
+        "startMs": 153820,
+        "endMs": 156800,
+        "lineIds": [
+          "0xf4cae3e9291ac4a19623a4f3f26ec4090cb219052769ee51bcdf03c10c8c3fa2"
+        ]
+      },
+      {
+        "segmentId": "s20",
+        "startMs": 158120,
+        "endMs": 161760,
+        "lineIds": [
+          "0x791293dea8099dfa5a24cef22fd453d401be326f3320234fa764a58ece062829"
+        ]
+      },
+      {
+        "segmentId": "s21",
+        "startMs": 162400,
+        "endMs": 164980,
+        "lineIds": [
+          "0x85446361d93fa15f521cfc39df2ffd86d277628dc0bd476820c681acfcb96f6f"
+        ]
+      },
+      {
+        "segmentId": "s22",
+        "startMs": 165680,
+        "endMs": 169020,
+        "lineIds": [
+          "0xd9403fc952ac05bc1fcb64eb7a2101409900bc0509e4a87cebd07f8e6b9e7a9d"
+        ]
+      },
+      {
+        "segmentId": "s23",
+        "startMs": 169740,
+        "endMs": 174980,
+        "lineIds": [
+          "0xab092a88239634086fb95d0c6c2e61436b5fe3973ad27e3fdaf2ac11a43b43b9"
+        ]
+      }
+    ],
+    "song": {
+      "chainId": 6343,
+      "posts": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+      "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+      "postId": "0x2ce682013277b160a830fad5fa70734f19831edebce908ea3f8457867355b31e"
+    },
+    "source": {
+      "lyricsRevision": 1,
+      "lyricsSha256": "0xbcd257bb76454c08b80e0b08f998397e277648a299420f076bace9c0d7593c21"
+    }
+  }
+}

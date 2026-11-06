@@ -140,9 +140,12 @@ export function alignmentResult(
     exact(row, ["text", "start", "end", "loss"]);
     insist(loss(row.loss), "invalid_alignment_loss", 503);
     const t = timing(row, previousEnd, durationMs);
-    insist(!/\s/u.test(t.text), "invalid_alignment_word", 503);
-    wordEntries.push({ ...t, startOffset: -1, endOffset: -1 });
     previousEnd = t.endMs;
+    // The real provider includes whitespace separators and whole section
+    // labels in this list. Validate their timing, then omit separators.
+    if (/^\s+$/u.test(t.text)) continue;
+    insist(!/\s/u.test(t.text) || isSectionCue(t.text), "invalid_alignment_word", 503);
+    wordEntries.push({ ...t, startOffset: -1, endOffset: -1 });
   }
   // The centralized adapter uses word timings only when every word binds to
   // its exact character span; otherwise it keeps the character timings.

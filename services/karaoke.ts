@@ -300,7 +300,7 @@ export async function karaokeRoute(
     const quote = operatorQuote(env);
     validateManifest(input.manifest, quote.maxSegmentMs);
     check(
-      ticket.operator === env.OPERATOR_ADDRESS &&
+      ticket.operator.toLowerCase() === env.OPERATOR_ADDRESS.toLowerCase() &&
         ticket.quoteId === quoteIdOf(quote) &&
         ticket.manifestSha256 === digest(input.manifest) &&
         ticket.songHash === input.manifest.songHash &&

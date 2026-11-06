@@ -267,7 +267,7 @@ export async function trustedQuote(env: Env, store: AsyncStore) {
   const quote = await verify(signed, "quote", env.OPERATOR_ADDRESS, signatureChainId(env));
   const now = await store.now();
   check(
-    quote.operator === env.OPERATOR_ADDRESS &&
+    quote.operator.toLowerCase() === env.OPERATOR_ADDRESS.toLowerCase() &&
       quote.chainId === Number(env.PAYMENT_CHAIN_ID) &&
       (quote.serviceMode === "internal") === (env.SERVICE_MODE === "internal") &&
       quote.token.toLowerCase() === env.PAYMENT_TOKEN?.toLowerCase() &&

@@ -7,10 +7,26 @@ export async function cfJson(args: string[], env: NodeJS.ProcessEnv) {
     execFile(
       resolve("node_modules/.bin/cf"),
       args,
-      { env, encoding: "utf8", timeout: 30000, maxBuffer: 2 * 1024 * 1024 },
-      (error, stdout) => {
-        if (error) fail(new CommunityError("managed_inventory_failed", 503));
-        else
+      { env, encoding: "utf8", timeout: 60000, maxBuffer: 2 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          if (process.env.PIRATE_RELEASE_DEBUG === "1")
+            console.error(
+              JSON.stringify({
+                operation: args.slice(0, 2),
+                code: error.code,
+                signal: error.signal,
+                killed: error.killed,
+                diagnostic: stderr
+                  .replaceAll(
+                    env.CLOUDFLARE_API_TOKEN ?? "[no token]",
+                    "[redacted]",
+                  )
+                  .slice(0, 1200),
+              }),
+            );
+          fail(new CommunityError("managed_inventory_failed", 503));
+        } else
           try {
             done(JSON.parse(stdout));
           } catch {

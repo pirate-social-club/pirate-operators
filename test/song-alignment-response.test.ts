@@ -183,3 +183,29 @@ test("character fallback refuses mixed whitespace entries and words across lines
   assert.equal(isSectionCue("[a [b]"), false);
   assert.equal(isSectionCue("Hold on"), false);
 });
+
+test("provider word separators and whole section labels retain sung word timings", () => {
+  const lyrics = createLyrics(identity, "[Verse 1]\nHold on", "en");
+  const good = response(lyrics.sourceText);
+  good.words = [
+    { text: "[Verse 1]", start: 0, end: 0.9, loss: 0 },
+    { text: "\n", start: 0.9, end: 1, loss: 0 },
+    { text: "Hold", start: 1, end: 1.4, loss: 0.2 },
+    { text: " ", start: 1.4, end: 1.5, loss: 0 },
+    { text: "on", start: 1.5, end: 1.7, loss: 0.2 },
+  ];
+  const aligned = alignmentResult(good, lyrics, 10000);
+  assert.equal(aligned.mode, "word");
+  assert.deepEqual(
+    aligned.words.map((w) => [w.lineId, w.text, w.startMs, w.endMs]),
+    [
+      [lyrics.lines[1].lineId, "Hold", 1000, 1400],
+      [lyrics.lines[1].lineId, "on", 1500, 1700],
+    ],
+  );
+  good.words[3].start = 1;
+  assert.throws(
+    () => alignmentResult(good, lyrics, 10000),
+    /reordered_alignment_timing/,
+  );
+});

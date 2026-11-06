@@ -68,6 +68,12 @@ export async function putAudio(path: string, file: File, csrf: string) {
     );
 }
 const messages: Record<string, string> = {
+  sponsor_exhausted: "Sponsored practice is paused because the community allowance is exhausted.",
+  gas_price_above_limit: "Sponsored publication is waiting for the network fee to fall within the community limit.",
+  speech_budget_exhausted: "Speech practice has reached today's community limit.",
+  public_result_manifest_unavailable: "This song's public learning material is still being prepared.",
+  account_activation_not_approved: "This testnet wallet needs operator activation approval before enrollment.",
+  enrollment_not_active_yet: "Your enrollment is confirming. Try again in a moment.",
   creator_service_unavailable:
     "The creator wallet service is unavailable. Your progress is saved.",
   release_processing_unavailable:

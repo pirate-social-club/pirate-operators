@@ -57,12 +57,48 @@ check(
 );
 const operator = privateKeyToAccount(keys.keys.operator),
   issuer = privateKeyToAccount(keys.keys.communityAdmin);
+const approval = await readFile(
+  join(state, "moss-activation-approval.json"),
+  "utf8",
+)
+  .then(JSON.parse)
+  .catch((error) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+if (approval)
+  check(
+    approval.chainId === 6343 &&
+      /^0x[0-9a-f]{40}$/.test(approval.address) &&
+      Date.now() - Date.parse(approval.approvedAt) < 86400000,
+    "activation_approval_invalid",
+  );
 check(
   journal.operator.toLowerCase() === operator.address.toLowerCase(),
   "operator_changed",
 );
 await mkdir(join(state, "alchemy"), { recursive: true, mode: 0o700 });
 const now = Math.floor(Date.now() / 1000);
+const quoteWindowPath = join(state, "quote-window.json");
+let quoteWindow = await readFile(quoteWindowPath, "utf8")
+  .then(JSON.parse)
+  .catch((error) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+if (!quoteWindow) {
+  quoteWindow = { validFrom: now - 60, validUntil: now + 30 * 86400 };
+  await import("./private-json.ts").then(({ durableJson }) =>
+    durableJson(quoteWindowPath, quoteWindow),
+  );
+}
+check(
+  Number.isSafeInteger(quoteWindow.validFrom) &&
+    Number.isSafeInteger(quoteWindow.validUntil) &&
+    quoteWindow.validFrom <= now &&
+    now < quoteWindow.validUntil,
+  "quote_window_expired_or_invalid",
+);
 const env: NodeJS.ProcessEnv = {
   PATH: process.env.PATH,
   HOME: process.env.HOME,
@@ -74,17 +110,20 @@ const env: NodeJS.ProcessEnv = {
   PIRATE_WIZARD_STATE_PASSWORD: password,
   LEARNING_COMMUNITY_ID: firstSong.directoryProfile.communityId,
   LEARNING_RESULTS_CONTRACT: journal.intents.deploy.address.toLowerCase(),
-  LEARNING_GRADER_ADDRESS: operator.address,
+  LEARNING_GRADER_ADDRESS: operator.address.toLowerCase(),
   LEARNING_ISSUER_ADDRESS: issuer.address,
   LEARNING_OPERATOR_PRIVATE_KEY: keys.keys.operator,
   LEARNING_ELEVENLABS_API_KEY: speech,
+  ...(approval
+    ? { LEARNING_APPROVED_ACTIVATION_ACCOUNT: approval.address }
+    : {}),
   LEARNING_SPONSOR_CAP_WEI: "50000000000000",
   LEARNING_GAS_PRICE_WEI: "1000000",
   LEARNING_GAS_LIMIT: "1500000",
   LEARNING_DATA_FEE_WEI: "100000000000",
   LEARNING_SPEECH_DAILY_LIMIT: "10",
-  LEARNING_QUOTE_VALID_FROM: String(now - 60),
-  LEARNING_QUOTE_VALID_UNTIL: String(now + 30 * 86400),
+  LEARNING_QUOTE_VALID_FROM: String(quoteWindow.validFrom),
+  LEARNING_QUOTE_VALID_UNTIL: String(quoteWindow.validUntil),
 };
 const config = resolve(
   root,
