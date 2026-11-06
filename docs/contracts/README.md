@@ -1,5 +1,12 @@
 # Decentralized contract boundaries
 
+The 2026-11-06 [compact result amendment](../learning-results-v2.md) supersedes
+the next implementation's per-line recording and payment granularity while
+preserving public grades and independent boards. Its [private history
+specification](../learner-history.md) keeps the tutor profile learner-controlled.
+The frozen draft/source digests remain historical evidence. LearningRecords v1
+is implemented; its compact successor and full MOSS consent path are not.
+
 Contract boundaries and local directory/post implementation, 2026-11-04.
 The workspace_owner requested explicit contracts and confirmed human Dance
 review. The directory and shared post index now implement the reviewed V1 ABIs
@@ -18,8 +25,8 @@ retain their admission, creator activation and registration gates.
 | Rules and roles            | Community controls admission policy; LearningRecords owns public qualification-policy activation and grader authorization. | No separate governance contract required for first song. Future delegated roles belong to community authority, not Pirate's listing administrator.                                                          |
 | Song and video publication | Community publisher submits admitted, immutable content references under a scoped author ID and pays gas.                  | [Post index](community-posts.md) implemented locally; video admission still needs its own policy. No media in contract storage.                                                                             |
 | Comments                   | Community-local author and content policy.                                                                                 | On-chain representation remains open. No comment ABI or automatic public pinning is introduced.                                                                                                             |
-| Operator work payments     | Community purchase authority buys bounded operator work.                                                                   | OperatorPayments and per-line accounting live on the active segment-payments branch; not reimplemented here.                                                                                                |
-| Study, Karaoke and Dance   | Typed assessment records; distinct graders, including human owner review for Dance.                                        | [LearningRecords draft](learning-records.md) and [assessment adapters](assessments-rewards.md); wallet identity and Dance review-day credit are proposed defaults; no grade-contract implementation exists. |
+| Operator work payments     | Community purchase authority buys bounded operator work.                                                                   | OperatorPayments v1 is implemented. The compact-results amendment replaces per-line settlement in the next design; no replacement is implemented here.                                                                                                |
+| Study, Karaoke and Dance   | Typed assessment records; distinct graders, including human owner review for Dance.                                        | [LearningRecords v1 encoding](../learning-records-contract.md) is implemented; [compact results](../learning-results-v2.md) define its unimplemented successor. Dance review-day credit retains its proposal status. |
 | Daily qualification        | Sponsor-approved verifier evaluates frozen task policy, deduplicates entries and commits a drawing root.                   | Karaoke policy already specifies periods, thresholds and retry deduplication. Multi-task acceptance and assessor authorization need an extension.                                                           |
 | Reward pots and bridge     | Separate funding, custody, purchase, bridge reconciliation and claim accounting.                                           | Existing RewardPool is a local single-sponsor/single-drawing experiment. Cross-chain/shared-pot replacement is not implemented or ratified by this slice.                                                   |
 

@@ -1,5 +1,12 @@
 # Pirate operators
 
+The [compact public results amendment](docs/learning-results-v2.md) sets the
+next recording/payment direction: one terminal result per lesson or run,
+internal usage accounting for Pirate's own service and guaranteed coverage for
+independent providers. [Learner-held history](docs/learner-history.md) defines
+the private tutoring/export boundary. These specifications do not change the
+current v1 runtime or resolve the MOSS consent release gate.
+
 A standalone experiment for independently operated communities, song admission,
 karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
 explains the first milestone: ordinary HTTPS, a genuine registry, community
