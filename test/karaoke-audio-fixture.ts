@@ -189,6 +189,18 @@ export async function audioCommunity(
     result,
     state,
     simulator,
+    async waitForProviderChunks(count: number) {
+      let log = await simulator();
+      for (let i = 0; i < 100; i++) {
+        if (
+          log.streams.reduce((sum, stream) => sum + stream.chunks, 0) >= count
+        )
+          return log;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        log = await simulator();
+      }
+      throw Error("provider_audio_not_delivered:" + JSON.stringify(log));
+    },
     reconnect: (a: A) =>
       openAttempt(
         runtime.mf,
