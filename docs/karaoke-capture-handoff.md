@@ -73,6 +73,13 @@ These follow the centralized client, session host and reducer.
   newer connection (close 4409) does not reconnect.
 - The operator refuses audio whose sequence does not increase. Only the live
   socket can finish the take.
+- A song-time gap between received audio frames marks overlapping lines
+  unmeasured. Provider commits cannot turn audio that never arrived into
+  measured silence. The last received boundary survives a relay snapshot;
+  an explicit seek resets that boundary without inventing a transport failure.
+  A fresh take expects audio from song time zero, including before its first
+  received frame. An older snapshot with a sequence but no saved boundary has
+  unknown earlier coverage; it establishes a boundary on the next frame.
 - On a backward seek the relay drops words ending after the seek point minus
   300 ms, drops any commit reaching past it and its late words, and reopens
   lines after it. Words already handed to the scorer follow the same rule, in
@@ -87,7 +94,7 @@ These follow the centralized client, session host and reducer.
   `provider_failed`, which the existing result reports as `unmeasured`, never
   as wrong.
 
-Two deliberate changes from the centralized code:
+Initial deliberate changes from the centralized code:
 
 1. A pause flushes the capture tail before telling the operator. The centralized
    client sent pause first, and its server rejected the flushed audio as

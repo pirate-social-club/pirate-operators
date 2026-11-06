@@ -275,6 +275,9 @@ test("a learner reconnect continues the same provider stream; regressed audio is
     const a = await c.attempt();
     await c.payAll(a);
     await c.sing(a.socket, a, 0, 4500);
+    // Sending on the old socket does not acknowledge server receipt. This case
+    // claims uninterrupted audio, so establish delivery before replacing it.
+    await c.waitForProviderChunks(45);
     const rejoined = await c.reconnect(a);
     assert.equal(rejoined.ready.resumed, true);
     await c.sing(rejoined, a, 4500, 22500);
@@ -300,7 +303,73 @@ test("a learner reconnect continues the same provider stream; regressed audio is
     assert.deepEqual(
       result.lines.map((l) => l.status),
       ["assessed", "assessed", "assessed", "assessed"],
+      JSON.stringify({
+        words: await storedWords(c, a),
+        relay: await c.state(`audioRelay:${a.ticket.body.ticketId}`),
+        provider: await c.simulator(),
+      }),
     );
+    assert.equal((await c.simulator()).minted, 1);
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a learner audio gap across reconnect is unmeasured while delivered lines still count", async () => {
+  const c = await audioCommunity(evm, "learner-gap", [
+    {
+      words: [
+        ...sung(manifest, ["line-01"]),
+        // The provider's audio clock excludes the 2.5 seconds never delivered.
+        ...sung(manifest, ["line-03", "line-04"], 2500),
+      ],
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 2000);
+    await c.waitForProviderChunks(20);
+    const rejoined = await c.reconnect(a);
+    // Audio for [2000, 4500) is lost during connection replacement.
+    await c.sing(rejoined, a, 4500, 22500);
+    await c.waitForProviderChunks(200);
+    const result = await finish(c, a, rejoined);
+    assert.deepEqual(
+      result.lines.map((line) => line.status),
+      ["assessed", "unmeasured", "assessed", "assessed"],
+    );
+    assert.equal(result.lines[1].scoreBps, null);
+    assert.equal((await c.simulator()).minted, 1);
+    assert.deepEqual(
+      (await storedWords(c, a)).map((word) => word.text),
+      manifest.lines
+        .filter((line) => line.lineId !== "line-02")
+        .flatMap((line) => line.words.map((word) => word.text)),
+    );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("missing leading learner audio is unmeasured before the first provider frame", async () => {
+  const c = await audioCommunity(evm, "leading-gap", [
+    {
+      words: sung(manifest, ["line-03", "line-04"], 4500),
+    },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 4500, { drop: true });
+    await c.sing(a.socket, a, 4500, 22500);
+    await c.waitForProviderChunks(180);
+    const result = await finish(c, a);
+    assert.deepEqual(
+      result.lines.map((line) => line.status),
+      ["unmeasured", "unmeasured", "assessed", "assessed"],
+    );
+    assert.ok(result.lines.slice(0, 2).every((line) => line.scoreBps === null));
     assert.equal((await c.simulator()).minted, 1);
   } finally {
     await c.dispose();

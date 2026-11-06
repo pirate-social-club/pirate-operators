@@ -1,0 +1,140 @@
+{
+  "rows": [],
+  "days": [],
+  "outcomes": [
+    {
+      "key": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74:0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+      "revision": 1,
+      "commitment": "0x1d1557caaa1051345e329890e4389b8dc235ef741f47db76f568b8d0f6c89903",
+      "completedAt": "1793958006",
+      "policy": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "status": 1,
+      "verified": true,
+      "lines": [
+        {
+          "ordinal": 1,
+          "status": 1,
+          "grade": 9661
+        },
+        {
+          "ordinal": 2,
+          "status": 1,
+          "grade": 6611
+        },
+        {
+          "ordinal": 3,
+          "status": 1,
+          "grade": 7101
+        },
+        {
+          "ordinal": 4,
+          "status": 1,
+          "grade": 8534
+        },
+        {
+          "ordinal": 5,
+          "status": 1,
+          "grade": 9697
+        },
+        {
+          "ordinal": 6,
+          "status": 1,
+          "grade": 9674
+        },
+        {
+          "ordinal": 7,
+          "status": 1,
+          "grade": 9685
+        },
+        {
+          "ordinal": 8,
+          "status": 1,
+          "grade": 8382
+        },
+        {
+          "ordinal": 9,
+          "status": 1,
+          "grade": 8335
+        },
+        {
+          "ordinal": 10,
+          "status": 1,
+          "grade": 8990
+        },
+        {
+          "ordinal": 11,
+          "status": 1,
+          "grade": 9676
+        },
+        {
+          "ordinal": 12,
+          "status": 1,
+          "grade": 3030
+        },
+        {
+          "ordinal": 13,
+          "status": 1,
+          "grade": 7281
+        },
+        {
+          "ordinal": 14,
+          "status": 1,
+          "grade": 9686
+        },
+        {
+          "ordinal": 15,
+          "status": 1,
+          "grade": 6567
+        },
+        {
+          "ordinal": 16,
+          "status": 1,
+          "grade": 5888
+        },
+        {
+          "ordinal": 17,
+          "status": 1,
+          "grade": 9661
+        },
+        {
+          "ordinal": 18,
+          "status": 1,
+          "grade": 7499
+        },
+        {
+          "ordinal": 19,
+          "status": 1,
+          "grade": 8186
+        },
+        {
+          "ordinal": 20,
+          "status": 1,
+          "grade": 9687
+        },
+        {
+          "ordinal": 21,
+          "status": 1,
+          "grade": 5867
+        },
+        {
+          "ordinal": 22,
+          "status": 1,
+          "grade": 9720
+        },
+        {
+          "ordinal": 23,
+          "status": 2,
+          "grade": null
+        }
+      ]
+    }
+  ],
+  "scores": [
+    {
+      "key": "6343:0xc26d3b5df9e191148424323bb61ee019e432dc74:0xd36e9ed33009d6f594face6e6ef5bcafed4edf4e8c1d9c07229ca309e713acbc",
+      "lines": 23,
+      "unmeasured": 0,
+      "scoreBps": 7800
+    }
+  ]
+}
