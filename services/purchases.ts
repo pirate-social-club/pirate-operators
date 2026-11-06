@@ -44,8 +44,9 @@ export function operatorQuote(env: Env): OperatorQuote {
     scoringPolicy: "karaoke-scoring/5",
     maxSegmentMs: 10000,
     maxUnpaidRun: 2,
-    validFrom: 1800000000,
-    validUntil: 1900000000,
+    // The operator's advertised window; the defaults are the local fixture clock's.
+    validFrom: Number(env.QUOTE_VALID_FROM ?? 1800000000),
+    validUntil: Number(env.QUOTE_VALID_UNTIL ?? 1900000000),
   };
 }
 

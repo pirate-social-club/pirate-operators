@@ -1,11 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Address, Hex } from "viem";
-import { check, supportedChain } from "../packages/protocol/index.ts";
+import { check } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
 import { operator } from "./operator.ts";
 import { onClose, onMessage, tick } from "./karaoke.ts";
 import { communityTick } from "./community-purchases.ts";
 import { D1Store, localControl } from "./storage.ts";
+import { body, signatureChainId } from "./service-call.ts";
+// Pure helpers live apart so Node-run modules can use them without Workers imports.
+export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
 
 export interface Env {
@@ -34,6 +37,15 @@ export interface Env {
   REALTIME_RPC?: string;
   /** LearningRecords on the payment chain; publication is off without it. */
   RECORDS_CONTRACT?: string;
+  /**
+   * The only EIP-7702 delegate and initializer the operator will activate a
+   * learner's account with: MOSS's account proxy and orchestrator on MegaETH.
+   */
+  ACCOUNT_DELEGATE?: string;
+  ACCOUNT_INITIALIZER?: string;
+  /** The operator quote's validity window, in seconds. */
+  QUOTE_VALID_FROM?: string;
+  QUOTE_VALID_UNTIL?: string;
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }
@@ -80,25 +92,6 @@ export class Store {
   transaction<T>(fn: () => T): T {
     return this.storage.transactionSync(fn);
   }
-}
-export async function call<T>(
-  binding: Fetcher,
-  path: string,
-  body: unknown,
-): Promise<T> {
-  const response = await binding.fetch(`http://service${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const value = (await response.json()) as { error?: string };
-  check(response.ok, value.error ?? `upstream_${response.status}`);
-  return value as T;
-}
-export async function body<T>(request: Request): Promise<T> {
-  const text = await request.text();
-  check(text.length <= 32000, "request_too_large");
-  return JSON.parse(text) as T;
 }
 export class ServiceState extends DurableObject<Env> {
   readonly store: Store;
@@ -197,7 +190,3 @@ export default {
     );
   },
 };
-
-export function signatureChainId(env: Env) {
-  return supportedChain(Number(env.SIGNATURE_CHAIN_ID ?? 31337));
-}

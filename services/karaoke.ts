@@ -30,12 +30,19 @@ import {
   refreshRedemptions,
 } from "./purchases.ts";
 import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
-import { acceptConsent, consentRequest, correct, publish } from "./records.ts";
+import {
+  acceptConsent,
+  consentRequest,
+  correct,
+  publicationOf,
+  publish,
+} from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
-  const manifest = ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
+  const manifest =
+    ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
   const attempt = store.get<Attempt>(`attempt:${ticketId}`);
   return { ticket, manifest, attempt };
 };
@@ -47,7 +54,9 @@ type Status = NonNullable<Attempt["ended"]>["status"];
 function end(attempt: Attempt, endedAt: number, status: Status) {
   if (attempt.ended) return;
   const performanceEndedAt =
-    attempt.disconnectedAt === null ? endedAt : Math.min(endedAt, attempt.disconnectedAt);
+    attempt.disconnectedAt === null
+      ? endedAt
+      : Math.min(endedAt, attempt.disconnectedAt);
   attempt.ended = {
     endedAt,
     performanceEndedAt,
@@ -57,7 +66,10 @@ function end(attempt: Attempt, endedAt: number, status: Status) {
 }
 /** For the unpaid-run stop: a purchase received and still being redeemed counts. */
 const purchaseReceived = (store: Store, ticketId: Hex, segmentId: string) => {
-  const state = redemptionRow(store, unitHash(segmentUnit(ticketId, segmentId, 0)))?.state;
+  const state = redemptionRow(
+    store,
+    unitHash(segmentUnit(ticketId, segmentId, 0)),
+  )?.state;
   return state === "confirmed" || state === "submitted";
 };
 
@@ -78,23 +90,31 @@ function settle(store: Store, env: Env, ticketId: string) {
       attempt.connected ? "completed" : "abandoned",
     ]);
     events.push([
-      Math.min(ticket.expiresAt, attempt.startedAt + Math.ceil(ticket.maxDurationMs / 1000)),
+      Math.min(
+        ticket.expiresAt,
+        attempt.startedAt + Math.ceil(ticket.maxDurationMs / 1000),
+      ),
       "expired",
     ]);
     let run = 0;
     for (const segment of manifest.segments) {
       const segmentEnd = attempt.startedAt + Math.ceil(segment.endMs / 1000);
       if (segmentEnd > now) break;
-      run = purchaseReceived(store, ticket.ticketId, segment.segmentId) ? 0 : run + 1;
+      run = purchaseReceived(store, ticket.ticketId, segment.segmentId)
+        ? 0
+        : run + 1;
       if (run >= operatorQuote(env).maxUnpaidRun) {
         events.push([segmentEnd, "payment_missing"]);
         break;
       }
     }
-    const due = events.filter(([at]) => at <= now).sort((a, b) => a[0] - b[0])[0];
+    const due = events
+      .filter(([at]) => at <= now)
+      .sort((a, b) => a[0] - b[0])[0];
     if (due) end(attempt, due[0], due[1]);
   }
-  if (attempt.ended && now >= attempt.ended.paymentDeadline) attempt.closing = { block: null };
+  if (attempt.ended && now >= attempt.ended.paymentDeadline)
+    attempt.closing = { block: null };
   store.set(`attempt:${ticketId}`, attempt);
   return attempt;
 }
@@ -105,8 +125,15 @@ async function advance(env: Env, store: Store, ticketId: string) {
   // Purchase state comes from the contract before the stop rule reads it. A
   // failed or slow refresh leaves purchases pending for the next tick; it never
   // blocks timers, capture or finalization.
-  if (loaded.ticket && loaded.manifest && loaded.attempt && !loaded.attempt.ended)
-    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest).catch(() => undefined);
+  if (
+    loaded.ticket &&
+    loaded.manifest &&
+    loaded.attempt &&
+    !loaded.attempt.ended
+  )
+    await refreshRedemptions(env, store, loaded.ticket, loaded.manifest).catch(
+      () => undefined,
+    );
   const attempt = settle(store, env, ticketId);
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
@@ -133,7 +160,16 @@ async function advance(env: Env, store: Store, ticketId: string) {
     throw new Error("simulated_crash_before_result");
   }
   const quote = operatorQuote(env);
-  const finalBody = resultBody(store, ticket, manifest, quote, quoteIdOf(quote), current, paid, block);
+  const finalBody = resultBody(
+    store,
+    ticket,
+    manifest,
+    quote,
+    quoteIdOf(quote),
+    current,
+    paid,
+    block,
+  );
   store.set(
     `result:${ticketId}`,
     await sign("result", finalBody, env.PRIVATE_KEY, signatureChainId(env)),
@@ -163,12 +199,26 @@ export async function recover(env: Env, store: Store) {
 }
 
 /** Accepts a segment purchase for an attempt that is still open for payment. */
-async function acceptSegment(env: Env, store: Store, input: SignedPurchase, socketTicketId?: string) {
+async function acceptSegment(
+  env: Env,
+  store: Store,
+  input: SignedPurchase,
+  socketTicketId?: string,
+) {
   const ticketId = input?.purchase?.ticketId;
-  return acceptPurchase(env, store, input, { kind: "segment", socketTicketId }, () => {
-    const attempt = settle(store, env, ticketId);
-    check(attempt && !attempt.closing && !attempt.finalized, "attempt_closed");
-  });
+  return acceptPurchase(
+    env,
+    store,
+    input,
+    { kind: "segment", socketTicketId },
+    () => {
+      const attempt = settle(store, env, ticketId);
+      check(
+        attempt && !attempt.closing && !attempt.finalized,
+        "attempt_closed",
+      );
+    },
+  );
 }
 
 export async function karaokeRoute(
@@ -180,17 +230,28 @@ export async function karaokeRoute(
   const url = new URL(request.url);
   if (url.pathname === "/quote") {
     const quote = operatorQuote(env);
-    return Response.json(await sign("quote", quote, env.PRIVATE_KEY, signatureChainId(env)));
+    return Response.json(
+      await sign("quote", quote, env.PRIVATE_KEY, signatureChainId(env)),
+    );
   }
   if (url.pathname === "/prepare") {
-    const input = await body<{ ticket: Signed<Ticket>; manifest: KaraokeManifest }>(request);
-    const ticket = await verify(input.ticket, "ticket", env.ISSUER, signatureChainId(env));
+    const input = await body<{
+      ticket: Signed<Ticket>;
+      manifest: KaraokeManifest;
+    }>(request);
+    const ticket = await verify(
+      input.ticket,
+      "ticket",
+      env.ISSUER,
+      signatureChainId(env),
+    );
     const quote = operatorQuote(env);
     validateManifest(input.manifest, quote.maxSegmentMs);
     check(
       ticket.operator === env.OPERATOR_ADDRESS &&
         ticket.quoteId === quoteIdOf(quote) &&
         ticket.manifestSha256 === digest(input.manifest) &&
+        ticket.songHash === input.manifest.songHash &&
         ticket.expiresAt > store.now(),
       "invalid_ticket",
     );
@@ -204,13 +265,47 @@ export async function karaokeRoute(
     const input = await body<SignedPurchase>(request);
     return Response.json({ paid: await acceptSegment(env, store, input) });
   }
-  if (url.pathname === "/recover") return Response.json(await recover(env, store));
+  if (url.pathname === "/recover")
+    return Response.json(await recover(env, store));
   if (url.pathname === "/__correct") {
     // Local control, like /__fault: production corrections need an
     // authenticated operator path that does not exist yet.
     // The correction is recorded here; operator ticks publish it.
-    const corrected = await correct(env, store, await body<Parameters<typeof correct>[2]>(request));
+    const corrected = await correct(
+      env,
+      store,
+      await body<Parameters<typeof correct>[2]>(request),
+    );
     return Response.json({ revision: corrected.revision });
+  }
+  if (url.pathname === "/consent") {
+    // The same consent the socket accepts, for a learner whose attempt has
+    // ended or whose socket closed: only the learner's signature is accepted.
+    const input = await body<{ ticketId: string; signature: Hex }>(request);
+    const attempt = store.get<Attempt>(`attempt:${input.ticketId}`);
+    check(attempt, "attempt_not_found");
+    await acceptConsent(env, store, input.ticketId, attempt, input.signature);
+    return Response.json({ consented: true, attemptId: attempt.attemptId });
+  }
+  if (url.pathname === "/record") {
+    // What the learner's screen shows about the on-chain record.
+    const { ticketId } = await body<{ ticketId: string }>(request);
+    const attempt = store.get<Attempt>(`attempt:${ticketId}`);
+    check(attempt, "attempt_not_found");
+    return Response.json({
+      attemptId: attempt.attemptId,
+      consented: store.get(`consent:${ticketId}`) !== undefined,
+      // The same request the socket's ready message offers, for a reload.
+      consent:
+        consentRequest(
+          env,
+          store,
+          ticketId,
+          attempt.attemptId,
+          attempt.startedAt,
+        ) ?? null,
+      publication: publicationOf(store, ticketId) ?? null,
+    });
   }
   if (url.pathname === "/result") {
     const { ticketId } = await body<{ ticketId: string }>(request);
@@ -233,7 +328,10 @@ export async function karaokeRoute(
     "wrong_session_key",
   );
   check(!attempt?.ended, "attempt_closed");
-  check(request.headers.get("Upgrade")?.toLowerCase() === "websocket", "upgrade_required");
+  check(
+    request.headers.get("Upgrade")?.toLowerCase() === "websocket",
+    "upgrade_required",
+  );
   const resumed = attempt !== undefined;
   // Only the newest connection is live: older sockets for this ticket close,
   // and their later messages or close events are ignored.
@@ -260,7 +358,11 @@ export async function karaokeRoute(
       `attemptStart:${ticketId}`,
       await sign(
         "attempt_start",
-        { ticketId: next.ticketId, attemptId: next.attemptId, startedAt: next.startedAt },
+        {
+          ticketId: next.ticketId,
+          attemptId: next.attemptId,
+          startedAt: next.startedAt,
+        },
         env.PRIVATE_KEY,
         signatureChainId(env),
       ),
@@ -274,7 +376,13 @@ export async function karaokeRoute(
       attemptId: next.attemptId,
       resumed,
       attemptStart: store.get(`attemptStart:${ticketId}`),
-      consent: consentRequest(env, store, ticketId, next.attemptId, next.startedAt),
+      consent: consentRequest(
+        env,
+        store,
+        ticketId,
+        next.attemptId,
+        next.startedAt,
+      ),
     }),
   );
   return new Response(null, { status: 101, webSocket: pair[0] });
@@ -286,7 +394,12 @@ type Frame =
   | { type: "provider_failed"; lineIds: string[] }
   | { type: "finish" }
   | { type: "consent"; signature: Hex };
-export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: Store) {
+export async function onMessage(
+  ws: WebSocket,
+  frame: Frame,
+  env: Env,
+  store: Store,
+) {
   const { ticketId, generation } = ws.deserializeAttachment() as {
     ticketId: string;
     generation: number;
@@ -299,7 +412,9 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     await advance(env, store, ticketId);
     try {
       const paid = await acceptSegment(env, store, frame, ticketId);
-      ws.send(JSON.stringify({ type: "paid", segmentId: paid.segmentId, take: 0 }));
+      ws.send(
+        JSON.stringify({ type: "paid", segmentId: paid.segmentId, take: 0 }),
+      );
     } catch (error) {
       ws.send(
         JSON.stringify({
@@ -315,9 +430,16 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
     const attempt = store.get<Attempt>(`attempt:${ticketId}`)!;
     try {
       await acceptConsent(env, store, ticketId, attempt, frame.signature);
-      ws.send(JSON.stringify({ type: "consented", attemptId: attempt.attemptId }));
+      ws.send(
+        JSON.stringify({ type: "consented", attemptId: attempt.attemptId }),
+      );
     } catch (error) {
-      ws.send(JSON.stringify({ type: "error", code: error instanceof Error ? error.message : "invalid_consent" }));
+      ws.send(
+        JSON.stringify({
+          type: "error",
+          code: error instanceof Error ? error.message : "invalid_consent",
+        }),
+      );
     }
     return;
   }
@@ -328,8 +450,13 @@ export async function onMessage(ws: WebSocket, frame: Frame, env: Env, store: St
   if (frame.type === "finish") end(attempt, store.now(), "completed");
   else if (frame.type === "provider_failed") {
     // Local simulated provider only: marks lines whose measurement failed.
-    check(Array.isArray(frame.lineIds) && frame.lineIds.length <= 100, "protocol_error");
-    attempt.failedLineIds = [...new Set([...attempt.failedLineIds, ...frame.lineIds])];
+    check(
+      Array.isArray(frame.lineIds) && frame.lineIds.length <= 100,
+      "protocol_error",
+    );
+    attempt.failedLineIds = [
+      ...new Set([...attempt.failedLineIds, ...frame.lineIds]),
+    ];
   } else if (frame.type === "words") {
     check(
       Array.isArray(frame.words) &&
@@ -357,7 +484,9 @@ export function onClose(ws: WebSocket, store: Store) {
     ticketId?: string;
     generation?: number;
   };
-  const attempt = ticketId ? store.get<Attempt>(`attempt:${ticketId}`) : undefined;
+  const attempt = ticketId
+    ? store.get<Attempt>(`attempt:${ticketId}`)
+    : undefined;
   // A superseded socket closing never disconnects its replacement.
   if (attempt && !attempt.ended && attempt.generation === generation) {
     attempt.connected = false;

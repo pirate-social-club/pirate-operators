@@ -11,8 +11,34 @@ import {
 } from "./api.ts";
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
+import { LiveKaraoke, type KaraokeWallet } from "./karaoke.tsx";
 
 const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
+async function moss() {
+  const { mega } = await import("@megaeth-labs/wallet-sdk");
+  await mega.initialise({
+    network: "testnet",
+    logging: "error",
+    debug: false,
+    handshakeTimeoutMs: 45000,
+  });
+  return mega;
+}
+/** The learner's consent, signed by their MOSS account. */
+const mossWallet: KaraokeWallet = {
+  async signConsent(request) {
+    const mega = await moss();
+    await mega.connect();
+    // MOSS validates typed data itself; the SDK README names the payload "value".
+    const { message, ...typed } = request;
+    let signed = await mega.signData({ data: { ...typed, message } });
+    if (signed.status === "error")
+      signed = await mega.signData({ data: { ...typed, value: message } });
+    if (signed.status !== "success" || !signed.signature)
+      throw new Error("Your score wasn't signed.");
+    return signed.signature;
+  },
+};
 const shortened = (address: string) =>
   `${address.slice(0, 8)}…${address.slice(-6)}`;
 function App() {
@@ -23,6 +49,9 @@ function App() {
       createSignal<CommunityCapabilities | null>(null),
     [feed, setFeed] = createSignal<CommunityFeed | null>(null),
     [busy, setBusy] = createSignal(false),
+    [singing, setSinging] = createSignal<{ postId: string; title: string } | null>(
+      null,
+    ),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
   let popup: Window | null = null,
@@ -76,13 +105,7 @@ function App() {
   }
   async function signIn() {
     setStatus("Opening MOSS…");
-    const { mega } = await import("@megaeth-labs/wallet-sdk");
-    await mega.initialise({
-      network: "testnet",
-      logging: "error",
-      debug: false,
-      handshakeTimeoutMs: 45000,
-    });
+    const mega = await moss();
     setStatus("Continue in MOSS to sign in.");
     const account = await mega.connect();
     if (!account?.address) throw new Error("MOSS sign-in was cancelled.");
@@ -250,6 +273,17 @@ function App() {
           )}
         </Show>
       </header>
+      <Show when={singing() && session()}>
+        <div class="live-karaoke-overlay">
+          <LiveKaraoke
+            postId={singing()!.postId}
+            title={singing()!.title}
+            csrf={session()!.csrf}
+            wallet={mossWallet}
+            onExit={() => setSinging(null)}
+          />
+        </div>
+      </Show>
       <main class="live-main">
         <section class="live-intro">
           <p class="live-kicker">INDEPENDENT MUSIC</p>
@@ -349,6 +383,19 @@ function App() {
                     </p>
                   </Show>
                   <audio controls preload="metadata" src={song.audioUrl} />
+                  <Show when={session()}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setSinging({
+                          postId: song.manifest.postId,
+                          title: song.manifest.title,
+                        })
+                      }
+                    >
+                      Sing
+                    </Button>
+                  </Show>
                   <Show when={song.lyricsText}>
                     <details>
                       <summary>Lyrics</summary>

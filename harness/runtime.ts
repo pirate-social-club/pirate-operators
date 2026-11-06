@@ -27,6 +27,8 @@ export async function workers(
     paymentToken?: string;
     paymentsContract?: string;
     recordsContract?: string;
+    /** Final binding overrides, for runs against a real chain. */
+    bindings?: Record<string, string>;
   } = {},
 ) {
   const rpcOrigin = options.rpcUrl ? new URL(options.rpcUrl).origin : undefined;
@@ -75,6 +77,7 @@ export async function workers(
         INITIAL_NOW: String(options.now ?? 1800000000),
         SIGNATURE_CHAIN_ID: String(options.chainId ?? 31337),
         ...payments,
+        ...options.bindings,
       },
       durableObjects: { STATE: { className: "ServiceState", useSQLite: true } },
       d1Databases: { DB: `${role}-db` },

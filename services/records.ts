@@ -3,7 +3,18 @@
 // the live socket. Each write is an intent in the durable sender, persisted
 // before any RPC call, and the stages run strictly in order: open the attempt,
 // write every line record, then complete it.
-import { encodeFunctionData, hexToBigInt, recoverTypedDataAddress, slice, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  encodeFunctionData,
+  hashTypedData,
+  hexToBigInt,
+  http,
+  recoverTypedDataAddress,
+  size,
+  slice,
+  type Address,
+  type Hex,
+} from "viem";
 import { check, digest, sign, type Signed, type Ticket } from "../packages/protocol/index.ts";
 import {
   rewardScore,
@@ -31,6 +42,7 @@ import {
   type Consent,
   type SongKey,
 } from "../packages/protocol/records.ts";
+import { acceptedByAccount, activationOf, checkActivation, codeOf, designatorOf, nonceOf } from "./accounts.ts";
 import { dispatch, enqueue, intentOf, type TxKind } from "./operator-tx.ts";
 import { operatorQuote } from "./purchases.ts";
 import { signatureChainId, type Env, type Store } from "./runtime.ts";
@@ -42,6 +54,8 @@ import { signatureChainId, type Env, type Store } from "./runtime.ts";
  * Unused gas is not charged.
  */
 export const RECORD_GAS = {
+  /** A learner account's activation; 182,952 on a MegaETH fork. */
+  activate: 1_500_000n,
   open: 1_000_000n,
   line: 600_000n,
   complete: (linesTotal: number) => 500_000n + 5_000n * BigInt(linesTotal),
@@ -69,8 +83,9 @@ function loaded(store: Store, ticketId: string) {
   const manifest = ticket && store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
   return { ticket, manifest };
 }
-const songOf = (env: Env, ticket: Ticket): SongKey =>
-  standInSong(recordsChain(env), ticket.communityId, ticket.songHash);
+/** A published song's key from its manifest; the stand-in only for local skeleton songs. */
+const songOf = (env: Env, ticket: Ticket, manifest: KaraokeManifest): SongKey =>
+  manifest.song ?? standInSong(recordsChain(env), ticket.communityId, ticket.songHash);
 
 /** The consent the learner is asked to sign for one attempt; deterministic per attempt. */
 export function consentFor(
@@ -83,7 +98,7 @@ export function consentFor(
   return {
     learner: ticket.participant,
     attemptId,
-    songKey: songKeyOf(songOf(env, ticket)),
+    songKey: songKeyOf(songOf(env, ticket, manifest)),
     contentRevision: ticket.manifestSha256,
     linesRoot: linesRootOf(manifest),
     linesTotal: manifest.lines.length,
@@ -118,33 +133,54 @@ export async function acceptConsent(
 ) {
   const request = consentRequest(env, store, ticketId, attempt.attemptId, attempt.startedAt);
   check(request, "records_unconfigured");
-  check(
-    typeof signature === "string" &&
-      /^0x[0-9a-fA-F]{130}$/.test(signature) &&
-      hexToBigInt(slice(signature as Hex, 32, 64)) <=
-        0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n,
-    "invalid_consent",
-  );
-  const signer = await recoverTypedDataAddress({
+  check(typeof signature === "string" && /^0x([0-9a-fA-F]{2}){65,8000}$/.test(signature), "invalid_consent");
+  const sig = signature as Hex;
+  const typed = {
     domain: request.domain,
     types: consentTypes,
-    primaryType: "Consent",
+    primaryType: "Consent" as const,
     message: consentMessage(request.message),
-    signature: signature as Hex,
-  }).catch(() => undefined);
-  check(signer && signer.toLowerCase() === request.message.learner.toLowerCase(), "invalid_consent");
-  store.set(`consent:${ticketId}`, { consent: request.message, signature: signature as Hex } satisfies StoredConsent);
+  };
+  const learner = request.message.learner;
+  // A plain account's low-s ECDSA signature is checked locally.
+  const plain =
+    size(sig) === 65 &&
+    hexToBigInt(slice(sig, 32, 64)) <= 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n &&
+    (await recoverTypedDataAddress({ ...typed, signature: sig }).catch(() => undefined))?.toLowerCase() ===
+      learner.toLowerCase();
+  if (!plain) {
+    // Anything else is a smart account's: an ERC-8010 activation must belong to
+    // the learner and use the approved contracts, and the RPC must accept it.
+    check(env.RPC_URL, "invalid_consent");
+    const activation = activationOf(sig);
+    if (activation) await checkActivation(env, learner, activation, recordsChain(env));
+    const client = createPublicClient({ transport: http(env.RPC_URL) });
+    const valid = await client.verifyTypedData({ ...typed, address: learner, signature: sig }).catch(() => false);
+    check(valid, "invalid_consent");
+  }
+  store.set(`consent:${ticketId}`, { consent: request.message, signature: sig } satisfies StoredConsent);
 }
 
-const openData = (env: Env, ticket: Ticket, stored: StoredConsent) =>
-  encodeFunctionData({
+/** What the contract checks: an activation's inner signature, or the signature as given. */
+const openingSignature = (stored: StoredConsent) => activationOf(stored.signature)?.inner ?? stored.signature;
+const consentDigestOf = (env: Env, consent: Consent) =>
+  hashTypedData({
+    domain: recordsDomain(recordsChain(env), recordsOf(env)!),
+    types: consentTypes,
+    primaryType: "Consent",
+    message: consentMessage(consent),
+  });
+const openData = (env: Env, ticket: Ticket, manifest: KaraokeManifest, stored: StoredConsent) => {
+  const song = songOf(env, ticket, manifest);
+  return encodeFunctionData({
     abi: recordsAbi,
     functionName: "openAttempt",
-    args: [{ ...stored.consent, expiresAt: BigInt(stored.consent.expiresAt) }, stored.signature, {
-      ...songOf(env, ticket),
-      chainId: BigInt(recordsChain(env)),
+    args: [{ ...stored.consent, expiresAt: BigInt(stored.consent.expiresAt) }, openingSignature(stored), {
+      ...song,
+      chainId: BigInt(song.chainId),
     }],
   });
+};
 function lineData(manifest: KaraokeManifest, attemptId: Hex, outcome: LineOutcome, ordinal: number) {
   const line = manifest.lines[ordinal - 1];
   check(line.lineId === outcome.lineId && line.lineVersion === outcome.lineVersion, "line_list_mismatch");
@@ -207,6 +243,49 @@ async function step(env: Env, store: Store, kind: TxKind, ref: string) {
 }
 
 /**
+ * Whether the learner's account will accept the consent when the attempt
+ * opens. A plain account always will. An account with no code is activated
+ * first, once, from its ERC-8010 signature. Code alone proves nothing, because
+ * an EIP-7702 delegation persists even when the setup call reverts, so any
+ * account with code must accept the consent through ERC-1271; a delegated
+ * account that does not gets its setup call once more, without the
+ * authorization. Each step is an intent in the durable sender.
+ */
+async function accountReady(env: Env, store: Store, stored: StoredConsent): Promise<"ready" | "pending" | string> {
+  const { learner, attemptId } = stored.consent;
+  const activation = activationOf(stored.signature);
+  let code = await codeOf(env, learner);
+  if (code === "0x") {
+    if (!activation) return "ready";
+    if (!intentOf(store, "record_activate", attemptId)) {
+      await checkActivation(env, learner, activation, recordsChain(env)).catch((e: Error) => {
+        throw new Error(`activation_refused:${e.message}`);
+      });
+      if (activation.authorization.nonce !== (await nonceOf(env, learner))) return "authorization_nonce_stale";
+    }
+    enqueue(store, "record_activate", attemptId, activation.initializer, activation.data, RECORD_GAS.activate, [
+      activation.authorization,
+    ]);
+    const activated = await step(env, store, "record_activate", attemptId);
+    if (activated === undefined) return "pending";
+    if (store.get("fault:crash-after-activation")) {
+      store.delete("fault:crash-after-activation");
+      throw new Error("simulated_crash_after_activation");
+    }
+    code = await codeOf(env, learner);
+    if (code === "0x") return "activation_not_applied";
+  }
+  const digest = consentDigestOf(env, stored.consent);
+  const signature = openingSignature(stored);
+  if (await acceptedByAccount(env, learner, digest, signature)) return "ready";
+  if (!activation || code !== designatorOf(activation.authorization.address)) return "consent_refused_by_account";
+  enqueue(store, "record_initialize", attemptId, activation.initializer, activation.data, RECORD_GAS.activate);
+  const initialized = await step(env, store, "record_initialize", attemptId);
+  if (initialized === undefined) return "pending";
+  return (await acceptedByAccount(env, learner, digest, signature)) ? "ready" : "account_not_initialized";
+}
+
+/**
  * Moves a consented, finalized result's publication forward. Safe to call
  * repeatedly and concurrently: every write is an idempotent intent, and a
  * stage only starts once the one before it is mined.
@@ -228,9 +307,17 @@ export async function publish(env: Env, store: Store, ticketId: string) {
   check(publication.revision === result.revision, "publication_revision_mismatch");
   const attemptId = stored.consent.attemptId;
 
-  if (!intentOf(store, "record_open", attemptId) && stored.consent.expiresAt <= store.now())
-    return failed(store, ticketId, publication, "consent_expired");
-  enqueue(store, "record_open", attemptId, records, openData(env, ticket, stored), RECORD_GAS.open);
+  if (!intentOf(store, "record_open", attemptId)) {
+    if (stored.consent.expiresAt <= store.now()) return failed(store, ticketId, publication, "consent_expired");
+    const account = await accountReady(env, store, stored);
+    if (account === "pending") return publication;
+    if (account !== "ready") return failed(store, ticketId, publication, account);
+    if (store.get("fault:crash-before-open")) {
+      store.delete("fault:crash-before-open");
+      throw new Error("simulated_crash_before_open");
+    }
+  }
+  enqueue(store, "record_open", attemptId, records, openData(env, ticket, manifest, stored), RECORD_GAS.open);
   const opened = await step(env, store, "record_open", attemptId);
   if (opened === undefined) return publication;
   if (!opened) return failed(store, ticketId, publication, "open_reverted");
