@@ -89,10 +89,10 @@ managed service and its established secret/runtime workflow.
 The November 6 owner direction recorded in the stabilization task at
 control-plane b45a696 supersedes the earlier shared-speech-quota gate in the
 component handoff. The owner will monitor the provider bill and chose no
-application speech quota for this MVP. The stabilization writer owns the
-successor where zero in the existing speech-limit setting means observation
-without a quota. Adopt that reviewed source when available, retain current-day
-usage and session/retry bounds, and make no provider-account billing changes.
+application speech quota for this MVP. The stabilization successor, merged
+at a46bde8, is now adopted in this branch. Zero in the existing speech-limit
+setting means observation without a quota. Retain current-day usage and
+session/retry bounds, and make no provider-account billing changes.
 The imported Study-only 100-attempt daily admission quota has been removed to
 match that direction. This does not reset existing usage observations.
 
@@ -109,6 +109,37 @@ private lessons in authenticated history/export and retention. Do not require
 membership, a creator wallet or Palm for learning. The current imported
 component still reports qualification as not_evaluated until the new policy
 and authenticated publication/readback path are wired and tested.
+
+## Contract binding and runtime successor
+
+Each new enrollment and Karaoke session retains its exact chain, contract,
+domain version and enrollment generation. Absent target fields in old journal
+rows mean V2, even after V3 becomes the default. Frozen publication jobs,
+corrections, queued enrollment and revocation keep their original destination.
+Changed configured targets or queued calldata fail before another charge or
+transaction. The V2 environment setting must remain available for recovery;
+changing it is not a migration mechanism.
+
+New V3 requests use a fresh signature and disclose the selected activity mask.
+The live account menu reads both configured generations and revokes each active
+grant with its own MOSS signature. It preserves partial progress after a
+cancelled signature, skips revocations already confirming, and rereads both
+contracts before reporting that publication enrollment has stopped. An RPC
+failure or unresolved enrollment cannot be reported as successful revocation.
+
+The prepared pirate-learning-testnet-v3 runtime profile requires both distinct
+contract addresses and testnet chain 6343. The V2 profile refuses a silently
+added V3 default. Both use the same existing operator object name, durable
+journal, alarms, real clock, shared speech object and spending reservations.
+Local tests also restart the SQLite runtime with an actual pre-broadcast local
+V2 journal and verify unchanged signed bytes, charges and usage observations.
+No infrastructure profile or deployed resource has been upgraded by this work.
+
+Study still needs the actual application migration, authenticated live routes,
+managed speech and terminal publication queue, private retention/export and live
+page. The final V3 publicity policy and disclosure pages must be prepared and
+bound to the deployed contract before accepting successor consent. The activity
+text in the enrollment dialog alone does not complete that disclosure gate.
 
 ## Deployment order and acceptance
 

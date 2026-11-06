@@ -12,6 +12,10 @@ import {
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
 import {
+  stopPublicEnrollment,
+  type LearningEnrollments,
+} from "./learning-revocation.ts";
+import {
   LiveKaraoke,
   type KaraokeWallet,
   type LearningActions,
@@ -43,7 +47,8 @@ const mossWallet: KaraokeWallet = {
     const mega = await moss();
     await mega.connect();
     // MOSS validates typed data itself; the SDK README names the payload "value".
-    const { message, ...typed } = request;
+    const { message, domain, types, primaryType } = request;
+    const typed = { domain, types, primaryType };
     let signed = await mega.signData({ data: { ...typed, message } });
     if (signed.status === "error")
       signed = await mega.signData({ data: { ...typed, value: message } });
@@ -142,30 +147,29 @@ function App() {
   async function revokeLearning() {
     const current = session();
     if (!current) return;
-    const active = await post<{ active?: boolean }>(
-      "/api/karaoke/enrollment",
-      {},
-      current.csrf,
-    );
-    if (!active.active) {
-      setStatus("Public learning results are not enabled for this wallet.");
-      return;
-    }
-    const request = await post<import("./karaoke.tsx").KaraokeConsentRequest>(
-      "/api/karaoke/enrollment/revoke",
-      {},
-      current.csrf,
-    );
-    const signature = await mossWallet.signConsent(request);
-    const result = await post<{ state: string }>(
-      "/api/karaoke/enrollment/revoke",
-      { message: request.message, signature },
-      current.csrf,
-    );
     setStatus(
-      result.state === "success"
-        ? "Public enrollment stopped. Earlier publications remain public."
-        : "Revocation is pending confirmation. Public enrollment has not stopped yet.",
+      await stopPublicEnrollment({
+        list: () =>
+          post<LearningEnrollments>(
+            "/api/karaoke/enrollments",
+            {},
+            current.csrf,
+          ),
+        request: (target) =>
+          post<import("./karaoke.tsx").KaraokeConsentRequest>(
+            "/api/karaoke/enrollment/revoke",
+            { target },
+            current.csrf,
+          ),
+        submit: (request, signature) =>
+          post<{ state: string }>(
+            "/api/karaoke/enrollment/revoke",
+            { message: request.message, signature, target: request.target },
+            current.csrf,
+          ),
+        wallet: mossWallet,
+        status: setStatus,
+      }),
     );
   }
   async function finishConnection(connectionId: string, state: string) {

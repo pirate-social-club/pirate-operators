@@ -24,6 +24,7 @@ import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import type { Attempt } from "./karaoke-result.ts";
 import { settle } from "./karaoke.ts";
 import { ServiceState, type Env } from "./runtime.ts";
+import { isLearningProfile } from "./learning-profile.ts";
 import { liveLineScores } from "./karaoke-feedback.ts";
 
 export interface KaraokeAudioEnv extends Env {
@@ -203,7 +204,7 @@ export class KaraokeAudioState extends ServiceState {
         live && apiKey
           ? () => {
               const adapter = new ElevenLabsKaraokeSttAdapter({ apiKey });
-              if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") {
+              if (isLearningProfile(this.env)) {
                 const start = adapter.start.bind(adapter);
                 adapter.start = async (input) => {
                   check(this.env.SPEECH_BUDGET, "speech_budget_unconfigured");

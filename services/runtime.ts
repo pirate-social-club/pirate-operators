@@ -11,12 +11,15 @@ import { body, signatureChainId } from "./service-call.ts";
 export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
 import type { SpeechBudget } from "./speech-budget.ts";
+import { isLearningProfile, admittedLearningProfile } from "./learning-profile.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<ServiceState>;
   ROLE: string;
   /** Explicit testnet v2 profile; legacy skeleton fixtures remain local only. */
   RESULTS_V2_CONTRACT?: string;
+  /** Successor default; V2 remains configured for historical pending work. */
+  RESULTS_V3_CONTRACT?: string;
   SERVICE_MODE?: "internal";
   SPONSOR_CAP_WEI?: string;
   SPONSOR_GAS_PRICE_WEI?: string;
@@ -115,15 +118,15 @@ export class ServiceState extends DurableObject<Env> {
     this.store = new Store(
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
-      env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2",
+      isLearningProfile(env),
     );
   }
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
-      if (path.startsWith("/__") && this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2")
+      if (path.startsWith("/__") && isLearningProfile(this.env))
         return new Response("not_found", { status: 404 });
-      if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") await this.schedule();
+      if (isLearningProfile(this.env)) await this.schedule();
       if (path === "/__clock") {
         const { now } = await body<{ now: number }>(request);
         check(
@@ -222,10 +225,7 @@ export default {
   fetch(request: Request, env: Env): Promise<Response> {
     check(
       env.LOCAL_ONLY === "pirate-local-skeleton" ||
-        (env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2" && env.ROLE === "operator" &&
-          env.PAYMENT_CHAIN_ID === "6343" && env.SERVICE_MODE === "internal" &&
-          !!env.RESULTS_V2_CONTRACT && !!env.SPEECH_BUDGET && !!env.SPONSOR_CAP_WEI &&
-          !!env.SPONSOR_GAS_PRICE_WEI && !!env.SPONSOR_GAS_LIMIT && !!env.SPONSOR_DATA_FEE_WEI),
+        admittedLearningProfile(env),
       "local_configuration_required",
     );
     if (env.ROLE === "community") return communityFetch(request, env);

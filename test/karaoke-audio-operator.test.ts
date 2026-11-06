@@ -300,6 +300,11 @@ test("a learner reconnect continues the same provider stream; regressed audio is
     assert.deepEqual(
       result.lines.map((l) => l.status),
       ["assessed", "assessed", "assessed", "assessed"],
+      JSON.stringify({
+        words: await storedWords(c, a),
+        relay: await c.state(`audioRelay:${a.ticket.body.ticketId}`),
+        provider: await c.simulator(),
+      }),
     );
     assert.equal((await c.simulator()).minted, 1);
   } finally {

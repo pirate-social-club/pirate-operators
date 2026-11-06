@@ -391,13 +391,19 @@ export async function karaokeConsent(
 }
 
 /** Standing consent is requested before ticket preparation; the operator verifies it. */
+export async function karaokeEnrollments(ports: KaraokePorts, learner: KaraokeLearner) {
+  const env = runtimeEnv(ports.env, ports.config);
+  check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
+  return call(env.OPERATOR, "/enrollment/list", { learner: learner.wallet });
+}
+
 export async function karaokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
-  if (!value.signature) return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet });
+  if (!value.signature) return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet, target: value.target });
   const enrollment = object(value.enrollment);
   check(String(enrollment.learner).toLowerCase() === learner.wallet.toLowerCase(), "wrong_learner");
-  return call(env.OPERATOR, "/enrollment", { enrollment, signature: value.signature });
+  return call(env.OPERATOR, "/enrollment", { enrollment, signature: value.signature, target: value.target });
 }
 
 export async function karaokeHistory(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
@@ -409,6 +415,6 @@ export async function karaokeHistory(ports: KaraokePorts, learner: KaraokeLearne
 export async function karaokeRevokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
-  return call(env.OPERATOR, "/enrollment/revoke", { learner: learner.wallet,
+  return call(env.OPERATOR, "/enrollment/revoke", { learner: learner.wallet, target: value.target,
     ...(value.signature ? { nonce: String(object(value.message).nonce), signature: value.signature } : {}) });
 }

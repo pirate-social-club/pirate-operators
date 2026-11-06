@@ -63,6 +63,7 @@ import {
 import {
   karaokeAttempt,
   karaokeEnrollment,
+  karaokeEnrollments,
   karaokeRevokeEnrollment,
   karaokeHistory,
   karaokeConsent,
@@ -490,6 +491,8 @@ export async function communityFetch(
       const session = await authenticatedWrite(request, env.DB, context);
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollments")
+        return reply(await karaokeEnrollments(karaokePorts, session));
       if (url.pathname === "/api/karaoke/enrollment/revoke")
         return reply(
           await karaokeRevokeEnrollment(karaokePorts, session, body),

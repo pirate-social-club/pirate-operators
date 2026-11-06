@@ -41,6 +41,7 @@ import {
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
 
 import {
+  learningEnrollments,
   activeEnrollment,
   acceptEnrollment,
   acceptRevocation,
@@ -54,6 +55,7 @@ import {
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
+import { pendingEnrollmentKey, retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
 
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
@@ -301,27 +303,34 @@ export async function karaokeRoute(
     check(history, "history_not_found");
     return Response.json(history);
   }
+  if (url.pathname === "/enrollment/list") {
+    const { learner } = await body<{ learner: Address }>(request);
+    return Response.json(await learningEnrollments(env, store, learner));
+  }
   if (url.pathname === "/enrollment/request") {
     check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
-    const { learner } = await body<{ learner: Address }>(request);
+    const { learner, target } = await body<{ learner: Address; target?: ResultsTarget }>(request);
+    const destination = target ? retainedTarget(env, target) : resultsTarget(env);
     try {
-      await activeEnrollment(env, learner);
-      return Response.json({ active: true });
+      const grant = await activeEnrollment(env, learner, destination);
+      return Response.json({ active: true, target: destination, activities: grant.activities });
     } catch (error) {
       if (!(error instanceof Error) || error.message !== "enrollment_required")
         throw error;
     }
-    if (store.get(`pendingEnrollment:${learner.toLowerCase()}`))
-      return Response.json({ pending: true });
-    return Response.json(await enrollmentRequest(env, learner, store.now()));
+    if (store.get(pendingEnrollmentKey(destination, learner)))
+      return Response.json({ pending: true, target: destination });
+    return Response.json(await enrollmentRequest(env, learner, store.now(), destination));
   }
   if (url.pathname === "/enrollment/revoke") {
-    const { learner, nonce, signature } = await body<{
+    const { learner, nonce, signature, target } = await body<{
       learner: Address;
       nonce?: string;
       signature?: Hex;
+      target?: ResultsTarget;
     }>(request);
-    if (!signature) return Response.json(await revocationRequest(env, learner));
+    const destination = target ? retainedTarget(env, target) : resultsTarget(env);
+    if (!signature) return Response.json(await revocationRequest(env, learner, destination));
     check(nonce !== undefined, "nonce_required");
     const row = await acceptRevocation(
       env,
@@ -329,13 +338,15 @@ export async function karaokeRoute(
       learner,
       BigInt(nonce),
       signature,
+      destination,
     );
     return Response.json({ state: row?.mined?.status ?? "pending" });
   }
   if (url.pathname === "/enrollment") {
-    const { enrollment: input, signature } = await body<{
+    const { enrollment: input, signature, target } = await body<{
       enrollment: Record<string, string>;
       signature: Hex;
+      target?: ResultsTarget;
     }>(request);
     const enrollment: Enrollment = {
       learner: input.learner as Address,
@@ -345,7 +356,8 @@ export async function karaokeRoute(
       expiresAt: BigInt(input.expiresAt),
       nonce: BigInt(input.nonce),
     };
-    const row = await acceptEnrollment(env, store, enrollment, signature);
+    const row = await acceptEnrollment(env, store, enrollment, signature,
+      target ? retainedTarget(env, target) : resultsTarget(env));
     return Response.json({ state: row?.mined?.status ?? "pending" });
   }
   if (url.pathname === "/quote") {
