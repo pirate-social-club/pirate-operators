@@ -316,3 +316,50 @@ test("commits the provider never acknowledges time out as unmeasured lines", asy
     await c.dispose();
   }
 });
+
+test("words count when the song-end timer ends the take before the learner finishes", async () => {
+  // In real time the operator's timer ends the take at the song's end, often
+  // during the instrumental's outro, before the learner's finish arrives.
+  const c = await audioCommunity(evm, "timer-first", [
+    { words: sung(manifest, ALL) },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    // Audio stops after the last word but before the last line's end, so that
+    // line is committed only by the learner's finish, after the timer.
+    await c.sing(a.socket, a, 0, 21800);
+    const ticketId = a.ticket.body.ticketId,
+      ended = async () =>
+        (
+          (await c.state(`attempt:${ticketId}`))[0]?.value as {
+            ended?: { status: string } | null;
+          }
+        ).ended;
+    // Earlier lines reached the scorer while the take was still being sung.
+    assert.ok((await storedWords(c, a)).length > 0);
+    await c.at(
+      a.start.body.startedAt + Math.ceil(songEndMs(a.manifest) / 1000) + 1,
+    );
+    assert.equal((await ended())?.status, "completed");
+    a.socket.send({ type: "finish" });
+    const expected = a.manifest.lines.flatMap((line) => line.words);
+    for (let i = 0; i < 100; i++) {
+      if ((await storedWords(c, a)).length === expected.length) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    await c.at(c.now() + PAYMENT_GRACE_S);
+    const result = await c.result(ticketId);
+    assert.equal(result.status, 200, JSON.stringify(result.value));
+    assert.deepEqual(
+      result.value.body.lines.map((l) => l.status),
+      ["assessed", "assessed", "assessed", "assessed"],
+    );
+    assert.deepEqual(
+      (await storedWords(c, a)).map((w) => w.text),
+      expected.map((w) => w.text),
+    );
+  } finally {
+    await c.dispose();
+  }
+});
