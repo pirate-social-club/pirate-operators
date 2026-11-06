@@ -3,7 +3,7 @@
 The workspace_owner authorized pursuing the reviewed plan on 2026-11-06,
 with a fully deployed MegaETH testnet 6343 product before mainnet work.
 This document records the implementation choices for that testnet milestone.
-It is not evidence of a completed deployment or acceptance run.
+The dated receipts below distinguish deployed and accepted behavior from remaining qualification work.
 
 ## Publication and authority
 
@@ -154,17 +154,17 @@ the wizard remain later work. Adding Study requires a result adapter and a
 contract successor; this deployed contract authorizes Karaoke only. Mainnet work starts only after deployed testnet
 learner acceptance, correction/recovery qualification and complete cost measurement.
 
-The workspace_owner observed slow page loading, an awkward enrollment alert
-and an indefinite audio-start spinner during live acceptance. The requested
-disposition is to record the UI and load-performance issues for later work,
-without a visual redesign in this task. The functional startup defect is a
-case-sensitive address comparison between deployment profiles; the equivalent
-Ethereum addresses must compare equally. The browser fixture now deliberately
-uses mixed address casing across its community and operator.
+The workspace_owner completed the full song after the address-casing startup repair. One confirmed terminal publication contains all 23 ordered outcomes: 22 assessed and one silent. The public-only reader authenticated the complete source and result at a confirmed canonical head. This run precedes the prospective qualification policy and earns no qualifying day. The [actual run receipt](deployments/learning-results-testnet-20261106.real-run.json) records the transaction and reconstruction evidence without private word data.
+
+The later workspace_owner instruction requires one-to-one centralized Karaoke presentation. It supersedes the earlier request merely to record the visual issues. Practice, lyric stage, progress header, rating feedback, loading/error scenes and completion use the centralized components pinned at c7cb87835a1858a1955c820b03d566365e6d42db, with import and type adapters only. A source parity check freezes eight presentation files and their CSS independently of the service adapter. The exact design-system dependency was already pinned to that revision.
+
+The completion screen shows the canonical Lyrics, Timing and Best combo statistics, with Sing again and Continue in the canonical footer. Publication details and learner controls no longer add content to that screen. Private history download and revocation remain in the account menu. Enrollment uses the shared dialog component rather than a native browser alert. The live socket sends private provisional ratings from the existing server scorer; it neither accepts browser-supplied assessments nor creates per-line public writes. The terminal receipt exposes the existing scorer's separate metrics. Older retained receipts can supply the same private presentation without changing their signed body or public commitment.
+
+Phone and desktop captures of the mounted loading, audio loading, singing and completion screens accompany the browser regression under .local/learning-browser-results. These are local fixture captures, not claims of screenshot comparison against a running centralized production site. The browser flow exercises one enrollment, two automatic terminal publications, live line feedback, history download and revocation. Slow overall page loading remains a separate performance issue.
 
 Actual sponsored MOSS activation and ERC-1271 enrollment succeeded on testnet.
 The retained enrollment signature was 737 bytes. Activation used 327442 gas and
 enrollment used 340557 gas at 1000000 wei per gas. These are separate from
 recurring terminal-publication costs. The
 [MOSS receipts](deployments/learning-results-testnet-20261106.moss.json)
-record this actual path without claiming a completed learner performance.
+record the one-time account path separately from the terminal publication receipt.

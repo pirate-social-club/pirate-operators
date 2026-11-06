@@ -5,11 +5,9 @@ import { expect, test, type Page } from "@playwright/test";
 test.describe.configure({ mode: "serial" });
 
 interface ReadAttempt {
-  attemptId: string;
   verified: boolean;
   problems: string[];
-  songKey: string;
-  lines: { lineId: string; status: string; scoreBps: number | null }[];
+  lines: { ordinal: number; status: string; scoreBps: number | null }[];
 }
 const fixture = async <T>(page: Page, path: string) =>
   (await (await page.request.get(path)).json()) as T;
@@ -49,49 +47,63 @@ async function openSong(page: Page) {
     { timeout: 30000 },
   );
 }
-const linesStat = async (page: Page) => {
-  const text = await page
-    .getByRole("region", { name: "Results" })
-    .getByText(/^\d+ of \d+$/)
-    .innerText();
-  const [sung, total] = text.split(" of ").map(Number);
-  return { sung: sung!, total: total! };
-};
-
-test("a learner sings the published song and saves the score to the learning record", async ({
+async function startEnrolledTake(page: Page) {
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  const consent = page.getByRole("dialog", {
+    name: "Enable public learning results",
+  });
+  await expect(consent).toBeVisible();
+  await consent.getByRole("button", { name: "Continue", exact: true }).click();
+}
+async function published(page: Page, learner: number) {
+  await expect
+    .poll(
+      async () =>
+        (
+          await fixture<ReadAttempt[]>(
+            page,
+            `/__fixture/records?learner=${learner}`,
+          )
+        ).length,
+      { timeout: 20000 },
+    )
+    .toBe(1);
+  const [result] = await fixture<ReadAttempt[]>(
+    page,
+    `/__fixture/records?learner=${learner}`,
+  );
+  expect(result!.verified, result!.problems.join(", ")).toBe(true);
+  expect(result!.lines).toHaveLength(23);
+  return result!;
+}
+test("a learner sings the published song and gets one automatic terminal publication", async ({
   page,
 }) => {
   test.setTimeout(180000);
   await signIn(page, 5);
   await openSong(page);
-  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await startEnrolledTake(page);
   await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
     timeout: 90000,
   });
-  const { sung, total } = await linesStat(page);
-  expect(total).toBe(23);
-  expect(sung).toBeGreaterThan(18);
-
-  await page.getByRole("button", { name: "Save your score" }).click();
-  await expect(page.getByText("Saved to your learning record.")).toBeVisible({
-    timeout: 90000,
-  });
-  const manifest = await fixture<{ lines: { lineId: string }[] }>(
+  await expect(
+    page.getByRole("region", { name: "Results" }).locator("dt"),
+  ).toHaveText(["Lyrics", "Timing", "Best combo"]);
+  await expect(
+    page.getByRole("button", { name: "Save your score" }),
+  ).toHaveCount(0);
+  const manifest = await fixture<{ lines: { ordinal: number }[] }>(
     page,
     "/__fixture/manifest",
   );
-  const [record] = await fixture<ReadAttempt[]>(
-    page,
-    "/__fixture/records?learner=5",
-  );
-  expect(record?.verified, record?.problems.join(", ")).toBe(true);
+  const record = await published(page, 5);
   // The published song's own line IDs, graded and on chain.
-  expect(record!.lines.map((l) => l.lineId)).toEqual(
-    manifest.lines.map((l) => l.lineId),
+  expect(record!.lines.map((l) => l.ordinal)).toEqual(
+    manifest.lines.map((l) => l.ordinal),
   );
-  expect(record!.lines.filter((l) => l.status === "assessed")).toHaveLength(
-    sung,
-  );
+  expect(
+    record!.lines.filter((l) => l.status === "assessed").length,
+  ).toBeGreaterThan(18);
   expect(record!.lines.some((l) => (l.scoreBps ?? 0) >= 9000)).toBe(true);
 });
 
@@ -101,7 +113,7 @@ test("a reload resumes the open take where the song is and still scores it", asy
   test.setTimeout(180000);
   await signIn(page, 6);
   await openSong(page);
-  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await startEnrolledTake(page);
   await expect
     .poll(() => songMs(page), { timeout: 30000 })
     .toBeGreaterThan(6500);
@@ -118,10 +130,11 @@ test("a reload resumes the open take where the song is and still scores it", asy
   await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
     timeout: 90000,
   });
-  const { sung, total } = await linesStat(page);
-  expect(total).toBe(23);
-  // Lines sung before the reload were heard; the rest of the take was silent.
-  expect(sung).toBeGreaterThan(2);
+  const record = await published(page, 6);
+  // Lines sung before the reload were heard; the rest may be silent.
+  expect(
+    record.lines.filter((line) => line.status === "assessed").length,
+  ).toBeGreaterThan(2);
   const operator = await fixture<{
     attempts: { generation: number; ended: { status: string } | null }[];
   }>(page, "/__fixture/operator");
@@ -132,5 +145,5 @@ test("a reload resumes the open take where the song is and still scores it", asy
   ).toBe(true);
   await expect(
     page.getByRole("button", { name: "Save your score" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });

@@ -18,7 +18,10 @@ import { build } from "esbuild";
 import { hashJson, hashText, insist } from "../packages/community/common.ts";
 import { fileDigest } from "./creator-state.ts";
 import { firstSong } from "../services/first-song-profile.ts";
-import { communityDependencyModules, verifyCommunityDependencies } from "./community-dependencies.ts";
+import {
+  communityDependencyModules,
+  verifyCommunityDependencies,
+} from "./community-dependencies.ts";
 import { learningCommunityProfile } from "./learning-community-profile.ts";
 
 export const communityBase = join(
@@ -134,6 +137,7 @@ export async function communityPackage() {
       "--exclude-standard",
       "--",
       "apps/web/src/live",
+      "apps/web/src/karaoke",
       "apps/web/src/ui.ts",
       "apps/web/src/api-contract.ts",
       "apps/web/src/model.ts",
@@ -161,7 +165,7 @@ export async function communityPackage() {
         "apps/community-wizard/infra/encrypted-state.ts",
         "apps/community-wizard/infra/protected-data.ts",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v10.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v11.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
         "docs/deployments/first-song-managed-20261105.published-state.json",
         releaseGrantPath,
@@ -254,13 +258,13 @@ export async function communityPackage() {
     ).profileHash as string,
     reviewedUpdate: {
       previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.application-plan-v10.json",
+        "docs/deployments/first-song-managed-20261105.application-plan-v11.json",
       previousProfileHash:
-        "0xd329a748a12ae01c989e57b0702a7e47c6ce4c5b15e31a04dae21755781c1b0d",
+        "0xc920a71787dd80a7140a345b1dee58a480bad96902063bef71488eab45057bba",
       expectedExecutionSha256:
-        "0x4574ef9f9034bc1076545b682265d163470e04d6b99966c9fb5325f76cde3e6c",
+        "0x9be024d73948f79c96d985f618ff1719970fa536b6afe08aad156a21f7b94bfd",
       expectedResultSha256:
-        "0x0e03f52c759d951d6e39dfef84bfdd202e8c5558065afbd43a83802dc43a84b5",
+        "0x1ea5153ca5599458afcea6d6fe27b4546a0030d3df43b2e91da28059cae5be66",
     },
     publisher: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
     credentialBinding: {
@@ -285,8 +289,7 @@ export async function communityPackage() {
       maximumRegistrationFee: releaseGrant.registration.maximumTotalFee,
       maximumPublicationFee: "30000000000000",
     },
-    acceptance:
-      learning.acceptance,
+    acceptance: learning.acceptance,
     learning,
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",

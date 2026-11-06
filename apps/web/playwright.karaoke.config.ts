@@ -68,7 +68,7 @@ export default defineConfig({
     },
     {
       // Serves dist/live, so `vite build --config vite.live.config.ts` runs first.
-      command: "node karaoke-e2e/live-host.ts",
+      command: "KARAOKE_RESULTS_V2=1 node karaoke-e2e/live-host.ts",
       url: "http://localhost:4180/__fixture/manifest",
       reuseExistingServer: false,
       timeout: 90000,

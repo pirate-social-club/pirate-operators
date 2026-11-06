@@ -112,6 +112,10 @@ export class KaraokeAudioRelay {
   get terminal(): string | null {
     return this.state.terminal;
   }
+  /** Audio covered by a settled provider commit, including measured silence. */
+  get measuredThroughMs(): number {
+    return this.coveredMs;
+  }
 
   /** One learner audio frame, in sequence order across reconnects. */
   async audio(frame: KaraokeClientBinaryFrame): Promise<void> {

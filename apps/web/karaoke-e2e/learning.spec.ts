@@ -13,9 +13,36 @@ test("one enrollment sponsors repeated terminal publications, history export and
   page,
 }) => {
   let approvals = 0;
-  page.on("dialog", async (dialog) => {
-    approvals++;
-    await dialog.accept();
+  page.on("dialog", () => {
+    throw new Error("Native browser alerts are not part of the Karaoke design");
+  });
+  page.on("request", (request) => {
+    if (request.url().endsWith("/__fixture/sign")) {
+      const input = request.postDataJSON();
+      if (input.kind === "typed" && input.data?.primaryType === "Enrollment")
+        approvals++;
+    }
+  });
+  const capture = async (scene: string) => {
+    for (const size of [
+      { width: 1280, height: 800 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(size);
+      await page.screenshot({
+        path: test.info().outputPath(`${scene}-${size.width}.png`),
+        animations: "disabled",
+      });
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
+  };
+  let releaseSong!: () => void;
+  const songWait = new Promise<void>((resolve) => {
+    releaseSong = resolve;
+  });
+  await page.route("**/api/public/posts/*/karaoke", async (route) => {
+    await songWait;
+    await route.continue();
   });
   await page.goto("/?learner=8");
   await page.getByRole("button", { name: "Sign in with MOSS" }).click();
@@ -23,6 +50,15 @@ test("one enrollment sponsors repeated terminal publications, history export and
     timeout: 20000,
   });
   await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await expect(
+    page.getByRole("status", { name: "Loading karaoke" }),
+  ).toBeVisible();
+  await capture("loading");
+  releaseSong();
+  await expect(
+    page.getByRole("button", { name: "Start karaoke" }),
+  ).toBeVisible();
+  await capture("ready");
   const records = async () =>
     (await (await page.request.get("/__fixture/records?learner=8")).json()) as {
       verified: boolean;
@@ -30,16 +66,41 @@ test("one enrollment sponsors repeated terminal publications, history export and
       lines: { status: string }[];
     }[];
   for (let run = 1; run <= 2; run++) {
-    await page.getByRole("button", { name: "Start karaoke" }).click();
+    if (run === 1) {
+      await page.getByRole("button", { name: "Start karaoke" }).click();
+      const consent = page.getByRole("dialog", {
+        name: "Enable public learning results",
+      });
+      await expect(consent).toBeVisible();
+      await consent
+        .getByRole("button", { name: "Continue", exact: true })
+        .click();
+    } else
+      await page
+        .getByRole("button", { name: "Sing again", exact: true })
+        .click();
+    await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
+      timeout: 25000,
+    });
+    if (run === 1) await capture("live-rating");
     await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
       timeout: 90000,
     });
     await expect(
       page.getByRole("button", { name: "Save your score" }),
     ).toHaveCount(0);
-    await expect(page.getByText("Saved to your learning record.")).toBeVisible({
-      timeout: 45000,
-    });
+    const results = page.getByRole("region", { name: "Results" });
+    await expect(results.locator("dt")).toHaveText([
+      "Lyrics",
+      "Timing",
+      "Best combo",
+    ]);
+    await expect(results.getByRole("button")).toHaveCount(0);
+    if (run === 1) await capture("completion");
+    await expect(
+      page.getByRole("button", { name: "Sing again", exact: true }),
+    ).toHaveCount(1);
+    await expect(page.locator(".live-karaoke > .live-status")).toHaveCount(0);
     await expect
       .poll(async () => (await records()).length, { timeout: 15000 })
       .toBe(run);
@@ -49,22 +110,23 @@ test("one enrollment sponsors repeated terminal publications, history export and
       expect(result.lines.some((line) => line.status === "unpaid")).toBe(false);
     }
     expect(approvals).toBe(1);
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     if (run === 1) {
+      await page.getByRole("button", { name: "Learning settings" }).click();
       const download = page.waitForEvent("download");
       await page
-        .getByRole("button", { name: "Download private history" })
+        .getByRole("menuitem", { name: "Download private history" })
         .click();
       const path = await (await download).path();
       const receipt = JSON.parse(await readFile(path!, "utf8"));
       expect(receipt).toBeTruthy();
       expect(JSON.stringify(receipt)).toContain("scribe_v2_realtime");
-      await page
-        .getByRole("button", { name: "Sing again", exact: true })
-        .first()
-        .click();
+      await page.getByRole("button", { name: "Sing", exact: true }).click();
+      await expect(page.getByRole("region", { name: "Results" })).toBeVisible();
     }
   }
-  await page.getByRole("button", { name: "Stop public enrollment" }).click();
+  await page.getByRole("button", { name: "Learning settings" }).click();
+  await page.getByRole("menuitem", { name: "Stop public enrollment" }).click();
   await expect(
     page.getByText(
       "Public enrollment stopped. Earlier publications remain public.",

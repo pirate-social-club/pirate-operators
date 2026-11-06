@@ -99,9 +99,12 @@ jobs:
             set -euo pipefail
             ip link set lo up
             node_modules/.bin/playwright test --config playwright.karaoke.config.ts
+            node_modules/.bin/playwright test --config playwright.learning.config.ts
           '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: karaoke-browser-results
-          path: .local/karaoke-browser-results/
+          path: |
+            .local/karaoke-browser-results/
+            .local/learning-browser-results/

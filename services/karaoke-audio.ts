@@ -24,6 +24,7 @@ import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import type { Attempt } from "./karaoke-result.ts";
 import { settle } from "./karaoke.ts";
 import { ServiceState, type Env } from "./runtime.ts";
+import { liveLineScores } from "./karaoke-feedback.ts";
 
 export interface KaraokeAudioEnv extends Env {
   /** Pirate's realtime speech credential; absent means speech is not configured. */
@@ -206,7 +207,9 @@ export class KaraokeAudioState extends ServiceState {
                 const start = adapter.start.bind(adapter);
                 adapter.start = async (input) => {
                   check(this.env.SPEECH_BUDGET, "speech_budget_unconfigured");
-                  await this.env.SPEECH_BUDGET.getByName("elevenlabs-service").claim();
+                  await this.env.SPEECH_BUDGET.getByName(
+                    "elevenlabs-service",
+                  ).claim();
                   await start(input);
                 };
               }
@@ -252,7 +255,14 @@ export class KaraokeAudioState extends ServiceState {
    * deadline closes it.
    */
   private forward(ticketId: string, relay: KaraokeAudioRelay) {
-    if (!relay.hasUndrained()) return;
+    const throughMs = relay.measuredThroughMs;
+    if (
+      !relay.hasUndrained() &&
+      (this.env.SERVICE_MODE !== "internal" ||
+        throughMs <=
+          (this.store.get<number>(`feedbackWatermark:${ticketId}`) ?? 0))
+    )
+      return;
     const attempt = settle(this.store, this.env, ticketId);
     if (!attempt || attempt.closing) return;
     const { words, failedLineIds } = relay.drain(),
@@ -280,5 +290,30 @@ export class KaraokeAudioState extends ServiceState {
       ...new Set([...attempt.failedLineIds, ...failedLineIds]),
     ];
     this.store.set(`attempt:${ticketId}`, attempt);
+    if (this.env.SERVICE_MODE === "internal") {
+      const ticket = this.store.get<Signed<Ticket>>(`ticket:${ticketId}`)!.body;
+      const manifest = this.store.get<KaraokeManifest>(
+        `manifest:${ticket.manifestSha256}`,
+      )!;
+      const lineScores = liveLineScores(
+        manifest,
+        this.store.get<KaraokeRecognizedWord[]>(key) ?? [],
+        attempt.failedLineIds,
+        throughMs,
+      );
+      const feedback = {
+        lineScores,
+        latestLineId: lineScores.at(-1)?.lineId ?? null,
+      };
+      this.store.set(`feedbackWatermark:${ticketId}`, throughMs);
+      this.store.set(`feedback:${ticketId}`, feedback);
+      for (const socket of this.ctx.getWebSockets(ticketId)) {
+        try {
+          socket.send(JSON.stringify({ type: "line_scores", ...feedback }));
+        } catch {
+          /* A disconnected listener must not interrupt grading. */
+        }
+      }
+    }
   }
 }

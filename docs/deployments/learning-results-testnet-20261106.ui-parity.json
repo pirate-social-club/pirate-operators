@@ -1,0 +1,39 @@
+{
+  "chainId": 6343,
+  "scope": "centralized Karaoke presentation restored; no contract or public-result revision",
+  "centralizedRevision": "c7cb87835a1858a1955c820b03d566365e6d42db",
+  "communityProfileHash": "0xd718ac735a80f8b9cf7deb63806108ec0bffb2cb23e82c0ca0fea085e7f7b83c",
+  "operatorBundleSha256": "8ebd293585dcaad4986879bc08b55f3c6231f6428a8ca62ee7cc2eb7fb8e7025",
+  "sourceParity": "eight presentation files and CSS, with import/type adapters only",
+  "screens": {
+    "widths": [
+      1280,
+      390
+    ],
+    "heights": [
+      800,
+      844
+    ],
+    "directory": ".local/learning-browser-results",
+    "inspected": [
+      "route loading",
+      "audio loading",
+      "live lyrics",
+      "completion"
+    ],
+    "scope": "mounted local fixture; no production-site pixel comparison claimed"
+  },
+  "verification": {
+    "nodeTests": 375,
+    "solidityTests": 150,
+    "webTests": 34,
+    "localAcceptance": "passed",
+    "playbackCaptureAndReloadBrowserTests": 6,
+    "standingEnrollmentPublicationExportRevocationBrowserTests": 1
+  },
+  "retainedRun": {
+    "signedBodyReplaced": false,
+    "publicPublicationRevised": false,
+    "canonicalPresentationAvailable": true
+  }
+}

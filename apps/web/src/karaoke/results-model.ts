@@ -1,5 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-results-model.ts; only imports changed.
-// karaokeOperatorResultsView is new, for the operator's signed per-line result.
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import { clampResultPercent, resultHeadline, type ActivityResultStat } from "./activity-results.tsx";
 import type { KaraokeSessionSummary, KaraokeTimingTrend } from "../../../../packages/scoring/scoring.ts";
 
@@ -55,42 +54,6 @@ export function karaokeResultsView(summary: KaraokeResultsSummary | null, bestCo
     heading: resultHeadline(score, "Performance complete!"),
     scorePercent: score,
     stats,
-    ...(note === undefined ? {} : { note }),
-  };
-}
-
-/** The parts of the operator's signed result the results page reads. */
-export interface KaraokeOperatorResult {
-  readonly status: "completed" | "abandoned" | "expired" | "payment_missing";
-  readonly summary: { readonly scoreBps: number };
-  readonly lines: readonly { readonly status: string; readonly scoreBps: number | null }[];
-  readonly unmeasuredCount: number;
-}
-
-/**
- * The results page for an operator-graded take. The operator signs one score
- * and per-line statuses, so this shows only those: no separate lyric or
- * timing score is invented.
- */
-export function karaokeOperatorResultsView(result: KaraokeOperatorResult): KaraokeResultsView {
-  const assessed = result.lines.filter((line) => line.status === "assessed").length;
-  if (result.status === "payment_missing")
-    return { heading: "Take stopped", scorePercent: null, stats: [], note: "Two lines in a row couldn't be paid for, so the take stopped." };
-  if (assessed === 0)
-    return {
-      heading: "No lines scored",
-      scorePercent: null,
-      stats: [],
-      note: "We couldn't hear the lyrics this time. Check your microphone and try again.",
-    };
-  const score = clampResultPercent(result.summary.scoreBps / 100);
-  const note = result.unmeasuredCount > 0
-    ? `${lines(result.unmeasuredCount)} couldn't be measured, so ${result.unmeasuredCount === 1 ? "it doesn't" : "they don't"} count toward your score.`
-    : undefined;
-  return {
-    heading: resultHeadline(score, "Performance complete!"),
-    scorePercent: score,
-    stats: [{ label: "Lines", value: `${assessed} of ${result.lines.length}`, tone: "success" }],
     ...(note === undefined ? {} : { note }),
   };
 }

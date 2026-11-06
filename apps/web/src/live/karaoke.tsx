@@ -1,23 +1,36 @@
-// One learner's Karaoke take on a published song in the live community: the
-// timed song, a ticket, the operator's audio socket, each line bought just
-// ahead of time, the signed result and one consent signature that saves the
-// grades to the learning record. A reload resumes the open take at its
-// elapsed time, or shows its result. See docs/karaoke-integration-handoff.md.
+// Live transport adapter for the centralized Karaoke presentation. Internal
+// accounting uses standing enrollment and one automatic terminal publication.
+// A reload resumes an open take or shows its canonical completion screen.
 import { createSignal, onCleanup, Show } from "solid-js";
 import {
   karaokeStageLinesOf,
   type KaraokeTimedLine,
 } from "../../../../packages/karaoke/manifest-lines.ts";
 import { KaraokePracticeSurface } from "../karaoke/practice-surface.tsx";
-import {
-  karaokeOperatorResultsView,
-  type KaraokeOperatorResult,
-} from "../karaoke/results-model.ts";
+import type { KaraokeResultBody } from "../../../../packages/protocol/payments.ts";
+type KaraokeOperatorResult = Pick<
+  KaraokeResultBody,
+  "status" | "summary" | "lines" | "unmeasuredCount" | "presentation"
+>;
 import { useKaraokeCapture } from "../karaoke/use-karaoke-capture.ts";
 import { Button } from "../ui.ts";
+import {
+  KaraokeRouteLoadingState,
+  KaraokeRouteLoadFailureState,
+} from "../karaoke/route-states.tsx";
+import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
+import type { LineFeedback } from "../../../../services/karaoke-feedback.ts";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/overlays/dialog/dialog";
 import { get, post } from "./api.ts";
 
-/** The EIP-712 consent the operator asks the learner to sign, once per take. */
+/** Standing enrollment or revocation; sponsored by the community. */
 export interface KaraokeConsentRequest {
   domain: Record<string, unknown>;
   types: Record<string, unknown>;
@@ -27,6 +40,9 @@ export interface KaraokeConsentRequest {
 export interface KaraokeWallet {
   /** The learner's own signature; MOSS in the live app. */
   signConsent(request: KaraokeConsentRequest): Promise<string>;
+}
+export interface LearningActions {
+  download: () => Promise<void>;
 }
 interface TimedSong {
   lines: KaraokeTimedLine[];
@@ -58,7 +74,10 @@ type AttemptView =
     }
   | {
       state: "finished";
-      result: { body: KaraokeOperatorResult & { ticketId: string } };
+      result: {
+        body: KaraokeOperatorResult & { ticketId: string };
+        presentation?: KaraokeOperatorResult["presentation"];
+      };
       record: Record_;
     };
 
@@ -73,13 +92,18 @@ export function LiveKaraoke(props: {
   wallet: KaraokeWallet;
   serviceMode?: "internal";
   onExit: () => void;
+  onLearningActions?: (actions: LearningActions) => void;
 }) {
   const [song, setSong] = createSignal<TimedSong | null>(null),
     [loaded, setLoaded] = createSignal(false),
     [take, setTake] = createSignal<OpenTake | null>(null),
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
-    [saving, setSaving] = createSignal(false),
+    [feedback, setFeedback] = createSignal<{
+      lineScores: readonly LineFeedback[];
+      latestLineId: string | null;
+    } | null>(null),
+    [consentOpen, setConsentOpen] = createSignal(false),
     [starting, setStarting] = createSignal(false),
     [resume, setResume] = createSignal<{
       elapsedMs: number;
@@ -90,11 +114,23 @@ export function LiveKaraoke(props: {
     playback: HTMLAudioElement | null = null,
     buying = false,
     songMs = 0,
-    pollingPublication: string | null = null,
     disposed = false;
+  let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
     disposed = true;
+    consentAnswer?.(false);
   });
+  const confirmEnrollment = () =>
+    new Promise<boolean>((resolve) => {
+      consentAnswer = resolve;
+      setConsentOpen(true);
+    });
+  const answerEnrollment = (accepted: boolean) => {
+    const resolve = consentAnswer;
+    consentAnswer = undefined;
+    setConsentOpen(false);
+    resolve?.(accepted);
+  };
 
   const attemptView = () =>
     get<AttemptView>(`/api/karaoke/attempt?postId=${props.postId}`);
@@ -114,38 +150,32 @@ export function LiveKaraoke(props: {
       setTake(null);
       setFinished({
         ticketId: view.result.body.ticketId,
-        result: view.result.body,
+        result: {
+          ...view.result.body,
+          presentation:
+            view.result.body.presentation ?? view.result.presentation,
+        },
         record: view.record,
       });
-      if (props.serviceMode === "internal" && !["published", "failed", "private"].includes(view.record.publication?.state ?? ""))
-        void watchPublication(view.result.body.ticketId);
+      props.onLearningActions?.({
+        download: () => downloadHistory(view.result.body.ticketId),
+      });
     }
   }
-  async function watchPublication(ticketId: string) {
-    if (pollingPublication === ticketId) return;
-    pollingPublication = ticketId;
-    try {
-      for (let i = 0; i < 90 && !disposed && finished()?.ticketId === ticketId; i++) {
-        await sleep(1000);
-        const view = await attemptView().catch(() => null);
-        if (view?.state !== "finished" || view.result.body.ticketId !== ticketId) return;
-        apply(view);
-        if (["published", "failed", "private"].includes(view.record.publication?.state ?? "")) return;
-      }
-    } finally { if (pollingPublication === ticketId) pollingPublication = null; }
-  }
-  // Loaded once, as the live page loads its feed: writes land after awaits.
-  void (async () => {
+  async function loadSong() {
+    setLoaded(false);
+    setNotice(null);
     try {
       setSong(
         await get<TimedSong>(`/api/public/posts/${props.postId}/karaoke`),
       );
       apply(await attemptView());
     } catch {
-      setNotice("Karaoke isn't ready for this song yet.");
+      setSong(null);
     }
     setLoaded(true);
-  })();
+  }
+  void loadSong();
 
   const capture = useKaraokeCapture({
     get enabled() {
@@ -166,16 +196,47 @@ export function LiveKaraoke(props: {
     onMessage: (message) => {
       if (message.type === "ready") {
         attemptStart = message.attemptStart;
+        if (message.feedback)
+          acceptFeedback(message.feedback as Record<string, unknown>);
         void buyAhead();
-      }
+      } else if (message.type === "line_scores") acceptFeedback(message);
     },
   });
+
+  function acceptFeedback(message: Record<string, unknown>) {
+    if (!Array.isArray(message.lineScores)) return;
+    const lines = message.lineScores as LineFeedback[];
+    if (
+      !lines.every(
+        (line) =>
+          Number.isFinite(line.score) &&
+          line.score >= 0 &&
+          line.score <= 1 &&
+          typeof line.uncertain === "boolean" &&
+          song()?.lines[line.scoredLineIndex]?.lineId === line.lineId,
+      )
+    )
+      return;
+    setFeedback({
+      lineScores: lines,
+      latestLineId:
+        typeof message.latestLineId === "string" ? message.latestLineId : null,
+    });
+  }
+  const currentFeedback = () => deriveKaraokeFeedback(feedback());
 
   /** Buys every line whose purchase window has opened and not yet closed. */
   async function buyAhead() {
     const current = take(),
       timed = song();
-    if (!current || !timed || props.serviceMode === "internal" || !attemptStart || buying) return;
+    if (
+      !current ||
+      !timed ||
+      props.serviceMode === "internal" ||
+      !attemptStart ||
+      buying
+    )
+      return;
     buying = true;
     try {
       for (const segment of timed.segments) {
@@ -216,15 +277,28 @@ export function LiveKaraoke(props: {
     try {
       if (!take()) {
         if (props.serviceMode === "internal") {
-          const enrollment = await post<KaraokeConsentRequest & { active?: boolean; pending?: boolean }>("/api/karaoke/enrollment", {}, props.csrf);
-          if (enrollment.pending) throw new Error("Your enrollment is still being confirmed. Try again shortly.");
+          const enrollment = await post<
+            KaraokeConsentRequest & { active?: boolean; pending?: boolean }
+          >("/api/karaoke/enrollment", {}, props.csrf);
+          if (enrollment.pending)
+            throw new Error(
+              "Your enrollment is still being confirmed. Try again shortly.",
+            );
           if (!enrollment.active) {
-            if (!window.confirm("Enable public learning results? Your line grades, song and completion time will be permanently public under your wallet address. See Terms and Privacy before continuing.")) {
-              setStarting(false); return;
+            if (!(await confirmEnrollment())) {
+              setStarting(false);
+              return;
             }
             const signature = await props.wallet.signConsent(enrollment);
-            const accepted = await post<{ state: string }>("/api/karaoke/enrollment", { enrollment: enrollment.message, signature }, props.csrf);
-            if (accepted.state !== "success") throw new Error("Your enrollment is pending. Try again once it is confirmed.");
+            const accepted = await post<{ state: string }>(
+              "/api/karaoke/enrollment",
+              { enrollment: enrollment.message, signature },
+              props.csrf,
+            );
+            if (accepted.state !== "success")
+              throw new Error(
+                "Your enrollment is pending. Try again once it is confirmed.",
+              );
           }
         }
         const issued = await post<{
@@ -235,6 +309,7 @@ export function LiveKaraoke(props: {
         bought.clear();
         attemptStart = null;
         setFinished(null);
+        setFeedback(null);
         setTake({
           ticketId: issued.ticket.body.ticketId,
           socketUrl: issued.socketUrl,
@@ -267,6 +342,7 @@ export function LiveKaraoke(props: {
   const singingStatus = () => {
     if (finished()) return "ended" as const;
     const status = capture.state()?.status ?? "idle";
+    if (status === "ended") return "finishing" as const;
     return starting() && status === "idle" ? ("connecting" as const) : status;
   };
   async function refreshUntil(done: (view: AttemptView) => boolean) {
@@ -282,140 +358,116 @@ export function LiveKaraoke(props: {
   }
   async function finish(atMs: number) {
     await capture.controls.noteFinish(atMs);
-    setNotice("Scoring your take…");
-    const scored = await refreshUntil((view) => view.state === "finished");
-    setNotice(
-      scored ? null : "Your score is still on its way. Reopen this song soon.",
-    );
-  }
-  async function save() {
-    const current = finished();
-    if (!current?.record.consent || saving()) return;
-    setSaving(true);
-    try {
-      const signature = await props.wallet.signConsent(current.record.consent);
-      await post(
-        "/api/karaoke/consent",
-        { ticketId: current.ticketId, signature },
-        props.csrf,
-      );
-      await refreshUntil((view) => {
-        const state =
-          view.state === "finished" ? view.record.publication?.state : null;
-        return state === "published" || state === "failed";
-      });
-    } catch (failure) {
-      setNotice(
-        failure instanceof Error ? failure.message : "Your score wasn't saved.",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-  async function revokeEnrollment() {
-    try {
-      const request = await post<KaraokeConsentRequest>("/api/karaoke/enrollment/revoke", {}, props.csrf);
-      const signature = await props.wallet.signConsent(request);
-      const answer = await post<{ state: string }>("/api/karaoke/enrollment/revoke", { message: request.message, signature }, props.csrf);
-      setNotice(answer.state === "success" ? "Public enrollment stopped. Earlier publications remain public." : "Your revocation is being confirmed.");
-    } catch { setNotice("Your enrollment could not be stopped yet. Try again."); }
+    await refreshUntil((view) => view.state === "finished");
   }
   async function downloadHistory(ticketId: string) {
-    try {
-      const history = await post("/api/karaoke/history", { ticketId }, props.csrf);
-      const url = URL.createObjectURL(new Blob([JSON.stringify(history, null, 2)], { type: "application/json" }));
-      const link = document.createElement("a"); link.href = url; link.download = `learning-history-${ticketId}.json`;
-      link.click(); URL.revokeObjectURL(url);
-    } catch { setNotice("Your private history could not be downloaded."); }
-  }
-  const recordSlot = () => {
-    const current = finished();
-    if (!current) return undefined;
-    const state = current.record.publication?.state;
-    return (
-      <div
-        class="flex flex-col items-center gap-3"
-        data-record={
-          state ?? (current.record.consented ? "pending" : "unsaved")
-        }
-      >
-        <Show
-          when={state !== "published"}
-          fallback={<p class="text-sm">Saved to your learning record.</p>}
-        >
-          <Show when={state !== "private"} fallback={<p class="text-sm">This take stays private because its enrollment is no longer active.</p>}>
-          <Show
-            when={state !== "failed"}
-            fallback={<p class="text-sm">This score couldn't be saved.</p>}
-          >
-            <Show
-              when={!current.record.consented}
-              fallback={<p class="text-sm">Saving to your learning record…</p>}
-            >
-              <Show when={current.record.consent}>
-                <Button disabled={saving()} onClick={() => void save()}>
-                  Save your score
-                </Button>
-              </Show>
-            </Show>
-          </Show>
-          </Show>
-        </Show>
-        <Show when={props.serviceMode === "internal"}>
-          <Button variant="ghost" onClick={() => void downloadHistory(current.ticketId)}>Download private history</Button>
-          <Button variant="ghost" onClick={() => void revokeEnrollment()}>Stop public enrollment</Button>
-        </Show>
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setFinished(null);
-            setResume(null);
-          }}
-        >
-          Sing again
-        </Button>
-      </div>
+    const history = await post(
+      "/api/karaoke/history",
+      { ticketId },
+      props.csrf,
     );
-  };
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(history, null, 2)], {
+        type: "application/json",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `learning-history-${ticketId}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
   return (
     <section class="live-karaoke" aria-label={`Karaoke: ${props.title}`}>
       <Show when={notice()}>
-        <p class="live-status" role="status" aria-live="polite">
-          {notice()}
-        </p>
+        <div
+          role="alert"
+          class="fixed inset-x-4 bottom-24 z-50 rounded-lg bg-card p-4 text-center"
+        >
+          <p>{notice()}</p>
+        </div>
       </Show>
-      <Show when={loaded() && song()}>
-        {(timed) => (
-          <KaraokePracticeSurface
-            title={props.title}
-            instrumentalAudioUrl={`/api/karaoke/posts/${props.postId}/instrumental`}
-            lines={karaokeStageLinesOf(timed().lines)}
-            initialTimeMs={resume()?.elapsedMs ?? 0}
-            singingStatus={singingStatus()}
-            resultsView={
-              finished() ? karaokeOperatorResultsView(finished()!.result) : null
-            }
-            rewardSlot={recordSlot()}
-            onExit={props.onExit}
-            onStartSinging={(ms) => void start(ms)}
-            onPlaybackElement={(element) => {
-              playback = element;
-              capture.controls.attachPlaybackElement(element);
-            }}
-            playbackInterrupted={capture.playbackInterrupted()}
-            onResumePlayback={() => capture.controls.resumePlayback()}
-            onTimeChange={(ms) => {
-              songMs = ms;
-              capture.controls.noteTime(ms);
-              void buyAhead();
-            }}
-            onPlay={(ms) => capture.controls.notePlay(ms)}
-            onPause={(ms) => capture.controls.notePause(ms)}
-            onSeek={(ms) => capture.controls.noteSeek(ms)}
-            onFinish={(ms) => void finish(ms)}
-          />
-        )}
+      <Show
+        when={loaded()}
+        fallback={<KaraokeRouteLoadingState label="Loading karaoke" />}
+      >
+        <Show
+          when={song()}
+          fallback={
+            <KaraokeRouteLoadFailureState
+              title="Karaoke unavailable"
+              description="We couldn't load karaoke for this song."
+              onRetry={() => void loadSong()}
+              onGoHome={props.onExit}
+            />
+          }
+        >
+          {(timed) => (
+            <KaraokePracticeSurface
+              title={props.title}
+              instrumentalAudioUrl={`/api/karaoke/posts/${props.postId}/instrumental`}
+              lines={karaokeStageLinesOf(timed().lines)}
+              initialTimeMs={resume()?.elapsedMs ?? 0}
+              singingStatus={singingStatus()}
+              summary={finished()?.result.presentation ?? null}
+              bestCombo={
+                finished()?.result.presentation?.bestCombo ??
+                currentFeedback().bestCombo
+              }
+              rating={currentFeedback().rating}
+              onExit={props.onExit}
+              onStartSinging={(ms) => void start(ms)}
+              onPlaybackElement={(element) => {
+                playback = element;
+                capture.controls.attachPlaybackElement(element);
+              }}
+              playbackInterrupted={capture.playbackInterrupted()}
+              onResumePlayback={() => capture.controls.resumePlayback()}
+              onTimeChange={(ms) => {
+                songMs = ms;
+                capture.controls.noteTime(ms);
+                void buyAhead();
+              }}
+              onPlay={(ms) => capture.controls.notePlay(ms)}
+              onPause={(ms) => capture.controls.notePause(ms)}
+              onSeek={(ms) => capture.controls.noteSeek(ms)}
+              onFinish={(ms) => void finish(ms)}
+            />
+          )}
+        </Show>
       </Show>
+      <Dialog
+        open={consentOpen()}
+        onOpenChange={(open) => {
+          if (!open) answerEnrollment(false);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enable public learning results</DialogTitle>
+            <DialogDescription>
+              Your line grades, song and completion time will be permanently
+              public under your wallet address. Enrollment lasts until expiry or
+              revocation.
+            </DialogDescription>
+          </DialogHeader>
+          <p class="text-sm text-muted-foreground">
+            <a href="/terms" target="_blank" rel="noopener">
+              Terms
+            </a>{" "}
+            ·{" "}
+            <a href="/privacy" target="_blank" rel="noopener">
+              Privacy
+            </a>
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => answerEnrollment(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => answerEnrollment(true)}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -1,5 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/karaoke/karaoke-practice-surface.tsx; only imports changed,
-// plus the optional resultsView prop for the operator's signed result (docs/karaoke-integration-handoff.md).
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db; imports only.
 import type { JSX } from "@solidjs/web";
 import { createEffect, createSignal, onCleanup, Show, untrack } from "solid-js";
 import {
@@ -10,7 +9,7 @@ import {
 } from "./ui.ts";
 import { ActivityProgressHeader } from "./activity-progress-header.tsx";
 import { ActivityResults } from "./activity-results.tsx";
-import { karaokeResultsView, type KaraokeResultsSummary, type KaraokeResultsView } from "./results-model.ts";
+import { karaokeResultsView, type KaraokeResultsSummary } from "./results-model.ts";
 import { getLyricDurationMs } from "../../../../packages/karaoke/karaoke-timing.ts";
 import { KaraokeLyricStage } from "./lyric-stage.tsx";
 import type { KaraokeLineRating, KaraokeStageLine } from "./lyric-stage.tsx";
@@ -45,8 +44,6 @@ export interface KaraokePracticeSurfaceProps {
   onFinish?: (songMs: number) => void;
   /** The server's summary for the finished take; null when none arrived. */
   summary?: KaraokeResultsSummary | null;
-  /** A complete results view, such as one built from the operator's signed result. */
-  resultsView?: KaraokeResultsView | null;
   /** Longest run of well-sung lines, from the client's live feedback. */
   bestCombo?: number;
 }
@@ -177,7 +174,7 @@ export function KaraokePracticeSurface(props: KaraokePracticeSurfaceProps) {
         <div class="relative z-10 size-full min-w-0">
           <Show when={ended()}>
             {(_) => {
-              const view = () => props.resultsView ?? karaokeResultsView(props.summary ?? null, props.bestCombo ?? 0);
+              const view = () => karaokeResultsView(props.summary ?? null, props.bestCombo ?? 0);
               return (
                 // A scrollable region must be reachable by keyboard.
                 <div aria-label="Results" class="flex flex-col size-full overflow-y-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring" role="region" tabindex="0">

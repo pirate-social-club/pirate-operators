@@ -49,5 +49,7 @@ export function expireLearnerHistory(store: Store) {
     store.delete(key);
     store.delete(`words:${ticketId}`);
     store.delete(`audioRelay:${ticketId}`);
+    store.delete(`feedback:${ticketId}`);
+    store.delete(`feedbackWatermark:${ticketId}`);
   }
 }
