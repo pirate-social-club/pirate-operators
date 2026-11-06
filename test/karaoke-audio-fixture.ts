@@ -68,7 +68,10 @@ export async function audioCommunity(
       assert.equal(r.status, 200, JSON.stringify(r.value));
     }
   };
-  const attempt = async (index = 5) => {
+  const attempt = async (
+    index = 5,
+    beforeConnect?: (ticket: Signed<Ticket>) => Promise<void>,
+  ) => {
     const wallet = accounts[index];
     const challenge = await post<{ nonce: string; message: string }>(
       runtime.mf,
@@ -112,6 +115,7 @@ export async function audioCommunity(
       session,
     );
     assert.equal(issued.status, 200, JSON.stringify(issued.value));
+    await beforeConnect?.(issued.value);
     const socket = (await openAttempt(
       runtime.mf,
       issued.value.body.ticketId,

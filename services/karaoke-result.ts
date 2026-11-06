@@ -23,6 +23,9 @@ import {
 import type { Store } from "./runtime.ts";
 import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 
+// Ingress allowance only; the signed performance cutoff stays at the song end.
+export const INTERNAL_COMPLETION_GRACE_S = 2;
+
 export interface Attempt {
   ticketId: Hex;
   attemptId: Hex;

@@ -21,7 +21,11 @@ import {
   type SignedPurchase,
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
-import { resultBody, type Attempt } from "./karaoke-result.ts";
+import {
+  resultBody,
+  INTERNAL_COMPLETION_GRACE_S,
+  type Attempt,
+} from "./karaoke-result.ts";
 import {
   acceptPurchase,
   closeTicketData,
@@ -71,17 +75,24 @@ type Status = NonNullable<Attempt["ended"]>["status"];
  * `endedAt` is when the operator decides; `performanceEndedAt` is when singing
  * stopped, which is the disconnect time if the learner never returned.
  */
-function end(attempt: Attempt, endedAt: number, status: Status) {
+function end(
+  attempt: Attempt,
+  endedAt: number,
+  status: Status,
+  nominalEnd = Infinity,
+) {
   if (attempt.ended) return;
-  const performanceEndedAt =
+  const performanceEndedAt = Math.min(
+    nominalEnd,
     attempt.disconnectedAt === null
       ? endedAt
-      : Math.min(endedAt, attempt.disconnectedAt);
+      : Math.min(endedAt, attempt.disconnectedAt),
+  );
   attempt.ended = {
     endedAt,
     performanceEndedAt,
     status,
-    paymentDeadline: endedAt + PAYMENT_GRACE_S,
+    paymentDeadline: Math.min(endedAt, nominalEnd) + PAYMENT_GRACE_S,
   };
 }
 /** For the unpaid-run stop: a purchase received and still being redeemed counts. */
@@ -101,12 +112,14 @@ export function settle(store: Store, env: Env, ticketId: string) {
   const { ticket, manifest, attempt } = load(store, ticketId);
   if (!ticket || !manifest || !attempt || attempt.closing) return attempt;
   const now = store.now();
+  const nominalEnd = attempt.startedAt + Math.ceil(songEndMs(manifest) / 1000);
+  const internal = env.SERVICE_MODE === "internal";
   if (!attempt.ended) {
     const events: [number, Status][] = [];
     if (attempt.disconnectedAt !== null)
       events.push([attempt.disconnectedAt + RECONNECT_WINDOW_S, "abandoned"]);
     events.push([
-      attempt.startedAt + Math.ceil(songEndMs(manifest) / 1000),
+      nominalEnd + (internal ? INTERNAL_COMPLETION_GRACE_S : 0),
       attempt.connected ? "completed" : "abandoned",
     ]);
     events.push([
@@ -133,7 +146,9 @@ export function settle(store: Store, env: Env, ticketId: string) {
     const due = events
       .filter(([at]) => at <= now)
       .sort((a, b) => a[0] - b[0])[0];
-    if (due) end(attempt, due[0], due[1]);
+    // Allow the last 100 ms capture frame and transport delay to arrive, but
+    // never move the public cutoff or extend expiry or the payment deadline.
+    if (due) end(attempt, due[0], due[1], internal ? nominalEnd : Infinity);
   }
   if (attempt.ended && now >= attempt.ended.paymentDeadline)
     attempt.closing = { block: null };
@@ -546,9 +561,9 @@ export async function karaokeRoute(
       type: "ready",
       attemptId: next.attemptId,
       resumed,
-      audioSequence: store.get<{ lastSequence: number | null }>(
-        `audioRelay:${ticketId}`,
-      )?.lastSequence ?? 0,
+      audioSequence:
+        store.get<{ lastSequence: number | null }>(`audioRelay:${ticketId}`)
+          ?.lastSequence ?? 0,
       attemptStart: store.get(`attemptStart:${ticketId}`),
       feedback: store.get(`feedback:${ticketId}`) ?? null,
       consent: consentRequest(
@@ -622,8 +637,18 @@ export async function onMessage(
   // timers, so neither waits on or fails with the payment chain.
   const attempt = settle(store, env, ticketId);
   check(attempt && !attempt.ended, "attempt_closed");
-  if (frame.type === "finish") end(attempt, store.now(), "completed");
-  else if (frame.type === "provider_failed") {
+  if (frame.type === "finish") {
+    const { manifest } = load(store, ticketId);
+    check(manifest, "manifest_missing");
+    end(
+      attempt,
+      store.now(),
+      "completed",
+      env.SERVICE_MODE === "internal"
+        ? attempt.startedAt + Math.ceil(songEndMs(manifest) / 1000)
+        : Infinity,
+    );
+  } else if (frame.type === "provider_failed") {
     // Local simulated provider only: marks lines whose measurement failed.
     check(
       Array.isArray(frame.lineIds) && frame.lineIds.length <= 100,
