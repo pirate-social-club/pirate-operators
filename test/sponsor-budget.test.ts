@@ -66,12 +66,37 @@ test("configuration changes and released references cannot silently refill the a
   const store = memory();
   reserveSponsorship(store, limits, "a");
   assert.throws(
-    () => reserveSponsorship(store, { ...limits, cap: 300n }, "b"),
+    () => reserveSponsorship(store, { ...limits, gas: 10n }, "b"),
     /profile_changed/,
   );
   releaseSponsorship(store, limits, "a");
   assert.throws(
     () => reserveSponsorship(store, limits, "a"),
     /reservation_released/,
+  );
+});
+
+test("a manual ceiling increase preserves charges and outstanding reservations", () => {
+  const store = memory();
+  reserveSponsorship(store, limits, "a");
+  chargeSponsorship(store, limits, "a");
+  reserveSponsorship(store, limits, "b");
+  const larger = { ...limits, cap: 300n };
+  reserveSponsorship(store, larger, "c");
+  assert.deepEqual(store.get("sponsor:ledger"), {
+    cap: "300",
+    gas: "9",
+    gasPrice: "10",
+    dataFee: "10",
+    spent: "100",
+    reserved: "200",
+  });
+  assert.throws(
+    () => reserveSponsorship(store, larger, "d"),
+    /sponsor_exhausted/,
+  );
+  assert.throws(
+    () => reserveSponsorship(store, limits, "d"),
+    /profile_changed/,
   );
 });
