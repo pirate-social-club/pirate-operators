@@ -19,6 +19,8 @@ import {
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
 import { readStudyAudio } from "./study-spoken.ts";
+import { publishStudyTerminal } from "./study-publication.ts";
+import { STUDY_SOURCE_MAX_BYTES } from "../packages/study/public-source.ts";
 import {
   activeEnrollment,
   type BoundEnrollment,
@@ -252,13 +254,15 @@ export async function studyOperatorRoute(
   const reader = request.body?.getReader();
   check(reader, "invalid_study_request_body");
   const chunks: Uint8Array[] = [];
+  const maximum =
+    path === "/study/terminal" ? STUDY_SOURCE_MAX_BYTES + 65536 : 16000;
   let size = 0;
   try {
     while (true) {
       const next = await reader.read();
       if (next.done) break;
       size += next.value.length;
-      check(size <= 16000, "invalid_study_request_body");
+      check(size <= maximum, "invalid_study_request_body");
       chunks.push(next.value);
     }
   } finally {
@@ -272,13 +276,15 @@ export async function studyOperatorRoute(
     offset += chunk.length;
   }
   check(
-    bytes.length <= 16000 && sha256(bytes) === auth.bodyHash,
+    bytes.length <= maximum && sha256(bytes) === auth.bodyHash,
     "invalid_study_request_body",
   );
   check(canonical(auth.parameters) === "{}", "invalid_study_parameters");
   const value = JSON.parse(new TextDecoder().decode(bytes));
   if (path === "/study/bind")
     return reply(await bindStudyLesson(env, store, value));
+  if (path === "/study/terminal")
+    return reply(await publishStudyTerminal(env, store, value));
   check(
     path === "/study/speech/status" &&
       studyId(value.lessonId) &&

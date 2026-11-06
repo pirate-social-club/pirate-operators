@@ -1,0 +1,350 @@
+// Durable Study publication. Only the compact public bundle survives validation;
+// private lesson state and transcripts never enter transaction calldata.
+import { encodeFunctionData, zeroHash, type Hex } from "viem";
+import { canonical, check, digest } from "../packages/protocol/index.ts";
+import {
+  resultCommitment,
+  resultPeriod,
+  type TerminalResult,
+} from "../packages/protocol/learning-results-v3.ts";
+import { terminalStudyBundle } from "../packages/study/result-adapter.ts";
+import type {
+  StudyTerminalRequest,
+  StudyPublicationReceipt,
+} from "../packages/study/publication.ts";
+import { studyId } from "../packages/study/operator-contract.ts";
+import type { StudyOperatorBinding } from "./study-operator.ts";
+import {
+  contractAbi,
+  resultClient,
+  readResultContract,
+  resultPolicyAt,
+  retainedTarget,
+  type ResultsTarget,
+} from "./learning-contract.ts";
+import {
+  submitResultTransaction,
+  type ResultStore,
+} from "./learning-transactions.ts";
+import { intentOf, txRow } from "./operator-tx.ts";
+import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import type { Env } from "./runtime.ts";
+
+export interface PublicationJob {
+  requestHash: Hex;
+  target: ResultsTarget;
+  result: TerminalResult;
+  outcomes: Hex;
+  data: Hex;
+  receipt: StudyPublicationReceipt;
+  lastTriedAt: number;
+}
+const key = (id: string) => "studyPublication:" + id;
+const reference = (id: string) => "study:" + id + ":1";
+const restore = (result: TerminalResult): TerminalResult => ({
+  ...result,
+  song: { ...result.song, chainId: BigInt(result.song.chainId) },
+  startedAt: BigInt(result.startedAt),
+  completedAt: BigInt(result.completedAt),
+});
+const durable = <T>(value: T): T =>
+  JSON.parse(
+    JSON.stringify(value, (_, item) =>
+      typeof item === "bigint" ? String(item) : item,
+    ),
+  );
+export const studyPublication = (store: ResultStore, id: string) =>
+  store.get<PublicationJob>(key(id))?.receipt;
+
+function saveReceipt(
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+  receipt: StudyPublicationReceipt,
+) {
+  return store.transaction(() => {
+    const current = store.get<PublicationJob>(key(id))!;
+    check(current.requestHash === job.requestHash, "study_terminal_changed");
+    // A slow observation cannot overwrite a concurrent publisher's newer state.
+    if (canonical(current.receipt) !== canonical(job.receipt))
+      return current.receipt;
+    store.set(key(id), { ...current, receipt });
+    return receipt;
+  });
+}
+async function freeze(
+  env: Env,
+  store: ResultStore,
+  input: StudyTerminalRequest,
+) {
+  check(input && studyId(input.lessonId), "invalid_study_terminal");
+  const hash = digest(input) as Hex;
+  const old = store.get<PublicationJob>(key(input.lessonId));
+  if (old) {
+    retainedTarget(env, old.target);
+    check(old.requestHash === hash, "study_terminal_changed");
+    return;
+  }
+  const binding = store.get<StudyOperatorBinding>(
+    "studyBinding:" + input.lessonId,
+  );
+  check(binding, "study_lesson_not_bound");
+  const target = retainedTarget(env, binding.target);
+  check(
+    target.version === 3 && binding.enrollment.activities! & 2,
+    "study_enrollment_mismatch",
+  );
+  check(
+    input.state.startedAt === binding.offer.startedAt &&
+      input.state.expiresAt === binding.offer.expiresAt &&
+      input.state.completedAt! <= store.now() * 1000 + 999 &&
+      digest(input.source) === binding.offer.sourceDigest &&
+      input.source.communityId === env.COMMUNITY_ID,
+    "study_terminal_binding_changed",
+  );
+  const bundle = terminalStudyBundle({
+    ...input,
+    enrollment: binding.enrollment,
+    learner: binding.offer.learner,
+    grader: env.OPERATOR_ADDRESS,
+    qualificationPolicy: zeroHash,
+  });
+  check(
+    bundle.result.exercisesHash === binding.exercisesHash &&
+      canonical(
+        input.state.items.map((item) => ({
+          lineId: item.line.lineId,
+          language: item.line.language,
+        })),
+      ) ===
+        canonical(
+          binding.offer.exercises.map(({ lineId, language }) => ({
+            lineId,
+            language,
+          })),
+        ),
+    "study_terminal_binding_changed",
+  );
+  bundle.result.qualificationPolicy = await resultPolicyAt(
+    env,
+    target,
+    2,
+    resultPeriod(bundle.result.completedAt),
+  );
+  const data = encodeFunctionData({
+    abi: contractAbi(target),
+    functionName: "publish",
+    args: [bundle.result, bundle.outcomes],
+  });
+  const receipt: StudyPublicationReceipt = {
+    state: "pending",
+    sessionId: bundle.result.sessionId,
+    chainId: target.chainId,
+    contract: target.contract,
+    commitment: resultCommitment(bundle.result, bundle.outcomes),
+    transactionHash: null,
+    confirmed: false,
+    checkedAt: store.now(),
+  };
+  store.transaction(() => {
+    const concurrent = store.get<PublicationJob>(key(input.lessonId));
+    check(
+      !concurrent || concurrent.requestHash === hash,
+      "study_terminal_changed",
+    );
+    if (!concurrent)
+      store.set(
+        key(input.lessonId),
+        durable({
+          requestHash: hash,
+          target,
+          ...bundle,
+          data,
+          receipt,
+          lastTriedAt: store.now(),
+        }),
+      );
+  });
+}
+
+/** Read a pinned canonical head before interpreting a receipt or allocating work. */
+async function observe(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+) {
+  const client = resultClient(env),
+    head = await client.getBlock({ blockTag: "latest" });
+  check(
+    (await client.getChainId()) === job.target.chainId,
+    "study_publication_chain_changed",
+  );
+  const current = (await client.readContract({
+    address: job.target.contract,
+    abi: contractAbi(job.target),
+    functionName: "commitments",
+    args: [job.result.sessionId],
+    blockNumber: head.number,
+  })) as Hex;
+  const intent = intentOf(store, "record_result", reference(id));
+  const row = intent?.nonce == null ? undefined : txRow(store, intent.nonce);
+  let confirmed = false;
+  if (current === job.receipt.commitment && row?.hash) {
+    const receipt = await client
+      .getTransactionReceipt({ hash: row.hash })
+      .catch((error: { name?: string }) => {
+        if (error.name === "TransactionReceiptNotFoundError") return null;
+        throw error;
+      });
+    confirmed =
+      !!receipt &&
+      receipt.status === "success" &&
+      head.number >= receipt.blockNumber + 12n &&
+      (await client.getBlock({ blockNumber: receipt.blockNumber })).hash ===
+        receipt.blockHash;
+  }
+  check(
+    (await client.getBlock({ blockNumber: head.number })).hash === head.hash,
+    "study_publication_chain_changed",
+  );
+  const state =
+    current === job.receipt.commitment
+      ? "published"
+      : current !== zeroHash
+        ? "failed"
+        : null;
+  return {
+    row,
+    current,
+    timestamp: head.timestamp,
+    receipt: state
+      ? ({
+          ...job.receipt,
+          state,
+          confirmed,
+          transactionHash: row?.hash ?? null,
+          checkedAt: store.now(),
+          ...(state === "failed" ? { reason: "canonical_result_changed" } : {}),
+        } as StudyPublicationReceipt)
+      : null,
+  };
+}
+
+export async function resumeStudyPublication(
+  env: Env,
+  store: ResultStore,
+  id: string,
+) {
+  let job = store.get<PublicationJob>(key(id));
+  check(job, "study_publication_not_found");
+  retainedTarget(env, job.target);
+  check(
+    job.receipt.commitment ===
+      resultCommitment(restore(job.result), job.outcomes) &&
+      job.data ===
+        encodeFunctionData({
+          abi: contractAbi(job.target),
+          functionName: "publish",
+          args: [restore(job.result), job.outcomes],
+        }),
+    "study_publication_changed",
+  );
+  const ref = reference(id),
+    intent = intentOf(store, "record_result", ref);
+  check(
+    !intent ||
+      (intent.to.toLowerCase() === job.target.contract.toLowerCase() &&
+        intent.data === job.data),
+    "result_transaction_changed",
+  );
+  if (job.receipt.state === "private" || job.receipt.state === "failed")
+    return job.receipt;
+  job = { ...job, lastTriedAt: store.now() };
+  store.set(key(id), job);
+  const observed = await observe(env, store, id, job);
+  if (observed.receipt) return saveReceipt(store, id, job, observed.receipt);
+  // Wait for chain time without charging a transaction that would revert.
+  if (BigInt(job.result.completedAt) > observed.timestamp)
+    return saveReceipt(store, id, job, {
+      ...job.receipt,
+      state: "pending",
+      confirmed: false,
+      checkedAt: store.now(),
+    });
+  if (observed.row?.mined?.status === "reverted")
+    return saveReceipt(store, id, job, {
+      ...job.receipt,
+      state: "failed",
+      confirmed: false,
+      transactionHash: observed.row.hash ?? null,
+      checkedAt: store.now(),
+      reason: "transaction_reverted",
+    });
+  if (observed.row?.mined) {
+    // The chain lost this result. Keep its nonce, raw bytes and conservative charge.
+    store.set(`tx:${String(observed.row.nonce).padStart(10, "0")}`, {
+      ...observed.row,
+      mined: null,
+    });
+  }
+  if (intent?.nonce == null) {
+    const [grant, activities, , expires] = await readResultContract<
+      readonly [Hex, bigint, bigint, bigint]
+    >(env, job.target, "enrollments", [job.result.learner]);
+    if (
+      grant !== job.result.enrollmentId ||
+      !(activities & 2n) ||
+      Number(expires) <= store.now()
+    ) {
+      releaseSponsorship(store, sponsorLimits(env), "record_result:" + ref);
+      releaseSponsorship(
+        store,
+        sponsorLimits(env),
+        "record_result:study:" + id + ":2",
+      );
+      return saveReceipt(store, id, job, {
+        ...job.receipt,
+        state: "private",
+        confirmed: false,
+        reason: "enrollment_inactive",
+        checkedAt: store.now(),
+      });
+    }
+  }
+  await submitResultTransaction(
+    env,
+    store,
+    "record_result",
+    ref,
+    job.data,
+    job.target.contract,
+  );
+  // Reload the current CAS baseline after dispatch. A competing response may
+  // already have recorded the same canonical commitment.
+  job = store.get<PublicationJob>(key(id))!;
+  const after = await observe(env, store, id, job);
+  return saveReceipt(
+    store,
+    id,
+    job,
+    after.receipt ?? {
+      ...job.receipt,
+      state: after.row?.mined?.status === "reverted" ? "failed" : "pending",
+      confirmed: false,
+      transactionHash: after.row?.hash ?? null,
+      checkedAt: store.now(),
+      ...(after.row?.mined?.status === "reverted"
+        ? { reason: "transaction_reverted" }
+        : {}),
+    },
+  );
+}
+export async function publishStudyTerminal(
+  env: Env,
+  store: ResultStore,
+  input: StudyTerminalRequest,
+) {
+  await freeze(env, store, input);
+  return resumeStudyPublication(env, store, input.lessonId);
+}

@@ -29,6 +29,7 @@ import {
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
 import type { StudyOperatorBinding } from "./study-operator.ts";
+import { studyPublicationQueue } from "./study-publication-queue.ts";
 
 export interface StudyEnv extends KaraokeEnv {
   STUDY_RESULTS_V3_CONTRACT?: string;
@@ -236,9 +237,16 @@ export function liveStudy(
     resolveLines: async (song) =>
       studySourceLines(await source(song)).lines.map((entry) => entry.line),
   });
+  const publications = studyPublicationQueue(ports.db, operator, owner, now);
+  async function reconcilePublication(lesson: StudyLesson) {
+    if (lesson.status !== "active")
+      await publications.sync(lesson.lessonId).catch(() => undefined);
+    return lesson; // Publication outages never hide a saved private result.
+  }
   return {
     owner,
     lessons,
+    publication: publications.get,
     async song(postId: Hex) {
       const lyrics = await publishedLyrics(
         ports.db,
@@ -264,9 +272,14 @@ export function liveStudy(
       await ensureBinding(lesson);
       return lesson;
     },
-    get: (id: string) => lessons.get(owner, id),
-    latest: (song: unknown) => lessons.latest(owner, song),
-    abandon: (id: string) => lessons.abandon(owner, id),
+    get: async (id: string) =>
+      reconcilePublication(await lessons.get(owner, id)),
+    latest: async (song: unknown) => {
+      const lesson = await lessons.latest(owner, song);
+      return lesson ? reconcilePublication(lesson) : null;
+    },
+    abandon: async (id: string) =>
+      reconcilePublication(await lessons.abandon(owner, id)),
     async open(id: string, presentation: number, take: number) {
       await ensureBinding(await lessons.get(owner, id));
       return lessons.openAttempt(owner, id, presentation, take);
@@ -280,6 +293,7 @@ export function liveStudy(
         }),
       );
       if (!result.ok) throw result.error;
+      await reconcilePublication(result.value.lesson);
       return result.value;
     },
   };

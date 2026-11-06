@@ -96,6 +96,13 @@ export async function studyCommunityFixture(port: number) {
       },
     };
     f.env.RESULTS_V3_CONTRACT = f.v3;
+    await f.evm.write(
+      f.v3,
+      "LearningResultsV3",
+      "setGrader",
+      [accounts[2].address, 2, true],
+      3,
+    );
     f.env.ISSUER = accounts[1].address;
     f.env.SPEECH_BUDGET = {
       getByName(name: string) {
@@ -187,6 +194,7 @@ export async function studyCommunityFixture(port: number) {
       });
     return {
       ...f,
+      operatorEnv: f.env,
       db: runtime.db,
       env,
       config,
@@ -240,6 +248,13 @@ export async function studyCommunityFixture(port: number) {
       },
       advance: (ms: number) => {
         now += ms;
+      },
+      clock: () => now,
+      async mineClock() {
+        const head = Number((await f.evm.publicClient.getBlock()).timestamp);
+        now = Math.max(now, (head + 1) * 1000);
+        await f.evm.rpc("evm_setNextBlockTimestamp", [Math.floor(now / 1000)]);
+        await f.evm.rpc("evm_mine", []);
       },
       async dispose() {
         await runtime!.dispose();

@@ -18,6 +18,10 @@ import {
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
 import type { StudyOperatorBinding } from "./study-operator.ts";
+import type {
+  StudyTerminalRequest,
+  StudyPublicationReceipt,
+} from "../packages/study/publication.ts";
 
 export interface StudyOperatorPorts {
   binding: Fetcher;
@@ -54,6 +58,10 @@ export const bindManagedStudy = (
   ports: StudyOperatorPorts,
   offer: StudyLessonOffer,
 ) => call<StudyOperatorBinding>(ports, "/study/bind", encoded(offer));
+export const publishManagedStudy = (
+  ports: StudyOperatorPorts,
+  input: StudyTerminalRequest,
+) => call<StudyPublicationReceipt>(ports, "/study/terminal", encoded(input));
 export const managedStudyReceipt = (
   ports: StudyOperatorPorts,
   lessonId: string,

@@ -37,8 +37,9 @@ The local contract format is now frozen in
 [LearningResultsV3](contracts/learning-results-v3.md), with a new contract,
 typed Study codec, terminal-lesson adapter and independent source/result reader.
 These components are not connected to the deployed application yet. The
-local lesson service now closes abandoned and expired lessons durably; live
-publication integration remains open.
+local lesson service closes abandoned and expired lessons durably. Application
+publication and scheduled recovery are implemented locally; deployed acceptance
+remains open.
 
 LearningResultsV2 accepts only Karaoke and complete ordered lyric coverage.
 Study requires a new contract and typed outcome encoding. The implementation
@@ -75,8 +76,8 @@ Leaving the browser without that action is recovered through the fixed expiry.
 Only a saved grade advances the queue. Atomic closure retains first passes,
 marks submitted but ungraded work unmeasured and unreached work unattempted,
 and prevents late provider responses or new claims from changing the result.
-The application routes now call these paths. The live cron and publication
-queue remain open.
+The application routes and scheduled recovery now call these paths. They have
+not been deployed.
 
 ## Integration and budget boundary
 
@@ -153,13 +154,45 @@ Local tests also restart the SQLite runtime with an actual pre-broadcast local
 V2 journal and verify unchanged signed bytes, charges and usage observations.
 No infrastructure profile or deployed resource has been upgraded by this work.
 
-The application migration, authenticated routes and managed speech bridge are
-implemented locally. Study still needs its terminal publication queue and expiry
-schedule, complete private retention/export, live page and enrollment renewal
+The application migration, authenticated routes, managed speech bridge, terminal
+publication queue and expiry schedule are implemented locally. Study still needs
+complete private retention/export, the live page and enrollment renewal
 when the existing grant cannot cover a new lesson. The final V3 publicity policy
 and disclosure pages must be prepared and
 bound to the deployed contract before accepting successor consent. The activity
 text in the enrollment dialog alone does not complete that disclosure gate.
+
+## Durable publication and recovery
+
+The community sends a signed terminal snapshot from its owned D1 lesson and
+original source/grant binding. A browser cannot supply the result, source or
+outcomes through the private lesson routes. The operator validates terminal
+semantics and exact source/selection, freezes the applicable completion-period
+policy and persists only the compact public bundle and calldata before sending.
+Transcripts, recordings and private attempt identifiers never enter calldata.
+
+The D1 publication row is an outbox. Lost responses leave it retryable; retries
+use the same operator intent, contract, nonce, signed bytes and conservative
+sponsorship charge. An unsent result whose enrollment expired or was revoked
+stays private and releases unused reservations. An allocated unknown transaction
+retains its original authority and bytes; a new enrollment cannot replace it.
+
+The publisher reads commitments at a pinned canonical head and reports twelve
+confirmations only after checking the transaction's canonical receipt. A lost
+canonical result reuses its original signed transaction. Unresolved publications
+are reconciled by operator alarms; confirmed ones are audited hourly. Wall-clock
+completion ahead of chain time waits without allocating or charging a new
+transaction. The general transaction recovery path honors that wait too.
+
+Scheduled community recovery scans at most twenty due lessons per invocation,
+closes abandoned-browser lessons at their original deadline and resumes the
+outbox. Unbound drafts expire privately without obtaining a grant. One binding
+or RPC failure does not suppress other due work. Private publication status is
+available only through the owning account's no-store route.
+
+The contract and independent reader already cover authenticated corrections and
+invalidation. The managed Study correction control path remains a release gate;
+this ordinary publication path accepts one immutable terminal snapshot per lesson.
 
 ## Deployment order and acceptance
 

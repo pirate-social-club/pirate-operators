@@ -6,6 +6,7 @@ import { canonical, check } from "../protocol/index.ts";
 export const STUDY_AUTH_HEADER = "x-pirate-study-authorization";
 export type StudyOperatorPath =
   | "/study/bind"
+  | "/study/terminal"
   | "/study/speech"
   | "/study/speech/status";
 export interface StudyOperatorAuthority {
@@ -68,9 +69,12 @@ export async function verifyStudyAuthorization(
       a.schema === "pirate.study.operator-request/1" &&
       a.method === "POST" &&
       request.method === a.method &&
-      ["/study/bind", "/study/speech", "/study/speech/status"].includes(
-        a.path,
-      ) &&
+      [
+        "/study/bind",
+        "/study/terminal",
+        "/study/speech",
+        "/study/speech/status",
+      ].includes(a.path) &&
       new URL(request.url).pathname === a.path &&
       a.chainId === authority.chainId &&
       a.communityId === authority.communityId &&

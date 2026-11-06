@@ -30,7 +30,7 @@ import {
   redemptionRow,
   refreshRedemptions,
 } from "./purchases.ts";
-import { dispatch, enqueue, recoverTransactions } from "./operator-tx.ts";
+import { dispatch, enqueue } from "./operator-tx.ts";
 import {
   acceptConsent,
   consentRequest,
@@ -55,6 +55,7 @@ import {
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireStudySpeech } from "./study-operator.ts";
+import { resumeStudyPublications, recoverLearningTransactions } from "./study-publication-recovery.ts";
 import { expireLearnerHistory, saveLearnerHistory } from "./learner-history.ts";
 import { pendingEnrollmentKey, retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
 
@@ -237,6 +238,7 @@ async function advance(env: Env, store: Store, ticketId: string) {
 export async function tick(env: Env, store: Store) {
   expireLearnerHistory(store);
   expireStudySpeech(store);
+  if (env.RESULTS_V3_CONTRACT) await resumeStudyPublications(env, store);
   if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
   for (const { key } of store.entries("attempt:")) {
     const ticketId = key.slice("attempt:".length);
@@ -251,7 +253,7 @@ export async function tick(env: Env, store: Store) {
 }
 /** Recovers unresolved nonces first, so closures behind them can execute. */
 export async function recover(env: Env, store: Store) {
-  const transactions = await recoverTransactions(env, store);
+  const transactions = await recoverLearningTransactions(env, store);
   await tick(env, store);
   return transactions;
 }

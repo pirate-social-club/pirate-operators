@@ -53,6 +53,10 @@ export async function studyCommunityApi(
     insist(request.method === "POST", "method_not_allowed", 405);
     return reply(await study.abandon(id));
   }
+  if (parts.length === 2 && action === "publication") {
+    insist(request.method === "GET", "method_not_allowed", 405);
+    return reply(await study.publication(id));
+  }
   if (parts.length === 2 && action === "attempts") {
     insist(request.method === "POST", "method_not_allowed", 405);
     const body = await jsonBody(request);

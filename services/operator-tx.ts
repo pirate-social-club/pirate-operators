@@ -251,7 +251,10 @@ export async function dispatch(
  * nonce in order by rebroadcasting its stored bytes. A redemption that became
  * moot reverts and still consumes its nonce, so a later closure can execute.
  */
-export async function recoverTransactions(env: Env, store: TxStore) {
+export async function recoverTransactions(
+  env: Env, store: TxStore,
+  readyToBroadcast: (row: TxRow) => Promise<boolean> = async () => true,
+) {
   let resolved = 0;
   for (const { value } of store.entries("intent:")) {
     const intent = value as Intent;
@@ -263,6 +266,8 @@ export async function recoverTransactions(env: Env, store: TxStore) {
   for (const { value } of store.entries("tx:")) {
     const row = value as TxRow;
     if (row.mined) continue;
+    // Keep the nonce prefix intact while a caller's frozen work is not ready.
+    if (!(await readyToBroadcast(row))) break;
     const ready = await signed(env, store, row.nonce);
     await checkDataFee(env, ready);
     const receipt =

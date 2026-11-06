@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
 import { operator } from "./operator.ts";
+import { studyPublicationAlarm } from "./study-publication-recovery.ts";
 import { onClose, onMessage, tick } from "./karaoke.ts";
 import { communityTick } from "./community-purchases.ts";
 import { D1Store, localControl } from "./storage.ts";
@@ -197,7 +198,7 @@ export class ServiceState extends DurableObject<Env> {
       const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
         .filter((publication) => publication.state === "published" && publication.confirmed)
         .map((publication) => ((publication.checkedAt ?? this.store.now()) + 3600) * 1000);
-      const due = Math.min(...expiries, ...audits, pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
+      const due = Math.min(...expiries, ...audits, ...studyPublicationAlarm(this.store), pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
       if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
     }
   }
