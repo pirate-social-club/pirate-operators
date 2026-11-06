@@ -28,7 +28,7 @@ export async function learningCommunityProfile() {
     operatorOrigin:
       "https://pirate-learning-testnet-v2.piratesocialclub.workers.dev",
     accounting: "internal",
-    speechDailyCalls: 10,
+    speechDailyCalls: 0,
     historyRetentionDays: 30,
     providerCredential: {
       projectId: "fac45f92-9450-42fb-8c2f-f20d043fdfab",
@@ -37,7 +37,7 @@ export async function learningCommunityProfile() {
       key: "ELEVENLABS_API_KEY",
     },
     acceptance:
-      "Karaoke enrollment, automatic whole-run publication, bounded speech, retained private history download and revocation on MegaETH testnet",
+      "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet",
   };
 }
 export function assertLearningApplicationUpgrade(

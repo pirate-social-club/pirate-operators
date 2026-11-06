@@ -18,6 +18,7 @@ import {
   text,
 } from "../packages/community/common.ts";
 import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
+import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import {
@@ -95,17 +96,29 @@ export interface CommunityDependencies {
   now?: () => number;
 }
 function dependencies(env: CommunityEnv): CommunityDependencies {
-  let history: ReturnType<typeof readConfigurationHistory> | undefined;
-  const configurationHistory = () => history ??= readConfigurationHistory(megaethReadClient(), {
+  const client = megaethReadClient();
+  const directory = {
     ...firstSong.directoryProfile,
     deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
-  });
+  };
+  let history: ReturnType<typeof readConfigurationHistory> | undefined;
+  const configurationHistory = () =>
+    (history ??= readConfigurationHistory(
+      client,
+      directory,
+      undefined,
+      directoryHistoryCache(env.DB, client, directory),
+    ));
   return {
     async configuration() {
       return (await configurationHistory()).at(-1)!;
     },
-    publicReads: { client: megaethReadClient(), profile: publicPostsProfile(), configurationHistory,
-      manifestAvailable: async (hash) => !!await publicResultManifest(hash) },
+    publicReads: {
+      client,
+      profile: publicPostsProfile(),
+      configurationHistory,
+      manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
+    },
     async verifyLogin(address, message, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
@@ -200,6 +213,7 @@ export async function communityFetch(
         503,
       );
       await ensureCommunityIdentity(env.DB, context);
+      const creatorHealth = ports.creatorHealth().catch(() => false);
       let publicReady = false;
       try {
         publicReady = await firstSongPublicReady(
@@ -217,9 +231,7 @@ export async function communityFetch(
         infrastructure: "provisioned",
         firstSong: publicReady ? "ready" : "not_ready",
         signIn: "available",
-        creatorConnection: (await ports.creatorHealth())
-          ? "available"
-          : "unavailable",
+        creatorConnection: (await creatorHealth) ? "available" : "unavailable",
       });
     }
     if (
@@ -312,10 +324,19 @@ export async function communityFetch(
             apiKey: env.ALIGNMENT_ELEVENLABS_API_KEY,
             transport: ports.alignmentTransport,
             now: ports.now,
-            beforeSend: env.KARAOKE_SERVICE_MODE === "internal" ? async () => {
-              insist(env.KARAOKE_SPEECH_BUDGET, "speech_budget_unconfigured", 503);
-              await env.KARAOKE_SPEECH_BUDGET.getByName("elevenlabs-service").claim();
-            } : undefined,
+            beforeSend:
+              env.KARAOKE_SERVICE_MODE === "internal"
+                ? async () => {
+                    insist(
+                      env.KARAOKE_SPEECH_BUDGET,
+                      "speech_budget_unconfigured",
+                      503,
+                    );
+                    await env.KARAOKE_SPEECH_BUDGET.getByName(
+                      "elevenlabs-service",
+                    ).claim();
+                  }
+                : undefined,
           },
         ),
       );
@@ -361,7 +382,9 @@ export async function communityFetch(
       const capabilities: CommunityCapabilities = {
         schema: "pirate.community-capabilities/1",
         signIn: true,
-        ...(env.KARAOKE_SERVICE_MODE === "internal" ? { learningServiceMode: "internal" as const } : {}),
+        ...(env.KARAOKE_SERVICE_MODE === "internal"
+          ? { learningServiceMode: "internal" as const }
+          : {}),
         creatorConnection: await ports.creatorHealth(),
         upload: releaseReady,
         publication: releaseReady,
@@ -468,7 +491,9 @@ export async function communityFetch(
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/enrollment/revoke")
-        return reply(await karaokeRevokeEnrollment(karaokePorts, session, body));
+        return reply(
+          await karaokeRevokeEnrollment(karaokePorts, session, body),
+        );
       if (url.pathname === "/api/karaoke/enrollment")
         return reply(await karaokeEnrollment(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/tickets")

@@ -1,0 +1,75 @@
+{
+  "chainId": 6343,
+  "source": "5d88df7fae1e8bbc0c99f361d9300c67af1df5cf",
+  "communityProfileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
+  "operatorBundleSha256": "6300ae8693cd74faa72751670d32fc1c637c8aa24babf253e7c5b89e78c25a09",
+  "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+  "observedAt": "2026-11-06T11:54:35.775Z",
+  "beforeMilliseconds": {
+    "health": 33372,
+    "feed": 24330
+  },
+  "warmMedianMilliseconds": {
+    "health": 2629,
+    "feed": 1301
+  },
+  "samples": [
+    {
+      "run": 1,
+      "path": "/health",
+      "status": 200,
+      "milliseconds": 3513,
+      "profileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
+      "postCount": null
+    },
+    {
+      "run": 1,
+      "path": "/api/feed",
+      "status": 200,
+      "milliseconds": 1301,
+      "profileHash": null,
+      "postCount": 1
+    },
+    {
+      "run": 2,
+      "path": "/health",
+      "status": 200,
+      "milliseconds": 2629,
+      "profileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
+      "postCount": null
+    },
+    {
+      "run": 2,
+      "path": "/api/feed",
+      "status": 200,
+      "milliseconds": 1278,
+      "profileHash": null,
+      "postCount": 1
+    },
+    {
+      "run": 3,
+      "path": "/health",
+      "status": 200,
+      "milliseconds": 2562,
+      "profileHash": "0xdcc1f8ba97a9c86fa3bef786d448e44c13f9a06c9b8f0ca41c565cb6a34796b4",
+      "postCount": null
+    },
+    {
+      "run": 3,
+      "path": "/api/feed",
+      "status": 200,
+      "milliseconds": 1442,
+      "profileHash": null,
+      "postCount": 1
+    }
+  ],
+  "frontendAssets": "all six public asset files match the unchanged seven-file package (the seventh is build metadata)",
+  "accounting": {
+    "lifetimeSponsorCapWei": "500000000000000",
+    "speechAppQuota": "disabled",
+    "usageCounters": "retained",
+    "providerBillingSettingsChanged": false
+  },
+  "qualification": "live qualifying/abandoned/corrected/revoked cases and independent reader remain open; no new learner performance asserted",
+  "scope": "testnet application/operator update; no contract deployment, provider call, funded reward or mainnet activity"
+}

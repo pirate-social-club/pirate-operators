@@ -70,18 +70,20 @@ export async function verifiedPostsHead(
   const head = await client.getBlockNumber({ cacheTime: 0 });
   insist(head >= profile.deploymentBlock + 1n, "posts_not_confirmed", 503);
   const blockNumber = head - 1n;
-  const code = await client.getCode({ address: profile.address, blockNumber });
+  const [code, directory] = await Promise.all([
+    client.getCode({ address: profile.address, blockNumber }),
+    client.readContract({
+      address: profile.address,
+      abi: postsAbi,
+      functionName: "directory",
+      blockNumber,
+    }),
+  ]);
   insist(
     code && keccak256(code) === profile.runtimeCodeHash,
     "posts_code_changed",
     503,
   );
-  const directory = await client.readContract({
-    address: profile.address,
-    abi: postsAbi,
-    functionName: "directory",
-    blockNumber,
-  });
   insist(
     directory.toLowerCase() === config.directory,
     "posts_directory_changed",
