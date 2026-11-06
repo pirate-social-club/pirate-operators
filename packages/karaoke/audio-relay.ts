@@ -177,6 +177,10 @@ export class KaraokeAudioRelay {
 
   /** Commits the remaining audio, waits for it and closes the provider stream. */
   async finish(): Promise<void> {
+    if (this.adapter === null && this.state.terminal === null)
+      // The provider stream is dead or reconnecting: audio sent or buffered
+      // since the last acknowledgement was never measured.
+      this.failRange(this.coveredMs, this.submittedMs, false);
     if (this.adapter !== null && this.state.terminal === null) {
       // Settle every commit in flight first, including one an acknowledgement
       // has just started: the adapter has one commit slot, and a refused final
@@ -221,6 +225,12 @@ export class KaraokeAudioRelay {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    // A commit still unanswered, or audio buffered for a reconnect, will never
+    // be measured: those lines are unmeasured, never silent.
+    if (this.pending !== null)
+      this.failRange(this.coveredMs, this.pending.frontierMs, false);
+    if (this.reconnecting)
+      this.failRange(this.coveredMs, this.submittedMs, false);
     this.settlePending();
     const adapter = this.adapter;
     this.adapter = null;
