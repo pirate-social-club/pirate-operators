@@ -78,6 +78,7 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
   private captureGeneration = 0;
   private captureSuspendPending = false;
   private captureSuspendOk = true;
+  private feedbackRecovery: object | null = null;
 
   constructor(options: KaraokeOperatorClientOptions) {
     this.options = options;
@@ -160,6 +161,39 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
 
   close(): void {
     this.shutdown("closed");
+  }
+
+  /** Recover a stalled response on the same ticket, with a finite ready wait. */
+  reconnect(): boolean {
+    if (this.phase !== "live" || !this.socket) return false;
+    const old = this.socket;
+    this.socket = null;
+    const recovery = {};
+    this.feedbackRecovery = recovery;
+    const setTimer =
+      this.options.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
+    setTimer(() => {
+      if (this.feedbackRecovery !== recovery || this.isTerminal()) return;
+      try {
+        this.options.onError?.({
+          code: "karaoke_recovery_timeout",
+          message: "The scoring connection did not recover.",
+        });
+      } finally {
+        this.shutdown("aborted");
+      }
+    }, 10000);
+    try {
+      this.requestCaptureSuspension();
+      this.scheduleReconnect();
+    } finally {
+      try {
+        old.close(1000, "scoring_reconnect");
+      } catch {
+        /* Already closed. */
+      }
+    }
+    return true;
   }
 
   private sendControl(frame: Record<string, unknown>): void {
@@ -258,6 +292,7 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
           return;
         }
         ready = true;
+        this.feedbackRecovery = null;
         this.attemptId = message.attemptId;
         // A fresh page has no local cursor; an in-memory reconnect may have
         // already sent later frames. Neither case replays previously sent audio.
@@ -403,11 +438,15 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
     this.clearCaptureAnchor();
     const socket = this.socket;
     this.socket = null;
-    this.setPhase(phase);
+    this.feedbackRecovery = null;
     try {
-      socket?.close(1000, phase);
-    } catch {
-      // The socket may already be closing.
+      this.setPhase(phase);
+    } finally {
+      try {
+        socket?.close(1000, phase);
+      } catch {
+        // The socket may already be closing.
+      }
     }
   }
 }

@@ -142,15 +142,31 @@ test("one enrollment sponsors repeated terminal publications, history export and
   expect((await records()).length).toBe(2);
 });
 
-test("missing server feedback stops playback and can reconnect the same open take", async ({
+test("persistent missing feedback stops after one automatic recovery and can retry the same open take", async ({
   page,
 }) => {
   let suppressFeedback = true;
+  let connections = 0;
+  let latestDeliveredCertain = false;
+  await page.clock.install();
   await page.routeWebSocket(
     (url) => url.pathname.endsWith("/attempt"),
     (route) => {
+      connections++;
       const server = route.connectToServer();
       server.onMessage((message) => {
+        if (!suppressFeedback && typeof message === "string") {
+          const value = JSON.parse(message);
+          const scores = value.lineScores ?? value.feedback?.lineScores;
+          if (scores?.length) latestDeliveredCertain = !scores.at(-1).uncertain;
+        }
+        if (suppressFeedback && typeof message === "string") {
+          const value = JSON.parse(message);
+          if (value.type === "ready") {
+            route.send(JSON.stringify({ ...value, feedback: null }));
+            return;
+          }
+        }
         if (
           suppressFeedback &&
           typeof message === "string" &&
@@ -172,6 +188,27 @@ test("missing server feedback stops playback and can reconnect the same open tak
     name: "Enable public learning results",
   });
   await consent.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator(".live-karaoke audio")
+        .evaluate((audio: HTMLAudioElement) => audio.currentTime),
+    )
+    .toBeGreaterThan(3);
+  await page.clock.fastForward(11000);
+  await expect.poll(() => connections).toBe(2);
+  // The second ready arrives, but this fixture withholds all score evidence.
+  await expect
+    .poll(async () => {
+      const state = await (
+        await page.request.get("/__fixture/operator")
+      ).json();
+      return state.attempts.find((a: { finalized: boolean }) => !a.finalized)
+        ?.generation;
+    })
+    .toBe(2);
+  await page.waitForTimeout(500);
+  await page.clock.fastForward(11000);
   await expect(page.getByRole("alert")).toHaveText(
     "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
     { timeout: 35000 },
@@ -190,6 +227,7 @@ test("missing server feedback stops playback and can reconnect the same open tak
   const before = await state();
   const open = before.attempts.filter((attempt) => attempt.ended === null);
   expect(open).toHaveLength(1);
+  expect(connections).toBe(2);
   const ticketId = open[0].ticketId;
   const previousSequence = before.audio.find(
     (row) => row.ticketId === ticketId,
@@ -205,13 +243,85 @@ test("missing server feedback stops playback and can reconnect the same open tak
     )
     .toBeGreaterThan(previousSequence);
   await expect(page.getByRole("alert")).toHaveCount(0);
+  // A real capture gap can make the cached latest line uncertain. Wait for
+  // the next measured line and its commit before requiring a visible rating.
+  await expect
+    .poll(() => latestDeliveredCertain, { timeout: 10000 })
+    .toBe(true);
   await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
-    timeout: 5000,
+    timeout: 1000,
   });
   expect((await state()).attempts).toHaveLength(before.attempts.length);
   await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
+    timeout: 40000,
+  });
+});
+
+test("missing feedback recovers automatically on the same ticket and provider stream", async ({
+  page,
+}) => {
+  let connections = 0,
+    tickets = 0,
+    approvals = 0;
+  const state = async () =>
+    await (await page.request.get("/__fixture/operator")).json();
+  const before = await state();
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/karaoke/tickets") tickets++;
+    if (request.url().endsWith("/__fixture/sign")) {
+      const input = request.postDataJSON();
+      if (input.kind === "typed" && input.data?.primaryType === "Enrollment")
+        approvals++;
+    }
+  });
+  await page.routeWebSocket(
+    (url) => url.pathname.endsWith("/attempt"),
+    (route) => {
+      const initial = ++connections === 1;
+      const server = route.connectToServer();
+      server.onMessage((message) => {
+        if (
+          initial &&
+          typeof message === "string" &&
+          JSON.parse(message).type === "line_scores"
+        )
+          return;
+        route.send(message);
+      });
+    },
+  );
+  await page.goto("/?learner=5");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
     timeout: 20000,
   });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Start karaoke" }).click();
+  await page
+    .getByRole("dialog", { name: "Enable public learning results" })
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect.poll(() => connections, { timeout: 20000 }).toBe(2);
+  await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
+    timeout: 5000,
+  });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
+    timeout: 30000,
+  });
+  const after = await state();
+  const previousTickets = new Set(
+    before.attempts.map((a: { ticketId: string }) => a.ticketId),
+  );
+  const added = after.attempts.filter(
+    (a: { ticketId: string }) => !previousTickets.has(a.ticketId),
+  );
+  expect(added).toHaveLength(1);
+  expect(added[0].generation).toBe(2);
+  expect(after.simulator.minted - before.simulator.minted).toBe(1);
+  expect(after.publications.length - before.publications.length).toBe(1);
+  expect(tickets).toBe(1);
+  expect(approvals).toBe(1);
 });
 
 test("a rejected ready cursor leaves a visible retry instead of a permanent startup spinner", async ({

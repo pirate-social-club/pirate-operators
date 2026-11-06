@@ -115,6 +115,7 @@ export function LiveKaraoke(props: {
     songMs = 0,
     disposed = false;
   const scoringResponses = new ScoringResponseWatch();
+  let scoringRecoveryUsed = false;
   let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
     disposed = true;
@@ -260,10 +261,18 @@ export function LiveKaraoke(props: {
         received: feedback()?.lineScores.length ?? 0,
         now: performance.now(),
       })
-    )
+    ) {
+      if (!scoringRecoveryUsed) {
+        scoringRecoveryUsed = true;
+        if (capture.controls.reconnect()) {
+          scoringResponses.reset();
+          return;
+        }
+      }
       stopFailedScoring(
         "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
       );
+    }
   }
 
   function acceptFeedback(message: Record<string, unknown>) {
@@ -337,6 +346,7 @@ export function LiveKaraoke(props: {
   }
   async function start(fromMs: number) {
     scoringResponses.reset();
+    scoringRecoveryUsed = false;
     setStarting(true);
     try {
       let currentTake = take();

@@ -229,3 +229,25 @@ Internal-accounting results require durable provider resolution through each rea
 At terminal grading, the canonical performance-end time still determines which lines were reached. Missing or unresolved coverage is unmeasured with a null grade; unreached lines remain unattempted. Fully acknowledged no-word audio remains silent. Previously covered lines keep their grades and observed words remain in private history. Missing legacy provenance fails closed for unfinished internal-mode results. This does not rewrite finalized, signed or already public results. Paid protocol-fixture semantics and the later independent-provider rollout remain separate.
 
 The internal coverage fixture exercises the actual operator class and alarm handler with an explicitly local clock endpoint, guarded by LOCAL_ONLY and excluded from the deployed entrypoint. It covers no frames, partial and complete prefixes, acknowledged silence, missing acknowledgement, abandonment and an actual persisted Worker restart. No live provider or public-chain write is part of those tests.
+
+A missing live-score response now permits one automatic connection recovery per
+explicit Start karaoke action. The existing ten-second score watchdog remains.
+Recovery uses the same ticket, connection proof and monotonic audio cursor; the
+new ready response restores stored feedback. It does not enroll again, issue a
+new ticket, replay PCM or start a second provider stream while the relay remains
+available. A recovery that receives no ready response stops after ten seconds.
+A later score stall stops visibly. Capture gaps retain their unmeasured status.
+Wire closure also runs if a phase observer throws.
+
+Local full-duration Helium evidence uses the published 23-line timing with
+synthetic audio, fixture identities and a simulated provider. An omitted seventh
+feedback payload recovers with two sockets, one ticket, one provider stream and
+one terminal publication. Persistent loss, including feedback in the second
+ready response, stops after that single recovery. These cases do not establish
+the historical cause of the real learner interruption or honest performance.
+
+A separate local boundary observation remains open: rounding the operator start
+to seconds can close a take before the final audio chunk covers the last lyric.
+Do not remove that line's uncertainty or shift its learning day to hide this.
+Any ingress or completion-decision grace needs its own fractional-start, expiry
+and abandonment checks, retaining the original canonical performance cutoff.
