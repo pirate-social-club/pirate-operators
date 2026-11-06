@@ -398,9 +398,10 @@ test("a seek after the provider gave up leaves its lines unmeasured, never silen
 });
 
 test("a transcript that returns after the learner's socket closed still counts", async () => {
-  // The provider answers each commit 1.5 s late; the learner leaves at once.
+  // The provider answers each commit 0.8 s late, well inside the relay's 2 s
+  // acknowledgement limit; the learner leaves at once.
   const c = await audioCommunity(evm, "late-transcript", [
-    { words: sung(manifest, ALL), commitDelayMs: 1500 },
+    { words: sung(manifest, ALL), commitDelayMs: 800 },
   ]);
   try {
     const a = await c.attempt();
@@ -429,6 +430,33 @@ test("a transcript that returns after the learner's socket closed still counts",
       result.value.body.lines.map((l) => l.status),
       ["assessed", "assessed", "unattempted", "unattempted"],
     );
+  } finally {
+    await c.dispose();
+  }
+});
+
+test("a transcript answered across a learner reconnect still counts", async () => {
+  // Line 2's commit is still unanswered when the learner's socket is replaced.
+  const c = await audioCommunity(evm, "late-rejoin", [
+    { words: sung(manifest, ALL), commitDelayMs: 800 },
+  ]);
+  try {
+    const a = await c.attempt();
+    await c.payAll(a);
+    await c.sing(a.socket, a, 0, 4500);
+    const rejoined = await c.reconnect(a);
+    assert.equal(rejoined.ready.resumed, true);
+    await c.sing(rejoined, a, 4500, 22500);
+    const result = await finish(c, a, rejoined);
+    assert.deepEqual(
+      result.lines.map((l) => l.status),
+      ["assessed", "assessed", "assessed", "assessed"],
+    );
+    assert.deepEqual(
+      (await storedWords(c, a)).map((w) => w.text),
+      manifest.lines.flatMap((l) => l.words.map((w) => w.text)),
+    );
+    assert.equal((await c.simulator()).minted, 1);
   } finally {
     await c.dispose();
   }

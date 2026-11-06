@@ -104,9 +104,12 @@ export class KaraokeAudioState extends ServiceState {
               this.idle.delete(ticketId);
               if (this.relays.get(ticketId) === relay)
                 this.relays.delete(ticketId);
-              // Closing settles any commit still pending; what it yields, and
-              // anything that arrived since the socket closed, still counts.
-              void relay.close().then(() => this.forward(ticketId, relay));
+              // Finishing commits the audio sent before the socket closed and
+              // settles what is pending; what it yields still counts.
+              void relay
+                .finish()
+                .catch(() => relay.close())
+                .then(() => this.forward(ticketId, relay));
             },
             (RECONNECT_WINDOW_S + 5) * 1000,
           ),
@@ -153,8 +156,9 @@ export class KaraokeAudioState extends ServiceState {
   /** The live take behind this socket, with its relay; stale sockets are refused. */
   private current(ws: WebSocket) {
     const { ticketId, generation } = this.attachment(ws);
+    // A timer that is due ends the take before audio or a seek can change it.
     const attempt = ticketId
-      ? this.store.get<Attempt>(`attempt:${ticketId}`)
+      ? settle(this.store, this.env, ticketId)
       : undefined;
     check(
       ticketId && attempt && attempt.generation === generation,
@@ -206,14 +210,21 @@ export class KaraokeAudioState extends ServiceState {
         queued = true;
         queueMicrotask(() => {
           queued = false;
-          this.forward(ticketId, relay);
+          try {
+            this.forward(ticketId, relay);
+          } catch {
+            // Nothing was drained; the next persisted change hands it over.
+          }
         });
       },
     });
     return relay;
   }
 
-  /** After a restart there is no relay in memory; its snapshot's words still count. */
+  /**
+   * After a restart there is no relay in memory; its snapshot's words still
+   * count. This restored relay is only drained, never given audio.
+   */
   private forwardStored(ticketId: string) {
     const attempt = this.store.get<Attempt>(`attempt:${ticketId}`);
     const relay = attempt && this.relayFor(ticketId, attempt, false);
@@ -250,7 +261,9 @@ export class KaraokeAudioState extends ServiceState {
     if (accepted.length > 0) {
       const stored = this.store.get<KaraokeRecognizedWord[]>(key) ?? [];
       this.store.set(key, [...stored, ...accepted].slice(0, MAX_WORDS));
-      if (!attempt.ended) attempt.lastAudioAt = this.store.now();
+      // Words that return after a disconnect were heard before it.
+      if (!attempt.ended)
+        attempt.lastAudioAt = attempt.disconnectedAt ?? this.store.now();
     }
     attempt.failedLineIds = [
       ...new Set([...attempt.failedLineIds, ...failedLineIds]),
