@@ -397,3 +397,91 @@ transaction, native intent, spending ledger and provider counts. Separate
 bounded-reader cases cover durable continuation beyond one work budget, missing
 links, changed context, wrong ancestry and noncanonical evidence. Browser tests
 use explicit HTTP/wallet simulations; none is deployed or acoustic acceptance.
+
+## Manual controller correction command
+
+The source-only `harness/megaeth/study-correction.ts` command takes `--profile`
+and defaults to a read-only plan. It does not read a signing key, construct a
+mutable journal, allocate a nonce, sign, send, fund or call speech. An explicit
+finite inventory and custody record are required even for planning. A missing,
+changed, unreadable, unsupported or unresolved journal refuses the plan. This is
+not global signer discovery. Known inventory cannot prove other disks, processes
+or services are quiescent.
+
+A `pirate.study-correction/1` profile pins MegaETH testnet 6343, directory and
+contract runtime hashes, registry/community/configuration revision, current
+controller, V3 disclosure hash, the exact canonical previous event, operation,
+nonce, gas, gas-price ceiling, data-fee reserve and aggregate maximum. Its window
+is at most fifteen minutes and admits one operation. Correction preserves the
+full selected set and immutable context; invalidation needs a nonzero reason.
+The command verifies the successful previous receipt and event, canonical block,
+registered target and current commitment. It refuses stale previous metadata.
+
+The inventory lists exact absolute file paths, SHA-256 digests and one of three
+explicit formats: deployment-journal-v1, deploy-results-v2-custom or
+activation-journal. Each signed transaction must recover this controller on
+6343, have its declared nonce/hash and a sufficiently confirmed canonical
+receipt. A reverted receipt consumes a nonce too. A private settled/mined label
+is insufficient, and the custom deployment file needs no invented receipt field.
+Queued unsigned work, reserved sponsorship and unreviewed SQLite sidecars refuse
+execution. Only public nonce/hash summaries are returned; keys and raw journal
+bytes are never printed or exported.
+
+The private `pirate.controller-custody/1` record is bound by its SHA-256 digest.
+Its scopeHash is `custodyScope(profile)`, excluding the record path/digest to
+avoid a circular hash. It names workspace_coordinator, the quiescent writers,
+explicit exclusions and inventoryCompleteForWindow. That declaration must come
+from actual coordination and a fresh bounded inventory. It cannot be inferred
+from equal latest/pending nonces. Old controller operation windows and budgets
+stay closed. The existing Karaoke runtime resource hold remains in effect.
+
+Future execution additionally requires `--execute --expect-profile <hash>` and
+`--key-file <existing-private-key-file>`. This source work supplies no live
+profile or custody transfer. The command holds a fixed signer-wide OS lease
+under private local state, then a separate per-profile crash-durable journal.
+Older runners do not participate in that lease; they must remain stopped under
+the reviewed custody record. Existing key files require regular owner-only files
+without symlink traversal, the correct chain and controller, and no public
+fixture key. All public, inventory, window, nonce, balance and gas checks run
+before key access, with another audit immediately before broadcast.
+
+The journal retains the fixed nonce, conservative charge and exact signed bytes.
+Unknown/reverted work is not refunded. A lost response cannot allocate a new
+nonce, bump fees or sign replacement bytes. An already pending known transaction
+is observed without rebroadcast; unlanded recovery can reuse only the original
+bytes within the same window. `--status` remains read-only after the deadline
+and can report canonical confirmation without opening a key. No administrator
+HTTP route or contract method is added. Default CI uses explicit fake RPC peers
+and private temporary journals; this command has not run against a public chain.
+
+
+The fixed lease database also records this command's participating profiles before
+journal creation. A durable prepared marker commits after the fixed unsigned
+intent/charge and strictly before any key read or signing. Another profile
+refuses any missing, empty, unsigned or unconfirmed prior journal. Same-profile
+recovery may create a missing journal only at the registered stage, when this
+source guarantees no key could have been opened. A prepared-stage missing or
+empty journal is refused even for the same profile. Existing prepared state
+recovers its original fixed intent and signed bytes. There is no force flag or
+automatic deletion of unknown evidence. The registry has a finite explicit
+128-profile limit and cannot retroactively fence legacy tools. Planning audits
+this registry through read-only SQLite without creating it.
+
+Activation-journal inventory also recognizes this command's own correction row.
+Every allocated legacy intent must have a matching signed transaction row;
+canonical settled rows cannot hide another unresolved allocation. Status receipts
+and pending transaction responses must identify the exact stored transaction
+hash, with pending nonce, destination, calldata, gas, fee and value preserved.
+The initial ten-test candidate was not accepted: separate adversarial review
+found four missing refusals. Its frozen source, passing full gate and red cases
+are preserved separately from the repaired successor.
+
+
+Planning and execution also cross-check the command's fixed private namespace
+against its participating registry. An unindexed profile journal, surviving lock,
+missing catalog row, lost catalog or unreviewed SQLite sidecar refuses execution;
+a new empty registry cannot silently discard prior allocations. This bounded
+namespace integrity check does not turn legacy-file discovery into authority.
+The first eleven-path registry candidate passed its original tests but was not
+accepted after the reviewer demonstrated three catalog-loss failures. Its source
+and red evidence are retained separately from the namespace-integrity repair.
