@@ -1,12 +1,21 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 test.afterEach(async ({ page }, info) => {
-  if (info.status !== info.expectedStatus)
+  if (info.status !== info.expectedStatus) {
+    console.log(
+      "media-events",
+      await page.evaluate(
+        () =>
+          (window as unknown as { __reloadMediaEvents?: unknown })
+            .__reloadMediaEvents,
+      ),
+    );
     console.log(
       JSON.stringify(
         await (await page.request.get("/__fixture/operator")).json(),
       ).slice(0, 14000),
     );
+  }
 });
 
 test("one enrollment sponsors repeated terminal publications, history export and revocation", async ({
@@ -369,4 +378,137 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
       .locator(".live-karaoke audio")
       .evaluate((audio: HTMLAudioElement) => audio.paused),
   ).toBe(true);
+});
+
+test("reload with delayed audio metadata preserves position and shows fresh later-line grades", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const events: unknown[] = [];
+    Object.assign(window, { __reloadMediaEvents: events });
+    const descriptor = Object.getOwnPropertyDescriptor(
+      HTMLMediaElement.prototype,
+      "currentTime",
+    )!;
+    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+      ...descriptor,
+      set(value: number) {
+        events.push({ type: "seek", value, readyState: this.readyState });
+        descriptor.set!.call(this, value);
+      },
+    });
+    for (const type of ["loadedmetadata", "seeked", "playing", "emptied"])
+      document.addEventListener(
+        type,
+        (event) => {
+          const audio = event.target as HTMLMediaElement;
+          events.push({
+            type,
+            currentTime: audio.currentTime,
+            readyState: audio.readyState,
+          });
+        },
+        true,
+      );
+  });
+  let feedbackCount = 0;
+  let postReload = false;
+  let restored = false;
+  let freshLaterLine = false;
+  let baseline = 0;
+  let ticketRequests = 0;
+  let activeAttemptId: string | undefined;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/karaoke/tickets")) ticketRequests++;
+  });
+  page.on("websocket", (socket) =>
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload !== "string") return;
+      const frame = JSON.parse(payload);
+      if (frame.type === "ready") {
+        if (postReload) restored = frame.resumed === true;
+        else activeAttemptId = frame.attemptId;
+      }
+      if (frame.type === "line_scores") {
+        feedbackCount = frame.lineScores.length;
+        if (
+          postReload &&
+          feedbackCount > baseline &&
+          !frame.lineScores.at(-1).uncertain
+        )
+          freshLaterLine = true;
+      }
+    }),
+  );
+  await page.goto("/?learner=8");
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
+    timeout: 20000,
+  });
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Start karaoke", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "Enable public learning results" })
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
+  await expect.poll(() => feedbackCount, { timeout: 30000 }).toBeGreaterThan(2);
+  const priorPosition = await page
+    .locator(".live-karaoke audio")
+    .evaluate((audio: HTMLAudioElement) => audio.currentTime * 1000);
+  baseline = feedbackCount;
+  const before = await (await page.request.get("/__fixture/operator")).json();
+  const attempt = before.attempts.find(
+    (a: { attemptId: string }) => a.attemptId === activeAttemptId,
+  );
+  expect(attempt).toBeTruthy();
+  postReload = true;
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  let releaseAudio!: () => void;
+  const waitAudio = new Promise<void>((resolve) => {
+    releaseAudio = resolve;
+  });
+  await page.route("**/api/karaoke/posts/*/instrumental", async (route) => {
+    await waitAudio;
+    await route.continue();
+  });
+  try {
+    await page.getByRole("button", { name: "Sing", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Start karaoke", exact: true })
+      .click();
+    await expect.poll(() => restored, { timeout: 10000 }).toBe(true);
+    expect(
+      await page
+        .locator(".live-karaoke audio")
+        .evaluate((audio: HTMLAudioElement) => audio.readyState),
+    ).toBe(0);
+    // Retained grades are history, not a newly earned transient rating.
+    await expect(page.locator(".karaoke-stage-rating")).toHaveCount(0);
+    await page.waitForTimeout(2500);
+  } finally {
+    releaseAudio();
+  }
+  await expect
+    .poll(
+      () =>
+        page
+          .locator(".live-karaoke audio")
+          .evaluate((audio: HTMLAudioElement) => audio.currentTime * 1000),
+      { timeout: 5000 },
+    )
+    .toBeGreaterThan(priorPosition + 2000);
+  await expect.poll(() => freshLaterLine, { timeout: 25000 }).toBe(true);
+  await expect(page.locator(".karaoke-stage-rating")).toBeVisible();
+  const after = await (await page.request.get("/__fixture/operator")).json();
+  expect(
+    after.attempts.find(
+      (a: { ticketId: string }) => a.ticketId === attempt.ticketId,
+    ).generation,
+  ).toBe(2);
+  expect(after.simulator.minted).toBe(before.simulator.minted);
+  expect(ticketRequests).toBe(1);
+  await expect(page.getByRole("alert")).toHaveCount(0);
 });

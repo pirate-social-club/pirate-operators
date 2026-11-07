@@ -9,6 +9,7 @@ import { songKeyOf } from "../packages/protocol/records.ts";
 import type { KaraokeManifest } from "../packages/protocol/payments.ts";
 import { isSectionCue } from "../packages/alignment/elevenlabs-response.ts";
 import { firstSongFixture, karaokeLive } from "../harness/karaoke-live.ts";
+import { accounts } from "../harness/runtime.ts";
 import { startChain, stopChain, type Chain } from "./payments-fixture.ts";
 
 let evm: Chain;
@@ -24,6 +25,83 @@ const sha = (bytes: Uint8Array) =>
 const sung = firstSongFixture.lyrics.lines.filter(
   (l: { text: string }) => !isSectionCue(l.text),
 ) as { lineId: string; text: string }[];
+
+test("authenticated instrumental playback serves exact byte ranges and rejects invalid ranges", async () => {
+  const live = await karaokeLive({ evm, now: 1800000000, streams: [] });
+  try {
+    const {
+      instrumental: { bytes: instrumental },
+    } = await live.publish();
+    const path = `/api/karaoke/posts/${firstSongFixture.postId}/instrumental`;
+    assert.equal(
+      (await live.app(path, { headers: { range: "bytes=0-9" } })).status,
+      401,
+    );
+    const session = await live.signIn(accounts[5]!);
+    const get = (range?: string) =>
+      live.app(path, {
+        headers: {
+          cookie: session.cookie,
+          ...(range === undefined ? {} : { range }),
+        },
+      });
+    const full = await get();
+    assert.equal(full.status, 200);
+    assert.equal(full.headers.get("accept-ranges"), "bytes");
+    assert.equal(full.headers.get("cache-control"), "private, no-store");
+    assert.deepEqual(new Uint8Array(await full.arrayBuffer()), instrumental);
+    for (const [header, start, end] of [
+      ["bytes=10-19", 10, 20],
+      [
+        `bytes=${instrumental.length - 10}-`,
+        instrumental.length - 10,
+        instrumental.length,
+      ],
+      ["bytes=-5", instrumental.length - 5, instrumental.length],
+      [`bytes=10-${instrumental.length + 100}`, 10, instrumental.length],
+    ] as const) {
+      const response = await get(header);
+      assert.equal(response.status, 206, header);
+      assert.equal(
+        response.headers.get("content-range"),
+        `bytes ${start}-${end - 1}/${instrumental.length}`,
+      );
+      assert.equal(response.headers.get("content-length"), String(end - start));
+      assert.deepEqual(
+        new Uint8Array(await response.arrayBuffer()),
+        instrumental.slice(start, end),
+      );
+    }
+    for (const header of [
+      "bytes=",
+      "bytes=0-1,3-4",
+      "bytes=9-1",
+      "bytes=-0",
+      `bytes=${instrumental.length}-`,
+      "bytes=99999999999999999999-",
+    ]) {
+      const response = await get(header);
+      assert.equal(response.status, 416, header);
+      assert.equal(
+        response.headers.get("content-range"),
+        `bytes */${instrumental.length}`,
+      );
+      assert.equal((await response.arrayBuffer()).byteLength, 0);
+    }
+    await live.db
+      .prepare(
+        "UPDATE media_stems SET object_etag='changed' WHERE slot='instrumental'",
+      )
+      .run();
+    assert.equal(
+      (await get("bytes=0-9")).status,
+      503,
+      "ranges preserve sealed object identity checks",
+    );
+  } finally {
+    await live.dispose();
+  }
+});
 
 test("the fixtures are the published bytes, with 23 sung lines and six section cues", () => {
   assert.equal(sha(firstSongFixture.lyricBytes), firstSongFixture.lyricsSha256);
@@ -176,12 +254,23 @@ test("configuring a records successor keeps songs from earlier public configurat
     await live.publish();
     const previous = structuredClone(live.config);
     live.config.configurationRevision++;
-    live.ports.publicReads!.configurationHistory = async () => [previous, live.config];
-    const feed = await live.get<{posts: {manifest: {postId: string}}[]}>(null, "/api/feed");
+    live.ports.publicReads!.configurationHistory = async () => [
+      previous,
+      live.config,
+    ];
+    const feed = await live.get<{ posts: { manifest: { postId: string } }[] }>(
+      null,
+      "/api/feed",
+    );
     assert.equal(feed.status, 200, JSON.stringify(feed.value));
-    assert.deepEqual(feed.value.posts.map(p => p.manifest.postId), [firstSongFixture.postId]);
+    assert.deepEqual(
+      feed.value.posts.map((p) => p.manifest.postId),
+      [firstSongFixture.postId],
+    );
     const aligned = await live.align();
     assert.equal(aligned.status, 200, JSON.stringify(aligned.value));
     assert.equal(aligned.value.state, "complete");
-  } finally { await live.dispose(); }
+  } finally {
+    await live.dispose();
+  }
 });
