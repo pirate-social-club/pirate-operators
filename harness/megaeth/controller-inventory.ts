@@ -8,11 +8,33 @@ import {
   parseTransaction,
   recoverTransactionAddress,
   type Hex,
+  type Address,
   type PublicClient,
   type TransactionSerialized,
 } from "viem";
 import { hashJson, insist } from "../../packages/community/common.ts";
-import type { StudyCorrectionProfile } from "./study-correction-plan.ts";
+
+/** Shared inventory boundary for participating controller commands. The full
+ * runtime profile, including operation-specific fields, is bound by custodyScope. */
+export interface ControllerScope {
+  controller: Address;
+  communityId: Hex;
+  nonce: number;
+  inventory: {
+    path: string;
+    sha256: string;
+    format:
+      | "deployment-journal-v1"
+      | "deploy-results-v2-custom"
+      | "activation-journal";
+  }[];
+  custody: {
+    record: string;
+    sha256: string;
+    ownerRole: "workspace_coordinator";
+    exclusions: string[];
+  };
+}
 
 export function privateExistingFile(path: string) {
   const info = lstatSync(path);
@@ -28,14 +50,14 @@ export function privateExistingFile(path: string) {
 }
 export const sha256File = (path: string) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
-export function custodyScope(profile: StudyCorrectionProfile) {
+export function custodyScope(profile: ControllerScope) {
   const { custody, ...scope } = profile;
   return hashJson({
     ...scope,
     custody: { ownerRole: custody.ownerRole, exclusions: custody.exclusions },
   });
 }
-export function readCustody(profile: StudyCorrectionProfile) {
+export function readCustody(profile: ControllerScope) {
   privateExistingFile(profile.custody.record);
   insist(
     sha256File(profile.custody.record) === profile.custody.sha256,
@@ -67,8 +89,8 @@ interface Allocation {
   chainId?: number;
 }
 function allocations(
-  profile: StudyCorrectionProfile,
-  entry: StudyCorrectionProfile["inventory"][number],
+  profile: ControllerScope,
+  entry: ControllerScope["inventory"][number],
 ): Allocation[] {
   privateExistingFile(entry.path);
   insist(
@@ -127,8 +149,9 @@ function allocations(
           "controller_intent_transaction_changed",
         );
       }
-      const own = saved.find((row) => row.key === "correction");
-      if (own) {
+      for (const own of saved.filter(
+        (row) => row.key === "correction" || row.key === "deployment",
+      )) {
         insist(
           /^0x[0-9a-f]{64}$/.test(own.value.profileHash),
           "controller_correction_profile_changed",
@@ -187,7 +210,7 @@ function allocations(
 }
 export async function readControllerInventory(
   client: PublicClient,
-  profile: StudyCorrectionProfile,
+  profile: ControllerScope,
   head: bigint,
 ) {
   readCustody(profile);

@@ -25,26 +25,47 @@ interface CatalogEntry {
   nonce: number;
   journalPath: string;
   stage: "registered" | "prepared";
+  /** Missing on accepted legacy correction entries. */
+  journalKey?: "correction" | "deployment";
 }
-export function readCorrectionTransaction(path: string) {
+export interface ControllerOperation {
+  profileHash: Hex;
+  nonce: number;
+  controller: string;
+  journalKey: "correction" | "deployment";
+}
+export function readControllerTransaction(
+  path: string,
+  key: ControllerOperation["journalKey"],
+) {
   privateExistingFile(path);
   const db = new DatabaseSync(path, { readOnly: true });
   try {
-    const row = db
-      .prepare("SELECT value FROM records WHERE key='correction'")
-      .get() as { value: string } | undefined;
+    const row = db.prepare("SELECT value FROM records WHERE key=?").get(key) as
+      | { value: string }
+      | undefined;
     return row ? (JSON.parse(row.value) as CorrectionTransaction) : undefined;
   } finally {
     db.close();
   }
 }
+export const readCorrectionTransaction = (path: string) =>
+  readControllerTransaction(path, "correction");
 async function inspectControllerProfiles(
   client: PublicClient,
-  profile: StudyCorrectionProfile,
+  operation: ControllerOperation,
   known: CatalogEntry[],
   journalPath: string,
 ) {
-  const intent = correctionIntent(profile);
+  const intent = operation;
+  insist(
+    /^0x[0-9a-f]{64}$/.test(operation.profileHash) &&
+      Number.isSafeInteger(operation.nonce) &&
+      operation.nonce >= 0 &&
+      /^0x[0-9a-f]{40}$/i.test(operation.controller) &&
+      ["correction", "deployment"].includes(operation.journalKey),
+    "controller_operation_invalid",
+  );
   insist(
     Array.isArray(known) &&
       known.length <= 128 &&
@@ -81,17 +102,25 @@ async function inspectControllerProfiles(
         Number.isSafeInteger(entry.nonce) &&
         entry.nonce >= 0 &&
         ["registered", "prepared"].includes(entry.stage) &&
+        ["correction", "deployment"].includes(
+          entry.journalKey ?? "correction",
+        ) &&
         entry.journalPath ===
           join(dirname(journalPath), entry.profileHash.slice(2) + ".sqlite"),
       "controller_catalog_entry_changed",
     );
     if (entry.profileHash === intent.profileHash) {
       insist(
-        entry.journalPath === journalPath && entry.nonce === profile.nonce,
+        entry.journalPath === journalPath &&
+          entry.nonce === operation.nonce &&
+          (entry.journalKey ?? "correction") === operation.journalKey,
         "controller_catalog_profile_changed",
       );
       if (entry.stage === "prepared") {
-        const stored = readCorrectionTransaction(entry.journalPath);
+        const stored = readControllerTransaction(
+          entry.journalPath,
+          entry.journalKey ?? "correction",
+        );
         insist(
           stored?.profileHash === entry.profileHash &&
             stored.nonce === entry.nonce,
@@ -100,7 +129,10 @@ async function inspectControllerProfiles(
       }
       continue;
     }
-    const stored = readCorrectionTransaction(entry.journalPath);
+    const stored = readControllerTransaction(
+      entry.journalPath,
+      entry.journalKey ?? "correction",
+    );
     insist(
       stored?.profileHash === entry.profileHash &&
         stored.nonce === entry.nonce &&
@@ -117,7 +149,7 @@ async function inspectControllerProfiles(
           await recoverTransactionAddress({
             serializedTransaction: stored.raw as TransactionSerialized,
           })
-        ).toLowerCase() === profile.controller.toLowerCase(),
+        ).toLowerCase() === operation.controller.toLowerCase(),
       "controller_catalog_signer_changed",
     );
     const receipt = await client.getTransactionReceipt({ hash: stored.hash });
@@ -135,9 +167,9 @@ async function inspectControllerProfiles(
   );
   return intent;
 }
-export async function auditControllerCatalog(
+export async function auditControllerOperation(
   client: PublicClient,
-  profile: StudyCorrectionProfile,
+  operation: ControllerOperation,
   journalPath: string,
 ) {
   const catalogPath = join(dirname(journalPath), "dispatch-custody.sqlite");
@@ -154,19 +186,19 @@ export async function auditControllerCatalog(
       db.close();
     }
   }
-  await inspectControllerProfiles(client, profile, known, journalPath);
+  await inspectControllerProfiles(client, operation, known, journalPath);
   return { registeredProfiles: known.length };
 }
-export async function registerControllerProfile(
+export async function registerControllerOperation(
   client: PublicClient,
-  profile: StudyCorrectionProfile,
+  operation: ControllerOperation,
   lease: TxStore,
   journalPath: string,
 ) {
   const known = lease.get<CatalogEntry[]>("controller:profiles") ?? [];
   const intent = await inspectControllerProfiles(
     client,
-    profile,
+    operation,
     known,
     journalPath,
   );
@@ -177,9 +209,12 @@ export async function registerControllerProfile(
         ...known,
         {
           profileHash: intent.profileHash,
-          nonce: profile.nonce,
+          nonce: operation.nonce,
           journalPath,
           stage: "registered",
+          ...(operation.journalKey === "deployment"
+            ? { journalKey: "deployment" as const }
+            : {}),
         },
       ]);
     });
@@ -190,18 +225,20 @@ export async function registerControllerProfile(
       Number(!known.some((entry) => entry.profileHash === intent.profileHash)),
   };
 }
-export function markControllerPrepared(
+export function markControllerOperationPrepared(
   lease: TxStore,
   journalPath: string,
   stored: CorrectionTransaction,
+  journalKey: ControllerOperation["journalKey"],
 ) {
   const known = lease.get<CatalogEntry[]>("controller:profiles") ?? [];
   const entry = known.find((entry) => entry.profileHash === stored.profileHash);
-  const saved = readCorrectionTransaction(journalPath);
+  const saved = readControllerTransaction(journalPath, journalKey);
   insist(
     entry &&
       entry.journalPath === journalPath &&
       entry.nonce === stored.nonce &&
+      (entry.journalKey ?? "correction") === journalKey &&
       saved?.profileHash === stored.profileHash &&
       saved.nonce === stored.nonce &&
       saved.gasPriceWei === stored.gasPriceWei &&
@@ -221,3 +258,36 @@ export function markControllerPrepared(
     );
   });
 }
+
+function correctionOperation(
+  profile: StudyCorrectionProfile,
+): ControllerOperation {
+  return {
+    ...correctionIntent(profile),
+    controller: profile.controller,
+    journalKey: "correction",
+  };
+}
+export const auditControllerCatalog = (
+  client: PublicClient,
+  profile: StudyCorrectionProfile,
+  journalPath: string,
+) =>
+  auditControllerOperation(client, correctionOperation(profile), journalPath);
+export const registerControllerProfile = (
+  client: PublicClient,
+  profile: StudyCorrectionProfile,
+  lease: TxStore,
+  journalPath: string,
+) =>
+  registerControllerOperation(
+    client,
+    correctionOperation(profile),
+    lease,
+    journalPath,
+  );
+export const markControllerPrepared = (
+  lease: TxStore,
+  journalPath: string,
+  stored: CorrectionTransaction,
+) => markControllerOperationPrepared(lease, journalPath, stored, "correction");
