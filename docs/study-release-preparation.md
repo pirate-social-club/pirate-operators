@@ -52,6 +52,17 @@ V3 contract/graders/policy deployment are still required. They must preserve the
 actual live namespaces and finite controller inventory rather than reuse a
 closed correction window or reset accounting. No deployment was run here.
 
+`node --experimental-transform-types harness/study-policy-pin.ts` prepares the
+fixed 297-byte public Study qualification document without credentials, network
+access or execution state. It prints the expected CID and SHA-256. Explicit
+`--execute --expected-sha256 HASH --not-before UTC --deadline UTC` permits one
+managed Filebase add in a UTC window of at most fifteen minutes. The private
+SQLite journal and lock are separate from controller signing. Preparation is
+durable before dispatch; every subsequent invocation only reconciles the same
+CID, including a lost response or a prepared entry with no known receipt. An
+absent lookup never authorizes another add. This pins public policy content;
+it neither deploys a contract nor changes the active qualification policy.
+
 Complete honest Karaoke acceptance and explicit resource/custody handback first.
 Then deploy and independently qualify the successor contract and prospective
 policies under their own reviewed bounds. Refresh source, artifacts, predecessor
