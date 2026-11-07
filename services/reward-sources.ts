@@ -71,6 +71,31 @@ export async function rewardCutoffBlock(
   insist(found && low > high, "reward_cutoff_not_indexable", 503);
   return found;
 }
+/** Include publication blocks in the advertised window, independent of program age. */
+export async function rewardOfferBlocks(
+  from: bigint,
+  confirmed: { number: bigint; timestamp: bigint },
+  offer: Pick<RewardOfferInput, "opensAt" | "cutoffAt">,
+  read: (
+    number: bigint,
+  ) => Promise<{ number: bigint; timestamp: bigint; hash: Hex }>,
+) {
+  const first = await read(from);
+  insist(
+    first.number === from && first.timestamp * 1000n <= BigInt(offer.opensAt),
+    "reward_history_starts_after_offer",
+    409,
+  );
+  const head = await rewardCutoffBlock(from, confirmed, offer.cutoffAt, read);
+  const before =
+    first.timestamp * 1000n < BigInt(offer.opensAt)
+      ? await rewardCutoffBlock(from, confirmed, offer.opensAt, read)
+      : null;
+  const start = before ? before.number + 1n : from;
+  insist(start <= head.number, "reward_window_has_no_confirmed_blocks", 409);
+  insist(head.number - start <= 5000000n, "reward_results_scan_limit", 503);
+  return { fromBlock: start, head };
+}
 export function resultSource(
   raw: string,
   profile: RewardsProfile,
@@ -162,15 +187,16 @@ export function liveRewardSources(input: {
     winnings: megapotWinnings,
     async qualifiers(offer) {
       const confirmed = await reads.client.getBlock({ blockTag: "safe" });
-      const head = await rewardCutoffBlock(
+      const range = await rewardOfferBlocks(
         BigInt(source.fromBlock),
         confirmed,
-        offer.cutoffAt,
+        offer,
         async (number) => {
           const b = await reads.client.getBlock({ blockNumber: number });
           return { number: b.number, timestamp: b.timestamp, hash: b.hash };
         },
       );
+      const head = range.head;
       const history = await (reads.configurationHistory?.() ??
         Promise.resolve([config]));
       const context = {
@@ -180,19 +206,13 @@ export function liveRewardSources(input: {
         history,
         transport: reads.transport,
       };
-      insist(
-        head.number >= BigInt(source.fromBlock) &&
-          head.number - BigInt(source.fromBlock) <= 5000000n,
-        "reward_results_scan_limit",
-        503,
-      );
       const evidence = await readPublicResultsV3({
         communityId: config.communityId,
         rpcUrl: profile.rpcUrl,
         chainId: 6343,
         contract: source.contract as Hex,
         runtimeCodeHash: source.codeHash as Hex,
-        fromBlock: BigInt(source.fromBlock),
+        fromBlock: range.fromBlock,
         toBlock: head.number,
         authenticateKaraoke: sourceAuthenticator(context),
         studyManifest: studySourceReader(context),

@@ -28,6 +28,9 @@ USDC collection are required before crediting wins; a zero prize is explicit.
 Repeated activities collapse into one entry per account/offer. Exact split
 arithmetic preserves the remainder in the ticket wallet. No-qualifier winnings
 stay there. Unclaimed and subject-conflict credits remain owed without expiry.
+Eligibility scans only publication blocks within that offer's advertised time
+window, anchored to a confirmed cutoff block. Its bounded scan does not grow
+with the age of the program. The trusted starting block must precede the offer.
 
 Claim uses the existing status model: unclaimed -> verification_missing ->
 Very -> accepted, or subject_conflict with the amount held. A verification

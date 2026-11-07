@@ -7,7 +7,10 @@ import {
   rewardHash,
   rewardTestProfile,
 } from "./manual-rewards-fixture.ts";
-import { rewardCutoffBlock } from "../services/reward-sources.ts";
+import {
+  rewardCutoffBlock,
+  rewardOfferBlocks,
+} from "../services/reward-sources.ts";
 
 test("actual account cookies, Origin and CSRF protect credits, verification intents and operator actions", async () => {
   const f = await manualRewardsFixture();
@@ -199,5 +202,51 @@ test("eligibility readback excludes publications after cutoff even when a lesson
       }),
     ),
     /reward_cutoff_not_confirmed/,
+  );
+});
+
+test("daily publication windows exclude early blocks and do not grow with the program's age", async () => {
+  const read = async (number: bigint) => ({
+    number,
+    timestamp: number,
+    hash: rewardHash(Number(number)) as `0x${string}`,
+  });
+  const range = await rewardOfferBlocks(
+    1n,
+    { number: 10000000n, timestamp: 10000000n },
+    { opensAt: 9000000000, cutoffAt: 9000010000 },
+    read,
+  );
+  assert.equal(range.fromBlock, 9000000n);
+  assert.equal(range.head.number, 9000009n);
+  const first = await rewardOfferBlocks(
+    1n,
+    { number: 10n, timestamp: 10n },
+    { opensAt: 1000, cutoffAt: 3000 },
+    read,
+  );
+  assert.equal(first.fromBlock, 1n);
+  assert.equal(first.head.number, 2n);
+  await assert.rejects(
+    rewardOfferBlocks(
+      1n,
+      { number: 2n, timestamp: 10n },
+      { opensAt: 1000, cutoffAt: 2000 },
+      async (number) => ({
+        number,
+        timestamp: number === 1n ? 0n : 10n,
+        hash: rewardHash(Number(number)) as `0x${string}`,
+      }),
+    ),
+    /reward_window_has_no_confirmed_blocks/,
+  );
+  await assert.rejects(
+    rewardOfferBlocks(
+      2n,
+      { number: 10n, timestamp: 10n },
+      { opensAt: 1000, cutoffAt: 3000 },
+      read,
+    ),
+    /reward_history_starts_after_offer/,
   );
 });
