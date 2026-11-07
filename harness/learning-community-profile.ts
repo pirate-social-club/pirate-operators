@@ -1,10 +1,15 @@
 // Explicit testnet successor of the retained first-song application. No new community resources.
 import { readFile } from "node:fs/promises";
 import { canonical, insist, object } from "../packages/community/common.ts";
+import {
+  studyReleaseSelection,
+  retainedResultsV2,
+  type StudyReleaseSelection,
+} from "./study-release-profile.ts";
 
 export const learningApplicationBaseline =
   "0x0a1f11e21e5d2c02378fa4657cd38f400c8b4e197f83343b7bea9e3fa805a86c";
-export async function learningCommunityProfile() {
+export async function learningCommunityProfile(study?: StudyReleaseSelection) {
   const deployment = object(
     JSON.parse(
       await readFile(
@@ -19,7 +24,7 @@ export async function learningCommunityProfile() {
     "learning_contract_unqualified",
     409,
   );
-  return {
+  const legacy = {
     chainId: 6343,
     contract: deployment.learningResults as string,
     operator: "0x14b90a55657d9695a727254eaec5e0e32d20d602",
@@ -38,6 +43,23 @@ export async function learningCommunityProfile() {
     },
     acceptance:
       "Karaoke enrollment, automatic whole-run publication, provider-billed speech, retained private history download and revocation on MegaETH testnet",
+  };
+  if (!study) return legacy;
+  const selection = studyReleaseSelection(study);
+  insist(
+    deployment.learningResults === retainedResultsV2.contract &&
+      deployment.codeHash === retainedResultsV2.codeHash,
+    "study_release_retained_deployment_changed",
+    409,
+  );
+  return {
+    ...legacy,
+    operatorProfile: "pirate-learning-testnet-v3",
+    studyContract: selection.resultsV3.contract,
+    studyCodeHash: selection.resultsV3.codeHash,
+    publicityPolicy: selection.resultsV3.publicityPolicy,
+    acceptance:
+      "Karaoke and say-it-back Study with fresh V3 consent, retained V2 recovery, shared speech accounting and independently reconstructed testnet results",
   };
 }
 export function assertLearningApplicationUpgrade(

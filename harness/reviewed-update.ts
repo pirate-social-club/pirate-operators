@@ -3,8 +3,12 @@ import {
   publishedBaselines,
 } from "./published-state.ts";
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
-import { assertLearningApplicationUpgrade, learningApplicationBaseline } from "./learning-community-profile.ts";
+import {
+  assertLearningApplicationUpgrade,
+  learningApplicationBaseline,
+} from "./learning-community-profile.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
+import { assertStudyApplicationUpgrade } from "./study-application-upgrade.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
 import {
@@ -80,7 +84,16 @@ export async function reviewedPredecessor(
     "reviewed_update_plan_changed",
     409,
   );
-  if (previous.profileHash === publishedBaselines.application && !packaged.profile.learning)
+  const study = !!(
+    object(packaged.profile.learning ?? {}).studyContract ||
+    object(object(previous.profile).learning ?? {}).studyContract
+  );
+  if (study)
+    assertStudyApplicationUpgrade(object(previous.profile), packaged.profile);
+  if (
+    previous.profileHash === publishedBaselines.application &&
+    !packaged.profile.learning
+  )
     assertPublishedUpgrade(
       object(previous.profile),
       packaged.profile,
@@ -88,7 +101,8 @@ export async function reviewedPredecessor(
     );
   if (
     canonical(intent(object(previous.profile))) !==
-    canonical(intent(packaged.profile))
+      canonical(intent(packaged.profile)) &&
+    !study
   ) {
     // Only the exact idle first-song application baseline has a functional
     // transition. Every other profile retains the generic immutable intent.
@@ -108,7 +122,10 @@ export async function reviewedPredecessor(
         "application",
       );
     else if (previous.profileHash === learningApplicationBaseline)
-      assertLearningApplicationUpgrade(object(previous.profile), packaged.profile);
+      assertLearningApplicationUpgrade(
+        object(previous.profile),
+        packaged.profile,
+      );
     else
       insist(false, "reviewed_update_changes_resource_or_spending_intent", 409);
   }

@@ -8,6 +8,7 @@ import {
   type Signed,
 } from "../packages/protocol/index.ts";
 import type { SignedPurchase } from "../packages/protocol/payments.ts";
+import { studyOperatorRoute } from "./study-operator.ts";
 import { karaokeRoute } from "./karaoke.ts";
 import { acceptPurchase } from "./purchases.ts";
 import { body, type Env, type Store, signatureChainId } from "./runtime.ts";
@@ -19,6 +20,7 @@ export async function operator(
   ctx: DurableObjectState,
 ) {
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/study/")) return (await studyOperatorRoute(request, env, store))!;
   if (url.pathname === "/admit") {
     // docs/operator-payments.md section 4: one redeemed purchase per revision.
     const { song, purchase } = await body<{ song: Song; purchase: SignedPurchase }>(request);

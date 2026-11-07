@@ -1,4 +1,7 @@
 import { communityDependencyModules } from "./community-dependencies.ts";
+import { readStudyReleaseSelection } from "./study-release-input.ts";
+import { observeStudyRelease } from "./study-release-observation.ts";
+import { megaethReadClient } from "../packages/community/chain.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
 import { qualifyCommunityConsumer } from "./community-consumer.ts";
@@ -62,9 +65,13 @@ async function main() {
         "write-plan": { type: "boolean" },
         "expected-profile": { type: "string" },
         "reviewed-update": { type: "boolean" },
+        "study-profile": { type: "string" },
       },
     }),
-    { profile, profileHash, bytes } = await communityPackage();
+    study = values["study-profile"]
+      ? await readStudyReleaseSelection(values["study-profile"])
+      : undefined,
+    { profile, profileHash, bytes } = await communityPackage(study);
   if (values["write-plan"])
     await writeFile(
       "docs/deployments/first-song-managed-20261105.application-plan.json",
@@ -80,6 +87,7 @@ async function main() {
       "community_profile_not_reviewed",
       409,
     );
+  if (study) await observeStudyRelease(megaethReadClient(), study);
   const safe = operatorEnvironment(process.env),
     state = profile.stateProtection,
     options: OperatorOptions = {
@@ -123,7 +131,8 @@ async function main() {
     "community_live_source_changed",
     409,
   );
-  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:application-health");
+  if (process.env.PIRATE_RELEASE_DEBUG === "1")
+    console.error("gate:application-health");
   const live = await fetch(profile.origin + "/health", {
       redirect: "error",
       signal: AbortSignal.timeout(90000),
@@ -139,7 +148,8 @@ async function main() {
     409,
   );
   const sdk = await infisicalAuth().client();
-  if (process.env.PIRATE_RELEASE_DEBUG === "1") console.error("gate:retained-state");
+  if (process.env.PIRATE_RELEASE_DEBUG === "1")
+    console.error("gate:retained-state");
   const get = async (projectId: string, path: string, name: string) => {
     const secret = await sdk.secrets().getSecret({
       projectId,
@@ -318,6 +328,13 @@ async function main() {
         LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,
         LEARNING_ISSUER_ADDRESS: profile.learning.issuer,
         LEARNING_ISSUER_PRIVATE_KEY: issuerKey,
+        ...(study
+          ? {
+              LEARNING_PROFILE: "pirate-learning-testnet-v3",
+              LEARNING_RESULTS_CONTRACT: study.resultsV2.contract,
+              LEARNING_RESULTS_V3_CONTRACT: study.resultsV3.contract,
+            }
+          : {}),
       },
       secrets = [password, publisherKey, token, issuerKey, speech],
       logs: string[] = [];
@@ -403,7 +420,15 @@ async function main() {
 }
 main().catch((error) => {
   if (process.env.PIRATE_RELEASE_DEBUG === "1" && error instanceof Error)
-    console.error(JSON.stringify({ type: error.name, frames: error.stack?.split("\n").filter((line) => /^\s+at /.test(line)).slice(0, 6) }));
+    console.error(
+      JSON.stringify({
+        type: error.name,
+        frames: error.stack
+          ?.split("\n")
+          .filter((line) => /^\s+at /.test(line))
+          .slice(0, 6),
+      }),
+    );
   console.error(
     error instanceof CommunityError
       ? error.code

@@ -1,0 +1,159 @@
+// Build public outcomes only from a durably closed lesson snapshot.
+import type { Address, Hex } from "viem";
+import type { LyricManifest } from "../community/lyric-manifest.ts";
+import { canonical, check } from "../protocol/index.ts";
+import {
+  packStudyOutcomes,
+  type TerminalResult,
+} from "../protocol/learning-results-v3.ts";
+import {
+  STUDY_QUEUE_POLICY,
+  studyPresentationCap,
+  type LessonState,
+} from "./lesson.ts";
+import { studySourceSelection } from "./public-source.ts";
+import { studyFactsBundle, type StudyTerminalFacts } from "./terminal-facts.ts";
+
+export interface StudyPublicationGrant {
+  id: Hex;
+  issuedAt: number;
+  expiresAt: number;
+}
+
+/** Grant must be the enrollment snapshot saved when this lesson was opened. */
+export interface StudyBundleInput {
+  lessonId: string;
+  state: LessonState;
+  source: LyricManifest;
+  enrollment: StudyPublicationGrant;
+  learner: Address;
+  grader: Address;
+  qualificationPolicy: Hex;
+}
+export function completedStudyBundle(input: StudyBundleInput) {
+  check(input.state.status === "completed", "study_not_completed");
+  return terminalStudyBundle(input);
+}
+export function terminalStudyBundle(input: StudyBundleInput): {
+  result: TerminalResult;
+  outcomes: Hex;
+} {
+  return studyFactsBundle({ ...input, terminal: terminalStudyFacts(input) });
+}
+
+/** Validate the private queue before retaining only its permitted public facts. */
+export function terminalStudyFacts(
+  input: Pick<StudyBundleInput, "lessonId" | "state" | "source">,
+): StudyTerminalFacts {
+  const { state, source } = input;
+  const completed = state.status === "completed";
+  check(
+    state.policy === STUDY_QUEUE_POLICY &&
+      (completed ||
+        state.status === "abandoned" ||
+        state.status === "expired") &&
+      state.currentIndex === null &&
+      state.currentAttemptId === null &&
+      (completed
+        ? (state.completionReason === "all_resolved" ||
+            state.completionReason === "presentation_budget") &&
+          state.terminalAbsences === null
+        : state.completionReason ===
+            (state.status === "expired" ? "deadline" : "left") &&
+          Array.isArray(state.terminalAbsences) &&
+          state.terminalAbsences.length === state.items.length),
+    "study_not_terminal",
+  );
+  check(
+    Number.isSafeInteger(state.startedAt) &&
+      state.startedAt >= 0 &&
+      Number.isSafeInteger(state.completedAt) &&
+      state.completedAt! >= state.startedAt &&
+      Number.isSafeInteger(state.expiresAt) &&
+      state.expiresAt > state.startedAt &&
+      (state.status === "expired"
+        ? state.completedAt === state.expiresAt
+        : state.completedAt! < state.expiresAt),
+    "invalid_study_time",
+  );
+  check(
+    input.lessonId.length > 0 && input.lessonId.length <= 128,
+    "invalid_study_publication_identity",
+  );
+  const ordinals = state.items.map((item) => {
+    const index = source.lines.findIndex(
+      (line) => line.lineId === item.line.lineId,
+    );
+    check(index >= 0, "study_source_mismatch");
+    return index + 1;
+  });
+  const selected = studySourceSelection(source, ordinals);
+  check(
+    canonical(state.song) ===
+      canonical({
+        chainId: source.chainId,
+        postsContract: source.postsContract,
+        communityId: source.communityId,
+        postId: source.postId,
+        lyricRevision: source.revision,
+      }),
+    "study_source_mismatch",
+  );
+  for (const [i, item] of state.items.entries()) {
+    check(
+      canonical(item.line) === canonical(selected.selected[i]),
+      "study_source_mismatch",
+    );
+    check(
+      Number.isInteger(item.presentations) &&
+        item.presentations >= 0 &&
+        item.presentations <= 3 &&
+        (item.presentations > 0
+          ? item.firstPassOutcome === "correct" ||
+            item.firstPassOutcome === "incorrect"
+          : item.firstPassOutcome === null) &&
+        (!completed || item.presentations > 0) &&
+        (completed ||
+          (item.presentations > 0
+            ? state.terminalAbsences![i] === null
+            : state.terminalAbsences![i] === "unmeasured" ||
+              state.terminalAbsences![i] === "unattempted")) &&
+        typeof item.mastered === "boolean" &&
+        item.resolved === (item.mastered || item.presentations === 3) &&
+        (item.presentations !== 0 || (!item.mastered && !item.resolved)) &&
+        (item.firstPassOutcome !== "correct" ||
+          (item.mastered && item.presentations === 1)) &&
+        (item.presentations !== 1 ||
+          item.mastered === (item.firstPassOutcome === "correct")),
+      "invalid_study_first_pass",
+    );
+  }
+  const cap = studyPresentationCap(state.items.length);
+  check(
+    state.presentationCount ===
+      state.items.reduce((sum, item) => sum + item.presentations, 0) &&
+      state.presentationCount <= cap &&
+      (completed
+        ? state.completionReason === "all_resolved"
+          ? state.items.every((item) => item.resolved)
+          : state.presentationCount === cap &&
+            state.items.some((item) => !item.resolved)
+        : state.presentationCount < cap &&
+          state.items.some((item) => !item.resolved)),
+    "invalid_study_completion",
+  );
+  const outcomes = packStudyOutcomes(
+    state.items.map((item, i) => ({
+      sourceOrdinal: ordinals[i],
+      status: item.firstPassOutcome ?? state.terminalAbsences![i]!,
+    })),
+  );
+  return {
+    schema: "pirate.study-terminal-facts/1",
+    startedAt: state.startedAt,
+    completedAt: state.completedAt!,
+    expiresAt: state.expiresAt,
+    status: state.status as StudyTerminalFacts["status"],
+    outcomes,
+  };
+}

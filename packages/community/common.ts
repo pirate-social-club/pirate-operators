@@ -1,6 +1,5 @@
 import { canonical as serializeCanonical } from "../protocol/index.ts";
 import { sha256, stringToHex, type Hex } from "viem";
-import { timingSafeEqual } from "node:crypto";
 
 function validUnicode(value: string) {
   for (let i = 0; i < value.length; i++) {
@@ -103,11 +102,6 @@ export const hashText = (value: string): Hex => {
   return sha256(stringToHex(value));
 };
 export const hashJson = (value: unknown): Hex => hashText(canonical(value));
-export const equalTokens = (a: string, b: string) =>
-  timingSafeEqual(
-    Buffer.from(hashText(a).slice(2), "hex"),
-    Buffer.from(hashText(b).slice(2), "hex"),
-  );
 export const now = () => Date.now();
 export async function jsonBody(
   request: Pick<Request, "headers" | "body">,

@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import { resolve } from "node:path";
 import { encryptedLocalState } from "./encrypted-state.ts";
+import { learningContractBindings } from "./learning-bindings.ts";
 
 const required = (name: string) => {
   const value = process.env[name];
@@ -20,7 +21,7 @@ if (
 )
   throw new Error("Invalid testnet deployment identity");
 const values = {
-  OPERATOR_PROFILE: "pirate-karaoke-testnet-v2",
+  ...learningContractBindings(process.env),
   ROLE: "operator",
   LOCAL_ONLY: "disabled",
   PAYMENT_CHAIN_ID: "6343",
@@ -28,7 +29,6 @@ const values = {
   RPC_URL: "https://carrot.megaeth.com/rpc",
   SERVICE_MODE: "internal",
   COMMUNITY_ID: community,
-  RESULTS_V2_CONTRACT: contract,
   ACCOUNT_DELEGATE: "0xf655611abe392f35cbb36181d920a302c4df2284",
   ACCOUNT_INITIALIZER: "0xdb03009c44a36a7490d80c9a9e1a03b53497dc42",
   ...(process.env.LEARNING_APPROVED_ACTIVATION_ACCOUNT
@@ -84,6 +84,9 @@ export default Alchemy.Stack(
       chainId: 6343,
       communityId: community,
       learningResults: contract,
+      ...(values.RESULTS_V3_CONTRACT
+        ? { studyResults: values.RESULTS_V3_CONTRACT }
+        : {}),
     };
   }),
 );

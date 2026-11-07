@@ -30,17 +30,15 @@ import {
 } from "@/components/overlays/dialog/dialog";
 import { get, post } from "./api.ts";
 
-/** Standing enrollment or revocation; sponsored by the community. */
-export interface KaraokeConsentRequest {
-  domain: Record<string, unknown>;
-  types: Record<string, unknown>;
-  primaryType: "Consent" | "Enrollment" | "Revocation";
-  message: Record<string, unknown>;
-}
-export interface KaraokeWallet {
-  /** The learner's own signature; MOSS in the live app. */
-  signConsent(request: KaraokeConsentRequest): Promise<string>;
-}
+import type {
+  KaraokeConsentRequest,
+  KaraokeWallet,
+} from "./learning-consent.ts";
+import { enrollmentDisclosure } from "./learning-consent.ts";
+export type {
+  KaraokeConsentRequest,
+  KaraokeWallet,
+} from "./learning-consent.ts";
 export interface LearningActions {
   download: () => Promise<void>;
 }
@@ -107,6 +105,11 @@ export function LiveKaraoke(props: {
       latestLineId: string | null;
     } | null>(null),
     [consentOpen, setConsentOpen] = createSignal(false),
+    [consentActivities, setConsentActivities] = createSignal("Karaoke"),
+    [consentLinks, setConsentLinks] = createSignal({
+      termsUrl: "/terms",
+      privacyUrl: "/privacy",
+    }),
     [starting, setStarting] = createSignal(false),
     [playingOutro, setPlayingOutro] = createSignal(false),
     [resume, setResume] = createSignal<{
@@ -129,11 +132,28 @@ export function LiveKaraoke(props: {
     cancelPlaybackPosition?.();
     consentAnswer?.(false);
   });
-  const confirmEnrollment = () =>
-    new Promise<boolean>((resolve) => {
+  const confirmEnrollment = (request: KaraokeConsentRequest) => {
+    setConsentLinks(enrollmentDisclosure(request));
+    const activities = String(request.message.activities);
+    if (
+      !["1", "2", "3"].includes(activities) ||
+      (activities !== "1" && request.target?.version !== 3)
+    )
+      throw new Error(
+        "This enrollment cannot be displayed. Reload and try again.",
+      );
+    setConsentActivities(
+      activities === "3"
+        ? "Karaoke and Study"
+        : activities === "2"
+          ? "Study"
+          : "Karaoke",
+    );
+    return new Promise<boolean>((resolve) => {
       consentAnswer = resolve;
       setConsentOpen(true);
     });
+  };
   const answerEnrollment = (accepted: boolean) => {
     const resolve = consentAnswer;
     consentAnswer = undefined;
@@ -411,14 +431,18 @@ export function LiveKaraoke(props: {
               "Your enrollment is still being confirmed. Try again shortly.",
             );
           if (!enrollment.active) {
-            if (!(await confirmEnrollment())) {
+            if (!(await confirmEnrollment(enrollment))) {
               setStarting(false);
               return;
             }
             const signature = await props.wallet.signConsent(enrollment);
             const accepted = await post<{ state: string }>(
               "/api/karaoke/enrollment",
-              { enrollment: enrollment.message, signature },
+              {
+                enrollment: enrollment.message,
+                signature,
+                target: enrollment.target,
+              },
               props.csrf,
             );
             if (accepted.state !== "success")
@@ -614,17 +638,18 @@ export function LiveKaraoke(props: {
           <DialogHeader>
             <DialogTitle>Enable public learning results</DialogTitle>
             <DialogDescription>
-              Your line grades, song and completion time will be permanently
-              public under your wallet address. Enrollment lasts until expiry or
-              revocation.
+              Your {consentActivities()} line grades, song and completion time
+              will be permanently public under your wallet address. This
+              includes unfinished and unsuccessful sessions. Your permission
+              lasts until its stated end date or until you withdraw it.
             </DialogDescription>
           </DialogHeader>
           <p class="text-sm text-muted-foreground">
-            <a href="/terms" target="_blank" rel="noopener">
+            <a href={consentLinks().termsUrl} target="_blank" rel="noopener">
               Terms
             </a>{" "}
             ·{" "}
-            <a href="/privacy" target="_blank" rel="noopener">
+            <a href={consentLinks().privacyUrl} target="_blank" rel="noopener">
               Privacy
             </a>
           </p>
