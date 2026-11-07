@@ -30,10 +30,6 @@ function fixture(view: StudyEnrollmentView = request) {
     calls,
     ports: {
       request: async () => view,
-      confirm: async () => {
-        calls.push("confirm");
-        return true;
-      },
       wallet: {
         signConsent: async () => {
           calls.push("sign");
@@ -47,10 +43,10 @@ function fixture(view: StudyEnrollmentView = request) {
     },
   };
 }
-test("Study signs only after disclosure and accepts existing successor authority without a signature", async () => {
+test("Study opens the wallet directly after validating disclosure and reuses active authority", async () => {
   const fresh = fixture();
   await ensureStudyEnrollment(fresh.ports);
-  assert.deepEqual(fresh.calls, ["confirm", "sign", "submit"]);
+  assert.deepEqual(fresh.calls, ["sign", "submit"]);
   const active = fixture({ target, active: true, activities: 3 });
   await ensureStudyEnrollment(active.ports);
   assert.deepEqual(active.calls, []);
@@ -80,11 +76,14 @@ test("Karaoke's shared consent links retain V2 and require matching V3 publicity
     /disclosure changed/,
   );
 });
-test("Study cancellation, pending consent and wrong generation never sign or submit", async () => {
+test("wallet cancellation never submits; pending consent and wrong generation never sign", async () => {
   const cancelled = fixture();
-  cancelled.ports.confirm = async () => false;
+  cancelled.ports.wallet.signConsent = async () => {
+    cancelled.calls.push("sign");
+    throw new Error("Wallet signature cancelled.");
+  };
   await assert.rejects(ensureStudyEnrollment(cancelled.ports), /cancelled/);
-  assert.deepEqual(cancelled.calls, []);
+  assert.deepEqual(cancelled.calls, ["sign"]);
   for (const view of [
     { target, pending: true },
     { target: { ...target, version: 2 as const }, active: true, activities: 1 },
@@ -116,7 +115,7 @@ test("an unconfirmed submission leaves Study blocked until the same enrollment c
   const f = fixture();
   f.ports.submit = async () => ({ state: "pending" });
   await assert.rejects(ensureStudyEnrollment(f.ports), /confirming/);
-  assert.deepEqual(f.calls, ["confirm", "sign"]);
+  assert.deepEqual(f.calls, ["sign"]);
 });
 
 test("closing Study while the wallet signs prevents submission; already dispatched enrollment is not undone", async () => {
@@ -131,7 +130,7 @@ test("closing Study while the wallet signs prevents submission; already dispatch
     },
   };
   await assert.rejects(ensureStudyEnrollment(ports), /closed/);
-  assert.deepEqual(f.calls, ["confirm", "sign"]);
+  assert.deepEqual(f.calls, ["sign"]);
   active = true;
   const dispatched = fixture();
   await assert.rejects(
@@ -146,5 +145,5 @@ test("closing Study while the wallet signs prevents submission; already dispatch
     }),
     /closed/,
   );
-  assert.deepEqual(dispatched.calls, ["confirm", "sign", "submit"]);
+  assert.deepEqual(dispatched.calls, ["sign", "submit"]);
 });

@@ -51,10 +51,7 @@ test("scoring releases the microphone while the outro plays to its natural end",
   await page
     .getByRole("button", { name: "Start karaoke", exact: true })
     .click();
-  await page
-    .getByRole("dialog", { name: "Enable public learning results" })
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => closed, { timeout: 40000 }).toBe(true);
   const audio = page.locator(".live-karaoke audio");
   const during = await audio.evaluate((element: HTMLAudioElement) => ({

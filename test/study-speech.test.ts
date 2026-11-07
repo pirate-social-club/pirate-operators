@@ -12,7 +12,7 @@ test("Scribe transport pins model, retention, server credential and language wit
     "local-fixture-key",
     async (input, init) => {
       assert.equal(input, STUDY_SPEECH_ENDPOINT);
-      assert.equal(init?.redirect, "error");
+      assert.equal(init?.redirect, "manual");
       assert.equal(
         new Headers(init?.headers).get("xi-api-key"),
         "local-fixture-key",

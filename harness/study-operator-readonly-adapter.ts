@@ -115,7 +115,9 @@ export async function observeOperatorCloud(
     "study_operator_live_module_changed",
     409,
   );
-  const successor = moduleSha256 === profile.artifact.sha256;
+  const v3Bindings =
+    moduleSha256 === profile.artifact.sha256 ||
+    profile.predecessor.resultsVersion === 3;
   const value = (name: string) => {
     const values = byName(name);
     insist(
@@ -128,14 +130,14 @@ export async function observeOperatorCloud(
   insist(
     value("RESULTS_V2_CONTRACT") === profile.selection.resultsV2.contract &&
       value("OPERATOR_PROFILE") ===
-        (successor
+        (v3Bindings
           ? "pirate-learning-testnet-v3"
           : "pirate-karaoke-testnet-v2"),
     "study_operator_result_bindings_changed",
     409,
   );
   insist(
-    successor
+    v3Bindings
       ? value("RESULTS_V3_CONTRACT") === profile.selection.resultsV3.contract
       : byName("RESULTS_V3_CONTRACT").length === 0,
     "study_operator_v3_binding_changed",

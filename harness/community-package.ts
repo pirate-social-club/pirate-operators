@@ -172,7 +172,8 @@ export async function communityPackage(study?: StudyReleaseSelection) {
         ...applicationInfrastructureSources,
         "docs/deployments/learning-results-testnet-20261106.contract.json",
         "packages/community/application-api.ts",
-        "docs/deployments/first-song-managed-20261105.application-plan-v18.json",
+        selection?.reviewedUpdate.previousPlanPath ??
+          "docs/deployments/first-song-managed-20261105.application-plan-v18.json",
         "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json",
         "docs/deployments/first-song-managed-20261105.published-state.json",
         releaseGrantPath,

@@ -7,10 +7,6 @@ test("Study distinguishes corrected and invalidated public results from its save
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect(page.getByRole("blockquote")).toBeVisible();
   state.complete();
   state.revise(2, 1);
@@ -67,17 +63,14 @@ test("the account menu downloads saved Study history after exit and reports expi
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
-  const disclosure = page.getByRole("dialog");
+  const disclosure = page.getByRole("navigation", { name: "Study policies" });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(
     disclosure.getByRole("link", { name: "Terms", exact: true }),
   ).toHaveAttribute("href", "/learning/v3/terms");
   await expect(
     disclosure.getByRole("link", { name: "Privacy", exact: true }),
   ).toHaveAttribute("href", "/learning/v3/privacy");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect(page.getByRole("blockquote")).toBeVisible();
   const lessonId = new URL(page.url()).searchParams.get("lesson");
   await page.getByRole("button", { name: "Back to songs" }).click();
@@ -108,10 +101,6 @@ test("leaving after enrollment dispatch preserves that authority but does not st
 }) => {
   const state = await serveStudy(page, { delayEnrollment: true });
   await page.goto(state.url);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect.poll(() => state.counts.enrollmentSubmissions).toBe(1);
   await page.getByRole("button", { name: "Back to songs" }).click();
   const response = page.waitForResponse((response) =>
@@ -138,10 +127,6 @@ test("leaving Study while a wallet signature is pending prevents new enrollment 
 }) => {
   const state = await serveStudy(page, { delaySignature: true });
   await page.goto(state.url);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect.poll(() => state.counts.signatures).toBe(1);
   await page.getByRole("button", { name: "Back to songs" }).click();
   state.releaseSignature();
@@ -178,28 +163,29 @@ test("Study requires sign-in and successor readiness; a signed-in learner needs 
   ).toHaveCount(0);
 });
 
-test("a Study link survives sign-in, cancelled disclosure dispatches nothing, and reload keeps one lesson and grant", async ({
+test("a Study link opens the wallet directly, wallet rejection starts nothing, and reload keeps its grant", async ({
   page,
 }) => {
-  const state = await serveStudy(page, { anonymous: true });
+  const state = await serveStudy(page, {
+    anonymous: true,
+    rejectSignatureOnce: true,
+  });
   await page.goto(state.url);
   await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("dialog")).toContainText("Karaoke and Study");
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Enrollment cancelled");
+  await expect(page.getByRole("alert")).toContainText(
+    "Wallet signature cancelled",
+  );
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(state.counts.starts).toBe(0);
-  expect(state.counts.signatures).toBe(0);
+  expect(state.counts.signatures).toBe(1);
+  expect(state.counts.enrollmentSubmissions).toBe(0);
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect(page.getByRole("blockquote")).toHaveText("Hold me close");
   await expect(
     page.getByRole("button", { name: "Record", exact: true }),
   ).toBeEnabled();
   expect(state.counts.starts).toBe(1);
-  expect(state.counts.signatures).toBe(1);
+  expect(state.counts.signatures).toBe(2);
   const lessonUrl = page.url();
   expect(new URL(lessonUrl).searchParams.get("lesson")).toBeTruthy();
   await page.reload();
@@ -207,7 +193,7 @@ test("a Study link survives sign-in, cancelled disclosure dispatches nothing, an
   await expect(page).toHaveURL(lessonUrl);
   expect(state.counts.starts).toBe(1);
   expect(state.counts.enrollmentRequests).toBe(2);
-  expect(state.counts.signatures).toBe(1);
+  expect(state.counts.signatures).toBe(2);
   await page.getByRole("button", { name: "Back to songs" }).click();
   await expect(page).toHaveURL(origin + "/");
   await expect(
@@ -221,10 +207,6 @@ test("a lost lesson-start response resumes the saved lesson without a second enr
 }) => {
   const state = await serveStudy(page, { loseStart: true });
   await page.goto(state.url);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect(page.getByRole("alert")).toBeVisible();
   expect(state.counts.starts).toBe(1);
   await page.reload();
@@ -239,10 +221,6 @@ test("Study completion distinguishes saved, pending and confirmed publication an
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
   await expect(page.getByRole("blockquote")).toBeVisible();
   state.complete();
   await page.reload();

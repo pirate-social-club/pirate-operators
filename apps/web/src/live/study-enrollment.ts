@@ -12,7 +12,6 @@ export type StudyEnrollmentView = Partial<KaraokeConsentRequest> & {
 interface Ports {
   active?(): boolean;
   request(): Promise<StudyEnrollmentView>;
-  confirm(request: KaraokeConsentRequest): Promise<boolean>;
   submit(
     request: KaraokeConsentRequest,
     signature: string,
@@ -55,10 +54,6 @@ export async function ensureStudyEnrollment(ports: Ports): Promise<void> {
     throw new Error("This enrollment changed. Reload and try again.");
   const request = view as KaraokeConsentRequest;
   enrollmentDisclosure(request);
-  const confirmed = await ports.confirm(request);
-  stillOpen();
-  if (!confirmed)
-    throw new Error("Enrollment cancelled. You can return to your songs.");
   const signature = await ports.wallet.signConsent(request);
   stillOpen();
   const accepted = await ports.submit(request, signature);

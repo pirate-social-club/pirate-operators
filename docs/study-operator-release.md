@@ -101,3 +101,15 @@ attempt still follows reconcile-only handling; this state-reader repair does
 not authorize its replay. A new exact source/profile, actual plan, independent
 review, fresh inventory and finite custody are required for a separate bounded
 reconciliation.
+
+A repeated V3 repair must explicitly set predecessor.resultsVersion to3 and pin
+its current module and encrypted state. Historical profiles without that field
+continue to require the original V2 bindings. The cloud observer accepts only
+the exact predecessor or successor module; a V3 predecessor must already expose
+the selected V3 contract, while a V2 predecessor must have no V3 binding. This
+field does not infer consent, migrate state or permit an unreviewed target.
+
+The later live Study fetch repair changes that reviewed runtime by one literal
+only, to991562bytes at6fa28d54. The earlier991561/EA checkpoint and its closed
+release records remain historical. The current actual-reader regression pins
+the successor's exact module bytes and still rejects the oversized default glob.

@@ -58,6 +58,7 @@ export async function serveStudy(
     available?: boolean;
     loseStart?: boolean;
     delaySignature?: boolean;
+    rejectSignatureOnce?: boolean;
     disclosureMismatch?: boolean;
     delayEnrollment?: boolean;
   } = {},
@@ -113,11 +114,13 @@ export async function serveStudy(
         body: `
       export const mega = { async initialise(){}, async connect(){return {address:"0x${"7".repeat(40)}"}},
         async signMessage(){return {status:"success",signature:"fixture-sign-in"}},
-        async signData(){await fetch("/__fixture/signature",{method:"POST"});document.body.dataset.fixtureSignatureReturned="true";return {status:"success",signature:"fixture-enrollment"}} };`,
+        async signData(){const response=await fetch("/__fixture/signature",{method:"POST"});if(!response.ok)throw new Error("Wallet signature cancelled.");document.body.dataset.fixtureSignatureReturned="true";return {status:"success",signature:"fixture-enrollment"}} };`,
       });
     if (path === "/__fixture/signature") {
       counts.signatures++;
       await signatureWait;
+      if (options.rejectSignatureOnce && counts.signatures === 1)
+        return json({ cancelled: true }, 409);
       return json({ fixture: true });
     }
     if (path === "/.well-known/pirate-client.json")

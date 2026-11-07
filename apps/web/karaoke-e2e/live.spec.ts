@@ -49,11 +49,7 @@ async function openSong(page: Page) {
 }
 async function startEnrolledTake(page: Page) {
   await page.getByRole("button", { name: "Start karaoke" }).click();
-  const consent = page.getByRole("dialog", {
-    name: "Enable public learning results",
-  });
-  await expect(consent).toBeVisible();
-  await consent.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 }
 async function published(page: Page, learner: number) {
   await expect
@@ -76,6 +72,75 @@ async function published(page: Page, learner: number) {
   expect(result!.lines).toHaveLength(23);
   return result!;
 }
+test("leaving while the wallet signs never submits enrollment or starts Karaoke", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let signing = false,
+    submissions = 0,
+    tickets = 0;
+  await page.route("**/__fixture/sign", async (route) => {
+    const input = route.request().postDataJSON();
+    if (input.kind === "typed" && input.data?.primaryType === "Enrollment") {
+      signing = true;
+      await wait;
+    }
+    await route.continue();
+  });
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/karaoke/tickets")) tickets++;
+    if (
+      request.url().endsWith("/api/karaoke/enrollment") &&
+      request.postDataJSON()?.signature
+    )
+      submissions++;
+  });
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page, 7);
+    await openSong(page);
+    const policies = page.getByRole("navigation", { name: "Karaoke policies" });
+    await expect(
+      policies.getByRole("link", { name: "Terms", exact: true }),
+    ).toBeVisible();
+    const box = await policies.boundingBox();
+    const start = await page
+      .getByRole("button", { name: "Start karaoke" })
+      .boundingBox();
+    expect(box!.y).toBeGreaterThanOrEqual(start!.y + start!.height);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+    await page.screenshot({
+      path: test.info().outputPath("direct-enrollment-mobile.png"),
+    });
+    await page.getByRole("button", { name: "Start karaoke" }).click();
+    await expect.poll(() => signing).toBe(true);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      policies.getByRole("link", { name: "Terms", exact: true }),
+    ).toHaveAttribute("href", "/terms");
+    await page.getByRole("button", { name: "Exit karaoke" }).click();
+    const response = page.waitForResponse((r) =>
+      r.url().endsWith("/__fixture/sign"),
+    );
+    release();
+    await (await response).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    expect(submissions).toBe(0);
+    expect(tickets).toBe(0);
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  } finally {
+    release();
+  }
+});
+
 test("a learner sings the published song and gets one automatic terminal publication", async ({
   page,
 }) => {

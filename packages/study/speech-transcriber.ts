@@ -75,7 +75,7 @@ export function makeStudyTranscriber(
           headers: { "xi-api-key": apiKey },
           body: form,
           signal: controller.signal,
-          redirect: "error",
+          redirect: "manual",
         });
         if (!response.ok) {
           void response.body?.cancel().catch(() => {});

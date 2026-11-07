@@ -302,6 +302,7 @@ button:disabled {
   background: var(--background, #0e1411);
 }
 .live-karaoke {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -333,10 +334,32 @@ body:has(.live-study-overlay) {
 }
 .study-navigation {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
 }
 .study-publication {
   padding-bottom: 48px;
   color: #183930;
+}
+
+.learning-policy-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.learning-policy-links a {
+  padding: 2px 0;
+  line-height: 20px;
+}
+.study-navigation .learning-policy-links {
+  margin-left: auto;
+}
+.karaoke-policy-links {
+  position: absolute;
+  right: 16px;
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 51;
 }

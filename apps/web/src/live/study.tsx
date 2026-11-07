@@ -7,20 +7,8 @@ import type { StudyPublicationReceipt } from "../../../../packages/study/publica
 import { createStudyClient, type StudyClient } from "../study/client.ts";
 import { StudyScreen } from "../study/screen.tsx";
 import { Button } from "../ui.ts";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/overlays/dialog/dialog";
 import { get, post } from "./api.ts";
-import type {
-  KaraokeConsentRequest,
-  KaraokeWallet,
-} from "./learning-consent.ts";
-import { enrollmentDisclosure } from "./learning-consent.ts";
+import type { KaraokeWallet } from "./learning-consent.ts";
 import {
   ensureStudyEnrollment,
   type StudyEnrollmentView,
@@ -40,24 +28,15 @@ export function LiveStudy(props: {
 }) {
   const [client, setClient] = createSignal<StudyClient | null>(null),
     [error, setError] = createSignal(""),
-    [consent, setConsent] = createSignal<KaraokeConsentRequest | null>(null),
     [publication, setPublication] = createSignal<Publication | null>(null),
     [checking, setChecking] = createSignal(false),
     [terminalId, setTerminalId] = createSignal<string | undefined>();
   let active = true,
-    answer: ((accepted: boolean) => void) | undefined,
     timer: ReturnType<typeof setTimeout> | undefined,
     polls = 0;
-  const answerConsent = (accepted: boolean) => {
-    const resolve = answer;
-    answer = undefined;
-    setConsent(null);
-    resolve?.(accepted);
-  };
   onCleanup(() => {
     active = false;
     clearTimeout(timer);
-    answerConsent(false);
   });
   const beforeStart = () =>
     ensureStudyEnrollment({
@@ -68,12 +47,6 @@ export function LiveStudy(props: {
           { activity: "study" },
           props.csrf,
         ),
-      confirm: (request) =>
-        new Promise<boolean>((resolve) => {
-          if (!active) return resolve(false);
-          answer = resolve;
-          setConsent(request);
-        }),
       submit: (request, signature) =>
         post<{ state: string }>(
           "/api/karaoke/enrollment",
@@ -217,6 +190,15 @@ export function LiveStudy(props: {
           Back to songs
         </Button>
         <span>{props.title}</span>
+        <nav class="learning-policy-links" aria-label="Study policies">
+          <a href="/learning/v3/terms" target="_blank" rel="noopener">
+            Terms
+          </a>
+          <span aria-hidden="true">·</span>
+          <a href="/learning/v3/privacy" target="_blank" rel="noopener">
+            Privacy
+          </a>
+        </nav>
       </div>
       <Show
         when={client()}
@@ -250,59 +232,6 @@ export function LiveStudy(props: {
           </Button>
         </div>
       </Show>
-      <Dialog
-        open={consent() !== null}
-        onOpenChange={(open) => {
-          if (!open) answerConsent(false);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Enable public learning results</DialogTitle>
-            <DialogDescription>
-              Your{" "}
-              {String(consent()?.message.activities) === "3"
-                ? "Karaoke and Study"
-                : "Study"}{" "}
-              results, song, selected lines, first-scored grades and completion
-              time will be permanently public under your wallet address. This
-              includes unfinished and unsuccessful lessons. Your permission
-              lasts until its stated end date or until you withdraw it.
-            </DialogDescription>
-          </DialogHeader>
-          <p>
-            <a
-              href={
-                consent()
-                  ? enrollmentDisclosure(consent()!).termsUrl
-                  : undefined
-              }
-              target="_blank"
-              rel="noopener"
-            >
-              Terms
-            </a>{" "}
-            ·{" "}
-            <a
-              href={
-                consent()
-                  ? enrollmentDisclosure(consent()!).privacyUrl
-                  : undefined
-              }
-              target="_blank"
-              rel="noopener"
-            >
-              Privacy
-            </a>
-          </p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => answerConsent(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => answerConsent(true)}>Continue</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }

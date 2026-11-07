@@ -43,6 +43,8 @@ export interface OperatorProfile {
     sourceHashes: Record<string, string>;
   };
   predecessor: {
+    /** Historical profiles omit this and retain the original V2 boundary. */
+    resultsVersion?: 2 | 3;
     moduleSha256: string;
     publicSettingsInvariantSha256: string;
     encryptedStateFiles: Record<string, string>;
@@ -124,7 +126,15 @@ export function operatorProfile(value: unknown): OperatorProfile {
     "publicSettingsInvariantSha256",
     "encryptedStateFiles",
     "quoteWindowSha256",
+    ...(Object.hasOwn(previous, "resultsVersion") ? ["resultsVersion"] : []),
   ]);
+  insist(
+    !Object.hasOwn(previous, "resultsVersion") ||
+      previous.resultsVersion === 2 ||
+      previous.resultsVersion === 3,
+    "study_operator_predecessor_version_invalid",
+    409,
+  );
   exact(retained, [
     "limits",
     "quoteValidFrom",
