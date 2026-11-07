@@ -584,6 +584,9 @@ export function LiveKaraoke(props: {
               }}
               onPlay={(ms) => capture.controls.notePlay(ms)}
               onPause={(ms) => {
+                // Once capture is complete, an interrupted outro can show the
+                // result without reopening the microphone or trapping the UI.
+                setPlayingOutro(false);
                 scoringResponses.reset();
                 return capture.controls.notePause(ms);
               }}
