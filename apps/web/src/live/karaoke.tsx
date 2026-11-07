@@ -108,6 +108,7 @@ export function LiveKaraoke(props: {
     } | null>(null),
     [consentOpen, setConsentOpen] = createSignal(false),
     [starting, setStarting] = createSignal(false),
+    [playingOutro, setPlayingOutro] = createSignal(false),
     [resume, setResume] = createSignal<{
       elapsedMs: number;
       at: number;
@@ -120,6 +121,7 @@ export function LiveKaraoke(props: {
     disposed = false;
   const scoringResponses = new ScoringResponseWatch();
   let scoringRecoveryUsed = false;
+  let finishing: Promise<void> | undefined;
   let cancelPlaybackPosition: (() => void) | undefined;
   let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
@@ -216,7 +218,19 @@ export function LiveKaraoke(props: {
         // The operator's deadline can precede the media element's final event.
         // Late tail frames then mean completion, not a failed connection.
         if (message.code === "attempt_closed") {
-          if (capture.state()?.status === "active") void finish(songMs);
+          if (capture.state()?.status === "active") {
+            const lastEndMs = song()?.lines.at(-1)?.endMs;
+            // The scoring deadline ends capture, not the instrumental outro.
+            // An early closure must still stop playback normally.
+            setPlayingOutro(
+              lastEndMs !== undefined &&
+                songMs >= lastEndMs &&
+                !!playback &&
+                !playback.ended &&
+                playback.currentTime < playback.duration,
+            );
+            void finish(songMs);
+          }
         } else
           stopFailedScoring(
             "The scoring connection stopped. Press Start karaoke to try again.",
@@ -226,6 +240,7 @@ export function LiveKaraoke(props: {
   });
 
   function stopFailedScoring(message: string) {
+    setPlayingOutro(false);
     cancelPlaybackPosition?.();
     scoringResponses.reset();
     setStarting(false);
@@ -355,6 +370,8 @@ export function LiveKaraoke(props: {
     for (let i = 0; i < 150 && !ready(); i++) await sleep(20);
   }
   async function start(fromMs: number) {
+    setPlayingOutro(false);
+    finishing = undefined;
     cancelPlaybackPosition?.();
     scoringResponses.reset();
     scoringRecoveryUsed = false;
@@ -464,6 +481,7 @@ export function LiveKaraoke(props: {
    * capture leaves "idle" the take reads as connecting.
    */
   const singingStatus = () => {
+    if (playingOutro()) return "active" as const;
     if (finished()) return "ended" as const;
     const status = capture.state()?.status ?? "idle";
     if (status === "ended") return "finishing" as const;
@@ -482,10 +500,12 @@ export function LiveKaraoke(props: {
     }
     return false;
   }
-  async function finish(atMs: number) {
-    cancelPlaybackPosition?.();
-    await capture.controls.noteFinish(atMs);
-    await refreshUntil((view) => view.state === "finished");
+  function finish(atMs: number): Promise<void> {
+    return (finishing ??= (async () => {
+      cancelPlaybackPosition?.();
+      await capture.controls.noteFinish(atMs);
+      await refreshUntil((view) => view.state === "finished");
+    })());
   }
   async function downloadHistory(ticketId: string) {
     const history = await post(
@@ -571,7 +591,10 @@ export function LiveKaraoke(props: {
                 scoringResponses.reset();
                 capture.controls.noteSeek(ms);
               }}
-              onFinish={(ms) => void finish(ms)}
+              onFinish={(ms) => {
+                setPlayingOutro(false);
+                void finish(ms);
+              }}
             />
           )}
         </Show>

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "karaoke-e2e",
-  testMatch: "learning.spec.ts",
+  testMatch: ["learning.spec.ts", "outro.spec.ts"],
   timeout: 180000,
   workers: 1,
   reporter: [["list"]],
