@@ -639,9 +639,9 @@ export function LiveKaraoke(props: {
             <DialogTitle>Enable public learning results</DialogTitle>
             <DialogDescription>
               Your {consentActivities()} line grades, song and completion time
-              will be permanently public under your wallet address, including
-              incomplete and unsuccessful sessions. Enrollment lasts until
-              expiry or revocation.
+              will be permanently public under your wallet address. This
+              includes unfinished and unsuccessful sessions. Your permission
+              lasts until its stated end date or until you withdraw it.
             </DialogDescription>
           </DialogHeader>
           <p class="text-sm text-muted-foreground">

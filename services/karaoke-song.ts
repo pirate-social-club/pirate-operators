@@ -42,7 +42,11 @@ export async function publishedLyrics(
 ): Promise<LyricManifest> {
   const records = await publicSongs(db, config, reads, postId);
   insist(records.length === 1, "public_song_not_found", 404);
-  const lyrics = await publicLyricManifest(records[0]!.post, reads.transport);
+  const lyrics = await publicLyricManifest(
+    records[0]!.post,
+    reads.transport,
+    reads.contentCache,
+  );
   insist(lyrics, "karaoke_lyrics_unavailable", 404);
   return lyrics;
 }

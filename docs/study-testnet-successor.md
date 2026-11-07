@@ -318,7 +318,7 @@ The immutable V3 candidate is services/learning-policy-v3.ts. Its terms and
 privacy pages are served at /learning/v3/terms and /learning/v3/privacy. The
 publicity commitment is keccak256 of the exact UTF-8 terms, two newline bytes,
 and exact privacy text, without normalization or a trailing newline:
-0x9b68b19eb83315c5e26352717b6ceddf4e665d6773932e5a0ad6cbda495fa56c.
+0x2ca79bc25c9e5527ca456535c46af0b9c10a9cf31d4c504013a9ce0a3a606b96.
 The original V2 /terms and /privacy response bytes and their deployed commitment
 0xed087bbce3b42c61236f9c26795f3b1b43e626ded9ac4a75bb97f43138791143
 remain unchanged. A future document revision needs a new versioned publication;
@@ -326,7 +326,7 @@ do not edit an accepted document in place.
 
 The text discloses both activities, permanent wallet-linked terminal records,
 Study selection and immutable first-pass outcomes, corrections and invalidation,
-and the absence of funded pilot rewards. Both speech adapters enable provider
+and rewards only under explicit, separately disclosed offers. Both speech adapters enable provider
 logging; no fixed provider retention period or zero-retention promise is made.
 The thirty-day export and scheduled cleanup bounds are distinct from permanent
 public results, replay tombstones and uncertain native or remote recovery data.
@@ -454,7 +454,6 @@ and can report canonical confirmation without opening a key. No administrator
 HTTP route or contract method is added. Default CI uses explicit fake RPC peers
 and private temporary journals; this command has not run against a public chain.
 
-
 The fixed lease database also records this command's participating profiles before
 journal creation. A durable prepared marker commits after the fixed unsigned
 intent/charge and strictly before any key read or signing. Another profile
@@ -475,7 +474,6 @@ hash, with pending nonce, destination, calldata, gas, fee and value preserved.
 The initial ten-test candidate was not accepted: separate adversarial review
 found four missing refusals. Its frozen source, passing full gate and red cases
 are preserved separately from the repaired successor.
-
 
 Planning and execution also cross-check the command's fixed private namespace
 against its participating registry. An unindexed profile journal, surviving lock,

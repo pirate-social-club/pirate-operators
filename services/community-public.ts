@@ -5,6 +5,7 @@ import type { PublicSongView } from "../packages/community/application-api.ts";
 import {
   fetchPublicIpfs,
   type IpfsTransport,
+  type PublicIpfsCache,
 } from "../packages/community/ipfs.ts";
 import {
   validateLyrics,
@@ -20,6 +21,7 @@ export interface PublicReadPorts {
   client: PublicClient;
   profile: PostsProfile;
   transport?: IpfsTransport;
+  contentCache?: PublicIpfsCache;
   configurationHistory?: () => Promise<readonly CommunityConfig[]>;
   manifestAvailable?: (hash: import("viem").Hex) => Promise<boolean>;
 }
@@ -58,6 +60,7 @@ type PublicPost = Awaited<ReturnType<typeof publicSongs>>[number]["post"];
 export async function publicLyricManifest(
   post: PublicPost,
   transport?: IpfsTransport,
+  cache?: PublicIpfsCache,
 ): Promise<LyricManifest | undefined> {
   const lyric = post.media.find((m) => m.role === "lyrics");
   if (!lyric) return undefined;
@@ -66,6 +69,7 @@ export async function publicLyricManifest(
       lyric.sha256,
       lyric.byteLength,
       transport,
+      cache,
     ),
     decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     manifest = validateLyrics(JSON.parse(decoded));
@@ -89,8 +93,9 @@ export async function publicSongViews(
   const records = await publicSongs(db, config, ports),
     views: PublicSongView[] = [];
   for (const { post, transactionHash } of records) {
-    const lyricsText = (await publicLyricManifest(post, ports.transport))
-      ?.sourceText;
+    const lyricsText = (
+      await publicLyricManifest(post, ports.transport, ports.contentCache)
+    )?.sourceText;
     views.push({
       manifest: {
         schema: post.schema,
@@ -149,6 +154,7 @@ export async function publicSongResource(
       audio.sha256,
       audio.byteLength,
       ports.transport,
+      ports.contentCache,
     );
   insist(bytes.length === audio.byteLength, "public_audio_length_changed", 503);
   headers.set("content-type", "audio/mpeg");
@@ -190,13 +196,14 @@ export async function firstSongPublicReady(
     const songs = await publicSongs(db, config, ports);
     if (!songs.length) return false;
     for (const { post } of songs)
-      await publicLyricManifest(post, ports.transport);
+      await publicLyricManifest(post, ports.transport, ports.contentCache);
     const audio = songs[0]!.post.media.find((m) => m.role === "audio")!;
     const { bytes } = await fetchPublicIpfs(
       audio.uri,
       audio.sha256,
       audio.byteLength,
       ports.transport,
+      ports.contentCache,
     );
     return bytes.length === audio.byteLength;
   } catch {

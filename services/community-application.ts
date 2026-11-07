@@ -22,6 +22,7 @@ import { directoryHistoryCache } from "../packages/community/configuration-index
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { RequestTiming } from "./request-timing.ts";
+import { publicIpfsCache } from "./public-ipfs-cache.ts";
 import {
   beginCreatorConnection,
   completeCreatorConnection,
@@ -133,6 +134,7 @@ function dependencies(
       client,
       transport,
       profile: publicPostsProfile(),
+      contentCache: publicIpfsCache(env.MEDIA),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
@@ -502,7 +504,12 @@ export async function communityFetch(
         ),
       );
     }
-    const study = await studyCommunityApi(request, { ...karaokePorts, env }, context, security);
+    const study = await studyCommunityApi(
+      request,
+      { ...karaokePorts, env },
+      context,
+      security,
+    );
     if (study) return study;
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
@@ -586,33 +593,61 @@ export async function communityFetch(
     return reply(
       {
         error:
-          (error instanceof CommunityError || error instanceof StudyError)
+          error instanceof CommunityError || error instanceof StudyError
             ? error.code
             : "community_service_unavailable",
       },
-      error instanceof CommunityError || error instanceof StudyError ? error.status : 503,
+      error instanceof CommunityError || error instanceof StudyError
+        ? error.status
+        : 503,
     );
   }
 }
-export async function communityScheduled(env: CommunityEnv, provided?: CommunityDependencies) {
+export async function communityScheduled(
+  env: CommunityEnv,
+  provided?: CommunityDependencies,
+) {
   const failures: unknown[] = [];
-  try { await deleteExpiredStudyHistory(env.DB, firstSong.directoryProfile.communityId, provided?.now); }
-  catch (error) { failures.push(error); }
-  try { await recoverCommunityJobs(env.DB, env.JOBS); }
-  catch (error) { failures.push(error); }
+  try {
+    await deleteExpiredStudyHistory(
+      env.DB,
+      firstSong.directoryProfile.communityId,
+      provided?.now,
+    );
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await recoverCommunityJobs(env.DB, env.JOBS);
+  } catch (error) {
+    failures.push(error);
+  }
   if (env.STUDY_RESULTS_V3_CONTRACT) {
     try {
-      const ports = provided ?? dependencies(env), config = await ports.configuration();
-      insist(config.communityId === firstSong.directoryProfile.communityId &&
-        config.app.origin === firstSong.origin, "community_configuration_changed", 503);
+      const ports = provided ?? dependencies(env),
+        config = await ports.configuration();
+      insist(
+        config.communityId === firstSong.directoryProfile.communityId &&
+          config.app.origin === firstSong.origin,
+        "community_configuration_changed",
+        503,
+      );
       await recoverStudyLessons({
-        env, db: env.DB, config,
-        reads: ports.publicReads ?? { client: megaethReadClient(), profile: publicPostsProfile() },
+        env,
+        db: env.DB,
+        config,
+        reads: ports.publicReads ?? {
+          client: megaethReadClient(),
+          profile: publicPostsProfile(),
+        },
         now: ports.now,
       });
-    } catch (error) { failures.push(error); }
+    } catch (error) {
+      failures.push(error);
+    }
   }
-  if (failures.length) throw new AggregateError(failures, "community_scheduled_failed");
+  if (failures.length)
+    throw new AggregateError(failures, "community_scheduled_failed");
 }
 
 export default {

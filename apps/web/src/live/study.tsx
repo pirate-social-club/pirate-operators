@@ -264,10 +264,10 @@ export function LiveStudy(props: {
               {String(consent()?.message.activities) === "3"
                 ? "Karaoke and Study"
                 : "Study"}{" "}
-              results, song, selected lines, first-try grades and completion
-              time will be permanently public under your wallet address,
-              including incomplete and unsuccessful lessons. Enrollment lasts
-              until expiry or revocation.
+              results, song, selected lines, first-scored grades and completion
+              time will be permanently public under your wallet address. This
+              includes unfinished and unsuccessful lessons. Your permission
+              lasts until its stated end date or until you withdraw it.
             </DialogDescription>
           </DialogHeader>
           <p>

@@ -48,7 +48,7 @@ test("versioned served documents bind the V3 contract and signature while V2 byt
   const document = `${await body(learningV3Disclosure.termsUrl)}\n\n${await body(learningV3Disclosure.privacyUrl)}`;
   assert.equal(
     keccak256(stringToHex(document)),
-    "0x9b68b19eb83315c5e26352717b6ceddf4e665d6773932e5a0ad6cbda495fa56c",
+    "0x2ca79bc25c9e5527ca456535c46af0b9c10a9cf31d4c504013a9ce0a3a606b96",
   );
   assert.equal(keccak256(stringToHex(document)), learningV3PublicityPolicy);
   assert.equal(learningPolicyPage("/learning/v3/unknown"), null);
