@@ -157,6 +157,7 @@ export function LiveKaraoke(props: {
       if (view.elapsedMs !== null)
         setResume({ elapsedMs: view.elapsedMs, at: performance.now() });
     } else if (view.state === "finished") {
+      setResume(null);
       setStarting(false);
       setTake(null);
       setFinished({
@@ -433,6 +434,7 @@ export function LiveKaraoke(props: {
         }>("/api/karaoke/tickets", { postId: props.postId }, props.csrf);
         bought.clear();
         attemptStart = null;
+        setResume(null);
         setFinished(null);
         setFeedback(null);
         setRestoredRatingKey(null);

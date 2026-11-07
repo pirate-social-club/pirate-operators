@@ -107,9 +107,12 @@ test("scoring releases the microphone while the outro plays to its natural end",
   expect(after.simulator.minted).toBe(before.simulator.minted);
   expect(connections).toBe(1);
   expect(tickets).toBe(1);
-  const records = await (
-    await page.request.get("/__fixture/records?learner=9")
-  ).json();
+  const publicRecords = async () =>
+    (await page.request.get("/__fixture/records?learner=9")).json();
+  await expect
+    .poll(async () => (await publicRecords()).length, { timeout: 15000 })
+    .toBe(1);
+  const records = await publicRecords();
   expect(records).toHaveLength(1);
   expect(records[0].verified, records[0].problems.join(", ")).toBe(true);
   expect(records[0].lines).toHaveLength(23);
@@ -119,6 +122,18 @@ test("scoring releases the microphone while the outro plays to its natural end",
   // after capture has ended must expose the result, without reopening capture.
   closed = false;
   await page.getByRole("button", { name: "Sing again", exact: true }).click();
+  await expect
+    .poll(
+      () =>
+        audio.evaluate(
+          (element: HTMLAudioElement) =>
+            !element.paused &&
+            element.currentTime > 0 &&
+            element.currentTime < 3,
+        ),
+      { timeout: 15000 },
+    )
+    .toBe(true);
   await expect.poll(() => closed, { timeout: 40000 }).toBe(true);
   expect(
     await audio.evaluate((element: HTMLAudioElement) => element.paused),
@@ -150,9 +165,10 @@ test("scoring releases the microphone while the outro plays to its natural end",
   ).toBe(true);
   expect(connections).toBe(2);
   expect(tickets).toBe(2);
-  const interrupted = await (
-    await page.request.get("/__fixture/records?learner=9")
-  ).json();
+  await expect
+    .poll(async () => (await publicRecords()).length, { timeout: 15000 })
+    .toBe(2);
+  const interrupted = await publicRecords();
   expect(interrupted).toHaveLength(2);
   expect(
     interrupted.every((record: { verified: boolean }) => record.verified),
