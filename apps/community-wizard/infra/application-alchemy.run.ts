@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import { encryptedLocalState } from "./encrypted-state.ts";
 import { applicationLearningBindings } from "./learning-bindings.ts";
+import { applicationRewardsBindings } from "./rewards-bindings.ts";
 
 export default Alchemy.Stack(
   "pirate-first-song-20261105",
@@ -45,6 +46,7 @@ export default Alchemy.Stack(
       },
       env: {
         ...applicationLearningBindings(process.env),
+        ...applicationRewardsBindings(process.env),
         DB,
         MEDIA,
         JOBS,

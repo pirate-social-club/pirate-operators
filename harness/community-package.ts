@@ -24,6 +24,10 @@ import {
 } from "./community-dependencies.ts";
 import { learningCommunityProfile } from "./learning-community-profile.ts";
 import {
+  rewardsReleaseSelection,
+  type RewardsReleaseSelection,
+} from "./rewards-release-profile.ts";
+import {
   applicationInfrastructureSources,
   writeApplicationInfrastructure,
 } from "./community-infrastructure.ts";
@@ -86,8 +90,19 @@ export async function artifactFiles(
   }
   return found.sort();
 }
-export async function communityPackage(study?: StudyReleaseSelection) {
+export async function communityPackage(
+  study?: StudyReleaseSelection,
+  rewards?: RewardsReleaseSelection,
+) {
   const selection = study ? studyReleaseSelection(study) : undefined;
+  const rewardSelection = rewards
+    ? rewardsReleaseSelection(rewards)
+    : undefined;
+  insist(
+    !rewardSelection || selection,
+    "reward_release_study_selection_required",
+    409,
+  );
   await verifyCommunityDependencies();
   const learning = await learningCommunityProfile(selection);
   const run = promisify(execFile),
@@ -161,6 +176,7 @@ export async function communityPackage(study?: StudyReleaseSelection) {
   );
   const migrations = (await readdir("apps/community-wizard/infra/migrations"))
     .filter((p) => /^\d{4}_.+\.sql$/.test(p))
+    .filter((p) => p !== "0011_manual_rewards.sql" || !!rewardSelection)
     .sort();
   const sourcePaths = [
     ...new Set(
@@ -305,6 +321,7 @@ export async function communityPackage(study?: StudyReleaseSelection) {
     },
     acceptance: learning.acceptance,
     learning,
+    ...(rewardSelection ? { rewards: rewardSelection } : {}),
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
   };

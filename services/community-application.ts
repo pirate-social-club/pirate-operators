@@ -78,6 +78,16 @@ import { studyAvailable, type StudyEnv } from "./study-community.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
 import { deleteExpiredStudyHistory } from "./study-retention.ts";
+import {
+  rewardsCommunityApi,
+  type RewardsApiPorts,
+} from "./rewards-community-api.ts";
+import { rewardProfile } from "../packages/rewards/validation.ts";
+import { rewardChain } from "../packages/rewards/chain.ts";
+import { rewardVeryProvider } from "../packages/rewards/very-provider.ts";
+import { liveRewardSources, resultSource } from "./reward-sources.ts";
+import { songKeyOf } from "../packages/protocol/records.ts";
+import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
@@ -92,6 +102,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
   /** Pirate's provider key for the one forced alignment per lyric revision. */
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
+  REWARDS_PROFILE_JSON?: string;
+  REWARDS_RESULT_SOURCE_JSON?: string;
 }
 export interface CommunityDependencies {
   configuration(): Promise<CommunityConfig>;
@@ -102,6 +114,7 @@ export interface CommunityDependencies {
   publicReads?: PublicReadPorts;
   alignmentTransport?: ProviderTransport;
   now?: () => number;
+  rewards?: Omit<RewardsApiPorts, "db" | "profile" | "now">;
 }
 function dependencies(
   env: CommunityEnv,
@@ -228,6 +241,55 @@ export async function communityFetch(
       await runtime.checkServices();
       return { config, ports: runtime };
     };
+    if (
+      url.pathname.startsWith("/api/rewards/") ||
+      url.pathname.startsWith("/api/operator/rewards")
+    ) {
+      insist(env.REWARDS_PROFILE_JSON, "rewards_not_configured", 503);
+      const profile = rewardProfile(env.REWARDS_PROFILE_JSON);
+      const config = await configuration();
+      const sources =
+        ports.rewards?.sources ??
+        (profile.mode === "live-testnet" && env.REWARDS_RESULT_SOURCE_JSON
+          ? liveRewardSources({
+              db: env.DB,
+              profile,
+              source: resultSource(env.REWARDS_RESULT_SOURCE_JSON, profile),
+              config,
+              reads: publicReads,
+            })
+          : undefined);
+      const result = await rewardsCommunityApi(
+        request,
+        {
+          db: env.DB,
+          profile,
+          chain: ports.rewards?.chain ?? rewardChain(),
+          verification: ports.rewards?.verification ?? rewardVeryProvider(),
+          sources,
+          now: ports.now,
+          songs:
+            ports.rewards?.songs ??
+            (async () =>
+              (await publicSongViews(env.DB, config, publicReads)).map(
+                (song) => ({
+                  title: song.manifest.title,
+                  postId: song.manifest.postId,
+                  songKey: songKeyOf({
+                    chainId: 6343,
+                    posts: config.postsContract,
+                    communityId: config.communityId,
+                    postId: bytes32(song.manifest.postId),
+                  }),
+                }),
+              )),
+        },
+        context,
+        security,
+      );
+      insist(result, "reward_route_not_found", 404);
+      return result;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       const schema = await env.DB.prepare(
         "SELECT version FROM setup_schema WHERE version=1",
@@ -405,6 +467,7 @@ export async function communityFetch(
         /* Fail closed while a required peer is unavailable. */
       }
       const capabilities: CommunityCapabilities = {
+        ...(env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
         study: studyAvailable(env, config),
         schema: "pirate.community-capabilities/1",
         signIn: true,
@@ -608,6 +671,18 @@ export async function communityScheduled(
   provided?: CommunityDependencies,
 ) {
   const failures: unknown[] = [];
+  if (env.REWARDS_PROFILE_JSON) {
+    try {
+      await reconcileRewardPayments(
+        env.DB,
+        rewardProfile(env.REWARDS_PROFILE_JSON),
+        provided?.rewards?.chain,
+        provided?.now,
+      );
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   try {
     await deleteExpiredStudyHistory(
       env.DB,

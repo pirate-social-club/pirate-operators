@@ -4,6 +4,8 @@
 @source "./upload.tsx";
 @source "./karaoke.tsx";
 @source "./study.tsx";
+@source "./rewards.tsx";
+@source "./reward-operator.tsx";
 @source "../study/";
 @source "../karaoke/";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog";
@@ -11,6 +13,7 @@
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dropdown-menu";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/icon-button";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/type";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/card";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/actions/button";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/feedback/spinner";
 

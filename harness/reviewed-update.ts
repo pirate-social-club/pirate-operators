@@ -9,6 +9,7 @@ import {
 } from "./learning-community-profile.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 import { assertStudyApplicationUpgrade } from "./study-application-upgrade.ts";
+import { assertRewardsApplicationUpgrade } from "./rewards-release-profile.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
 import {
@@ -88,7 +89,12 @@ export async function reviewedPredecessor(
     object(packaged.profile.learning ?? {}).studyContract ||
     object(object(previous.profile).learning ?? {}).studyContract
   );
-  if (study)
+  const rewards = !!(
+    packaged.profile.rewards || object(previous.profile).rewards
+  );
+  if (rewards)
+    assertRewardsApplicationUpgrade(object(previous.profile), packaged.profile);
+  else if (study)
     assertStudyApplicationUpgrade(object(previous.profile), packaged.profile);
   if (
     previous.profileHash === publishedBaselines.application &&

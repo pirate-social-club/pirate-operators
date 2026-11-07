@@ -26,6 +26,7 @@ export interface CommunitySessionView {
   pendingConnection: CreatorConnectionView | null;
 }
 export interface CommunityCapabilities {
+  rewards?: boolean;
   study?: boolean;
   learningServiceMode?: "internal";
   schema: "pirate.community-capabilities/1";

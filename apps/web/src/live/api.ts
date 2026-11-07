@@ -68,13 +68,34 @@ export async function putAudio(path: string, file: File, csrf: string) {
     );
 }
 const messages: Record<string, string> = {
+  reward_unmatched_outgoing:
+    "Review the unmatched outgoing transfer before preparing another payment.",
+  reward_audit_catching_up:
+    "Wallet history is still being checked. Refresh the audit, then continue.",
+  reward_payout_account_busy:
+    "The payout account has an unresolved payment. Check that payment first.",
+  reward_reserve_not_funded:
+    "The verified payout reserve does not cover this payment yet.",
+  reward_cost_matches_payment:
+    "This transfer belongs to a payment. Reconcile the payment instead of recording a cost.",
+  megapot_drawing_pending: "The drawing has not settled. Keep it pending.",
+  megapot_collection_receipt_required:
+    "Record the actual winnings collection transaction before crediting this win.",
+  reward_sources_not_qualified:
+    "The reward source configuration has not been qualified.",
   study_history_expired: "This private history has expired.",
-  sponsor_exhausted: "Sponsored practice is paused because the community allowance is exhausted.",
-  gas_price_above_limit: "Sponsored publication is waiting for the network fee to fall within the community limit.",
-  speech_budget_exhausted: "Speech practice has reached today's community limit.",
-  public_result_manifest_unavailable: "This song's public learning material is still being prepared.",
-  account_activation_not_approved: "This testnet wallet needs operator activation approval before enrollment.",
-  enrollment_not_active_yet: "Your enrollment is confirming. Try again in a moment.",
+  sponsor_exhausted:
+    "Sponsored practice is paused because the community allowance is exhausted.",
+  gas_price_above_limit:
+    "Sponsored publication is waiting for the network fee to fall within the community limit.",
+  speech_budget_exhausted:
+    "Speech practice has reached today's community limit.",
+  public_result_manifest_unavailable:
+    "This song's public learning material is still being prepared.",
+  account_activation_not_approved:
+    "This testnet wallet needs operator activation approval before enrollment.",
+  enrollment_not_active_yet:
+    "Your enrollment is confirming. Try again in a moment.",
   creator_service_unavailable:
     "The creator wallet service is unavailable. Your progress is saved.",
   release_processing_unavailable:

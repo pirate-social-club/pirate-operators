@@ -1,0 +1,309 @@
+import { bytes32, hashJson, insist } from "../community/common.ts";
+import type {
+  QualificationEntry,
+  RewardOffer,
+  RewardOfferInput,
+  RewardSources,
+} from "./contracts.ts";
+import { RewardStore, type OfferRow } from "./store.ts";
+import {
+  rewardAddress,
+  rewardAmount,
+  rewardId,
+  rewardTime,
+} from "./validation.ts";
+
+export function offerView(row: OfferRow): RewardOffer {
+  return {
+    offerId: row.offer_id,
+    drawingId: row.drawing_id,
+    songKey: row.song_key,
+    opensAt: row.opens_at,
+    cutoffAt: row.cutoff_at,
+    purchaseHash: row.purchase_hash,
+    ticketIds: JSON.parse(row.ticket_ids_json),
+    state: row.state,
+    entries: row.entries_json === null ? null : JSON.parse(row.entries_json),
+    winningsUsdcAtomic: row.winnings_usdc_atomic,
+    payoutAtomic: row.payout_atomic,
+    remainderAtomic: row.remainder_atomic,
+  };
+}
+export class RewardOffers {
+  readonly store: RewardStore;
+  readonly source: RewardSources;
+  readonly now: () => number;
+  constructor(
+    store: RewardStore,
+    source: RewardSources,
+    now: () => number = Date.now,
+  ) {
+    this.store = store;
+    this.source = source;
+    this.now = now;
+    insist(
+      store.profile.mode === source.mode,
+      "reward_evidence_mode_mismatch",
+      503,
+    );
+  }
+  async approve(accountId: string, wallet: string) {
+    rewardId(accountId);
+    wallet = rewardAddress(wallet);
+    return this.store.atomic(async () => {
+      const owner = await this.store
+        .statement(
+          "SELECT 1 AS ok FROM credential_bindings WHERE account_id=? AND namespace='moss' AND network=6343 AND subject=?",
+          accountId,
+          wallet,
+        )
+        .first();
+      insist(owner, "reward_account_wallet_mismatch", 409);
+      const prior = await this.store
+        .statement(
+          "SELECT wallet FROM reward_participants WHERE program_id=? AND account_id=?",
+          this.store.program,
+          accountId,
+        )
+        .first<{ wallet: string }>();
+      if (prior) {
+        insist(prior.wallet === wallet, "reward_account_wallet_changed", 409);
+        return { value: { accountId, wallet }, statements: [] };
+      }
+      return {
+        value: { accountId, wallet },
+        statements: [
+          this.store.statement(
+            "INSERT INTO reward_participants(program_id,account_id,wallet,approved_at) VALUES(?,?,?,?) ON CONFLICT(program_id,account_id) DO NOTHING",
+            this.store.program,
+            accountId,
+            wallet,
+            this.now(),
+          ),
+        ],
+      };
+    });
+  }
+  async attach(input: RewardOfferInput) {
+    rewardId(input.offerId);
+    rewardAmount(input.drawingId);
+    bytes32(input.songKey);
+    bytes32(input.purchaseHash);
+    rewardTime(input.opensAt);
+    rewardTime(input.cutoffAt);
+    const prior = await this.store
+      .statement(
+        "SELECT input_hash FROM reward_offers WHERE program_id=? AND offer_id=?",
+        this.store.program,
+        input.offerId,
+      )
+      .first<{ input_hash: string }>();
+    if (prior) {
+      insist(
+        prior.input_hash === hashJson(input),
+        "reward_offer_conflict",
+        409,
+      );
+      return offerView(await this.store.offer(input.offerId));
+    }
+    insist(
+      input.opensAt >= this.now() && input.cutoffAt > input.opensAt,
+      "reward_window_invalid",
+    );
+    insist(
+      input.ticketIds.length > 0 &&
+        input.ticketIds.length <= 50 &&
+        new Set(input.ticketIds).size === input.ticketIds.length,
+      "invalid_reward_tickets",
+    );
+    for (const id of input.ticketIds) rewardAmount(id);
+    const evidence = await this.source.purchase(input, this.store.profile);
+    bytes32(evidence.receiptHash);
+    return this.store.atomic(async () => {
+      const prior = await this.store
+        .statement(
+          "SELECT input_hash FROM reward_offers WHERE program_id=? AND offer_id=?",
+          this.store.program,
+          input.offerId,
+        )
+        .first<{ input_hash: string }>();
+      const hash = hashJson(input);
+      if (prior) {
+        insist(prior.input_hash === hash, "reward_offer_conflict", 409);
+        return {
+          value: offerView(await this.store.offer(input.offerId)),
+          statements: [],
+        };
+      }
+      insist(
+        this.now() < input.cutoffAt && this.now() <= input.opensAt,
+        "reward_attachment_late",
+        409,
+      );
+      const insert = this.store.statement(
+        `INSERT INTO reward_offers(program_id,offer_id,drawing_id,song_key,opens_at,cutoff_at,purchase_hash,ticket_ids_json,input_hash,purchase_evidence,state) VALUES(?,?,?,?,?,?,?,?,?,?,'open')`,
+        this.store.program,
+        input.offerId,
+        input.drawingId,
+        input.songKey,
+        input.opensAt,
+        input.cutoffAt,
+        input.purchaseHash,
+        JSON.stringify(input.ticketIds),
+        hash,
+        JSON.stringify(evidence),
+      );
+      return {
+        value: {
+          ...input,
+          state: "open" as const,
+          entries: null,
+          winningsUsdcAtomic: null,
+          payoutAtomic: null,
+          remainderAtomic: null,
+        },
+        statements: [
+          insert,
+          ...input.ticketIds.map((id) =>
+            this.store.statement(
+              "INSERT INTO reward_tickets(source_ticket_id,program_id,offer_id) VALUES(?,?,?)",
+              `84532:${id}`,
+              this.store.program,
+              input.offerId,
+            ),
+          ),
+        ],
+      };
+    });
+  }
+  async close(id: string) {
+    const input = offerView(await this.store.offer(rewardId(id)));
+    if (input.state !== "open") return input;
+    insist(this.now() >= input.cutoffAt, "reward_cutoff_not_reached", 409);
+    const candidates = await this.source.qualifiers(input);
+    insist(candidates.length <= 1000, "reward_entry_limit", 409);
+    return this.store.atomic(async () => {
+      const row = await this.store.offer(id);
+      if (row.state !== "open")
+        return { value: offerView(row), statements: [] };
+      const entries = new Map<string, QualificationEntry>();
+      for (const entry of candidates) {
+        rewardId(entry.accountId);
+        bytes32(entry.evidenceHash);
+        rewardTime(entry.completedAt);
+        const wallet = rewardAddress(entry.wallet);
+        insist(
+          entry.completedAt >= row.opens_at &&
+            entry.completedAt < row.cutoff_at,
+          "reward_evidence_outside_window",
+          409,
+        );
+        const participant = await this.store
+          .statement(
+            "SELECT wallet,approved_at FROM reward_participants WHERE program_id=? AND account_id=?",
+            this.store.program,
+            entry.accountId,
+          )
+          .first<{ wallet: string; approved_at: number }>();
+        if (!participant || participant.approved_at > row.opens_at) continue;
+        insist(
+          participant.wallet === wallet,
+          "reward_qualifier_wallet_changed",
+          409,
+        );
+        if (!entries.has(entry.accountId))
+          entries.set(entry.accountId, { ...entry, wallet });
+      }
+      const sorted = [...entries.values()].sort((a, b) =>
+        a.accountId.localeCompare(b.accountId),
+      );
+      insist(sorted.length <= 50, "reward_entry_limit", 409);
+      return {
+        value: { ...offerView(row), state: "closed" as const, entries: sorted },
+        statements: [
+          this.store.statement(
+            "UPDATE reward_offers SET state='closed',entries_json=? WHERE program_id=? AND offer_id=?",
+            JSON.stringify(sorted),
+            this.store.program,
+            id,
+          ),
+        ],
+      };
+    });
+  }
+  async settle(id: string, claimHash?: string) {
+    const input = offerView(await this.store.offer(rewardId(id)));
+    if (input.state === "settled" || input.state === "no_prize") return input;
+    insist(input.state !== "open", "reward_entries_not_closed", 409);
+    if (claimHash) bytes32(claimHash);
+    const observed = await this.source.winnings(
+      input,
+      this.store.profile,
+      claimHash,
+    );
+    const usdc = rewardAmount(observed.usdcAtomic);
+    if (this.store.profile.mode === "live-testnet" && usdc > 0n) {
+      bytes32(observed.transactionHash);
+      bytes32(observed.blockHash);
+      rewardAmount(observed.blockNumber);
+    }
+    bytes32(observed.receiptHash);
+    // Owner direction: preserve the nominal settled dollar amount; treasury covers conversion fees.
+    const payout = usdc * 10n ** BigInt(this.store.profile.decimals - 6);
+    rewardAmount(payout.toString());
+    return this.store.atomic(async () => {
+      const row = await this.store.offer(id);
+      if (row.state === "settled" || row.state === "no_prize") {
+        insist(
+          row.winnings_usdc_atomic === usdc.toString(),
+          "reward_settlement_changed",
+          409,
+        );
+        return { value: offerView(row), statements: [] };
+      }
+      insist(
+        row.state === "closed" && row.entries_json !== null,
+        "reward_entries_not_closed",
+        409,
+      );
+      const entries: QualificationEntry[] = JSON.parse(row.entries_json);
+      const share = entries.length ? payout / BigInt(entries.length) : 0n;
+      const remainder = payout - share * BigInt(entries.length);
+      const state: RewardOffer["state"] = usdc === 0n ? "no_prize" : "settled";
+      return {
+        value: {
+          ...offerView(row),
+          state,
+          winningsUsdcAtomic: usdc.toString(),
+          payoutAtomic: payout.toString(),
+          remainderAtomic: remainder.toString(),
+        },
+        statements: [
+          this.store.statement(
+            "UPDATE reward_offers SET state=?,winnings_usdc_atomic=?,payout_atomic=?,remainder_atomic=?,settlement_evidence=? WHERE program_id=? AND offer_id=?",
+            state,
+            usdc.toString(),
+            payout.toString(),
+            remainder.toString(),
+            JSON.stringify(observed),
+            this.store.program,
+            id,
+          ),
+          ...(share === 0n
+            ? []
+            : entries.map((entry) =>
+                this.store.statement(
+                  "INSERT INTO reward_credits(credit_id,program_id,offer_id,account_id,wallet,amount_atomic) VALUES(?,?,?,?,?,?)",
+                  `credit_${hashJson([this.store.program, id, entry.accountId]).slice(2)}`,
+                  this.store.program,
+                  id,
+                  entry.accountId,
+                  entry.wallet,
+                  share.toString(),
+                ),
+              )),
+        ],
+      };
+    });
+  }
+}

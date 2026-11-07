@@ -1,5 +1,6 @@
 import { communityDependencyModules } from "./community-dependencies.ts";
 import { readStudyReleaseSelection } from "./study-release-input.ts";
+import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
@@ -66,12 +67,16 @@ async function main() {
         "expected-profile": { type: "string" },
         "reviewed-update": { type: "boolean" },
         "study-profile": { type: "string" },
+        "rewards-profile": { type: "string" },
       },
     }),
     study = values["study-profile"]
       ? await readStudyReleaseSelection(values["study-profile"])
       : undefined,
-    { profile, profileHash, bytes } = await communityPackage(study);
+    rewards = values["rewards-profile"]
+      ? await readRewardsReleaseSelection(values["rewards-profile"])
+      : undefined,
+    { profile, profileHash, bytes } = await communityPackage(study, rewards);
   if (values["write-plan"])
     await writeFile(
       "docs/deployments/first-song-managed-20261105.application-plan.json",
@@ -328,6 +333,12 @@ async function main() {
         LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,
         LEARNING_ISSUER_ADDRESS: profile.learning.issuer,
         LEARNING_ISSUER_PRIVATE_KEY: issuerKey,
+        ...(rewards
+          ? {
+              REWARDS_PROFILE_JSON: JSON.stringify(rewards.profile),
+              REWARDS_RESULT_SOURCE_JSON: JSON.stringify(rewards.source),
+            }
+          : {}),
         ...(study
           ? {
               LEARNING_PROFILE: "pirate-learning-testnet-v3",

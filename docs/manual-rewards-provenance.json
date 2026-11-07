@@ -1,0 +1,27 @@
+{
+  "schema": "pirate.source-adoption/1",
+  "copies": [
+    {
+      "source": "harness/very/proof.ts",
+      "ref": "1f23c0a0c281d7c84fd460ed10036dc3361bfdfb",
+      "sourceSha256": "33aa710366c3479a88e7339684912aeeeda6259e7fbf0f406fa0ae10b14c9e62",
+      "copy": "packages/rewards/very-proof.ts",
+      "changes": [
+        "independent ownership",
+        "credential expiry bound equals intent expiry",
+        "local imports"
+      ]
+    },
+    {
+      "source": "harness/very/transport.ts",
+      "ref": "1f23c0a0c281d7c84fd460ed10036dc3361bfdfb",
+      "sourceSha256": "ad902bbd959bcafcb98420aca5493edc9e9bf4121530124aa57b8f1a958be5c3",
+      "copy": "packages/rewards/very-transport.ts",
+      "changes": [
+        "independent ownership",
+        "credential expiry bound equals intent expiry",
+        "local imports"
+      ]
+    }
+  ]
+}
