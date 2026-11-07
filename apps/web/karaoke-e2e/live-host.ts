@@ -142,9 +142,12 @@ const send = (
 };
 const learnerOf = (value: unknown) => {
   const index = Number(value);
-  if (!Number.isSafeInteger(index) || index < 5 || index > 8)
-    throw new Error("fixture learners are 5 to 8");
-  return accounts[index]!;
+  if (!Number.isSafeInteger(index) || index < 5 || index > 9)
+    throw new Error("fixture learners are 5 to 9");
+  // A separate public local key isolates the outro case; learners need no gas.
+  return index === 9
+    ? privateKeyToAccount(`0x${"a".padStart(64, "0")}`)
+    : accounts[index]!;
 };
 
 createServer(async (request, response) => {

@@ -11,5 +11,5 @@ export const LIVE_ALIGNMENT: SimulatedAlignment = {
   spaceMs: 10,
   lineGapMs: 150,
 };
-/** The stand-in stems; the instrumental's end finishes a take. */
-export const LIVE_STEM_MS = 21000;
+/** Include an instrumental outro after the last scored lyric. */
+export const LIVE_STEM_MS = 30000;
