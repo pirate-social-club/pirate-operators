@@ -139,6 +139,10 @@ test("actual environment builder selects V3 and retains all limits and current a
     managedOperatorReferences.state.key,
     "PIRATE_WIZARD_STATE_PASSWORD",
   );
+  assert.equal(
+    env.LEARNING_ISSUER_ADDRESS,
+    "0xBF85a150114d3df8B90A7793C0Ea4B2F4bB8C319",
+  );
   const bad = fixture();
   bad.selection.chainId = 1 as any;
   assert.throws(() => operatorEnvironment(bad, {}, "fixture", secrets));

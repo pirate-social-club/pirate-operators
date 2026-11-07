@@ -3,6 +3,7 @@ import { readFile, open } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
+import { getAddress } from "viem";
 import {
   hashJson,
   insist,
@@ -100,7 +101,7 @@ export function operatorEnvironment(
     LEARNING_RESULTS_CONTRACT: profile.selection.resultsV2.contract,
     LEARNING_RESULTS_V3_CONTRACT: profile.selection.resultsV3.contract,
     LEARNING_GRADER_ADDRESS: retainedLearningOperator.publisher,
-    LEARNING_ISSUER_ADDRESS: retainedLearningOperator.issuer,
+    LEARNING_ISSUER_ADDRESS: getAddress(retainedLearningOperator.issuer),
     LEARNING_OPERATOR_PRIVATE_KEY: secrets.operatorKey,
     LEARNING_ELEVENLABS_API_KEY: secrets.speech,
     LEARNING_SPONSOR_CAP_WEI: profile.retained.limits.sponsorCapWei,
