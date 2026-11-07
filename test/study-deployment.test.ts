@@ -403,7 +403,7 @@ test("prepared deployment cannot be hidden from correction inventory or a lost s
   assert.equal(f.state.sends.length, 0);
 });
 
-test("exact raw transaction substitution and missing prepared journal refuse recovery", async () => {
+test("missing prepared journal refuses recovery after unsigned preparation", async () => {
   const f = await studyDeploymentFixture(),
     step = await f.open();
   try {
@@ -420,5 +420,36 @@ test("exact raw transaction substitution and missing prepared journal refuse rec
     f.open(),
     /namespace_sidecar|ENOENT|prepared_journal_missing/,
   );
+  assert.equal(f.state.sends.length, 0);
+});
+
+test("same-signer raw substitution and a stored gas price above the reviewed cap refuse status", async () => {
+  const f = await studyDeploymentFixture();
+  const operation = studyDeploymentPlan(f.profile, f.artifact).operations[0];
+  for (const changed of ["recipient", "price"] as const) {
+    const gasPrice = changed === "price" ? 11n : 2n;
+    const raw = await f.account.signTransaction({
+      type: "legacy",
+      chainId: 6343,
+      nonce: operation.nonce,
+      ...(changed === "recipient" ? { to: f.profile.grader } : {}),
+      data: operation.data,
+      gas: BigInt(operation.gas),
+      gasPrice,
+      value: 0n,
+    });
+    await assert.rejects(
+      studyDeploymentStatus(f.client, operation, {
+        profileHash: operation.profileHash,
+        nonce: operation.nonce,
+        maximumFeeWei: operation.maximumFeeWei,
+        gasPriceWei: gasPrice.toString(),
+        raw,
+        hash: keccak256(raw),
+      }),
+      changed === "price" ? /price_changed/ : /transaction_changed/,
+    );
+  }
+  assert.equal(f.state.keyReads, 0);
   assert.equal(f.state.sends.length, 0);
 });

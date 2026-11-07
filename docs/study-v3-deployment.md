@@ -75,6 +75,12 @@ when canonical nonce/state checks prove that path is still valid. There are no
 fee bumps, replacement nonce allocations or automatic refunds. An unknown,
 confirming or reverted operation stops the sequence before the next operation.
 
+Resume first checks canonical status for the completed prefix and audits shared
+custody at the current unsettled operation, rather than treating a later pending
+operation in the same plan as an unrelated blocker. Status and completed runs
+also audit the current or final boundary. Unrelated unresolved profiles, missing
+prepared journals, orphaned files and noncanonical prior receipts still refuse.
+
 Receipts need twelve-block depth and canonical block rechecks. A canonical revert
 consumes its nonce and remains in the catalog, but never counts as successful
 setup. A lost or incomplete catalog cannot hide a surviving journal or lock.

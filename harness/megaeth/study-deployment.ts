@@ -144,22 +144,24 @@ export async function studyDeploymentMain(
         : undefined;
       const state = await studyDeploymentStatus(client, operation, stored);
       if (values.status) {
-        await auditControllerOperation(client, operation, path);
         status.push({ step: operation.step, ...state });
         continue;
       }
       if (state.state === "confirmed") {
-        await auditControllerOperation(client, operation, path);
+        // A later operation in this plan may be pending. Audit at that current
+        // frontier, rather than treating it as unrelated to an old prefix.
         status.push({ step: operation.step, ...state });
         continue;
       }
-      if (["confirming", "reverted"].includes(state.state))
+      if (["confirming", "reverted"].includes(state.state)) {
+        await auditControllerOperation(client, operation, path);
         return {
           mode: values.execute ? "execute" : "observe",
           profileHash: plan.profileHash,
           status: [...status, { step: operation.step, ...state }],
           complete: false,
         };
+      }
       const observation = await observeStudyDeployment(
         client,
         profile,
@@ -234,6 +236,16 @@ export async function studyDeploymentMain(
         journal.close();
       }
     }
+    // Audit one current status frontier or the final completed operation. The
+    // original unrelated-profile, orphan and prepared-journal guards still run.
+    const unsettled = status.findIndex((row) => row.state !== "confirmed");
+    const frontier =
+      plan.operations[unsettled < 0 ? plan.operations.length - 1 : unsettled];
+    await auditControllerOperation(
+      client,
+      frontier,
+      join(directory, frontier.profileHash.slice(2) + ".sqlite"),
+    );
     return {
       mode: values.status ? "status" : values.observe ? "observe" : "execute",
       profileHash: plan.profileHash,
