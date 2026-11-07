@@ -146,6 +146,22 @@ test("actual account cookies, Origin and CSRF protect credits, verification inte
     assert.equal(accepted.outcome, "accepted");
     assert.equal(accepted.credit.paid_atomic, "0");
     assert.equal(accepted.credit.claim.payout_status, "awaiting_payment");
+    const overview = (await (
+      await call(2, "/api/operator/rewards")
+    ).json()) as {
+      liabilities: {
+        total: string;
+        unclaimed: string;
+        held: string;
+        accepted: string;
+      };
+    };
+    assert.deepEqual(overview.liabilities, {
+      total: "1110000",
+      unclaimed: "555000",
+      held: "0",
+      accepted: "555000",
+    });
     const wallet = (await (await call(0, "/api/rewards/wallet")).json()) as {
       balanceAtomic: string;
       practiceOnly: boolean;

@@ -138,6 +138,12 @@ async function fixture(page: Page, operator = false) {
     if (path === "/api/operator/rewards")
       return json({
         offers: [],
+        liabilities: {
+          total: "180000",
+          unclaimed: "0",
+          held: "0",
+          accepted: "180000",
+        },
         payments: prepared ? [payment()] : [],
         ready:
           prepared && !cancelled
@@ -271,6 +277,7 @@ test("operator sees one combined payment and can cancel it before requesting a s
 }) => {
   const f = await fixture(page, true);
   await page.goto(origin + "/operator/rewards");
+  await expect(page.getByText(/Unpaid learner winnings: \$0.18/)).toBeVisible();
   await expect(
     page.getByText("$0.18 across 2 credits", { exact: true }),
   ).toBeVisible();

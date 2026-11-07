@@ -151,13 +151,27 @@ export function LiveRewardOperator(props: {
                     current().inventory.received_atomic,
                     current().decimals,
                   )}{" "}
-                  · Reserved:{" "}
+                  · Prepared payments:{" "}
                   {dollars(
                     current().inventory.reserved_atomic,
                     current().decimals,
                   )}{" "}
                   · Paid:{" "}
                   {dollars(current().inventory.paid_atomic, current().decimals)}
+                </Type>
+                <Type as="p">
+                  Unpaid learner winnings:{" "}
+                  {dollars(current().liabilities.total, current().decimals)}.
+                  Unclaimed:{" "}
+                  {dollars(current().liabilities.unclaimed, current().decimals)}{" "}
+                  · Held:{" "}
+                  {dollars(current().liabilities.held, current().decimals)} ·
+                  Verified, awaiting payment:{" "}
+                  {dollars(current().liabilities.accepted, current().decimals)}.
+                </Type>
+                <Type as="p" variant="caption">
+                  Unpaid winnings remain owed even when they are not yet funded
+                  in this payout account.
                 </Type>
                 <Type as="p" class="break-all">
                   Dedicated payout account: {current().payoutWallet}

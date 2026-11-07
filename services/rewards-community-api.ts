@@ -26,7 +26,11 @@ import {
 import { RewardOffers, offerView } from "../packages/rewards/offers.ts";
 import { RewardClaims } from "../packages/rewards/claims.ts";
 import { RewardPayments } from "../packages/rewards/payments.ts";
-import { rewardAddress, rewardId } from "../packages/rewards/validation.ts";
+import {
+  rewardAddress,
+  rewardId,
+  rewardAmount,
+} from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
 
 export interface RewardsApiPorts {
@@ -215,6 +219,30 @@ export async function rewardsCommunityApi(
             .all(),
         ]);
       insist(ready.results.length <= 500, "reward_operator_page_limit", 409);
+      const unpaid = await store
+        .statement(
+          "SELECT amount_atomic,paid_atomic,claim_state FROM reward_credits WHERE program_id=? AND paid_atomic='0' ORDER BY credit_id LIMIT 5001",
+          store.program,
+        )
+        .all<{
+          amount_atomic: string;
+          paid_atomic: string;
+          claim_state: string;
+        }>();
+      insist(unpaid.results.length <= 5000, "reward_operator_page_limit", 409);
+      const liabilities = { total: 0n, unclaimed: 0n, held: 0n, accepted: 0n };
+      for (const credit of unpaid.results) {
+        const amount =
+          rewardAmount(credit.amount_atomic) - rewardAmount(credit.paid_atomic);
+        liabilities.total += amount;
+        liabilities[
+          credit.claim_state === "unclaimed"
+            ? "unclaimed"
+            : credit.claim_state === "subject_conflict"
+              ? "held"
+              : "accepted"
+        ] += amount;
+      }
       const participants = await store
         .statement(
           "SELECT b.account_id,b.subject AS wallet,p.approved_at FROM credential_bindings b LEFT JOIN reward_participants p ON p.program_id=? AND p.account_id=b.account_id WHERE b.namespace='moss' AND b.network=6343 ORDER BY b.account_id LIMIT 100",
@@ -228,6 +256,12 @@ export async function rewardsCommunityApi(
         ),
         ready: ready.results,
         inventory,
+        liabilities: Object.fromEntries(
+          Object.entries(liabilities).map(([key, value]) => [
+            key,
+            value.toString(),
+          ]),
+        ),
         unmatched: (await treasury.unmatched()).map((r) =>
           JSON.parse(r.receipt_json),
         ),

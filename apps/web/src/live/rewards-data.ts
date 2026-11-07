@@ -25,6 +25,12 @@ export interface RewardOperatorView {
     cost_atomic: string;
   };
   payoutWallet: string;
+  liabilities: {
+    total: string;
+    unclaimed: string;
+    held: string;
+    accepted: string;
+  };
   practiceOnly: boolean;
   funding: {
     funding_id: string;
