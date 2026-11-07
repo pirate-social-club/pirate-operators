@@ -473,12 +473,16 @@ export async function communityFetch(
           env.MEDIA,
           config,
           instrumental[1] as Hex,
+          request.headers.get("range"),
         ),
         stemHeaders = new Headers(stem.headers);
       for (const [name, value] of security)
         if (name !== "cache-control") stemHeaders.set(name, value);
       stemHeaders.set("server-timing", timing.header());
-      return new Response(stem.body, { headers: stemHeaders });
+      return new Response(stem.body, {
+        status: stem.status,
+        headers: stemHeaders,
+      });
     }
     if (url.pathname === "/api/karaoke/attempt") {
       insist(request.method === "GET", "method_not_allowed", 405);

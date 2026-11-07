@@ -81,8 +81,12 @@ export async function publishedStem(
   );
   return stem;
 }
-async function stemBytes(media: R2Bucket, stem: PublishedStem) {
-  const stored = await media.get(stem.object_key);
+async function stemBytes(
+  media: R2Bucket,
+  stem: PublishedStem,
+  range?: R2Range,
+) {
+  const stored = await media.get(stem.object_key, { range });
   insist(
     stored &&
       stored.etag === stem.object_etag &&
@@ -290,20 +294,47 @@ export async function instrumentalResponse(
   media: R2Bucket,
   config: CommunityConfig,
   postId: Hex,
+  rangeHeader: string | null = null,
 ) {
   const stem = await publishedStem(
-      db,
-      config.communityId,
-      postId,
-      "instrumental",
-    ),
-    stored = await stemBytes(media, stem);
+    db,
+    config.communityId,
+    postId,
+    "instrumental",
+  );
+  const headers = new Headers({
+    "content-type": "audio/mpeg",
+    "accept-ranges": "bytes",
+    "cache-control": "private, no-store",
+    "x-content-type-options": "nosniff",
+  });
+  let range: { offset: number; length: number } | undefined;
+  if (rangeHeader !== null) {
+    const parts = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+    const valid =
+      parts &&
+      (parts[1] || parts[2]) &&
+      parts.slice(1).every((p) => !p || Number.isSafeInteger(Number(p)));
+    const start = valid
+      ? parts[1]
+        ? Number(parts[1])
+        : Math.max(0, stem.byte_length - Number(parts[2]))
+      : stem.byte_length;
+    const end =
+      valid && parts[1] && parts[2]
+        ? Math.min(Number(parts[2]), stem.byte_length - 1)
+        : stem.byte_length - 1;
+    if (!valid || start > end || start >= stem.byte_length) {
+      headers.set("content-range", `bytes */${stem.byte_length}`);
+      return new Response(null, { status: 416, headers });
+    }
+    range = { offset: start, length: end - start + 1 };
+    headers.set("content-range", `bytes ${start}-${end}/${stem.byte_length}`);
+  }
+  const stored = await stemBytes(media, stem, range);
+  headers.set("content-length", String(range?.length ?? stem.byte_length));
   return new Response(stored.body, {
-    headers: {
-      "content-type": "audio/mpeg",
-      "content-length": String(stem.byte_length),
-      "cache-control": "private, no-store",
-      "x-content-type-options": "nosniff",
-    },
+    status: range ? 206 : 200,
+    headers,
   });
 }

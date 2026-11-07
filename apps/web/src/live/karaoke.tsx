@@ -19,6 +19,7 @@ import {
 } from "../karaoke/route-states.tsx";
 import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
 import { ScoringResponseWatch } from "../karaoke/scoring-response-watch.ts";
+import { positionPlaybackWhenReady } from "../karaoke/playback-position.ts";
 import {
   Dialog,
   DialogContent,
@@ -98,6 +99,9 @@ export function LiveKaraoke(props: {
     [take, setTake] = createSignal<OpenTake | null>(null),
     [finished, setFinished] = createSignal<Finished | null>(null),
     [notice, setNotice] = createSignal<string | null>(null),
+    [restoredRatingKey, setRestoredRatingKey] = createSignal<string | null>(
+      null,
+    ),
     [feedback, setFeedback] = createSignal<{
       lineScores: readonly LineFeedback[];
       latestLineId: string | null;
@@ -116,9 +120,11 @@ export function LiveKaraoke(props: {
     disposed = false;
   const scoringResponses = new ScoringResponseWatch();
   let scoringRecoveryUsed = false;
+  let cancelPlaybackPosition: (() => void) | undefined;
   let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
     disposed = true;
+    cancelPlaybackPosition?.();
     consentAnswer?.(false);
   });
   const confirmEnrollment = () =>
@@ -203,7 +209,7 @@ export function LiveKaraoke(props: {
       if (message.type === "ready") {
         attemptStart = message.attemptStart;
         if (message.feedback)
-          acceptFeedback(message.feedback as Record<string, unknown>);
+          acceptFeedback(message.feedback as Record<string, unknown>, true);
         void buyAhead();
       } else if (message.type === "line_scores") acceptFeedback(message);
       else if (message.type === "error") {
@@ -220,6 +226,7 @@ export function LiveKaraoke(props: {
   });
 
   function stopFailedScoring(message: string) {
+    cancelPlaybackPosition?.();
     scoringResponses.reset();
     setStarting(false);
     setNotice(message);
@@ -275,7 +282,7 @@ export function LiveKaraoke(props: {
     }
   }
 
-  function acceptFeedback(message: Record<string, unknown>) {
+  function acceptFeedback(message: Record<string, unknown>, restored = false) {
     if (!Array.isArray(message.lineScores)) return;
     const lines = message.lineScores as LineFeedback[];
     if (
@@ -289,11 +296,14 @@ export function LiveKaraoke(props: {
       )
     )
       return;
-    setFeedback({
+    const next = {
       lineScores: lines,
       latestLineId:
         typeof message.latestLineId === "string" ? message.latestLineId : null,
-    });
+    };
+    if (restored)
+      setRestoredRatingKey(deriveKaraokeFeedback(next).rating?.key ?? null);
+    setFeedback(next);
   }
   const currentFeedback = () => deriveKaraokeFeedback(feedback());
 
@@ -345,6 +355,7 @@ export function LiveKaraoke(props: {
     for (let i = 0; i < 150 && !ready(); i++) await sleep(20);
   }
   async function start(fromMs: number) {
+    cancelPlaybackPosition?.();
     scoringResponses.reset();
     scoringRecoveryUsed = false;
     setStarting(true);
@@ -407,6 +418,7 @@ export function LiveKaraoke(props: {
         attemptStart = null;
         setFinished(null);
         setFeedback(null);
+        setRestoredRatingKey(null);
         currentTake = {
           ticketId: issued.ticket.body.ticketId,
           socketUrl: issued.socketUrl,
@@ -422,13 +434,20 @@ export function LiveKaraoke(props: {
         );
       const resumed = resume();
       if (resumed) {
-        fromMs = resumed.elapsedMs + (performance.now() - resumed.at);
-        if (playback) playback.currentTime = fromMs / 1000;
+        const position = () =>
+          resumed.elapsedMs + (performance.now() - resumed.at);
+        fromMs = position();
+        if (playback)
+          cancelPlaybackPosition = positionPlaybackWhenReady(
+            playback,
+            position,
+          );
         setResume(null);
       }
       songMs = fromMs;
       await capture.controls.start(fromMs);
     } catch (failure) {
+      cancelPlaybackPosition?.();
       setStarting(false);
       setNotice(
         failure instanceof Error
@@ -464,6 +483,7 @@ export function LiveKaraoke(props: {
     return false;
   }
   async function finish(atMs: number) {
+    cancelPlaybackPosition?.();
     await capture.controls.noteFinish(atMs);
     await refreshUntil((view) => view.state === "finished");
   }
@@ -521,10 +541,16 @@ export function LiveKaraoke(props: {
                 finished()?.result.presentation?.bestCombo ??
                 currentFeedback().bestCombo
               }
-              rating={currentFeedback().rating}
+              rating={
+                singingStatus() === "active" &&
+                currentFeedback().rating?.key !== restoredRatingKey()
+                  ? currentFeedback().rating
+                  : null
+              }
               onExit={props.onExit}
               onStartSinging={(ms) => void start(ms)}
               onPlaybackElement={(element) => {
+                if (playback !== element) cancelPlaybackPosition?.();
                 playback = element;
                 capture.controls.attachPlaybackElement(element);
               }}
