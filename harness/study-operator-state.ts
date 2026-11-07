@@ -16,7 +16,8 @@ export function assertOwnedOperatorState(
     );
   };
   insist(
-    ["created", "updated", "updating"].includes(String(record.status)) &&
+    typeof record.status === "string" &&
+      ["created", "updated", "updating"].includes(record.status) &&
       record.resourceType === "Cloudflare.Worker" &&
       record.logicalId === "Operator" &&
       (record.providerMode === undefined || record.providerMode === "live"),
@@ -40,7 +41,8 @@ export function assertOwnedOperatorState(
         old.resourceType === "Cloudflare.Worker") &&
         (old.logicalId === undefined || old.logicalId === "Operator") &&
         (old.status === undefined ||
-          ["created", "updated"].includes(String(old.status))) &&
+          (typeof old.status === "string" &&
+            ["created", "updated"].includes(old.status))) &&
         (old.providerMode === undefined || old.providerMode === "live") &&
         Array.isArray(old.bindings),
       "study_operator_updating_predecessor_changed",

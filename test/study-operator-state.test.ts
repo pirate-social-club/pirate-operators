@@ -119,6 +119,19 @@ test("optional full old metadata cannot disguise replacement, foreign identity o
     await assert.rejects(f.run(), /updating_predecessor_changed/);
   }
 });
+test("JSON array current status cannot bypass required updating predecessor checks", async () => {
+  const f = await stateCase();
+  f.record.status = ["updating"];
+  delete f.record.old;
+  await f.save();
+  await assert.rejects(f.run(), /owned_worker_state_changed/);
+});
+test("JSON array optional old status cannot disguise a terminal predecessor", async () => {
+  const f = await stateCase();
+  f.record.old.status = ["updated"];
+  await f.save();
+  await assert.rejects(f.run(), /updating_predecessor_changed/);
+});
 test("creating, replacing, deleting and foreign top-level identities fail closed", async () => {
   for (const [k, value] of [
     ["status", "creating"],
