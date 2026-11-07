@@ -22,6 +22,8 @@ export async function prepareOperatorPackage(sourceRoot: string) {
     write: false,
     format: "esm",
     platform: "browser",
+    // Keep module labels independent of preserved dependency symlink topology.
+    preserveSymlinks: true,
     target: "es2022",
     external: ["cloudflare:workers"],
     metafile: true,

@@ -25,6 +25,7 @@ import {
   operatorProfile,
   type OperatorProfile,
 } from "./study-operator-profile.ts";
+import { assertOperatorModuleClosure } from "./study-operator-module-closure.ts";
 import type { prepareOperatorPackage } from "./study-operator-package.ts";
 export function redactOperatorOutput(
   output: string,
@@ -122,7 +123,7 @@ export async function writeOperatorPackage(
       await handle?.close();
     }
   }
-  const dependencies = join(directory, "node_modules");
+  const dependencies = join(releaseDirectory(hash), "node_modules");
   try {
     await symlink(communityDependencyModules, dependencies, "dir");
   } catch (error) {
@@ -141,6 +142,7 @@ export async function writeOperatorPackage(
       Object.entries(prepared.files).map(([n, b]) => [n, digest(b)]),
     ),
   });
+  await assertOperatorModuleClosure(profile, directory, prepared);
   return directory;
 }
 export async function deployOperatorOnce(
@@ -347,4 +349,5 @@ export async function assertDispatchedPackage(
     "study_operator_package_artifact_changed",
     409,
   );
+  await assertOperatorModuleClosure(profile, directory, prepared);
 }

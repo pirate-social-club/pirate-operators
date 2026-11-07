@@ -68,3 +68,36 @@ be compatible before the directory changes. This command never switches the
 directory, enrolls a learner, starts speech, funds rewards or permits mainnet.
 Deployed V2 readability, real Study acceptance and measured costs remain release
 gates after source qualification.
+
+The operator's five reviewed public package files stay unchanged, with
+`operator.mjs` in the package directory. The dependency link belongs in the
+release directory above that package. The pinned Prebuilt reader recursively
+selects modules beneath the entry's directory; a package-local dependency link
+previously selected 8198 files rather than one. Before operator signing-key or
+speech-credential loading and again at child dispatch, the maintained guard
+rejects extra paths, directories and symlinks, qualifies ancestor import
+resolution, and runs the actual pinned reader. Its result must be exactly one
+`operator.mjs` with the reviewed bytes and digest. The raw plan receipt binds
+that closure, and final plan review requires it.
+
+The runtime compiler preserves symlinks so governed dependency-link layouts do
+not change its module-path labels or generated factory names. Independent
+root/tools builds with this option were byte-identical to the retained
+991561-byte runtime. This accepts exact bytes, not an assumption that different
+compiler output is semantically equivalent. The provider integration tests run
+against the retained SDK, or the same project SDK when available in CI. A
+root-only CI job without that SDK explicitly skips those nine provider cases;
+the local release gate must run them without skips. Real cipher/state cases
+remain ordinary CI coverage.
+
+A fresh reviewed profile may authenticate an interrupted `updating` snapshot
+only when its exact ciphertext is pinned, the top-level Worker identity is
+owned, both current and old attributes identify the same physical account/tag/
+name, and both desired names retain the fixed target. Optional old metadata
+must agree when present; creating, replacing, deleting, foreign or local-mode
+state is refused. Authentication never rewrites or rolls back state. Original
+unknown execution records, packages and backups remain retained. An old unknown
+attempt still follows reconcile-only handling; this state-reader repair does
+not authorize its replay. A new exact source/profile, actual plan, independent
+review, fresh inventory and finite custody are required for a separate bounded
+reconciliation.

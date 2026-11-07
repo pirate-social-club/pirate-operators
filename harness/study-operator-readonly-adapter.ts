@@ -23,6 +23,7 @@ import {
 } from "./study-operator-profile.ts";
 const digest = (v: Uint8Array | string) =>
   "0x" + createHash("sha256").update(v).digest("hex");
+import { assertOwnedOperatorState } from "./study-operator-state.ts";
 const operatorBase = () =>
   join(homedir(), ".local/state/pirate-learning-results-testnet-20261106");
 export async function privateBytes(path: string, maximum = 16 * 1024 * 1024) {
@@ -213,10 +214,10 @@ export async function observeOperatorCloud(
 export async function authenticateOperatorFiles(
   profile: OperatorProfile,
   password: string,
+  base = operatorBase(),
 ) {
   profile = operatorProfile(profile);
-  const base = operatorBase(),
-    state = join(base, "alchemy/.alchemy/state"),
+  const state = join(base, "alchemy/.alchemy/state"),
     found: string[] = [];
   async function walk(relative: string) {
     for (const entry of await readdir(join(state, relative), {
@@ -262,17 +263,7 @@ export async function authenticateOperatorFiles(
       JSON.parse(unseal(bytes.toString(), password, "alchemy-state:" + path)),
     );
     if (path === "pirate-learning-testnet-v2/testnet/Operator.json") {
-      const attr = object(record.attr);
-      insist(
-        ["created", "updated"].includes(String(record.status)) &&
-          record.resourceType === "Cloudflare.Worker" &&
-          record.logicalId === "Operator" &&
-          attr.accountId === profile.worker.accountId &&
-          attr.workerId === profile.worker.tag &&
-          attr.workerName === profile.worker.name,
-        "study_operator_owned_worker_state_changed",
-        409,
-      );
+      assertOwnedOperatorState(record, profile);
     }
   }
   const quoteBytes = await privateBytes(join(base, "quote-window.json"), 65536),
@@ -287,7 +278,7 @@ export async function authenticateOperatorFiles(
   return {
     ciphertextHashes: hashes,
     quoteWindowSha256: digest(quoteBytes),
-    ownership: "authenticated original encrypted operator state",
+    ownership: "authenticated reviewed encrypted operator state",
   };
 }
 export interface WalletAdmission {

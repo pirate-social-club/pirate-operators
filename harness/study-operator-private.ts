@@ -150,6 +150,20 @@ export async function readPlanReview(profile: OperatorProfile) {
     "study_operator_cloud_plan_scope_changed",
     409,
   );
+  insist(
+    canonical(receipt.moduleClosure) ===
+      canonical({
+        modules: 1,
+        module: "operator.mjs",
+        bytes: profile.artifact.bytes,
+        sha256: profile.artifact.sha256,
+        providerVersion: "2.0.0-beta.85",
+        readerSha256:
+          "0xef714ea3462f9d9253445da9042647c2108b6339e18b9848aa183dc1931baa95",
+      }),
+    "study_operator_reviewed_upload_closure_changed",
+    409,
+  );
   return { ...value, receipt };
 }
 async function privateDirectory(path: string) {

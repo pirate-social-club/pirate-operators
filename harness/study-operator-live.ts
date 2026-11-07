@@ -49,6 +49,7 @@ import {
   operatorProfile,
   type OperatorProfile,
 } from "./study-operator-profile.ts";
+import { assertOperatorModuleClosure } from "./study-operator-module-closure.ts";
 import type {
   OperatorRunnerPorts,
   LiveOperator,
@@ -269,6 +270,14 @@ export function makeLiveOperatorPorts(
           409,
         );
       }
+      insist(prepared && before, "study_operator_preparation_missing", 409);
+      // Materialize and qualify the exact upload closure before runtime key/speech loading.
+      await writeOperatorPackage(
+        profile,
+        hashJson(profile),
+        prepared,
+        profile.execution.reviewedPlanPath ? "deploy" : "plan",
+      );
       const path = join(
           homedir(),
           ".config/pirate-operators/megaeth-testnet/keys.json",
@@ -387,6 +396,11 @@ export function makeLiveOperatorPorts(
         rawPlanSha256: digest(result.planOutput),
         packageFiles: Object.fromEntries(
           Object.entries(prepared.files).map(([n, b]) => [n, digest(b)]),
+        ),
+        moduleClosure: await assertOperatorModuleClosure(
+          profile,
+          join(releaseDirectory(hash), "package"),
+          prepared,
         ),
         diagnosticId: result.logId,
       });
