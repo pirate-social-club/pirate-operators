@@ -252,13 +252,15 @@ export async function serveStudy(
     }
     if (path.endsWith("/abandon")) {
       counts.abandons++;
-      lesson = {
-        ...lesson!,
-        status: "abandoned",
-        current: null,
-        completionReason: "left",
-        completedAt: Date.now(),
-      };
+      // The real lesson service preserves a terminal row on repeated abandon.
+      if (lesson?.status === "active")
+        lesson = {
+          ...lesson,
+          status: "abandoned",
+          current: null,
+          completionReason: "left",
+          completedAt: Date.now(),
+        };
       return json(lesson);
     }
     if (path.startsWith("/api/study/lessons/")) return json(lesson);
@@ -309,6 +311,15 @@ export async function serveStudy(
           firstPassGraded: 4,
           firstPassCorrect: 3,
         },
+      };
+    },
+    end(status: "expired" | "abandoned") {
+      lesson = {
+        ...lesson!,
+        status,
+        current: null,
+        completionReason: status === "expired" ? "deadline" : "left",
+        completedAt: Date.now(),
       };
     },
     publish() {

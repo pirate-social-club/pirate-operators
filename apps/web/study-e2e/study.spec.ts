@@ -67,25 +67,23 @@ test("Stop submits, correct answers play feedback and advance; the lesson surviv
     page.getByRole("button", { name: /Check my answer|Next line/ }),
   ).toHaveCount(0);
   await record(page);
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[1]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
   expect(await page.evaluate(() => window.__studySounds)).toEqual([
     expect.stringContaining("/correct-"),
   ]);
   await page.reload();
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[1]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
   expect(await page.evaluate(() => window.__studySounds)).toEqual([]);
   for (const text of lineTexts.slice(1)) {
     await setHeard(request, text);
     await record(page);
     if (text !== lineTexts[3])
-      await expect(page.getByRole("blockquote")).not.toHaveText(text);
+      await expect(page.locator(".study-surface h2")).not.toHaveText(text);
   }
   await expect(
-    page.getByRole("heading", { name: "Lesson complete" }),
+    page.getByRole("heading", { name: "Outstanding!" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("4 of 4 lines matched on the first try."),
-  ).toBeVisible();
+  await expect(page.getByText("4/4", { exact: true })).toBeVisible();
   const state = await (await request.get("/__fixture")).json();
   expect(state.calls).toBe(4);
   expect(state.lesson.status).toBe("completed");
@@ -100,13 +98,18 @@ test("a miss has one Continue, returns after unseen lines and keeps its first-pa
   await page.goto("/");
   await record(page);
   await expect(
-    page.getByRole("heading", { name: "Incorrect", exact: true }),
+    page
+      .locator('[data-study-result="incorrect"]')
+      .getByText("Incorrect", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[0]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[0]);
+  await expect(page.locator("[data-heard-transcript]")).toBeVisible();
   await expect(
-    page.getByText("unrelated words", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByRole("button")).toHaveCount(1);
+    page.getByRole("button", { name: "Continue", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Continue", exact: true }),
   ).toBeVisible();
@@ -117,25 +120,23 @@ test("a miss has one Continue, returns after unseen lines and keeps its first-pa
   expect(missed.lesson.current.line.text).toBe(lineTexts[1]);
   expect(missed.attempts[0].grade.correct).toBe(false);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[1]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
   await page.reload();
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[1]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
   for (const text of lineTexts.slice(1)) {
     await setHeard(request, text);
     await record(page);
-    await expect(page.getByRole("blockquote")).not.toHaveText(text);
+    await expect(page.locator(".study-surface h2")).not.toHaveText(text);
   }
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[0]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[0]);
   await page.reload();
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[0]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[0]);
   await setHeard(request, lineTexts[0]);
   await record(page);
   await expect(
-    page.getByRole("heading", { name: "Lesson complete" }),
+    page.getByRole("heading", { name: "Great work!" }),
   ).toBeVisible();
-  await expect(
-    page.getByText("3 of 4 lines matched on the first try."),
-  ).toBeVisible();
+  await expect(page.getByText("3/4", { exact: true })).toBeVisible();
   const state = await (await request.get("/__fixture")).json();
   expect(state.calls).toBe(5);
   expect(state.lesson.progress.firstPassCorrect).toBe(3);
@@ -153,7 +154,7 @@ test("lost submission response recovers the stored grade and queue without anoth
   await request.patch("/__fixture", { data: { lostResponse: true } });
   await page.goto("/");
   await record(page);
-  await expect(page.getByRole("blockquote")).toHaveText(lineTexts[1]);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
   await expect(page.getByRole("alert")).not.toBeVisible();
   const state = await (await request.get("/__fixture")).json();
   expect(state.calls).toBe(1);
@@ -246,7 +247,7 @@ test("expired and paused lessons retain their history when Study again opens a n
   await expect(
     page.getByRole("button", { name: "Record", exact: true }),
   ).not.toBeVisible();
-  await page.getByRole("button", { name: "Study again" }).click();
+  await page.getByRole("button", { name: "Try Again" }).click();
   await expect(
     page.getByRole("button", { name: "Record", exact: true }),
   ).toBeVisible();

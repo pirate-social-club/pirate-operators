@@ -147,6 +147,7 @@ export async function communityPackage(study?: StudyReleaseSelection) {
       "--",
       "apps/web/src/live",
       "apps/web/src/karaoke",
+      "apps/web/src/study",
       "apps/web/src/ui.ts",
       "apps/web/src/api-contract.ts",
       "apps/web/src/model.ts",
@@ -188,7 +189,12 @@ export async function communityPackage(study?: StudyReleaseSelection) {
   ].sort();
   const hashes = Object.fromEntries(
       await Promise.all(
-        sourcePaths.map(async (p) => [p, hashText(await readFile(p, "utf8"))]),
+        sourcePaths.map(async (p) => [
+          p,
+          p.endsWith(".mp3")
+            ? fileDigest(await readFile(p))
+            : hashText(await readFile(p, "utf8")),
+        ]),
       ),
     ),
     assetFiles = await artifactFiles("apps/web/dist/live"),

@@ -5,7 +5,8 @@ import type {
 } from "../../../../packages/study/lesson.ts";
 import type { StudyPublicationReceipt } from "../../../../packages/study/publication-view.ts";
 import { createStudyClient, type StudyClient } from "../study/client.ts";
-import { StudyScreen } from "../study/screen.tsx";
+import { StudyScreen, StudyLoading } from "../study/screen.tsx";
+import { StudyRouteLoadFailureState } from "../study/presentation/studying-route-states.tsx";
 import { Button } from "../ui.ts";
 import { get, post } from "./api.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
@@ -185,53 +186,59 @@ export function LiveStudy(props: {
   };
   return (
     <section class="live-study" aria-label={`Study: ${props.title}`}>
-      <div class="study-navigation">
-        <Button variant="ghost" onClick={props.onExit}>
-          Back to songs
-        </Button>
-        <span>{props.title}</span>
-        <nav class="learning-policy-links" aria-label="Study policies">
-          <a href="/learning/v3/terms" target="_blank" rel="noopener">
-            Terms
-          </a>
-          <span aria-hidden="true">·</span>
-          <a href="/learning/v3/privacy" target="_blank" rel="noopener">
-            Privacy
-          </a>
-        </nav>
-      </div>
       <Show
         when={client()}
         fallback={
-          <div class="study-page">
-            <h1>Study</h1>
-            <Show
-              when={error()}
-              fallback={<p role="status">Loading your song…</p>}
-            >
-              <p role="alert">{error()}</p>
-              <Button onClick={() => void load()}>Try again</Button>
-            </Show>
-          </div>
+          <Show
+            when={error()}
+            fallback={<StudyLoading onExit={props.onExit} />}
+          >
+            <StudyRouteLoadFailureState
+              title="Study is unavailable"
+              description={error()}
+              onRetry={() => void load()}
+              onGoHome={props.onExit}
+            />
+          </Show>
         }
       >
-        {(current) => <StudyScreen client={current()} onLesson={observe} />}
+        {(current) => (
+          <StudyScreen
+            client={current()}
+            onLesson={observe}
+            onExit={props.onExit}
+            terminalNote={
+              <Show when={terminalId()}>
+                <div class="study-publication">
+                  <p role="status">{publicationMessage()}</p>
+                  <Button
+                    variant="outline"
+                    disabled={checking()}
+                    onClick={() => {
+                      polls = 0;
+                      void checkPublication();
+                    }}
+                  >
+                    {checking() ? "Checking publication…" : "Check publication"}
+                  </Button>
+                </div>
+              </Show>
+            }
+          />
+        )}
       </Show>
-      <Show when={terminalId() && client()}>
-        <div class="study-publication">
-          <p role="status">{publicationMessage()}</p>
-          <Button
-            variant="outline"
-            disabled={checking()}
-            onClick={() => {
-              polls = 0;
-              void checkPublication();
-            }}
-          >
-            {checking() ? "Checking publication…" : "Check publication"}
-          </Button>
-        </div>
-      </Show>
+      <nav
+        class="learning-policy-links study-policy-links"
+        aria-label="Study policies"
+      >
+        <a href="/learning/v3/terms" target="_blank" rel="noopener">
+          Terms
+        </a>
+        <span aria-hidden="true">·</span>
+        <a href="/learning/v3/privacy" target="_blank" rel="noopener">
+          Privacy
+        </a>
+      </nav>
     </section>
   );
 }

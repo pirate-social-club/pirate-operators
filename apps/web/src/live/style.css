@@ -3,6 +3,8 @@
 @source "./entry.tsx";
 @source "./upload.tsx";
 @source "./karaoke.tsx";
+@source "./study.tsx";
+@source "../study/";
 @source "../karaoke/";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog-presentation.tsx";
@@ -313,34 +315,29 @@ button:disabled {
   inset: 0;
   z-index: 40;
   overflow-y: auto;
-  background: #f6f2e7;
-  color: #183930;
-  color-scheme: light;
+  background: var(--background);
+  color: var(--foreground);
+  color-scheme: dark;
 }
 body:has(.live-study-overlay) {
   overflow: hidden;
 }
-.live-study .study-navigation button {
-  color: #183930;
-}
-.live-study .study-navigation button:hover {
-  background: #e4ecdf;
-}
-.study-navigation,
-.study-publication {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: 20px 24px;
-}
-.study-navigation {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
+.live-study {
+  position: relative;
+  min-height: 100dvh;
 }
 .study-publication {
-  padding-bottom: 48px;
-  color: #183930;
+  display: grid;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.study-policy-links {
+  position: absolute;
+  right: 16px;
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 51;
 }
 
 .learning-policy-links {
@@ -353,9 +350,6 @@ body:has(.live-study-overlay) {
 .learning-policy-links a {
   padding: 2px 0;
   line-height: 20px;
-}
-.study-navigation .learning-policy-links {
-  margin-left: auto;
 }
 .karaoke-policy-links {
   position: absolute;

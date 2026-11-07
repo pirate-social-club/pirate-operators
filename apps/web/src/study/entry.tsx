@@ -3,6 +3,7 @@ import { render } from "@solidjs/web";
 import type { StudySong } from "../../../../packages/study/lesson.ts";
 import { createStudyClient } from "./client.ts";
 import { StudyScreen } from "./screen.tsx";
+import "./style.css";
 
 const response = await fetch("/api/study/config", {
   credentials: "same-origin",

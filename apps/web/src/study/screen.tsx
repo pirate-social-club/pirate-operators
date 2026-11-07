@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import {
   MAX_STUDY_AUDIO_BYTES,
   MAX_STUDY_RECORDING_MS,
@@ -13,16 +14,24 @@ import type {
 import { STUDY_MAX_TAKES } from "../../../../packages/study/lesson.ts";
 import type { StudyClient } from "./client.ts";
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
-import "./style.css";
+import { StudyingSurface } from "./presentation/studying-surface.tsx";
+import type { StudyingSurfaceState } from "./presentation/studying-model.ts";
+import {
+  StudyRouteLoadingState,
+  StudyRouteLoadFailureState,
+} from "./presentation/studying-route-states.tsx";
+import { ActivityProgressHeader } from "../karaoke/activity-progress-header.tsx";
 
 export function StudyScreen(props: {
   client: StudyClient;
   onLesson?: (lesson: StudyLesson) => void;
+  onExit?: () => void;
+  terminalNote?: JSX.Element;
 }) {
   const [lesson, setLesson] = createSignal<StudyLesson | null>(null),
     [miss, setMiss] = createSignal<StudyAttempt | null>(null);
   const [phase, setPhase] = createSignal<
-      "loading" | "idle" | "recording" | "saving"
+      "loading" | "idle" | "acquiring" | "recording" | "saving"
     >("loading"),
     [error, setError] = createSignal("");
   const sounds = createStudyFeedbackAudio();
@@ -147,7 +156,7 @@ export function StudyScreen(props: {
     const version = ++generation;
     sounds.unlock();
     setError("");
-    setPhase("loading");
+    setPhase("acquiring");
     try {
       if (
         !navigator.mediaDevices?.getUserMedia ||
@@ -231,139 +240,144 @@ export function StudyScreen(props: {
       }
     }
   }
+  function surfaceState(): StudyingSurfaceState {
+    const value = lesson()!;
+    if (value.status === "completed" && !miss()) {
+      return {
+        kind: "complete",
+        correctCount: value.progress.firstPassCorrect,
+        totalCount: value.progress.total,
+        scorePercent: value.progress.total
+          ? (100 * value.progress.firstPassCorrect) / value.progress.total
+          : 0,
+      };
+    }
+    const line = visibleLine()!;
+    return {
+      kind: "say_it_back",
+      exercise: {
+        id: line.lineId,
+        // This surface never renders a line ordinal. Durable identity is lineId;
+        // the lesson response does not claim a source ordinal.
+        lineNumber: 0,
+        maxAttempts: 3,
+        prompt: line.text,
+        expected: line.text,
+      },
+      attemptNumber:
+        miss()?.lesson?.presentationNumber ??
+        value.current?.presentationNumber ??
+        1,
+      phase: miss()
+        ? "wrong"
+        : blocked()
+          ? "blocked"
+          : phase() === "acquiring"
+            ? "acquiring"
+            : phase() === "recording"
+              ? "listening"
+              : phase() === "saving"
+                ? "checking"
+                : "idle",
+      revealReference: Boolean(miss()),
+      heardTranscript: miss()?.grade?.heardTranscript,
+      submitError: error() || undefined,
+      guidance: blocked()
+        ? "Recording is paused for this lesson. Choose Study again to start a new lesson, or leave Study."
+        : undefined,
+    };
+  }
+  function primaryAction() {
+    if (miss()) setMiss(null);
+    else if (phase() === "recording") recorder?.stop();
+    else if (phase() === "idle" && !blocked()) void record();
+  }
+  function terminalNotice() {
+    return (
+      <div class="space-y-3">
+        <Show when={error()}>
+          <p class="text-sm text-destructive-text" role="alert">
+            {error()}
+          </p>
+        </Show>
+        {props.terminalNote}
+      </div>
+    );
+  }
+  const ended = () =>
+    lesson()?.status === "expired" || lesson()?.status === "abandoned";
   return (
-    <main class="study-page">
+    <Show
+      when={lesson() && phase() !== "loading"}
+      fallback={
+        <Show
+          when={error() && !lesson()}
+          fallback={<StudyLoading onExit={props.onExit} />}
+        >
+          <StudyRouteLoadFailureState
+            title="Study is unavailable"
+            description={error()}
+            onRetry={() => void load()}
+            onGoHome={props.onExit}
+          />
+        </Show>
+      }
+    >
       <Show
-        when={lesson()}
+        when={!ended() || miss()}
         fallback={
-          <>
-            <h1>Study</h1>
-            <p role="status">Loading your lesson…</p>
-          </>
+          <div class="flex min-h-dvh flex-col overflow-y-auto bg-background text-foreground [&>section]:h-auto [&>section]:min-h-0 [&>section]:flex-1">
+            <StudyRouteLoadFailureState
+              title={
+                lesson()?.status === "expired"
+                  ? "Lesson expired"
+                  : "Lesson ended"
+              }
+              description="Your saved answers are kept. Unfinished lines do not count as wrong answers."
+              onRetry={() => void load(true)}
+              onGoHome={props.onExit}
+            />
+            <div class="mx-auto w-full max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+              {terminalNotice()}
+            </div>
+          </div>
         }
       >
-        {(value) => (
-          <>
-            <Show when={value().status === "active" || miss()}>
-              <header>
-                <span class="study-eyebrow">STUDY</span>
-                <p>
-                  {value().progress.resolved} of {value().progress.total} lines
-                  finished
-                </p>
-              </header>
-              <h1>Say it back</h1>
-              <p class="study-intro">
-                Read the line, then say it in your own voice.
-              </p>
-              <Show when={visibleLine()}>
-                {(line) => (
-                  <blockquote lang={line().language} dir="auto">
-                    {line().text}
-                  </blockquote>
-                )}
-              </Show>
-              <Show
-                when={miss()}
-                fallback={
-                  <>
-                    <Show
-                      when={!blocked()}
-                      fallback={
-                        <p role="status">
-                          Recording is paused for this lesson. Choose Study
-                          again to start a new lesson, or leave Study.
-                        </p>
-                      }
-                    >
-                      <button
-                        disabled={phase() === "loading" || phase() === "saving"}
-                        onClick={() =>
-                          phase() === "recording"
-                            ? recorder?.stop()
-                            : void record()
-                        }
-                      >
-                        {phase() === "recording"
-                          ? "Stop"
-                          : phase() === "saving"
-                            ? "Checking…"
-                            : "Record"}
-                      </button>
-                    </Show>
-                    <Show when={blocked()}>
-                      <button
-                        class="study-secondary"
-                        onClick={() => void load(true)}
-                      >
-                        Study again
-                      </button>
-                    </Show>
-                  </>
-                }
-              >
-                {(wrong) => (
-                  <>
-                    <section
-                      class="study-result"
-                      data-state="incorrect"
-                      role="status"
-                    >
-                      <h2>Incorrect</h2>
-                      <p>
-                        You said:{" "}
-                        <span dir="auto">
-                          {wrong().grade?.heardTranscript || "No words"}
-                        </span>
-                      </p>
-                    </section>
-                    <button onClick={() => setMiss(null)}>Continue</button>
-                  </>
-                )}
-              </Show>
-            </Show>
-            <Show when={value().status !== "active" && !miss()}>
-              <h1>
-                {value().status === "completed"
-                  ? "Lesson complete"
-                  : value().status === "expired"
-                    ? "Lesson expired"
-                    : "Lesson ended"}
-              </h1>
-              <p>
-                {value().progress.firstPassCorrect} of {value().progress.total}{" "}
-                lines matched on the first try.
-              </p>
-              <Show when={value().status !== "completed"}>
-                <p>
-                  Your saved answers are kept. Unfinished lines do not count as
-                  wrong answers.
-                </p>
-              </Show>
-              <button
-                onClick={() => void load(true)}
-                disabled={phase() !== "idle"}
-              >
-                Study again
-              </button>
-            </Show>
-          </>
-        )}
+        <StudyingSurface
+          class="study-surface"
+          state={surfaceState()}
+          lessonProgress={{
+            resolvedCount: lesson()!.progress.resolved,
+            totalCount: lesson()!.progress.total,
+          }}
+          onExit={props.onExit}
+          onPrimaryAction={primaryAction}
+          onStudyAgain={() => void load(true)}
+          rewardSlot={terminalNotice()}
+        />
       </Show>
-      <Show when={error()}>
-        <p class="study-error" role="alert">
-          {error()}
-        </p>
+    </Show>
+  );
+}
+
+// Preserve an exit while enrollment/load is pending. The spinner and header are
+// the same owned centralized components used by the loaded Study surface.
+export function StudyLoading(props: { onExit?: () => void }) {
+  return (
+    <div class="relative h-dvh w-full">
+      <Show when={props.onExit}>
+        <div class="absolute inset-x-0 top-0 z-10 mx-auto w-full max-w-[640px]">
+          <ActivityProgressHeader
+            progressMax={0}
+            progressValue={0}
+            progressTone="success"
+            exitIcon="close"
+            exitLabel="Exit study"
+            onExit={props.onExit}
+          />
+        </div>
       </Show>
-      <Show when={!lesson() && phase() === "idle"}>
-        <button onClick={() => void load()}>Try again</button>
-      </Show>
-      <Show when={phase() === "recording"}>
-        <p role="status">Recording…</p>
-      </Show>
-      <Show when={phase() === "saving"}>
-        <p role="status">Checking your answer…</p>
-      </Show>
-    </main>
+      <StudyRouteLoadingState label="Loading Study" />
+    </div>
   );
 }

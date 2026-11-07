@@ -257,3 +257,48 @@ After wiring, qualify one published song and an ordinary account with no
 membership, creator wallet or Palm, including misses, replay and reload. A
 separately bounded real ElevenLabs run and the full published-song journey remain
 open. This handoff supplies component source for review, not a live release.
+
+
+## Centralized presentation restoration, November 7
+
+The microphone runtime repair is deployed separately at application profile
+34c1a020 and operator module 6fa28d54. The first real post-repair lesson saves
+an exact correct answer and a first-pass miss. Private offline replay against
+the original centralized grader reproduces both stored grades exactly. The
+whole grader and phonetic primitive remain the existing centralized code.
+An English v4 missing-word budget rejects the recognized article in place of
+the expected whole word in that miss. This is transcript comparison, not a
+validated pronunciation score. Central exercises retain versioned policies;
+old exercises may use an earlier policy. No policy or saved grade is changed.
+
+The initial cream Study screen is superseded by owned copies of the actual
+central StudyingSurface, studying-model and studying-route-states from current
+main c7cb87835a1858a1955c820b03d566365e6d42db. Their original bytes are also
+identical to the accepted production website source 6074ba72 and the original
+667a6f22 reference. Only import paths and provenance comments change. Existing
+owned activity header/results and the exact vendored design primitives are
+reused. There is no dependency on the centralized runtime or repository.
+
+The host maps existing durable lesson facts into that presentation. Recording,
+authentication, server selection, recovery and grading remain owned by their
+existing ports. Correct answers advance immediately; a miss holds its actual
+reference and recognized words until Continue, without dispatching another
+answer. Completion displays immutable first-pass accuracy. Expired/abandoned
+lessons use the existing central route state with an explicit unfinished-lines
+caveat and their publication controls; they never display a fabricated Missed
+count. Terminal restart errors remain visible. No streak, reward, translation
+or new exercise is inferred. Policy links remain accessible in the safe-area
+footer without a new modal. Standalone acceptance uses the same tokens and
+Tailwind scanning as the live host.
+
+The central view body hashes are pinned independently by study-parity.test.ts;
+import-only differences are allowed. The previous Karaoke parity ratchet stays
+unchanged. Actual live 34c is archived byte-exact as application-plan-v20.json
+for the next reviewed update. The older v19 and v18 predecessors stay historical.
+
+
+The release source inventory now explicitly includes the Study directory,
+including the owned central view copies. Its two audio source files use raw
+byte digests; text sources retain the existing validated UTF-8 digest. Served
+asset hashes were already bound. This closes the missing source-provenance
+entries without changing runtime or assessment behavior.
