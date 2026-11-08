@@ -710,6 +710,28 @@ test("each job keeps the step sequence of its captured policy through advancemen
     );
     await resumeUncertainJob(db, resumable, "account-1", now);
     assert.equal((await loadJob(db, resumable)).phase, "pin_manifest");
+    // An authority without any policy field keeps the full sequence and stays
+    // leasable at registration (SQL NULL must not block it).
+    await db
+      .prepare(
+        "INSERT INTO media_submissions(submission_id,account_id,author_id,post_id,idempotency_key,request_hash,metadata_json,captured_wallet,creator_json,audio_sha256,audio_bytes,object_key,upload_state,created_at) VALUES('s-legacy','account-1',?,?,'s-legacy',?,'{}',?,'null',?,1,'staging/s-legacy','sealed',?)",
+      )
+      .bind(
+        "0x" + "aa".repeat(32),
+        hashJson({ post: "s-legacy" }),
+        hashJson({ id: "s-legacy" }),
+        owner,
+        hashJson({ audio: "s-legacy" }),
+        now,
+      )
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO publication_jobs(job_id,submission_id,input_hash,authority_json,phase,progress_json,due_at,created_at,updated_at) VALUES('publication:s-legacy','s-legacy',?,'{}','registration','{}',?,?,?)",
+      )
+      .bind(hashJson({ id: "s-legacy" }), now, now, now)
+      .run();
+    assert.ok(await leaseJob(db, "publication:s-legacy", now));
     // The old job still reaches registration even if the community now names the new policy:
     // its sequence comes only from its own captured authority.
     assert.equal((await loadJob(db, registeredJob)).phase, "registration");

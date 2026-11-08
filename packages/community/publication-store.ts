@@ -90,7 +90,7 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
     .prepare(
       `UPDATE publication_jobs SET lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
     WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication')
-    AND NOT (phase='registration' AND json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?)
+    AND NOT (phase='registration' AND COALESCE(json_extract(authority_json,'$.policy.version'),'')=? AND COALESCE(json_extract(authority_json,'$.policy.sha256'),'')=?)
     RETURNING *`,
     )
     .bind(
