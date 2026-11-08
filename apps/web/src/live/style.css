@@ -360,3 +360,5 @@ body:has(.live-study-overlay) {
   bottom: env(safe-area-inset-bottom, 0px);
   z-index: 51;
 }
+
+@source "./reward-payment-panel.tsx";

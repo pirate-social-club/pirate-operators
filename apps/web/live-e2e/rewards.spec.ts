@@ -8,13 +8,13 @@ const origin = "https://community.example",
   address = `0x${"55".repeat(20)}`,
   reserve = `0x${"33".repeat(20)}`,
   token = `0x${"11".repeat(20)}`;
-async function fixture(page: Page, operator = false) {
+async function fixture(page: Page, operator = false, uncertain = false) {
   let verified = false,
     paid = false,
     accepted = false,
     intents = 0,
     claims = 0,
-    prepared = false,
+    prepared = uncertain,
     cancelled = false;
   const credit = () => ({
     credit_id: "credit_0001",
@@ -41,9 +41,23 @@ async function fixture(page: Page, operator = false) {
     decimals: 6,
     amountAtomic: "180000",
     creditIds: ["credit_0001", "credit_0002"],
-    state: cancelled ? "cancelled" : "prepared",
+    state: cancelled ? "cancelled" : uncertain ? "review_required" : "prepared",
     transactionHash: null,
     preparedAt: 1,
+    guardNonce: (((0x5052n << 176n) | 17n) << 64n).toString(),
+    everDispatched: uncertain,
+    latestAttemptId: uncertain ? "attempt_001" : null,
+    attempts: uncertain
+      ? [
+          {
+            attemptId: "attempt_001",
+            action: "pay",
+            outcome: "unknown",
+            transactionHash: null,
+            createdAt: 1,
+          },
+        ]
+      : [],
   });
   await page.route(`${origin}/**`, async (route) => {
     const req = route.request(),
@@ -304,4 +318,44 @@ test("operator sees one combined payment and can cancel it before requesting a s
     path: ".local/rewards-acceptance/operator-desktop.png",
     fullPage: true,
   });
+});
+
+test("an uncertain wallet result keeps explicit guarded retry and on-chain cancellation controls across reload", async ({
+  page,
+}) => {
+  await fixture(page, true, true);
+  await page.goto(origin + "/operator/rewards");
+  await expect(
+    page.getByText("$0.18 · review required", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Cancel prepared payment", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Review guarded retry", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review payment", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close review", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Cancel through wallet", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review cancellation", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Confirm cancellation in wallet",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Cancel through wallet", exact: true }),
+  ).toBeVisible();
+  await page.getByText("Recent wallet attempts (1)", { exact: true }).click();
+  await expect(
+    page.getByText("No transaction hash received", { exact: true }),
+  ).toBeVisible();
 });

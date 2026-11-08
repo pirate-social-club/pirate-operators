@@ -5,6 +5,8 @@ import type {
   ConfirmedTransfer,
   QualificationEntry,
   RewardChain,
+  RewardGuardEvidence,
+  RewardPayment,
   RewardSources,
   RewardVerificationProvider,
   RewardsProfile,
@@ -13,6 +15,7 @@ import { RewardStore } from "../packages/rewards/store.ts";
 import { RewardOffers } from "../packages/rewards/offers.ts";
 import { RewardClaims } from "../packages/rewards/claims.ts";
 import { RewardPayments } from "../packages/rewards/payments.ts";
+import { MOSS_GUARD_IMPLEMENTATION } from "../packages/rewards/moss-guard.ts";
 
 export const rewardTestProfile: RewardsProfile = {
   schema: "pirate.manual-rewards/1",
@@ -71,10 +74,12 @@ export async function manualRewardsFixture() {
       balance = "10000000",
       position = "100";
     const subjects = new Map<string, string | null>(),
-      transfers = new Map<string, ConfirmedTransfer>();
+      transfers = new Map<string, ConfirmedTransfer>(),
+      guards = new Map<string, RewardGuardEvidence>();
     let openings = 0;
     let candidates: QualificationEntry[] = [];
     const chain: RewardChain = {
+      guard: async (_p, nonce) => guards.get(nonce) ?? null,
       outgoing: async (_p, from, to) =>
         [...transfers.values()].filter(
           (t) =>
@@ -156,8 +161,30 @@ export async function manualRewardsFixture() {
         amountAtomic,
       };
     }
+    function guard(
+      payment: RewardPayment,
+      hash: string,
+      rows: ConfirmedTransfer[] = [],
+    ) {
+      const proof: RewardGuardEvidence = {
+        chainId: 6343,
+        account: payment.sender,
+        nonce: payment.guardNonce,
+        transactionHash: hash,
+        blockHash: rewardHash(999),
+        blockNumber: "101",
+        logIndex: 1,
+        implementation: MOSS_GUARD_IMPLEMENTATION,
+        transfers: rows,
+      };
+      guards.set(payment.guardNonce, proof);
+      for (const row of rows) transfers.set(hash, row);
+      return proof;
+    }
     return {
       ...runtime,
+      guards,
+      guard,
       store,
       offers,
       claims,

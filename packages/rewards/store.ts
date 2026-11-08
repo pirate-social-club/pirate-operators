@@ -46,6 +46,9 @@ export interface PaymentRow {
   minimum_block: string;
   prepared_at: number;
   dispatch_at: number | null;
+  guard_nonce: string;
+  guard_log_index: number | null;
+  latest_attempt_id: string | null;
 }
 export class RewardStore {
   readonly db: D1Database;
@@ -173,8 +176,7 @@ export class RewardStore {
         payout_status:
           row.payment_state === "confirmed"
             ? "confirmed"
-            : row.payment_state &&
-                !["prepared", "cancelled"].includes(row.payment_state)
+            : row.payment_state === "submitted"
               ? "sending"
               : "awaiting_payment",
       },
@@ -186,6 +188,16 @@ export class RewardStore {
       "SELECT credit_id FROM reward_payment_items WHERE payment_id=? ORDER BY credit_id",
       row.payment_id,
     ).all<{ credit_id: string }>();
+    const attempts = await this.statement(
+      "SELECT attempt_id,action,outcome,transaction_hash,created_at FROM reward_payment_attempts WHERE payment_id=? ORDER BY created_at DESC,attempt_id DESC LIMIT 100",
+      row.payment_id,
+    ).all<{
+      attempt_id: string;
+      action: "pay" | "cancel";
+      outcome: import("./contracts.ts").RewardPaymentAttempt["outcome"];
+      transaction_hash: string | null;
+      created_at: number;
+    }>();
     return {
       paymentId: row.payment_id,
       accountId: row.account_id,
@@ -199,6 +211,16 @@ export class RewardStore {
       state: row.state,
       transactionHash: row.transaction_hash,
       preparedAt: row.prepared_at,
+      guardNonce: row.guard_nonce,
+      everDispatched: row.dispatch_at !== null,
+      latestAttemptId: row.latest_attempt_id,
+      attempts: attempts.results.map((a) => ({
+        attemptId: a.attempt_id,
+        action: a.action,
+        outcome: a.outcome,
+        transactionHash: a.transaction_hash,
+        createdAt: a.created_at,
+      })),
     };
   }
 }

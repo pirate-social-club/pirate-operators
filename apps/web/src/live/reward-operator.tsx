@@ -6,6 +6,10 @@ import {
   type RewardsData,
 } from "./rewards-data.ts";
 import { dollars, dollarInput, signRewardPayment } from "./reward-wallet.ts";
+import {
+  RewardPaymentPanel,
+  type RewardSelection,
+} from "./reward-payment-panel.tsx";
 import type { RewardPayment } from "../../../../packages/rewards/contracts.ts";
 
 const field =
@@ -26,7 +30,7 @@ export function LiveRewardOperator(props: {
   const [view, setView] = createSignal<RewardOperatorView | null>(null),
     [busy, setBusy] = createSignal(false),
     [notice, setNotice] = createSignal("Loading reward operations…"),
-    [selected, setSelected] = createSignal<RewardPayment | null>(null);
+    [selected, setSelected] = createSignal<RewardSelection | null>(null);
   const [purchase, setPurchase] = createSignal(""),
     [tickets, setTickets] = createSignal(""),
     [drawing, setDrawing] = createSignal(""),
@@ -40,11 +44,8 @@ export function LiveRewardOperator(props: {
     [sourceAmount, setSourceAmount] = createSignal("0"),
     [fee, setFee] = createSignal("0");
   const [claimHashes, setClaimHashes] = createSignal<Record<string, string>>(
-      {},
-    ),
-    [paymentHashes, setPaymentHashes] = createSignal<Record<string, string>>(
-      {},
-    );
+    {},
+  );
   async function refresh() {
     const next = await data.operator();
     setView(next);
@@ -88,29 +89,6 @@ export function LiveRewardOperator(props: {
     }
     return [...rows.values()];
   });
-  async function sign() {
-    const payment = selected();
-    if (!payment) return;
-    try {
-      const hash = await (props.sign ?? signRewardPayment)(payment, () =>
-        data.operation<RewardPayment>(
-          `/payments/${payment.paymentId}/dispatch`,
-          {},
-        ),
-      );
-      await data.operation(`/payments/${payment.paymentId}/transaction`, {
-        hash,
-      });
-      await data.operation(`/payments/${payment.paymentId}/reconcile`, {});
-      setSelected(null);
-    } catch {
-      setSelected(null);
-      setNotice(
-        "Check this payment's recorded status. If approval was requested, keep it pending until its transaction is reconciled. Do not send it again.",
-      );
-    }
-    await refresh();
-  }
   return (
     <main
       class="mx-auto flex w-full max-w-[900px] flex-col gap-4 p-6"
@@ -229,15 +207,16 @@ export function LiveRewardOperator(props: {
                           disabled={busy() || current().unmatched.length > 0}
                           onClick={() =>
                             void run(async () => {
-                              setSelected(
-                                await data.operation<RewardPayment>(
+                              setSelected({
+                                action: "pay",
+                                payment: await data.operation<RewardPayment>(
                                   "/payments",
                                   {
                                     id: crypto.randomUUID(),
                                     accountId: row.accountId,
                                   },
                                 ),
-                              );
+                              });
                             })
                           }
                         >
@@ -295,156 +274,15 @@ export function LiveRewardOperator(props: {
                 </CardContent>
               </Card>
             </Show>
-            <Show when={selected()}>
-              {(payment) => (
-                <Card>
-                  <CardHeader>
-                    <Type as="h2" variant="h3">
-                      Review payment
-                    </Type>
-                  </CardHeader>
-                  <CardContent class="flex flex-col gap-3">
-                    <Type as="p" variant="h2">
-                      {dollars(payment().amountAtomic, payment().decimals)}
-                    </Type>
-                    <Type as="p" class="break-all">
-                      To: {payment().recipient}
-                    </Type>
-                    <Type as="p" class="break-all">
-                      From: {payment().sender}
-                    </Type>
-                    <Type as="p" class="break-all">
-                      Token: {payment().token} · Chain: {payment().chainId}
-                    </Type>
-                    <Type as="p">
-                      Check the same recipient and amount in the wallet
-                      approval. This payment covers {payment().creditIds.length}{" "}
-                      credits.
-                    </Type>
-                    <Button disabled={busy()} onClick={() => void run(sign)}>
-                      Approve in wallet
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={busy()}
-                      onClick={() =>
-                        void run(async () => {
-                          await data.operation(
-                            `/payments/${payment().paymentId}/cancel`,
-                            {},
-                          );
-                          setSelected(null);
-                        })
-                      }
-                    >
-                      Cancel prepared payment
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </Show>
-            <Card>
-              <CardHeader>
-                <Type as="h2" variant="h3">
-                  Recorded payments
-                </Type>
-              </CardHeader>
-              <CardContent class="flex flex-col gap-5">
-                <For each={current().payments}>
-                  {(payment) => (
-                    <div class="flex flex-col gap-2 border-t border-border-soft pt-3">
-                      <Type as="p">
-                        {dollars(payment.amountAtomic, payment.decimals)} ·{" "}
-                        {payment.state.replaceAll("_", " ")}
-                      </Type>
-                      <Type as="p" class="break-all">
-                        {payment.recipient}
-                      </Type>
-                      <Type as="p" variant="caption">
-                        {payment.paymentId}
-                      </Type>
-                      <Show when={payment.transactionHash}>
-                        <Type as="p" class="break-all">
-                          Transaction: {payment.transactionHash}
-                        </Type>
-                        <Button
-                          variant="outline"
-                          disabled={busy()}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation(
-                                `/payments/${payment.paymentId}/reconcile`,
-                                {},
-                              );
-                            })
-                          }
-                        >
-                          Check payment
-                        </Button>
-                      </Show>
-                      <Show when={payment.state === "prepared"}>
-                        <Button
-                          variant="outline"
-                          disabled={busy()}
-                          onClick={() => setSelected(payment)}
-                        >
-                          Review payment
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={busy()}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation(
-                                `/payments/${payment.paymentId}/cancel`,
-                                {},
-                              );
-                            })
-                          }
-                        >
-                          Cancel prepared payment
-                        </Button>
-                      </Show>
-                      <Show
-                        when={
-                          payment.state === "awaiting_signature" ||
-                          payment.state === "review_required"
-                        }
-                      >
-                        <Type as="p">
-                          Submission is unresolved. Attach the exact transaction
-                          from wallet history to reconcile it.
-                        </Type>
-                        <input
-                          aria-label={`Transaction for ${payment.paymentId}`}
-                          class={field}
-                          value={paymentHashes()[payment.paymentId] ?? ""}
-                          onInput={(e) =>
-                            setPaymentHashes({
-                              ...paymentHashes(),
-                              [payment.paymentId]: e.currentTarget.value,
-                            })
-                          }
-                        />
-                        <Button
-                          disabled={busy()}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation(
-                                `/payments/${payment.paymentId}/recover`,
-                                { hash: paymentHashes()[payment.paymentId] },
-                              );
-                            })
-                          }
-                        >
-                          Verify recovered transaction
-                        </Button>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </CardContent>
-            </Card>
+            <RewardPaymentPanel
+              selected={selected()}
+              onSelect={setSelected}
+              payments={current().payments}
+              busy={busy()}
+              data={data}
+              run={run}
+              sign={props.sign}
+            />
             <Card>
               <CardHeader>
                 <Type as="h2" variant="h3">

@@ -3,6 +3,8 @@ import type { RewardChain, RewardPayment } from "./contracts.ts";
 import { RewardStore, type PaymentRow } from "./store.ts";
 import { rewardAmount, rewardId } from "./validation.ts";
 import { RewardTreasury } from "./treasury.ts";
+import { paymentGuardNonce } from "./moss-guard.ts";
+import { RewardPaymentLifecycle } from "./payment-lifecycle.ts";
 
 interface Inventory {
   received_atomic: string;
@@ -151,6 +153,17 @@ export class RewardPayments {
     const minimumBlock = (
       rewardAmount(await this.chain.position(this.store.profile)) + 1n
     ).toString();
+    const guardNonce = paymentGuardNonce(
+      this.store.program,
+      this.store.profile.payoutWallet,
+      id,
+    );
+    insist(
+      (await this.chain.guard(this.store.profile, guardNonce, minimumBlock)) ===
+        null,
+      "reward_guard_already_used",
+      409,
+    );
     await this.store.atomic(async () => {
       const prior = await this.store
         .statement(
@@ -211,7 +224,7 @@ export class RewardPayments {
         value: null,
         statements: [
           this.store.statement(
-            "INSERT INTO reward_payments(payment_id,program_id,account_id,sender,recipient,amount_atomic,state,minimum_block,prepared_at) VALUES(?,?,?,?,?,?,'prepared',?,?)",
+            "INSERT INTO reward_payments(payment_id,program_id,account_id,sender,recipient,amount_atomic,state,minimum_block,prepared_at,guard_nonce) VALUES(?,?,?,?,?,?,'prepared',?,?,?)",
             id,
             this.store.program,
             accountId,
@@ -220,6 +233,7 @@ export class RewardPayments {
             amount.toString(),
             minimumBlock,
             this.now(),
+            guardNonce,
           ),
           ...credits.map((c) =>
             this.store.statement(
@@ -247,173 +261,28 @@ export class RewardPayments {
     });
     return this.store.paymentView(await this.store.payment(id));
   }
-  async dispatch(id: string) {
-    await this.store.atomic(async () => {
-      const row = await this.store.payment(rewardId(id));
-      insist(
-        row.state === "prepared",
-        "reward_payment_already_dispatched",
-        409,
-      );
-      return {
-        value: null,
-        statements: [
-          this.store.statement(
-            "UPDATE reward_payments SET state='awaiting_signature',dispatch_at=? WHERE payment_id=?",
-            this.now(),
-            id,
-          ),
-        ],
-      };
-    });
-    return this.store.paymentView(await this.store.payment(id));
+  private lifecycle() {
+    return new RewardPaymentLifecycle(this.store, this.chain, this.now);
   }
-  async attach(id: string, hash: string) {
-    bytes32(hash);
-    await this.store.atomic(async () => {
-      const row = await this.store.payment(rewardId(id));
-      insist(
-        [
-          "awaiting_signature",
-          "submitted",
-          "review_required",
-          "confirmed",
-        ].includes(row.state),
-        "reward_payment_not_dispatched",
-        409,
-      );
-      if (row.transaction_hash) {
-        insist(
-          row.transaction_hash === hash,
-          "reward_payment_transaction_conflict",
-          409,
-        );
-        return { value: null, statements: [] };
-      }
-      return {
-        value: null,
-        statements: [
-          this.store.statement(
-            "UPDATE reward_payments SET state='submitted',transaction_hash=? WHERE payment_id=?",
-            hash,
-            id,
-          ),
-        ],
-      };
-    });
-    return this.store.paymentView(await this.store.payment(id));
+  dispatch(id: string, action: "pay" | "cancel", attemptId: string) {
+    return this.lifecycle().dispatch(id, action, attemptId);
   }
-  async reconcile(id: string) {
-    const input = await this.store.payment(rewardId(id));
-    if (input.state === "confirmed") return this.store.paymentView(input);
-    insist(input.transaction_hash, "reward_payment_hash_required", 409);
-    const receipt = await this.chain.transfer(
-      this.store.profile,
-      input.transaction_hash,
-      {
-        sender: input.sender,
-        recipient: input.recipient,
-        amountAtomic: input.amount_atomic,
-      },
-    );
-    if (!receipt) return this.store.paymentView(input);
-    // `sender` is the token Transfer event's from; a MOSS relay may be tx.from.
-    insist(
-      receipt.chainId === 6343 &&
-        receipt.transactionHash === input.transaction_hash &&
-        receipt.sender === input.sender &&
-        receipt.recipient === input.recipient &&
-        receipt.token === this.store.profile.token &&
-        receipt.amountAtomic === input.amount_atomic &&
-        rewardAmount(receipt.blockNumber) >= rewardAmount(input.minimum_block),
-      "reward_payment_receipt_mismatch",
-      409,
-    );
-    await this.store.atomic(async () => {
-      const row = await this.store.payment(id);
-      if (row.state === "confirmed") return { value: null, statements: [] };
-      insist(
-        row.transaction_hash === receipt.transactionHash,
-        "reward_payment_transaction_conflict",
-        409,
-      );
-      const inventory = await this.inventory(),
-        amount = rewardAmount(row.amount_atomic);
-      const cost = await this.store
-        .statement(
-          "SELECT cost_id FROM reward_costs WHERE program_id=? AND transaction_hash=? AND log_index=?",
-          this.store.program,
-          receipt.transactionHash,
-          receipt.logIndex,
-        )
-        .first();
-      insist(!cost, "reward_payment_event_already_classified", 409);
-      insist(
-        rewardAmount(inventory.reserved_atomic) >= amount,
-        "reward_reservation_corrupt",
-        503,
-      );
-      return {
-        value: null,
-        statements: [
-          this.store.statement(
-            "UPDATE reward_payments SET state='confirmed',transfer_log_index=?,receipt_json=? WHERE payment_id=?",
-            receipt.logIndex,
-            JSON.stringify(receipt),
-            id,
-          ),
-          this.store.statement(
-            "UPDATE reward_credits SET paid_atomic=amount_atomic WHERE program_id=? AND payment_id=?",
-            this.store.program,
-            id,
-          ),
-          this.store.statement(
-            "UPDATE reward_inventory SET reserved_atomic=?,paid_atomic=? WHERE program_id=?",
-            (rewardAmount(inventory.reserved_atomic) - amount).toString(),
-            (rewardAmount(inventory.paid_atomic) + amount).toString(),
-            this.store.program,
-          ),
-        ],
-      };
-    });
-    return this.store.paymentView(await this.store.payment(id));
+  outcome(
+    id: string,
+    attemptId: string,
+    outcome: "approved" | "cancelled" | "error" | "unknown",
+    hash?: string,
+  ) {
+    return this.lifecycle().outcome(id, attemptId, outcome, hash);
   }
-  /** A manually recovered hash is checked before it can become an immutable payment reference. */
-  async recover(id: string, hash: string) {
-    bytes32(hash);
-    const row = await this.store.payment(rewardId(id));
-    insist(
-      row.dispatch_at !== null && row.state !== "cancelled",
-      "reward_payment_not_dispatched",
-      409,
-    );
-    if (row.transaction_hash) {
-      insist(
-        row.transaction_hash === hash,
-        "reward_payment_transaction_conflict",
-        409,
-      );
-      return this.reconcile(id);
-    }
-    const event = await this.chain.transfer(this.store.profile, hash, {
-      sender: row.sender,
-      recipient: row.recipient,
-      amountAtomic: row.amount_atomic,
-    });
-    insist(
-      event &&
-        event.chainId === 6343 &&
-        event.transactionHash === hash &&
-        event.sender === row.sender &&
-        event.recipient === row.recipient &&
-        event.amountAtomic === row.amount_atomic &&
-        event.token === this.store.profile.token &&
-        rewardAmount(event.blockNumber) >= rewardAmount(row.minimum_block),
-      "reward_recovery_transfer_not_confirmed",
-      409,
-    );
-    await this.attach(id, hash);
-    return this.reconcile(id);
+  attach(id: string, hash: string, attemptId: string) {
+    return this.outcome(id, attemptId, "approved", hash);
+  }
+  reconcile(id: string) {
+    return this.lifecycle().reconcile(id);
+  }
+  recover(id: string, hash: string) {
+    return this.lifecycle().recover(id, hash);
   }
   async cancelPrepared(id: string) {
     await this.store.atomic(async () => {

@@ -10,7 +10,7 @@ import type {
   RewardsProfile,
 } from "../packages/rewards/contracts.ts";
 
-/** Reconcile at most ten known transactions. Never prepare, sign, broadcast or retry a payment. */
+/** Resolve at most ten payment nonce guards, even after a lost callback. Never submit or retry. */
 export async function reconcileRewardPayments(
   db: D1Database,
   profile: RewardsProfile,
@@ -22,7 +22,7 @@ export async function reconcileRewardPayments(
   await new RewardClaims(store, rewardVeryProvider(), now).expire();
   const rows = await store
     .statement(
-      "SELECT * FROM reward_payments WHERE program_id=? AND state='submitted' AND transaction_hash IS NOT NULL ORDER BY prepared_at,payment_id LIMIT 10",
+      "SELECT * FROM reward_payments WHERE program_id=? AND state IN ('awaiting_signature','submitted','review_required') ORDER BY prepared_at,payment_id LIMIT 10",
       store.program,
     )
     .all<PaymentRow>();

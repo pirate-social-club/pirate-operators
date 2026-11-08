@@ -76,6 +76,11 @@ CREATE TABLE reward_payments (
   minimum_block TEXT NOT NULL,
   prepared_at INTEGER NOT NULL,
   dispatch_at INTEGER,
+  guard_nonce TEXT NOT NULL,
+  guard_log_index INTEGER,
+  latest_attempt_id TEXT,
+  UNIQUE(program_id,sender,guard_nonce),
+  UNIQUE(program_id,transaction_hash,guard_log_index),
   UNIQUE(program_id,transaction_hash,transfer_log_index)
 );
 -- A few-person pilot serializes the payout account, including uncertain dispatch.
@@ -83,6 +88,15 @@ CREATE TABLE reward_payments (
 CREATE UNIQUE INDEX reward_active_sender ON reward_payments(program_id,sender)
   WHERE state IN ('prepared','awaiting_signature','submitted','review_required');
 CREATE INDEX reward_payment_queue ON reward_payments(program_id,state,prepared_at,payment_id);
+CREATE TABLE reward_payment_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL REFERENCES reward_payments(payment_id),
+  action TEXT NOT NULL CHECK(action IN ('pay','cancel')),
+  outcome TEXT NOT NULL CHECK(outcome IN ('opening','approved','cancelled','error','unknown')),
+  transaction_hash TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX reward_payment_attempt_history ON reward_payment_attempts(payment_id,created_at,attempt_id);
 CREATE TABLE reward_credits (
   credit_id TEXT PRIMARY KEY,
   program_id TEXT NOT NULL,

@@ -13,6 +13,7 @@ import type {
   RewardsProfile,
 } from "./contracts.ts";
 import { rewardAddress, rewardAmount } from "./validation.ts";
+import { readPaymentGuard } from "./guard-chain.ts";
 
 const clientFor = (p: RewardsProfile) =>
   createPublicClient({
@@ -92,6 +93,15 @@ export function rewardChain(): RewardChain {
     return result;
   }
   return {
+    async guard(p, nonce, minimumBlock) {
+      return readPaymentGuard(
+        await checkedClient(p),
+        p,
+        nonce,
+        minimumBlock,
+        transfers,
+      );
+    },
     async confirmedPosition(p) {
       const client = await checkedClient(p);
       return (await client.getBlock({ blockTag: "safe" })).number.toString();

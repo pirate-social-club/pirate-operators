@@ -61,18 +61,51 @@ Operator amount fields accept ordinary decimal dollars and reject rounding.
 Daily payment preparation combines ready credits for one learner and freezes
 the sender, recipient, token, chain and total. Each included credit is locked
 atomically. The operator reviews the actual MOSS approval and signs manually.
-The page records dispatch intent before requesting the signature, then attaches
-the returned transaction hash. Receipt reconciliation validates the canonical
-transaction, sender, token Transfer event, recipient, amount and unique log.
-One exact transfer may pay several credits; the per-credit amounts remain
-visible. No hash or event may pay a second payment. Unknown broadcasts remain
-held. A prepared payment can be cancelled before dispatch. After dispatch this
-implementation deliberately offers no unlock based on a timeout or absent RPC
-result. MOSS relays use wallet intents; an EOA nonce check alone cannot prove
-an intent cannot later execute. Qualifying cancellation or expiry of those
-intents, including a declined wallet approval, remains a live recovery gate.
-A recovered hash is verified before attachment. Awaiting payment precedes dispatch; Sending follows
-dispatch; paid follows confirmed transfer evidence.
+Each logical payment freezes a separate namespaced account nonce. Its strict
+ERC-7821 self-call batch invalidates that nonce and then performs the exact
+transfer. The low64 sequence begins at zero. Repeating the batch reverts before
+paying; a reverted token transfer also rolls back the invalidation. This is
+independent of the outer MOSS wallet intent's nonce and expiry. No new payment
+contract holds the float.
+
+The page records a unique attempt and action before each wallet call. It keeps
+approved, cancelled, error and unknown responses distinct. A wallet response
+never releases a reservation or establishes financial finality. An operator
+may explicitly retry the same guarded payment after any uncertain response.
+To cancel after dispatch, the operator signs a batch containing only the same
+nonce invalidation. Payment and cancellation compete for this one guard; only
+one succeeds. A losing submission can still incur gas; every retry remains
+explicit. A decline, timeout, absent transfer or elapsed audit window is
+never sufficient to unlock a payment. Before its first dispatch, an ordinary
+prepared payment can still be cancelled without a wallet call.
+
+Read-only reconciliation checks the actual account delegation, proxy runtime
+and per-account implementation against qualified testnet pins. It reads the
+payment's nonce at a safe block. If consumed, bounded historical nonce reads
+locate the exact invalidation block, and a unique canonical NonceInvalidated
+log identifies the transaction even when every wallet callback was lost. The
+same successful receipt must contain the exact token Transfer to the learner
+before any credit is marked paid. An invalidated guard with no transfer to that
+learner closes the payment and releases its unpaid credit locks. Ambiguous,
+wrong-amount, changed-account, unavailable-history and reorg evidence stays
+held. Every outgoing transfer still goes through the separate treasury audit.
+One exact transfer may pay several credits; no event may pay a second payment.
+
+The pinned proxy and implementation runtime captured on November8 execute in
+an offline Anvil test, including duplicate payment, both cancellation race
+orders, token failure rollback and unauthorized invalidation. The encoder is
+checked independently against the ABI. See test/fixtures/moss-6343-guard for
+provenance. This establishes the account execution mechanism, not a completed
+MOSS iframe/relay ceremony. The dedicated account must already be activated
+on this qualified implementation. A proxy or implementation upgrade fails
+closed and requires a new reviewed qualification. Actual wallet approval of
+the nested account call and the real token's transfer behavior remain live
+acceptance gates. Neither support assurances nor an audit-only unlock are
+required for the guard's at-most-once property.
+
+Awaiting payment precedes dispatch; Sending follows an approved wallet result;
+an uncertain response returns to Awaiting payment until reconciliation proves
+payment or cancellation. Paid follows confirmed transfer evidence.
 
 The payout account has at most one unresolved payment. A bounded canonical
 outgoing-event audit stops new preparation if any transfer lacks a confirmed
@@ -80,7 +113,7 @@ payment or explicit operator cost record. Cost classification rechecks the
 exact event, cannot consume an active payment, and debits available inventory
 once. Recorded inventory, reserved money, paid money, costs and observed wallet
 balance are separate values. Keep only the small daily payout float in this
-dedicated account. Cron reconciles known hashes and audits outgoing events;
+dedicated account. Cron reconciles account guards, including lost hashes, and audits outgoing events;
 it never submits transfers, buys tickets, collects prizes or converts funds.
 
 Learner Send opens the standard hosted MOSS wallet, explicitly configured for
@@ -88,7 +121,12 @@ testnet and the same authenticated address. Neither learner nor operator
 wallet is asked for standing USDm spending permissions. Test real small USDm
 balances with no ETH, maximum fee allowances, a full-balance attempt and onward
 receipt. The external account website is not assumed to select testnet. A
-separate capped gas sponsor remains a fallback, not current authority.
+separate capped gas sponsor remains a fallback, not current authority. The
+payout account also needs a qualified fee choice: holding ETH does not force
+MOSS to select it. Until an actual receipt establishes fee behavior, an extra
+USDm outflow remains unmatched and stops the next payment. The operator may
+record a verified fee as a cost only against spare inventory; no fee is silently
+deducted from a learner credit or automatically classified by amount.
 
 The local release must cover actual D1 transactions and handlers, account/CSRF
 boundaries, receipt replay, precision, racing preparation, verification replay,
@@ -120,7 +158,8 @@ operator actions in this MVP, not a fully automated daily lottery service.
 Before funded acceptance, independently review the ledger and release change;
 complete the separately owned Study lesson/retry/recovery acceptance; qualify
 the real Megapot drawing and collection adapters; complete the real Very
-ceremony and duplicate-subject tests; resolve MOSS post-dispatch cancellation;
+ceremony and duplicate-subject tests; execute the qualified guarded payment,
+retry and on-chain cancellation through the actual MOSS wallet;
 and record one exact dedicated-account payout plus a small-balance onward
 Send/full-balance attempt. Where Sepolia drawing liveness or conversion is
 unavailable, explicitly simulated wins and a prefunded testnet reserve remain

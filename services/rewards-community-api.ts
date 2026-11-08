@@ -318,14 +318,45 @@ export async function rewardsCommunityApi(
         await payments.prepare(text(body.id, 128), text(body.accountId, 128)),
       );
     const payment =
-      /^\/api\/operator\/rewards\/payments\/([a-zA-Z0-9_-]{8,128})\/(dispatch|transaction|recover|reconcile|cancel)$/.exec(
+      /^\/api\/operator\/rewards\/payments\/([a-zA-Z0-9_-]{8,128})\/(dispatch|outcome|transaction|recover|reconcile|cancel)$/.exec(
         path,
       );
     if (payment) {
       const [_, id, action] = payment;
-      if (action === "dispatch") return reply(await payments.dispatch(id));
+      if (action === "dispatch") {
+        insist(
+          body.action === "pay" || body.action === "cancel",
+          "invalid_reward_payment_action",
+        );
+        return reply(
+          await payments.dispatch(id, body.action, text(body.attemptId, 128)),
+        );
+      }
+      if (action === "outcome") {
+        insist(
+          body.outcome === "approved" ||
+            body.outcome === "cancelled" ||
+            body.outcome === "error" ||
+            body.outcome === "unknown",
+          "invalid_reward_wallet_outcome",
+        );
+        return reply(
+          await payments.outcome(
+            id,
+            text(body.attemptId, 128),
+            body.outcome,
+            body.hash === undefined ? undefined : bytes32(body.hash),
+          ),
+        );
+      }
       if (action === "transaction")
-        return reply(await payments.attach(id, bytes32(body.hash)));
+        return reply(
+          await payments.attach(
+            id,
+            bytes32(body.hash),
+            text(body.attemptId, 128),
+          ),
+        );
       if (action === "recover")
         return reply(await payments.recover(id, bytes32(body.hash)));
       if (action === "reconcile") return reply(await payments.reconcile(id));

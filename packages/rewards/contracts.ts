@@ -91,6 +91,28 @@ export interface RewardPayment {
   state: PaymentState;
   transactionHash: string | null;
   preparedAt: number;
+  guardNonce: string;
+  everDispatched: boolean;
+  latestAttemptId: string | null;
+  attempts: RewardPaymentAttempt[];
+}
+export interface RewardPaymentAttempt {
+  attemptId: string;
+  action: "pay" | "cancel";
+  outcome: "opening" | "approved" | "cancelled" | "error" | "unknown";
+  transactionHash: string | null;
+  createdAt: number;
+}
+export interface RewardGuardEvidence {
+  chainId: 6343;
+  account: string;
+  nonce: string;
+  transactionHash: string;
+  blockHash: string;
+  blockNumber: string;
+  logIndex: number;
+  implementation: string;
+  transfers: ConfirmedTransfer[];
 }
 /** An exact canonical transfer; a transaction hash alone is never a payment. */
 export interface ConfirmedTransfer {
@@ -153,6 +175,12 @@ export interface RewardSources {
   }>;
 }
 export interface RewardChain {
+  /** Null means the payment guard remains unused, not that an old request cannot execute. */
+  guard(
+    profile: RewardsProfile,
+    nonce: string,
+    minimumBlock: string,
+  ): Promise<RewardGuardEvidence | null>;
   balance(profile: RewardsProfile, owner: string): Promise<string>;
   position(profile: RewardsProfile): Promise<string>;
   confirmedPosition(profile: RewardsProfile): Promise<string>;

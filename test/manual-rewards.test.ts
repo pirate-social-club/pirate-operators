@@ -72,10 +72,12 @@ test("daily credits remain held until verified; several credits reconcile to one
     const cancelled = await f.payments.cancelPrepared(prepared.paymentId);
     assert.equal(cancelled.creditIds.length, 2);
     const payment = await f.payments.prepare("payment_003", a.accountId);
-    await f.payments.dispatch(payment.paymentId);
-    await assert.rejects(
-      f.payments.dispatch(payment.paymentId),
-      /reward_payment_already_dispatched/,
+    await f.payments.dispatch(payment.paymentId, "pay", "attempt_001");
+    await f.payments.dispatch(payment.paymentId, "pay", "attempt_001");
+    assert.equal(
+      (await f.store.paymentView(await f.store.payment(payment.paymentId)))
+        .attempts.length,
+      1,
     );
     await assert.rejects(
       f.payments.cancelPrepared(payment.paymentId),
@@ -84,23 +86,23 @@ test("daily credits remain held until verified; several credits reconcile to one
     const hash = rewardHash(201);
     await assert.rejects(
       f.payments.recover(payment.paymentId, rewardHash(202)),
-      /reward_recovery_transfer_not_confirmed/,
+      /reward_recovery_guard_not_confirmed/,
     );
     assert.equal(
       (await f.store.payment(payment.paymentId)).transaction_hash,
       null,
     );
-    await f.payments.attach(payment.paymentId, hash);
+    await f.payments.attach(payment.paymentId, hash, "attempt_001");
     assert.equal(
       (await f.payments.reconcile(payment.paymentId)).state,
       "submitted",
     );
-    f.transfers.set(hash, f.receipt(hash, b.wallet, payment.amountAtomic));
+    f.guard(payment, hash, [f.receipt(hash, a.wallet, "1")]);
     await assert.rejects(
       f.payments.reconcile(payment.paymentId),
       /reward_payment_receipt_mismatch/,
     );
-    f.transfers.set(hash, f.receipt(hash, a.wallet, payment.amountAtomic));
+    f.guard(payment, hash, [f.receipt(hash, a.wallet, payment.amountAtomic)]);
     assert.equal(
       (await f.payments.reconcile(payment.paymentId)).state,
       "confirmed",
@@ -165,16 +167,16 @@ test("unmatched outgoing transfers stop new payments; exact operator cost record
       "1000",
     );
     const payment = await f.payments.prepare("payment_001", a.accountId);
-    await f.payments.dispatch(payment.paymentId);
+    await f.payments.dispatch(payment.paymentId, "pay", "attempt_001");
     const hash = rewardHash(212);
-    f.transfers.set(hash, f.receipt(hash, a.wallet, payment.amountAtomic));
+    f.guard(payment, hash, [f.receipt(hash, a.wallet, payment.amountAtomic)]);
     f.setPosition("101");
     await treasury.audit();
     await assert.rejects(
       treasury.cost("cost_0002", hash, 2),
       /reward_cost_matches_payment/,
     );
-    await f.payments.attach(payment.paymentId, hash);
+    await f.payments.attach(payment.paymentId, hash, "attempt_001");
     await f.payments.reconcile(payment.paymentId);
     assert.equal((await treasury.unmatched()).length, 0);
   } finally {

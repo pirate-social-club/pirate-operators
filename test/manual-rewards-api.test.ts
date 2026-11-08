@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hashText, CommunityError } from "../packages/community/common.ts";
+import type { RewardPayment } from "../packages/rewards/contracts.ts";
 import { rewardsCommunityApi } from "../services/rewards-community-api.ts";
 import {
   manualRewardsFixture,
@@ -165,6 +166,68 @@ test("actual account cookies, Origin and CSRF protect credits, verification inte
       held: "0",
       accepted: "555000",
     });
+    const fundingHash = rewardHash(250);
+    f.transfers.set(fundingHash, {
+      ...f.receipt(fundingHash, rewardTestProfile.payoutWallet, "2000000"),
+      blockNumber: "90",
+      sender: `0x${"77".repeat(20)}`,
+    });
+    await f.payments.fund("funding_001", fundingHash, 2, {
+      kind: "prefunding",
+      sourceUsdcAtomic: "0",
+      sourceTransactionHash: null,
+      feeUsdcAtomic: "0",
+    });
+    const prepared = (await (
+      await call(2, "/api/operator/rewards/payments", "POST", {
+        id: "payment_001",
+        accountId: f.principals[0].accountId,
+      })
+    ).json()) as RewardPayment;
+    const base = `/api/operator/rewards/payments/${prepared.paymentId}`;
+    const attempt = { action: "pay", attemptId: "attempt_001" };
+    assert.equal(
+      (await call(0, base + "/dispatch", "POST", attempt)).status,
+      403,
+    );
+    assert.equal(
+      (await call(2, base + "/dispatch", "POST", attempt, false)).status,
+      403,
+    );
+    assert.equal((await call(2, base + "/dispatch", "POST", {})).status, 400);
+    const dispatched = (await (
+      await call(2, base + "/dispatch", "POST", attempt)
+    ).json()) as RewardPayment;
+    assert.equal(dispatched.attempts[0].action, "pay");
+    const waiting = (await (
+      await call(0, "/api/rewards/credits")
+    ).json()) as typeof page;
+    assert.equal(
+      (waiting.items[0] as unknown as { claim: { payout_status: string } })
+        .claim.payout_status,
+      "awaiting_payment",
+    );
+    const declined = (await (
+      await call(2, base + "/outcome", "POST", {
+        attemptId: attempt.attemptId,
+        outcome: "cancelled",
+      })
+    ).json()) as RewardPayment;
+    assert.equal(declined.state, "review_required");
+    assert.equal((await call(2, base + "/cancel", "POST")).status, 409);
+    f.guard(prepared, rewardHash(251));
+    assert.equal(
+      (
+        (await (
+          await call(2, base + "/reconcile", "POST")
+        ).json()) as RewardPayment
+      ).state,
+      "cancelled",
+    );
+    assert.equal(
+      (await f.store.credits(f.principals[0].accountId))[0].payment_id,
+      null,
+    );
     const wallet = (await (await call(0, "/api/rewards/wallet")).json()) as {
       balanceAtomic: string;
       practiceOnly: boolean;

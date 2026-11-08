@@ -3,6 +3,12 @@ import type {
   RewardWalletView,
 } from "../../../../packages/rewards/contracts.ts";
 
+import { guardedRewardCall } from "../../../../packages/rewards/guard-call.ts";
+export interface RewardWalletOutcome {
+  outcome: "approved" | "cancelled" | "error" | "unknown";
+  hash?: string;
+}
+
 export interface RewardMoss {
   initialise(config: {
     network: "testnet";
@@ -48,56 +54,66 @@ export async function openRewardWallet(
   const moss = await connect(view.address, load);
   await moss.open();
 }
-/** One explicit ERC-20 transfer. No grantPermissions, session spending or sponsorship. */
+/** One explicit account batch: consume the frozen guard, then pay (or only consume it to cancel). */
 export async function signRewardPayment(
   payment: RewardPayment,
+  action: "pay" | "cancel",
+  attemptId: string,
   beforeCall: () => Promise<RewardPayment>,
   load: () => Promise<RewardMoss> = wallet,
-): Promise<string> {
+): Promise<RewardWalletOutcome> {
   if (
     payment.chainId !== 6343 ||
-    payment.state !== "prepared" ||
-    !/^0x[0-9a-f]{40}$/.test(payment.recipient) ||
-    !/^0x[0-9a-f]{40}$/.test(payment.token) ||
-    BigInt(payment.recipient) === 0n ||
-    payment.recipient === payment.sender ||
-    payment.recipient === payment.token ||
-    !/^[1-9][0-9]*$/.test(payment.amountAtomic) ||
-    BigInt(payment.amountAtomic) >= 2n ** 256n
+    ![
+      "prepared",
+      "awaiting_signature",
+      "submitted",
+      "review_required",
+    ].includes(payment.state)
   )
     throw Error("This payment is not ready for signing.");
+  const request = guardedRewardCall(payment, action);
   const moss = await connect(payment.sender, load);
-  const dispatched = await beforeCall();
+  const dispatched = await beforeCall(),
+    attempt = dispatched.attempts.find((a) => a.attemptId === attemptId);
   if (
     dispatched.state !== "awaiting_signature" ||
+    dispatched.latestAttemptId !== attemptId ||
+    !attempt ||
+    attempt.action !== action ||
+    attempt.outcome !== "opening" ||
     dispatched.paymentId !== payment.paymentId ||
     dispatched.sender !== payment.sender ||
     dispatched.recipient !== payment.recipient ||
     dispatched.token !== payment.token ||
     dispatched.chainId !== payment.chainId ||
-    dispatched.amountAtomic !== payment.amountAtomic
+    dispatched.amountAtomic !== payment.amountAtomic ||
+    dispatched.guardNonce !== payment.guardNonce
   )
     throw Error("The prepared payment changed. Check its status.");
-  const data =
-    `0xa9059cbb${payment.recipient.slice(2).padStart(64, "0")}${BigInt(payment.amountAtomic).toString(16).padStart(64, "0")}` as `0x${string}`;
-  const result = await moss.callContract({
-    address: payment.token as `0x${string}`,
-    data,
-    silent: false,
-    silentUIApproveFallback: false,
-    sponsor: false,
-  });
-  const hash = result.receipt?.transactionHash ?? result.receipt?.hash;
-  if (
-    result.status !== "approved" ||
-    result.receipt?.chainId !== 6343 ||
-    !hash ||
-    !/^0x[0-9a-f]{64}$/i.test(hash)
-  )
-    throw Error(
-      "The payment is awaiting reconciliation. Check its status before trying anything else.",
-    );
-  return hash.toLowerCase();
+  let result: Awaited<ReturnType<RewardMoss["callContract"]>>;
+  try {
+    result = await moss.callContract({
+      ...request,
+      silent: false,
+      silentUIApproveFallback: false,
+      sponsor: false,
+    });
+  } catch {
+    return { outcome: "unknown" };
+  }
+  const raw = result.receipt?.transactionHash ?? result.receipt?.hash;
+  const hash =
+    result.receipt?.chainId === 6343 && raw && /^0x[0-9a-f]{64}$/i.test(raw)
+      ? raw.toLowerCase()
+      : undefined;
+  if (result.status === "approved" && hash)
+    return { outcome: "approved", hash };
+  if (result.status === "cancelled")
+    return { outcome: "cancelled", ...(hash ? { hash } : {}) };
+  if (result.status === "error")
+    return { outcome: "error", ...(hash ? { hash } : {}) };
+  return { outcome: "unknown", ...(hash ? { hash } : {}) };
 }
 export function dollars(atomic: string, decimals: number): string {
   if (
