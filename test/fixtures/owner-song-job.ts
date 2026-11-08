@@ -13,7 +13,7 @@ import {
   publisher,
   configuration as baselineConfiguration,
 } from "./release-admission.ts";
-import { releasePostsFixture } from "./release-posts.ts";
+import { ownerPostsFixture } from "./owner-posts.ts";
 import {
   hashJson,
   hashText,
@@ -167,7 +167,8 @@ export async function ownerSongFixture(
       currentConfiguration: async () => configuration,
       filebaseCredential: "fixture-token",
       acrEndpoint: managed.service.acrEndpoint,
-      pinTransport: managed.service.pinTransport,
+      // Late-bound so tests can interpose on the provider transport.
+      pinTransport: (request: Request) => managed.service.pinTransport(request),
     };
     const transport = (request: Request) => {
       remoteRequests++;
@@ -182,7 +183,7 @@ export async function ownerSongFixture(
         ? managedFetch(request, managed.db, managed.config)
         : ownerReleaseFetch(request, managed.db, managed.media, ownerService);
     };
-    const posts = releasePostsFixture(publisher, configuration),
+    const posts = ownerPostsFixture(publisher, configuration),
       client = {
         origin: managed.service.origin,
         publisher,
@@ -197,7 +198,7 @@ export async function ownerSongFixture(
         client,
         grantHash: grant.sha256,
         ownerGrant: grant,
-        ipfs: managed.service.pinTransport,
+        ipfs: (request: Request) => managed.service.pinTransport(request),
       },
       posting: {
         db: community.db,

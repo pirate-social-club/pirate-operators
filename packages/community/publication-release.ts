@@ -2,6 +2,7 @@ import type { Address, PublicClient } from "viem";
 import {
   bytes32,
   canonical,
+  CommunityError,
   exact,
   hashJson,
   hashText,
@@ -73,6 +74,13 @@ function validatedPin(value: unknown): RetainedPin {
     verifiedAt: integer(p.verifiedAt, 1, Math.floor(Date.now() / 1000)),
   };
 }
+const ownerBudgetRefusals = new Set([
+  "funding_cap_exhausted",
+  "owner_budget_window_not_current",
+  "owner_budget_window_overlap",
+  "owner_budget_window_superseded",
+  "owner_grant_outside_window",
+]);
 async function response(
   ports: ReleasePorts,
   path: string,
@@ -80,7 +88,21 @@ async function response(
   body: Record<string, unknown>,
   operationId: string,
 ) {
-  const reply = await managedRequest(ports.client, path, action, body);
+  let reply: Awaited<ReturnType<typeof managedRequest>>;
+  try {
+    reply = await managedRequest(ports.client, path, action, body);
+  } catch (error) {
+    // Owner budget refusals happen before any provider spend, so they are a
+    // definite outcome, not an uncertain one.
+    if (
+      ports.ownerGrant &&
+      error instanceof CommunityError &&
+      (error.status === 403 || error.status === 409) &&
+      ownerBudgetRefusals.has(error.code)
+    )
+      return { state: "refused", code: error.code };
+    throw error;
+  }
   if (reply.status === 404 && reply.body.state === "absent")
     return { state: "absent" };
   insist(
@@ -115,6 +137,13 @@ export async function releasePin(
         grantHash: ports.grantHash,
         state: "absent",
       }),
+    };
+  if (value.state === "refused")
+    return {
+      kind: "held",
+      providerId: id,
+      code: String(value.code),
+      value: { serviceState: "refused", errorCode: value.code },
     };
   if (value.state !== "confirmed") return { kind: "unknown" };
   const pin = validatedPin(value.pin);
@@ -282,6 +311,14 @@ export async function validateReleaseResult(
   step: "pin_audio" | "pin_lyrics" | "pin_manifest" | "registration",
   result: OperationResult,
 ) {
+  // An owner budget refusal is a definite held outcome with no provider spend.
+  if (
+    result.kind === "held" &&
+    ports.ownerGrant &&
+    step !== "registration" &&
+    ownerBudgetRefusals.has(result.code)
+  )
+    return;
   insist(result.kind === "confirmed", "invalid_release_outcome", 503);
   if (step === "registration") {
     insist(
