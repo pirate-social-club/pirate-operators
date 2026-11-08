@@ -106,9 +106,13 @@ Consumption is keyed by the stable scope
 Replacing the grant, publishing a configuration revision or redeploying
 within the same window therefore reuses the same buckets. `configureBudget`
 already refuses a changed ceiling for an existing bucket, so limits cannot be
-raised by replacement inside a period. A grant whose window overlaps a
-different recorded window for the same scope is refused, so a new period
-cannot be used to reset an open one.
+raised by replacement inside a period. Each paying service claims the
+window in its own database with one conditional upsert on
+`owner_budget_windows` (community migration 0009, managed migration 0004).
+The claim creates the scope's window, keeps the identical window, or advances
+to a later non-overlapping one, so two concurrent overlapping grants cannot
+both be admitted and a superseded window cannot open new spending. Deployment
+packages must add these migrations before the new policy is activated.
 
 Each song reserves one `songs` unit at release establishment, keyed by the job
 identity, before any pin or post spend. Pins reserve `pin_adds` and

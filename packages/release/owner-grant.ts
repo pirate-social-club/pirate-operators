@@ -139,8 +139,14 @@ export const ownerBudgetCeiling = (
     post_fee_wei: grant.limits.postFeeWei,
   })[asset];
 
-/** A new window for the same owner scope cannot overlap one already in use. */
-export async function requireOwnerWindow(
+/**
+ * Claims the owner window atomically in this service's database. One
+ * conditional upsert either creates the scope's window, keeps the identical
+ * window, or advances to a later non-overlapping one. Two concurrent
+ * overlapping grants cannot both be admitted, and a superseded window can no
+ * longer open new spending. Each paying service calls this on its own database.
+ */
+export async function claimOwnerWindow(
   db: D1Database,
   grant: OwnerBudgetGrant,
   now = Math.floor(Date.now() / 1000),
@@ -151,21 +157,27 @@ export async function requireOwnerWindow(
     403,
   );
   const key = ownerBudgetKey(grant, "songs");
-  const rows = await db
-    .prepare("SELECT DISTINCT period FROM spending_budgets WHERE scope=?")
+  await db
+    .prepare(
+      `INSERT INTO owner_budget_windows(scope,valid_from,expires_at) VALUES(?,?,?)
+      ON CONFLICT(scope) DO UPDATE SET valid_from=excluded.valid_from,expires_at=excluded.expires_at
+      WHERE owner_budget_windows.expires_at <= excluded.valid_from`,
+    )
+    .bind(key.scope, grant.validFrom, grant.expiresAt)
+    .run();
+  const row = await db
+    .prepare(
+      "SELECT valid_from,expires_at FROM owner_budget_windows WHERE scope=?",
+    )
     .bind(key.scope)
-    .all<{ period: string }>();
-  for (const { period } of rows.results) {
-    if (period === key.period) continue;
-    const match = /^(\d+)-(\d+)$/.exec(period);
-    insist(match, "owner_budget_window_unreadable", 503);
-    const from = Number(match[1]),
-      until = Number(match[2]);
-    insist(
-      until <= grant.validFrom || from >= grant.expiresAt,
-      "owner_budget_window_overlap",
-      409,
-    );
-  }
+    .first<{ valid_from: number; expires_at: number }>();
+  insist(row, "owner_budget_window_unavailable", 503);
+  insist(
+    row.valid_from === grant.validFrom && row.expires_at === grant.expiresAt,
+    row.valid_from >= grant.expiresAt
+      ? "owner_budget_window_superseded"
+      : "owner_budget_window_overlap",
+    409,
+  );
   return key;
 }
