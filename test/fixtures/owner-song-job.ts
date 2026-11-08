@@ -1,5 +1,8 @@
-// Owner-only unregistered publication through the actual community and managed
-// handlers. ACRCloud, IPFS and the MegaETH chain are explicit simulations. No
+// Owner-only unregistered publication through the publication driver and the
+// managed service handlers. addSong calls the community reservation, upload
+// and sealing functions directly; it does not exercise the authenticated
+// community routes or the queue handler. ACRCloud, IPFS and the MegaETH chain
+// are explicit simulations. No
 // creator service, registration signer, registration client or Aeneid client
 // exists anywhere in these ports; any registration route request fails.
 import assert from "node:assert/strict";
@@ -56,6 +59,7 @@ export const ownerController = privateKeyToAccount(`0x${"41".repeat(32)}`);
 
 export async function ownerSongFixture(
   limits: Partial<OwnerBudgetGrant["limits"]> = {},
+  { grantSeconds = 3600 }: { grantSeconds?: number } = {},
 ) {
   const configuration = validateConfig({
     ...baselineConfiguration,
@@ -126,7 +130,7 @@ export async function ownerSongFixture(
         publisher: configuration.publisher,
       },
       validFrom: now - 60,
-      expiresAt: now + 3600,
+      expiresAt: now + grantSeconds,
       limits: {
         songs: 3,
         pinAdds: 15,

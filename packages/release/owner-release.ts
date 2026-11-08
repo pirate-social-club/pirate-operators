@@ -34,7 +34,6 @@ import {
   type ReleaseRole,
 } from "./artifacts.ts";
 import {
-  claimOwnerWindow,
   ownerBudgetKey,
   reserveOwnerBudget,
   settleOwnerBudget,
@@ -203,7 +202,7 @@ export async function establishOwnerRelease(
     }),
     evidenceSha256 = hashJson(result);
   if (mode === "execute") {
-    await claimOwnerWindow(db, grant, now);
+    // Claims the window (binding every ceiling) only for a new reservation.
     await reserveOwnerBudget(
       db,
       grant,

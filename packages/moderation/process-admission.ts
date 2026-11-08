@@ -45,8 +45,9 @@ import {
 } from "../community/owner-policy.ts";
 import {
   claimOwnerWindow,
-  ownerBudgetCeiling,
   ownerBudgetKey,
+  ownerWindowCondition,
+  requireOwnerGrantTime,
   type OwnerBudgetGrant,
 } from "../release/owner-grant.ts";
 
@@ -190,8 +191,10 @@ export function processAdmission(
         );
         await configureBudget(db, budgets[1]!, String(pairing.requestCap));
         let condition:
-          | import("../community/budgets.ts").ReservationCondition
-          | undefined;
+            | import("../community/budgets.ts").ReservationCondition
+            | undefined,
+          authorizeCall = authorize,
+          dispatch: (() => Promise<void>) | undefined;
         if (recognitionOnly) {
           const grant = config.ownerGrant;
           insist(
@@ -201,20 +204,18 @@ export function processAdmission(
             "owner_grant_unavailable",
             503,
           );
-          const ownerKey = await claimOwnerWindow(db, grant);
-          const recognition = ownerBudgetKey(grant, "recognition_requests");
-          await configureBudget(
-            db,
-            recognition,
-            ownerBudgetCeiling(grant, "recognition_requests"),
-          );
-          budgets.push(recognition);
-          condition = {
-            clause:
-              "EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=?)",
-            binds: [ownerKey.scope, grant.validFrom, grant.expiresAt],
-            code: "owner_budget_window_not_current",
+          budgets.push(ownerBudgetKey(grant, "recognition_requests"));
+          condition = ownerWindowCondition(grant);
+          // Each new provider reservation rechecks the grant and claims its
+          // window (binding every ceiling). A retained receipt never reaches
+          // this, so it still reconciles and settles after expiry.
+          authorizeCall = async () => {
+            await authorize();
+            requireOwnerGrantTime(grant);
+            await claimOwnerWindow(db, grant);
           };
+          // And the grant must still be valid at dispatch, after reservation.
+          dispatch = async () => requireOwnerGrantTime(grant);
         }
         const lease = { admissionId: id, token: row.lease_token! },
           windows: (AudioWindowFacts & { providerCode: number })[] = [],
@@ -225,7 +226,8 @@ export function processAdmission(
             kind: role === "primary" ? "acr_primary" : "acr_alternate",
             budgets,
             condition,
-            authorize,
+            authorize: authorizeCall,
+            dispatch,
             request: {
               schema: "pirate.acr-call/1",
               sampleSha256: window.sampleSha256,

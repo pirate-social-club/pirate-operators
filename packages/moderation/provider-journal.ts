@@ -37,6 +37,11 @@ export interface ProviderCall {
   request: Record<string, unknown>;
   budgets: BudgetKey[];
   authorize(): Promise<void>;
+  /**
+   * Checked after the reservation and before the call is claimed for sending.
+   * A refusal leaves the call planned and never sends it.
+   */
+  dispatch?(): Promise<void>;
   // Receipt persistence must finish before parsing or returning the response.
   send(
     received: (response: ProviderResponse) => Promise<void>,
@@ -93,6 +98,7 @@ export async function journaledProviderCall(
   if (row.state === "planned") {
     await call.authorize();
     await reserveBudget(db, id, requestHash, call.budgets, "1", call.condition);
+    await call.dispatch?.();
     const execution = token();
     const claimed = await db
       .prepare(

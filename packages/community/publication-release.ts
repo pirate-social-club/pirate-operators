@@ -79,6 +79,8 @@ const ownerBudgetRefusals = new Set([
   "owner_budget_window_not_current",
   "owner_budget_window_overlap",
   "owner_budget_window_superseded",
+  "owner_budget_limits_changed",
+  "budget_profile_changed",
   "owner_grant_outside_window",
 ]);
 async function response(

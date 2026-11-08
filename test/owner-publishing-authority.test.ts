@@ -41,10 +41,13 @@ import {
   reserveOwnerBudget,
   settleOwnerBudget,
   claimOwnerWindow,
+  ownerWindowCondition,
+  requireOwnerGrantTime,
   validateOwnerGrant,
   type OwnerBudgetGrant,
 } from "../packages/release/owner-grant.ts";
 import { configuration } from "./fixtures/release-admission.ts";
+import { journaledProviderCall } from "../packages/moderation/provider-journal.ts";
 import {
   communityMigrations,
   managedMigrations,
@@ -351,17 +354,14 @@ test("replacing a grant cannot reset consumption inside its window or open an ov
       reserveBudget(db, "song:job-4", hashJson({ job: "job-4" }), [again], "1"),
       /funding_cap_exhausted/,
     );
-    // Raising the limit by replacement inside the window is refused.
+    // Raising the limit by replacement inside the window is refused at the
+    // claim, before any bucket is touched.
     const raised = validateOwnerGrant(
       grant({ limits: { ...grant().limits, songs: 10 } }),
     );
     await assert.rejects(
-      configureBudget(
-        db,
-        await claimOwnerWindow(db, raised, 1600),
-        ownerBudgetCeiling(raised, "songs"),
-      ),
-      /budget_profile_changed/,
+      claimOwnerWindow(db, raised, 1600),
+      /owner_budget_limits_changed/,
     );
     // An overlapping window cannot be opened to reset consumption.
     await assert.rejects(
@@ -455,20 +455,17 @@ test("a song reserved in the managed service survives a failed community reserva
       [managedPins],
       "1",
     );
-    // Community service: its post-fee bucket is not configured yet, so the
-    // post reservation fails after the managed side already reserved.
-    await claimOwnerWindow(f.community, g, 1500);
+    // Community service: its window is not claimed yet, so its post-fee
+    // bucket does not exist and the post reservation fails after the managed
+    // side already reserved.
     const fee = ownerBudgetKey(g, "post_fee_wei");
     await assert.rejects(
       reserveBudget(f.community, `${job}:post:fee`, request, [fee], "1000"),
       /budget_not_configured/,
     );
-    // Recovery: configure, then retry the whole step with the same identities.
-    await configureBudget(
-      f.community,
-      fee,
-      ownerBudgetCeiling(g, "post_fee_wei"),
-    );
+    // Recovery: claiming the window configures every bucket; then retry the
+    // whole step with the same identities.
+    await claimOwnerWindow(f.community, g, 1500);
     await reserveBudget(f.managed, `${job}:song`, request, [managedSongs], "1");
     await reserveBudget(
       f.managed,
@@ -537,7 +534,7 @@ test("a request paused after claiming a window cannot spend once the window adva
         "1",
         1999,
       ),
-      /owner_budget_window_not_current/,
+      /owner_budget_window_superseded/,
     );
     await assert.rejects(
       reserveOwnerBudget(
@@ -548,6 +545,19 @@ test("a request paused after claiming a window cannot spend once the window adva
         hashJson({ job: 1 }),
         "1",
         1999,
+      ),
+      /owner_budget_window_superseded/,
+    );
+    // A request that passed its claim before the advance is still refused by
+    // the condition committed with the reservation itself.
+    await assert.rejects(
+      reserveBudget(
+        f.managed,
+        "song:job-2",
+        hashJson({ job: 2 }),
+        [ownerBudgetKey(a, "songs")],
+        "1",
+        ownerWindowCondition(a),
       ),
       /owner_budget_window_not_current/,
     );
@@ -808,10 +818,12 @@ test("community schema upgrades the complete 0001-0011 chain to 0012 and keeps S
     assert.equal(await snapshot(), before);
     assert.deepEqual(await versions(), [...ledger, 12]);
     await db
-      .prepare("INSERT INTO owner_budget_windows VALUES('scope',1,2)")
+      .prepare("INSERT INTO owner_budget_windows VALUES('scope',1,2,'0x')")
       .run();
     await assert.rejects(
-      db.prepare("INSERT INTO owner_budget_windows VALUES('bad',2,2)").run(),
+      db
+        .prepare("INSERT INTO owner_budget_windows VALUES('bad',2,2,'0x')")
+        .run(),
       /CHECK constraint failed/,
     );
     // Applying 0012 again is refused rather than silently re-versioned.
@@ -993,6 +1005,223 @@ test("after real expiry an existing owner reservation replays and settles, while
       .bind(key.scope, key.period, key.asset)
       .first<{ reserved: string; spent: string }>();
     assert.deepEqual({ ...row }, { reserved: "0", spent: "640" });
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("the first claim binds every ceiling, so a replacement grant cannot raise one that has not been used yet", async () => {
+  const f = await ownerDatabases();
+  try {
+    const first = validateOwnerGrant(grant());
+    // Claim, then spend only a song: pin_adds has never been reserved.
+    await reserveOwnerBudget(
+      f.managed,
+      first,
+      "songs",
+      "owner-song:job-1",
+      hashJson({ job: 1 }),
+      "1",
+      1500,
+    );
+    const ceilings = await f.managed
+      .prepare(
+        "SELECT asset,ceiling FROM spending_budgets WHERE scope=? AND period=? ORDER BY asset",
+      )
+      .bind(
+        ownerBudgetKey(first, "songs").scope,
+        ownerBudgetKey(first, "songs").period,
+      )
+      .all<{ asset: string; ceiling: string }>();
+    assert.deepEqual(
+      ceilings.results.map((r) => [r.asset, r.ceiling]),
+      (
+        [
+          "pin_adds",
+          "pin_bytes",
+          "post_fee_wei",
+          "recognition_requests",
+          "songs",
+        ] as const
+      ).map((a) => [a, ownerBudgetCeiling(first, a)]),
+    );
+    // The replacement raises pinAdds only, inside the same window.
+    const raised = validateOwnerGrant(
+      grant({
+        limits: { ...grant().limits, pinAdds: first.limits.pinAdds + 1 },
+      }),
+    );
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        raised,
+        "pin_adds",
+        "pin:job-1:audio:adds",
+        hashJson({ pin: 1 }),
+        "1",
+        1600,
+      ),
+      /owner_budget_limits_changed/,
+    );
+    await assert.rejects(
+      claimOwnerWindow(f.managed, raised, 1600),
+      /owner_budget_limits_changed/,
+    );
+    // Nothing was reserved and the bound ceiling is unchanged.
+    const pins = await f.managed
+      .prepare(
+        "SELECT ceiling,reserved FROM spending_budgets WHERE scope=? AND asset='pin_adds'",
+      )
+      .bind(ownerBudgetKey(first, "pin_adds").scope)
+      .first<{ ceiling: string; reserved: string }>();
+    assert.deepEqual(
+      { ...pins },
+      {
+        ceiling: String(first.limits.pinAdds),
+        reserved: "0",
+      },
+    );
+    // A replacement with identical limits still spends from the same buckets.
+    const same = validateOwnerGrant(
+      grant({ communityOrigin: "https://replacement.example" }),
+    );
+    await reserveOwnerBudget(
+      f.managed,
+      same,
+      "pin_adds",
+      "pin:job-1:audio:adds",
+      hashJson({ pin: 1 }),
+      "1",
+      1600,
+    );
+    // A community database claimed by the same grant binds the same limits.
+    await claimOwnerWindow(f.community, first, 1500);
+    await assert.rejects(
+      claimOwnerWindow(f.community, raised, 1600),
+      /owner_budget_limits_changed/,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("recognition rechecks the grant for each new provider reservation and dispatch, and a retained receipt reconciles after expiry", async () => {
+  const f = await ownerDatabases();
+  try {
+    const g = validateOwnerGrant(grant({ validFrom: 1000, expiresAt: 2000 })),
+      db = f.managed,
+      lease = { admissionId: "admission-1", token: "lease-1" };
+    await db
+      .prepare(
+        "INSERT INTO managed_admissions(admission_id,community_id,submission_id,job_id,request_hash,request_json,authority_json,budget_period,state,lease_token,lease_until,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'running',?,?,?,?)",
+      )
+      .bind(
+        lease.admissionId,
+        g.communityId,
+        "submission-1",
+        "job-1",
+        "0x00",
+        "{}",
+        "{}",
+        "fixture",
+        lease.token,
+        Date.now() + 3600000,
+        Date.now(),
+        Date.now(),
+      )
+      .run();
+    const budgets = [ownerBudgetKey(g, "recognition_requests")];
+    let clock = 1500,
+      sends = 0,
+      authorizations = 0,
+      interpretFails = false;
+    const response = {
+      status: 200,
+      contentType: "application/json",
+      requestId: "acr-1",
+      body: "{}",
+      bodySha256: hashJson({}),
+    };
+    // The same per-call authorization and dispatch checks process-admission uses.
+    const call = (kind: "acr_primary" | "acr_alternate") => ({
+      kind,
+      budgets,
+      condition: ownerWindowCondition(g),
+      authorize: async () => {
+        authorizations++;
+        requireOwnerGrantTime(g, clock);
+        await claimOwnerWindow(db, g, clock);
+      },
+      dispatch: async () => requireOwnerGrantTime(g, clock),
+      request: { kind },
+      async send(received: (r: typeof response) => Promise<void>) {
+        sends++;
+        await received(response);
+        return response;
+      },
+      interpret: () => {
+        if (interpretFails) throw new Error("fixture interpretation failure");
+        return { code: 1001 };
+      },
+    });
+    const reservations = async () =>
+      (
+        await db
+          .prepare(
+            "SELECT reservation_id,status FROM spending_reservations WHERE asset='recognition_requests' ORDER BY reservation_id",
+          )
+          .all<{ reservation_id: string; status: string }>()
+      ).results;
+    // A new call after expiry is refused before any reservation or send, even
+    // though the window was claimed while the grant was valid.
+    await claimOwnerWindow(db, g, 1500);
+    clock = 2001;
+    await assert.rejects(
+      journaledProviderCall(db, lease, call("acr_primary")),
+      /owner_grant_outside_window/,
+    );
+    assert.equal(sends, 0);
+    assert.deepEqual(await reservations(), []);
+    // Expiry between reservation and dispatch: reserved, never sent.
+    clock = 1999;
+    const late = call("acr_primary");
+    const authorize = late.authorize;
+    late.authorize = async () => {
+      await authorize();
+      clock = 2000;
+    };
+    await assert.rejects(
+      journaledProviderCall(db, lease, late),
+      /owner_grant_outside_window/,
+    );
+    assert.equal(sends, 0);
+    const planned = await db
+      .prepare("SELECT state FROM moderation_provider_calls WHERE kind=?")
+      .bind("acr_primary")
+      .first<{ state: string }>();
+    assert.equal(planned!.state, "planned");
+    // A receipt retained while the grant was valid reconciles after expiry
+    // without another authorization or send.
+    clock = 1500;
+    interpretFails = true;
+    await assert.rejects(
+      journaledProviderCall(db, lease, call("acr_alternate")),
+      /fixture interpretation failure/,
+    );
+    assert.equal(sends, 1);
+    clock = 2500;
+    interpretFails = false;
+    const before = authorizations;
+    assert.deepEqual(
+      await journaledProviderCall(db, lease, call("acr_alternate")),
+      { code: 1001 },
+    );
+    assert.equal(sends, 1);
+    assert.equal(authorizations, before);
+    const alternate = (await reservations()).filter(
+      (r) => r.status === "settled",
+    );
+    assert.equal(alternate.length, 1);
   } finally {
     await f.dispose();
   }

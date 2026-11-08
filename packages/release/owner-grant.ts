@@ -9,7 +9,6 @@ import {
 } from "../community/common.ts";
 import { address, chain, httpsOrigin } from "../community/manifest-core.ts";
 import {
-  configureBudget,
   reserveBudget,
   settleBudget,
   type BudgetKey,
@@ -144,12 +143,26 @@ export const ownerBudgetCeiling = (
     post_fee_wei: grant.limits.postFeeWei,
   })[asset];
 
+const OWNER_ASSETS: readonly OwnerBudgetAsset[] = [
+  "songs",
+  "pin_adds",
+  "pin_bytes",
+  "recognition_requests",
+  "post_fee_wei",
+];
+/** Binds every ceiling of a window; a replacement must carry the same limits. */
+export const ownerLimitsDigest = (grant: OwnerBudgetGrant) =>
+  hashJson(grant.limits);
+
 /**
- * Claims the owner window atomically in this service's database. One
- * conditional upsert either creates the scope's window, keeps the identical
- * window, or advances to a later non-overlapping one. Two concurrent
- * overlapping grants cannot both be admitted, and a superseded window can no
- * longer open new spending. Each paying service calls this on its own database.
+ * Claims the owner window atomically in this service's database. One batch
+ * either creates the scope's window, keeps the identical window, or advances
+ * to a later non-overlapping one, and in the same transaction configures all
+ * five owner budgets of that window from the grant that first claimed it. Two
+ * concurrent overlapping grants cannot both be admitted, a superseded window
+ * can no longer open new spending, and a replacement grant inside the window
+ * cannot change any ceiling, including ones not yet used. Each paying service
+ * calls this on its own database.
  */
 export async function claimOwnerWindow(
   db: D1Database,
@@ -161,21 +174,45 @@ export async function claimOwnerWindow(
     "owner_grant_outside_window",
     403,
   );
-  const key = ownerBudgetKey(grant, "songs");
-  await db
-    .prepare(
-      `INSERT INTO owner_budget_windows(scope,valid_from,expires_at) VALUES(?,?,?)
-      ON CONFLICT(scope) DO UPDATE SET valid_from=excluded.valid_from,expires_at=excluded.expires_at
-      WHERE owner_budget_windows.expires_at <= excluded.valid_from`,
-    )
-    .bind(key.scope, grant.validFrom, grant.expiresAt)
-    .run();
+  const key = ownerBudgetKey(grant, "songs"),
+    limits = ownerLimitsDigest(grant);
+  for (const value of [key.scope, key.period])
+    insist(/^[A-Za-z0-9:_./-]{1,160}$/.test(value), "invalid_budget_scope");
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO owner_budget_windows(scope,valid_from,expires_at,limits_sha256) VALUES(?,?,?,?)
+        ON CONFLICT(scope) DO UPDATE SET valid_from=excluded.valid_from,expires_at=excluded.expires_at,limits_sha256=excluded.limits_sha256
+        WHERE owner_budget_windows.expires_at <= excluded.valid_from`,
+      )
+      .bind(key.scope, grant.validFrom, grant.expiresAt, limits),
+    // Ceilings are written only for the window this batch holds, with the
+    // limits that window was claimed with.
+    ...OWNER_ASSETS.map((asset) =>
+      db
+        .prepare(
+          `INSERT INTO spending_budgets(scope,period,asset,ceiling)
+          SELECT ?,?,?,? WHERE EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=? AND limits_sha256=?)
+          ON CONFLICT DO NOTHING`,
+        )
+        .bind(
+          key.scope,
+          key.period,
+          asset,
+          ownerBudgetCeiling(grant, asset),
+          key.scope,
+          grant.validFrom,
+          grant.expiresAt,
+          limits,
+        ),
+    ),
+  ]);
   const row = await db
     .prepare(
-      "SELECT valid_from,expires_at FROM owner_budget_windows WHERE scope=?",
+      "SELECT valid_from,expires_at,limits_sha256 FROM owner_budget_windows WHERE scope=?",
     )
     .bind(key.scope)
-    .first<{ valid_from: number; expires_at: number }>();
+    .first<{ valid_from: number; expires_at: number; limits_sha256: string }>();
   insist(row, "owner_budget_window_unavailable", 503);
   insist(
     row.valid_from === grant.validFrom && row.expires_at === grant.expiresAt,
@@ -184,14 +221,53 @@ export async function claimOwnerWindow(
       : "owner_budget_window_overlap",
     409,
   );
+  insist(row.limits_sha256 === limits, "owner_budget_limits_changed", 409);
+  const ceilings = await db
+    .prepare(
+      "SELECT asset,ceiling FROM spending_budgets WHERE scope=? AND period=?",
+    )
+    .bind(key.scope, key.period)
+    .all<{ asset: string; ceiling: string }>();
+  const bound = new Map(ceilings.results.map((r) => [r.asset, r.ceiling]));
+  insist(
+    OWNER_ASSETS.every((a) => bound.get(a) === ownerBudgetCeiling(grant, a)),
+    "budget_profile_changed",
+    409,
+  );
   return key;
 }
 
+/** The atomic condition every new owner reservation commits under. */
+export const ownerWindowCondition = (grant: OwnerBudgetGrant) => ({
+  clause:
+    "EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=? AND limits_sha256=?)",
+  binds: [
+    ownerBudgetKey(grant, "songs").scope,
+    grant.validFrom,
+    grant.expiresAt,
+    ownerLimitsDigest(grant),
+  ],
+  code: "owner_budget_window_not_current",
+});
+
+/** Refuses new owner spending outside the grant's signed time range. */
+export function requireOwnerGrantTime(
+  grant: OwnerBudgetGrant,
+  now = Math.floor(Date.now() / 1000),
+) {
+  insist(
+    now >= grant.validFrom && now < grant.expiresAt,
+    "owner_grant_outside_window",
+    403,
+  );
+}
+
 /**
- * New spending under an owner grant. The window must be inside its signed
- * time range and still be the scope's current window when the reservation
- * commits; an earlier successful claim alone does not authorize it. Replays of
- * an existing reservation return without re-checking, and settlement uses
+ * New spending under an owner grant. The grant must be inside its signed time
+ * range, its window is claimed (binding every ceiling), and the window must
+ * still be current with the same limits when the reservation commits; an
+ * earlier successful claim alone does not authorize it. Replays of an existing
+ * reservation return before any of these checks, and settlement uses
  * settleBudget with ownerBudgetKey directly, so superseded or expired windows
  * stay readable and settleable.
  */
@@ -221,18 +297,16 @@ export async function reserveOwnerBudget(
     );
     return key;
   }
-  insist(
-    now >= grant.validFrom && now < grant.expiresAt,
-    "owner_grant_outside_window",
-    403,
+  requireOwnerGrantTime(grant, now);
+  await claimOwnerWindow(db, grant, now);
+  await reserveBudget(
+    db,
+    reservationId,
+    requestHash,
+    [key],
+    requested,
+    ownerWindowCondition(grant),
   );
-  await configureBudget(db, key, ownerBudgetCeiling(grant, asset));
-  await reserveBudget(db, reservationId, requestHash, [key], requested, {
-    clause:
-      "EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=?)",
-    binds: [key.scope, grant.validFrom, grant.expiresAt],
-    code: "owner_budget_window_not_current",
-  });
   return key;
 }
 

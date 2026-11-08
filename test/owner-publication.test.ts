@@ -1,12 +1,26 @@
-// Release 1 acceptance: owner-only unregistered publication through the actual
-// community and managed handlers with registration services unreachable.
+// Release 1 acceptance: owner-only unregistered publication through the
+// publication driver and the managed service handlers, with registration
+// services unreachable. Submissions are created by calling the community
+// reservation, upload and sealing functions directly, not through the
+// authenticated community routes or the queue handler; that runtime acceptance
+// is still to come with the runtime wiring.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
   syncPublicPosts,
   indexedPublicPosts,
 } from "../packages/community/post-index.ts";
-import { ownerBudgetKey } from "../packages/release/owner-grant.ts";
+import { Effect } from "effect";
+import { keccak256 } from "viem";
+import { hashJson } from "../packages/community/common.ts";
+import { reserveBudget } from "../packages/community/budgets.ts";
+import { publicationStep } from "../packages/community/publication.ts";
+import { loadJob } from "../packages/community/publication-store.ts";
+import {
+  claimOwnerWindow,
+  ownerBudgetKey,
+} from "../packages/release/owner-grant.ts";
+import { firstSongDriver } from "../services/first-song-driver.ts";
 import { ownerSongFixture } from "./fixtures/owner-song-job.ts";
 
 test("one owner song publishes as pirate.community-post/3 with no registration service", async () => {
@@ -199,6 +213,163 @@ test("owner ports carry no registration signer, client, operator or creator serv
         .first<{ n: number }>())!.n,
       0,
     );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("recognition is not purchased once the grant expires after its window was claimed", async () => {
+  const f = await ownerSongFixture({}, { grantSeconds: 20 });
+  const realNow = Date.now;
+  try {
+    const transport = f.managed.config.transport as {
+      request(request: Request): Promise<Response>;
+    };
+    const original = transport.request.bind(transport);
+    let acr = 0;
+    transport.request = async (request) => {
+      if (new URL(request.url).host.includes("acrcloud")) acr++;
+      return original(request);
+    };
+    // The window is claimed while the grant is valid, as an earlier song would.
+    await claimOwnerWindow(f.managed.db, f.grant);
+    // The clock passes expiry once the admission is prepared, before the
+    // provider call is authorized.
+    const current = f.managed.config.currentConfiguration;
+    f.managed.config.currentConfiguration = async () => {
+      if (
+        await f.managed.db
+          .prepare(
+            "SELECT 1 FROM managed_admissions WHERE prepared_json IS NOT NULL",
+          )
+          .first()
+      ) {
+        const shift = (f.grant.expiresAt + 1) * 1000 - realNow();
+        Date.now = () => realNow() + shift;
+      }
+      return current();
+    };
+    const { sealed } = await f.addSong("Expired song", "owner-expired-0001");
+    const job = await f.drive(sealed.jobId, 12);
+    assert.equal(job.phase, "held", f.history().join(" > "));
+    assert.equal(
+      (job as { error_code?: string }).error_code,
+      "owner_grant_outside_window",
+    );
+    assert.equal(acr, 0);
+    const recognition = await f.managed.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM spending_reservations WHERE asset='recognition_requests'",
+      )
+      .first<{ n: number }>();
+    assert.equal(recognition!.n, 0);
+    assert.equal(f.registrationRequests(), 0);
+  } finally {
+    Date.now = realNow;
+    await f.dispose();
+  }
+});
+
+test("post-fee exhaustion before broadcast holds the job instead of looping", async () => {
+  const f = await ownerSongFixture({ postFeeWei: "1" });
+  try {
+    const { sealed } = await f.addSong("Fee-capped song", "owner-fee-cap-0001");
+    const job = await f.drive(sealed.jobId, 20);
+    assert.equal(job.phase, "held", f.history().join(" > "));
+    assert.equal(
+      (job as { error_code?: string }).error_code,
+      "funding_cap_exhausted",
+    );
+    // Once at publication it parked; it never alternated with uncertain.
+    const reached = f.history().indexOf("publication");
+    assert.ok(reached > 0);
+    assert.equal(f.history().slice(reached).includes("uncertain"), false);
+    assert.equal(f.posts.broadcasts(), 0);
+    const operation = await f.community.db
+      .prepare(
+        "SELECT status,operation_id FROM external_operations WHERE job_id=? AND step='publication'",
+      )
+      .bind(sealed.jobId)
+      .first<{ status: string; operation_id: string }>();
+    assert.equal(operation!.status, "failed");
+    const fee = await f.community.db
+      .prepare("SELECT 1 FROM spending_reservations WHERE reservation_id=?")
+      .bind(operation!.operation_id + ":fee")
+      .first();
+    assert.equal(fee, null);
+    // The three pins were bought and kept; only the post was refused.
+    const pins = await f.community.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM external_operations WHERE job_id=? AND step LIKE 'pin_%' AND status='confirmed'",
+      )
+      .bind(sealed.jobId)
+      .first<{ n: number }>();
+    assert.equal(pins!.n, 3);
+    // A later wakeup replays the held receipt rather than retrying the post.
+    await Effect.runPromise(
+      publicationStep(f.community.db, sealed.jobId, firstSongDriver(f.ports)),
+    );
+    assert.equal((await loadJob(f.community.db, sealed.jobId)).phase, "held");
+    assert.equal(f.posts.broadcasts(), 0);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an ambiguous broadcast keeps its reconciliation path after the post-fee budget is exhausted", async () => {
+  const f = await ownerSongFixture();
+  try {
+    const client = f.posts.client as unknown as {
+      sendRawTransaction(input: {
+        serializedTransaction: string;
+      }): Promise<string>;
+    };
+    const send = client.sendRawTransaction.bind(client);
+    let lost = false;
+    client.sendRawTransaction = async (input) => {
+      await send(input);
+      if (!lost) {
+        lost = true;
+        // The rest of the post-fee budget is consumed while this response is
+        // lost, so no new post spending could be reserved now.
+        const key = ownerBudgetKey(f.grant, "post_fee_wei");
+        const row = (await f.community.db
+          .prepare(
+            "SELECT ceiling,reserved,spent FROM spending_budgets WHERE scope=? AND period=? AND asset=?",
+          )
+          .bind(key.scope, key.period, key.asset)
+          .first<{ ceiling: string; reserved: string; spent: string }>())!;
+        const rest =
+          BigInt(row.ceiling) - BigInt(row.reserved) - BigInt(row.spent);
+        await reserveBudget(
+          f.community.db,
+          "fixture:other-post:fee",
+          hashJson({ other: true }),
+          [key],
+          rest.toString(),
+        );
+        throw new Error("fixture broadcast response lost");
+      }
+      return keccak256(input.serializedTransaction as `0x${string}`);
+    };
+    const { sealed } = await f.addSong("Ambiguous post", "owner-ambiguous-01");
+    const job = await f.drive(sealed.jobId, 40);
+    assert.equal(job.phase, "published", f.history().join(" > "));
+    assert.equal(lost, true);
+    assert.equal(f.history().includes("uncertain"), true);
+    const operation = await f.community.db
+      .prepare(
+        "SELECT operation_id FROM external_operations WHERE job_id=? AND step='publication'",
+      )
+      .bind(sealed.jobId)
+      .first<{ operation_id: string }>();
+    const fee = await f.community.db
+      .prepare(
+        "SELECT status FROM spending_reservations WHERE reservation_id=?",
+      )
+      .bind(operation!.operation_id + ":fee")
+      .first<{ status: string }>();
+    assert.equal(fee!.status, "settled");
   } finally {
     await f.dispose();
   }

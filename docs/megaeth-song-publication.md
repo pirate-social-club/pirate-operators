@@ -104,24 +104,40 @@ Consumption is keyed by the stable scope
 `owner:<communityId>:<ownerWallet>:<policyVersion>` and the period
 `<validFrom>-<expiresAt>`, not by the grant hash or configuration revision.
 Replacing the grant, publishing a configuration revision or redeploying
-within the same window therefore reuses the same buckets. `configureBudget`
-already refuses a changed ceiling for an existing bucket, so limits cannot be
-raised by replacement inside a period. Each paying service claims the
-window in its own database with one conditional upsert on
-`owner_budget_windows` (community migration 0012, managed migration 0004).
-The claim creates the scope's window, keeps the identical window, or advances
-to a later non-overlapping one, so two concurrent overlapping grants cannot
-both be admitted and a superseded window cannot open new spending. Deployment
+within the same window therefore reuses the same buckets. Each paying service
+claims the window in its own database with one batch on `owner_budget_windows`
+(community migration 0012, managed migration 0004). The claim creates the
+scope's window, keeps the identical window, or advances to a later
+non-overlapping one, so two concurrent overlapping grants cannot both be
+admitted and a superseded window cannot open new spending. The same batch
+records the digest of the grant's limits on the window and configures all
+five owner buckets from them, including buckets not yet used. A replacement
+grant whose limits differ is refused with `owner_budget_limits_changed`, so no
+ceiling can be raised inside a window. Every new reservation claims the window
+first and commits only while the window, with the same limits digest, is still
+current. Deployment
 packages add these migrations only when owner publishing is selected
 (`harness/package-migrations.ts`); default builds keep the deployed lists.
 
 Each song reserves one `songs` unit at release establishment, keyed by the job
 identity, before any pin or post spend. Pins reserve `pin_adds` and
-`pin_bytes` per operation identity before upload. Recognition reserves one
-`recognition_requests` unit per provider request identity before sending. The
-MegaETH post reserves the fee ceiling and settles the receipt's actual fee.
-Retries reuse the same reservation identity and request hash, so they cannot
-double charge. Unknown outcomes keep their reservation until reconciled.
+`pin_bytes` per operation identity before upload, and the grant's expiry is
+checked again at the upload itself. Recognition reserves one
+`recognition_requests` unit per provider request identity before sending; the
+grant's validity is checked when each new call is authorized and again after
+its reservation, before dispatch. The MegaETH post reserves the fee ceiling
+and settles the receipt's actual fee. Retries reuse the same reservation
+identity and request hash, so they cannot double charge. Unknown outcomes keep
+their reservation until reconciled.
+
+New spending and reconciliation are separate. An existing reservation, a
+retained provider receipt and a possibly broadcast post replay or settle
+without a currently valid grant, so they reconcile after expiry, replacement
+or exhaustion. A refusal of new spending (exhausted cap, expired grant,
+superseded window or changed limits) happens before any provider request or
+broadcast, so the job is held with that code rather than parked as uncertain.
+A refused post has no fee reservation, and no transaction is broadcast
+without one; the held receipt is accepted only while that remains true.
 
 Concrete live limits are not part of this source change. They go in the
 reviewed execution profile before any live execution; a missing grant or
@@ -160,34 +176,49 @@ cash-out verification are unchanged.
 
 ## Status
 
-Implemented and tested through the actual community and managed handlers,
-with ACRCloud, IPFS and the MegaETH chain as explicit simulations:
+Implemented and tested against the community and managed service code, with
+ACRCloud, IPFS and the MegaETH chain as explicit simulations:
 
 - The new policy, `/3` validation, readers that pair formats with their
   configuration policy, and public projections.
 - The controller-signed owner authorization, checked in the release API
   before any reservation; another signed-in account, another wallet's
-  authorization and a foreign signer are refused with no row created.
+  authorization and a foreign signer are refused with no row created. This is
+  tested over HTTP against the release API handler.
 - Owner submissions with no creator binding, sealed under the new policy.
 - Recognition-only admission under the new policy, with owner recognition
-  budgets.
+  budgets and a grant check for each new provider reservation and dispatch.
 - The managed owner release (`packages/release/owner-release.ts`): pins only,
   no registration route, signer, client or Aeneid dependency, one song
   reserved per job before any pin, owner pin and byte budgets, and `/3`
   manifests.
-- Owner posting fees reserved and settled from the owner grant.
+- Owner posting fees reserved and settled from the owner grant, with a
+  refusal before broadcast held as a definite outcome.
+- Owner windows that bind every ceiling at the first claim.
 - Execution profile `/2` bound to owner scope and window; registered jobs and
   curated amendments keep profile `/1`.
 - Acceptance (`test/owner-publication.test.ts`): songs under one grant
   publish as `/3`; the song after the cap is held with
   `funding_cap_exhausted` and never pins or posts; a lost pin response and
-  restarts retry without double charging; and no registration request is made.
+  restarts retry without double charging; recognition is not purchased after
+  the grant expires; post-fee exhaustion holds the job without broadcasting;
+  a post whose broadcast response was lost still reconciles after the fee
+  budget is exhausted; and no registration request is made.
+
+The acceptance fixture (`test/fixtures/owner-song-job.ts`) calls the
+reservation, upload and sealing functions directly and then runs the
+publication driver against the managed service handlers. It does not enter
+through the authenticated community HTTP routes or the community queue
+handler, so it does not establish the complete community request path. The
+final runtime acceptance must do that, and belongs with the runtime wiring
+below.
 
 Not yet implemented:
 
 - Runtime environment wiring: the community worker and managed worker
   selecting owner mode from reviewed configuration, without creator-service
-  or registration-operator health checks.
+  or registration-operator health checks, and an acceptance run that enters
+  through the authenticated community routes and the actual queue handler.
 - Publishing deployment profiles: the release CLIs passing the publishing
   option, publishing-specific successor validation that preserves the
   deployed Study and rewards configuration, and removal of registration
