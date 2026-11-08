@@ -38,7 +38,7 @@ export function rewardProfile(raw: string): RewardsProfile {
     throw new Error("rewards_profile_invalid");
   }
   const p = object(value);
-  exact(p, [
+  const keys = [
     "schema",
     "programId",
     "mode",
@@ -51,7 +51,8 @@ export function rewardProfile(raw: string): RewardsProfile {
     "veryAppId",
     "rpcUrl",
     "resultSourceHash",
-  ]);
+  ];
+  exact(p, Object.hasOwn(p, "rehearsal") ? [...keys, "rehearsal"] : keys);
   insist(
     p.schema === "pirate.manual-rewards/1" &&
       p.chainId === 6343 &&
@@ -79,6 +80,22 @@ export function rewardProfile(raw: string): RewardsProfile {
     p.mode === "simulated" || p.mode === "live-testnet",
     "invalid_reward_mode",
   );
+  let rehearsal: RewardsProfile["rehearsal"];
+  if (Object.hasOwn(p, "rehearsal")) {
+    const r = object(p.rehearsal);
+    exact(r, ["schema", "offerId", "prizeUsdcAtomic"]);
+    insist(
+      p.mode === "live-testnet" && r.schema === "pirate.reward-rehearsal/1",
+      "reward_rehearsal_profile_invalid",
+    );
+    const prize = rewardAmount(r.prizeUsdcAtomic);
+    rewardAmount((prize * 10n ** BigInt(p.decimals - 6)).toString());
+    rehearsal = {
+      schema: "pirate.reward-rehearsal/1",
+      offerId: rewardId(r.offerId),
+      prizeUsdcAtomic: prize.toString(),
+    };
+  }
   return {
     schema: "pirate.manual-rewards/1",
     programId: bytes32(p.programId),
@@ -92,6 +109,7 @@ export function rewardProfile(raw: string): RewardsProfile {
     payoutWallet: rewardAddress(p.payoutWallet),
     ticketWallet: rewardAddress(p.ticketWallet),
     resultSourceHash: bytes32(p.resultSourceHash),
+    ...(rehearsal ? { rehearsal } : {}),
   };
 }
 /** Stable per program/network, independent of wallet, drawing, credit and request. */

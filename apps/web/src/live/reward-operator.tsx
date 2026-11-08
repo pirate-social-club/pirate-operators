@@ -10,16 +10,11 @@ import {
   RewardPaymentPanel,
   type RewardSelection,
 } from "./reward-payment-panel.tsx";
+import { RewardOfferPanel } from "./reward-offer-panel.tsx";
 import type { RewardPayment } from "../../../../packages/rewards/contracts.ts";
 
 const field =
   "w-full rounded border border-border-soft bg-transparent p-2 text-foreground";
-const localTime = (ms: number) => {
-  const d = new Date(
-    ms - Date.prototype.getTimezoneOffset.call(new Date(ms)) * 60000,
-  );
-  return d.toISOString().slice(0, 16);
-};
 export function LiveRewardOperator(props: {
   csrf: string;
   onExit: () => void;
@@ -31,25 +26,15 @@ export function LiveRewardOperator(props: {
     [busy, setBusy] = createSignal(false),
     [notice, setNotice] = createSignal("Loading reward operations…"),
     [selected, setSelected] = createSignal<RewardSelection | null>(null);
-  const [purchase, setPurchase] = createSignal(""),
-    [tickets, setTickets] = createSignal(""),
-    [drawing, setDrawing] = createSignal(""),
-    [song, setSong] = createSignal(""),
-    [opens, setOpens] = createSignal(localTime(Date.now() + 120000)),
-    [cutoff, setCutoff] = createSignal(localTime(Date.now() + 3600000));
   const [fundHash, setFundHash] = createSignal(""),
     [fundLog, setFundLog] = createSignal("0"),
     [fundKind, setFundKind] = createSignal("prefunding"),
     [sourceHash, setSourceHash] = createSignal(""),
     [sourceAmount, setSourceAmount] = createSignal("0"),
     [fee, setFee] = createSignal("0");
-  const [claimHashes, setClaimHashes] = createSignal<Record<string, string>>(
-    {},
-  );
   async function refresh() {
     const next = await data.operator();
     setView(next);
-    if (!song() && next.songs.length) setSong(next.songs[0].songKey);
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -323,170 +308,12 @@ export function LiveRewardOperator(props: {
                 </For>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader>
-                <Type as="h2" variant="h3">
-                  Attach purchased tickets
-                </Type>
-              </CardHeader>
-              <CardContent>
-                <form
-                  class="flex flex-col gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void run(async () => {
-                      await data.operation("/offers", {
-                        offerId: crypto.randomUUID(),
-                        drawingId: drawing(),
-                        songKey: song(),
-                        purchaseHash: purchase(),
-                        ticketIds: tickets()
-                          .split(",")
-                          .map((x) => x.trim()),
-                        opensAt: new Date(opens()).getTime(),
-                        cutoffAt: new Date(cutoff()).getTime(),
-                      });
-                    });
-                  }}
-                >
-                  <label class="flex flex-col gap-2">
-                    Song
-                    <select
-                      class={field}
-                      value={song()}
-                      onChange={(e) => setSong(e.currentTarget.value)}
-                    >
-                      <For each={current().songs}>
-                        {(s) => <option value={s.songKey}>{s.title}</option>}
-                      </For>
-                    </select>
-                  </label>
-                  <label class="flex flex-col gap-2">
-                    Drawing number
-                    <input
-                      required
-                      class={field}
-                      value={drawing()}
-                      onInput={(e) => setDrawing(e.currentTarget.value)}
-                    />
-                  </label>
-                  <label class="flex flex-col gap-2">
-                    Purchase transaction
-                    <input
-                      required
-                      class={field}
-                      value={purchase()}
-                      onInput={(e) => setPurchase(e.currentTarget.value)}
-                    />
-                  </label>
-                  <label class="flex flex-col gap-2">
-                    Ticket IDs, separated by commas
-                    <input
-                      required
-                      class={field}
-                      value={tickets()}
-                      onInput={(e) => setTickets(e.currentTarget.value)}
-                    />
-                  </label>
-                  <label class="flex flex-col gap-2">
-                    Entries open
-                    <input
-                      required
-                      class={field}
-                      type="datetime-local"
-                      value={opens()}
-                      onInput={(e) => setOpens(e.currentTarget.value)}
-                    />
-                  </label>
-                  <label class="flex flex-col gap-2">
-                    Entries close
-                    <input
-                      required
-                      class={field}
-                      type="datetime-local"
-                      value={cutoff()}
-                      onInput={(e) => setCutoff(e.currentTarget.value)}
-                    />
-                  </label>
-                  <Button disabled={busy() || !song()} type="submit">
-                    Attach tickets
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <Type as="h2" variant="h3">
-                  Drawing records
-                </Type>
-              </CardHeader>
-              <CardContent class="flex flex-col gap-5">
-                <For each={current().offers}>
-                  {(offer) => (
-                    <div class="flex flex-col gap-2">
-                      <Type as="p">
-                        Drawing {offer.drawingId} ·{" "}
-                        {offer.state.replaceAll("_", " ")}
-                      </Type>
-                      <Type as="p" variant="caption">
-                        {offer.offerId}
-                      </Type>
-                      <Show when={offer.state === "open"}>
-                        <Button
-                          variant="outline"
-                          disabled={busy() || Date.now() < offer.cutoffAt}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation(
-                                `/offers/${offer.offerId}/close`,
-                                {},
-                              );
-                            })
-                          }
-                        >
-                          Close entries
-                        </Button>
-                      </Show>
-                      <Show when={offer.state === "closed"}>
-                        <label class="flex flex-col gap-2">
-                          Collection transaction, required for a win
-                          <input
-                            class={field}
-                            value={claimHashes()[offer.offerId] ?? ""}
-                            onInput={(e) =>
-                              setClaimHashes({
-                                ...claimHashes(),
-                                [offer.offerId]: e.currentTarget.value,
-                              })
-                            }
-                          />
-                        </label>
-                        <Button
-                          variant="outline"
-                          disabled={busy()}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation(
-                                `/offers/${offer.offerId}/settle`,
-                                {
-                                  ...(claimHashes()[offer.offerId]
-                                    ? {
-                                        claimHash: claimHashes()[offer.offerId],
-                                      }
-                                    : {}),
-                                },
-                              );
-                            })
-                          }
-                        >
-                          Check settled winnings
-                        </Button>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </CardContent>
-            </Card>
+            <RewardOfferPanel
+              view={current()}
+              data={data}
+              busy={busy()}
+              run={run}
+            />
             <Card>
               <CardHeader>
                 <Type as="h2" variant="h3">

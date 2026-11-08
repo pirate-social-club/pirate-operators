@@ -72,6 +72,30 @@ test("rewards successor preserves the accepted Study deployment and appends only
     mutate(altered);
     assert.throws(() => assertRewardsApplicationUpgrade(previous, altered));
   }
+  const rehearsal = structuredClone(next);
+  rehearsal.rewards.profile.rehearsal = {
+    schema: "pirate.reward-rehearsal/1",
+    offerId: "rehearsal_001",
+    prizeUsdcAtomic: "30000",
+  };
+  const declared = rewardsReleaseSelection(rehearsal.rewards);
+  assert.equal(declared.profile.rehearsal?.prizeUsdcAtomic, "30000");
+  assert.doesNotThrow(() =>
+    assertRewardsApplicationUpgrade(previous, rehearsal),
+  );
+  assert.doesNotThrow(() =>
+    assertRewardsApplicationUpgrade(rehearsal, structuredClone(rehearsal)),
+  );
+  const changedPrize = structuredClone(rehearsal);
+  changedPrize.rewards.profile.rehearsal!.prizeUsdcAtomic = "40000";
+  assert.throws(
+    () => assertRewardsApplicationUpgrade(rehearsal, changedPrize),
+    /reward_release_program_changed/,
+  );
+  assert.throws(
+    () => assertRewardsApplicationUpgrade(rehearsal, next),
+    /reward_release_program_changed/,
+  );
   const changed = structuredClone(next);
   changed.rewards.profile.veryAppId = "another_program";
   assert.throws(

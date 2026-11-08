@@ -362,3 +362,4 @@ body:has(.live-study-overlay) {
 }
 
 @source "./reward-payment-panel.tsx";
+@source "./reward-offer-panel.tsx";

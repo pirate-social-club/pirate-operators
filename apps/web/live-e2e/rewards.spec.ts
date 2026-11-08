@@ -8,7 +8,12 @@ const origin = "https://community.example",
   address = `0x${"55".repeat(20)}`,
   reserve = `0x${"33".repeat(20)}`,
   token = `0x${"11".repeat(20)}`;
-async function fixture(page: Page, operator = false, uncertain = false) {
+async function fixture(
+  page: Page,
+  operator = false,
+  uncertain = false,
+  rehearsalMode = false,
+) {
   let verified = false,
     paid = false,
     accepted = false,
@@ -16,6 +21,29 @@ async function fixture(page: Page, operator = false, uncertain = false) {
     claims = 0,
     prepared = uncertain,
     cancelled = false;
+  let rehearsalAttached = false,
+    rehearsalClosed = false,
+    rehearsalSettled = false;
+  const rehearsal = {
+    schema: "pirate.reward-rehearsal/1",
+    offerId: "rehearsal_001",
+    prizeUsdcAtomic: "30000",
+    drawingId: "0",
+    purchaseHash: `0x${"bb".repeat(32)}`,
+    ticketIds: ["77"],
+  };
+  const rehearsalOffer = () => ({
+    ...rehearsal,
+    evidenceMode: "simulated",
+    songKey: `0x${"cc".repeat(32)}`,
+    opensAt: Date.now() - 100000,
+    cutoffAt: Date.now() - 1,
+    state: rehearsalSettled ? "settled" : rehearsalClosed ? "closed" : "open",
+    entries: [],
+    winningsUsdcAtomic: null,
+    payoutAtomic: null,
+    remainderAtomic: null,
+  });
   const credit = () => ({
     credit_id: "credit_0001",
     offer_id: "offer_0001",
@@ -151,7 +179,8 @@ async function fixture(page: Page, operator = false, uncertain = false) {
       });
     if (path === "/api/operator/rewards")
       return json({
-        offers: [],
+        offers: rehearsalAttached ? [rehearsalOffer()] : [],
+        rehearsal: rehearsalMode ? rehearsal : null,
         liabilities: {
           total: "180000",
           unclaimed: "0",
@@ -186,14 +215,32 @@ async function fixture(page: Page, operator = false, uncertain = false) {
         unmatched: [],
         observedBalanceAtomic: "1000000",
         practiceOnly: true,
-        simulatedWinnings: true,
+        simulatedWinnings: !rehearsalMode,
         decimals: 6,
         token,
         chainId: 6343,
         participants: [],
-        songs: [],
+        songs: rehearsalMode
+          ? [{ songKey: `0x${"cc".repeat(32)}`, title: "Fixture song" }]
+          : [],
         funding: [],
       });
+    if (path === "/api/operator/rewards/offers") {
+      const body = req.postDataJSON();
+      expect(body.offerId).toBe(rehearsal.offerId);
+      expect(body.purchaseHash).toBe(rehearsal.purchaseHash);
+      expect(body.ticketIds).toEqual(rehearsal.ticketIds);
+      expect(body.drawingId).toBe("0");
+      expect(body.opensAt).toBeGreaterThan(Date.now());
+      expect(body.cutoffAt).toBeGreaterThan(body.opensAt);
+      rehearsalAttached = true;
+      return json(rehearsalOffer());
+    }
+    if (path === "/api/operator/rewards/offers/rehearsal_001/settle") {
+      expect(req.postDataJSON()).toEqual({});
+      rehearsalSettled = true;
+      return json(rehearsalOffer());
+    }
     if (path === "/api/operator/rewards/payments") {
       prepared = true;
       return json(payment());
@@ -227,6 +274,9 @@ async function fixture(page: Page, operator = false, uncertain = false) {
     intents: () => intents,
     claims: () => claims,
     prepared: () => prepared,
+    closeRehearsal: () => {
+      rehearsalClosed = true;
+    },
   };
 }
 
@@ -357,5 +407,52 @@ test("an uncertain wallet result keeps explicit guarded retry and on-chain cance
   await page.getByText("Recent wallet attempts (1)", { exact: true }).click();
   await expect(
     page.getByText("No transaction hash received", { exact: true }),
+  ).toBeVisible();
+});
+
+test("operator attaches one explicit rehearsal with frozen evidence and settles without a collection hash", async ({
+  page,
+}) => {
+  const f = await fixture(page, true, false, true);
+  await page.goto(origin + "/operator/rewards");
+  await expect(
+    page.getByRole("heading", { name: "Create rehearsal offer", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Simulated ticket and prize evidence: \$0.03 total/),
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Purchase transaction", { exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Attach rehearsal offer", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "Rehearsal already attached",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  f.closeRehearsal();
+  await page.reload();
+  await expect(
+    page.getByText("Rehearsal offer · closed", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Collection transaction, required for a win", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Credit simulated prize", exact: true })
+    .click();
+  await expect(
+    page.getByText("Rehearsal offer · settled", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Drawing source", exact: true })
+    .selectOption("live");
+  await expect(
+    page.getByLabel("Purchase transaction", { exact: true }),
   ).toBeVisible();
 });

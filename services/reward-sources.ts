@@ -32,6 +32,7 @@ import type {
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import type { Hex } from "viem";
+import { withRewardRehearsal } from "../packages/rewards/rehearsal.ts";
 
 export interface RewardResultSource {
   schema: "pirate.reward-result-source/1";
@@ -181,10 +182,16 @@ export function liveRewardSources(input: {
     "reward_results_contract_changed",
     503,
   );
-  return {
+  return withRewardRehearsal(profile, {
     mode: "live-testnet",
-    purchase: megapotPurchase,
-    winnings: megapotWinnings,
+    purchase: async (...args) => ({
+      ...(await megapotPurchase(...args)),
+      mode: "live-testnet",
+    }),
+    winnings: async (...args) => ({
+      ...(await megapotWinnings(...args)),
+      mode: "live-testnet",
+    }),
     async qualifiers(offer) {
       const confirmed = await reads.client.getBlock({ blockTag: "safe" });
       const range = await rewardOfferBlocks(
@@ -243,5 +250,5 @@ export function liveRewardSources(input: {
       );
       return entries;
     },
-  };
+  });
 }

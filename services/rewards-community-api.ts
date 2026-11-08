@@ -32,6 +32,7 @@ import {
   rewardAmount,
 } from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
+import { rehearsalTerms } from "../packages/rewards/rehearsal.ts";
 
 export interface RewardsApiPorts {
   db: D1Database;
@@ -272,6 +273,7 @@ export async function rewardsCommunityApi(
         payoutWallet: ports.profile.payoutWallet,
         practiceOnly: true,
         simulatedWinnings: ports.profile.mode === "simulated",
+        rehearsal: rehearsalTerms(ports.profile),
         decimals: ports.profile.decimals,
         token: ports.profile.token,
         chainId: 6343,

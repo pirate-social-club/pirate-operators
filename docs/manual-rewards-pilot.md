@@ -164,3 +164,38 @@ and record one exact dedicated-account payout plus a small-balance onward
 Send/full-balance attempt. Where Sepolia drawing liveness or conversion is
 unavailable, explicitly simulated wins and a prefunded testnet reserve remain
 the rehearsal mode. They cannot close real-provider acceptance.
+
+
+An optional immutable profile.rehearsal selection declares one offerId and an
+exact prizeUsdcAtomic for a hosted testnet rehearsal. The program remains in
+live-testnet mode. That one offer derives visibly synthetic purchase/ticket
+references; every other offer still uses the actual Megapot purchase and
+settlement adapters. Evidence mode is stored with the offer's purchase and must
+match settlement. Synthetic ticket IDs have their own namespace. The configured
+prize and refs cannot be edited through the operator form or collection endpoint.
+This avoids a program-wide simulation mode that could never be changed under
+the existing immutable profile rules.
+
+The operator attaches that rehearsal before its window opens, allowing enough
+time for a real qualifying public Study or Karaoke result. Approval, account
+mapping, public result validation and the real Very claim remain unchanged.
+Only the external ticket purchase and drawing prize are simulated. The offer
+is one-shot: its first attachment freezes its song and window; closing with no
+qualifiers or missing that window cannot be reset to manufacture a result.
+The planned first rehearsal declares 30000 USDC atomic units, or three cents
+total before any split. This bounds credits only. Actual prefunding must also
+cover fees, and nominal credits are never reduced for gas. Fractional shares
+remain exact. Real and rehearsal credits retain their per-offer provenance if
+one payment covers both. A rehearsal transfer proves a testnet payment, not
+real Megapot prize collection or a working conversion route.
+
+Owner ruling, November 8: a dedicated small-float payout account may approve
+raw-calldata guarded self-calls on testnet 6343. Before the first testnet payout,
+capture the real MOSS approval once for a few-cent guarded payment and once for
+a plain USDm transfer, recording what each shows. Raw calldata is acceptable
+for that testnet exception. Mainnet remains held; before any mainnet payout,
+approval must show token, recipient and amount and exclude key/permission
+changes. A flat capped pay-once contract is a possible future design, not a
+selected or deployed contract. The later owner instruction allows convenient
+existing testnet identities and keys; it changes neither mainnet scope nor the
+need to observe actual Palm, microphone and MOSS behavior.

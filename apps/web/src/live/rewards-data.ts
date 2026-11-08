@@ -43,6 +43,9 @@ export interface RewardOperatorView {
   token: string;
   chainId: 6343;
   simulatedWinnings: boolean;
+  rehearsal?:
+    | import("../../../../packages/rewards/contracts.ts").RewardRehearsalTerms
+    | null;
   participants: {
     account_id: string;
     wallet: string;

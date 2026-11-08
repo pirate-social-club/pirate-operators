@@ -33,7 +33,10 @@ export const rewardTestProfile: RewardsProfile = {
 };
 export const rewardHash = (n: number) =>
   `0x${n.toString(16).padStart(64, "0")}`;
-export async function manualRewardsFixture() {
+export async function manualRewardsFixture(
+  overrides: Partial<RewardsProfile> = {},
+) {
+  const profile = { ...rewardTestProfile, ...overrides };
   const runtime = await communityRuntime();
   try {
     const sql = await readFile(
@@ -54,7 +57,7 @@ export async function manualRewardsFixture() {
     const principals = [
       { accountId: "learner_01", wallet: `0x${"55".repeat(20)}` },
       { accountId: "learner_02", wallet: `0x${"66".repeat(20)}` },
-      { accountId: "operator_01", wallet: rewardTestProfile.operatorWallet },
+      { accountId: "operator_01", wallet: profile.operatorWallet },
     ];
     for (const [i, p] of principals.entries())
       await runtime.db.batch([
@@ -83,7 +86,7 @@ export async function manualRewardsFixture() {
       outgoing: async (_p, from, to) =>
         [...transfers.values()].filter(
           (t) =>
-            t.sender === rewardTestProfile.payoutWallet &&
+            t.sender === profile.payoutWallet &&
             BigInt(t.blockNumber) >= BigInt(from) &&
             BigInt(t.blockNumber) <= BigInt(to),
         ),
@@ -98,10 +101,14 @@ export async function manualRewardsFixture() {
       },
     };
     const sources: RewardSources = {
-      mode: "simulated",
-      purchase: async (input) => ({ receiptHash: hashJson(input) }),
+      mode: profile.mode,
+      purchase: async (input) => ({
+        receiptHash: hashJson(input),
+        mode: profile.mode,
+      }),
       qualifiers: async () => candidates,
       winnings: async () => ({
+        mode: profile.mode,
         usdcAtomic: prize,
         receiptHash: rewardHash(901),
       }),
@@ -114,7 +121,7 @@ export async function manualRewardsFixture() {
       },
       subject: async (id) => subjects.get(id) ?? null,
     };
-    const store = new RewardStore(runtime.db, rewardTestProfile);
+    const store = new RewardStore(runtime.db, profile);
     await store.init();
     const offers = new RewardOffers(store, sources, () => now),
       claims = new RewardClaims(store, provider, () => now),
@@ -155,9 +162,9 @@ export async function manualRewardsFixture() {
         blockHash: rewardHash(999),
         blockNumber: "101",
         logIndex: 2,
-        sender: rewardTestProfile.payoutWallet,
+        sender: profile.payoutWallet,
         recipient,
-        token: rewardTestProfile.token,
+        token: profile.token,
         amountAtomic,
       };
     }

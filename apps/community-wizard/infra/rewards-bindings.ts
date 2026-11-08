@@ -16,5 +16,24 @@ export function applicationRewardsBindings(
     s.schema !== "pirate.reward-result-source/1"
   )
     throw Error("reward_release_binding_invalid");
+  if (p.rehearsal !== undefined) {
+    const r = p.rehearsal;
+    if (
+      !r ||
+      typeof r !== "object" ||
+      Array.isArray(r) ||
+      Object.keys(r).sort().join(",") !== "offerId,prizeUsdcAtomic,schema" ||
+      r.schema !== "pirate.reward-rehearsal/1" ||
+      typeof r.offerId !== "string" ||
+      !/^[a-zA-Z0-9_-]{8,128}$/.test(r.offerId) ||
+      typeof r.prizeUsdcAtomic !== "string" ||
+      !/^(0|[1-9][0-9]*)$/.test(r.prizeUsdcAtomic) ||
+      !Number.isInteger(p.decimals) ||
+      p.decimals < 6 ||
+      p.decimals > 18 ||
+      BigInt(r.prizeUsdcAtomic) * 10n ** BigInt(p.decimals - 6) >= 2n ** 256n
+    )
+      throw Error("reward_release_binding_invalid");
+  }
   return { REWARDS_PROFILE_JSON: profile, REWARDS_RESULT_SOURCE_JSON: source };
 }

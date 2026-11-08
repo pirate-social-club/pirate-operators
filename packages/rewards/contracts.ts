@@ -12,6 +12,18 @@ export interface RewardsProfile {
   veryAppId: string;
   rpcUrl: string;
   resultSourceHash: string;
+  /** One explicitly declared mock drawing; all other offers retain real provider evidence. */
+  rehearsal?: RewardRehearsal;
+}
+export interface RewardRehearsal {
+  schema: "pirate.reward-rehearsal/1";
+  offerId: string;
+  prizeUsdcAtomic: string;
+}
+export interface RewardRehearsalTerms extends RewardRehearsal {
+  drawingId: string;
+  purchaseHash: string;
+  ticketIds: string[];
 }
 export interface RewardPrincipal {
   accountId: string;
@@ -142,6 +154,7 @@ export interface QualificationEntry {
   completedAt: number;
 }
 export interface RewardOffer extends RewardOfferInput {
+  evidenceMode: RewardsProfile["mode"];
   state: "open" | "closed" | "settled" | "no_prize";
   entries: QualificationEntry[] | null;
   winningsUsdcAtomic: string | null;
@@ -160,7 +173,7 @@ export interface RewardSources {
   purchase(
     offer: RewardOfferInput,
     profile: RewardsProfile,
-  ): Promise<{ receiptHash: string }>;
+  ): Promise<{ receiptHash: string; mode: RewardsProfile["mode"] }>;
   qualifiers(offer: RewardOfferInput): Promise<QualificationEntry[]>;
   winnings(
     offer: RewardOfferInput,
@@ -172,6 +185,7 @@ export interface RewardSources {
     transactionHash?: string;
     blockHash?: string;
     blockNumber?: string;
+    mode: RewardsProfile["mode"];
   }>;
 }
 export interface RewardChain {

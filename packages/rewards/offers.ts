@@ -1,4 +1,5 @@
-import { bytes32, hashJson, insist } from "../community/common.ts";
+import { bytes32, hashJson, insist, object } from "../community/common.ts";
+import { assertRehearsalOffer } from "./rehearsal.ts";
 import type {
   QualificationEntry,
   RewardOffer,
@@ -14,7 +15,14 @@ import {
 } from "./validation.ts";
 
 export function offerView(row: OfferRow): RewardOffer {
+  const mode = object(JSON.parse(row.purchase_evidence)).mode;
+  insist(
+    mode === "simulated" || mode === "live-testnet",
+    "reward_purchase_mode_missing",
+    503,
+  );
   return {
+    evidenceMode: mode,
     offerId: row.offer_id,
     drawingId: row.drawing_id,
     songKey: row.song_key,
@@ -119,6 +127,17 @@ export class RewardOffers {
     for (const id of input.ticketIds) rewardAmount(id);
     const evidence = await this.source.purchase(input, this.store.profile);
     bytes32(evidence.receiptHash);
+    const expectedMode =
+      this.store.profile.rehearsal?.offerId === input.offerId
+        ? "simulated"
+        : this.store.profile.mode;
+    insist(
+      evidence.mode === expectedMode,
+      "reward_purchase_mode_mismatch",
+      503,
+    );
+    if (this.store.profile.rehearsal?.offerId === input.offerId)
+      assertRehearsalOffer(this.store.profile, input);
     return this.store.atomic(async () => {
       const prior = await this.store
         .statement(
@@ -156,6 +175,7 @@ export class RewardOffers {
       return {
         value: {
           ...input,
+          evidenceMode: evidence.mode,
           state: "open" as const,
           entries: null,
           winningsUsdcAtomic: null,
@@ -167,7 +187,9 @@ export class RewardOffers {
           ...input.ticketIds.map((id) =>
             this.store.statement(
               "INSERT INTO reward_tickets(source_ticket_id,program_id,offer_id) VALUES(?,?,?)",
-              `84532:${id}`,
+              evidence.mode === "simulated"
+                ? `simulated:${this.store.program}:${id}`
+                : `84532:${id}`,
               this.store.program,
               input.offerId,
             ),
@@ -233,6 +255,17 @@ export class RewardOffers {
   }
   async settle(id: string, claimHash?: string) {
     const input = offerView(await this.store.offer(rewardId(id)));
+    if (
+      input.evidenceMode === "simulated" &&
+      this.store.profile.mode === "live-testnet"
+    ) {
+      assertRehearsalOffer(this.store.profile, input);
+      insist(
+        claimHash === undefined,
+        "reward_rehearsal_has_no_collection_transaction",
+        409,
+      );
+    }
     if (input.state === "settled" || input.state === "no_prize") return input;
     insist(input.state !== "open", "reward_entries_not_closed", 409);
     if (claimHash) bytes32(claimHash);
@@ -241,8 +274,25 @@ export class RewardOffers {
       this.store.profile,
       claimHash,
     );
+    insist(
+      observed.mode === input.evidenceMode,
+      "reward_settlement_mode_mismatch",
+      503,
+    );
     const usdc = rewardAmount(observed.usdcAtomic);
-    if (this.store.profile.mode === "live-testnet" && usdc > 0n) {
+    if (
+      input.evidenceMode === "simulated" &&
+      this.store.profile.mode === "live-testnet"
+    ) {
+      const terms = assertRehearsalOffer(this.store.profile, input);
+      insist(
+        claimHash === undefined &&
+          observed.usdcAtomic === terms.prizeUsdcAtomic,
+        "reward_rehearsal_settlement_changed",
+        409,
+      );
+    }
+    if (input.evidenceMode === "live-testnet" && usdc > 0n) {
       bytes32(observed.transactionHash);
       bytes32(observed.blockHash);
       rewardAmount(observed.blockNumber);
@@ -253,6 +303,11 @@ export class RewardOffers {
     rewardAmount(payout.toString());
     return this.store.atomic(async () => {
       const row = await this.store.offer(id);
+      insist(
+        offerView(row).evidenceMode === input.evidenceMode,
+        "reward_settlement_mode_mismatch",
+        503,
+      );
       if (row.state === "settled" || row.state === "no_prize") {
         insist(
           row.winnings_usdc_atomic === usdc.toString(),
