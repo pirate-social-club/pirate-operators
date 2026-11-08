@@ -7,7 +7,6 @@ import type { StudyPublicationReceipt } from "../../../../packages/study/publica
 import { createStudyClient, type StudyClient } from "../study/client.ts";
 import { StudyScreen, StudyLoading } from "../study/screen.tsx";
 import { StudyRouteLoadFailureState } from "../study/presentation/studying-route-states.tsx";
-import { Button } from "../ui.ts";
 import { get, post } from "./api.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
 import {
@@ -158,32 +157,6 @@ export function LiveStudy(props: {
     link.click();
     URL.revokeObjectURL(url);
   }
-  const publicationMessage = () => {
-    const value = publication();
-    if (
-      value?.state === "published" &&
-      value.receipt?.canonicalRevision?.status === 5
-    )
-      return value.receipt.confirmed
-        ? "Your public learning result was invalidated. Its public history is preserved."
-        : "Your public learning result invalidation is confirming.";
-    if (
-      value?.state === "published" &&
-      (value.receipt?.canonicalRevision?.revision ?? 1) > 1
-    )
-      return value.receipt?.confirmed
-        ? "Your corrected public learning result is published."
-        : "Your corrected public learning result is confirming.";
-    if (value?.state === "published")
-      return value.receipt?.confirmed
-        ? "Your public learning result is published."
-        : "Your public learning result is confirming.";
-    if (value?.state === "private")
-      return "This lesson was saved privately. No public result was published.";
-    if (value?.state === "failed")
-      return "Publication needs operator review. Your lesson is saved.";
-    return "Your lesson is saved. Public result publication is pending.";
-  };
   return (
     <section class="live-study" aria-label={`Study: ${props.title}`}>
       <Show
@@ -207,23 +180,6 @@ export function LiveStudy(props: {
             client={current()}
             onLesson={observe}
             onExit={props.onExit}
-            terminalNote={
-              <Show when={terminalId()}>
-                <div class="study-publication">
-                  <p role="status">{publicationMessage()}</p>
-                  <Button
-                    variant="outline"
-                    disabled={checking()}
-                    onClick={() => {
-                      polls = 0;
-                      void checkPublication();
-                    }}
-                  >
-                    {checking() ? "Checking publication…" : "Check publication"}
-                  </Button>
-                </div>
-              </Show>
-            }
           />
         )}
       </Show>

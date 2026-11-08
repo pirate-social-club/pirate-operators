@@ -326,13 +326,6 @@ body:has(.live-study-overlay) {
   position: relative;
   min-height: 100dvh;
 }
-.study-publication {
-  display: grid;
-  gap: 12px;
-  color: var(--muted-foreground);
-  font-size: 14px;
-  line-height: 1.5;
-}
 .study-policy-links {
   position: absolute;
   right: 16px;

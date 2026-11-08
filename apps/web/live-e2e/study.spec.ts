@@ -1,8 +1,23 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
 import { readFile, mkdir } from "node:fs/promises";
 
-test("Study distinguishes corrected and invalidated public results from its saved private lesson", async ({
+async function expectNoPublicationPanel(page: Page) {
+  const study = page.locator(".live-study");
+  await expect(study.locator(".study-publication")).toHaveCount(0);
+  await expect(
+    study.getByRole("button", { name: /Check(?:ing)? publication/ }),
+  ).toHaveCount(0);
+  await expect(
+    study.getByText(
+      /public learning result|public result publication|Publication needs operator review|saved privately/i,
+    ),
+  ).toHaveCount(0);
+}
+const publicationResponse = (page: Page) =>
+  page.waitForResponse((response) => response.url().endsWith("/publication"));
+
+test("corrected and invalidated public results reconcile without a learner publication panel", async ({
   page,
 }) => {
   const state = await serveStudy(page);
@@ -10,34 +25,26 @@ test("Study distinguishes corrected and invalidated public results from its save
   await expect(page.locator(".study-surface h2")).toBeVisible();
   state.complete();
   state.revise(2, 1);
+  const corrected = publicationResponse(page);
   await page.reload();
-  await expect(
-    page.getByText("Your corrected public learning result is published."),
-  ).toBeVisible();
-  state.revise(3, 5, false);
-  await page
-    .getByRole("button", { name: "Check publication", exact: true })
-    .click();
-  await expect(
-    page.getByText("Your public learning result invalidation is confirming."),
-  ).toBeVisible();
-  state.revise(3, 5);
-  await page
-    .getByRole("button", { name: "Check publication", exact: true })
-    .click();
-  await expect(
-    page.getByText(
-      "Your public learning result was invalidated. Its public history is preserved.",
-    ),
-  ).toBeVisible();
+  expect(
+    (await (await corrected).json()).receipt.canonicalRevision.revision,
+  ).toBe(2);
   await expect(page.getByText("3/4", { exact: true })).toBeVisible();
-  state.revise(2, 1);
-  await page
-    .getByRole("button", { name: "Check publication", exact: true })
-    .click();
-  await expect(
-    page.getByText("Your corrected public learning result is published."),
-  ).toBeVisible();
+  await expectNoPublicationPanel(page);
+  state.revise(3, 5, false);
+  const invalidating = publicationResponse(page);
+  await page.reload();
+  expect(
+    (await (await invalidating).json()).receipt.canonicalRevision.status,
+  ).toBe(5);
+  await expectNoPublicationPanel(page);
+  state.revise(3, 5);
+  const confirmed = await publicationResponse(page);
+  expect((await confirmed.json()).receipt.confirmed).toBe(true);
+  await confirmed.finished();
+  await expectNoPublicationPanel(page);
+  await expect(page.getByText("3/4", { exact: true })).toBeVisible();
   expect(state.counts.starts).toBe(1);
   expect(state.counts.signatures).toBe(1);
 });
@@ -219,34 +226,41 @@ test("a lost lesson-start response resumes the saved lesson without a second enr
   expect(state.counts.signatures).toBe(1);
 });
 
-test("Study completion distinguishes saved, pending and confirmed publication and preserves it on reload", async ({
+test("completed Study automatically recovers pending publication without exposing implementation controls", async ({
   page,
 }) => {
+  await page.clock.install();
   const state = await serveStudy(page);
   await page.goto(state.url);
   await expect(page.locator(".study-surface h2")).toBeVisible();
   state.complete();
+  const pending = publicationResponse(page);
   await page.reload();
+  expect((await (await pending).json()).state).toBe("pending");
   await expect(
     page.getByRole("heading", { name: "Great work!" }),
   ).toBeVisible();
   await expect(page.getByText("3/4", { exact: true })).toBeVisible();
-  await expect(
-    page.getByText(
-      "Your lesson is saved. Public result publication is pending.",
-    ),
-  ).toBeVisible();
+  await expectNoPublicationPanel(page);
+  const confirming = publicationResponse(page);
   state.publish();
-  await page
-    .getByRole("button", { name: "Check publication", exact: true })
-    .click();
-  await expect(
-    page.getByText("Your public learning result is published."),
-  ).toBeVisible();
+  await page.clock.runFor(3100);
+  const response = await confirming;
+  expect((await response.json()).receipt.confirmed).toBe(true);
+  await response.finished();
+  await page.evaluate(() => Promise.resolve());
+  const checks = state.counts.publicationChecks;
+  await page.clock.runFor(15000);
+  expect(state.counts.publicationChecks).toBe(checks);
+  expect(state.counts.terminalReads).toBeGreaterThanOrEqual(checks);
+  const beforeReload = state.counts.publicationChecks;
   await page.reload();
-  await expect(
-    page.getByText("Your public learning result is published."),
-  ).toBeVisible();
+  await expect(page.getByText("3/4", { exact: true })).toBeVisible();
+  await expect
+    .poll(() => state.counts.publicationChecks)
+    .toBeGreaterThan(beforeReload);
+  expect(state.publicationResponses.at(-1)?.confirmed).toBe(true);
+  await expectNoPublicationPanel(page);
   expect(state.counts.starts).toBe(1);
   expect(state.counts.enrollmentRequests).toBe(1);
   expect(state.counts.signatures).toBe(1);
@@ -284,21 +298,22 @@ test("a rejected restart keeps the completed first-pass result and displays its 
     "Your answer could not be saved. Try again.",
   );
   await expect(page.getByText("3/4", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Check publication", exact: true }),
-  ).toBeVisible();
+  await expectNoPublicationPanel(page);
   expect(state.counts.starts).toBe(1);
 });
 for (const status of ["expired", "abandoned"] as const) {
-  test(`${status} Study retains publication recovery without calling unfinished lines missed`, async ({
+  test(`${status} Study reconciles publication in the background and preserves unfinished outcomes`, async ({
     page,
   }) => {
+    await page.clock.install();
     const state = await serveStudy(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(state.url);
     await expect(page.locator(".study-surface h2")).toBeVisible();
     state.end(status);
+    const pending = publicationResponse(page);
     await page.reload();
+    expect((await (await pending).json()).state).toBe("pending");
     await expect(
       page.getByRole("heading", {
         name: status === "expired" ? "Lesson expired" : "Lesson ended",
@@ -312,18 +327,19 @@ for (const status of ["expired", "abandoned"] as const) {
       ),
     ).toBeVisible();
     await expect(page.getByText("Missed", { exact: true })).toHaveCount(0);
+    await expectNoPublicationPanel(page);
+    const confirming = publicationResponse(page);
     state.publish();
-    const check = page.getByRole("button", {
-      name: "Check publication",
-      exact: true,
-    });
-    await expect(check).toBeInViewport();
-    await check.click();
-    await expect(
-      page.getByText("Your public learning result is published.", {
-        exact: true,
-      }),
-    ).toBeVisible();
+    await page.clock.runFor(3100);
+    const response = await confirming;
+    expect((await response.json()).receipt.confirmed).toBe(true);
+    await response.finished();
+    await page.evaluate(() => Promise.resolve());
+    const checks = state.counts.publicationChecks;
+    await page.clock.runFor(15000);
+    expect(state.counts.publicationChecks).toBe(checks);
+    expect(state.counts.terminalReads).toBeGreaterThanOrEqual(checks);
+    await expectNoPublicationPanel(page);
     await expect(
       page.getByRole("navigation", { name: "Study policies" }),
     ).toBeInViewport();
@@ -332,8 +348,34 @@ for (const status of ["expired", "abandoned"] as const) {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
+    await page.screenshot({
+      path: test.info().outputPath(`study-${status}-mobile.png`),
+      fullPage: false,
+    });
   });
 }
+
+test("leaving a completed lesson cancels its background publication polling", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const state = await serveStudy(page);
+  await page.goto(state.url);
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  state.complete();
+  const pending = publicationResponse(page);
+  await page.reload();
+  await (await pending).finished();
+  await expect(
+    page.getByRole("heading", { name: "Great work!" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page).toHaveURL(origin + "/");
+  const checks = state.counts.publicationChecks;
+  await page.clock.runFor(20000);
+  expect(state.counts.publicationChecks).toBe(checks);
+  expect(state.counts.starts).toBe(1);
+});
 
 for (const width of [1366, 390]) {
   test(`central Study presentation remains within the ${width}px viewport`, async ({
