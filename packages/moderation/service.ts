@@ -1,5 +1,5 @@
 import { admissionRecovery } from "./admission-recovery.ts";
-import { ownerCurated } from "../community/owner-policy.ts";
+import { ownerCurated, unregisteredOwner } from "../community/owner-policy.ts";
 import { curatedAdmissionId } from "../community/curated-amendment.ts";
 import { selectedAdmission } from "./curated-admission.ts";
 import { Effect } from "effect";
@@ -101,7 +101,11 @@ export async function managedFetch(
       });
     }
     if (action === "admit") {
-      const input = admissionRequest(body, pairing);
+      const input = admissionRequest(
+        body,
+        pairing,
+        unregisteredOwner(current.policies.admission),
+      );
       const row = await enqueueAdmission(db, input, pairing, authorization, {
         period: config.serviceBudgetPeriod,
         requestCap: config.serviceRequestCap,

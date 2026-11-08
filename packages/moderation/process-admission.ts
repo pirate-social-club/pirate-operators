@@ -37,7 +37,18 @@ import {
 import type { ManagedPairing } from "./pairing.ts";
 import type { ProviderTransport } from "./provider-http.ts";
 import type { AudioWindowFacts } from "./admission.ts";
-import { ownerCurated } from "../community/owner-policy.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+  UNREGISTERED_OWNER_POLICY,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "../community/owner-policy.ts";
+import {
+  claimOwnerWindow,
+  ownerBudgetCeiling,
+  ownerBudgetKey,
+  type OwnerBudgetGrant,
+} from "../release/owner-grant.ts";
 
 export interface ManagedProcessing {
   pairings: ManagedPairing[];
@@ -49,6 +60,8 @@ export interface ManagedProcessing {
   currentConfiguration(pairing: ManagedPairing): Promise<CommunityConfig>;
   transport?: ProviderTransport;
   inputTransport?: (request: Request) => Promise<Response>;
+  /** Reviewed owner budget; required for the unregistered owner policy. */
+  ownerGrant?: OwnerBudgetGrant;
 }
 export function processAdmission(
   db: D1Database,
@@ -134,7 +147,16 @@ export function processAdmission(
           await acquisitionTime();
         };
         await authorize();
-        const request = admissionRequest(JSON.parse(row.request_json), pairing),
+        // Recognition only under the unregistered owner policy. The captured
+        // request's checks must agree; the revision check above pins the policy.
+        const recognitionOnly = unregisteredOwner(
+          (await config.currentConfiguration(pairing)).policies.admission,
+        );
+        const request = admissionRequest(
+            JSON.parse(row.request_json),
+            pairing,
+            recognitionOnly,
+          ),
           prepared = await prepareAdmission(
             db,
             media,
@@ -167,6 +189,33 @@ export function processAdmission(
           String(authority.serviceBudget.requestCap),
         );
         await configureBudget(db, budgets[1]!, String(pairing.requestCap));
+        let condition:
+          | import("../community/budgets.ts").ReservationCondition
+          | undefined;
+        if (recognitionOnly) {
+          const grant = config.ownerGrant;
+          insist(
+            grant &&
+              grant.communityId === pairing.communityId &&
+              grant.policy.version === UNREGISTERED_OWNER_POLICY_VERSION,
+            "owner_grant_unavailable",
+            503,
+          );
+          const ownerKey = await claimOwnerWindow(db, grant);
+          const recognition = ownerBudgetKey(grant, "recognition_requests");
+          await configureBudget(
+            db,
+            recognition,
+            ownerBudgetCeiling(grant, "recognition_requests"),
+          );
+          budgets.push(recognition);
+          condition = {
+            clause:
+              "EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=?)",
+            binds: [ownerKey.scope, grant.validFrom, grant.expiresAt],
+            code: "owner_budget_window_not_current",
+          };
+        }
         const lease = { admissionId: id, token: row.lease_token! },
           windows: (AudioWindowFacts & { providerCode: number })[] = [],
           audioDetails: Record<string, unknown>[] = [];
@@ -175,6 +224,7 @@ export function processAdmission(
           const call = await journaledProviderCall(db, lease, {
             kind: role === "primary" ? "acr_primary" : "acr_alternate",
             budgets,
+            condition,
             authorize,
             request: {
               schema: "pirate.acr-call/1",
@@ -207,47 +257,56 @@ export function processAdmission(
           audioDetails.push(result.details);
           if (result.code !== 2004) break;
         }
-        const textResult = (await journaledProviderCall(db, lease, {
-          kind: "text_moderation",
-          budgets,
-          authorize,
-          request: {
-            model: MODERATION_MODEL,
-            titleSha256: request.declared.titleSha256,
-            lyricsSha256: request.declared.lyricsSha256,
-          },
-          send: (received) =>
-            moderateText(
-              prepared.title,
-              prepared.lyrics,
-              config.openAiKey,
-              received,
-              config.transport,
-            ),
-          interpret: (response) => ({
-            ...parseTextModeration(response, prepared.lyrics.trim() ? 2 : 1),
-          }),
-        })) as unknown as ReturnType<typeof parseTextModeration>;
-        const classified = (await journaledProviderCall(db, lease, {
-          kind: "lyrics_classification",
-          budgets,
-          authorize,
-          request: {
-            model: CLASSIFICATION_MODEL,
-            maxOutputTokens: 256,
-            titleSha256: request.declared.titleSha256,
-            lyricsSha256: request.declared.lyricsSha256,
-          },
-          send: (received) =>
-            classifyLyrics(
-              prepared.title,
-              prepared.lyrics,
-              config.openAiKey,
-              received,
-              config.transport,
-            ),
-          interpret: (response) => ({ ...parseLyricsClassification(response) }),
-        })) as unknown as ReturnType<typeof parseLyricsClassification>;
+        const textResult = recognitionOnly
+          ? null
+          : ((await journaledProviderCall(db, lease, {
+              kind: "text_moderation",
+              budgets,
+              authorize,
+              request: {
+                model: MODERATION_MODEL,
+                titleSha256: request.declared.titleSha256,
+                lyricsSha256: request.declared.lyricsSha256,
+              },
+              send: (received) =>
+                moderateText(
+                  prepared.title,
+                  prepared.lyrics,
+                  config.openAiKey,
+                  received,
+                  config.transport,
+                ),
+              interpret: (response) => ({
+                ...parseTextModeration(
+                  response,
+                  prepared.lyrics.trim() ? 2 : 1,
+                ),
+              }),
+            })) as unknown as ReturnType<typeof parseTextModeration>);
+        const classified = recognitionOnly
+          ? null
+          : ((await journaledProviderCall(db, lease, {
+              kind: "lyrics_classification",
+              budgets,
+              authorize,
+              request: {
+                model: CLASSIFICATION_MODEL,
+                maxOutputTokens: 256,
+                titleSha256: request.declared.titleSha256,
+                lyricsSha256: request.declared.lyricsSha256,
+              },
+              send: (received) =>
+                classifyLyrics(
+                  prepared.title,
+                  prepared.lyrics,
+                  config.openAiKey,
+                  received,
+                  config.transport,
+                ),
+              interpret: (response) => ({
+                ...parseLyricsClassification(response),
+              }),
+            })) as unknown as ReturnType<typeof parseLyricsClassification>);
         const acquiredAt = await acquisitionTime();
         insist(acquiredAt !== null, "moderation_acquisition_missing", 503);
         const issuedAt = acquiredAt,
@@ -270,10 +329,16 @@ export function processAdmission(
                 jobId: row.job_id,
                 subject,
                 evaluator: `pirate-managed/1;acr-raw/1;${MODERATION_MODEL};${CLASSIFICATION_MODEL}`,
-                policy: "pirate-release/2026-08-29",
+                policy: recognitionOnly
+                  ? UNREGISTERED_OWNER_POLICY_VERSION
+                  : "pirate-release/2026-08-29",
                 result,
                 issuedAt,
-                expiresAt: issuedAt + 3600,
+                expiresAt:
+                  issuedAt +
+                  (recognitionOnly
+                    ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
+                    : 3600),
               },
               inputs,
               details,
@@ -300,59 +365,75 @@ export function processAdmission(
           },
           { windows: audioDetails },
         );
-        const classification = classified.classification;
-        await sign(
-          "title.rating",
-          request.declared.titleSha256,
-          textResult.results[0]!.adult ||
-            classification.titleRating === "adult_18"
-            ? "adult_18"
-            : "general",
-          { titleRevision: 1, titleSha256: request.declared.titleSha256 },
-          {
-            model: MODERATION_MODEL,
-            moderation: textResult.results[0],
-            classificationModel: CLASSIFICATION_MODEL,
-            classificationReceipt: classified.id,
-          },
-        );
-        if (prepared.lyrics.trim())
+        if (!recognitionOnly) {
+          const classification = classified!.classification;
           await sign(
-            "lyrics.classification",
-            request.declared.lyricsSha256!,
-            textResult.results[1]!.adult ||
-              classification.lyricsRating === "adult_18" ||
-              classification.explicit
+            "title.rating",
+            request.declared.titleSha256,
+            textResult!.results[0]!.adult ||
+              classification.titleRating === "adult_18"
               ? "adult_18"
               : "general",
-            { lyricsRevision: 1, lyricsSha256: request.declared.lyricsSha256 },
+            { titleRevision: 1, titleSha256: request.declared.titleSha256 },
             {
-              explicit: classification.explicit,
-              primaryLanguage: classification.primaryLanguage,
               model: MODERATION_MODEL,
-              moderation: textResult.results[1],
+              moderation: textResult!.results[0],
               classificationModel: CLASSIFICATION_MODEL,
-              classificationReceipt: classified.id,
+              classificationReceipt: classified!.id,
             },
           );
+          if (prepared.lyrics.trim())
+            await sign(
+              "lyrics.classification",
+              request.declared.lyricsSha256!,
+              textResult!.results[1]!.adult ||
+                classification.lyricsRating === "adult_18" ||
+                classification.explicit
+                ? "adult_18"
+                : "general",
+              {
+                lyricsRevision: 1,
+                lyricsSha256: request.declared.lyricsSha256,
+              },
+              {
+                explicit: classification.explicit,
+                primaryLanguage: classification.primaryLanguage,
+                model: MODERATION_MODEL,
+                moderation: textResult!.results[1],
+                classificationModel: CLASSIFICATION_MODEL,
+                classificationReceipt: classified!.id,
+              },
+            );
+        }
         await acquisitionTime();
         await finishAdmission(
           db,
           row,
           "complete",
-          {
-            schema: "pirate.managed-admission/1",
-            admissionId: id,
-            evidence,
-            probe: prepared.probe,
-            windows: prepared.windows.map(
-              ({ objectKey, byteLength, ...facts }) => facts,
-            ),
-            models: {
-              moderation: MODERATION_MODEL,
-              classification: CLASSIFICATION_MODEL,
-            },
-          },
+          recognitionOnly
+            ? {
+                schema: "pirate.owner-recognition/1",
+                admissionId: id,
+                evidence,
+                probe: prepared.probe,
+                windows: prepared.windows.map(
+                  ({ objectKey, byteLength, ...facts }) => facts,
+                ),
+                automatedContent: "deferred",
+              }
+            : {
+                schema: "pirate.managed-admission/1",
+                admissionId: id,
+                evidence,
+                probe: prepared.probe,
+                windows: prepared.windows.map(
+                  ({ objectKey, byteLength, ...facts }) => facts,
+                ),
+                models: {
+                  moderation: MODERATION_MODEL,
+                  classification: CLASSIFICATION_MODEL,
+                },
+              },
           null,
         );
         return "complete";

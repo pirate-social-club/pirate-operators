@@ -27,6 +27,8 @@ export interface AdmissionLease {
   token: string;
 }
 export interface ProviderCall {
+  /** Extra condition checked atomically with the budget reservation. */
+  condition?: import("../community/budgets.ts").ReservationCondition;
   kind:
     | "acr_primary"
     | "acr_alternate"
@@ -90,7 +92,7 @@ export async function journaledProviderCall(
   }
   if (row.state === "planned") {
     await call.authorize();
-    await reserveBudget(db, id, requestHash, call.budgets, "1");
+    await reserveBudget(db, id, requestHash, call.budgets, "1", call.condition);
     const execution = token();
     const claimed = await db
       .prepare(
