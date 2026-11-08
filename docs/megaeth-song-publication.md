@@ -78,6 +78,56 @@ health checks. Old registered jobs keep their captured policy and journals.
 They are reconciled and given an explicit disposition, never rewritten into
 unregistered jobs.
 
+## Owner authority and spending
+
+Two reviewed artifacts authorize Release 1 publishing. Neither is selected by a
+request body, and neither is recreated per song.
+
+The owner authorization, `pirate.owner-publishing-authorization/1`, is signed
+by the community controller from the directory configuration. It names the
+community, the owner wallet, the admission policy (version and hash) and a
+validity window `validFrom`..`expiresAt`. The community worker verifies the
+signature against `config.controller` and accepts upload, seal and job
+requests only when the session wallet equals `ownerWallet`, the configuration
+policy is the unregistered owner policy and the request time is inside the
+window. The controller, the publisher and the signed-in owner are separate
+roles; equality between them is never assumed.
+
+The owner budget grant, `pirate.owner-publishing-grant/1`, is reviewed operator
+configuration of the paying service. It binds the community and its origin,
+the owner wallet, the admission policy, the MegaETH destination (chain 6343 or
+local 31337, posts contract, publisher), and the same validity window. Its
+limits are the song count, pin additions, pinned bytes, recognition requests
+and the MegaETH post fee ceiling in wei. It has no registration section.
+
+Consumption is keyed by the stable scope
+`owner:<communityId>:<ownerWallet>:<policyVersion>` and the period
+`<validFrom>-<expiresAt>`, not by the grant hash or configuration revision.
+Replacing the grant, publishing a configuration revision or redeploying
+within the same window therefore reuses the same buckets. `configureBudget`
+already refuses a changed ceiling for an existing bucket, so limits cannot be
+raised by replacement inside a period. A grant whose window overlaps a
+different recorded window for the same scope is refused, so a new period
+cannot be used to reset an open one.
+
+Each song reserves one `songs` unit at release establishment, keyed by the job
+identity, before any pin or post spend. Pins reserve `pin_adds` and
+`pin_bytes` per operation identity before upload. Recognition reserves one
+`recognition_requests` unit per provider request identity before sending. The
+MegaETH post reserves the fee ceiling and settles the receipt's actual fee.
+Retries reuse the same reservation identity and request hash, so they cannot
+double charge. Unknown outcomes keep their reservation until reconciled.
+
+Concrete live limits are not part of this source change. They go in the
+reviewed execution profile before any live execution; a missing grant or
+bucket disables paid execution.
+
+Today the managed release service keys spending by grant hash
+(`release:grant:<sha256>`, `release:pins:<sha256>`) and allows one release per
+grant, and the community posting budget allows one post per period. Those
+single-song shapes stay in force for the November 5 policy and are replaced
+only for the new policy.
+
 ## Rollout
 
 Deploy readers that accept all three formats and both owner policies first.
@@ -99,7 +149,11 @@ The release API refuses submissions under the new policy with
 publishing a configuration that names the new policy cannot start a job that
 half-applies the old registered sequence.
 
-Not yet implemented: owner authorization under the new policy, the
+An HTTP-level test proves that a configuration naming the new policy refuses
+upload and seal requests before any submission row or job exists.
+
+Not yet implemented: owner authorization and the bounded budget grant under
+the new policy, the
 submission and job sequence without registration, release-service and runtime
 dependency removal, removing creator connection and Royalties from the web
 client, and acceptance with registration services unreachable.

@@ -364,3 +364,108 @@ test("authenticated release HTTP retains one upload/job through reload and queue
     await f.dispose();
   }
 });
+
+test("a configuration naming the unregistered owner policy refuses uploads and seals before any reservation", async () => {
+  const { validateConfig } = await import(
+    "../packages/community/config-manifest.ts"
+  );
+  const { UNREGISTERED_OWNER_POLICY_VERSION, UNREGISTERED_OWNER_POLICY_HASH } =
+    await import("../packages/community/owner-policy.ts");
+  const f = await firstSongJobFixture(),
+    context = {
+      communityId: configuration.communityId,
+      origin: configuration.app.origin,
+    },
+    unregistered = validateConfig({
+      ...configuration,
+      policies: {
+        ...configuration.policies,
+        admission: {
+          version: UNREGISTERED_OWNER_POLICY_VERSION,
+          sha256: UNREGISTERED_OWNER_POLICY_HASH,
+        },
+      },
+    });
+  try {
+    await f.community.db
+      .prepare("INSERT INTO credential_bindings VALUES(?,?,'moss',6343,?,?)")
+      .bind(
+        "fixture-binding",
+        f.session.account_id,
+        publisher.address.toLowerCase(),
+        Date.now(),
+      )
+      .run();
+    const challenge = await loginChallenge(
+        f.community.db,
+        context,
+        publisher.address,
+      ),
+      login = await loginVerify(
+        f.community.db,
+        context,
+        challenge.id,
+        await publisher.signMessage({ message: challenge.message }),
+        (address, message, signature) =>
+          verifyMessage({ address, message, signature }),
+      ),
+      headers = {
+        cookie: login.cookie.split(";")[0]!,
+        "x-csrf-token": login.csrf,
+        origin: context.origin,
+        "content-type": "application/json",
+        "idempotency-key": "fixture-unregistered-owner-upload",
+      },
+      env = {
+        DB: f.community.db,
+        MEDIA: f.community.media,
+        JOBS: { send: async () => assert.fail("no job may be queued") },
+      },
+      ready = async () => ({ config: unregistered, ports: f.ports });
+    const call = async (path: string, body: string) => {
+      try {
+        return await communityReleaseApi(
+          new Request(context.origin + path, {
+            method: "POST",
+            headers,
+            body,
+          }),
+          env,
+          context,
+          ready,
+          (value, status = 200) => Response.json(value, { status }),
+        );
+      } catch (error) {
+        if (error instanceof CommunityError)
+          return Response.json({ error: error.code }, { status: error.status });
+        throw error;
+      }
+    };
+    const count = async () =>
+      (await f.community.db
+        .prepare("SELECT COUNT(*) AS n FROM media_submissions")
+        .first<{ n: number }>())!.n;
+    const before = await count();
+    const upload = await call(
+      "/api/uploads",
+      JSON.stringify({
+        title: f.managed.title,
+        language: "en",
+        lyrics: f.managed.lyrics,
+        original: true,
+        acceptedPolicy: "pirate-release/2026-08-29",
+        audioSha256: sha256(f.managed.audio),
+        audioBytes: f.managed.audio.length,
+      }),
+    );
+    assert.equal(upload!.status, 503);
+    assert.deepEqual(await upload!.json(), {
+      error: "unregistered_owner_publishing_not_enabled",
+    });
+    const seal = await call(`/api/uploads/${crypto.randomUUID()}/seal`, "{}");
+    assert.equal(seal!.status, 503);
+    assert.equal(await count(), before);
+  } finally {
+    await f.dispose();
+  }
+});
