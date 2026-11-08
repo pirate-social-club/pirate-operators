@@ -100,7 +100,15 @@ export function processAdmission(
           "service_budget_profile_changed",
           409,
         );
-        const acquisitionTime = async () => {
+        // Evidence age follows the policy the captured configuration revision
+        // pins: the registered release policy keeps one hour, the unregistered
+        // owner policy allows its 24-hour recognition age. The first provider
+        // call's start time stays the acquisition time; retries never renew it.
+        const evidenceMaxAge = (policy: { version: string; sha256: string }) =>
+          unregisteredOwner(policy)
+            ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
+            : 3600;
+        const acquisitionTime = async (maxAge: number) => {
           const acquired = await db
             .prepare(
               "SELECT MIN(started_at) AS first_started FROM moderation_provider_calls WHERE admission_id=?",
@@ -115,7 +123,7 @@ export function processAdmission(
           insist(
             seconds === null ||
               (seconds <= Math.floor(Date.now() / 1000) &&
-                seconds + 3600 > Math.floor(Date.now() / 1000)),
+                seconds + maxAge > Math.floor(Date.now() / 1000)),
             "moderation_evidence_stale",
             409,
           );
@@ -145,7 +153,7 @@ export function processAdmission(
           );
           // Retained provider facts never gain a new age through a retry.
           // Refuse to buy another check once earlier facts have expired.
-          await acquisitionTime();
+          await acquisitionTime(evidenceMaxAge(current.policies.admission));
         };
         await authorize();
         // Recognition only under the unregistered owner policy. The captured
@@ -309,7 +317,10 @@ export function processAdmission(
                 ...parseLyricsClassification(response),
               }),
             })) as unknown as ReturnType<typeof parseLyricsClassification>);
-        const acquiredAt = await acquisitionTime();
+        const maxAge = recognitionOnly
+          ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
+          : 3600;
+        const acquiredAt = await acquisitionTime(maxAge);
         insist(acquiredAt !== null, "moderation_acquisition_missing", 503);
         const issuedAt = acquiredAt,
           evidence: EvidenceRecord[] = [];
@@ -336,11 +347,7 @@ export function processAdmission(
                   : "pirate-release/2026-08-29",
                 result,
                 issuedAt,
-                expiresAt:
-                  issuedAt +
-                  (recognitionOnly
-                    ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
-                    : 3600),
+                expiresAt: issuedAt + maxAge,
               },
               inputs,
               details,
@@ -407,7 +414,7 @@ export function processAdmission(
               },
             );
         }
-        await acquisitionTime();
+        await acquisitionTime(maxAge);
         await finishAdmission(
           db,
           row,

@@ -21,6 +21,8 @@ import {
   ownerBudgetKey,
 } from "../packages/release/owner-grant.ts";
 import { firstSongDriver } from "../services/first-song-driver.ts";
+import { getAdmission } from "../packages/moderation/admission-store.ts";
+import { runAdmission } from "../packages/moderation/service.ts";
 import { ownerSongFixture } from "./fixtures/owner-song-job.ts";
 
 test("one owner song publishes as pirate.community-post/3 with no registration service", async () => {
@@ -370,6 +372,118 @@ test("an ambiguous broadcast keeps its reconciliation path after the post-fee bu
       .bind(operation!.operation_id + ":fee")
       .first<{ status: string }>();
     assert.equal(fee!.status, "settled");
+  } finally {
+    await f.dispose();
+  }
+});
+
+/**
+ * Interrupts each owner admission after its ACR receipt was retained and
+ * validated, ages that receipt, and resumes the admission through the managed
+ * handler before the job reads the result.
+ */
+async function resumeAgedOwnerAdmission(ageMs: number) {
+  const f = await ownerSongFixture();
+  const resumed: { id: string; state: string; old: number }[] = [];
+  const run = f.managed.runQueued;
+  f.managed.runQueued = async () => {
+    const ids = [...f.managed.queued];
+    await run();
+    for (const id of ids) {
+      const db = f.managed.db;
+      const calls = await db
+        .prepare(
+          "SELECT kind,state FROM moderation_provider_calls WHERE admission_id=?",
+        )
+        .bind(id)
+        .all<{ kind: string; state: string }>();
+      // Recognition only: one validated ACR receipt, no text calls.
+      assert.deepEqual(
+        calls.results.map((c) => [c.kind, c.state]),
+        [["acr_primary", "validated"]],
+      );
+      const old = Date.now() - ageMs;
+      await db
+        .prepare(
+          "UPDATE moderation_provider_calls SET started_at=? WHERE admission_id=?",
+        )
+        .bind(old, id)
+        .run();
+      // The worker stopped after the retained result, before job advancement.
+      await db
+        .prepare(
+          "UPDATE managed_admissions SET state='queued',result_json=NULL,error_code=NULL WHERE admission_id=?",
+        )
+        .bind(id)
+        .run();
+      resumed.push({
+        id,
+        old,
+        state: await runAdmission(db, f.managed.media, id, f.managed.config),
+      });
+    }
+  };
+  return { f, resumed };
+}
+
+test("a two-hour-old owner recognition receipt completes admission without another provider request", async () => {
+  const { f, resumed } = await resumeAgedOwnerAdmission(2 * 3600 * 1000);
+  try {
+    const { sealed } = await f.addSong(
+      "Aged receipt song",
+      "owner-aged-receipt-0001",
+    );
+    const job = await f.drive(sealed.jobId);
+    assert.equal(job.phase, "published", f.history().join(" > "));
+    assert.equal(resumed.length, 1);
+    assert.equal(resumed[0]!.state, "complete");
+    assert.equal(f.managed.sends(), 1);
+    const admission = await getAdmission(f.managed.db, resumed[0]!.id);
+    const evidence = JSON.parse(admission.result_json!).evidence as {
+      envelope: { issuedAt: number; expiresAt: number; policy: string };
+    }[];
+    // The original acquisition time is kept; the retry did not renew it.
+    const acquired = Math.floor(resumed[0]!.old / 1000);
+    assert.ok(evidence.length > 0);
+    for (const e of evidence) {
+      assert.equal(e.envelope.issuedAt, acquired);
+      assert.equal(e.envelope.expiresAt, acquired + 86400);
+      assert.equal(e.envelope.policy, "pirate-owner-curated/2026-11-08/1");
+    }
+    const started = await f.managed.db
+      .prepare(
+        "SELECT MIN(started_at) AS first FROM moderation_provider_calls WHERE admission_id=?",
+      )
+      .bind(resumed[0]!.id)
+      .first<{ first: number }>();
+    assert.equal(started!.first, resumed[0]!.old);
+    assert.equal(f.registrationRequests(), 0);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an owner recognition receipt past 24 hours stays refused on resume and buys nothing", async () => {
+  const { f, resumed } = await resumeAgedOwnerAdmission(25 * 3600 * 1000);
+  try {
+    const { sealed } = await f.addSong(
+      "Stale receipt song",
+      "owner-stale-receipt-0001",
+    );
+    const job = await f.drive(sealed.jobId, 12);
+    assert.notEqual(job.phase, "published", f.history().join(" > "));
+    assert.equal(resumed.length, 1);
+    assert.equal(resumed[0]!.state, "held");
+    const admission = await getAdmission(f.managed.db, resumed[0]!.id);
+    assert.equal(admission.error_code, "moderation_evidence_stale");
+    assert.equal(f.managed.sends(), 1);
+    const pins = await f.community.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM external_operations WHERE job_id=? AND step LIKE 'pin_%'",
+      )
+      .bind(sealed.jobId)
+      .first<{ n: number }>();
+    assert.equal(pins!.n, 0);
   } finally {
     await f.dispose();
   }
