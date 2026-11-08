@@ -80,7 +80,15 @@ export async function prepareAdmission(
     );
     return saved;
   }
-  const request = admissionRequest(JSON.parse(row.request_json), pairing),
+  // A recognition-only request was accepted as such at enqueue; the parser still
+  // requires its checks to be exactly audio identification. processAdmission
+  // separately requires the unregistered owner policy before skipping text checks.
+  const captured = JSON.parse(row.request_json),
+    request = admissionRequest(
+      captured,
+      pairing,
+      Array.isArray(captured.checks) && captured.checks.length === 1,
+    ),
     prefix = `admissions/${row.admission_id}`;
   await retainInput(
     media,
