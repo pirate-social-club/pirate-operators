@@ -51,6 +51,8 @@ export interface FirstSongDriverPorts {
   posting: PostingPorts;
   acrEndpoint: string;
   checkServices(): Promise<void>;
+  /** Controller-signed owner authorization; required under the unregistered owner policy. */
+  ownerAuthorization?: unknown;
 }
 const roleFor = (step: PublicationStep) =>
   step === "pin_audio"

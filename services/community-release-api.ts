@@ -6,6 +6,7 @@ import {
 import { exact, insist, jsonBody, text } from "../packages/community/common.ts";
 import {
   reserveSubmission,
+  reserveOwnerSubmission,
   sealSubmission,
 } from "../packages/community/submissions.ts";
 import { uploadAudio } from "../packages/community/uploads.ts";
@@ -31,6 +32,7 @@ import {
 
 import type { PublicationWakeQueue } from "./community-jobs.ts";
 import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
 import {
   ownerCurated,
   unregisteredOwner,
@@ -148,7 +150,18 @@ export async function communityReleaseApi(
       );
       exact(await jsonBody(request), []);
       const runtime = await ready();
-      await requireCuratedOwner(env.DB, runtime.config, session.wallet);
+      if (unregisteredOwner(runtime.config.policies.admission)) {
+        insist(
+          runtime.ports.ownerAuthorization !== undefined,
+          "owner_authorization_unavailable",
+          503,
+        );
+        await requireAuthorizedOwner(
+          runtime.ports.ownerAuthorization,
+          runtime.config,
+          session.wallet,
+        );
+      } else await requireCuratedOwner(env.DB, runtime.config, session.wallet);
       await resumeFirstSongAdmission(runtime.ports, id);
       await resumeUncertainJob(env.DB, id, session.account_id);
       await env.JOBS.send({ jobId: id });
@@ -189,27 +202,41 @@ export async function communityReleaseApi(
       moderationSigner: config.policies.moderationSigner,
       execution: publicationExecutionProfile(ports),
     };
-  // Readers accept the unregistered owner policy before its write path exists.
-  // Fail closed until the owner-only submission and release path is enabled.
-  insist(
-    !unregisteredOwner(config.policies.admission),
-    "unregistered_owner_publishing_not_enabled",
-    503,
-  );
-  await requireCuratedOwner(env.DB, config, session.wallet);
+  // Under the unregistered owner policy only the controller-authorized owner
+  // wallet may reserve or seal, checked before any reservation or paid work.
+  const owner = unregisteredOwner(config.policies.admission);
+  if (owner)
+    insist(
+      ports.ownerAuthorization !== undefined,
+      "owner_authorization_unavailable",
+      503,
+    );
+  const ownerAuthorization = owner
+    ? await requireAuthorizedOwner(
+        ports.ownerAuthorization,
+        config,
+        session.wallet,
+      )
+    : undefined;
+  if (!owner) await requireCuratedOwner(env.DB, config, session.wallet);
   if (url.pathname === "/api/uploads") {
     insist(
       !ownerCurated(config.policies.admission),
       "owner_release_already_submitted",
       409,
     );
-    const row = await reserveSubmission(
-      env.DB,
-      session,
-      profile,
-      await jsonBody(request),
-      request.headers.get("idempotency-key") ?? "",
-    );
+    const body = await jsonBody(request),
+      key = request.headers.get("idempotency-key") ?? "";
+    const row = ownerAuthorization
+      ? await reserveOwnerSubmission(
+          env.DB,
+          session,
+          profile,
+          ownerAuthorization,
+          body,
+          key,
+        )
+      : await reserveSubmission(env.DB, session, profile, body, key);
     return reply(
       {
         submissionId: row.submission_id,
@@ -228,6 +255,8 @@ export async function communityReleaseApi(
     session,
     profile,
     upload[1]!,
+    Date.now(),
+    ownerAuthorization,
   );
   await env.JOBS.send({ jobId: sealed.jobId });
   return reply(sealed, 202);
