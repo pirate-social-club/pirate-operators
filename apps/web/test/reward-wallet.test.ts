@@ -214,3 +214,58 @@ test("wallet outcomes remain distinct and never imply terminal cancellation; can
   );
   assert.equal(calls, 1);
 });
+
+test("verified testnet MOSS receipts retain hash candidates when chainId is omitted or only an array is returned", async () => {
+  const hash = `0x${"ab".repeat(32)}`;
+  for (const result of [
+    { status: "approved", receipt: { transactionHash: hash } },
+    { status: "approved", receipts: [{ hash, chainId: "0x18c7" }] },
+  ]) {
+    const moss: RewardMoss = {
+      initialise: async () => {},
+      connect: async () => ({ address: sender, network: "testnet" }),
+      open: async () => {},
+      callContract: async () => result,
+    };
+    assert.deepEqual(
+      await signRewardPayment(
+        payment,
+        "pay",
+        "attempt_001",
+        async () => dispatched(),
+        async () => moss,
+      ),
+      { outcome: "approved", hash },
+    );
+    assert.equal(payment.state, "prepared");
+    assert.equal(payment.transactionHash, null);
+  }
+});
+test("missing receipt chain metadata never bypasses the connected network check", async () => {
+  let persisted = 0,
+    calls = 0;
+  const moss: RewardMoss = {
+    initialise: async () => {},
+    connect: async () => ({ address: sender, network: "mainnet" }),
+    open: async () => {},
+    callContract: async () => {
+      calls++;
+      return { status: "approved", receipt: { hash: `0x${"ab".repeat(32)}` } };
+    },
+  };
+  await assert.rejects(
+    signRewardPayment(
+      payment,
+      "pay",
+      "attempt_001",
+      async () => {
+        persisted++;
+        return dispatched();
+      },
+      async () => moss,
+    ),
+    /Open the account/,
+  );
+  assert.equal(persisted, 0);
+  assert.equal(calls, 0);
+});

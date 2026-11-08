@@ -165,7 +165,6 @@ Send/full-balance attempt. Where Sepolia drawing liveness or conversion is
 unavailable, explicitly simulated wins and a prefunded testnet reserve remain
 the rehearsal mode. They cannot close real-provider acceptance.
 
-
 An optional immutable profile.rehearsal selection declares one offerId and an
 exact prizeUsdcAtomic for a hosted testnet rehearsal. The program remains in
 live-testnet mode. That one offer derives visibly synthetic purchase/ticket
@@ -199,3 +198,19 @@ changes. A flat capped pay-once contract is a possible future design, not a
 selected or deployed contract. The later owner instruction allows convenient
 existing testnet identities and keys; it changes neither mainnet scope nor the
 need to observe actual Palm, microphone and MOSS behavior.
+
+Wallet callbacks may contain a singular receipt, a receipts array, or both,
+and ordinary RPC receipts may omit chainId. After verifying the connected
+sender and testnet, the client retains one unambiguous transaction hash as a
+candidate. Explicit wrong-chain or malformed metadata still rejects the
+result. A callback, including approved, never confirms a payment; the server
+must reconcile its canonical guard event and exact token transfer. An unknown
+callback remains unknown even if later chain evidence proves payment.
+
+The November 8 mechanics probe exercised that recovery with a real approved
+0.03 MockUSDm transfer. The callback had no usable hash, and the maintained
+historical nonce reader recovered the safe canonical transaction independently.
+This was an operator test expense, not a learner reward, and neither retry nor
+cancellation was exercised. No actual approval screenshot was retained before
+the capture request was approved. The approval comparison, real learner claim,
+Very ceremony and onward Send remain acceptance work.

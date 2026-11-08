@@ -147,7 +147,7 @@ export function LiveRewardOperator(props: {
                         current().observedBalanceAtomic!,
                         current().decimals,
                       )}{" "}
-                  · Recorded network costs:{" "}
+                  · Recorded operator costs:{" "}
                   {dollars(current().inventory.cost_atomic, current().decimals)}
                 </Type>
                 <Button
@@ -222,7 +222,7 @@ export function LiveRewardOperator(props: {
                 </CardHeader>
                 <CardContent class="flex flex-col gap-4">
                   <Type as="p">
-                    Reconcile payments or identify network costs before
+                    Reconcile payments or identify operator costs before
                     preparing another payment.
                   </Type>
                   <For each={current().unmatched}>
@@ -251,7 +251,7 @@ export function LiveRewardOperator(props: {
                             })
                           }
                         >
-                          Record as network cost
+                          Record operator cost
                         </Button>
                       </div>
                     )}

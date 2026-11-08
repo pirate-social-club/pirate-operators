@@ -1,0 +1,30 @@
+{
+  "label": "MODELED raw-RPC receipt shape; NOT a captured browser SDK response",
+  "provenance": {
+    "canonicalFactsReportedByParent": {
+      "hash": "0xfe82000821e949b54aad9b33f7623418119c8accd0d0d0ec8f08c6016c1317f6",
+      "blockNumber": 34437980,
+      "guardLogIndex": 58,
+      "transferLogIndex": 59,
+      "amountAtomic": "30000000000000000"
+    },
+    "modeledFields": "SDK approved wrapper and mirrored receipts, raw hexadecimal receipt status/blockNumber, omitted chainId; modeled from retained hosted source and reported canonical RPC proof, not observed browser result"
+  },
+  "result": {
+    "status": "approved",
+    "receipt": {
+      "transactionHash": "0xfe82000821e949b54aad9b33f7623418119c8accd0d0d0ec8f08c6016c1317f6",
+      "hash": "0xfe82000821e949b54aad9b33f7623418119c8accd0d0d0ec8f08c6016c1317f6",
+      "status": "0x1",
+      "blockNumber": "0x20d7b5c"
+    },
+    "receipts": [
+      {
+        "transactionHash": "0xfe82000821e949b54aad9b33f7623418119c8accd0d0d0ec8f08c6016c1317f6",
+        "hash": "0xfe82000821e949b54aad9b33f7623418119c8accd0d0d0ec8f08c6016c1317f6",
+        "status": "0x1",
+        "blockNumber": "0x20d7b5c"
+      }
+    ]
+  }
+}
