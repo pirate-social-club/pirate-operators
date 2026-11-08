@@ -210,6 +210,28 @@ test("a Study link opens the wallet directly, wallet rejection starts nothing, a
   expect(state.counts.abandons).toBe(0);
 });
 
+for (const mode of ["hang", "reject"] as const) {
+  test(`Study opens and resumes while optional reward offers ${mode === "hang" ? "never answer" : "fail"}`, async ({
+    page,
+  }) => {
+    const state = await serveStudy(page, { rewardOffers: mode });
+    await page.goto(state.url);
+    await expect(page.locator(".study-surface h2")).toHaveText("Hold me close");
+    await expect(
+      page.getByRole("button", { name: "Record", exact: true }),
+    ).toBeEnabled();
+    expect(state.counts.rewardOfferRequests).toBe(1);
+    expect(state.counts.starts).toBe(1);
+    const lessonUrl = page.url();
+    expect(new URL(lessonUrl).searchParams.get("lesson")).toBeTruthy();
+    await page.reload();
+    await expect(page.locator(".study-surface h2")).toHaveText("Hold me close");
+    await expect(page).toHaveURL(lessonUrl);
+    expect(state.counts.rewardOfferRequests).toBe(2);
+    expect(state.counts.starts).toBe(1);
+  });
+}
+
 test("a lost lesson-start response resumes the saved lesson without a second enrollment or start", async ({
   page,
 }) => {

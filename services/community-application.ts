@@ -671,18 +671,6 @@ export async function communityScheduled(
   provided?: CommunityDependencies,
 ) {
   const failures: unknown[] = [];
-  if (env.REWARDS_PROFILE_JSON) {
-    try {
-      await reconcileRewardPayments(
-        env.DB,
-        rewardProfile(env.REWARDS_PROFILE_JSON),
-        provided?.rewards?.chain,
-        provided?.now,
-      );
-    } catch (error) {
-      failures.push(error);
-    }
-  }
   try {
     await deleteExpiredStudyHistory(
       env.DB,
@@ -717,6 +705,21 @@ export async function communityScheduled(
         },
         now: ports.now,
       });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  // Read-only payment reconciliation runs last so a slow or failing reward
+  // RPC cannot hold Study retention, job recovery or lesson recovery. It never
+  // submits or retries a payment.
+  if (env.REWARDS_PROFILE_JSON) {
+    try {
+      await reconcileRewardPayments(
+        env.DB,
+        rewardProfile(env.REWARDS_PROFILE_JSON),
+        provided?.rewards?.chain,
+        provided?.now,
+      );
     } catch (error) {
       failures.push(error);
     }

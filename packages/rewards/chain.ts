@@ -20,7 +20,8 @@ const clientFor = (p: RewardsProfile) =>
     transport: http(p.rpcUrl, {
       retryCount: 0,
       timeout: 10000,
-      fetchOptions: { credentials: "omit", redirect: "error" },
+      // workerd rejects "error". viem refuses the unfollowed 3xx as not ok.
+      fetchOptions: { credentials: "omit", redirect: "manual" },
     }),
   });
 async function checkedClient(p: RewardsProfile) {

@@ -136,17 +136,20 @@ function App() {
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
     setFeed(posts);
-    if (session() && caps.rewards && !walletPage) {
-      setRewardOffers(
-        await get<RewardAvailableOffers>("/api/rewards/offers").catch(
-          () => null,
-        ),
-      );
-    }
     const requested = new URL(location.href).searchParams.get("study");
     const song = posts.posts.find((post) => post.manifest.postId === requested);
     if (session() && caps.study && song)
       openStudy({ postId: song.manifest.postId, title: song.manifest.title });
+    // Reward offers are optional. Study must never wait for them.
+    if (session() && caps.rewards && !walletPage) void loadRewardOffers();
+  }
+  let offersRequest = 0;
+  async function loadRewardOffers() {
+    const current = ++offersRequest;
+    const offers = await get<RewardAvailableOffers>("/api/rewards/offers", {
+      timeoutMs: 10000,
+    }).catch(() => null);
+    if (current === offersRequest) setRewardOffers(offers);
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
