@@ -18,7 +18,12 @@ import { hashJson, hashText, insist } from "../packages/community/common.ts";
 
 export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
-export async function managedPackage() {
+import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
+/** Default builds are the deployed registered profile; owner publishing adds 0004. */
+export async function managedPackage(
+  options: { ownerPublishing?: boolean } = {},
+) {
+  const migrations = managedMigrations(options.ownerPublishing === true);
   const cli = await promisify(execFile)(
     resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
     ["--version"],
@@ -75,9 +80,7 @@ export async function managedPackage() {
     "apps/managed-moderation/alchemy.run.ts",
     "apps/managed-moderation/encrypted-state.ts",
     "apps/managed-moderation/protected-data.ts",
-    "apps/managed-moderation/migrations/0001_managed.sql",
-    "apps/managed-moderation/migrations/0002_release_operations.sql",
-    "apps/managed-moderation/migrations/0003_owner_curated.sql",
+    ...migrations.map((name) => `apps/managed-moderation/migrations/${name}`),
     "docs/deployments/first-song-managed-20261105.published-state.json",
     releaseGrantPath,
     "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
@@ -179,11 +182,7 @@ export async function managedPackage() {
       ).source,
       targetChain: 1315,
     },
-    migrations: [
-      "0001_managed.sql",
-      "0002_release_operations.sql",
-      "0003_owner_curated.sql",
-    ],
+    migrations,
     bundleSha256: hashText(bundle.outputFiles![0]!.text),
     bundleBytes: bytes.length,
     pairings,
@@ -228,6 +227,7 @@ export async function managedPackage() {
 export async function writeManagedPackage(
   directory: string,
   bytes: Uint8Array,
+  migrations: readonly string[] = MANAGED_MIGRATIONS,
 ) {
   const cwd = join(directory, "deployment");
   for (const path of [
@@ -248,11 +248,7 @@ export async function writeManagedPackage(
   );
   await writeFile(join(cwd, "alchemy.run.ts"), source, { mode: 0o600 });
   await writeFile(join(cwd, "worker/worker.mjs"), bytes, { mode: 0o600 });
-  for (const name of [
-    "0001_managed.sql",
-    "0002_release_operations.sql",
-    "0003_owner_curated.sql",
-  ])
+  for (const name of migrations)
     await copyFile(
       `apps/managed-moderation/migrations/${name}`,
       join(cwd, "migrations", name),

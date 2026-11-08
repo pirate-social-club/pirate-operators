@@ -1,5 +1,9 @@
 import { canonical, hashJson, insist, object, token } from "./common.ts";
-import { unregisteredOwner } from "./owner-policy.ts";
+import {
+  unregisteredOwner,
+  UNREGISTERED_OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "./owner-policy.ts";
 
 export const publicationSteps = [
   "admission",
@@ -68,20 +72,38 @@ export async function loadJob(db: D1Database, id: string) {
   return job;
 }
 export async function leaseJob(db: D1Database, id: string, time: number) {
+  // Refuse a phase outside the job's own captured sequence before any lease,
+  // attempt or timestamp changes. The SQL condition repeats the check inside
+  // the update so a concurrent phase change cannot slip past it.
+  const current = await db
+    .prepare("SELECT authority_json,phase FROM publication_jobs WHERE job_id=?")
+    .bind(id)
+    .first<Pick<PublicationJob, "authority_json" | "phase">>();
+  if (
+    current &&
+    isPublicationStep(current.phase) &&
+    !jobSteps(current).includes(current.phase)
+  )
+    insist(false, "step_outside_job_sequence", 409);
   const lease = token();
   const job = await db
     .prepare(
       `UPDATE publication_jobs SET lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
-    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication') RETURNING *`,
+    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication')
+    AND NOT (phase='registration' AND json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?)
+    RETURNING *`,
     )
-    .bind(lease, time + 180_000, time, id, time, time)
+    .bind(
+      lease,
+      time + 180_000,
+      time,
+      id,
+      time,
+      time,
+      UNREGISTERED_OWNER_POLICY_VERSION,
+      UNREGISTERED_OWNER_POLICY_HASH,
+    )
     .first<PublicationJob>();
-  // A leased phase must belong to the job's own captured sequence.
-  insist(
-    !job || jobSteps(job).includes(job.phase as PublicationStep),
-    "step_outside_job_sequence",
-    409,
-  );
   return job;
 }
 export async function planOperation(

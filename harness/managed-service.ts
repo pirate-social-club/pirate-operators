@@ -194,7 +194,11 @@ async function main() {
     }
     const secrets = await bindManagedCredentials(sdk, profile, get);
     await preserveManagedDeployment(directory, profileHash);
-    const cwd = await writeManagedPackage(directory, packaged.bytes);
+    const cwd = await writeManagedPackage(
+      directory,
+      packaged.bytes,
+      profile.migrations,
+    );
     const env = {
       ...cloudEnv,
       PIRATE_WIZARD_STATE_PASSWORD: password,

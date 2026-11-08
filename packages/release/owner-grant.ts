@@ -11,6 +11,7 @@ import { address, chain, httpsOrigin } from "../community/manifest-core.ts";
 import {
   configureBudget,
   reserveBudget,
+  settleBudget,
   type BudgetKey,
 } from "../community/budgets.ts";
 import { unregisteredOwner } from "../community/owner-policy.ts";
@@ -204,6 +205,22 @@ export async function reserveOwnerBudget(
   now = Math.floor(Date.now() / 1000),
 ) {
   const key = ownerBudgetKey(grant, asset);
+  // An existing reservation is replayed without a currently valid grant: it is
+  // reconciliation of spending already authorized, not new spending.
+  const existing = await db
+    .prepare(
+      "SELECT request_hash,amount FROM spending_reservations WHERE reservation_id=? AND scope=? AND period=? AND asset=?",
+    )
+    .bind(reservationId, key.scope, key.period, key.asset)
+    .first<{ request_hash: string; amount: string }>();
+  if (existing) {
+    insist(
+      existing.request_hash === requestHash && existing.amount === requested,
+      "reservation_conflict",
+      409,
+    );
+    return key;
+  }
   insist(
     now >= grant.validFrom && now < grant.expiresAt,
     "owner_grant_outside_window",
@@ -217,4 +234,18 @@ export async function reserveOwnerBudget(
     code: "owner_budget_window_not_current",
   });
   return key;
+}
+
+/**
+ * Settles an owner reservation from its reconciled receipt. It needs no valid
+ * window or unexpired grant, only the original reservation.
+ */
+export async function settleOwnerBudget(
+  db: D1Database,
+  grant: OwnerBudgetGrant,
+  asset: OwnerBudgetAsset,
+  reservationId: string,
+  actual: string,
+) {
+  await settleBudget(db, reservationId, [ownerBudgetKey(grant, asset)], actual);
 }

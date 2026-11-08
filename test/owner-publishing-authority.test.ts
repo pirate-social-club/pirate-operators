@@ -2,7 +2,7 @@
 // unregistered owner policy. Real signatures, real D1 budget tables.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 import { build } from "esbuild";
 import { privateKeyToAccount } from "viem/accounts";
@@ -39,11 +39,16 @@ import {
   ownerBudgetKey,
   ownerGrantDigest,
   reserveOwnerBudget,
+  settleOwnerBudget,
   claimOwnerWindow,
   validateOwnerGrant,
   type OwnerBudgetGrant,
 } from "../packages/release/owner-grant.ts";
 import { configuration } from "./fixtures/release-admission.ts";
+import {
+  communityMigrations,
+  managedMigrations,
+} from "../harness/package-migrations.ts";
 
 const controller = privateKeyToAccount(`0x${"21".repeat(32)}`),
   stranger = privateKeyToAccount(`0x${"22".repeat(32)}`),
@@ -260,6 +265,17 @@ async function migrate(db: D1Database, files: string[]) {
     );
   }
 }
+const COMMUNITY = "apps/community-wizard/infra/migrations",
+  MANAGED = "apps/managed-moderation/migrations";
+/** The complete ordered chain in a migrations directory, optionally stopping before a file. */
+async function chain(directory: string, before?: string) {
+  const names = (await readdir(new URL(`../${directory}`, import.meta.url)))
+    .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+    .sort();
+  return names
+    .filter((name) => !before || name < before)
+    .map((name) => `${directory}/${name}`);
+}
 async function ownerDatabases() {
   const runtime = new Miniflare({
     modules: true,
@@ -271,15 +287,8 @@ async function ownerDatabases() {
   try {
     const community = await runtime.getD1Database("DB"),
       managed = await runtime.getD1Database("MANAGED");
-    await migrate(community, [
-      "apps/community-wizard/infra/migrations/0001_setup.sql",
-      "apps/community-wizard/infra/migrations/0002_first_song.sql",
-      "apps/community-wizard/infra/migrations/0009_owner_budget_windows.sql",
-    ]);
-    await migrate(managed, [
-      "apps/managed-moderation/migrations/0001_managed.sql",
-      "apps/managed-moderation/migrations/0004_owner_budget_windows.sql",
-    ]);
+    await migrate(community, await chain(COMMUNITY));
+    await migrate(managed, await chain(MANAGED));
     return {
       community,
       managed,
@@ -669,7 +678,20 @@ test("each job keeps the step sequence of its captured policy through advancemen
     }
     // A new-policy job cannot be leased, advanced or resumed into registration.
     const stray = await job("s-stray", policy, "registration");
-    await assert.rejects(leaseJob(db, stray, now), /step_outside_job_sequence/);
+    const leaseFields = () =>
+      db
+        .prepare(
+          "SELECT lease_token,lease_until,attempts,updated_at,phase,revision FROM publication_jobs WHERE job_id=?",
+        )
+        .bind(stray)
+        .first();
+    const untouched = await leaseFields();
+    await assert.rejects(
+      leaseJob(db, stray, now + 1),
+      /step_outside_job_sequence/,
+    );
+    // Rejection happens before the lease update: nothing about the row changed.
+    assert.deepEqual(await leaseFields(), untouched);
     const uncertain = await job(
       "s-uncertain",
       policy,
@@ -691,6 +713,264 @@ test("each job keeps the step sequence of its captured policy through advancemen
     // The old job still reaches registration even if the community now names the new policy:
     // its sequence comes only from its own captured authority.
     assert.equal((await loadJob(db, registeredJob)).phase, "registration");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("community schema upgrades the complete 0001-0011 chain to 0012 and keeps Study and rewards data", async () => {
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('fixture')}}",
+    compatibilityDate: "2026-08-06",
+    d1Databases: ["DB"],
+  });
+  try {
+    const db = await runtime.getD1Database("DB"),
+      predecessor = await chain(COMMUNITY, "0012_");
+    assert.deepEqual(
+      predecessor.map((p) => p.split("/").at(-1)!.slice(0, 4)),
+      [
+        "0001",
+        "0002",
+        "0003",
+        "0004",
+        "0005",
+        "0006",
+        "0007",
+        "0008",
+        "0009",
+        "0010",
+        "0011",
+      ],
+    );
+    assert.ok(predecessor.at(-1)!.endsWith("0011_manual_rewards.sql"));
+    await migrate(db, predecessor);
+    await db.batch([
+      db
+        .prepare("INSERT INTO community_accounts VALUES('learner',?,1)")
+        .bind("0x" + "bb".repeat(32)),
+      db.prepare(
+        "INSERT INTO study_lessons(lesson_id,account_id,community_id,request_id,song_json,state_json,started_at,history_cleanup_attempts) VALUES('lesson-1','learner','community','request-1','{}','{\"step\":3}',5,1)",
+      ),
+      db.prepare(
+        "INSERT INTO reward_programs VALUES('program-1','0x' || hex(randomblob(32)),2)",
+      ),
+      db.prepare(
+        "INSERT INTO reward_participants VALUES('program-1','learner','0x" +
+          "cc".repeat(20) +
+          "',7)",
+      ),
+    ]);
+    const snapshot = async () =>
+      JSON.stringify(
+        await db
+          .batch([
+            db.prepare("SELECT * FROM study_lessons"),
+            db.prepare("SELECT * FROM reward_programs"),
+            db.prepare("SELECT * FROM reward_participants"),
+          ])
+          .then((r) => r.map((x) => x.results)),
+      );
+    const versions = async () =>
+      (
+        await db
+          .prepare("SELECT version FROM setup_schema ORDER BY version")
+          .all<{ version: number }>()
+      ).results.map((v) => v.version);
+    const before = await snapshot(),
+      ledger = await versions();
+    // The applied ledger ends at rewards 11 (0003 and 0004 never wrote versions).
+    assert.equal(ledger.at(-1), 11);
+    await migrate(db, [`${COMMUNITY}/0012_owner_budget_windows.sql`]);
+    assert.equal(await snapshot(), before);
+    assert.deepEqual(await versions(), [...ledger, 12]);
+    await db
+      .prepare("INSERT INTO owner_budget_windows VALUES('scope',1,2)")
+      .run();
+    await assert.rejects(
+      db.prepare("INSERT INTO owner_budget_windows VALUES('bad',2,2)").run(),
+      /CHECK constraint failed/,
+    );
+    // Applying 0012 again is refused rather than silently re-versioned.
+    await assert.rejects(
+      migrate(db, [`${COMMUNITY}/0012_owner_budget_windows.sql`]),
+      /already exists|UNIQUE constraint failed/,
+    );
+  } finally {
+    await runtime.dispose();
+  }
+});
+
+test("managed schema upgrades 0001-0003 to 0004 and keeps existing budgets and releases", async () => {
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('fixture')}}",
+    compatibilityDate: "2026-08-06",
+    d1Databases: ["DB"],
+  });
+  try {
+    const db = await runtime.getD1Database("DB"),
+      predecessor = await chain(MANAGED, "0004_");
+    assert.deepEqual(
+      predecessor.map((p) => p.split("/").at(-1)),
+      [
+        "0001_managed.sql",
+        "0002_release_operations.sql",
+        "0003_owner_curated.sql",
+      ],
+    );
+    await migrate(db, predecessor);
+    await configureBudget(
+      db,
+      {
+        scope: "release:grant:existing",
+        period: "first-song-20261105-v1",
+        asset: "root_releases",
+      },
+      "1",
+    );
+    await reserveBudget(
+      db,
+      "existing-release",
+      hashJson({ existing: true }),
+      [
+        {
+          scope: "release:grant:existing",
+          period: "first-song-20261105-v1",
+          asset: "root_releases",
+        },
+      ],
+      "1",
+    );
+    const snapshot = async () =>
+      JSON.stringify(
+        await db
+          .batch([
+            db.prepare("SELECT * FROM spending_budgets"),
+            db.prepare("SELECT * FROM spending_reservations"),
+          ])
+          .then((r) => r.map((x) => x.results)),
+      );
+    const before = await snapshot();
+    await migrate(db, [`${MANAGED}/0004_owner_budget_windows.sql`]);
+    assert.equal(await snapshot(), before);
+    const g = validateOwnerGrant(grant());
+    await claimOwnerWindow(db, g, 1500);
+    await reserveOwnerBudget(
+      db,
+      g,
+      "songs",
+      "song:after-upgrade",
+      hashJson({ after: true }),
+      "1",
+      1500,
+    );
+  } finally {
+    await runtime.dispose();
+  }
+});
+
+test("deployment packages add the publishing migrations only when owner publishing is selected", async () => {
+  const names = (await chain(COMMUNITY)).map((p) => p.split("/").at(-1)!);
+  const deployed = communityMigrations(names, {
+    rewards: true,
+    ownerPublishing: false,
+  });
+  assert.equal(deployed.at(-1), "0011_manual_rewards.sql");
+  assert.equal(deployed.includes("0012_owner_budget_windows.sql"), false);
+  assert.deepEqual(
+    communityMigrations(names, { rewards: true, ownerPublishing: true }),
+    [...deployed, "0012_owner_budget_windows.sql"],
+  );
+  assert.throws(
+    () => communityMigrations(names, { rewards: false, ownerPublishing: true }),
+    /owner_publishing_rewards_selection_required/,
+  );
+  assert.deepEqual(managedMigrations(false), [
+    "0001_managed.sql",
+    "0002_release_operations.sql",
+    "0003_owner_curated.sql",
+  ]);
+  assert.deepEqual(managedMigrations(true), [
+    ...managedMigrations(false),
+    "0004_owner_budget_windows.sql",
+  ]);
+});
+
+test("after real expiry an existing owner reservation replays and settles, while new spending is refused", async () => {
+  const f = await ownerDatabases();
+  try {
+    const g = validateOwnerGrant(grant({ validFrom: 1000, expiresAt: 2000 })),
+      request = hashJson({ job: "expired" });
+    await claimOwnerWindow(f.managed, g, 1500);
+    await reserveOwnerBudget(
+      f.managed,
+      g,
+      "post_fee_wei",
+      "post:fee:job",
+      request,
+      "1000",
+      1500,
+    );
+    // The clock genuinely passes the grant's expiry; no newer window exists.
+    const expired = 2500;
+    await reserveOwnerBudget(
+      f.managed,
+      g,
+      "post_fee_wei",
+      "post:fee:job",
+      request,
+      "1000",
+      expired,
+    );
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        g,
+        "post_fee_wei",
+        "post:fee:job",
+        hashJson({ other: 1 }),
+        "1000",
+        expired,
+      ),
+      /reservation_conflict/,
+    );
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        g,
+        "post_fee_wei",
+        "post:fee:other",
+        request,
+        "1000",
+        expired,
+      ),
+      /owner_grant_outside_window/,
+    );
+    await settleOwnerBudget(
+      f.managed,
+      g,
+      "post_fee_wei",
+      "post:fee:job",
+      "640",
+    );
+    // Settlement is idempotent for the same receipt.
+    await settleOwnerBudget(
+      f.managed,
+      g,
+      "post_fee_wei",
+      "post:fee:job",
+      "640",
+    );
+    const key = ownerBudgetKey(g, "post_fee_wei");
+    const row = await f.managed
+      .prepare(
+        "SELECT reserved,spent FROM spending_budgets WHERE scope=? AND period=? AND asset=?",
+      )
+      .bind(key.scope, key.period, key.asset)
+      .first<{ reserved: string; spent: string }>();
+    assert.deepEqual({ ...row }, { reserved: "0", spent: "640" });
   } finally {
     await f.dispose();
   }

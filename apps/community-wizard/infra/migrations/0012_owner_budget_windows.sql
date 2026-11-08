@@ -9,4 +9,4 @@ CREATE TABLE owner_budget_windows (
   expires_at INTEGER NOT NULL,
   CHECK (valid_from < expires_at)
 );
-INSERT INTO setup_schema(version) VALUES(9);
+INSERT INTO setup_schema(version) VALUES(12);

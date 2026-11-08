@@ -108,11 +108,12 @@ within the same window therefore reuses the same buckets. `configureBudget`
 already refuses a changed ceiling for an existing bucket, so limits cannot be
 raised by replacement inside a period. Each paying service claims the
 window in its own database with one conditional upsert on
-`owner_budget_windows` (community migration 0009, managed migration 0004).
+`owner_budget_windows` (community migration 0012, managed migration 0004).
 The claim creates the scope's window, keeps the identical window, or advances
 to a later non-overlapping one, so two concurrent overlapping grants cannot
 both be admitted and a superseded window cannot open new spending. Deployment
-packages must add these migrations before the new policy is activated.
+packages add these migrations only when owner publishing is selected
+(`harness/package-migrations.ts`); default builds keep the deployed lists.
 
 Each song reserves one `songs` unit at release establishment, keyed by the job
 identity, before any pin or post spend. Pins reserve `pin_adds` and
@@ -131,6 +132,19 @@ Today the managed release service keys spending by grant hash
 grant, and the community posting budget allows one post per period. Those
 single-song shapes stay in force for the November 5 policy and are replaced
 only for the new policy.
+
+## Source and schema order
+
+This branch is stacked on the deployed rewards tip
+`f08ab4a9d5d759f5a2e2c7abfc475a0769213194` (`feat/manual-rewards-testnet`),
+which already contains Study `f0d0530`. The community schema order is Study
+0009 and 0010, rewards 0011, then owner publishing 0012, all already applied
+except 0012. The upgrade tests apply the complete 0001-0011 chain with Study
+and rewards rows, then 0012, and require those rows unchanged and the setup
+ledger to gain exactly version 12. The managed chain upgrades from 0001-0003
+to 0004 the same way. Implementing owner publishing does not depend on
+rewards payments or learner acceptance being complete; shared staging
+deployment still needs the current runtime custodian.
 
 ## Rollout
 

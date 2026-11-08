@@ -90,9 +90,19 @@ export async function artifactFiles(
   }
   return found.sort();
 }
+import {
+  communityMigrations,
+  OWNER_PUBLISHING_MIGRATION,
+} from "./package-migrations.ts";
+export { communityMigrations, OWNER_PUBLISHING_MIGRATION };
+/** Owner-only unregistered publishing; requires the Study and rewards schema. */
+export interface OwnerPublishingSelection {
+  ownerPublishing: true;
+}
 export async function communityPackage(
   study?: StudyReleaseSelection,
   rewards?: RewardsReleaseSelection,
+  publishing?: OwnerPublishingSelection,
 ) {
   const selection = study ? studyReleaseSelection(study) : undefined;
   const rewardSelection = rewards
@@ -101,6 +111,12 @@ export async function communityPackage(
   insist(
     !rewardSelection || selection,
     "reward_release_study_selection_required",
+    409,
+  );
+  // Schema order is Study, then rewards, then owner publishing.
+  insist(
+    !publishing || (publishing.ownerPublishing === true && rewardSelection),
+    "owner_publishing_rewards_selection_required",
     409,
   );
   await verifyCommunityDependencies();
@@ -174,10 +190,10 @@ export async function communityPackage(
     ],
     { maxBuffer: 1024 * 1024 },
   );
-  const migrations = (await readdir("apps/community-wizard/infra/migrations"))
-    .filter((p) => /^\d{4}_.+\.sql$/.test(p))
-    .filter((p) => p !== "0011_manual_rewards.sql" || !!rewardSelection)
-    .sort();
+  const migrations = communityMigrations(
+    await readdir("apps/community-wizard/infra/migrations"),
+    { rewards: !!rewardSelection, ownerPublishing: !!publishing },
+  );
   const sourcePaths = [
     ...new Set(
       [
@@ -322,6 +338,7 @@ export async function communityPackage(
     acceptance: learning.acceptance,
     learning,
     ...(rewardSelection ? { rewards: rewardSelection } : {}),
+    ...(publishing ? { ownerPublishing: true } : {}),
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
   };
