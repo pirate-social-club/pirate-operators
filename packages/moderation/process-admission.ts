@@ -129,6 +129,11 @@ export function processAdmission(
           );
           return seconds;
         };
+        // Every read below is pinned to the captured configuration revision,
+        // and the admission policy is fixed by the first read: the age limit
+        // that allows a purchase is the one evidence expiry and the final
+        // check use.
+        let pinnedPolicy: { version: string; sha256: string } | undefined;
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);
           insist(
@@ -151,16 +156,21 @@ export function processAdmission(
             "community_authority_changed",
             403,
           );
+          pinnedPolicy ??= current.policies.admission;
+          insist(
+            current.policies.admission.version === pinnedPolicy.version &&
+              current.policies.admission.sha256 === pinnedPolicy.sha256,
+            "community_authority_changed",
+            403,
+          );
           // Retained provider facts never gain a new age through a retry.
           // Refuse to buy another check once earlier facts have expired.
-          await acquisitionTime(evidenceMaxAge(current.policies.admission));
+          await acquisitionTime(evidenceMaxAge(pinnedPolicy));
         };
         await authorize();
         // Recognition only under the unregistered owner policy. The captured
-        // request's checks must agree; the revision check above pins the policy.
-        const recognitionOnly = unregisteredOwner(
-          (await config.currentConfiguration(pairing)).policies.admission,
-        );
+        // request's checks must agree; the policy is the pinned one above.
+        const recognitionOnly = unregisteredOwner(pinnedPolicy!);
         const request = admissionRequest(
             JSON.parse(row.request_json),
             pairing,
@@ -317,9 +327,7 @@ export function processAdmission(
                 ...parseLyricsClassification(response),
               }),
             })) as unknown as ReturnType<typeof parseLyricsClassification>);
-        const maxAge = recognitionOnly
-          ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
-          : 3600;
+        const maxAge = evidenceMaxAge(pinnedPolicy!);
         const acquiredAt = await acquisitionTime(maxAge);
         insist(acquiredAt !== null, "moderation_acquisition_missing", 503);
         const issuedAt = acquiredAt,

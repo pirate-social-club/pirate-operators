@@ -197,6 +197,13 @@ registered jobs keep their reconciliation path.
 
 ## Rollout
 
+Before the owner policy is activated, inventory every in-flight registered
+job and record an explicit disposition for it (complete, hold or cancel,
+reconciling any submitted effect). This is a hard prerequisite, not advice:
+each job keeps its captured execution profile, so after activation a
+registered job fails closed with `publication_execution_profile_changed`. It
+is never converted, and it can also no longer progress or reconcile.
+
 Community migration 0012 and managed migration 0004 were changed in place at
 1b362b1 to add `limits_sha256`. They have not been deployed from this branch.
 Before packaging, confirm that no database applied the earlier bytes; a

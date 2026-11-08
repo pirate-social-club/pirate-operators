@@ -243,7 +243,8 @@ export async function communityFetch(
         try {
           config = await configuration();
         } catch {
-          return ports.creatorHealth();
+          // Without the policy, report unavailable rather than contact it.
+          return false;
         }
       return unregisteredOwner(config.policies.admission)
         ? false
