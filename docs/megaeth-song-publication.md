@@ -139,6 +139,13 @@ broadcast, so the job is held with that code rather than parked as uncertain.
 A refused post has no fee reservation, and no transaction is broadcast
 without one; the held receipt is accepted only while that remains true.
 
+A budget hold is final for that job. Only admission holds resume, so a
+pre-signed post transaction or its nonce is never broadcast from a held job.
+Publishing the song after a new grant or window needs a new submission and
+job. A recognition call refused at dispatch, after its reservation, releases
+the reservation (settled with actual 0) and stays planned; a released call is
+never sent, even if the clock reads valid again.
+
 Concrete live limits are not part of this source change. They go in the
 reviewed execution profile before any live execution; a missing grant or
 bucket disables paid execution.
@@ -189,6 +196,12 @@ Registered releases keep `/v1/releases/*` and their registration key, so old
 registered jobs keep their reconciliation path.
 
 ## Rollout
+
+Community migration 0012 and managed migration 0004 were changed in place at
+1b362b1 to add `limits_sha256`. They have not been deployed from this branch.
+Before packaging, confirm that no database applied the earlier bytes; a
+database that did must be recreated or given a successor migration rather than
+re-applying 0012 or 0004.
 
 Deploy readers that accept all three formats and both owner policies first.
 Verify existing songs and history. Only then publish the new directory

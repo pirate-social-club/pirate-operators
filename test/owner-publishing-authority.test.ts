@@ -1200,6 +1200,30 @@ test("recognition rechecks the grant for each new provider reservation and dispa
       .bind("acr_primary")
       .first<{ state: string }>();
     assert.equal(planned!.state, "planned");
+    // The refused reservation is released explicitly, not held in the window.
+    const released = await db
+      .prepare(
+        "SELECT status,actual FROM spending_reservations WHERE asset='recognition_requests' AND status='settled'",
+      )
+      .all<{ status: string; actual: string }>();
+    assert.deepEqual(
+      released.results.map((r) => ({ ...r })),
+      [{ status: "settled", actual: "0" }],
+    );
+    const bucket = await db
+      .prepare(
+        "SELECT reserved,spent FROM spending_budgets WHERE scope=? AND period=? AND asset='recognition_requests'",
+      )
+      .bind(budgets[0]!.scope, budgets[0]!.period)
+      .first<{ reserved: string; spent: string }>();
+    assert.deepEqual({ ...bucket }, { reserved: "0", spent: "0" });
+    // Even if the clock read valid again, a released call is never sent.
+    clock = 1500;
+    await assert.rejects(
+      journaledProviderCall(db, lease, call("acr_primary")),
+      /provider_call_released/,
+    );
+    assert.equal(sends, 0);
     // A receipt retained while the grant was valid reconciles after expiry
     // without another authorization or send.
     clock = 1500;
@@ -1218,10 +1242,16 @@ test("recognition rechecks the grant for each new provider reservation and dispa
     );
     assert.equal(sends, 1);
     assert.equal(authorizations, before);
-    const alternate = (await reservations()).filter(
-      (r) => r.status === "settled",
+    // One released (actual 0) for the refused dispatch, one spent for the receipt.
+    const settled = await db
+      .prepare(
+        "SELECT actual FROM spending_reservations WHERE asset='recognition_requests' AND status='settled' ORDER BY actual",
+      )
+      .all<{ actual: string }>();
+    assert.deepEqual(
+      settled.results.map((r) => r.actual),
+      ["0", "1"],
     );
-    assert.equal(alternate.length, 1);
   } finally {
     await f.dispose();
   }
