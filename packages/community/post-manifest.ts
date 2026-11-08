@@ -21,8 +21,11 @@ import {
 import type { CommunityConfig } from "./config-manifest.ts";
 import {
   ownerCurated,
+  unregisteredOwner,
   OWNER_POLICY_VERSION,
   OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+  UNREGISTERED_OWNER_POLICY_HASH,
 } from "./owner-policy.ts";
 
 export interface MediaReference {
@@ -90,8 +93,33 @@ export function validateRegistration(value: unknown): RegistrationReceipt {
     status: "confirmed",
   };
 }
+/** External registration explicitly absent (pirate.community-post/3 only). */
+export interface AbsentRegistration {
+  status: "absent";
+  reason: "deferred_for_launch";
+}
+export const ABSENT_REGISTRATION: AbsentRegistration = {
+  status: "absent",
+  reason: "deferred_for_launch",
+};
+export function validateAbsentRegistration(value: unknown): AbsentRegistration {
+  const o = object(value);
+  exact(o, ["status", "reason"]);
+  insist(
+    o.status === "absent" && o.reason === "deferred_for_launch",
+    "invalid_absent_registration",
+  );
+  return { ...ABSENT_REGISTRATION };
+}
+export type PostSchema =
+  | "pirate.community-post/1"
+  | "pirate.community-post/2"
+  | "pirate.community-post/3";
+export const isRegistered = (
+  registration: RegistrationReceipt | AbsentRegistration,
+): registration is RegistrationReceipt => registration.status === "confirmed";
 export interface PostManifest extends PublicationIdentity {
-  schema: "pirate.community-post/1" | "pirate.community-post/2";
+  schema: PostSchema;
   authorId: Hex;
   kind: "song";
   revision: number;
@@ -111,32 +139,45 @@ export interface PostManifest extends PublicationIdentity {
     automatedContent?: "deferred";
     declarationSource?: "operator_declared";
   };
-  registration: RegistrationReceipt;
+  registration: RegistrationReceipt | AbsentRegistration;
 }
 export function validatePost(value: unknown): PostManifest {
   const raw = object(value),
-    curated = raw.schema === "pirate.community-post/2";
-  const o = schema(
-    value,
-    curated ? "pirate.community-post/2" : "pirate.community-post/1",
-    [
-      "chainId",
-      "postsContract",
-      "communityId",
-      "postId",
-      "authorId",
-      "kind",
-      "revision",
-      "configurationRevision",
-      "publishedAt",
-      "title",
-      "language",
-      "rating",
-      "media",
-      "admission",
-      "registration",
-    ],
-  );
+    unregistered = raw.schema === "pirate.community-post/3",
+    // Both owner policies declare rating and language and defer automated content.
+    curated = unregistered || raw.schema === "pirate.community-post/2",
+    name: PostSchema = unregistered
+      ? "pirate.community-post/3"
+      : curated
+        ? "pirate.community-post/2"
+        : "pirate.community-post/1",
+    policyVersion = unregistered
+      ? UNREGISTERED_OWNER_POLICY_VERSION
+      : curated
+        ? OWNER_POLICY_VERSION
+        : RELEASE_POLICY,
+    policySha256 = unregistered
+      ? UNREGISTERED_OWNER_POLICY_HASH
+      : curated
+        ? OWNER_POLICY_HASH
+        : RELEASE_POLICY_HASH;
+  const o = schema(value, name, [
+    "chainId",
+    "postsContract",
+    "communityId",
+    "postId",
+    "authorId",
+    "kind",
+    "revision",
+    "configurationRevision",
+    "publishedAt",
+    "title",
+    "language",
+    "rating",
+    "media",
+    "admission",
+    "registration",
+  ]);
   insist(
     o.kind === "song" && (o.rating === "general" || o.rating === "adult"),
     "unsupported_post",
@@ -152,13 +193,11 @@ export function validatePost(value: unknown): PostManifest {
     ...(curated ? ["automatedContent", "declarationSource"] : []),
   ]);
   insist(
-    (curated
-      ? admission.policyVersion === OWNER_POLICY_VERSION &&
-        admission.policySha256 === OWNER_POLICY_HASH &&
-        admission.automatedContent === "deferred" &&
-        admission.declarationSource === "operator_declared"
-      : admission.policyVersion === RELEASE_POLICY &&
-        admission.policySha256 === RELEASE_POLICY_HASH) &&
+    admission.policyVersion === policyVersion &&
+      admission.policySha256 === policySha256 &&
+      (!curated ||
+        (admission.automatedContent === "deferred" &&
+          admission.declarationSource === "operator_declared")) &&
       admission.decision === "publish" &&
       admission.rating === o.rating &&
       typeof admission.coverDisplayed === "boolean",
@@ -203,10 +242,14 @@ export function validatePost(value: unknown): PostManifest {
     media.some((m) => m.role === "artwork") === admission.coverDisplayed,
     "cover_policy_mismatch",
   );
-  const registration = validateRegistration(o.registration);
+  // /1 and /2 keep strict confirmed receipts; /3 can only say registration is absent.
+  const registration = unregistered
+    ? validateAbsentRegistration(o.registration)
+    : validateRegistration(o.registration);
   insist(
-    registration.contentSha256 ===
-      media.find((m) => m.role === "audio")!.sha256,
+    !isRegistered(registration) ||
+      registration.contentSha256 ===
+        media.find((m) => m.role === "audio")!.sha256,
     "registration_content_mismatch",
   );
   const title = text(o.title, 200),
@@ -218,7 +261,7 @@ export function validatePost(value: unknown): PostManifest {
   );
   return {
     ...identity(o),
-    schema: curated ? "pirate.community-post/2" : "pirate.community-post/1",
+    schema: name,
     authorId: bytes32(o.authorId),
     kind: "song",
     revision: integer(o.revision, 1, Number.MAX_SAFE_INTEGER),
@@ -234,8 +277,8 @@ export function validatePost(value: unknown): PostManifest {
     media,
     registration,
     admission: {
-      policyVersion: curated ? OWNER_POLICY_VERSION : RELEASE_POLICY,
-      policySha256: curated ? OWNER_POLICY_HASH : RELEASE_POLICY_HASH,
+      policyVersion,
+      policySha256,
       decision: "publish",
       rating: o.rating,
       coverDisplayed: admission.coverDisplayed,
@@ -268,7 +311,9 @@ export function validatePostForEvent(
     post.admission.policyVersion === config.policies.admission.version &&
       post.admission.policySha256 === config.policies.admission.sha256 &&
       (post.schema === "pirate.community-post/2") ===
-        ownerCurated(config.policies.admission),
+        ownerCurated(config.policies.admission) &&
+      (post.schema === "pirate.community-post/3") ===
+        unregisteredOwner(config.policies.admission),
     "post_admission_policy_mismatch",
   );
   insist(event.kind === 0, "unsupported_post_event_kind");

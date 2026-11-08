@@ -40,7 +40,10 @@ export interface PublicSongView {
   /** Public fields used by this client. The server validates the complete
    * canonical post manifest before exposing this projection. */
   manifest: {
-    schema: "pirate.community-post/1" | "pirate.community-post/2";
+    schema:
+      | "pirate.community-post/1"
+      | "pirate.community-post/2"
+      | "pirate.community-post/3";
     postId: string;
     authorId: string;
     title: string;

@@ -31,7 +31,10 @@ import {
 
 import type { PublicationWakeQueue } from "./community-jobs.ts";
 import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
-import { ownerCurated } from "../packages/community/owner-policy.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+} from "../packages/community/owner-policy.ts";
 
 interface ReleaseApiEnv {
   DB: D1Database;
@@ -186,6 +189,13 @@ export async function communityReleaseApi(
       moderationSigner: config.policies.moderationSigner,
       execution: publicationExecutionProfile(ports),
     };
+  // Readers accept the unregistered owner policy before its write path exists.
+  // Fail closed until the owner-only submission and release path is enabled.
+  insist(
+    !unregisteredOwner(config.policies.admission),
+    "unregistered_owner_publishing_not_enabled",
+    503,
+  );
   await requireCuratedOwner(env.DB, config, session.wallet);
   if (url.pathname === "/api/uploads") {
     insist(
