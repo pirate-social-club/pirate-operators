@@ -17,16 +17,33 @@ import type { PublicationInput } from "./publication-input.ts";
 import { observeRootRegistration } from "./registration-chain.ts";
 import { validatePost, validateRegistration } from "./post-manifest.ts";
 import { pinOperationId, type ReleaseRole } from "../release/artifacts.ts";
+import { ownerReleaseKey } from "../release/owner-release.ts";
+import type { OwnerBudgetGrant } from "../release/owner-grant.ts";
 import type { RetainedPin } from "../release/pin-operations.ts";
 import type { OperationResult, Reconciliation } from "./publication.ts";
 
 export interface ReleasePorts {
   client: ManagedClient;
   grantHash: string;
-  registrationOperator: Address;
-  story: PublicClient;
+  /** Registered releases only. Absent under the unregistered owner policy. */
+  registrationOperator?: Address;
+  story?: PublicClient;
+  /** Present only under the unregistered owner policy. */
+  ownerGrant?: OwnerBudgetGrant;
   ipfs?: IpfsTransport;
 }
+/** Pin operation identity: per release key for owner jobs, per grant otherwise. */
+const releasePinId = (
+  input: PublicationInput,
+  ports: ReleasePorts,
+  role: ReleaseRole,
+) =>
+  pinOperationId(
+    ports.ownerGrant
+      ? ownerReleaseKey(ports.ownerGrant, input.job.job_id)
+      : ports.grantHash,
+    role,
+  );
 function validatedPin(value: unknown): RetainedPin {
   const p = object(value);
   const gateway = publicGateways.find((g) => g === p.gateway);
@@ -81,7 +98,7 @@ export async function releasePin(
   role: ReleaseRole,
   mode: "execute" | "reconcile",
 ): Promise<Reconciliation> {
-  const id = pinOperationId(ports.grantHash, role),
+  const id = releasePinId(input, ports, role),
     value = await response(
       ports,
       "/v1/releases/pin" + (mode === "reconcile" ? "/status" : ""),
@@ -226,6 +243,11 @@ export async function releaseRegistration(
       }),
     };
   if (result.state !== "confirmed") return { kind: "unknown" };
+  insist(
+    ports.story && ports.registrationOperator,
+    "registration_not_applicable",
+    409,
+  );
   const receipt = validateRegistration(result.receipt),
     actual = await observeRootRegistration(
       ports.story,
@@ -262,14 +284,19 @@ export async function validateReleaseResult(
 ) {
   insist(result.kind === "confirmed", "invalid_release_outcome", 503);
   if (step === "registration") {
+    insist(
+      !ports.ownerGrant && ports.story && ports.registrationOperator,
+      "registration_not_applicable",
+      409,
+    );
     const receipt = validateRegistration(result.value.receipt),
       ip = validatedPin(result.value.metadata),
       nft = validatedPin(result.value.nftMetadata),
       createdAt = await metadata(input, ports, ip, nft);
     const actual = await observeRootRegistration(
-      ports.story,
+      ports.story!,
       receipt.transactionHash,
-      ports.registrationOperator,
+      ports.registrationOperator!,
       {
         recipient: input.context.recipient as Address,
         contentSha256: input.row.audio_sha256 as `0x${string}`,
@@ -326,9 +353,25 @@ export async function validateReleaseResult(
     );
     const audio = validatedPin(object(input.progress.pin_audio).pin),
       lyrics = validatedPin(object(input.progress.pin_lyrics).pin),
-      registration = object(input.progress.registration),
+      owner = !!ports.ownerGrant,
+      // Owner jobs never register; publishedAt is the managed admission time.
+      registration = owner ? null : object(input.progress.registration),
       admission = object(input.progress.admission),
-      decision = object(admission.decision);
+      decision = object(admission.decision),
+      created = Math.floor(input.createdAt / 1000);
+    insist(
+      owner
+        ? post.schema === "pirate.community-post/3" &&
+            canonical(post.registration) ===
+              canonical({ status: "absent", reason: "deferred_for_launch" }) &&
+            post.publishedAt >= created &&
+            post.publishedAt <= Math.floor(Date.now() / 1000)
+        : post.schema !== "pirate.community-post/3" &&
+            post.publishedAt === registration!.metadataCreatedAt &&
+            canonical(post.registration) === canonical(registration!.receipt),
+      "post_manifest_registration_mismatch",
+      503,
+    );
     insist(
       post.chainId === 6343 &&
         post.postsContract === ports.client.configuration.postsContract &&
@@ -340,8 +383,6 @@ export async function validateReleaseResult(
         post.revision === 1 &&
         post.configurationRevision ===
           ports.client.configuration.configurationRevision &&
-        post.publishedAt === registration.metadataCreatedAt &&
-        canonical(post.registration) === canonical(registration.receipt) &&
         post.admission.evidenceSha256 === admission.evidenceSha256 &&
         post.rating ===
           (decision.rating === "adult_18" ? "adult" : "general") &&

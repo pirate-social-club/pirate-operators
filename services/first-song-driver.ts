@@ -37,6 +37,7 @@ import type {
 } from "../packages/community/publication-store.ts";
 import { activeAdmissionOperation } from "../packages/community/publication-store.ts";
 import { preparedOperation } from "../packages/community/publication.ts";
+import { ownerBudgetKey } from "../packages/release/owner-grant.ts";
 import type {
   PublicationDriver,
   OperationResult,
@@ -101,6 +102,13 @@ function pinResult(value: unknown): OperationResult {
     pin = object(v.pin);
   return { kind: "confirmed", providerId: String(pin.uri), value: v };
 }
+/** Owner jobs bind the owner scope and window so a replacement grant replays. */
+const releaseBinding = (ports: FirstSongDriverPorts) => {
+  const grant = ports.release.ownerGrant;
+  if (!grant) return ports.release.grantHash;
+  const key = ownerBudgetKey(grant, "songs");
+  return hashJson({ ownerScope: key.scope, ownerWindow: key.period });
+};
 export function firstSongDriver(
   ports: FirstSongDriverPorts,
 ): PublicationDriver {
@@ -120,7 +128,7 @@ export function firstSongDriver(
           requestValue(
             input,
             operation.step,
-            ports.release.grantHash,
+            releaseBinding(ports),
             ports.managed.origin,
           ),
         ) &&
@@ -129,7 +137,7 @@ export function firstSongDriver(
             requestValue(
               input,
               operation.step,
-              ports.release.grantHash,
+              releaseBinding(ports),
               ports.managed.origin,
             ),
           ),
@@ -139,13 +147,16 @@ export function firstSongDriver(
     return input;
   };
   const validateMedia = async (input: PublicationInput) => {
-    const registration = object(input.progress.registration),
-      receipt = object(registration.receipt);
-    await validateReleaseResult(input, ports.release, "registration", {
-      kind: "confirmed",
-      providerId: String(receipt.transactionHash),
-      value: registration,
-    });
+    // Owner jobs have no registration step or receipt to replay.
+    if (!ports.release.ownerGrant) {
+      const registration = object(input.progress.registration),
+        receipt = object(registration.receipt);
+      await validateReleaseResult(input, ports.release, "registration", {
+        kind: "confirmed",
+        providerId: String(receipt.transactionHash),
+        value: registration,
+      });
+    }
     for (const step of ["pin_audio", "pin_lyrics", "pin_manifest"] as const)
       await validateReleaseResult(
         input,
@@ -168,7 +179,7 @@ export function firstSongDriver(
       return requestValue(
         input,
         step,
-        ports.release.grantHash,
+        releaseBinding(ports),
         ports.managed.origin,
       );
     },
@@ -188,7 +199,7 @@ export function firstSongDriver(
               : "pirate-managed-release/1",
           key: operation.operation_id,
         },
-        payload: { grantHash: ports.release.grantHash },
+        payload: { grantHash: releaseBinding(ports) },
       };
     },
     async execute(operation) {
@@ -281,7 +292,7 @@ export async function resumeFirstSongAdmission(
           requestValue(
             input,
             "admission",
-            ports.release.grantHash,
+            releaseBinding(ports),
             ports.managed.origin,
           ),
         ),

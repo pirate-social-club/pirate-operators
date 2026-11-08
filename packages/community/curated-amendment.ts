@@ -11,7 +11,7 @@ import {
 import { address, httpsOrigin } from "./manifest-core.ts";
 import { validateConfig, type CommunityConfig } from "./config-manifest.ts";
 import { ownerCurated } from "./owner-policy.ts";
-import type { PublicationExecutionProfile } from "./publication-profile.ts";
+import type { RegisteredExecutionProfile } from "./publication-profile.ts";
 
 export interface CuratedAmendment {
   schema: "pirate.owner-curated-amendment/1";
@@ -35,7 +35,7 @@ export interface CuratedAmendment {
   originalGrantHash: string;
   originalConfiguration: CommunityConfig;
   configurationSha256: string;
-  execution: PublicationExecutionProfile;
+  execution: RegisteredExecutionProfile;
   recognitionSha256: string;
   rating: "general" | "adult_18";
   language: string;

@@ -9,3 +9,14 @@ CREATE TABLE owner_budget_windows (
   expires_at INTEGER NOT NULL,
   CHECK (valid_from < expires_at)
 );
+-- One admitted owner release per publication job under the unregistered owner
+-- policy. Keyed by job, not grant hash, so many songs share one owner grant.
+CREATE TABLE owner_releases (
+  job_id TEXT PRIMARY KEY,
+  release_key TEXT NOT NULL UNIQUE,
+  owner_scope TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  context_json TEXT NOT NULL,
+  admission_sha256 TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);

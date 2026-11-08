@@ -10,7 +10,7 @@ import {
 } from "../../packages/community/owner-policy.ts";
 import { validateConfig } from "../../packages/community/config-manifest.ts";
 import { releaseGrantDigest } from "../../packages/release/grant.ts";
-import { publicationExecutionProfile } from "../../packages/community/publication-profile.ts";
+import { registeredExecutionProfile } from "../../packages/community/publication-profile.ts";
 import { publicationStep } from "../../packages/community/publication.ts";
 import {
   loadJob,
@@ -150,7 +150,7 @@ export async function curatedSongFixture() {
       originalGrantHash: f.managed.grant.sha256,
       originalConfiguration: originalConfig,
       configurationSha256: hashJson(config),
-      execution: publicationExecutionProfile(ports),
+      execution: registeredExecutionProfile(ports),
       recognitionSha256: hashJson(recognition),
       rating: "general",
       language: "en",

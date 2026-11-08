@@ -48,10 +48,19 @@ export interface ReleaseContext {
   recipient: string;
   lineage: "root";
   lyrics: LyricManifest;
+  /** Operator-declared rating; present only under the unregistered owner policy. */
+  rating?: "general" | "adult";
+}
+/** The per-release key and content binding the artifact builders need. */
+export interface ReleaseScope {
+  sha256: string;
+  contentSha256: string;
 }
 export interface AdmittedRelease {
   context: ReleaseContext;
-  grant: ReleaseGrant;
+  grant: ReleaseScope;
+  /** True under the unregistered owner policy: no registration artifacts. */
+  unregistered?: boolean;
   config: CommunityConfig;
   prepared: PreparedAdmission;
   decision: AdmissionDecision;

@@ -147,6 +147,7 @@ export async function publicationInput(
     recipient: address(owner ? row.captured_wallet : creator!.evm_address),
     lineage: "root",
     lyrics: metadata.lyrics,
+    ...("rating" in metadata ? { rating: metadata.rating } : {}),
   };
   if (signed) {
     const a = signed.amendment,

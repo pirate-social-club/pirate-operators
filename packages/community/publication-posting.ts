@@ -22,6 +22,12 @@ import {
 } from "./post-chain.ts";
 import { syncPublicPosts, indexedPublicPosts } from "./post-index.ts";
 import { configureBudget, reserveBudget, settleBudget } from "./budgets.ts";
+import {
+  claimOwnerWindow,
+  reserveOwnerBudget,
+  settleOwnerBudget,
+  type OwnerBudgetGrant,
+} from "../release/owner-grant.ts";
 import type { ExternalOperation } from "./publication-store.ts";
 import {
   preparedOperation,
@@ -45,6 +51,8 @@ export interface PostingPorts {
   config: CommunityConfig;
   currentConfiguration(): Promise<CommunityConfig>;
   bounds: PostingBounds;
+  /** Owner jobs spend post fees from the bounded owner grant. */
+  ownerGrant?: OwnerBudgetGrant;
 }
 function intent(operation: ExternalOperation): FirstPublication {
   const request = object(JSON.parse(operation.request_json)),
@@ -256,18 +264,29 @@ async function observed(
       "publication_actual_fee_exceeds_cap",
       503,
     );
-    await settleBudget(
-      ports.db,
-      operation.operation_id + ":count",
-      budgetKeys(ports, "post_transactions"),
-      "1",
-    );
-    await settleBudget(
-      ports.db,
-      operation.operation_id + ":fee",
-      budgetKeys(ports, "native_wei"),
-      cost.toString(),
-    );
+    if (ports.ownerGrant)
+      // Needs only the reservation, so it also settles after the window ends.
+      await settleOwnerBudget(
+        ports.db,
+        ports.ownerGrant,
+        "post_fee_wei",
+        operation.operation_id + ":fee",
+        cost.toString(),
+      );
+    else {
+      await settleBudget(
+        ports.db,
+        operation.operation_id + ":count",
+        budgetKeys(ports, "post_transactions"),
+        "1",
+      );
+      await settleBudget(
+        ports.db,
+        operation.operation_id + ":fee",
+        budgetKeys(ports, "native_wei"),
+        cost.toString(),
+      );
+    }
   }
   return { kind: "confirmed", providerId: hash, value };
 }
@@ -282,30 +301,42 @@ export async function executePosting(
     return result;
   }
   const tx = await signed(operation, ports);
-  await configureBudget(
-    ports.db,
-    budgetKeys(ports, "post_transactions")[0]!,
-    "1",
-  );
-  await configureBudget(
-    ports.db,
-    budgetKeys(ports, "native_wei")[0]!,
-    ports.bounds.maximumTotalFee,
-  );
-  await reserveBudget(
-    ports.db,
-    operation.operation_id + ":count",
-    operation.request_hash,
-    budgetKeys(ports, "post_transactions"),
-    "1",
-  );
-  await reserveBudget(
-    ports.db,
-    operation.operation_id + ":fee",
-    operation.request_hash,
-    budgetKeys(ports, "native_wei"),
-    tx.maximumFee,
-  );
+  if (ports.ownerGrant) {
+    await claimOwnerWindow(ports.db, ports.ownerGrant);
+    await reserveOwnerBudget(
+      ports.db,
+      ports.ownerGrant,
+      "post_fee_wei",
+      operation.operation_id + ":fee",
+      operation.request_hash,
+      tx.maximumFee,
+    );
+  } else {
+    await configureBudget(
+      ports.db,
+      budgetKeys(ports, "post_transactions")[0]!,
+      "1",
+    );
+    await configureBudget(
+      ports.db,
+      budgetKeys(ports, "native_wei")[0]!,
+      ports.bounds.maximumTotalFee,
+    );
+    await reserveBudget(
+      ports.db,
+      operation.operation_id + ":count",
+      operation.request_hash,
+      budgetKeys(ports, "post_transactions"),
+      "1",
+    );
+    await reserveBudget(
+      ports.db,
+      operation.operation_id + ":fee",
+      operation.request_hash,
+      budgetKeys(ports, "native_wei"),
+      tx.maximumFee,
+    );
+  }
   const already = await observed(operation, ports);
   if (already) return already;
   await authorize(ports);
