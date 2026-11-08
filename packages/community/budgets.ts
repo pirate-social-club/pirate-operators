@@ -44,11 +44,26 @@ export async function configureBudget(
   insist(row?.ceiling === ceiling, "budget_profile_changed", 409);
 }
 
-function guard(db: D1Database, id: string, rows: Budget[]) {
+/**
+ * An extra SQL condition checked in the same transaction as a new reservation.
+ * A reservation replay never re-evaluates it; settlement never uses it.
+ */
+export interface ReservationCondition {
+  clause: string;
+  binds: (string | number)[];
+  code: string;
+}
+function guard(
+  db: D1Database,
+  id: string,
+  rows: Budget[],
+  condition?: ReservationCondition,
+) {
   const clauses = rows.map(
     () =>
       "EXISTS(SELECT 1 FROM spending_budgets WHERE scope=? AND period=? AND asset=? AND version=? AND ceiling=? AND reserved=? AND spent=?)",
   );
+  if (condition) clauses.push(condition.clause);
   return db
     .prepare(
       `INSERT INTO transaction_guards(guard_id,valid) VALUES(?,CASE WHEN ${clauses.join(" AND ")} THEN 1 ELSE 0 END)`,
@@ -62,6 +77,7 @@ function guard(db: D1Database, id: string, rows: Budget[]) {
         b.reserved,
         b.spent,
       ]),
+      ...(condition?.binds ?? []),
     );
 }
 async function snapshot(db: D1Database, id: string, keys: BudgetKey[]) {
@@ -99,7 +115,9 @@ async function snapshot(db: D1Database, id: string, keys: BudgetKey[]) {
 function raced(error: unknown) {
   const message = error instanceof Error ? error.message : "";
   return (
-    message.includes("CHECK constraint failed: valid = 1") ||
+    // The community schema writes CHECK(valid = 1); the managed schema writes
+    // CHECK(valid=1). Both are the same guard failure.
+    /CHECK constraint failed: valid ?= ?1/.test(message) ||
     message.includes("UNIQUE constraint failed: spending_reservations")
   );
 }
@@ -111,6 +129,7 @@ export async function reserveBudget(
   requestHash: string,
   keys: BudgetKey[],
   requested: string,
+  condition?: ReservationCondition,
 ) {
   const value = amount(requested);
   insist(
@@ -137,7 +156,7 @@ export async function reserveBudget(
         409,
       );
     const g = token();
-    const statements = [guard(db, g, rows)];
+    const statements = [guard(db, g, rows, condition)];
     for (const row of rows) {
       statements.push(
         db
@@ -162,6 +181,15 @@ export async function reserveBudget(
       return;
     } catch (error) {
       if (!raced(error)) throw error;
+      if (condition) {
+        const held = await db
+          .prepare(
+            `SELECT CASE WHEN ${condition.clause} THEN 1 ELSE 0 END AS ok`,
+          )
+          .bind(...condition.binds)
+          .first<{ ok: number }>();
+        insist(held?.ok === 1, condition.code, 409);
+      }
     }
   }
   insist(false, "budget_busy_retry", 409);

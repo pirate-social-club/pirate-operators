@@ -8,7 +8,11 @@ import {
   object,
 } from "../community/common.ts";
 import { address, chain, httpsOrigin } from "../community/manifest-core.ts";
-import type { BudgetKey } from "../community/budgets.ts";
+import {
+  configureBudget,
+  reserveBudget,
+  type BudgetKey,
+} from "../community/budgets.ts";
 import { unregisteredOwner } from "../community/owner-policy.ts";
 
 /**
@@ -179,5 +183,38 @@ export async function claimOwnerWindow(
       : "owner_budget_window_overlap",
     409,
   );
+  return key;
+}
+
+/**
+ * New spending under an owner grant. The window must be inside its signed
+ * time range and still be the scope's current window when the reservation
+ * commits; an earlier successful claim alone does not authorize it. Replays of
+ * an existing reservation return without re-checking, and settlement uses
+ * settleBudget with ownerBudgetKey directly, so superseded or expired windows
+ * stay readable and settleable.
+ */
+export async function reserveOwnerBudget(
+  db: D1Database,
+  grant: OwnerBudgetGrant,
+  asset: OwnerBudgetAsset,
+  reservationId: string,
+  requestHash: string,
+  requested: string,
+  now = Math.floor(Date.now() / 1000),
+) {
+  const key = ownerBudgetKey(grant, asset);
+  insist(
+    now >= grant.validFrom && now < grant.expiresAt,
+    "owner_grant_outside_window",
+    403,
+  );
+  await configureBudget(db, key, ownerBudgetCeiling(grant, asset));
+  await reserveBudget(db, reservationId, requestHash, [key], requested, {
+    clause:
+      "EXISTS(SELECT 1 FROM owner_budget_windows WHERE scope=? AND valid_from=? AND expires_at=?)",
+    binds: [key.scope, grant.validFrom, grant.expiresAt],
+    code: "owner_budget_window_not_current",
+  });
   return key;
 }

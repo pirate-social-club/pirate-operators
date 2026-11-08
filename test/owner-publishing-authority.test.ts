@@ -21,11 +21,24 @@ import {
 import {
   configureBudget,
   reserveBudget,
+  settleBudget,
 } from "../packages/community/budgets.ts";
+import {
+  advanceJob,
+  jobSteps,
+  leaseJob,
+  loadJob,
+  resumeUncertainJob,
+} from "../packages/community/publication-store.ts";
+import {
+  RELEASE_POLICY,
+  RELEASE_POLICY_HASH,
+} from "../packages/community/manifest-core.ts";
 import {
   ownerBudgetCeiling,
   ownerBudgetKey,
   ownerGrantDigest,
+  reserveOwnerBudget,
   claimOwnerWindow,
   validateOwnerGrant,
   type OwnerBudgetGrant,
@@ -480,6 +493,204 @@ test("a song reserved in the managed service survives a failed community reserva
       /reservation_conflict/,
     );
     assert.equal(await reserved(f.managed, "songs"), "1");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a request paused after claiming a window cannot spend once the window advances, but its existing reservation stays settleable", async () => {
+  const f = await ownerDatabases();
+  try {
+    const a = validateOwnerGrant(grant({ validFrom: 1000, expiresAt: 2000 })),
+      b = validateOwnerGrant(grant({ validFrom: 2000, expiresAt: 3000 }));
+    await claimOwnerWindow(f.managed, a, 1500);
+    // Spent before the pause: one song reserved under window A.
+    await reserveOwnerBudget(
+      f.managed,
+      a,
+      "songs",
+      "song:job-1",
+      hashJson({ job: 1 }),
+      "1",
+      1500,
+    );
+    // The request pauses holding window A and a clock reading of 1999.
+    // Meanwhile the window advances to B.
+    await claimOwnerWindow(f.managed, b, 2000);
+    // Resuming: the earlier claim and the stale clock do not authorize new spending.
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        a,
+        "songs",
+        "song:job-2",
+        hashJson({ job: 2 }),
+        "1",
+        1999,
+      ),
+      /owner_budget_window_not_current/,
+    );
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        a,
+        "pin_adds",
+        "pin:job-1:audio",
+        hashJson({ job: 1 }),
+        "1",
+        1999,
+      ),
+      /owner_budget_window_not_current/,
+    );
+    // Replaying the reservation that already exists is not new spending.
+    await reserveOwnerBudget(
+      f.managed,
+      a,
+      "songs",
+      "song:job-1",
+      hashJson({ job: 1 }),
+      "1",
+      1999,
+    );
+    // Settlement of the existing reservation still works after advancement.
+    await settleBudget(
+      f.managed,
+      "song:job-1",
+      [ownerBudgetKey(a, "songs")],
+      "1",
+    );
+    const row = await f.managed
+      .prepare(
+        "SELECT reserved,spent FROM spending_budgets WHERE scope=? AND period=? AND asset='songs'",
+      )
+      .bind(ownerBudgetKey(a, "songs").scope, ownerBudgetKey(a, "songs").period)
+      .first<{ reserved: string; spent: string }>();
+    assert.deepEqual({ ...row }, { reserved: "0", spent: "1" });
+    // Window B spends from its own bucket.
+    await reserveOwnerBudget(
+      f.managed,
+      b,
+      "songs",
+      "song:job-2",
+      hashJson({ job: 2 }),
+      "1",
+      2001,
+    );
+    // An expired grant refuses new spending by time alone.
+    await assert.rejects(
+      reserveOwnerBudget(
+        f.managed,
+        b,
+        "songs",
+        "song:job-3",
+        hashJson({ job: 3 }),
+        "1",
+        3000,
+      ),
+      /owner_grant_outside_window/,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("each job keeps the step sequence of its captured policy through advancement, leasing and recovery", async () => {
+  const f = await ownerDatabases();
+  try {
+    const db = f.community,
+      now = 1_800_000_000_000;
+    await db
+      .prepare("INSERT INTO community_accounts VALUES('account-1',?,?)")
+      .bind("0x" + "aa".repeat(32), now)
+      .run();
+    const job = async (
+      id: string,
+      policy: { version: string; sha256: string },
+      phase: string,
+      progress = "{}",
+    ) => {
+      await db
+        .prepare(
+          `INSERT INTO media_submissions(submission_id,account_id,author_id,post_id,idempotency_key,request_hash,metadata_json,captured_wallet,creator_json,audio_sha256,audio_bytes,object_key,upload_state,created_at)
+          VALUES(?,'account-1',?,?,?,?,'{}',?,'null',?,1,?,'sealed',?)`,
+        )
+        .bind(
+          id,
+          "0x" + "aa".repeat(32),
+          hashJson({ post: id }),
+          id,
+          hashJson({ id }),
+          owner,
+          hashJson({ audio: id }),
+          `staging/${id}`,
+          now,
+        )
+        .run();
+      await db
+        .prepare(
+          "INSERT INTO publication_jobs(job_id,submission_id,input_hash,authority_json,phase,progress_json,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        )
+        .bind(
+          `publication:${id}`,
+          id,
+          hashJson({ id }),
+          JSON.stringify({ policy }),
+          phase,
+          progress,
+          now,
+          now,
+          now,
+        )
+        .run();
+      return `publication:${id}`;
+    };
+    const unregisteredJob = await job("s-new", policy, "pin_lyrics"),
+      registeredJob = await job(
+        "s-old",
+        { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+        "pin_lyrics",
+      );
+    assert.equal(
+      jobSteps(await loadJob(db, unregisteredJob)).includes("registration"),
+      false,
+    );
+    assert.equal(
+      jobSteps(await loadJob(db, registeredJob)).includes("registration"),
+      true,
+    );
+    for (const [id, expected] of [
+      [unregisteredJob, "pin_manifest"],
+      [registeredJob, "registration"],
+    ] as const) {
+      const leased = await leaseJob(db, id, now);
+      assert.ok(leased);
+      await advanceJob(db, leased, "pin_lyrics", { fixture: true }, now);
+      assert.equal((await loadJob(db, id)).phase, expected);
+    }
+    // A new-policy job cannot be leased, advanced or resumed into registration.
+    const stray = await job("s-stray", policy, "registration");
+    await assert.rejects(leaseJob(db, stray, now), /step_outside_job_sequence/);
+    const uncertain = await job(
+      "s-uncertain",
+      policy,
+      "uncertain",
+      JSON.stringify({ resumePhase: "registration" }),
+    );
+    await assert.rejects(
+      resumeUncertainJob(db, uncertain, "account-1", now),
+      /job_not_reconcilable/,
+    );
+    const resumable = await job(
+      "s-resumable",
+      policy,
+      "uncertain",
+      JSON.stringify({ resumePhase: "pin_manifest" }),
+    );
+    await resumeUncertainJob(db, resumable, "account-1", now);
+    assert.equal((await loadJob(db, resumable)).phase, "pin_manifest");
+    // The old job still reaches registration even if the community now names the new policy:
+    // its sequence comes only from its own captured authority.
+    assert.equal((await loadJob(db, registeredJob)).phase, "registration");
   } finally {
     await f.dispose();
   }

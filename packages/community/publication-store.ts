@@ -1,4 +1,5 @@
 import { canonical, hashJson, insist, object, token } from "./common.ts";
+import { unregisteredOwner } from "./owner-policy.ts";
 
 export const publicationSteps = [
   "admission",
@@ -9,6 +10,25 @@ export const publicationSteps = [
   "publication",
 ] as const;
 export type PublicationStep = (typeof publicationSteps)[number];
+/** Jobs captured under the unregistered owner policy never register. */
+export const unregisteredPublicationSteps: readonly PublicationStep[] =
+  publicationSteps.filter((step) => step !== "registration");
+/**
+ * The sequence comes from the job's own captured authority, never from the
+ * current community configuration, so a configuration change cannot move an
+ * existing job onto a different sequence.
+ */
+export function jobSteps(
+  job: Pick<PublicationJob, "authority_json">,
+): readonly PublicationStep[] {
+  const authority = object(JSON.parse(job.authority_json)),
+    policy = authority.policy;
+  return policy &&
+    typeof policy === "object" &&
+    unregisteredOwner(policy as { version: string; sha256: string })
+    ? unregisteredPublicationSteps
+    : publicationSteps;
+}
 export interface PublicationJob {
   job_id: string;
   submission_id: string;
@@ -56,6 +76,12 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
     )
     .bind(lease, time + 180_000, time, id, time, time)
     .first<PublicationJob>();
+  // A leased phase must belong to the job's own captured sequence.
+  insist(
+    !job || jobSteps(job).includes(job.phase as PublicationStep),
+    "step_outside_job_sequence",
+    409,
+  );
   return job;
 }
 export async function planOperation(
@@ -241,8 +267,9 @@ export async function advanceJob(
   result: unknown,
   time: number,
 ) {
-  const next =
-    publicationSteps[publicationSteps.indexOf(step) + 1] ?? "published";
+  const steps = jobSteps(job);
+  insist(steps.includes(step), "step_outside_job_sequence", 409);
+  const next = steps[steps.indexOf(step) + 1] ?? "published";
   const progress = object(JSON.parse(job.progress_json));
   delete progress.resumePhase;
   const updated = await db
@@ -274,7 +301,8 @@ export async function resumeUncertainJob(
   insist(
     job.phase === "uncertain" &&
       typeof progress.resumePhase === "string" &&
-      isPublicationStep(progress.resumePhase),
+      isPublicationStep(progress.resumePhase) &&
+      jobSteps(job).includes(progress.resumePhase),
     "job_not_reconcilable",
     409,
   );
