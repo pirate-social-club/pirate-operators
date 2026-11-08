@@ -142,6 +142,10 @@ function App() {
       openStudy({ postId: song.manifest.postId, title: song.manifest.title });
     // Reward offers are optional. Study must never wait for them.
     if (session() && caps.rewards && !walletPage) void loadRewardOffers();
+    else {
+      offersRequest++;
+      setRewardOffers(null);
+    }
   }
   let offersRequest = 0;
   async function loadRewardOffers() {

@@ -227,7 +227,7 @@ for (const mode of ["hang", "reject"] as const) {
     await page.reload();
     await expect(page.locator(".study-surface h2")).toHaveText("Hold me close");
     await expect(page).toHaveURL(lessonUrl);
-    expect(state.counts.rewardOfferRequests).toBe(2);
+    await expect.poll(() => state.counts.rewardOfferRequests).toBe(2);
     expect(state.counts.starts).toBe(1);
   });
 }
