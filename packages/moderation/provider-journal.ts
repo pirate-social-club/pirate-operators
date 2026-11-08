@@ -1,5 +1,6 @@
 import {
   canonical,
+  CommunityError,
   hashJson,
   insist,
   object,
@@ -115,13 +116,21 @@ export async function journaledProviderCall(
       // the executor holding the admission lease releases: the lease is the
       // invariant that keeps one executor per planned call, and the running
       // claim below requires the same lease. Without it, keep the reservation.
-      const held = await db
-        .prepare(
-          "SELECT 1 AS held FROM managed_admissions WHERE admission_id=? AND lease_token=? AND lease_until>?",
+      // The lease condition commits with the release itself.
+      try {
+        await settleBudget(db, id, call.budgets, "0", {
+          clause:
+            "EXISTS(SELECT 1 FROM managed_admissions WHERE admission_id=? AND lease_token=? AND lease_until>?)",
+          binds: [lease.admissionId, lease.token, now()],
+          code: "admission_lease_lost",
+        });
+      } catch (release) {
+        if (
+          !(release instanceof CommunityError) ||
+          release.code !== "admission_lease_lost"
         )
-        .bind(lease.admissionId, lease.token, now())
-        .first();
-      if (held) await settleBudget(db, id, call.budgets, "0");
+          throw release;
+      }
       throw error;
     }
     const execution = token();

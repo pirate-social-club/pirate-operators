@@ -195,12 +195,17 @@ export async function reserveBudget(
   insist(false, "budget_busy_retry", 409);
 }
 
-/** Unknown external results keep their reservation; only a reconciled receipt supplies actual cost. */
+/**
+ * Unknown external results keep their reservation; only a reconciled receipt
+ * supplies actual cost. An optional condition commits with the settlement, as
+ * for reservations.
+ */
 export async function settleBudget(
   db: D1Database,
   id: string,
   keys: BudgetKey[],
   actual: string,
+  condition?: ReservationCondition,
 ) {
   const cost = amount(actual);
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -221,7 +226,7 @@ export async function settleBudget(
       409,
     );
     const g = token();
-    const statements = [guard(db, g, rows)];
+    const statements = [guard(db, g, rows, condition)];
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i]!,
         reservation = saved[i]!;
@@ -257,6 +262,15 @@ export async function settleBudget(
       return;
     } catch (error) {
       if (!raced(error)) throw error;
+      if (condition) {
+        const held = await db
+          .prepare(
+            `SELECT CASE WHEN ${condition.clause} THEN 1 ELSE 0 END AS ok`,
+          )
+          .bind(...condition.binds)
+          .first<{ ok: number }>();
+        insist(held?.ok === 1, condition.code, 409);
+      }
     }
   }
   insist(false, "budget_busy_retry", 409);
