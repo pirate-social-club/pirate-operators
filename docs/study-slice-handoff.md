@@ -302,3 +302,17 @@ including the owned central view copies. Its two audio source files use raw
 byte digests; text sources retain the existing validated UTF-8 digest. Served
 asset hashes were already bound. This closes the missing source-provenance
 entries without changing runtime or assessment behavior.
+
+
+## Learner publication panel removal, November 8
+
+The owner removes the extra publication status and Check publication control
+from Study. Completed, expired and abandoned cards use the existing central
+presentation without a technical footer or empty replacement slot. Actionable
+restart errors remain visible. Automatic terminal reconciliation, bounded
+receipt polling, stop-on-confirmation, cancellation on exit and authenticated
+private-history download remain unchanged. Operator/public reader tools carry
+publication evidence; the practice screen does not require learners to manage
+it. Stored grades and public results are not changed by this presentation fix.
+The actual 860b predecessor plan is preserved byte-exact as v21 for the reviewed
+successor. Earlier v20 and v19 archives remain historical.

@@ -72,7 +72,15 @@ export async function serveStudy(
   let publicRevision:
     | { revision: number; status: number; confirmed: boolean }
     | undefined;
+  const publicationResponses: {
+    state: string;
+    confirmed: boolean;
+    revision?: number;
+    status?: number;
+  }[] = [];
   const counts = {
+    publicationChecks: 0,
+    terminalReads: 0,
     starts: 0,
     enrollmentRequests: 0,
     enrollmentSubmissions: 0,
@@ -238,6 +246,13 @@ export async function serveStudy(
           });
     }
     if (path.endsWith("/publication")) {
+      counts.publicationChecks++;
+      publicationResponses.push({
+        state: published ? "published" : "pending",
+        confirmed: published && (publicRevision?.confirmed ?? true),
+        revision: publicRevision?.revision,
+        status: publicRevision?.status,
+      });
       expect(request.method()).toBe("POST");
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       return json({
@@ -263,7 +278,10 @@ export async function serveStudy(
         };
       return json(lesson);
     }
-    if (path.startsWith("/api/study/lessons/")) return json(lesson);
+    if (path.startsWith("/api/study/lessons/")) {
+      if (lesson?.status !== "active") counts.terminalReads++;
+      return json(lesson);
+    }
     if (path === "/api/logout") {
       authenticated = false;
       return json({ signedOut: true });
@@ -291,6 +309,7 @@ export async function serveStudy(
   });
   return {
     counts,
+    publicationResponses,
     releaseSignature: () => releaseSignature?.(),
     releaseEnrollment: () => releaseEnrollment?.(),
     expireHistory: () => {

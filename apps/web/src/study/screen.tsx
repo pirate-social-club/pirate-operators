@@ -1,5 +1,4 @@
 import { createSignal, onCleanup, Show } from "solid-js";
-import type { JSX } from "@solidjs/web";
 import {
   MAX_STUDY_AUDIO_BYTES,
   MAX_STUDY_RECORDING_MS,
@@ -26,7 +25,6 @@ export function StudyScreen(props: {
   client: StudyClient;
   onLesson?: (lesson: StudyLesson) => void;
   onExit?: () => void;
-  terminalNote?: JSX.Element;
 }) {
   const [lesson, setLesson] = createSignal<StudyLesson | null>(null),
     [miss, setMiss] = createSignal<StudyAttempt | null>(null);
@@ -292,16 +290,11 @@ export function StudyScreen(props: {
     else if (phase() === "recording") recorder?.stop();
     else if (phase() === "idle" && !blocked()) void record();
   }
-  function terminalNotice() {
+  function terminalError() {
     return (
-      <div class="space-y-3">
-        <Show when={error()}>
-          <p class="text-sm text-destructive-text" role="alert">
-            {error()}
-          </p>
-        </Show>
-        {props.terminalNote}
-      </div>
+      <p class="text-sm text-destructive-text" role="alert">
+        {error()}
+      </p>
     );
   }
   const ended = () =>
@@ -337,9 +330,11 @@ export function StudyScreen(props: {
               onRetry={() => void load(true)}
               onGoHome={props.onExit}
             />
-            <div class="mx-auto w-full max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-              {terminalNotice()}
-            </div>
+            <Show when={error()}>
+              <div class="mx-auto w-full max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+                {terminalError()}
+              </div>
+            </Show>
           </div>
         }
       >
@@ -353,7 +348,7 @@ export function StudyScreen(props: {
           onExit={props.onExit}
           onPrimaryAction={primaryAction}
           onStudyAgain={() => void load(true)}
-          rewardSlot={terminalNotice()}
+          rewardSlot={error() ? terminalError() : undefined}
         />
       </Show>
     </Show>
