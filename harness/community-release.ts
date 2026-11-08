@@ -37,6 +37,7 @@ import {
   insist,
   object,
 } from "../packages/community/common.ts";
+import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
 import {
   communityInventory,
   communityRemoteModules,
@@ -68,6 +69,7 @@ async function main() {
         "reviewed-update": { type: "boolean" },
         "study-profile": { type: "string" },
         "rewards-profile": { type: "string" },
+        "publishing-profile": { type: "string" },
       },
     }),
     study = values["study-profile"]
@@ -76,7 +78,14 @@ async function main() {
     rewards = values["rewards-profile"]
       ? await readRewardsReleaseSelection(values["rewards-profile"])
       : undefined,
-    { profile, profileHash, bytes } = await communityPackage(study, rewards);
+    publishing = values["publishing-profile"]
+      ? await readPublishingReleaseSelection(values["publishing-profile"])
+      : undefined,
+    { profile, profileHash, bytes } = await communityPackage(
+      study,
+      rewards,
+      publishing,
+    );
   if (values["write-plan"])
     await writeFile(
       "docs/deployments/first-song-managed-20261105.application-plan.json",
@@ -322,12 +331,25 @@ async function main() {
         PIRATE_WIZARD_STATE_PASSWORD: password,
         COMMUNITY_PUBLISHER_PRIVATE_KEY: publisherKey,
         APPLICATION_PROFILE_HASH: profileHash,
-        CREATOR_PROFILE_HASH: profile.creatorProfileHash,
         MANAGED_PROFILE_HASH: profile.managedProfileHash,
-        RELEASE_GRANT_HASH: profile.releaseGrant.sha256,
-        REGISTRATION_OPERATOR_ADDRESS:
-          profile.releaseGrant.registration.operator,
-        POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+        // Owner publishing binds only the owner values; a registered profile
+        // binds only the registered release values.
+        ...(profile.ownerPublishing
+          ? {
+              OWNER_GRANT_JSON: JSON.stringify(
+                profile.ownerPublishing.ownerGrant,
+              ),
+              OWNER_AUTHORIZATION_JSON: JSON.stringify(
+                profile.ownerPublishing.ownerAuthorization,
+              ),
+            }
+          : {
+              CREATOR_PROFILE_HASH: profile.creatorProfileHash,
+              RELEASE_GRANT_HASH: profile.releaseGrant.sha256,
+              REGISTRATION_OPERATOR_ADDRESS:
+                profile.releaseGrant.registration.operator,
+              POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+            }),
         LEARNING_ELEVENLABS_API_KEY: speech,
         LEARNING_OPERATOR_ADDRESS: profile.learning.operator,
         LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,

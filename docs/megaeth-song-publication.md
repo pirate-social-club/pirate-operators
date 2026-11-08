@@ -195,6 +195,36 @@ need the pin credential but no registration key or registration client.
 Registered releases keep `/v1/releases/*` and their registration key, so old
 registered jobs keep their reconciliation path.
 
+## Deployment profiles
+
+A reviewed publishing selection (`pirate.owner-publishing-release-selection/1`,
+`harness/publishing-release-profile.ts`) carries the owner grant and the
+controller-signed owner authorization. Both release CLIs take it as
+`--publishing-profile`, alongside the existing Study and rewards selections.
+The community application profile then records the selection in place of the
+registered release grant and creator profile hash, and drops the registration
+transaction bound and maximum registration fee. The managed service profile
+records the owner grant in place of the registered grant and registration
+credential, drops `REGISTRATION_OPERATOR_PRIVATE_KEY` from its required
+secrets and drops the registration bounds; it keeps the keys-file digest as
+`signerSource`, because the moderation signer comes from that file. The
+infrastructure binds either the owner values or the registered values, and
+refuses a mix (`apps/community-wizard/infra/publishing-bindings.ts`,
+`apps/managed-moderation/alchemy.run.ts`).
+
+Successor validation is publishing-specific. `assertPublishingApplicationUpgrade`
+accepts a deployed Study and rewards application that appends only 0012, adds
+the selection and removes the registered fields and registration bounds; the
+rewards program, the Study deployment and every other field are checked by the
+existing rewards and Study gates after those differences are set aside. The
+managed profile hash may change, since it follows the reviewed managed
+package. `assertPublishingManagedUpgrade` does the same for the managed
+service with 0004. A later publishing profile may carry a replacement grant
+for the same community, owner, policy and destination, with no migration
+change. Neither gate adds rewards funding or payout requirements; schema order
+stays separate from financial activation. The existing rewards gate still
+refuses 0012 on its own.
+
 ## Rollout
 
 Before the owner policy is activated, inventory every in-flight registered
@@ -246,6 +276,8 @@ ACRCloud, IPFS and the MegaETH chain as explicit simulations:
   owner receipt stays usable for 24 hours from its original acquisition; the
   registered policy keeps one hour.
 - Runtime wiring for both workers as described under Runtime configuration.
+- Publishing deployment profiles and successor validation as described under
+  Deployment profiles.
 - Execution profile `/2` bound to owner scope and window; registered jobs and
   curated amendments keep profile `/1`.
 - Acceptance (`test/owner-publication.test.ts`): songs under one grant
@@ -273,16 +305,13 @@ directly.
 
 Not yet implemented:
 
-- Deployment bindings for the new owner values in the infrastructure
-  definitions, together with the publishing deployment profiles below.
+- A packaging run of the community and managed release CLIs with a real
+  publishing selection. The profile transforms, both successor gates and the
+  bindings are tested; the package builders themselves need the private
+  deployment state and toolchains and have not been run for publishing.
 - Disposition of old registered jobs left uncertain when the configuration
   moves to the owner policy: the owner runtime does not carry registration
   ports, so such a job stays parked rather than being converted.
-- Publishing deployment profiles: the release CLIs passing the publishing
-  option, publishing-specific successor validation that preserves the
-  deployed Study and rewards configuration, and removal of registration
-  credential requirements and registration transaction bounds from those
-  profiles.
 - The web client: removing creator connection, registration progress and
   Royalties from the launch flow.
 - Reconciling the active web-client, runtime and setup documents, which still

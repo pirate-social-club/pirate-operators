@@ -1,3 +1,4 @@
+import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
 import { qualifyRegistrationFunding } from "./first-song-peers.ts";
 import {
   bindManagedCredentials,
@@ -49,9 +50,13 @@ async function main() {
       preflight: { type: "boolean" },
       "expected-profile": { type: "string" },
       "write-plan": { type: "boolean" },
+      "publishing-profile": { type: "string" },
     },
   });
-  const packaged = await managedPackage(),
+  const publishing = values["publishing-profile"]
+    ? await readPublishingReleaseSelection(values["publishing-profile"])
+    : undefined;
+  const packaged = await managedPackage({ publishing }),
     { profile, profileHash } = packaged;
   if (values["write-plan"])
     await writeFile(
@@ -210,7 +215,11 @@ async function main() {
       SERVICE_BUDGET_PERIOD: profile.serviceBudgetPeriod,
       SERVICE_REQUEST_CAP: String(profile.serviceRequestCap),
       ACRCLOUD_HOST: profile.acrHost,
-      RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant),
+      // Owner publishing binds only the owner grant; a registered profile
+      // binds only the registered release grant.
+      ...(profile.ownerGrant
+        ? { OWNER_GRANT_JSON: JSON.stringify(profile.ownerGrant) }
+        : { RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant) }),
     };
     const secretValues = [password, cloudflare, ...Object.values(secrets)];
     const logs: string[] = [];

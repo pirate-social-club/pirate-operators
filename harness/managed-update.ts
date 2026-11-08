@@ -3,6 +3,7 @@ import {
   publishedBaselines,
 } from "./published-state.ts";
 import { assertFirstSongUpgrade } from "./first-song-upgrade.ts";
+import { assertPublishingManagedUpgrade } from "./publishing-release-profile.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 import { qualifyRetainedState } from "./published-state.ts";
 import {
@@ -59,7 +60,12 @@ export async function qualifyManagedUpdate(
       object(input);
     return rest;
   };
-  if (canonical(intent(previous.profile)) !== canonical(intent(profile))) {
+  if (
+    (profile as { ownerGrant?: unknown }).ownerGrant ||
+    object(previous.profile).ownerGrant
+  )
+    assertPublishingManagedUpgrade(object(previous.profile), profile);
+  else if (canonical(intent(previous.profile)) !== canonical(intent(profile))) {
     if (previous.profileHash === publishedBaselines.managed)
       assertPublishedUpgrade(object(previous.profile), profile, "managed");
     else if (previous.profileHash === curatedBaselines.managed)

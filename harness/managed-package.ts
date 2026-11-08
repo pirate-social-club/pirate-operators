@@ -19,11 +19,19 @@ import { hashJson, hashText, insist } from "../packages/community/common.ts";
 export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
 import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
+import {
+  managedPublishingProfile,
+  publishingReleaseSelection,
+  type PublishingReleaseSelection,
+} from "./publishing-release-profile.ts";
 /** Default builds are the deployed registered profile; owner publishing adds 0004. */
 export async function managedPackage(
-  options: { ownerPublishing?: boolean } = {},
+  options: { publishing?: PublishingReleaseSelection } = {},
 ) {
-  const migrations = managedMigrations(options.ownerPublishing === true);
+  const publishing = options.publishing
+    ? publishingReleaseSelection(options.publishing)
+    : undefined;
+  const migrations = managedMigrations(!!publishing);
   const cli = await promisify(execFile)(
     resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
     ["--version"],
@@ -140,7 +148,7 @@ export async function managedPackage(
     },
   ];
   const releaseGrant = await firstSongGrant();
-  const profile = {
+  const base = {
     schema: "pirate.managed-service-plan/1",
     accountId: "08a4c22cf52e2ecae883e36f80a33f4a",
     prefix: managedPrefix,
@@ -221,6 +229,14 @@ export async function managedPackage(
     },
     recovery:
       "Keep the same encrypted Alchemy state and D1 provider journals. Reconcile task-owned resources after an interrupted apply. Unknown paid provider sends cannot be replayed.",
+  };
+  // Owner publishing replaces the registered grant and registration signer
+  // requirements with the owner grant; the rest of the profile is unchanged.
+  const profile = (
+    publishing ? managedPublishingProfile(base, publishing) : base
+  ) as typeof base & {
+    ownerGrant?: PublishingReleaseSelection["ownerGrant"];
+    signerSource?: Record<string, unknown>;
   };
   return { profile, profileHash: hashJson(profile), bytes };
 }

@@ -94,16 +94,21 @@ import {
   communityMigrations,
   OWNER_PUBLISHING_MIGRATION,
 } from "./package-migrations.ts";
+import {
+  communityPublishingProfile,
+  publishingReleaseSelection,
+  type PublishingReleaseSelection,
+} from "./publishing-release-profile.ts";
 export { communityMigrations, OWNER_PUBLISHING_MIGRATION };
-/** Owner-only unregistered publishing; requires the Study and rewards schema. */
-export interface OwnerPublishingSelection {
-  ownerPublishing: true;
-}
+/** Owner-only unregistered publishing requires the Study and rewards schema. */
 export async function communityPackage(
   study?: StudyReleaseSelection,
   rewards?: RewardsReleaseSelection,
-  publishing?: OwnerPublishingSelection,
+  publishingInput?: PublishingReleaseSelection,
 ) {
+  const publishing = publishingInput
+    ? publishingReleaseSelection(publishingInput)
+    : undefined;
   const selection = study ? studyReleaseSelection(study) : undefined;
   const rewardSelection = rewards
     ? rewardsReleaseSelection(rewards)
@@ -115,7 +120,7 @@ export async function communityPackage(
   );
   // Schema order is Study, then rewards, then owner publishing.
   insist(
-    !publishing || (publishing.ownerPublishing === true && rewardSelection),
+    !publishing || rewardSelection,
     "owner_publishing_rewards_selection_required",
     409,
   );
@@ -257,7 +262,7 @@ export async function communityPackage(
       ),
     );
   const releaseGrant = await firstSongGrant();
-  const profile = {
+  const base = {
     schema: "pirate.community-application-plan/1",
     accountId: communityAccount,
     prefix: communityPrefix,
@@ -338,9 +343,15 @@ export async function communityPackage(
     acceptance: learning.acceptance,
     learning,
     ...(rewardSelection ? { rewards: rewardSelection } : {}),
-    ...(publishing ? { ownerPublishing: true } : {}),
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
+  };
+  // Owner publishing replaces the registered release fields and drops the
+  // registration bounds; the rest of the profile is unchanged.
+  const profile = (
+    publishing ? communityPublishingProfile(base, publishing) : base
+  ) as typeof base & {
+    ownerPublishing?: PublishingReleaseSelection;
   };
   return { profile, profileHash: hashJson(profile), bytes };
 }
