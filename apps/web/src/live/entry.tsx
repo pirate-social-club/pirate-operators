@@ -573,12 +573,6 @@ function App() {
                       >
                         {(available) => (
                           <>
-                            <Show when={!available().approved}>
-                              <p class="live-muted">
-                                Practice is open. Ask the operator to add your
-                                account for lottery rewards.
-                              </p>
-                            </Show>
                             <For
                               each={available().offers.filter(
                                 (o) => o.postId === song.manifest.postId,
@@ -597,8 +591,7 @@ function App() {
                                     pilot. Complete Study with at least 70%
                                     correct on the first try, or Karaoke with a
                                     score of at least 70% and at least 90% of
-                                    lines measured. One entry per approved
-                                    account.
+                                    lines measured. One entry per account.
                                   </p>
                                   <p>
                                     Complete and publish your result between{" "}

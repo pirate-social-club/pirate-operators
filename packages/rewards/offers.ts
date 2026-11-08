@@ -55,43 +55,6 @@ export class RewardOffers {
       503,
     );
   }
-  async approve(accountId: string, wallet: string) {
-    rewardId(accountId);
-    wallet = rewardAddress(wallet);
-    return this.store.atomic(async () => {
-      const owner = await this.store
-        .statement(
-          "SELECT 1 AS ok FROM credential_bindings WHERE account_id=? AND namespace='moss' AND network=6343 AND subject=?",
-          accountId,
-          wallet,
-        )
-        .first();
-      insist(owner, "reward_account_wallet_mismatch", 409);
-      const prior = await this.store
-        .statement(
-          "SELECT wallet FROM reward_participants WHERE program_id=? AND account_id=?",
-          this.store.program,
-          accountId,
-        )
-        .first<{ wallet: string }>();
-      if (prior) {
-        insist(prior.wallet === wallet, "reward_account_wallet_changed", 409);
-        return { value: { accountId, wallet }, statements: [] };
-      }
-      return {
-        value: { accountId, wallet },
-        statements: [
-          this.store.statement(
-            "INSERT INTO reward_participants(program_id,account_id,wallet,approved_at) VALUES(?,?,?,?) ON CONFLICT(program_id,account_id) DO NOTHING",
-            this.store.program,
-            accountId,
-            wallet,
-            this.now(),
-          ),
-        ],
-      };
-    });
-  }
   async attach(input: RewardOfferInput) {
     rewardId(input.offerId);
     rewardAmount(input.drawingId);
@@ -220,19 +183,16 @@ export class RewardOffers {
           "reward_evidence_outside_window",
           409,
         );
-        const participant = await this.store
+        // Anyone with an account may earn; no operator approval exists. The
+        // result's wallet must still be that account's MOSS sign-in.
+        const owner = await this.store
           .statement(
-            "SELECT wallet,approved_at FROM reward_participants WHERE program_id=? AND account_id=?",
-            this.store.program,
+            "SELECT 1 AS ok FROM credential_bindings WHERE account_id=? AND namespace='moss' AND network=6343 AND subject=?",
             entry.accountId,
+            wallet,
           )
-          .first<{ wallet: string; approved_at: number }>();
-        if (!participant || participant.approved_at > row.opens_at) continue;
-        insist(
-          participant.wallet === wallet,
-          "reward_qualifier_wallet_changed",
-          409,
-        );
+          .first();
+        insist(owner, "reward_qualifier_wallet_changed", 409);
         if (!entries.has(entry.accountId))
           entries.set(entry.accountId, { ...entry, wallet });
       }

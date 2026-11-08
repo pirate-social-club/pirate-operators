@@ -165,7 +165,6 @@ test("generic offer paths freeze rehearsal refs/mode and allocate once; real and
     f = await manualRewardsFixture(p);
   try {
     const [learner] = f.principals;
-    await f.offers.approve(learner.accountId, learner.wallet);
     f.sources.winnings = async () => ({
       mode: "live-testnet",
       usdcAtomic: "1110000",

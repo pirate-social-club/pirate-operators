@@ -268,46 +268,6 @@ export function LiveRewardOperator(props: {
               run={run}
               sign={props.sign}
             />
-            <Card>
-              <CardHeader>
-                <Type as="h2" variant="h3">
-                  Reward participants
-                </Type>
-              </CardHeader>
-              <CardContent class="flex flex-col gap-3">
-                <Type as="p">
-                  Approve one known reward account per participant before
-                  opening an offer.
-                </Type>
-                <For each={current().participants}>
-                  {(p) => (
-                    <div class="flex flex-wrap items-center justify-between gap-3">
-                      <Type as="p" class="break-all">
-                        {p.wallet}
-                      </Type>
-                      <Show
-                        when={p.approved_at === null}
-                        fallback={<Type as="p">Approved</Type>}
-                      >
-                        <Button
-                          variant="outline"
-                          disabled={busy()}
-                          onClick={() =>
-                            void run(async () => {
-                              await data.operation("/participants", {
-                                wallet: p.wallet,
-                              });
-                            })
-                          }
-                        >
-                          Approve participant
-                        </Button>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </CardContent>
-            </Card>
             <RewardOfferPanel
               view={current()}
               data={data}

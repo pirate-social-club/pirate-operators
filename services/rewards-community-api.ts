@@ -84,15 +84,7 @@ export async function rewardsCommunityApi(
       )
       .all<OfferRow>();
     const songs = await (ports.songs?.() ?? Promise.resolve([]));
-    const approved = await store
-      .statement(
-        "SELECT account_id FROM reward_participants WHERE program_id=? AND account_id=?",
-        store.program,
-        principal.accountId,
-      )
-      .first();
     return reply({
-      approved: !!approved,
       practiceOnly: true,
       offers: rows.results.map((r) => ({
         offerId: r.offer_id,
@@ -244,12 +236,6 @@ export async function rewardsCommunityApi(
               : "accepted"
         ] += amount;
       }
-      const participants = await store
-        .statement(
-          "SELECT b.account_id,b.subject AS wallet,p.approved_at FROM credential_bindings b LEFT JOIN reward_participants p ON p.program_id=? AND p.account_id=b.account_id WHERE b.namespace='moss' AND b.network=6343 ORDER BY b.account_id LIMIT 100",
-          store.program,
-        )
-        .all();
       return reply({
         offers: offers.results.map(offerView),
         payments: await Promise.all(
@@ -277,7 +263,6 @@ export async function rewardsCommunityApi(
         decimals: ports.profile.decimals,
         token: ports.profile.token,
         chainId: 6343,
-        participants: participants.results,
         songs: await (ports.songs?.() ?? Promise.resolve([])),
       });
     }
@@ -366,17 +351,6 @@ export async function rewardsCommunityApi(
     }
     insist(ports.sources, "reward_sources_not_qualified", 503);
     const offers = new RewardOffers(store, ports.sources, ports.now);
-    if (path === "/api/operator/rewards/participants") {
-      const wallet = rewardAddress(body.wallet),
-        account = await store
-          .statement(
-            "SELECT account_id FROM credential_bindings WHERE namespace='moss' AND network=6343 AND subject=?",
-            wallet,
-          )
-          .first<{ account_id: string }>();
-      insist(account, "reward_account_not_found", 404);
-      return reply(await offers.approve(account.account_id, wallet));
-    }
     if (path === "/api/operator/rewards/offers") {
       insist(
         Array.isArray(body.ticketIds) &&

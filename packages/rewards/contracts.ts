@@ -62,7 +62,6 @@ export interface RewardCreditList {
   next_cursor: string | null;
 }
 export interface RewardAvailableOffers {
-  approved: boolean;
   practiceOnly: true;
   offers: {
     offerId: string;

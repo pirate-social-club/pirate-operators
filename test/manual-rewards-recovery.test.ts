@@ -10,7 +10,6 @@ async function ready() {
   const f = await manualRewardsFixture();
   try {
     const [learner] = f.principals;
-    await f.offers.approve(learner.accountId, learner.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(learner);
     f.subjects.set("provider_1", "77");

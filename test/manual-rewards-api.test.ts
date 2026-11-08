@@ -81,40 +81,33 @@ test("actual account cookies, Origin and CSRF protect credits, verification inte
     }
     assert.equal((await call(undefined, "/api/rewards/credits")).status, 401);
     assert.equal((await call(0, "/api/operator/rewards")).status, 403);
+    // Operator writes still require CSRF and the canonical origin.
     assert.equal(
-      (
-        await call(
-          2,
-          "/api/operator/rewards/participants",
-          "POST",
-          { wallet: f.principals[0].wallet },
-          false,
-        )
-      ).status,
+      (await call(2, "/api/operator/rewards/audit", "POST", {}, false)).status,
       403,
     );
     assert.equal(
       (
         await call(
           2,
-          "/api/operator/rewards/participants",
+          "/api/operator/rewards/audit",
           "POST",
-          { wallet: f.principals[0].wallet },
+          {},
           true,
           "https://other.example",
         )
       ).status,
       403,
     );
-    for (const p of f.principals.slice(0, 2))
-      assert.equal(
-        (
-          await call(2, "/api/operator/rewards/participants", "POST", {
-            wallet: p.wallet,
-          })
-        ).status,
-        200,
-      );
+    // No participant approval route exists: anyone with an account may earn.
+    assert.equal(
+      (
+        await call(2, "/api/operator/rewards/participants", "POST", {
+          wallet: f.principals[0].wallet,
+        })
+      ).status,
+      404,
+    );
     await f.settle("offer_0001", "1");
     const page = (await (
       await call(0, "/api/rewards/credits?limit=1")

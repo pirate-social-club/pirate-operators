@@ -15,8 +15,6 @@ test("daily credits remain held until verified; several credits reconcile to one
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
-    await f.offers.approve(b.accountId, b.wallet);
     await f.settle("offer_0001", "1");
     f.setPrize("120000");
     await f.settle("offer_0002", "2");
@@ -126,7 +124,6 @@ test("unmatched outgoing transfers stop new payments; exact operator cost record
   const f = await manualRewardsFixture();
   try {
     const [a] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(a);
     f.subjects.set("provider_1", "77");
@@ -188,7 +185,6 @@ test("one program subject cannot claim another account's allocations; held money
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    for (const p of [a, b]) await f.offers.approve(p.accountId, p.wallet);
     await f.settle("offer_0001", "1");
     for (const [index, p] of [a, b].entries()) {
       const intent = await f.claims.intent(p);
@@ -224,7 +220,6 @@ test("offer windows, duplicate tickets, zero prizes and indivisible remainders p
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    for (const p of [a, b]) await f.offers.approve(p.accountId, p.wallet);
     const input = await f.offer("offer_0001", "1");
     await assert.rejects(
       f.offers.close(input.offerId),
@@ -285,7 +280,6 @@ test("racing payment preparations reserve the learner's credits exactly once", a
   const f = await manualRewardsFixture();
   try {
     const [a] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(a);
     f.subjects.set("provider_1", "77");
@@ -330,6 +324,47 @@ test("racing payment preparations reserve the learner's credits exactly once", a
       "0",
     );
     assert.equal((await f.store.credits(a.accountId))[0].payment_id, null);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("any signed-in account earns without operator approval, but only from its own MOSS wallet", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const [a, b] = f.principals;
+    const open = await f.offer("offer_open_01", "7");
+    f.setCandidates([
+      {
+        ...a,
+        evidenceHash: rewardHash(700),
+        completedAt: open.opensAt + 1000,
+      },
+    ]);
+    f.setNow(open.cutoffAt);
+    const closed = await f.offers.close("offer_open_01");
+    assert.deepEqual(
+      closed.entries!.map((e) => e.accountId),
+      [a.accountId],
+    );
+    const approvals = await f.db
+      .prepare("SELECT count(*) AS n FROM reward_participants")
+      .first<{ n: number }>();
+    assert.equal(approvals!.n, 0);
+    const foreign = await f.offer("offer_open_02", "8");
+    f.setCandidates([
+      {
+        ...b,
+        wallet: a.wallet,
+        evidenceHash: rewardHash(701),
+        completedAt: foreign.opensAt + 1000,
+      },
+    ]);
+    f.setNow(foreign.cutoffAt);
+    await assert.rejects(
+      f.offers.close("offer_open_02"),
+      /reward_qualifier_wallet_changed/,
+    );
   } finally {
     await f.dispose();
   }
