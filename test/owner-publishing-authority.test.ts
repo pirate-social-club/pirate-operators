@@ -1217,6 +1217,36 @@ test("recognition rechecks the grant for each new provider reservation and dispa
       .bind(budgets[0]!.scope, budgets[0]!.period)
       .first<{ reserved: string; spent: string }>();
     assert.deepEqual({ ...bucket }, { reserved: "0", spent: "0" });
+    // An executor that loses its admission lease during dispatch does not
+    // release: another executor may now hold the call.
+    clock = 1500;
+    const stale = call("acr_alternate");
+    stale.dispatch = async () => {
+      await db
+        .prepare(
+          "UPDATE managed_admissions SET lease_until=0 WHERE admission_id=?",
+        )
+        .bind(lease.admissionId)
+        .run();
+      requireOwnerGrantTime(g, 2001);
+    };
+    await assert.rejects(
+      journaledProviderCall(db, lease, stale),
+      /owner_grant_outside_window/,
+    );
+    assert.equal(sends, 0);
+    const kept = await db
+      .prepare(
+        "SELECT status FROM spending_reservations WHERE asset='recognition_requests' AND reservation_id=(SELECT call_id FROM moderation_provider_calls WHERE kind='acr_alternate')",
+      )
+      .first<{ status: string }>();
+    assert.equal(kept!.status, "reserved");
+    await db
+      .prepare(
+        "UPDATE managed_admissions SET lease_until=? WHERE admission_id=?",
+      )
+      .bind(Date.now() + 3600000, lease.admissionId)
+      .run();
     // Even if the clock read valid again, a released call is never sent.
     clock = 1500;
     await assert.rejects(

@@ -111,8 +111,17 @@ export async function journaledProviderCall(
       await call.dispatch?.();
     } catch (error) {
       // Nothing was sent: release the units rather than hold them in a window
-      // that is ending. The call stays planned and can never be sent.
-      await settleBudget(db, id, call.budgets, "0");
+      // that is ending. The call stays planned and can never be sent. Only
+      // the executor holding the admission lease releases: the lease is the
+      // invariant that keeps one executor per planned call, and the running
+      // claim below requires the same lease. Without it, keep the reservation.
+      const held = await db
+        .prepare(
+          "SELECT 1 AS held FROM managed_admissions WHERE admission_id=? AND lease_token=? AND lease_until>?",
+        )
+        .bind(lease.admissionId, lease.token, now())
+        .first();
+      if (held) await settleBudget(db, id, call.budgets, "0");
       throw error;
     }
     const execution = token();
