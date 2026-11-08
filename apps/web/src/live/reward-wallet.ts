@@ -4,6 +4,7 @@ import type {
 } from "../../../../packages/rewards/contracts.ts";
 
 import { guardedRewardCall } from "../../../../packages/rewards/guard-call.ts";
+import { parseRewardTransactionResult } from "../../../../packages/rewards/transaction-result.ts";
 export interface RewardWalletOutcome {
   outcome: "approved" | "cancelled" | "error" | "unknown";
   hash?: string;
@@ -23,10 +24,7 @@ export interface RewardMoss {
     silent: false;
     silentUIApproveFallback: false;
     sponsor: false;
-  }): Promise<{
-    status: string;
-    receipt?: { transactionHash?: string; hash?: string; chainId: number };
-  }>;
+  }): Promise<unknown>;
 }
 async function wallet() {
   return (await import("@megaeth-labs/wallet-sdk")).mega;
@@ -102,18 +100,15 @@ export async function signRewardPayment(
   } catch {
     return { outcome: "unknown" };
   }
-  const raw = result.receipt?.transactionHash ?? result.receipt?.hash;
-  const hash =
-    result.receipt?.chainId === 6343 && raw && /^0x[0-9a-f]{64}$/i.test(raw)
-      ? raw.toLowerCase()
-      : undefined;
-  if (result.status === "approved" && hash)
-    return { outcome: "approved", hash };
-  if (result.status === "cancelled")
-    return { outcome: "cancelled", ...(hash ? { hash } : {}) };
-  if (result.status === "error")
-    return { outcome: "error", ...(hash ? { hash } : {}) };
-  return { outcome: "unknown", ...(hash ? { hash } : {}) };
+  // connect() already required the prepared sender on testnet. This is only a submitted hash candidate.
+  const parsed = parseRewardTransactionResult(result, {
+    network: "testnet",
+    expectedAccountVerified: true,
+  });
+  return {
+    outcome: parsed.outcome,
+    ...(parsed.hash ? { hash: parsed.hash } : {}),
+  };
 }
 export function dollars(atomic: string, decimals: number): string {
   if (

@@ -15,11 +15,17 @@ export type {
   CommunityJobView,
 };
 
-export async function get<T>(path: string): Promise<T> {
+export async function get<T>(
+  path: string,
+  options: { timeoutMs?: number } = {},
+): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
     headers: { accept: "application/json" },
     cache: "no-store",
+    ...(options.timeoutMs
+      ? { signal: AbortSignal.timeout(options.timeoutMs) }
+      : {}),
   });
   if (!response.ok)
     throw new Error(

@@ -38,7 +38,8 @@ const clientFor = () =>
     transport: http("https://sepolia.base.org", {
       retryCount: 0,
       timeout: 15000,
-      fetchOptions: { credentials: "omit", redirect: "error" },
+      // workerd rejects "error". viem refuses the unfollowed 3xx as not ok.
+      fetchOptions: { credentials: "omit", redirect: "manual" },
     }),
   });
 async function checked() {

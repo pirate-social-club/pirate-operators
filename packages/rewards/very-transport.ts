@@ -72,7 +72,8 @@ export function hostedProvider(fetcher: typeof fetch = fetch): Provider {
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        redirect: "error",
+        // workerd rejects "error"; a manual 3xx is refused below, never followed.
+        redirect: "manual",
         signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok || !response.body) throw new Error();
