@@ -72,6 +72,8 @@ async function application() {
     PLAN_ID: firstSong.planId,
     APPLICATION_PROFILE_HASH: `0x${"a".repeat(64)}`,
     COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
+    // Present as in an owner deployment; the release ports are injected.
+    OWNER_GRANT_JSON: JSON.stringify(f.grant),
   } as unknown as CommunityEnv;
   const ports: CommunityDependencies = {
     configuration: async () => f.configuration,
@@ -317,6 +319,18 @@ test("a signed-in learner, a missing CSRF token and a foreign Origin are refused
         .first<{ n: number }>())!.n,
       0,
     );
+    assert.equal(a.creatorChecks(), 0);
+    // Status during a configuration-read failure still never contacts the
+    // creator service in an owner deployment.
+    const configuration = a.ports.configuration;
+    a.ports.configuration = async () => {
+      throw new Error("fixture directory outage");
+    };
+    const status = (await (await a.call("/health")).json()) as {
+      creatorConnection: string;
+    };
+    a.ports.configuration = configuration;
+    assert.equal(status.creatorConnection, "unavailable");
     assert.equal(a.creatorChecks(), 0);
   } finally {
     await f.dispose();

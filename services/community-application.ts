@@ -243,8 +243,10 @@ export async function communityFetch(
         try {
           config = await configuration();
         } catch {
-          // Without the policy, report unavailable rather than contact it.
-          return false;
+          // Without the policy, a deployment carrying the owner grant reports
+          // unavailable rather than contact the creator service; a registered
+          // deployment still reports its creator health. Status only.
+          return env.OWNER_GRANT_JSON ? false : ports.creatorHealth();
         }
       return unregisteredOwner(config.policies.admission)
         ? false
