@@ -160,18 +160,40 @@ cash-out verification are unchanged.
 
 ## Status
 
-Implemented so far: the new policy and its JSON, `/3` validation, readers that
-pair formats with their configuration policy, public projections, and tests.
-The release API refuses submissions under the new policy with
-`unregistered_owner_publishing_not_enabled` until the write path lands, so
-publishing a configuration that names the new policy cannot start a job that
-half-applies the old registered sequence.
+Implemented and tested through the actual community and managed handlers,
+with ACRCloud, IPFS and the MegaETH chain as explicit simulations:
 
-An HTTP-level test proves that a configuration naming the new policy refuses
-upload and seal requests before any submission row or job exists.
+- The new policy, `/3` validation, readers that pair formats with their
+  configuration policy, and public projections.
+- The controller-signed owner authorization, checked in the release API
+  before any reservation; another signed-in account, another wallet's
+  authorization and a foreign signer are refused with no row created.
+- Owner submissions with no creator binding, sealed under the new policy.
+- Recognition-only admission under the new policy, with owner recognition
+  budgets.
+- The managed owner release (`packages/release/owner-release.ts`): pins only,
+  no registration route, signer, client or Aeneid dependency, one song
+  reserved per job before any pin, owner pin and byte budgets, and `/3`
+  manifests.
+- Owner posting fees reserved and settled from the owner grant.
+- Execution profile `/2` bound to owner scope and window; registered jobs and
+  curated amendments keep profile `/1`.
+- Acceptance (`test/owner-publication.test.ts`): songs under one grant
+  publish as `/3`; the song after the cap is held with
+  `funding_cap_exhausted` and never pins or posts; a lost pin response and
+  restarts retry without double charging; and no registration request is made.
 
-Not yet implemented: owner authorization and the bounded budget grant under
-the new policy, the
-submission and job sequence without registration, release-service and runtime
-dependency removal, removing creator connection and Royalties from the web
-client, and acceptance with registration services unreachable.
+Not yet implemented:
+
+- Runtime environment wiring: the community worker and managed worker
+  selecting owner mode from reviewed configuration, without creator-service
+  or registration-operator health checks.
+- Publishing deployment profiles: the release CLIs passing the publishing
+  option, publishing-specific successor validation that preserves the
+  deployed Study and rewards configuration, and removal of registration
+  credential requirements and registration transaction bounds from those
+  profiles.
+- The web client: removing creator connection, registration progress and
+  Royalties from the launch flow.
+- Reconciling the active web-client, runtime and setup documents, which still
+  describe creator activation and registration as required.
