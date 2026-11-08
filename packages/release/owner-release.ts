@@ -289,8 +289,8 @@ export async function ownerReleaseFetch(
   try {
     const url = new URL(request.url),
       routes = {
-        "/v1/releases/pin": { action: "release_pin", mode: "execute" },
-        "/v1/releases/pin/status": {
+        "/v1/owner-releases/pin": { action: "release_pin", mode: "execute" },
+        "/v1/owner-releases/pin/status": {
           action: "release_pin_status",
           mode: "reconcile",
         },

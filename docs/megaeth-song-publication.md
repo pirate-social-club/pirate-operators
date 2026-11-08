@@ -162,6 +162,32 @@ to 0004 the same way. Implementing owner publishing does not depend on
 rewards payments or learner acceptance being complete; shared staging
 deployment still needs the current runtime custodian.
 
+## Runtime configuration
+
+Owner mode is selected by the directory configuration's admission policy,
+never by a request or an environment flag. When the configuration names the
+unregistered owner policy, the community worker
+(`services/first-song-runtime.ts`, `ownerSongRuntime`) requires two reviewed
+values besides the publisher key: `OWNER_GRANT_JSON`, the owner budget grant,
+and `OWNER_AUTHORIZATION_JSON`, the controller-signed owner publishing
+authorization. A missing or invalid value fails closed with
+`owner_runtime_unconfigured`; a grant for another community, origin, policy or
+destination fails with `owner_grant_scope_mismatch`. Owner values never turn a
+registered-policy configuration into owner mode. Readiness checks only that the
+managed service reports the same unexpired owner grant; the creator service is
+not contacted for readiness, status or capabilities, which report
+`creatorConnection: false`. `CREATOR_PROFILE_HASH`, `RELEASE_GRANT_HASH`,
+`REGISTRATION_OPERATOR_ADDRESS` and `POSTING_EXPIRES_AT` belong to the
+registered policy only; owner posting expires with the grant.
+
+The managed worker (`services/managed-moderation.ts`) takes the same grant as
+`OWNER_GRANT_JSON`. It enables owner recognition and the pins-only owner
+release at `/v1/owner-releases/pin` and `/v1/owner-releases/pin/status`, which
+need the pin credential but no registration key or registration client.
+`/health` reports `ownerRelease` separately from the registered `release`.
+Registered releases keep `/v1/releases/*` and their registration key, so old
+registered jobs keep their reconciliation path.
+
 ## Rollout
 
 Deploy readers that accept all three formats and both owner policies first.
@@ -184,7 +210,8 @@ ACRCloud, IPFS and the MegaETH chain as explicit simulations:
 - The controller-signed owner authorization, checked in the release API
   before any reservation; another signed-in account, another wallet's
   authorization and a foreign signer are refused with no row created. This is
-  tested over HTTP against the release API handler.
+  tested over HTTP against the release API handler and through the community
+  application routes.
 - Owner submissions with no creator binding, sealed under the new policy.
 - Recognition-only admission under the new policy, with owner recognition
   budgets and a grant check for each new provider reservation and dispatch.
@@ -195,6 +222,10 @@ ACRCloud, IPFS and the MegaETH chain as explicit simulations:
 - Owner posting fees reserved and settled from the owner grant, with a
   refusal before broadcast held as a definite outcome.
 - Owner windows that bind every ceiling at the first claim.
+- Evidence age in admission recovery taken from the pinned policy: a retained
+  owner receipt stays usable for 24 hours from its original acquisition; the
+  registered policy keeps one hour.
+- Runtime wiring for both workers as described under Runtime configuration.
 - Execution profile `/2` bound to owner scope and window; registered jobs and
   curated amendments keep profile `/1`.
 - Acceptance (`test/owner-publication.test.ts`): songs under one grant
@@ -205,20 +236,28 @@ ACRCloud, IPFS and the MegaETH chain as explicit simulations:
   a post whose broadcast response was lost still reconciles after the fee
   budget is exhausted; and no registration request is made.
 
-The acceptance fixture (`test/fixtures/owner-song-job.ts`) calls the
-reservation, upload and sealing functions directly and then runs the
-publication driver against the managed service handlers. It does not enter
-through the authenticated community HTTP routes or the community queue
-handler, so it does not establish the complete community request path. The
-final runtime acceptance must do that, and belongs with the runtime wiring
-below.
+Route and queue acceptance (`test/owner-route-acceptance.test.ts`) enters
+through the community application: real SIWE sign-in, host cookie, CSRF and
+Origin checks, the upload, audio, stem and seal routes, and the community
+queue handler (`communityQueue`) running the job to a published `/3` post.
+The creator health check and every registration route fail if contacted, and
+neither is. A signed-in learner, a missing CSRF token and a foreign Origin are
+refused before any submission row exists. In that test the release ports are
+the fixture's, with simulated providers and chain; a separate test builds the
+production runtime from reviewed values and shows it selects owner mode, the
+same `/2` execution profile and a readiness check that contacts only the
+managed service. The managed worker bundle is tested in workerd for owner
+routing and health. The other acceptance cases still use the fixture's
+`addSong`, which calls the community reservation, upload and sealing functions
+directly.
 
 Not yet implemented:
 
-- Runtime environment wiring: the community worker and managed worker
-  selecting owner mode from reviewed configuration, without creator-service
-  or registration-operator health checks, and an acceptance run that enters
-  through the authenticated community routes and the actual queue handler.
+- Deployment bindings for the new owner values in the infrastructure
+  definitions, together with the publishing deployment profiles below.
+- Disposition of old registered jobs left uncertain when the configuration
+  moves to the owner policy: the owner runtime does not carry registration
+  ports, so such a job stays parked rather than being converted.
 - Publishing deployment profiles: the release CLIs passing the publishing
   option, publishing-specific successor validation that preserves the
   deployed Study and rewards configuration, and removal of registration

@@ -59,10 +59,37 @@ export const ownerController = privateKeyToAccount(`0x${"41".repeat(32)}`);
 
 export async function ownerSongFixture(
   limits: Partial<OwnerBudgetGrant["limits"]> = {},
-  { grantSeconds = 3600 }: { grantSeconds?: number } = {},
+  {
+    grantSeconds = 3600,
+    community: identity,
+    ownerWallet,
+  }: {
+    grantSeconds?: number;
+    /** Another community identity and origin, such as the application's. */
+    community?: {
+      communityId: string;
+      registry: string;
+      directory: string;
+      origin: string;
+    };
+    /** The owner wallet; defaults to the fixture's session wallet. */
+    ownerWallet?: string;
+  } = {},
 ) {
   const configuration = validateConfig({
     ...baselineConfiguration,
+    ...(identity
+      ? {
+          communityId: identity.communityId,
+          registry: identity.registry,
+          directory: identity.directory,
+          app: { ...baselineConfiguration.app, origin: identity.origin },
+          feed: {
+            ...baselineConfiguration.feed,
+            endpoint: identity.origin + "/api/feed",
+          },
+        }
+      : {}),
     controller: ownerController.address.toLowerCase(),
     policies: {
       ...baselineConfiguration.policies,
@@ -101,14 +128,23 @@ export async function ownerSongFixture(
       "apps/managed-moderation/migrations/0004_owner_budget_windows.sql",
     );
     managed.config.currentConfiguration = async () => configuration;
-    managed.config.pairings[0]!.controller = configuration.controller;
+    const pairing = managed.config.pairings[0]!;
+    Object.assign(pairing, {
+      controller: configuration.controller,
+      communityId: configuration.communityId,
+      registry: configuration.registry,
+      directory: configuration.directory,
+      communityOrigin: configuration.app.origin,
+    });
     const now = Math.floor(Date.now() / 1000),
       session: AccountSession = {
         session_hash: hashText("owner-session"),
         account_id: crypto.randomUUID(),
         author_id: publicId(),
         binding_id: "owner-moss",
-        wallet: publisher.address.toLowerCase() as `0x${string}`,
+        wallet: (
+          ownerWallet ?? publisher.address
+        ).toLowerCase() as `0x${string}`,
         csrf_token: "owner-csrf",
         expires_at: Date.now() + 900000,
       };

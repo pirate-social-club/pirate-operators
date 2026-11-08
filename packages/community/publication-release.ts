@@ -125,7 +125,10 @@ export async function releasePin(
   const id = releasePinId(input, ports, role),
     value = await response(
       ports,
-      "/v1/releases/pin" + (mode === "reconcile" ? "/status" : ""),
+      // Owner jobs use the pins-only owner release; registered jobs keep the
+      // registered release paths, so their reconciliation stays available.
+      (ports.ownerGrant ? "/v1/owner-releases/pin" : "/v1/releases/pin") +
+        (mode === "reconcile" ? "/status" : ""),
       mode === "reconcile" ? "release_pin_status" : "release_pin",
       { context: input.context, role },
       id,

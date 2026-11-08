@@ -21,6 +21,11 @@ import {
 
 import { validateReleaseGrant } from "../packages/release/grant.ts";
 import { releaseFetch } from "../packages/release/service.ts";
+import {
+  validateOwnerGrant,
+  type OwnerBudgetGrant,
+} from "../packages/release/owner-grant.ts";
+import { ownerReleaseFetch } from "../packages/release/owner-release.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
 import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
 import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
@@ -43,6 +48,23 @@ export interface ManagedEnv {
   RELEASE_GRANT_JSON?: string;
   FILEBASE_IPFS_TOKEN?: string;
   REGISTRATION_OPERATOR_PRIVATE_KEY?: string;
+  /**
+   * Reviewed owner budget grant for the unregistered owner policy. It enables
+   * owner recognition and the pins-only owner release; no registration key,
+   * registration client or creator service is involved.
+   */
+  OWNER_GRANT_JSON?: string;
+}
+/** The configured owner grant, or undefined when absent or invalid. */
+function ownerGrant(env: ManagedEnv): OwnerBudgetGrant | undefined {
+  if (!env.OWNER_GRANT_JSON) return undefined;
+  try {
+    return validateOwnerGrant(JSON.parse(env.OWNER_GRANT_JSON));
+  } catch {
+    // Owner work then fails closed with owner_grant_unavailable, and health
+    // reports the owner release as not configured.
+    return undefined;
+  }
 }
 const chain = defineChain({
   id: 6343,
@@ -135,6 +157,7 @@ function configuration(env: ManagedEnv): ManagedService {
     async wake(admissionId) {
       await env.JOBS.send({ admissionId });
     },
+    ownerGrant: ownerGrant(env),
   };
 }
 export default {
@@ -175,7 +198,22 @@ export default {
           { headers: { "cache-control": "no-store" } },
         );
       }
-      if (new URL(request.url).pathname.startsWith("/v1/releases/")) {
+      if (url.pathname.startsWith("/v1/owner-releases/")) {
+        insist(
+          config.ownerGrant && env.FILEBASE_IPFS_TOKEN,
+          "owner_release_unavailable",
+          503,
+        );
+        return ownerReleaseFetch(request, env.DB, env.MEDIA, {
+          origin: config.serviceOrigin,
+          ownerGrant: config.ownerGrant,
+          pairings: config.pairings,
+          currentConfiguration: config.currentConfiguration,
+          filebaseCredential: env.FILEBASE_IPFS_TOKEN,
+          acrEndpoint: acrEndpoint(config.acr.host),
+        });
+      }
+      if (url.pathname.startsWith("/v1/releases/")) {
         insist(
           env.RELEASE_GRANT_JSON &&
             env.FILEBASE_IPFS_TOKEN &&
@@ -227,6 +265,17 @@ export default {
         } catch {
           /* Moderation health remains distinct from release configuration. */
         }
+        const owner = config.ownerGrant,
+          ownerRelease =
+            owner &&
+            env.FILEBASE_IPFS_TOKEN &&
+            owner.expiresAt > Math.floor(Date.now() / 1000)
+              ? {
+                  configured: true,
+                  grantSha256: owner.sha256,
+                  expiresAt: owner.expiresAt,
+                }
+              : { configured: false };
 
         return Response.json(
           {
@@ -234,6 +283,7 @@ export default {
             status: "available",
             profileHash: bytes32(env.SERVICE_PROFILE_HASH),
             release,
+            ownerRelease,
           },
           { headers: { "cache-control": "no-store" } },
         );
