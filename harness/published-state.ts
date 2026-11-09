@@ -143,12 +143,16 @@ export function assertRetainedPublishedState(
 }
 /**
  * The reviewed per-row baseline of the pinned state, derived offline from the
- * November 9 read-only capture taken before any owner upload. Until its
- * digest is pinned here, releases keep the exact summary comparison.
+ * November 9 read-only capture (0xefac3b8c…14b3) taken before any owner
+ * upload, derived independently by both release lanes. Without an owner
+ * grant, releases keep the exact summary comparison.
  */
 export const retainedStateBaseline = {
   path: "docs/deployments/first-song-managed-20261105.retained-state-baseline-20261109.json",
-  sha256: null as string | null,
+  sha256:
+    "0xe55db57bc27eed959f7ff4d1045b0520e3b7e3da9aa4e33eaf48a8b064022846" as
+      | string
+      | null,
 };
 /** The rules path of qualifyRetainedState, on already captured rows. */
 export function assertRetainedAgainstBaseline(

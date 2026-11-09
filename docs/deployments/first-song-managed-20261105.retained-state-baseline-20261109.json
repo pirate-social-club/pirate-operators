@@ -1,0 +1,859 @@
+{
+  "schema": "pirate.retained-state-baseline/1",
+  "capturedAt": "2026-11-09T16:46:02.629Z",
+  "captureSha256": "0xefac3b8c81421dab26df6333e9e523443ee9d9e4275859e7540e4e53498f14b3",
+  "predecessorStateSha256": "0x84a0c5d483c9dc0a0c486ee8ea892c45b1bc10c7e4bd363991e7ed3ef38284ec",
+  "repairSha256": "0x3c1edf26321013f6c065362281c23d6cef15b1749abb7a6b4efc2b117f568e2c",
+  "application": {
+    "community_accounts": [
+      {
+        "key": "0xad512f94876f16d1e00815b9d53b4e0c47dd006bd957fe99cf9850416c484683",
+        "immutable": "0xd176dd69a32f54e162841fa7d2f46e6f49496abef88726912468091e1472c5fe",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x79e8d4e6f449519bceeadbd87f92297450ed556ba6ea799687cebb363c5e4e53",
+        "immutable": "0xa4eb59001962fe759d7c4840c2b6e54024469b038507062c3a62cb32ebaffd28",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x632ba03f8d405f01dd1d22bd6addad45ef32b7c1263f7493ebf7f52b56e6fd83",
+        "immutable": "0xa26175d59cf58ab13785fb77d1e284b8e7db132c7b32c065436a8a0bd6521bc0",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "credential_bindings": [
+      {
+        "key": "0xc258126ae24f8b3f9cde51f27af135323fdabbe5519b03820c818238b1ef5285",
+        "immutable": "0xd534e2ce982ad4629ef0005424b9738895b36438de59f16b71aa068df9113c4d",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x861ef9fa91f4fb22e4820bdfd1fb0212f784eab9d04ebc7a7cb96afc03134bc5",
+        "immutable": "0x17a00d4b776fe8af6b168448bd806e28a854bed4d462fd9919d2aa7de8685ec3",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xc4bd73dbeaa64b513e7bb28f658c60d9dc7cdbbc59bd083a13abc6c5fa5649df",
+        "immutable": "0x90c77bdd4e30fc3417326bb722b53b92cb869e6d6cacd47427381ca34206052a",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "creator_bindings": [
+      {
+        "key": "0x79e8d4e6f449519bceeadbd87f92297450ed556ba6ea799687cebb363c5e4e53",
+        "immutable": "0x88eb9d18ded508a6de9c641af49c23623fc33cc58a83c7c81e1613653d635edd",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "media_submissions": [
+      {
+        "key": "0x95a2896e6c4b9461f76cbbc824a7bc96cbaab9dcaece27ef2f0067a2cb394081",
+        "immutable": "0x1d9dafa8af69856cbfed7b7c3673915347c70a5fb738ef0b77f7fbcf82228cfe",
+        "setOnce": {
+          "object_etag": "0xdc58529b7dc72c82ccdb8db7868b4e61478e3eaeb8a85e66baae8971ee425aa8",
+          "sealed_at": "0x18046611250aa5c104465f0d1219a930fd974dca0178399ff6cdf390b12e8938"
+        },
+        "values": {
+          "upload_state": "sealed"
+        },
+        "frozen": "0x10367c2630e70f70c92f7b363ada890171cd2a5f395735bba0a2be7c7d53c59e"
+      }
+    ],
+    "publication_jobs": [
+      {
+        "key": "0x126c73ff10f474d84b65e0221c9111dbddc7b3fda1aa174616382213df75f813",
+        "immutable": "0xefbb4caf1c025ad9f8a83c3dcc5b392310c7718b653261e7cb3547651f30285b",
+        "setOnce": {},
+        "values": {
+          "phase": "published",
+          "revision": 11,
+          "attempts": 10,
+          "updated_at": 1793908171607
+        },
+        "frozen": "0x8afe62f192b4a5cf8dfaf43268844aa92a401bc9678d4283ed8eee8a11c4806f"
+      }
+    ],
+    "external_operations": [
+      {
+        "key": "0xa47b4b87e9830071f53342f30b1114bf689f3e4998c5933ef4e86dbd2cb141f4",
+        "immutable": "0xca289e32855ad50608ec7f3d833ac6ce85cca3a6c998ea0c96f4ab5447e562ce",
+        "setOnce": {
+          "prepared_json": "0x8843e74749e5074235ef98e9f7695c765ec8635abfc6a3316c712e71829dd0a4",
+          "provider_id": "0x86e9d40377bc214230ece720470426f6d75f1d20829c437058e35cad4aa0cf4a",
+          "result_json": "0xa49a5884b431aeff6b7657e7a5433c2a18a8e02c49749985170b7542f2d06e53",
+          "started_at": "0x9856ecc2612a2f26e2b69aa8ae09a7be3c5e48a77c1931634baade631f578189",
+          "completed_at": "0x8403dd27f04dbd118366a6d23b58b2b89622c03038e501234bc8b4bd897a8f77"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0x54d2481802ce3d3f578b6cdacbdff2dea96b19436821767cbbc9ec23dae4fd6c",
+        "immutable": "0x1402eb63b25a06a3a0e5af5b02a576d4922b775d5220a172df11f82461307fdf",
+        "setOnce": {
+          "prepared_json": "0x704f93abb4c7a854a62a997be68edf9714f29bc0ee1d73e159897cde523a99e2",
+          "provider_id": "0x6f8416964d6e58f3671174f537ed21cf6aef8806690777087d1b10305af543ec",
+          "result_json": "0x64e62b4af349e802bd161fa80399bdea6b353091a1a49ab6464e4a62515af501",
+          "started_at": "0xfc0a723258dc68f4ce140a44c5431b5a96599de3c282926b304b96f292187f6d",
+          "completed_at": "0xb3c82c8555f82e4e39c68bc37e5f293023ee0a3396562f535fc0af5f3531f638"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0x93f67cbd0ea50b7313b10f7e76ffadaef1f674b79981461363577fc57402659e",
+        "immutable": "0x7d1198764d5ec84e8dfe746cd607d49b2deba6e8d3203c1d34cee5bfcf4d3c5f",
+        "setOnce": {
+          "prepared_json": "0x56293135eebad43e0231ec4c70fa26c52aacfc4e314b39f29ae9e86e2f72c057",
+          "provider_id": "0x88138d4ac4c635b7fd1e0bc1c08b1f2df2298cf927829fc6423700307f101ed8",
+          "result_json": "0x7c353632fcdbbee9c75e5cd75a8ee186f6883995020b88e3b263b08879e43eec",
+          "started_at": "0xe8dc0c496aae7433cb3aa8f61d7662b1008697552f1fc8275479cd32746e0a2c",
+          "completed_at": "0xdfb4fe5c6311372288526417d730bd64aa6295518dba7a9362d8fa4a2e7a7400"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0x9337c4b45aa9cf73336814efb1d802ea2393b67c35ccadd087e290298d2ee557",
+        "immutable": "0xfa2a419312fd5cf1807835802cacbcc20723ca5d05878f21c6415db4d82e5216",
+        "setOnce": {
+          "prepared_json": "0xb276a862319ec70d651deb0eea1b1e4de68ff99434901085fb9f934435ef32d7",
+          "provider_id": "0x02eb0547417881a56c466d9e758a0332725e4338ba6dfe443b009703599d302a",
+          "result_json": "0x1040c7978e5311e01b5c02bf195eff242972f0aa3421fb4074898c0d40aae861",
+          "started_at": "0x7d9bc0155820c38926ff1b2daafea148bbea98a453c16b6d504bce17920d46ac",
+          "completed_at": "0xda8ad3a06c0ce2a51c96b3a5eb4f4859f859bd134e19efd6145d85e09dc23f1f"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0xc4b0801009f845bb76d905d070b22a806f00f94c14eeaa95fc6552efaa123ea6",
+        "immutable": "0x2655a58512c3678d61d8de5d63f9650fb271ebfe68f09a9bcb8ec7f4c5d18b66",
+        "setOnce": {
+          "prepared_json": "0xbf951a1a73aff8119ff90a7e2f0f17d8a9e5bde53fe68c9e381c3e11d5c9d04e",
+          "provider_id": "0xd2619d26bf4bd32f7603f058e446af19c899bbad1615c7713b096f0d7016745e",
+          "result_json": "0xb7ba4e9e43e667606ac999095001fe5ceba0c6da794a5a23cd3a6a9ca2ff7622",
+          "started_at": "0x20c5db399cde6d91d4a4d73dd2f14cead3b0b83a5cf26eabe0ccd373a226cf49",
+          "completed_at": "0x5a15dab898d57d1ca766f03763cc062927632d77c22ab890ee0d21e0d038f187"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0x2999a0e4d443398f878a0e00e189bda3d0be8fa089c03b5dc6c3caec1e5d81b6",
+        "immutable": "0x95e16af99108077f40ef63ff040809a0b542b91f584d6f9efbc7e2d429908243",
+        "setOnce": {
+          "prepared_json": "0x8050b3b4d442a07bce948b224768acc920edab00332c0d5db5e3fe2a4264c580",
+          "provider_id": "0x8d84650a278077f82d0b08ad0a3c373c5014b5e975c1511ab5ac4eab0b2dae52",
+          "result_json": "0xa183650eda53e977cf1b3d89657fff858d6a96728655d1f0bce4a0a075c7d232",
+          "started_at": "0xc7292d3d89c16c5d166315fe7f9e23223fbbc2eeddd39f296b5c3c94dc4c2c33",
+          "completed_at": "0x4a8b91132fc8642e25158004f7aa01f90bbca2402af2ff090f30354b92128760"
+        },
+        "values": {
+          "status": "confirmed"
+        },
+        "frozen": "0x1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd"
+      },
+      {
+        "key": "0x2c6a5e36b398530248633b75597718238a6f0510ed9c40eb1ca55b1bc9f4633f",
+        "immutable": "0xfda0afa1153a65406d18b69e4d868fa88435e2d7e7852066e0b0b099502013d4",
+        "setOnce": {
+          "prepared_json": "0x8fbf1c45aa47465ba241fc8dcacb5ae340e3f428b4891f46f5ec10dea8ec1457",
+          "provider_id": "0x3937808ac02316f69a5586c3111a5d37b8289177619735f7385c042c4c6c450e",
+          "result_json": "0xa4c7cd295eabb1694eef6a626ebed1fb41fe15f90dc688121f2e07d1655c6dca",
+          "started_at": "0x676ef073abe19c8b41ac7863b10a86e4bafec6a513e80753124eb1bd03987016",
+          "completed_at": "0xaa008515c4a5228493920a2967a47f8a171b14547e79661bf40335ed68e05c74"
+        },
+        "values": {
+          "status": "failed"
+        },
+        "frozen": "0x0b2a59c03f4f956593c0af5bf03428a95d4c0e32625827a923f12e8b17426faf"
+      }
+    ],
+    "media_stems": [
+      {
+        "key": "0x825b3ebc642b14b5625f3608849394abf90cee5887b1aa38bfbafd15bbc74773",
+        "immutable": "0xfef9792a595d142511aa5d4e12eaab83b93479ad3041cdc4824a5cca2daf7749",
+        "setOnce": {
+          "object_etag": "0x99dbc4609d583d42b93b73c20bf09a595c8beb43a07a86ed1f33f40cd072d579",
+          "duration_ms": "0x3040e4006749b13052485defed5c6cfaafd8ed598eeabe4ae8b227ba6e227b44",
+          "sealed_at": "0x227342f4e2fb76bdc27a4e5aa5fe1fce31e02479f1ee5651ac235b75f261fd01"
+        },
+        "values": {
+          "state": "sealed"
+        },
+        "frozen": "0xf618f068b6d5b6e4599ee83bcc3eed4a5902d807bf15d9a3ec6a37217ebf9e3e"
+      },
+      {
+        "key": "0x278c7227f6d6a2bffb955e65db6f7e82e66461d816b7f4ef80ec53c1a2f7432d",
+        "immutable": "0x059ec06794c84613beb9ca5487038ee91ae3869b6e913aa759b0068de78835e3",
+        "setOnce": {
+          "object_etag": "0x8bd52e0e78ad29851d612d1e0ae29fe581cec7c1ee6ce868e249f2182580330a",
+          "duration_ms": "0x3040e4006749b13052485defed5c6cfaafd8ed598eeabe4ae8b227ba6e227b44",
+          "sealed_at": "0xf78a2332f3cdb10a31d39ae279539e5bdbef29cb5034b6a67e7a98e8143c0b33"
+        },
+        "values": {
+          "state": "sealed"
+        },
+        "frozen": "0xb069bf5d873c9e981132d3f69d10fd36e0ae18d887f70c37b375bbac69998891"
+      }
+    ],
+    "publication_amendments": [
+      {
+        "key": "0x126c73ff10f474d84b65e0221c9111dbddc7b3fda1aa174616382213df75f813",
+        "immutable": "0x26b3232476196a4f7388a90328322d89d22b9b845651ff08dbf1e38018d77e67",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "external_operation_reconciliations": [
+      {
+        "key": "0xe3979f5c1a31ec8203a42df78222e49fac64264ecfd5310f023187f518aadef8",
+        "immutable": "0x501e82056612f91baf5f365f450d89c30f989210f5d926b3acbbe473c8966039",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "moderation_input_capabilities": [
+      {
+        "key": "0x9a5d950293bf61852080c49b61d0e3ac14041cab3211a41fc6a74518e32bd19d",
+        "immutable": "0xc666889afe99f57d6409bc645419bf1576a82c3c6245cbaec40095f260dbda89",
+        "setOnce": {},
+        "values": {
+          "expires_at": 1793908866
+        }
+      },
+      {
+        "key": "0xd8251ea516a539e68671b485b2415974afcab027827b6c008cf23e5ecb88a196",
+        "immutable": "0x1db159f4ad9a6dfb890ae156ef637911da4a04b9f48b8b75cf524bd80e593f5c",
+        "setOnce": {},
+        "values": {
+          "expires_at": 1793908866
+        }
+      },
+      {
+        "key": "0xd7465554096438433d27e42bc26d23bd38cdc740865ea77bcf76f504af4ff6e2",
+        "immutable": "0xce4381be3c1f70be40a63a8a84f287c4e5a8dc94306c98cc98872050c7115df5",
+        "setOnce": {},
+        "values": {
+          "expires_at": 1793908866
+        }
+      }
+    ],
+    "spending_budgets": [
+      {
+        "key": "0x525545ffd67b56ed61b73b73d9eab870af922d815138012765b844c4be3284da",
+        "immutable": "0xe6201819dd917f8101bce4e6191cd3ed957f12107e9c667c7cd383fd45252cb4",
+        "setOnce": {},
+        "values": {
+          "spent": "377696000000",
+          "version": 2,
+          "scope": "publication:0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+          "period": "first-song-20261105-v1",
+          "asset": "native_wei",
+          "ceiling": "30000000000000",
+          "reserved": "0"
+        },
+        "budget": "0x525545ffd67b56ed61b73b73d9eab870af922d815138012765b844c4be3284da"
+      },
+      {
+        "key": "0x7bd93240b5ff6a2360e75efe1a684a80dbcebadc17a6944532c256a0ea1071da",
+        "immutable": "0x1416ca53606fe11e3a8903fb9d10172d9e83ddf27aee39d0002df4877e8f07aa",
+        "setOnce": {},
+        "values": {
+          "spent": "1",
+          "version": 2,
+          "scope": "publication:0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+          "period": "first-song-20261105-v1",
+          "asset": "post_transactions",
+          "ceiling": "1",
+          "reserved": "0"
+        },
+        "budget": "0x7bd93240b5ff6a2360e75efe1a684a80dbcebadc17a6944532c256a0ea1071da"
+      }
+    ],
+    "spending_reservations": [
+      {
+        "key": "0xfc103368958eff68000b5f76925cccaab090b8c5cf22c7f9cf06d63502fb51a5",
+        "immutable": "0xc4bd7e3b0bc58d847690c4c812cfd1c8ee798f04a14c3d0e75a0aa23e55846a2",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x7bd93240b5ff6a2360e75efe1a684a80dbcebadc17a6944532c256a0ea1071da",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x971133634eb05b98af588f84496c91f00c3a60ab7fec6a98e7504487a2808a0e",
+        "immutable": "0x664795a0ef77edb7393c0f6ea9bb8b544c59188cf6a356638343d500ef8ddf84",
+        "setOnce": {
+          "actual": "0xcda1edd3d59a56bdaf36431dfe024b57a98378ac19a3c1408d96983e068b26ff"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "463233000000",
+          "actual": "377696000000"
+        },
+        "budget": "0x525545ffd67b56ed61b73b73d9eab870af922d815138012765b844c4be3284da",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ]
+  },
+  "managed": {
+    "managed_admissions": [
+      {
+        "key": "0xb69add23d56ab7d66d61c59830b54440d74c32bc4ec04b234dc0386a475c984a",
+        "immutable": "0xc17cb19d144a77b480e3c5a7417e5cec9b569ae582fa589bdbf8af3b7da6fe83",
+        "setOnce": {
+          "prepared_json": "0x5613535c76c9939666d9c6da4911440bf876654badff0c64a35126e2a4cb9042"
+        },
+        "values": {
+          "state": "held",
+          "updated_at": 1793894277945
+        }
+      }
+    ],
+    "moderation_provider_calls": [
+      {
+        "key": "0x97f570ecf137793214642db66c6c3dad0b5852a094ad5bb9a84fef72c466d5ea",
+        "immutable": "0xcca6a183b1e004214b5182495f2d3d0aa99b5358f88624dbbafd5755f5763e0f",
+        "setOnce": {
+          "response_json": "0xc94c601852208523c4cbd1a5ef4f8bfeeda345f5cd1ae32cebee515ba70ebeb4",
+          "result_json": null,
+          "provider_id": "0x2965ca33fed1fb3aa21a8b84941a2d81a5f1ee7c360c6d7bdf0e69d05c605a7b",
+          "started_at": "0x0a18a209c7c56e450675e1bb80bfb890c86140e50df5975f6387f9e02520ec23",
+          "completed_at": null
+        },
+        "values": {
+          "state": "received"
+        }
+      },
+      {
+        "key": "0xc966716b05892f8c059453f39bc0afeef1b84194048c32b9b9e7c5a275d26035",
+        "immutable": "0x6d6385ddd5826a09ccf8cc7eb2b298e7ed85b11dab686375a421e793f98d4e81",
+        "setOnce": {
+          "response_json": "0x73245ef1969a93f478feab94bf5a8839e35c5c0a2b116024a2eb625fcd8b4825",
+          "result_json": "0x51bbb1fbbc4ebc3db1c5bb05f97c23c24f1ba88f8e2a8d814ff523e9e27ac38d",
+          "provider_id": "0x7e8164871e9ce7e957007f67333591d314a27c394f7d896e66c9d2dfb63f580e",
+          "started_at": "0x3b34f732b5e1626c0236e4c865dd7da5cdb02beaa5257d4d96577c2e1d199eeb",
+          "completed_at": "0x2fb1fdf727314b9dfd58cdfdcecaeb9dc264a07aeea7c09a099f91dc6316d655"
+        },
+        "values": {
+          "state": "validated"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x3bfcc387eb172972fd7137d1f2d0fbc212a64ca56d3f711589e2bdd76ee03af0",
+        "immutable": "0x4a4eee1c456a078f81a7fa63c0c870dbf4b04a8c97960b00a38b1aeb1f45d84f",
+        "setOnce": {
+          "response_json": "0xcdf17885f4bd00258c39c9ec6233df649d78a22ea49b09c6fdc61f00b4a4a65b",
+          "result_json": "0x059ecb98fae40f6afa4adc5949cf7fa659eb2bb98595fd609dc94930e64bf65e",
+          "provider_id": "0x7781545d2b1c28b513731ee711c0fe89307238c558cc748a38c25aad513b15e1",
+          "started_at": "0x8085aac7fc54df35e12b7992841d5ba73ed6a874af488f25e010b3c45f58c6b8",
+          "completed_at": "0x4035047aee7e6eb2f458a4fd0411cad66363d66b368afef5a04426180f0ea227"
+        },
+        "values": {
+          "state": "validated"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ],
+    "spending_budgets": [
+      {
+        "key": "0x5bf3cb8b58be483bd4152a10f6513838918a6bf8083751258091f33dc9509494",
+        "immutable": "0xbf61c555dbbc4fbd9451b11c0ee6ad52e78354fc329e4830e05149a5b04e6627",
+        "setOnce": {},
+        "values": {
+          "spent": "3",
+          "version": 6,
+          "scope": "moderation:community:0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+          "period": "first-song-20261105-v1",
+          "asset": "provider_requests",
+          "ceiling": "24",
+          "reserved": "0"
+        },
+        "budget": "0x5bf3cb8b58be483bd4152a10f6513838918a6bf8083751258091f33dc9509494"
+      },
+      {
+        "key": "0x9aef7f4896232ea6a15d50b58bb6180d91a00b19a98708de45a09ab4eebc7b99",
+        "immutable": "0xb311d7f30d9a33d3c59f0636243b9aa7a92e3bc72c0b3dbb9cd56c55dc9e2568",
+        "setOnce": {},
+        "values": {
+          "spent": "3",
+          "version": 6,
+          "scope": "moderation:service",
+          "period": "first-song-20261105-v1",
+          "asset": "provider_requests",
+          "ceiling": "24",
+          "reserved": "0"
+        },
+        "budget": "0x9aef7f4896232ea6a15d50b58bb6180d91a00b19a98708de45a09ab4eebc7b99"
+      },
+      {
+        "key": "0xd12e8d2307bc850f0079ede95e81fa240288458e939de3f44262dd3f668376b8",
+        "immutable": "0xc746158a0b271d0d899b9883d90af285d23f78e21dac640f7cc0dfe203529fcb",
+        "setOnce": {},
+        "values": {
+          "spent": "1",
+          "version": 2,
+          "scope": "release:grant:0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+          "period": "first-song-20261105-v1",
+          "asset": "root_releases",
+          "ceiling": "1",
+          "reserved": "0"
+        },
+        "budget": "0xd12e8d2307bc850f0079ede95e81fa240288458e939de3f44262dd3f668376b8"
+      },
+      {
+        "key": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "immutable": "0x18d9bf77ed149564aa0390613df0dc9e273a78206363020a27a02077597f73d7",
+        "setOnce": {},
+        "values": {
+          "spent": "5",
+          "version": 10,
+          "scope": "release:pins:0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+          "period": "first-song-20261105-v1",
+          "asset": "ipfs_add_attempts",
+          "ceiling": "5",
+          "reserved": "0"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6"
+      },
+      {
+        "key": "0xfaf023f46bf487a8e0d9eb7c9cd1f6cf38de716761adbfaebc3e03408055cb4c",
+        "immutable": "0xc9f96672d7a268f95e1ddbef635bdaa72e05cfcfe43760bb83fbee63bda20774",
+        "setOnce": {},
+        "values": {
+          "spent": "926329484261",
+          "version": 2,
+          "scope": "release:registration:0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+          "period": "first-song-20261105-v1",
+          "asset": "native_wei",
+          "ceiling": "100000000000000",
+          "reserved": "0"
+        },
+        "budget": "0xfaf023f46bf487a8e0d9eb7c9cd1f6cf38de716761adbfaebc3e03408055cb4c"
+      },
+      {
+        "key": "0xda88b0fbad4eda3b94f11f10ad3d22d28d9a29690d41eb8e4af2dd8999632d72",
+        "immutable": "0x7b0c74b86e4bd7d88960c6f832a9f5ccb17e5c981bd866b5766bb2e265bd1992",
+        "setOnce": {},
+        "values": {
+          "spent": "1",
+          "version": 2,
+          "scope": "release:registration:0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+          "period": "first-song-20261105-v1",
+          "asset": "root_mints",
+          "ceiling": "1",
+          "reserved": "0"
+        },
+        "budget": "0xda88b0fbad4eda3b94f11f10ad3d22d28d9a29690d41eb8e4af2dd8999632d72"
+      }
+    ],
+    "spending_reservations": [
+      {
+        "key": "0xf08ea42c4b7acf98a8b6b8d15e2541b1d17e45dcb4be305be636c1d6771d1fcb",
+        "immutable": "0xf4ed3aa6f267e8ded9d27d6ad61ef739f59c6e29c169f7dc437a06f419dcb49b",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x5bf3cb8b58be483bd4152a10f6513838918a6bf8083751258091f33dc9509494",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x884f8c0358585ed48cfb65fb843c308befeb3ac3ab8cc96ad4b1b52ce5d5c0d4",
+        "immutable": "0xbc4268a4e7a6c7a056dd6ef04c5d971abbf819bdf597f3739d02d144e560dfc7",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9aef7f4896232ea6a15d50b58bb6180d91a00b19a98708de45a09ab4eebc7b99",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x9c237441d8d1005e614fd1b1959d3aa552dd7b07d36a2dff8ccbca1f98812f85",
+        "immutable": "0xae078abe610a6491b339a568a63c836f36c3d8bee0b7f39965ab781de6a86e8e",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x5bf3cb8b58be483bd4152a10f6513838918a6bf8083751258091f33dc9509494",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x2be42bf942d315dc99dc0d4903683ced82b314a0f379789cf0714a235a7f24f5",
+        "immutable": "0xc50eb21420c3f339340495849f913df4fda5df51fac085f4ad0228123640652c",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9aef7f4896232ea6a15d50b58bb6180d91a00b19a98708de45a09ab4eebc7b99",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x9f9b847f9cfb8fbd2b6e885ec0695fb72a7bc8a807310c65986f6b1680fb9f4e",
+        "immutable": "0xb9620af53565848043c9800a73dea681626819a95a4772dc992de82d46264c24",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x5bf3cb8b58be483bd4152a10f6513838918a6bf8083751258091f33dc9509494",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x7b69bbdd862302381dd34e19ea1f9ed58f45327f78e1e62a5bda33743ca9842b",
+        "immutable": "0x91108c57590396f3f86d3ff84b0f79a61764234801cdb0f68473b1002c769209",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9aef7f4896232ea6a15d50b58bb6180d91a00b19a98708de45a09ab4eebc7b99",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0xb357c8ce64bd5f792c6fd71a22f69368a563306d4e7b0df6bb74b34298a997bb",
+        "immutable": "0xed17e138aa38bdaaf31ef5f134324c6b205cd0099368147865a69dcc38654734",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x3090a5747dc563c07a3f2a284a0937d6cfec8e7a6b30ebbd5ea986a8158c0501",
+        "immutable": "0x491bd1ebb1a02ab61c3b35bce4bc78589e637e6154da5745fff7fc0193ce79d6",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x84778469f90982af436f9268032d9ecf7cfb68c103daf7757343f4a096d59654",
+        "immutable": "0xafafeb59fe42a75e839b285e7c00f8d8df52c93058a950aa7c6fbe0be63ecc5e",
+        "setOnce": {
+          "actual": "0xc75dd3786a68c31bba149d61031a0e3d1eb318afaabb6d9e82d5ee04a244e671"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "100000000000000",
+          "actual": "926329484261"
+        },
+        "budget": "0xfaf023f46bf487a8e0d9eb7c9cd1f6cf38de716761adbfaebc3e03408055cb4c",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x971fc60647ebfdedf2e4b4230b89cb2c93978fd547783e35faa26293cbf95a55",
+        "immutable": "0x5c112248dc55bc473aa7413309d6fdc526d94977cb1313833ab3dca2dbc3f97c",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0xda88b0fbad4eda3b94f11f10ad3d22d28d9a29690d41eb8e4af2dd8999632d72",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x1d10f468ffaa44b51fb00578ec0cedf544922a158542bae4fe95b98444a77a68",
+        "immutable": "0x04d4f272bb660a6bcef509c856ffb7b1ed9ed4d9a302483d0c3e2a219a95a7fc",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0xd12e8d2307bc850f0079ede95e81fa240288458e939de3f44262dd3f668376b8",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x0cf4b311c748443836f4a0ed78d82f76df0d9ef10f66eb93b85b6ca94bf64dd6",
+        "immutable": "0x6ec1e07174442fff17f99bcade61897c074e9b252af2f51330a9e6145a227b75",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0xa4e9dd2e3b37e3bb33d126f6bb314024ddd7a88b126cf9f3b971db7120f95f14",
+        "immutable": "0x472f05e94257f9faf0dff9b81950b3c68e87a169d8dfbf0f7d49d093c1bcc8b3",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0xef17b11d67a3bc4cd7ec76380e71fcc7eb4612d04810076e6d09bdb84c221044",
+        "immutable": "0x98bdb3c164c08b3476bacbca715d0b7166d8e66732610fe4aed286fec447ccd1",
+        "setOnce": {
+          "actual": "0x391552c099c101b131feaf24c5795a6a15bc8ec82015424e0d2b4274a369a0bf"
+        },
+        "values": {
+          "status": "settled",
+          "amount": "1",
+          "actual": "1"
+        },
+        "budget": "0x9c72193d241d33be04cfcd6aa2d5d4667f4d10f094f17b678b0c72affe611ed6",
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ],
+    "managed_releases": [
+      {
+        "key": "0x8b4ab5dc60cfb4069c3a57ddf7ec898e916b4c1638a2a37ee0560bdea4e6c3d3",
+        "immutable": "0x8588af35d750ad3c104c6d44d600cd0a717fcf419dfbbc95a4fba5e967b6a8d4",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "funded_pins": [
+      {
+        "key": "0x4eab47b81619ebf10190d2d324bee760c59f5ed4892f01c2a746d42745a37066",
+        "immutable": "0x25732498cb18f9b050b4f3842a163a2ce673b0bb1713633adc352b9542bef88f",
+        "setOnce": {
+          "provider_receipt_json": "0x90fad9479833b85a42e4805fb5aed5c842f3ea70def678143e42b91e7e9f68ce",
+          "result_json": "0xcb5ab01637e1c619d932fd66f8fb9d4afa9856fa833016f73fd5414a48952202"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x5252a7386c8f2fbd64540f8f543dd179ef97b893cac6177a0c254af8a316a4da",
+        "immutable": "0x392e715af1ff1e9f03c7e8247c91ff4f8fbe4bc5f3b927bf25ab1090ac221d40",
+        "setOnce": {
+          "provider_receipt_json": "0x3a2b9686b10e0c71195655e95c7b6240f6f7dda745dce7358bc486fda6f87d31",
+          "result_json": "0x7679915713f22b74263e3b61005fe0de24ba36e883afc2c5c1c325e68107a62e"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0xff40bd984963f15215ce05a805696930bfb01d49c961f4d44a29653f29140dad",
+        "immutable": "0x820ffb2f2647011377be9f634f793e5f288d57988b07f29eaa108d26ed3fd096",
+        "setOnce": {
+          "provider_receipt_json": "0x989c9db0b8f63cf52801b2e242eaa8f97dac6ca85b30c229a29d22f994677fb6",
+          "result_json": "0xddea5bc968aca236cb2c30a2fdf23e2867882059610fc56bcf4617396d87edcf"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0x4333e07205405fce043a07fa10d13803d957ed98443fe8546008699575d93764",
+        "immutable": "0x28bd855b9992273b53e174f1da1cc9b51e699fff972f81984654244db62da9cd",
+        "setOnce": {
+          "provider_receipt_json": "0x175964df4ed94486a3e0975c4a75065c32787e7bdebab2950b4858c6f8309908",
+          "result_json": "0xf7c66a7c83817eb35133264dc4a4a3e861ea45c05e2026c59b24b892fa53adca"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      {
+        "key": "0xec46d1b099b446f3effb8531a7ab485aeb5cd3a87cb4c5306fe8b94b3d77dfe0",
+        "immutable": "0xdf428d5cede8039d5920c024a1a7ef9baf573585fc512d06e01bfa2023ad51d9",
+        "setOnce": {
+          "provider_receipt_json": "0x5d17c11f408bd48f51bd9dec94a19dcf04880b949a86d3b5eede5fd361f23936",
+          "result_json": "0xb5ee744de2d9907972579514882546571b87036e70712019341bc6cb21e98ac7"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ],
+    "funded_registrations": [
+      {
+        "key": "0xbc46758a8cc70355be9a653fd7e256b1834d0f90e500b181c84adebd8b9d8126",
+        "immutable": "0x27a0ca0994c8d9a4f2e6a2cef104475d21ee4ca7b9062e3f6c5390a3cca7ee82",
+        "setOnce": {
+          "prepared_json": "0xd33ecb6c550fef147045ac3672ea0241e58371bd91c18f7afc64f3e2a3907ec5",
+          "result_json": "0x872824dc08a1ee5ed700e1a6e300c0c7210ce9fa2263cd224741a992dc9a3a53"
+        },
+        "values": {
+          "state": "confirmed"
+        },
+        "frozen": "0x4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    ],
+    "curated_admissions": [
+      {
+        "key": "0xc535933bc0304b52570653959e33eb0178e083d0d16a94a1e195d5472d027cea",
+        "immutable": "0x38813a10848ad4e68ed2810eeb32321bf3e9afc07d7ef41a087a069aae337ffa",
+        "setOnce": {},
+        "values": {}
+      }
+    ],
+    "moderation_request_nonces": [
+      {
+        "key": "0x23a63fbafc14b53ec9a8cff5258fcc125e81b509d097be320f9f81c147c09a2d",
+        "immutable": "0x1bb424dc358628addf5c141c033ec9bd1e5dd4d2aa2296122f75d960e7e628c3",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x19b059dfd3e55a36cdd965493aff9e6bd9c9d086615fdf450fd3fea63f3a8169",
+        "immutable": "0xac481d5dfe05bbf8decd8f18d682d92b738b2055a6aafcd90dbd980a6c0ed751",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xa474e29d7b307612cc36fc786120a50a54e3fdbe1ca1388cd34bc2333cc71d73",
+        "immutable": "0x0b9e28bdbbdc1cbf5882b389e5041aed37a5b0ef9a1d4f74eddcd9e8e7fae438",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xe47f6a2e413af8bcc67a857e5fc7378cfbba67175de4dedf3a55d11d02dcd376",
+        "immutable": "0xcc43990639b043657b55e2893cae5835f96d18cd58d01d1f8f8dbd6f6d93548d",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xce1e2160b4e3f4db226c752a5d31bb75f2600b259590af300966e9c62919b957",
+        "immutable": "0x76731052b1c1f76c5351953068327972622450adb248ef67e28f569615a45b51",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xe6befda897b16e6a76773358f9558129a032ea64dbef78543a64ed8285ede67c",
+        "immutable": "0xa6904f117634dcf6c639149b900294bdfd78db549420a9e56e337cdb6aefd515",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xb0f4cfc25d8687934e4201adc9c0d072a312770196967816dc185c0e8c29f802",
+        "immutable": "0x2033527aefb740070aa67350c7e1ec884d365df442b50a555b014953f6a180ff",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xf69e69861b53a946e1fc7120f04425601c0a48f22553e2a348b3a522f71edcb7",
+        "immutable": "0x969e478e5029ea42b855febc68d560db41c011c83719840ffb3a2c795e293823",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x1994cf75161cb926b3f78512fd32696710cbe55ec91d84810af845ff5a8fe847",
+        "immutable": "0x97a127e210c90c14c8bb3b7560fb846f7ffd2598288937c6981c63f7d41b8ac1",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x3fa1f2166c2f856bcb41f0c43f4d9f6d5c70acc51b1b2a2c752cf2e42b1fadc0",
+        "immutable": "0x99c6aa83db456778dde8b4aa6534b781377220e135710562882f229b54456a59",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xc25965848c8a4443ae9960f16d41d6145968f4d945b2092309914039d91388a6",
+        "immutable": "0xdb48191436221e11f5b9d8440a87b2c0d5a44aa546182ff9a46c36fe6ca0af65",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x64ba4afc80938d8bf1e3fa4d73fc58156461f82ae5a0173be5c8ec5942b26dc5",
+        "immutable": "0x508cee0bc476d0f32a9564ac0d531142ff7532c7d2a017a2601d1f9d410d9649",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x0d48c266518815d11e6421e11d39248379cee7220f903aba092693b48010d37a",
+        "immutable": "0xe328197a124f8987441ac756294cfbb95b5f37b68b58a14d0ab36a76e51b7159",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0x6f83e70d076ce611d739a17c7e5fa4aed2629d25687bbe4d4a2c99bc6624447e",
+        "immutable": "0x7bb74732597737ead23ae55da450075003b78f12b70131b75570639be8e5a2dc",
+        "setOnce": {},
+        "values": {}
+      },
+      {
+        "key": "0xf085ebbd87c3bb74aa421500acf406dd0f498f435cc44e10fe8394c41eb0489e",
+        "immutable": "0x8886dad04636dea56b6806bcd6d04ef1b31d5f44f67871ba6d2b9e61c8323e0f",
+        "setOnce": {},
+        "values": {}
+      }
+    ]
+  }
+}

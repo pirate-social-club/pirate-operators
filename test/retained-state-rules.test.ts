@@ -5,6 +5,7 @@ import { hashText } from "../packages/community/common.ts";
 import {
   assertRetainedAgainstBaseline,
   capturePublishedState,
+  retainedStateBaseline,
   publishedStateHash,
   publishedStateRepairHash,
   publishedStateRepairPath,
@@ -12,6 +13,7 @@ import {
 import {
   assertRetainedRows,
   deriveSideBaseline,
+  readRetainedBaseline,
   retainedStateRules,
   type Rows,
   type Side,
@@ -833,4 +835,26 @@ test("a baseline is derived only from valid rows", async () => {
   } finally {
     await f.dispose();
   }
+});
+
+test("the committed baseline is the pinned one, bound to the pinned state and the November 9 capture", async () => {
+  const text = await readFile(retainedStateBaseline.path, "utf8");
+  assert.equal(hashText(text), retainedStateBaseline.sha256);
+  const record = readRetainedBaseline(JSON.parse(text));
+  assert.equal(record.predecessorStateSha256, publishedStateHash);
+  assert.equal(record.repairSha256, publishedStateRepairHash);
+  assert.equal(
+    record.captureSha256,
+    "0xefac3b8c81421dab26df6333e9e523443ee9d9e4275859e7540e4e53498f14b3",
+  );
+  assert.equal(record.capturedAt, "2026-11-09T16:46:02.629Z");
+  for (const side of sides)
+    for (const rows of Object.values(record[side]))
+      for (const row of rows)
+        for (const value of Object.values(row.values))
+          assert.ok(
+            value === null ||
+              typeof value === "number" ||
+              (typeof value === "string" && value.length <= 120),
+          );
 });
