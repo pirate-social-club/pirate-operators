@@ -86,7 +86,19 @@ export interface TxRow {
    * Set when the work's permission was withdrawn before this row was mined.
    * Its own bytes are never sent again; only its receipt is reconciled.
    */
-  withheld?: { reason: string; at: number };
+  withheld?: {
+    reason: string;
+    at: number;
+    /**
+     * The head at which the operator's nonce was first seen past this row
+     * with no receipt and no known transaction for the row or its
+     * cancellation; cleared when either is seen again.
+     */
+    unexplainedSince?: number;
+    /** Journal time this row was recorded superseded, and last re-checked. */
+    supersededAt?: number;
+    recheckedAt?: number;
+  };
   /**
    * For a withheld row proven never sent: the zero-value transfer to the
    * operator's own address, with empty calldata, that consumes the nonce in
@@ -95,9 +107,11 @@ export interface TxRow {
   cancellation?: Cancellation;
   /**
    * "cancelled": the nonce was consumed by the row's cancellation.
-   * "superseded": a withheld row whose nonce the chain shows consumed, with no
-   * receipt for the row's own transaction or its cancellation; `block` is the
-   * head at which that was observed. Neither is ever a success.
+   * "superseded": a withheld row whose nonce the chain shows consumed with no
+   * receipt or known transaction for the row's own transaction or its
+   * cancellation, on reads WITHHELD_SETTLEMENT_DEPTH blocks apart; `block` is
+   * the head of the later read. It is an inference, re-checked (see
+   * recheckSuperseded). Neither is ever a success.
    */
   mined: null | {
     status: "success" | "reverted" | "cancelled" | "superseded";
@@ -494,14 +508,37 @@ const warn = (event: string, row: TxRow, extra: Record<string, unknown> = {}) =>
   );
 
 /**
- * A withheld row, settled from receipts and chain state; its own bytes are
- * never sent. Once the operator's latest chain nonce is past it, the row is
- * recorded as mined by whichever of its transaction or its cancellation has
- * a receipt, or as superseded when neither has. Before that, a row proven
- * never sent gets a cancellation within the gate's fee limits; when the
- * limits refuse, it waits like any dispatch. A row that may have been sent
- * only waits, and every later nonce waits behind it. Every waiting state is
- * logged.
+ * Blocks a withheld row's settlement waits for. MegaETH produces an EVM block
+ * about every second, so 64 blocks is about a minute: far beyond the seconds
+ * a lagging or load-balanced RPC replica trails the head, and beyond the 12
+ * blocks this operator already uses to call a publication confirmed, while a
+ * settled row still waits only about a minute. A receipt for the row or its
+ * cancellation settles it only once it is this deep, so a short reorg cannot
+ * leave a wrong terminal status; a nonce consumed with no receipt and no
+ * known transaction is inferred superseded only on two reads at least this
+ * many blocks apart.
+ */
+export const WITHHELD_SETTLEMENT_DEPTH = 64;
+/** A superseded row's own receipt is re-read at most this often, for 30 days. */
+const SUPERSEDED_RECHECK_S = 600,
+  SUPERSEDED_RECHECK_FOR_S = 30 * 86400;
+const knownTransaction = async (env: Env, hash?: Hex) =>
+  !!hash &&
+  (await rpc<unknown>(env.RPC_URL, "eth_getTransactionByHash", [hash])) !==
+    null;
+
+/**
+ * A withheld row, settled from receipts and chain state only; its own bytes
+ * are never sent. Reads are pinned to one head: the operator's nonce at that
+ * head, then receipts. Once the nonce is past the row, the row is recorded as
+ * mined by its own transaction or its cancellation when that receipt is
+ * WITHHELD_SETTLEMENT_DEPTH blocks deep. With no receipt and neither
+ * transaction known to the node, the first such read records its head, and
+ * only a read at least that depth later that still finds nothing records the
+ * row superseded. Before the nonce is passed, a row proven never sent gets a
+ * cancellation within the gate's fee limits; when the limits refuse, it waits
+ * like any dispatch. A row that may have been sent only waits, and every
+ * later nonce waits behind it. Every waiting state is logged.
  */
 async function settleWithheld(
   env: Env,
@@ -513,31 +550,83 @@ async function settleWithheld(
   if (row.mined) return row;
   try {
     const operator = privateKeyToAccount(env.PRIVATE_KEY).address;
-    if ((await latestNonce(env.RPC_URL, operator)) > nonce) {
+    const head = Number(
+      BigInt(await rpc<Hex>(env.RPC_URL, "eth_blockNumber", [])),
+    );
+    const next = Number(
+      BigInt(
+        await rpc<Hex>(env.RPC_URL, "eth_getTransactionCount", [
+          operator,
+          "0x" + head.toString(16),
+        ]),
+      ),
+    );
+    const note = (unexplainedSince?: number) => {
+      const current = txRow(store, nonce)!;
+      if (current.mined || current.withheld?.unexplainedSince === unexplainedSince)
+        return current;
+      const withheld = { ...current.withheld! };
+      if (unexplainedSince === undefined) delete withheld.unexplainedSince;
+      else withheld.unexplainedSince = unexplainedSince;
+      const updated: TxRow = { ...current, withheld };
+      store.set(txKey(nonce), updated);
+      return updated;
+    };
+    if (next > nonce) {
       const own = row.hash ? await receiptOf(env.RPC_URL, row.hash) : null;
-      if (own) {
-        markMined(store, nonce, own);
+      const cancelled =
+        !own && row.cancellation?.hash
+          ? await receiptOf(env.RPC_URL, row.cancellation.hash)
+          : null;
+      const found = own ?? cancelled;
+      if (found) {
+        note(undefined);
+        const block = Number(BigInt(found.blockNumber));
+        if (block + WITHHELD_SETTLEMENT_DEPTH <= head) {
+          if (own) markMined(store, nonce, own);
+          else markCancelled(store, nonce, found);
+          return txRow(store, nonce)!;
+        }
+        warn("operator_nonce_settling", row, {
+          block,
+          head,
+          depth: WITHHELD_SETTLEMENT_DEPTH,
+          by: own ? "own" : "cancellation",
+        });
         return txRow(store, nonce)!;
       }
-      const cancelled = row.cancellation?.hash
-        ? await receiptOf(env.RPC_URL, row.cancellation.hash)
-        : null;
-      if (cancelled) {
-        markCancelled(store, nonce, cancelled);
+      if (
+        (await knownTransaction(env, row.hash)) ||
+        (await knownTransaction(env, row.cancellation?.hash))
+      ) {
+        note(undefined);
+        warn("operator_nonce_settling", row, { head, receipt: null });
         return txRow(store, nonce)!;
       }
-      const head = Number(
-        BigInt(await rpc<Hex>(env.RPC_URL, "eth_blockNumber", [])),
-      );
+      const since = row.withheld!.unexplainedSince;
+      if (since === undefined || since > head) {
+        row = note(head);
+        warn("operator_nonce_unexplained", row, {
+          head,
+          action: `superseded only if still unexplained at block ${head + WITHHELD_SETTLEMENT_DEPTH}`,
+        });
+        return row;
+      }
+      if (head < since + WITHHELD_SETTLEMENT_DEPTH) {
+        warn("operator_nonce_unexplained", row, { head, since });
+        return txRow(store, nonce)!;
+      }
       const current = txRow(store, nonce)!;
       if (current.mined) return current;
       store.set(txKey(nonce), {
         ...current,
+        withheld: { ...current.withheld!, supersededAt: journalNow(store) },
         mined: { status: "superseded", block: head },
       });
-      warn("operator_nonce_superseded", current, { block: head });
+      warn("operator_nonce_superseded", current, { block: head, since });
       return txRow(store, nonce)!;
     }
+    if (row.withheld!.unexplainedSince !== undefined) row = note(undefined);
     if (!provenUnsent(row)) {
       warn("operator_nonce_withheld", row, {
         action:
@@ -559,19 +648,17 @@ async function settleWithheld(
     row = await signedCancellation(env, store, nonce);
     const cancellation = row.cancellation!;
     await checkDataFee(env, row.chainId, () => unsignedCancellation(row));
-    const receipt =
-      (await receiptOf(env.RPC_URL, cancellation.hash!)) ??
-      (await sendRaw(
+    // Its receipt settles the row only once deep enough (above).
+    if (!(await receiptOf(env.RPC_URL, cancellation.hash!)))
+      await sendRaw(
         env.RPC_URL,
         cancellation.raw!,
         cancellation.hash!,
         realtime(env),
-      ));
-    if (receipt) markCancelled(store, nonce, receipt);
-    else
-      warn("operator_cancellation_pending", row, {
-        cancellation: cancellation.hash,
-      });
+      );
+    warn("operator_cancellation_pending", row, {
+      cancellation: cancellation.hash,
+    });
     return txRow(store, nonce)!;
   } catch (error) {
     warn(
@@ -583,10 +670,53 @@ async function settleWithheld(
   }
 }
 /**
+ * Re-reads a superseded row's own receipt, and its cancellation's, and
+ * records the row as truly mined when one exists. With `force` (a caller that
+ * found the result on chain) it reads at once; otherwise at most every
+ * SUPERSEDED_RECHECK_S, for SUPERSEDED_RECHECK_FOR_S after the inference.
+ * The application's publication views never depend on it: they read the
+ * result's commitment on chain.
+ */
+export async function recheckSuperseded(
+  env: Env,
+  store: TxStore,
+  nonce: number,
+  force = false,
+) {
+  const row = txRow(store, nonce);
+  if (row?.mined?.status !== "superseded") return row;
+  const now = journalNow(store),
+    since = row.withheld?.supersededAt ?? now;
+  if (
+    !force &&
+    (now - since > SUPERSEDED_RECHECK_FOR_S ||
+      now - (row.withheld?.recheckedAt ?? since) < SUPERSEDED_RECHECK_S)
+  )
+    return row;
+  store.set(txKey(nonce), {
+    ...row,
+    withheld: { ...row.withheld!, recheckedAt: now },
+  });
+  const own = row.hash ? await receiptOf(env.RPC_URL, row.hash) : null;
+  const cancelled =
+    !own && row.cancellation?.hash
+      ? await receiptOf(env.RPC_URL, row.cancellation.hash)
+      : null;
+  if (own) {
+    markMined(store, nonce, own);
+    warn("operator_nonce_superseded_corrected", row, { by: "own" });
+  } else if (cancelled) {
+    markCancelled(store, nonce, cancelled);
+    warn("operator_nonce_superseded_corrected", row, { by: "cancellation" });
+  }
+  return txRow(store, nonce);
+}
+/**
  * Settles every withheld row not yet mined, in nonce order, from receipts
- * and chain state, and sends pending cancellations; nothing else is sent.
- * The regular alarm runs it, so a waiting cancellation or a consumed nonce
- * does not wait for /recover. Failures are logged and left for the next run.
+ * and chain state, sends pending cancellations, and re-checks superseded
+ * rows; nothing else is sent. The regular alarm runs it, so a waiting
+ * cancellation or a consumed nonce does not wait for /recover. Failures are
+ * logged and left for the next run.
  */
 export async function settleWithheldTransactions(
   env: Env,
@@ -595,8 +725,11 @@ export async function settleWithheldTransactions(
 ) {
   for (const { value } of store.entries("tx:")) {
     const row = value as TxRow;
-    if (row.mined || !row.withheld) continue;
-    await settleWithheld(env, store, row.nonce, gate).catch(() => undefined);
+    if (!row.withheld) continue;
+    if (row.mined?.status === "superseded")
+      await recheckSuperseded(env, store, row.nonce).catch(() => undefined);
+    else if (!row.mined)
+      await settleWithheld(env, store, row.nonce, gate).catch(() => undefined);
   }
 }
 
