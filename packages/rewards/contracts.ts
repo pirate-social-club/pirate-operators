@@ -14,6 +14,11 @@ export interface RewardsProfile {
   resultSourceHash: string;
   /** One explicitly declared mock drawing; all other offers retain real provider evidence. */
   rehearsal?: RewardRehearsal;
+  /**
+   * Retired rehearsals, oldest first, each with its original terms. A rollover
+   * appends the current rehearsal here and names a new one; nothing else changes.
+   */
+  rehearsalHistory?: RewardRehearsal[];
 }
 export interface RewardRehearsal {
   schema: "pirate.reward-rehearsal/1";
@@ -62,7 +67,6 @@ export interface RewardCreditList {
   next_cursor: string | null;
 }
 export interface RewardAvailableOffers {
-  approved: boolean;
   practiceOnly: true;
   offers: {
     offerId: string;

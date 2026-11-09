@@ -219,7 +219,6 @@ async function fixture(
         decimals: 6,
         token,
         chainId: 6343,
-        participants: [],
         songs: rehearsalMode
           ? [{ songKey: `0x${"cc".repeat(32)}`, title: "Fixture song" }]
           : [],

@@ -52,7 +52,11 @@ export function rewardProfile(raw: string): RewardsProfile {
     "rpcUrl",
     "resultSourceHash",
   ];
-  exact(p, Object.hasOwn(p, "rehearsal") ? [...keys, "rehearsal"] : keys);
+  exact(p, [
+    ...keys,
+    ...(Object.hasOwn(p, "rehearsal") ? ["rehearsal"] : []),
+    ...(Object.hasOwn(p, "rehearsalHistory") ? ["rehearsalHistory"] : []),
+  ]);
   insist(
     p.schema === "pirate.manual-rewards/1" &&
       p.chainId === 6343 &&
@@ -80,21 +84,41 @@ export function rewardProfile(raw: string): RewardsProfile {
     p.mode === "simulated" || p.mode === "live-testnet",
     "invalid_reward_mode",
   );
-  let rehearsal: RewardsProfile["rehearsal"];
-  if (Object.hasOwn(p, "rehearsal")) {
-    const r = object(p.rehearsal);
+  const rehearsalConfig = (value: unknown) => {
+    const r = object(value);
     exact(r, ["schema", "offerId", "prizeUsdcAtomic"]);
     insist(
       p.mode === "live-testnet" && r.schema === "pirate.reward-rehearsal/1",
       "reward_rehearsal_profile_invalid",
     );
     const prize = rewardAmount(r.prizeUsdcAtomic);
-    rewardAmount((prize * 10n ** BigInt(p.decimals - 6)).toString());
-    rehearsal = {
-      schema: "pirate.reward-rehearsal/1",
+    rewardAmount(
+      (prize * 10n ** BigInt((p.decimals as number) - 6)).toString(),
+    );
+    return {
+      schema: "pirate.reward-rehearsal/1" as const,
       offerId: rewardId(r.offerId),
       prizeUsdcAtomic: prize.toString(),
     };
+  };
+  const rehearsal = Object.hasOwn(p, "rehearsal")
+    ? rehearsalConfig(p.rehearsal)
+    : undefined;
+  let rehearsalHistory: RewardsProfile["rehearsalHistory"];
+  if (Object.hasOwn(p, "rehearsalHistory")) {
+    insist(
+      rehearsal &&
+        Array.isArray(p.rehearsalHistory) &&
+        p.rehearsalHistory.length > 0 &&
+        p.rehearsalHistory.length <= 32,
+      "reward_rehearsal_profile_invalid",
+    );
+    rehearsalHistory = (p.rehearsalHistory as unknown[]).map(rehearsalConfig);
+    const ids = [...rehearsalHistory, rehearsal].map((r) => r.offerId);
+    insist(
+      new Set(ids).size === ids.length,
+      "reward_rehearsal_profile_invalid",
+    );
   }
   return {
     schema: "pirate.manual-rewards/1",
@@ -110,6 +134,7 @@ export function rewardProfile(raw: string): RewardsProfile {
     ticketWallet: rewardAddress(p.ticketWallet),
     resultSourceHash: bytes32(p.resultSourceHash),
     ...(rehearsal ? { rehearsal } : {}),
+    ...(rehearsalHistory ? { rehearsalHistory } : {}),
   };
 }
 /** Stable per program/network, independent of wallet, drawing, credit and request. */

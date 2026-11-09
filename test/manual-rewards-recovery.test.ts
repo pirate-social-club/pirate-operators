@@ -10,7 +10,6 @@ async function ready() {
   const f = await manualRewardsFixture();
   try {
     const [learner] = f.principals;
-    await f.offers.approve(learner.accountId, learner.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(learner);
     f.subjects.set("provider_1", "77");
@@ -190,6 +189,46 @@ test("a payment winning the cancellation race is paid once; ambiguous or malform
       )?.paid_atomic,
       payment.amountAtomic,
     );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an invariant that fails on a torn read is retried after another batch commits, and stands otherwise", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    let calls = 0;
+    const value = await f.store.atomic(async () => {
+      calls++;
+      if (calls === 1) {
+        // Another writer commits between this build's reads.
+        await f.store.atomic(async () => ({ value: null, statements: [] }));
+        throw new Error("reward_reservation_corrupt");
+      }
+      return { value: "retried", statements: [] };
+    });
+    assert.equal(value, "retried");
+    assert.equal(calls, 2);
+    let stable = 0;
+    await assert.rejects(
+      f.store.atomic(async () => {
+        stable++;
+        throw new Error("reward_reservation_corrupt");
+      }),
+      /reward_reservation_corrupt/,
+    );
+    assert.equal(stable, 1);
+    // Under sustained contention the invariant itself is reported.
+    let contended = 0;
+    await assert.rejects(
+      f.store.atomic(async () => {
+        contended++;
+        await f.store.atomic(async () => ({ value: null, statements: [] }));
+        throw new Error("reward_reservation_corrupt");
+      }),
+      /reward_reservation_corrupt/,
+    );
+    assert.equal(contended, 8);
   } finally {
     await f.dispose();
   }

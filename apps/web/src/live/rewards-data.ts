@@ -46,11 +46,6 @@ export interface RewardOperatorView {
   rehearsal?:
     | import("../../../../packages/rewards/contracts.ts").RewardRehearsalTerms
     | null;
-  participants: {
-    account_id: string;
-    wallet: string;
-    approved_at: number | null;
-  }[];
   songs: { songKey: string; title: string }[];
   unmatched: import("../../../../packages/rewards/contracts.ts").ConfirmedTransfer[];
   observedBalanceAtomic: string | null;

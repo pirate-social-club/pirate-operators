@@ -1,4 +1,5 @@
 import { hashJson, insist, token } from "../community/common.ts";
+import { rewardProfileAncestors } from "./rehearsal.ts";
 import type {
   RewardsProfile,
   RewardPayment,
@@ -74,8 +75,14 @@ export class RewardStore {
       "SELECT profile_hash FROM reward_programs WHERE program_id=?",
       this.program,
     ).first<{ profile_hash: string }>();
+    // The stored hash is never rewritten. A reviewed rehearsal rollover is
+    // accepted only when the stored profile is derivable from this one exactly.
+    const accepted: string[] = [
+      hash,
+      ...rewardProfileAncestors(this.profile).map(hashJson),
+    ];
     insist(
-      row?.profile_hash === hash,
+      !!row && accepted.includes(row.profile_hash),
       "reward_program_configuration_changed",
       503,
     );
@@ -89,13 +96,32 @@ export class RewardStore {
     build: () => Promise<{ statements: D1PreparedStatement[]; value: T }>,
   ): Promise<T> {
     await this.init();
+    let lastError: unknown;
     for (let retry = 0; retry < 8; retry++) {
       const row = await this.statement(
         "SELECT revision FROM reward_programs WHERE program_id=?",
         this.program,
       ).first<{ revision: number }>();
       insist(row, "reward_program_missing", 503);
-      const { statements, value } = await build();
+      let built: Awaited<ReturnType<typeof build>>;
+      try {
+        built = await build();
+      } catch (error) {
+        // Reads inside build are not one snapshot. If another batch committed
+        // meanwhile, a failed invariant may only reflect that torn read, so it
+        // is retried against the new revision; otherwise it stands.
+        const now = await this.statement(
+          "SELECT revision FROM reward_programs WHERE program_id=?",
+          this.program,
+        ).first<{ revision: number }>();
+        if (now?.revision !== row.revision) {
+          lastError = error;
+          continue;
+        }
+        throw error;
+      }
+      const { statements, value } = built;
+      lastError = undefined;
       const guard = token();
       try {
         await this.db.batch([
@@ -125,7 +151,8 @@ export class RewardStore {
           throw error;
       }
     }
-    throw new Error("reward_program_contention");
+    // Under sustained contention, report the invariant that kept failing.
+    throw lastError ?? new Error("reward_program_contention");
   }
   async offer(id: string): Promise<OfferRow> {
     const row = await this.statement(

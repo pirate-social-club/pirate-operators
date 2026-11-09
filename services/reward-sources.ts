@@ -168,6 +168,43 @@ export function qualifiesRewardResult(
     score.unmeasuredCount * 10000 <= 1000 * score.linesTotal
   );
 }
+/**
+ * Each wallet's earliest qualifying result, resolved to accounts in batched
+ * reads so repeated results cannot exhaust per-request queries.
+ */
+export async function resolveRewardQualifiers(
+  db: D1Database,
+  results: Omit<QualificationEntry, "accountId">[],
+): Promise<QualificationEntry[]> {
+  const earliest = new Map<string, Omit<QualificationEntry, "accountId">>();
+  for (const r of results) {
+    const prior = earliest.get(r.wallet);
+    if (
+      !prior ||
+      r.completedAt < prior.completedAt ||
+      (r.completedAt === prior.completedAt &&
+        r.evidenceHash < prior.evidenceHash)
+    )
+      earliest.set(r.wallet, r);
+  }
+  const wallets = [...earliest.keys()];
+  const entries: QualificationEntry[] = [];
+  for (let i = 0; i < wallets.length; i += 90) {
+    const chunk = wallets.slice(i, i + 90);
+    const owners = await db
+      .prepare(
+        `SELECT account_id,subject FROM credential_bindings WHERE namespace='moss' AND network=6343 AND subject IN (${chunk.map(() => "?").join(",")})`,
+      )
+      .bind(...chunk)
+      .all<{ account_id: string; subject: string }>();
+    for (const owner of owners.results)
+      entries.push({
+        ...earliest.get(owner.subject)!,
+        accountId: owner.account_id,
+      });
+  }
+  return entries;
+}
 export function liveRewardSources(input: {
   db: D1Database;
   profile: RewardsProfile;
@@ -225,23 +262,16 @@ export function liveRewardSources(input: {
         studyManifest: studySourceReader(context),
         authenticateStudy: studySourceAuthenticator(context),
       });
-      const entries: QualificationEntry[] = [];
-      for (const result of evidence) {
-        if (!qualifiesRewardResult(result, offer, source)) continue;
-        const owner = await db
-          .prepare(
-            "SELECT account_id FROM credential_bindings WHERE namespace='moss' AND network=6343 AND subject=?",
-          )
-          .bind(result.result.learner.toLowerCase())
-          .first<{ account_id: string }>();
-        if (owner)
-          entries.push({
-            accountId: owner.account_id,
+      const entries = await resolveRewardQualifiers(
+        db,
+        evidence
+          .filter((result) => qualifiesRewardResult(result, offer, source))
+          .map((result) => ({
             wallet: result.result.learner.toLowerCase(),
             evidenceHash: result.commitment,
             completedAt: Number(result.result.completedAt) * 1000,
-          });
-      }
+          })),
+      );
       insist(
         (await reads.client.getBlock({ blockNumber: head.number })).hash ===
           head.hash,

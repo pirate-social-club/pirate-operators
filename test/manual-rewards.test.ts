@@ -10,13 +10,13 @@ import {
   rewardProfile,
 } from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
+import { MAX_REWARD_ENTRIES } from "../packages/rewards/offers.ts";
+import { resolveRewardQualifiers } from "../services/reward-sources.ts";
 
 test("daily credits remain held until verified; several credits reconcile to one exact payment", async () => {
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
-    await f.offers.approve(b.accountId, b.wallet);
     await f.settle("offer_0001", "1");
     f.setPrize("120000");
     await f.settle("offer_0002", "2");
@@ -126,7 +126,6 @@ test("unmatched outgoing transfers stop new payments; exact operator cost record
   const f = await manualRewardsFixture();
   try {
     const [a] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(a);
     f.subjects.set("provider_1", "77");
@@ -188,7 +187,6 @@ test("one program subject cannot claim another account's allocations; held money
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    for (const p of [a, b]) await f.offers.approve(p.accountId, p.wallet);
     await f.settle("offer_0001", "1");
     for (const [index, p] of [a, b].entries()) {
       const intent = await f.claims.intent(p);
@@ -224,7 +222,6 @@ test("offer windows, duplicate tickets, zero prizes and indivisible remainders p
   const f = await manualRewardsFixture();
   try {
     const [a, b] = f.principals;
-    for (const p of [a, b]) await f.offers.approve(p.accountId, p.wallet);
     const input = await f.offer("offer_0001", "1");
     await assert.rejects(
       f.offers.close(input.offerId),
@@ -285,7 +282,6 @@ test("racing payment preparations reserve the learner's credits exactly once", a
   const f = await manualRewardsFixture();
   try {
     const [a] = f.principals;
-    await f.offers.approve(a.accountId, a.wallet);
     await f.settle("offer_0001", "1");
     const intent = await f.claims.intent(a);
     f.subjects.set("provider_1", "77");
@@ -330,6 +326,153 @@ test("racing payment preparations reserve the learner's credits exactly once", a
       "0",
     );
     assert.equal((await f.store.credits(a.accountId))[0].payment_id, null);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("any signed-in account earns without operator approval, but only from its own MOSS wallet", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const [a, b] = f.principals;
+    const open = await f.offer("offer_open_01", "7");
+    f.setCandidates([
+      {
+        ...a,
+        evidenceHash: rewardHash(700),
+        completedAt: open.opensAt + 1000,
+      },
+    ]);
+    f.setNow(open.cutoffAt);
+    const closed = await f.offers.close("offer_open_01");
+    assert.deepEqual(
+      closed.entries!.map((e) => e.accountId),
+      [a.accountId],
+    );
+    const approvals = await f.db
+      .prepare("SELECT count(*) AS n FROM reward_participants")
+      .first<{ n: number }>();
+    assert.equal(approvals!.n, 0);
+    const foreign = await f.offer("offer_open_02", "8");
+    f.setCandidates([
+      {
+        ...b,
+        wallet: a.wallet,
+        evidenceHash: rewardHash(701),
+        completedAt: foreign.opensAt + 1000,
+      },
+    ]);
+    f.setNow(foreign.cutoffAt);
+    await assert.rejects(
+      f.offers.close("offer_open_02"),
+      /reward_qualifier_wallet_changed/,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an offer always closes: repeats collapse per account and past the limit the earliest accounts enter, all credited in one settlement", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const extra = Array.from({ length: MAX_REWARD_ENTRIES + 2 }, (_, i) => ({
+      accountId: `singer_${String(i).padStart(4, "0")}`,
+      wallet: `0x${(BigInt(i + 1) + 0x1000n).toString(16).padStart(40, "0")}`,
+    }));
+    for (let i = 0; i < extra.length; i += 50)
+      await f.db.batch(
+        extra
+          .slice(i, i + 50)
+          .flatMap((p, j) => [
+            f.db
+              .prepare(
+                "INSERT INTO community_accounts(account_id,author_id,created_at) VALUES(?,?,0)",
+              )
+              .bind(p.accountId, rewardHash(5000 + i + j)),
+            f.db
+              .prepare(
+                "INSERT INTO credential_bindings(binding_id,account_id,namespace,network,subject,created_at) VALUES(?,?,'moss',6343,?,0)",
+              )
+              .bind(`binding_singer_${i + j}`, p.accountId, p.wallet),
+          ]),
+      );
+    const open = await f.offer("offer_crowd_01", "9");
+    // The last two accounts sang latest; one early account repeats many times.
+    const results = extra.map((p, i) => ({
+      ...p,
+      evidenceHash: rewardHash(10000 + i),
+      completedAt: open.opensAt + 10 + i,
+    }));
+    for (let k = 0; k < 2000; k++)
+      results.push({
+        ...extra[0],
+        evidenceHash: rewardHash(20000 + k),
+        completedAt: open.opensAt + 5000 + k,
+      });
+    f.setCandidates(results);
+    f.setNow(open.cutoffAt);
+    const closed = await f.offers.close("offer_crowd_01");
+    const ids = closed.entries!.map((e) => e.accountId);
+    assert.equal(ids.length, MAX_REWARD_ENTRIES);
+    assert.deepEqual(
+      ids,
+      extra
+        .slice(0, MAX_REWARD_ENTRIES)
+        .map((p) => p.accountId)
+        .sort(),
+    );
+    assert.equal(
+      closed.entries!.find((e) => e.accountId === extra[0].accountId)!
+        .evidenceHash,
+      rewardHash(10000),
+      "an account's earliest result is the one entered",
+    );
+    const settled = await f.offers.settle("offer_crowd_01");
+    assert.equal(settled.state, "settled");
+    const credits = await f.db
+      .prepare("SELECT count(*) AS n FROM reward_credits WHERE offer_id=?")
+      .bind("offer_crowd_01")
+      .first<{ n: number }>();
+    assert.equal(credits!.n, MAX_REWARD_ENTRIES);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("the live result reader collapses repeats per wallet and resolves accounts in batched reads", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const [a, b] = f.principals;
+    let reads = 0;
+    const counted = {
+      prepare: (sql: string) => (reads++, f.db.prepare(sql)),
+    } as unknown as D1Database;
+    const results = [];
+    for (let k = 0; k < 3000; k++)
+      results.push({
+        wallet: a.wallet,
+        evidenceHash: rewardHash(30000 + k),
+        completedAt: 5000 + k,
+      });
+    results.push(
+      { wallet: b.wallet, evidenceHash: rewardHash(2), completedAt: 4000 },
+      { wallet: b.wallet, evidenceHash: rewardHash(1), completedAt: 4000 },
+      {
+        wallet: `0x${"77".repeat(20)}`,
+        evidenceHash: rewardHash(3),
+        completedAt: 1,
+      },
+    );
+    const entries = await resolveRewardQualifiers(counted, results);
+    assert.equal(reads, 1, "one batched read for three wallets");
+    assert.deepEqual(
+      entries.map((e) => [e.accountId, e.evidenceHash, e.completedAt]).sort(),
+      [
+        [a.accountId, rewardHash(30000), 5000],
+        [b.accountId, rewardHash(1), 4000],
+      ].sort(),
+      "unbound wallets are dropped; each wallet keeps its earliest result",
+    );
   } finally {
     await f.dispose();
   }

@@ -1,5 +1,9 @@
 import { bytes32, hashJson, insist, object } from "../community/common.ts";
-import { assertRehearsalOffer } from "./rehearsal.ts";
+import {
+  assertRehearsalOffer,
+  isRetiredRehearsal,
+  rehearsalTermsFor,
+} from "./rehearsal.ts";
 import type {
   QualificationEntry,
   RewardOffer,
@@ -13,6 +17,11 @@ import {
   rewardId,
   rewardTime,
 } from "./validation.ts";
+
+/** Raw results read for one offer; repeats collapse per account below. */
+const MAX_QUALIFIER_RESULTS = 20000;
+/** Accounts entered per offer; settlement writes one credit each in one batch. */
+export const MAX_REWARD_ENTRIES = 500;
 
 export function offerView(row: OfferRow): RewardOffer {
   const mode = object(JSON.parse(row.purchase_evidence)).mode;
@@ -55,43 +64,6 @@ export class RewardOffers {
       503,
     );
   }
-  async approve(accountId: string, wallet: string) {
-    rewardId(accountId);
-    wallet = rewardAddress(wallet);
-    return this.store.atomic(async () => {
-      const owner = await this.store
-        .statement(
-          "SELECT 1 AS ok FROM credential_bindings WHERE account_id=? AND namespace='moss' AND network=6343 AND subject=?",
-          accountId,
-          wallet,
-        )
-        .first();
-      insist(owner, "reward_account_wallet_mismatch", 409);
-      const prior = await this.store
-        .statement(
-          "SELECT wallet FROM reward_participants WHERE program_id=? AND account_id=?",
-          this.store.program,
-          accountId,
-        )
-        .first<{ wallet: string }>();
-      if (prior) {
-        insist(prior.wallet === wallet, "reward_account_wallet_changed", 409);
-        return { value: { accountId, wallet }, statements: [] };
-      }
-      return {
-        value: { accountId, wallet },
-        statements: [
-          this.store.statement(
-            "INSERT INTO reward_participants(program_id,account_id,wallet,approved_at) VALUES(?,?,?,?) ON CONFLICT(program_id,account_id) DO NOTHING",
-            this.store.program,
-            accountId,
-            wallet,
-            this.now(),
-          ),
-        ],
-      };
-    });
-  }
   async attach(input: RewardOfferInput) {
     rewardId(input.offerId);
     rewardAmount(input.drawingId);
@@ -114,6 +86,12 @@ export class RewardOffers {
       );
       return offerView(await this.store.offer(input.offerId));
     }
+    // A retired rehearsal keeps its original offer and terms; it never reopens.
+    insist(
+      !isRetiredRehearsal(this.store.profile, input.offerId),
+      "reward_rehearsal_retired",
+      409,
+    );
     insist(
       input.opensAt >= this.now() && input.cutoffAt > input.opensAt,
       "reward_window_invalid",
@@ -203,12 +181,18 @@ export class RewardOffers {
     if (input.state !== "open") return input;
     insist(this.now() >= input.cutoffAt, "reward_cutoff_not_reached", 409);
     const candidates = await this.source.qualifiers(input);
-    insist(candidates.length <= 1000, "reward_entry_limit", 409);
+    insist(
+      candidates.length <= MAX_QUALIFIER_RESULTS,
+      "reward_entry_limit",
+      409,
+    );
     return this.store.atomic(async () => {
       const row = await this.store.offer(id);
       if (row.state !== "open")
         return { value: offerView(row), statements: [] };
-      const entries = new Map<string, QualificationEntry>();
+      // Repeated results collapse to each account's earliest one before any
+      // limit applies, so one account cannot crowd others out.
+      const earliest = new Map<string, QualificationEntry>();
       for (const entry of candidates) {
         rewardId(entry.accountId);
         bytes32(entry.evidenceHash);
@@ -220,26 +204,49 @@ export class RewardOffers {
           "reward_evidence_outside_window",
           409,
         );
-        const participant = await this.store
-          .statement(
-            "SELECT wallet,approved_at FROM reward_participants WHERE program_id=? AND account_id=?",
-            this.store.program,
-            entry.accountId,
-          )
-          .first<{ wallet: string; approved_at: number }>();
-        if (!participant || participant.approved_at > row.opens_at) continue;
+        const prior = earliest.get(entry.accountId);
         insist(
-          participant.wallet === wallet,
+          !prior || prior.wallet === wallet,
           "reward_qualifier_wallet_changed",
           409,
         );
-        if (!entries.has(entry.accountId))
-          entries.set(entry.accountId, { ...entry, wallet });
+        if (
+          !prior ||
+          entry.completedAt < prior.completedAt ||
+          (entry.completedAt === prior.completedAt &&
+            entry.evidenceHash < prior.evidenceHash)
+        )
+          earliest.set(entry.accountId, { ...entry, wallet });
       }
-      const sorted = [...entries.values()].sort((a, b) =>
-        a.accountId.localeCompare(b.accountId),
-      );
-      insist(sorted.length <= 50, "reward_entry_limit", 409);
+      // Anyone with an account may earn; no operator approval exists. Past
+      // the entry limit the earliest qualifying accounts enter, so an offer
+      // can always close. Each entry's wallet must be that account's MOSS sign-in.
+      const sorted = [...earliest.values()]
+        .sort(
+          (a, b) =>
+            a.completedAt - b.completedAt ||
+            a.accountId.localeCompare(b.accountId),
+        )
+        .slice(0, MAX_REWARD_ENTRIES)
+        .sort((a, b) => a.accountId.localeCompare(b.accountId));
+      for (let i = 0; i < sorted.length; i += 90) {
+        const chunk = sorted.slice(i, i + 90);
+        const bound = await this.store
+          .statement(
+            `SELECT account_id,subject FROM credential_bindings WHERE namespace='moss' AND network=6343 AND account_id IN (${chunk.map(() => "?").join(",")})`,
+            ...chunk.map((e) => e.accountId),
+          )
+          .all<{ account_id: string; subject: string }>();
+        for (const entry of chunk)
+          insist(
+            bound.results.some(
+              (b) =>
+                b.account_id === entry.accountId && b.subject === entry.wallet,
+            ),
+            "reward_qualifier_wallet_changed",
+            409,
+          );
+      }
       return {
         value: { ...offerView(row), state: "closed" as const, entries: sorted },
         statements: [
@@ -255,6 +262,14 @@ export class RewardOffers {
   }
   async settle(id: string, claimHash?: string) {
     const input = offerView(await this.store.offer(rewardId(id)));
+    // A rehearsal ID that names an offer attached with real evidence would
+    // route its settlement to the simulated prize; only that offer is refused.
+    insist(
+      input.evidenceMode === "simulated" ||
+        !rehearsalTermsFor(this.store.profile, input.offerId),
+      "reward_rehearsal_offer_conflict",
+      409,
+    );
     if (
       input.evidenceMode === "simulated" &&
       this.store.profile.mode === "live-testnet"

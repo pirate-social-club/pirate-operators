@@ -22,10 +22,14 @@ provider source. Configurations and receipt evidence have immutable hashes.
 
 An offer binds a drawing, stable song identity, actual purchase and unique
 ticket IDs before its cutoff. The trusted public-results adapter selects the
-approved accounts that qualified under frozen activity policies before that
-cutoff. Closing the offer freezes those entries. Provider settlement and actual
+accounts that qualified under frozen activity policies before that cutoff.
+Anyone with an account may earn; there is no operator approval of participants.
+A qualifying result must be a genuine published result inside the window,
+signed by that account's own MOSS sign-in wallet. Closing the offer freezes those entries. Provider settlement and actual
 USDC collection are required before crediting wins; a zero prize is explicit.
-Repeated activities collapse into one entry per account/offer. Exact split
+Repeated activities collapse into each account's earliest one per offer. At
+most 500 accounts enter an offer; if more qualify, the earliest 500 enter, so
+an offer can always close and settle. Exact split
 arithmetic preserves the remainder in the ticket wallet. No-qualifier winnings
 stay there. Unclaimed and subject-conflict credits remain owed without expiry.
 Eligibility scans only publication blocks within that offer's advertised time
@@ -147,13 +151,14 @@ resource custody and execution gates still apply. No plan was applied here.
 The actual public payout and Base ticket addresses, USDm token/precision, Very
 app identity and current reviewed predecessor are required to produce the live
 selection. No placeholder selection is eligible for execution. The operator
-must first approve known learner accounts, buy tickets manually, attach each
+must buy tickets manually, attach each
 ticket to its song before the advertised window opens, and publish the rules.
 After cutoff, close freezes independently validated public results. Once the
 drawing ends, record its actual prize-collection receipt or confirmed zero
 prize. Then record confirmed reserve funding, process ready claims and approve
-each exact payout in the wallet. Approvals, closing and settlement are manual
-operator actions in this MVP, not a fully automated daily lottery service.
+each exact payout in the wallet. Payment approval, closing and settlement are
+manual operator actions in this MVP, not a fully automated daily lottery
+service. Very verification at claim still gates every payment.
 
 Before funded acceptance, independently review the ledger and release change;
 complete the separately owned Study lesson/retry/recovery acceptance; qualify
@@ -175,9 +180,23 @@ prize and refs cannot be edited through the operator form or collection endpoint
 This avoids a program-wide simulation mode that could never be changed under
 the existing immutable profile rules.
 
+A rehearsal rolls over without changing the program. The successor profile
+moves the current rehearsal, with its original terms, onto the end of an
+append-only profile.rehearsalHistory list and names a new rehearsal; no other
+field may change. The stored program hash is never rewritten. The ledger accepts
+a running profile only when the stored profile is derivable from it exactly,
+and the release gate accepts one such step per release and refuses any
+reversal. Program identity, funding, costs, obligations, verification scope
+and every historical offer stay as they were. A retired rehearsal offer still
+closes through normal qualification and settles at its own simulated prize,
+but it can never be attached again. Each rehearsal's fictional drawing is its
+position in that list, so the first keeps drawing 0 and each successor has its
+own drawing slot for the same song. A successor rehearsal keeps the retired one's prize, and
+a rehearsal ID that names an offer attached with real evidence is refused.
+
 The operator attaches that rehearsal before its window opens, allowing enough
-time for a real qualifying public Study or Karaoke result. Approval, account
-mapping, public result validation and the real Very claim remain unchanged.
+time for a real qualifying public Study or Karaoke result. Account mapping,
+public result validation and the real Very claim remain unchanged.
 Only the external ticket purchase and drawing prize are simulated. The offer
 is one-shot: its first attachment freezes its song and window; closing with no
 qualifiers or missing that window cannot be reset to manufacture a result.

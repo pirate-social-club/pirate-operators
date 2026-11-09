@@ -8,9 +8,13 @@ import {
 import { RewardOffers } from "../packages/rewards/offers.ts";
 import { RewardStore } from "../packages/rewards/store.ts";
 import {
+  isRehearsalRollover,
   rehearsalTerms,
+  rehearsalTermsFor,
+  rewardProfileAncestors,
   withRewardRehearsal,
 } from "../packages/rewards/rehearsal.ts";
+import { canonical } from "../packages/community/common.ts";
 import { rewardProfile } from "../packages/rewards/validation.ts";
 import type {
   RewardOfferInput,
@@ -165,7 +169,6 @@ test("generic offer paths freeze rehearsal refs/mode and allocate once; real and
     f = await manualRewardsFixture(p);
   try {
     const [learner] = f.principals;
-    await f.offers.approve(learner.accountId, learner.wallet);
     f.sources.winnings = async () => ({
       mode: "live-testnet",
       usdcAtomic: "1110000",
@@ -311,5 +314,201 @@ test("generic offer paths freeze rehearsal refs/mode and allocate once; real and
     );
   } finally {
     await f.dispose();
+  }
+});
+
+test("a rehearsal rollover keeps the program, its stored hash and the retired offer's original terms, and never reverses", async () => {
+  const p0 = profile(),
+    next = { ...config, offerId: "rehearsal_002" },
+    p1 = rewardProfile(
+      JSON.stringify({ ...p0, rehearsal: next, rehearsalHistory: [config] }),
+    ),
+    p2 = rewardProfile(
+      JSON.stringify({
+        ...p0,
+        rehearsal: { ...config, offerId: "rehearsal_003" },
+        rehearsalHistory: [config, next],
+      }),
+    );
+  assert.equal(canonical(rewardProfileAncestors(p1)), canonical([p0]));
+  assert.equal(canonical(rewardProfileAncestors(p2)), canonical([p1, p0]));
+  assert.ok(isRehearsalRollover(p0, p1) && isRehearsalRollover(p1, p2));
+  assert.ok(!isRehearsalRollover(p1, p0) && !isRehearsalRollover(p0, p2));
+  assert.ok(!isRehearsalRollover(p0, p0));
+  assert.ok(
+    !isRehearsalRollover(
+      p0,
+      rewardProfile(
+        JSON.stringify({
+          ...p1,
+          rehearsal: { ...next, prizeUsdcAtomic: "999000000" },
+        }),
+      ),
+    ),
+    "a rollover cannot enlarge the simulated prize",
+  );
+  for (const bad of [
+    { ...p0, rehearsalHistory: [] },
+    { ...p0, rehearsalHistory: [config] },
+    { ...p0, rehearsal: next, rehearsalHistory: [next] },
+    { ...p0, rehearsal: next, rehearsalHistory: [config, config] },
+    { ...p0, rehearsal: undefined, rehearsalHistory: [config] },
+    { ...p0, rehearsal: next, rehearsalHistory: [{ ...config, extra: 1 }] },
+  ])
+    assert.throws(() => rewardProfile(JSON.stringify(bad)));
+  // The retired terms are exactly the ones the original offer was attached with.
+  assert.equal(
+    canonical(rehearsalTermsFor(p1, config.offerId)),
+    canonical(rehearsalTerms(p0)),
+  );
+
+  const f = await manualRewardsFixture(p0);
+  try {
+    const storedHash = async () =>
+      (await f.store
+        .statement("SELECT profile_hash FROM reward_programs")
+        .first<{ profile_hash: string }>())!.profile_hash;
+    const before = await storedHash();
+    const first = input(p0, f.now());
+    await new RewardOffers(
+      f.store,
+      withRewardRehearsal(p0, f.sources),
+      f.now,
+    ).attach(first);
+
+    for (const bad of [
+      { ...p1, veryAppId: "another_program" },
+      { ...p1, rehearsalHistory: [{ ...config, prizeUsdcAtomic: "31000" }] },
+    ])
+      await assert.rejects(
+        new RewardStore(f.db, rewardProfile(JSON.stringify(bad))).init(),
+        /reward_program_configuration_changed/,
+      );
+    const s1 = new RewardStore(f.db, p1);
+    await s1.init();
+    assert.equal(await storedHash(), before);
+    const rows = await f.store
+      .statement(
+        "SELECT (SELECT COUNT(*) FROM reward_programs) AS programs,(SELECT COUNT(*) FROM reward_inventory) AS inventory",
+      )
+      .first<{ programs: number; inventory: number }>();
+    assert.deepEqual({ ...rows }, { programs: 1, inventory: 1 });
+
+    const offers = new RewardOffers(
+      s1,
+      withRewardRehearsal(p1, f.sources),
+      f.now,
+    );
+    assert.equal((await offers.attach(first)).evidenceMode, "simulated");
+    const second = input(p1, f.now());
+    assert.equal(second.offerId, "rehearsal_002");
+    assert.notEqual(second.purchaseHash, first.purchaseHash);
+    assert.deepEqual([first.drawingId, second.drawingId], ["0", "1"]);
+    assert.equal((await offers.attach(second)).evidenceMode, "simulated");
+
+    // The original offer still closes through normal qualification and
+    // settles at its own simulated prize under the successor profile.
+    f.setCandidates([]);
+    f.setNow(first.cutoffAt);
+    assert.deepEqual((await offers.close(first.offerId)).entries, []);
+    const settled = await offers.settle(first.offerId);
+    assert.equal(settled.winningsUsdcAtomic, "30000");
+    assert.equal(
+      (await s1.offer(second.offerId)).state,
+      "open",
+      "the new rehearsal is untouched",
+    );
+    // A later rollover still derives the stored profile. The release gate,
+    // not the ledger, limits each release to one step.
+    await new RewardStore(f.db, p2).init();
+
+    // Production rollback: the stored hash is the original profile, so the
+    // ledger still opens under it, but the newer rehearsal's money stays shut.
+    const s0 = new RewardStore(f.db, p0);
+    await s0.init();
+    const rolledBack = new RewardOffers(
+      s0,
+      withRewardRehearsal(p0, f.sources),
+      f.now,
+    );
+    f.setNow(second.cutoffAt);
+    await rolledBack.close(second.offerId);
+    await assert.rejects(
+      rolledBack.settle(second.offerId),
+      /reward_rehearsal_offer_changed/,
+    );
+    assert.equal((await s0.offer(second.offerId)).state, "closed");
+
+    // A rehearsal may never name an offer that was attached with real evidence.
+    const live = {
+      ...first,
+      offerId: "live_offer_01",
+      drawingId: "11492",
+      purchaseHash: rewardHash(4242),
+      ticketIds: ["4242"],
+      songKey: rewardHash(4243),
+      opensAt: f.now() + 1000,
+      cutoffAt: f.now() + 9000,
+    };
+    await new RewardOffers(
+      s1,
+      withRewardRehearsal(p1, f.sources),
+      f.now,
+    ).attach(live);
+    const conflicting = rewardProfile(
+      JSON.stringify({
+        ...p1,
+        rehearsal: { ...next, offerId: "live_offer_01" },
+        rehearsalHistory: [config, next],
+      }),
+    );
+    const sc = new RewardStore(f.db, conflicting);
+    await sc.init(); // the rest of the program keeps working
+    await assert.rejects(
+      new RewardOffers(
+        sc,
+        withRewardRehearsal(conflicting, f.sources),
+        f.now,
+      ).settle("live_offer_01"),
+      /reward_rehearsal_offer_conflict/,
+    );
+  } finally {
+    await f.dispose();
+  }
+
+  const g = await manualRewardsFixture(p1);
+  try {
+    await assert.rejects(
+      new RewardStore(g.db, p0).init(),
+      /reward_program_configuration_changed/,
+    );
+    const offers = new RewardOffers(
+      g.store,
+      withRewardRehearsal(p1, g.sources),
+      g.now,
+    );
+    const retired = { ...input(p1, g.now()), offerId: config.offerId };
+    const terms = rehearsalTermsFor(p1, config.offerId)!;
+    await assert.rejects(
+      offers.attach({
+        ...retired,
+        purchaseHash: terms.purchaseHash,
+        ticketIds: terms.ticketIds,
+      }),
+      /reward_rehearsal_retired/,
+    );
+    await assert.rejects(
+      withRewardRehearsal(p1, g.sources).purchase(
+        {
+          ...retired,
+          purchaseHash: terms.purchaseHash,
+          ticketIds: terms.ticketIds,
+        },
+        p1,
+      ),
+      /reward_rehearsal_retired/,
+    );
+  } finally {
+    await g.dispose();
   }
 });
