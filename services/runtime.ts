@@ -21,6 +21,7 @@ export interface Env {
   RESULTS_V2_CONTRACT?: string;
   /** Successor default; V2 remains configured for historical pending work. */
   RESULTS_V3_CONTRACT?: string;
+  RESULTS_V4_CONTRACT?: string;
   SERVICE_MODE?: "internal";
   SPONSOR_CAP_WEI?: string;
   SPONSOR_GAS_PRICE_WEI?: string;
