@@ -185,14 +185,19 @@ Sign-in, in the application:
 - On success it creates or reuses `credential_bindings` (moss, 6343,
   lowercased wallet) and `community_sessions` exactly as today.
 - It also stores a row in a new D1 table, `learning_authorizations`
-  (migration 0011), with: `authorization_id` (primary key), `account_id`,
+  (migration 0013, renumbered from 0011; applied only when a release selects
+  V4, after the deployed 0012), with: `authorization_id` (primary key), `account_id`,
   `subject`, `sign_in_json`, `signature`, `policy_hash`, `policy_version`,
   `issued_at`, `state` (`pending`, `recorded` or `refused`), `tx_hash`,
   `created_at` and `updated_at`.
-- A second table, `learning_settings`, holds `account_id` (primary key) and
-  `public_results_withdrawn_at`.
+- A second table, `learning_settings`, holds `account_id` (primary key),
+  `public_results_withdrawn_at`, set while public results are off, and
+  `last_withdrawn_at`, the latest withdrawal, kept after turning on. Both are
+  milliseconds.
 - A sign-in relays only when the account is not withdrawn and has no
-  `recorded` authorization since its last withdrawal.
+  `recorded` authorization issued after its last withdrawal. Session state,
+  the authorization a new lesson or run binds, and the relay count only
+  sign-ins issued after that withdrawal.
 - `/api/session` adds
   `publicResults: "on" | "pending" | "off" | "unavailable"`.
 
@@ -202,6 +207,10 @@ Relay, in the operator Worker:
   the transaction kind `record_authorize`. It is idempotent per authorization
   id, and `resumeAuthorizations` retries it from the alarm.
 - `GET /authorization/:learner` returns `{ since, revokedAt }` read from chain.
+- `POST /authorization/revoke` with `{ learner }` returns the typed V4
+  `Revocation` to sign; with `{ learner, nonce, signature }` it relays `revoke`
+  as `record_revoke`, keyed by the contract's `revocationDigest`, and the alarm
+  retries it.
 
 Binding:
 - A V4 Study lesson offer adds `authorizationId`, and so does a Karaoke ticket.
@@ -236,6 +245,13 @@ Withdrawal:
   prompt. It sets `public_results_withdrawn_at`.
 - "Turn on public results" clears that and performs a normal sign-in, whose
   signature is relayed.
+- The application routes are `POST /api/learning/public-results/off` (request,
+  then the signed revocation) and `POST /api/learning/public-results/on`.
+- When the operator refuses new work with `study_authorization_required` or
+  `karaoke_authorization_required`, the application reads
+  `GET /authorization/:learner`. A chain revocation with no counted sign-in
+  after it is recorded as a withdrawal, so settings offer turning public
+  results back on. Nothing is relayed automatically.
 
 Reader, for Agent 2:
 - `readPublicResults` in packages/records accepts V3 or V4 by pinned code

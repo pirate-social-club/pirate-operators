@@ -43,6 +43,7 @@ import { D1Store } from "./storage.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { publishedKaraoke } from "./karaoke-song.ts";
 import { recordedAuthorization, signInV4 } from "./learning-sign-in.ts";
+import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
 export interface KaraokeEnv {
@@ -263,8 +264,18 @@ export async function karaokeTicket(
     });
   return {
     ticket: await ensureTicket(env, store, wallet, open).catch(
-      (error: Error) => {
-        // The operator's sign-in permission answers reach the learner.
+      async (error: Error) => {
+        // The operator's sign-in permission answers reach the learner. A
+        // withdrawal made outside the application is noted first.
+        if (
+          error.message === "karaoke_authorization_required" &&
+          karaokeResultsV4(ports.env, ports.config) &&
+          learner.account_id
+        )
+          await noteChainWithdrawal(ports.env, ports.db, {
+            account_id: learner.account_id,
+            wallet: learner.wallet,
+          }).catch(() => false);
         if (authorizationRefusals.has(error.message))
           insist(false, error.message, 409);
         throw error;

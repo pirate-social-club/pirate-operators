@@ -40,6 +40,7 @@ import type {
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
+import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
 import { communityReleaseApi } from "./community-release-api.ts";
@@ -75,6 +76,10 @@ import {
 } from "./karaoke-community.ts";
 import { studyCommunityApi } from "./study-community-api.ts";
 import { studyAvailable, type StudyEnv } from "./study-community.ts";
+import {
+  turnOffPublicResults,
+  turnOnPublicResults,
+} from "./learning-public-results.ts";
 import {
   publicResults,
   relayPendingSignIns,
@@ -236,7 +241,10 @@ export async function communityFetch(
     };
   try {
     insist(url.origin === firstSong.origin, "wrong_community_host", 403);
-    const policy = learningPolicyPage(url.pathname);
+    const policy = learningPolicyPage(
+      url.pathname,
+      !!env.STUDY_RESULTS_V4_CONTRACT,
+    );
     if (policy) return policy;
     const context = {
       communityId: firstSong.directoryProfile.communityId,
@@ -557,6 +565,15 @@ export async function communityFetch(
         ...(env.KARAOKE_SERVICE_MODE === "internal"
           ? { learningServiceMode: "internal" as const }
           : {}),
+        // A V4 community's sign-in accepts these documents; absent otherwise.
+        ...(signInV4(env, config)
+          ? {
+              learningPolicy: {
+                termsUrl: learningV4Disclosure.termsUrl,
+                privacyUrl: learningV4Disclosure.privacyUrl,
+              },
+            }
+          : {}),
         creatorConnection: await creatorAvailable(config),
         upload: releaseReady,
         publication: releaseReady,
@@ -710,6 +727,22 @@ export async function communityFetch(
         );
       if (url.pathname === "/api/karaoke/enrollment")
         return reply(await karaokeEnrollment(karaokePorts, session, body));
+      // V4 account settings; never reached from an exercise.
+      if (url.pathname === "/api/learning/public-results/off")
+        return reply(
+          await turnOffPublicResults(
+            env,
+            env.DB,
+            config,
+            session,
+            body,
+            (ports.now ?? Date.now)(),
+          ),
+        );
+      if (url.pathname === "/api/learning/public-results/on")
+        return reply(
+          await turnOnPublicResults(env, env.DB, config, session),
+        );
       if (url.pathname === "/api/karaoke/tickets")
         return reply(await karaokeTicket(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/purchases")

@@ -20,7 +20,7 @@ import {
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import type { StudyLessonOfferV4 } from "../packages/study/operator-contract.ts";
 import { communityScheduled } from "../services/community-application.ts";
-import { acceptAuthorization } from "../services/learning-enrollment.ts";
+import { acceptAuthorization } from "../services/learning-authorization.ts";
 import { intentOf } from "../services/operator-tx.ts";
 import { bindManagedStudy } from "../services/study-operator-client.ts";
 import {
@@ -629,6 +629,8 @@ test(
         [accounts[2].address, 2, true],
         3,
       );
+      // The V4 release applies its sign-in schema to the V3 community.
+      await f.applyV4Migration();
       f.operatorEnv.RESULTS_V4_CONTRACT = v4;
       (
         f.env as { STUDY_RESULTS_V4_CONTRACT?: string }
@@ -682,6 +684,56 @@ test(
         next.authorization.id,
         (await recorded(f))[0].authorization_id,
       );
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test(
+  "a V3 community without migration 0013 signs in and studies normally",
+  { timeout: 150000 },
+  async () => {
+    const f = await studyPublicationFixture(19989);
+    try {
+      // None of the V4 sign-in schema exists in a V3 community.
+      const objects = (
+        await f.db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE name LIKE 'learning_%'",
+          )
+          .all<{ name: string }>()
+      ).results;
+      assert.deepEqual(objects, []);
+      const columns = (
+        await f.db
+          .prepare("SELECT name FROM pragma_table_info('login_challenges')")
+          .all<{ name: string }>()
+      ).results.map((c) => c.name);
+      assert.equal(columns.includes("kind"), false);
+      assert.equal(columns.includes("policy_version"), false);
+      // SIWE sign-in, the session view and capabilities, as before V4.
+      const auth = await f.login();
+      const session = await json<{ publicResults: string }>(
+        await f.call("/api/session", { headers: auth }),
+      );
+      assert.equal(session.publicResults, "unavailable");
+      const capabilities = await json<Record<string, unknown>>(
+        await f.call("/api/capabilities"),
+      );
+      assert.equal("learningPolicy" in capabilities, false);
+      // A V3 lesson binds the enrollment and publishes to V3.
+      const lesson = await complete(f as unknown as Fixture);
+      const binding = studyBinding(f.store, lesson.lessonId)!;
+      assert.equal(binding.target.version, 3);
+      assert.ok(binding.enrollment);
+      const published = await f.publication(lesson.lessonId);
+      assert.equal(published.state, "published", JSON.stringify(published));
+      assert.equal((await f.readResults()).length, 1);
+      // The V4 settings are refused before touching any V4 table.
+      const off = await f.post("/api/learning/public-results/off", {}, auth);
+      assert.equal(off.status, 409);
+      assert.deepEqual(await off.json(), { error: "public_results_unavailable" });
     } finally {
       await f.dispose();
     }

@@ -23,8 +23,14 @@ CREATE TABLE learning_authorizations (
 );
 CREATE INDEX learning_authorizations_account ON learning_authorizations(account_id,state);
 CREATE INDEX learning_authorizations_relay ON learning_authorizations(state,created_at);
+-- Withdrawal times are milliseconds. public_results_withdrawn_at is set while
+-- public results are off and cleared when the learner turns them back on.
+-- last_withdrawn_at keeps the latest withdrawal after that: only a sign-in
+-- issued after it can authorize again.
 CREATE TABLE learning_settings (
   account_id TEXT PRIMARY KEY REFERENCES community_accounts(account_id),
-  public_results_withdrawn_at INTEGER
+  public_results_withdrawn_at INTEGER,
+  last_withdrawn_at INTEGER,
+  CHECK(public_results_withdrawn_at IS NULL OR last_withdrawn_at IS NOT NULL)
 );
 INSERT INTO setup_schema(version) VALUES(13);

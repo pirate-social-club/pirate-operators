@@ -7,7 +7,6 @@ import {
   studyPresentationCap,
 } from "../packages/study/lesson.ts";
 import {
-  STUDY_AUTH_HEADER,
   verifyStudyAuthorization,
 } from "../packages/study/operator-auth.ts";
 import {
@@ -15,7 +14,6 @@ import {
   studyId,
   type AnyStudyLessonOffer,
   type StudyLessonOffer,
-  type StudyLessonOfferV4,
   type StudySpeechParameters,
   type StudySpeechReceipt,
 } from "../packages/study/operator-contract.ts";
@@ -34,16 +32,17 @@ import {
   type BoundEnrollment,
 } from "./learning-enrollment.ts";
 import {
-  resultsTarget,
   retainedTarget,
   sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
 import {
+  bindAuthorizedLesson,
+  studyAuthorityTarget,
   studyAuthorizationPermits,
-  studyAuthorizationState,
-  type BoundAuthorization,
+  type StudyAuthorizationBinding,
 } from "./study-authorization.ts";
+export type { StudyAuthorizationBinding };
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import type { Env } from "./runtime.ts";
@@ -57,15 +56,6 @@ export interface StudyOperatorBinding {
   enrollment: BoundEnrollment;
   authorization?: never;
 }
-/** A V4 lesson binding: the sign-in authorization in force at its start. */
-export interface StudyAuthorizationBinding {
-  offer: StudyLessonOfferV4;
-  offerHash: Hex;
-  exercisesHash: Hex;
-  target: ResultsTarget;
-  authorization: BoundAuthorization;
-  enrollment?: never;
-}
 export type StudyBinding = StudyOperatorBinding | StudyAuthorizationBinding;
 interface SpeechJob {
   bindingHash: Hex;
@@ -77,30 +67,6 @@ interface SpeechJob {
 }
 export const studyBinding = (store: ResultStore, id: string) =>
   store.get<StudyBinding>(`studyBinding:${id}`);
-
-/**
- * The results contract the community issuer named. V4 is chosen only when
- * the request names the configured V4 contract; anything else is V3 as before,
- * so V3 lessons keep working beside V4.
- */
-function authorityTarget(env: Env, request: Request): ResultsTarget {
-  if (env.RESULTS_V4_CONTRACT) {
-    let named: unknown;
-    try {
-      named = JSON.parse(request.headers.get(STUDY_AUTH_HEADER) ?? "")?.request
-        ?.contract;
-    } catch {
-      /* Verification below refuses a malformed header. */
-    }
-    // Only a request naming V4 depends on the V4 setting's validity.
-    if (
-      typeof named === "string" &&
-      named.toLowerCase() === env.RESULTS_V4_CONTRACT.toLowerCase()
-    )
-      return resultsTarget(env, 4);
-  }
-  return resultsTarget(env, 3);
-}
 
 async function bindStudyLesson(
   env: Env,
@@ -167,68 +133,6 @@ async function bindStudyLesson(
       enrollment,
     };
     store.set(key, binding);
-    return binding;
-  });
-}
-
-/**
- * V4: the lesson binds the sign-in authorization the application chose. It
- * must be the learner's, issued no later than the lesson started, with
- * permission unbroken since. Later sign-ins never move that start.
- */
-async function bindAuthorizedLesson(
-  env: Env,
-  store: ResultStore,
-  offer: AnyStudyLessonOffer,
-  target: ResultsTarget,
-  hash: Hex,
-): Promise<StudyAuthorizationBinding> {
-  const exercisesHash = validateStudyOffer(offer, store.now(), 4),
-    v4 = offer as StudyLessonOfferV4;
-  const state = await studyAuthorizationState(
-    env,
-    target,
-    v4.learner,
-    v4.authorizationId,
-  );
-  check(
-    state.ownedBy && state.issuedAt * 1000 <= v4.startedAt,
-    "study_authorization_mismatch",
-  );
-  check(state.unbroken, "study_authorization_required");
-  return store.transaction(() => {
-    check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
-    const concurrent = studyBinding(store, v4.lessonId);
-    if (concurrent) {
-      check(
-        concurrent.offerHash === hash &&
-          sameResultsTarget(concurrent.target, target),
-        "study_lesson_binding_changed",
-      );
-      return concurrent as StudyAuthorizationBinding;
-    }
-    reserveSponsorship(
-      store,
-      sponsorLimits(env),
-      `record_result:study:${v4.lessonId}:1`,
-    );
-    reserveSponsorship(
-      store,
-      sponsorLimits(env),
-      `record_result:study:${v4.lessonId}:2`,
-    );
-    const binding: StudyAuthorizationBinding = {
-      offer: v4,
-      offerHash: hash,
-      exercisesHash,
-      target,
-      authorization: {
-        id: v4.authorizationId,
-        issuedAt: state.issuedAt,
-        target,
-      },
-    };
-    store.set(`studyBinding:${v4.lessonId}`, binding);
     return binding;
   });
 }
@@ -399,7 +303,7 @@ export async function studyOperatorRoute(
     Response.json(value, {
       headers: { "cache-control": "no-store" },
     });
-  const target = authorityTarget(env, request);
+  const target = studyAuthorityTarget(env, request);
   const auth = await verifyStudyAuthorization(
     request,
     {

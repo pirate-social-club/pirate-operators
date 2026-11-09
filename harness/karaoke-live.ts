@@ -130,7 +130,8 @@ const bundle = async (entry: string) =>
     })
   ).outputFiles[0]!.text;
 
-async function migrate(db: D1Database) {
+/** 0013, the V4 sign-in schema, only for a V4 community, as a release applies it. */
+async function migrate(db: D1Database, v4: boolean) {
   for (const name of [
     "0001_setup.sql",
     "0002_first_song.sql",
@@ -140,7 +141,7 @@ async function migrate(db: D1Database) {
     "0006_song_stems.sql",
     "0007_owner_curated.sql",
     "0008_karaoke.sql",
-    "0013_learning_authorization.sql",
+    ...(v4 ? ["0013_learning_authorization.sql"] : []),
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",
@@ -302,7 +303,7 @@ export async function karaokeLive(
       media = (await mf.getR2Bucket("MEDIA", "storage")) as unknown as R2Bucket,
       operatorWorker = (await mf.getWorker("operator")) as unknown as Fetcher,
       simulatorWorker = await mf.getWorker("elevenlabs");
-    await migrate(db);
+    await migrate(db, !!resultsV4);
     let now = options.now;
     const posts = releasePostsFixture(publisher, config),
       ipfs = new Map<string, Uint8Array>([

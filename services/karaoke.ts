@@ -43,11 +43,11 @@ import {
   publish,
 } from "./records.ts";
 import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
+import { enrollmentForPractice } from "./learning-enrollment.ts";
 import {
   authorizationRoute,
-  enrollmentForPractice,
   resumeAuthorizations,
-} from "./learning-enrollment.ts";
+} from "./learning-authorization.ts";
 
 import {
   learningEnrollments,

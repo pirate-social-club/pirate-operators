@@ -37,6 +37,13 @@ export function signInV4(
   };
 }
 
+/**
+ * Sign-ins count only when issued after the account's last withdrawal.
+ * `issued_at` is seconds; withdrawal times are milliseconds.
+ */
+const sinceWithdrawal = (alias: string) =>
+  `${alias}.issued_at*1000>COALESCE((SELECT last_withdrawn_at FROM learning_settings WHERE account_id=?1),-1)`;
+
 export async function publicResults(
   db: D1Database,
   accountId: string,
@@ -47,8 +54,8 @@ export async function publicResults(
     .prepare(
       `SELECT
         (SELECT public_results_withdrawn_at FROM learning_settings WHERE account_id=?1) AS withdrawn,
-        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='recorded') AS recorded,
-        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='pending') AS pending`,
+        EXISTS(SELECT 1 FROM learning_authorizations a WHERE a.account_id=?1 AND a.state='recorded' AND ${sinceWithdrawal("a")}) AS recorded,
+        EXISTS(SELECT 1 FROM learning_authorizations a WHERE a.account_id=?1 AND a.state='pending' AND ${sinceWithdrawal("a")}) AS pending`,
     )
     .bind(accountId)
     .first<{ withdrawn: number | null; recorded: number; pending: number }>();
@@ -58,8 +65,9 @@ export async function publicResults(
 
 /**
  * The account's most recent recorded sign-in authorization issued at or before
- * `atS`, the choice a V4 Study lesson makes. Without one, `pending` says
- * whether a sign-in is still being recorded, which is worth a short retry.
+ * `atS` and after its last withdrawal, the choice a new V4 Study lesson or
+ * Karaoke run makes. Without one, `pending` says whether such a sign-in is
+ * still being recorded, which is worth a short retry.
  */
 export async function recordedAuthorization(
   db: D1Database,
@@ -70,10 +78,10 @@ export async function recordedAuthorization(
   const row = await db
     .prepare(
       `SELECT
-        (SELECT authorization_id FROM learning_authorizations
-          WHERE account_id=?1 AND subject=?2 AND state='recorded' AND issued_at<=?3
-          ORDER BY issued_at DESC,authorization_id DESC LIMIT 1) AS recorded,
-        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='pending') AS pending`,
+        (SELECT a.authorization_id FROM learning_authorizations a
+          WHERE a.account_id=?1 AND a.subject=?2 AND a.state='recorded' AND a.issued_at<=?3 AND ${sinceWithdrawal("a")}
+          ORDER BY a.issued_at DESC,a.authorization_id DESC LIMIT 1) AS recorded,
+        EXISTS(SELECT 1 FROM learning_authorizations a WHERE a.account_id=?1 AND a.state='pending' AND ${sinceWithdrawal("a")}) AS pending`,
     )
     .bind(accountId, subject.toLowerCase(), atS)
     .first<{ recorded: string | null; pending: number }>();
@@ -87,6 +95,7 @@ interface PendingRow {
   signature: Hex;
   issued_at: number;
   withdrawn: number | null;
+  last_withdrawn: number | null;
 }
 interface OperatorReceipt {
   id: Hex;
@@ -105,7 +114,7 @@ const refusals = new Set([
   "authorization_not_learners",
 ]);
 const pendingRows = `SELECT a.authorization_id,a.sign_in_json,a.signature,a.issued_at,
-  s.public_results_withdrawn_at AS withdrawn
+  s.public_results_withdrawn_at AS withdrawn,s.last_withdrawn_at AS last_withdrawn
   FROM learning_authorizations a LEFT JOIN learning_settings s ON s.account_id=a.account_id
   WHERE a.state='pending'`;
 
@@ -125,8 +134,12 @@ async function close(
 }
 
 async function relay(env: StudyEnv, db: D1Database, row: PendingRow, now: number) {
-  // A withdrawal stops relaying, even of a sign-in made before it.
-  if (row.withdrawn !== null)
+  // A withdrawal stops relaying, and a sign-in made at or before the last
+  // withdrawal is never relayed, even after public results are turned on.
+  if (
+    row.withdrawn !== null ||
+    (row.last_withdrawn !== null && row.issued_at * 1000 <= row.last_withdrawn)
+  )
     return close(db, row.authorization_id, "refused", null, now);
   const expired = now > (row.issued_at + SIGN_IN_RELAY_WINDOW_S) * 1000;
   let receipt: OperatorReceipt;

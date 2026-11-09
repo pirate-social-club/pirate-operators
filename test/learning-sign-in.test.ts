@@ -17,7 +17,11 @@ import {
 } from "../packages/community/accounts.ts";
 import { signInIdV4 } from "../packages/protocol/learning-results-v4.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
-import { publicResults } from "../services/learning-sign-in.ts";
+import {
+  publicResults,
+  recordedAuthorization,
+  relaySignIn,
+} from "../services/learning-sign-in.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
 
 const origin = "https://community.example";
@@ -262,7 +266,7 @@ test("a withdrawn account signs in but gets no authorization row", async () => {
       .first<{ account_id: string }>())!;
     await f.db
       .prepare(
-        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at) VALUES(?,?)",
+        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)",
       )
       .bind(account_id, Date.now())
       .run();
@@ -278,6 +282,114 @@ test("a withdrawn account signs in but gets no authorization row", async () => {
     assert.equal(await f.count("community_sessions"), 2);
     assert.equal(await f.count("learning_authorizations"), 0);
     assert.equal(await publicResults(f.db, account_id, true), "off");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("after a withdrawal and turn-on, only a sign-in issued after the last withdrawal counts", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const signInAt = async (time: number) => {
+      const c = await v4Challenge(f.db, time);
+      return loginVerify(
+        f.db,
+        context,
+        c.id,
+        await signChallenge(c),
+        verifyLoginOffline,
+        time,
+      );
+    };
+    const first = await signInAt(t0);
+    assert.ok(first.authorizationId);
+    const { account_id } = (await f.db
+      .prepare("SELECT account_id FROM credential_bindings")
+      .first<{ account_id: string }>())!;
+    await f.db
+      .prepare("UPDATE learning_authorizations SET state='recorded'")
+      .run();
+    assert.equal(await publicResults(f.db, account_id, true), "on");
+    assert.deepEqual(
+      await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
+      { id: first.authorizationId },
+    );
+    // Withdrawn: a sign-in signs in but records nothing.
+    const withdrawnAt = t0 + 10_000;
+    await f.db
+      .prepare(
+        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)",
+      )
+      .bind(account_id, withdrawnAt)
+      .run();
+    assert.equal(await publicResults(f.db, account_id, true), "off");
+    assert.equal((await signInAt(t0 + 20_000)).authorizationId, undefined);
+    assert.equal(await f.count("learning_authorizations"), 1);
+    // Turned on: the withdrawal is cleared and its time kept.
+    await f.db
+      .prepare(
+        "UPDATE learning_settings SET public_results_withdrawn_at=NULL WHERE account_id=?",
+      )
+      .bind(account_id)
+      .run();
+    // The older recorded sign-in no longer counts for anything.
+    assert.equal(await publicResults(f.db, account_id, true), "off");
+    assert.deepEqual(
+      await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
+      { id: null, pending: false },
+    );
+    // A sign-in in the withdrawal's own second is not after it.
+    const sameSecond = await signInAt(withdrawnAt);
+    assert.ok(sameSecond.authorizationId);
+    assert.equal(await publicResults(f.db, account_id, true), "off");
+    const relayed: string[] = [];
+    const env = {
+      KARAOKE_OPERATOR: {
+        async fetch() {
+          relayed.push("relay");
+          return Response.json({ error: "operator_unavailable" }, { status: 503 });
+        },
+      },
+    } as never;
+    await relaySignIn(env, f.db, sameSecond.authorizationId!, withdrawnAt + 1);
+    assert.deepEqual(relayed, []);
+    assert.equal(
+      (await f.db
+        .prepare("SELECT state FROM learning_authorizations WHERE authorization_id=?")
+        .bind(sameSecond.authorizationId)
+        .first<{ state: string }>())!.state,
+      "refused",
+    );
+    // The next sign-in is stored despite the older recorded row, and counts.
+    const next = await signInAt(t0 + 30_000);
+    assert.ok(next.authorizationId);
+    assert.equal(await publicResults(f.db, account_id, true), "pending");
+    assert.deepEqual(
+      await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
+      { id: null, pending: true },
+    );
+    await f.db
+      .prepare(
+        "UPDATE learning_authorizations SET state='recorded' WHERE authorization_id=?",
+      )
+      .bind(next.authorizationId)
+      .run();
+    assert.equal(await publicResults(f.db, account_id, true), "on");
+    assert.deepEqual(
+      await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
+      { id: next.authorizationId },
+    );
+    // Once recorded since the withdrawal, later sign-ins need no relay again.
+    assert.equal((await signInAt(t0 + 40_000)).authorizationId, undefined);
+    // While withdrawn the settings row must keep the withdrawal time.
+    await assert.rejects(
+      f.db
+        .prepare(
+          "UPDATE learning_settings SET public_results_withdrawn_at=1,last_withdrawn_at=NULL",
+        )
+        .run(),
+    );
   } finally {
     await f.dispose();
   }

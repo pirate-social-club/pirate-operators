@@ -45,7 +45,7 @@ import {
   authorizationRoute,
   AUTHORIZATION_RELAY_WINDOW_S,
   resumeAuthorizations,
-} from "../services/learning-enrollment.ts";
+} from "../services/learning-authorization.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
 import type { Env } from "../services/runtime.ts";
 
@@ -62,7 +62,7 @@ const deployment = JSON.parse(
 
 async function fixture(port: number) {
   const evm = await chain(port);
-  const runtime = await communityRuntime().catch(async (error) => {
+  const runtime = await communityRuntime({ v4: true }).catch(async (error) => {
     await stopChain(evm);
     throw error;
   });

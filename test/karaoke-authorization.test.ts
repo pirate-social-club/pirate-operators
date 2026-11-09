@@ -5,6 +5,7 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { decodeFunctionData, keccak256, type Address, type Hex } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { accounts, keys } from "../harness/runtime.ts";
 import { chain } from "../harness/chain.ts";
 import { openAttempt } from "../harness/karaoke-client.ts";
@@ -431,6 +432,12 @@ test("an on-chain revoke keeps an unpublished run private and refuses new and pr
   const refused = await ticket(session);
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.value, { error: "karaoke_authorization_required" });
+  // The withdrawal made outside the application is noticed: settings show
+  // "off", and a sign-in through the application stores nothing to relay.
+  const view = await live.get<{ publicResults: string }>(session, "/api/session");
+  assert.equal(view.value.publicResults, "off");
+  await live.signIn(accounts[8]!);
+  assert.equal((await authorizations(accounts[8]!.address)).length, 1);
   const before = await craftedTicket(accounts[8]!.address, authorization.authorization_id);
   assert.equal(before.status, 400);
   assert.equal(before.value.error, "karaoke_authorization_required");
@@ -462,4 +469,68 @@ test("the operator refuses another learner's authorization, an unknown one, or o
   assert.ok("refused" in socket);
   assert.equal(socket.refused?.error, "karaoke_authorization_required");
   assert.equal(await operatorValue(`attempt:${take.ticket.body.ticketId}`), undefined);
+});
+
+test("settings turn public results off and back on: runs are refused while off and a new sign-in binds new runs", async () => {
+  // A fresh public fixture learner; signatures only, never funded.
+  const learner = privateKeyToAccount(generatePrivateKey());
+  const session = await live.signIn(learner);
+  for (let i = 0; i < 5 && (await authorizations(learner.address))[0]?.state !== "recorded"; i++)
+    await live.recordSignIns();
+  const [first] = await authorizations(learner.address);
+  assert.equal(first?.state, "recorded");
+  const before = await issued(session);
+  assert.equal((await binding(before.ticket.body.ticketId))!.id, first!.authorization_id);
+  await sing(before.ticket.body.ticketId, before.proof, true);
+  assert.equal((await settled(before.ticket.body.ticketId)).state, "published");
+  // "Turn off public results": the learner signs the V4 Revocation once.
+  const request = await live.post<{
+    target: { version: number };
+    domain: Record<string, unknown>;
+    types: Record<string, unknown>;
+    primaryType: "Revocation";
+    message: { learner: Address; nonce: string };
+  }>(session, "/api/learning/public-results/off", {});
+  assert.equal(request.status, 200, JSON.stringify(request.value));
+  assert.equal(request.value.target.version, 4);
+  assert.equal(String(request.value.domain.verifyingContract).toLowerCase(), v4().toLowerCase());
+  const signature = await learner.signTypedData(request.value as never);
+  let off = { state: "pending", publicResults: "" };
+  for (let i = 0; i < 5 && off.state !== "success"; i++) {
+    const relayed = await live.post<typeof off>(session, "/api/learning/public-results/off", {
+      message: request.value.message,
+      signature,
+    });
+    assert.equal(relayed.status, 200, JSON.stringify(relayed.value));
+    off = relayed.value;
+    if (off.state !== "success") await live.at(live.now() + 1);
+  }
+  assert.deepEqual(off, { state: "success", publicResults: "off" });
+  assert.equal(await readV4<bigint>("authorizedSince", [learner.address]), 0n);
+  // New runs are refused, before any operator work.
+  await live.get(session, `/api/karaoke/attempt?postId=${firstSongFixture.postId}`);
+  const refused = await ticket(session);
+  assert.equal(refused.status, 409);
+  assert.deepEqual(refused.value, { error: "karaoke_authorization_required" });
+  // Signing in while off records nothing.
+  const whileOff = await live.signIn(learner);
+  assert.equal((await authorizations(learner.address)).length, 1);
+  // "Turn on public results", then the normal sign-in is relayed.
+  const on = await live.post<{ publicResults: string }>(whileOff, "/api/learning/public-results/on", {});
+  assert.deepEqual(on.value, { publicResults: "off" });
+  // After the revocation's block: a sign-in at or before it never authorizes.
+  const head = Number((await evm.publicClient.getBlock()).timestamp);
+  await live.at(Math.max(live.now(), head) + 2);
+  const renewed = await live.signIn(learner);
+  for (let i = 0; i < 5 && (await authorizations(learner.address))[1]?.state !== "recorded"; i++)
+    await live.recordSignIns();
+  const [, second] = await authorizations(learner.address);
+  assert.equal(second?.state, "recorded");
+  assert.equal(await readV4<bigint>("authorizedSince", [learner.address]), BigInt(second!.issued_at));
+  const view = await live.get<{ publicResults: string }>(renewed, "/api/session");
+  assert.equal(view.value.publicResults, "on");
+  const take = await issued(renewed);
+  assert.notEqual(take.ticket.body.ticketId, before.ticket.body.ticketId);
+  assert.equal(take.ticket.body.authorizationId, second!.authorization_id);
+  assert.equal((await binding(take.ticket.body.ticketId))!.id, second!.authorization_id);
 });

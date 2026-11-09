@@ -40,6 +40,8 @@ import type {
 } from "./study-operator.ts";
 import type { ResultsTarget } from "./learning-contract.ts";
 import { studyPublicationQueue } from "./study-publication-queue.ts";
+import { recordedAuthorization } from "./learning-sign-in.ts";
+import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 export interface StudyEnv extends KaraokeEnv {
   STUDY_RESULTS_V3_CONTRACT?: string;
@@ -181,22 +183,14 @@ export function liveStudy(
    * before `atMs`. A sign-in still being recorded is a retryable refusal.
    */
   async function authorizationAt(atMs: number) {
-    const row = await ports.db
-      .prepare(
-        `SELECT
-        (SELECT authorization_id FROM learning_authorizations
-          WHERE account_id=?1 AND subject=?2 AND state='recorded' AND issued_at<=?3
-          ORDER BY issued_at DESC,authorization_id DESC LIMIT 1) AS recorded,
-        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='pending') AS pending`,
-      )
-      .bind(
-        owner.accountId,
-        session.wallet.toLowerCase(),
-        Math.floor(atMs / 1000),
-      )
-      .first<{ recorded: string | null; pending: number }>();
-    if (row?.recorded) return row.recorded as Hex;
-    studyCheck(!row?.pending, "study_authorization_pending", 409);
+    const chosen = await recordedAuthorization(
+      ports.db,
+      owner.accountId,
+      session.wallet,
+      Math.floor(atMs / 1000),
+    );
+    if (chosen.id) return chosen.id;
+    studyCheck(!chosen.pending, "study_authorization_pending", 409);
     throw new StudyError("study_authorization_required", 409);
   }
   async function ensureBinding(lesson: StudyLesson) {
@@ -242,13 +236,19 @@ export function liveStudy(
       const accepted: StudyAuthorizationBinding = await bindManagedStudy(
         operator,
         v4,
-      ).catch((error: unknown) => {
-        // Permission withdrawn on chain: the same answer as no sign-in.
+      ).catch(async (error: unknown) => {
+        // Permission withdrawn on chain: the same answer as no sign-in. A
+        // withdrawal made outside the application is noted first.
         if (
           error instanceof Error &&
           error.message === "study_authorization_required"
-        )
+        ) {
+          await noteChainWithdrawal(ports.env, ports.db, {
+            account_id: owner.accountId,
+            wallet: session.wallet,
+          }).catch(() => false);
           throw new StudyError("study_authorization_required", 409);
+        }
         throw error;
       });
       check(

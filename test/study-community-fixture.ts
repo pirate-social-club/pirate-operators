@@ -20,10 +20,8 @@ import {
   type CommunityDependencies,
 } from "../services/community-application.ts";
 import { studyOperatorRoute } from "../services/study-operator.ts";
-import {
-  acceptEnrollment,
-  authorizationRoute,
-} from "../services/learning-enrollment.ts";
+import { acceptEnrollment } from "../services/learning-enrollment.ts";
+import { authorizationRoute } from "../services/learning-authorization.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import { relayPendingSignIns } from "../services/learning-sign-in.ts";
 import type {
@@ -43,7 +41,7 @@ export async function studyCommunityFixture(
   const f = await learningBindingFixture(port, firstSongFixture.communityId);
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
   try {
-    runtime = await communityRuntime();
+    runtime = await communityRuntime({ v4: options.v4 });
     const v4: Address | undefined = options.v4
       ? await f.evm.deploy("LearningResultsV4", [
           accounts[3].address,
@@ -272,6 +270,8 @@ export async function studyCommunityFixture(
         );
         now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
       },
+      /** The release step that selects V4: its sign-in schema, migration 0013. */
+      applyV4Migration: () => runtime!.applyV4(),
       /** V4: the scheduled relay settles sign-ins still being recorded. */
       async recordSignIns() {
         await relayPendingSignIns(env, runtime!.db, now);

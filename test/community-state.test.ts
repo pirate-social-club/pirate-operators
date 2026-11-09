@@ -65,7 +65,6 @@ async function fixture() {
     for (const name of [
       "0001_setup.sql",
       "0002_first_song.sql",
-      "0013_learning_authorization.sql",
     ]) {
       const sql = await readFile(
         new URL(

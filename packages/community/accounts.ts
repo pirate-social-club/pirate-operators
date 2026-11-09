@@ -240,9 +240,11 @@ export async function loginVerify(
       signature.length <= 32768,
     "invalid_login",
   );
-  const c = await db
+  // Every column: a community without the V4 migration has no kind or
+  // policy_version, and each of its challenges is SIWE.
+  const row = await db
     .prepare(
-      "SELECT subject,message,expires_at,consumed,kind,policy_version FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
+      "SELECT * FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
     )
     .bind(id, context.communityId, context.origin)
     .first<{
@@ -250,14 +252,15 @@ export async function loginVerify(
       message: string;
       expires_at: number;
       consumed: number;
-      kind: "siwe" | "sign-in-v4";
-      policy_version: number | null;
+      kind?: "siwe" | "sign-in-v4";
+      policy_version?: number | null;
     }>();
   insist(
-    c && !c.consumed && c.expires_at > time,
+    row && !row.consumed && row.expires_at > time,
     "expired_or_replayed_challenge",
     401,
   );
+  const c = { ...row, kind: row.kind ?? "siwe" };
   insist(c.kind === "siwe" || c.kind === "sign-in-v4", "invalid_login");
   // A SIWE challenge never carries an authorization; only typed V4 data does.
   const signIn =
@@ -321,8 +324,9 @@ export async function loginVerify(
       ),
   ];
   if (signIn)
-    // Pending relay, in the same batch as the session. A withdrawn account or
-    // one whose sign-in is already recorded on chain stores nothing.
+    // Pending relay, in the same batch as the session. A withdrawn account
+    // stores nothing, nor does one with a sign-in recorded on chain since its
+    // last withdrawal (issued_at is seconds, withdrawal times milliseconds).
     statements.push(
       db
         .prepare(
@@ -331,14 +335,15 @@ export async function loginVerify(
       WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?
       AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>? AND kind='sign-in-v4')
       AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=b.account_id AND s.public_results_withdrawn_at IS NOT NULL)
-      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded')`,
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded'
+        AND r.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1))`,
         )
         .bind(
           signIn.id,
           JSON.stringify(signIn.typed.message),
           signature.toLowerCase(),
           signIn.message.publicationPolicy,
-          c.policy_version,
+          c.policy_version ?? null,
           Number(signIn.message.issuedAt),
           time,
           time,
