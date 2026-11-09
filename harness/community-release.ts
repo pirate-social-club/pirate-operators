@@ -189,6 +189,9 @@ async function main() {
     communityAccount,
     profile.curatedState,
     "application",
+    undefined,
+    (profile as { ownerPublishing?: { ownerGrant?: unknown } }).ownerPublishing
+      ?.ownerGrant,
   );
   await qualifyCommunityConsumer(directory, password, cloudEnv);
   await qualifyApplicationPeers(profile, values["reviewed-update"] === true);

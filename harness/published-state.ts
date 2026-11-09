@@ -2,9 +2,15 @@
 import {
   canonical,
   hashJson,
+  hashText,
   insist,
   object,
 } from "../packages/community/common.ts";
+import { readFile } from "node:fs/promises";
+import {
+  assertRetainedRows,
+  readRetainedBaseline,
+} from "./retained-state-rules.ts";
 import {
   captureCuratedState,
   qualifyCuratedState,
@@ -135,12 +141,59 @@ export function assertRetainedPublishedState(
     409,
   );
 }
+/**
+ * The reviewed per-row baseline of the pinned state, derived offline from the
+ * November 9 read-only capture taken before any owner upload. Until its
+ * digest is pinned here, releases keep the exact summary comparison.
+ */
+export const retainedStateBaseline = {
+  path: "docs/deployments/first-song-managed-20261105.retained-state-baseline-20261109.json",
+  sha256: null as string | null,
+};
+/** The rules path of qualifyRetainedState, on already captured rows. */
+export function assertRetainedAgainstBaseline(
+  text: string,
+  sha256: string,
+  expected: unknown,
+  repair: unknown,
+  side: CuratedSide,
+  rows: Record<string, Record<string, unknown>[]>,
+  ownerGrant: unknown,
+  nowSeconds: number,
+) {
+  insist(hashText(text) === sha256, "retained_state_baseline_changed", 409);
+  const record = readRetainedBaseline(JSON.parse(text));
+  insist(
+    hashJson(expected) === publishedStateHash &&
+      record.predecessorStateSha256 === publishedStateHash &&
+      record.repairSha256 === publishedStateRepairHash &&
+      (repair === undefined || hashJson(repair) === publishedStateRepairHash),
+    "retained_state_baseline_unbound",
+    409,
+  );
+  return assertRetainedRows(
+    side,
+    rows,
+    record[side],
+    ownerGrant,
+    nowSeconds,
+    Date.parse(record.capturedAt),
+  );
+}
+/**
+ * Under owner publishing with a pinned baseline, the live tables are accepted
+ * by the retained-state rules: pinned rows retained, operational columns
+ * moved legally, and growth only under the active owner grant. Otherwise the
+ * live summaries must equal the pinned ones, as before.
+ */
 export async function qualifyRetainedState(
   token: string,
   accountId: string,
   expected: unknown,
   side: CuratedSide,
   repair?: unknown,
+  ownerGrant?: unknown,
+  baseline = retainedStateBaseline,
 ) {
   if (object(expected).schema === "pirate.held-first-song-state/1")
     return qualifyCuratedState(
@@ -159,6 +212,19 @@ export async function qualifyRetainedState(
     readOnlyRemoteDb(token, accountId, curatedDatabases[side]),
     side,
   );
+  if (ownerGrant !== undefined && baseline.sha256 !== null) {
+    assertRetainedAgainstBaseline(
+      await readFile(baseline.path, "utf8"),
+      baseline.sha256,
+      expected,
+      repair,
+      side,
+      captured.rows,
+      ownerGrant,
+      Math.floor(Date.now() / 1000),
+    );
+    return captured.summary;
+  }
   assertRetainedPublishedState(
     captured,
     repairedSummaries(expected, side, repair),
