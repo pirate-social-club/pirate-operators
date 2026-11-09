@@ -12,6 +12,9 @@ interface ResultsVmV4 {
     function sign(uint256, bytes32) external returns (uint8, bytes32, bytes32);
     function chainId(uint256) external;
     function expectEmit(bool, bool, bool, bool) external;
+    function etch(address, bytes calldata) external;
+    function snapshotState() external returns (uint256);
+    function revertToState(uint256) external returns (bool);
 }
 
 contract ResultsWalletV4 {
@@ -486,29 +489,66 @@ contract LearningResultsV4Test {
         _publish(r);
     }
 
-    /// A text signed for one deployment authorizes nowhere else: each of
-    /// these differs from `records` in exactly one rendered field.
+    /// Runs the constructor at `where`, so variants of a deployment share its
+    /// address: immutables land in the returned runtime code, the origin in
+    /// `where`'s storage.
+    function _deployAt(address where, bytes32 community, bytes32 policy, string memory origin)
+        private
+        returns (LearningResultsV4)
+    {
+        vm.etch(
+            where,
+            abi.encodePacked(type(LearningResultsV4).creationCode, abi.encode(address(this), community, policy, origin))
+        );
+        (bool ok, bytes memory runtime) = where.call("");
+        require(ok, "deploy_failed");
+        vm.etch(where, runtime);
+        return LearningResultsV4(where);
+    }
+
+    /// A text signed for one deployment authorizes nowhere else. Each case
+    /// changes exactly one rendered field: the community, policy and host
+    /// variants are deployed at the signed contract's own address, so the
+    /// address cannot be what refuses them, and the contract variant changes
+    /// only the address.
     function testWrongContractChainCommunityPolicyAndHostRefused() public {
+        address home = address(0xC0FFEE);
+        bytes32 community = keccak256("community");
+        bytes32 policy = keccak256("publicity");
+        uint256 clean = vm.snapshotState();
+        LearningResultsV4 base = _deployAt(home, community, policy, ORIGIN);
         LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
-        bytes memory signature = _signature(records.signInDigest(a));
-        LearningResultsV4[4] memory others = [
-            new LearningResultsV4(address(this), records.communityId(), records.publicityPolicy(), ORIGIN),
-            new LearningResultsV4(address(this), keccak256("elsewhere"), records.publicityPolicy(), ORIGIN),
-            new LearningResultsV4(address(this), records.communityId(), keccak256("old policy"), ORIGIN),
-            new LearningResultsV4(address(this), records.communityId(), records.publicityPolicy(), "https://phish.example")
-        ];
-        for (uint256 i; i < others.length; ++i) {
-            require(others[i].signInDigest(a) != records.signInDigest(a));
+        bytes32 signed = base.signInDigest(a);
+        bytes memory signature = _signature(signed);
+        // Elsewhere: the same arguments at another address.
+        LearningResultsV4 moved = new LearningResultsV4(address(this), community, policy, ORIGIN);
+        require(address(moved) != home && moved.signInDigest(a) != signed);
+        vm.expectRevert(bytes("invalid_consent"));
+        moved.authorize(a, signature);
+        // At the same address: one constructor argument changed.
+        LearningResultsV4[3] memory others;
+        for (uint256 i; i < 3; ++i) {
+            vm.revertToState(clean);
+            others[i] = i == 0
+                ? _deployAt(home, keccak256("elsewhere"), policy, ORIGIN)
+                : i == 1
+                    ? _deployAt(home, community, keccak256("old policy"), ORIGIN)
+                    : _deployAt(home, community, policy, "https://phish.example");
+            require(address(others[i]) == home);
+            require(others[i].signInDigest(a) != signed);
             vm.expectRevert(bytes("invalid_consent"));
             others[i].authorize(a, signature);
         }
-        // The same contract on another chain renders another Chain ID and
-        // eip155 resource.
+        // The signed deployment itself accepts the text, at its chain only.
+        vm.revertToState(clean);
+        base = _deployAt(home, community, policy, ORIGIN);
+        require(base.signInDigest(a) == signed);
         vm.chainId(6343);
         vm.expectRevert(bytes("invalid_consent"));
-        records.authorize(a, signature);
+        base.authorize(a, signature);
         vm.chainId(31337);
-        records.authorize(a, signature);
+        base.authorize(a, signature);
+        require(base.authorizationLearner(signed) == learner);
     }
 
     function testAuthorizedNamesTheCommunityOrigin() public {
