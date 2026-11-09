@@ -1,7 +1,9 @@
 // The application's half of V4: a community sign-in is the learner's
 // publication authorization. The sign-in is stored at login (accounts.ts);
 // here it is relayed to the operator, which records it on chain, and the
-// row is closed as recorded or refused. The thirty-day relay window, the
+// row is closed as recorded or refused. Relay is lazy: only the learner's
+// first Study or Karaoke start without a recorded authorization requests it,
+// so signing in without practising sends no sponsored transaction. The thirty-day relay window, the
 // contract's RELAY_WINDOW and the community session, is a hard limit: after
 // it the learner simply signs in again.
 import type { Address, Hex } from "viem";
@@ -103,7 +105,11 @@ interface OperatorReceipt {
   state: "pending" | "success" | "reverted";
   txHash: Hex | null;
 }
-/** The contract's and operator's final answers; anything else is retried. */
+/**
+ * The contract's and operator's final answers; anything else is retried.
+ * `sign_in_not_yet_valid` (this application's clock ahead of the latest
+ * block) is deliberately absent: such a sign-in stays pending and is retried.
+ */
 const refusals = new Set([
   "stale_sign_in",
   "revoked_sign_in",
@@ -167,7 +173,7 @@ async function relay(env: StudyEnv, db: D1Database, row: PendingRow, now: number
     return close(db, row.authorization_id, "refused", receipt.txHash, now);
 }
 
-/** Relays one sign-in right after login; failures are left for the scheduled retry. */
+/** Relays one pending sign-in; failures are left for the scheduled retry. */
 export async function relaySignIn(
   env: StudyEnv,
   db: D1Database,
@@ -181,7 +187,10 @@ export async function relaySignIn(
   if (row) await relay(env, db, row, now);
 }
 
-/** Scheduled and bounded: the oldest pending sign-ins first. */
+/**
+ * Scheduled and bounded: the oldest requested relays first. A sign-in whose
+ * relay no Study or Karaoke start requested is never relayed here.
+ */
 export async function relayPendingSignIns(
   env: StudyEnv,
   db: D1Database,
@@ -189,9 +198,68 @@ export async function relayPendingSignIns(
   limit = 10,
 ) {
   const rows = await db
-    .prepare(`${pendingRows} ORDER BY a.created_at LIMIT ?`)
+    .prepare(
+      `${pendingRows} AND a.relay_requested_at IS NOT NULL ORDER BY a.relay_requested_at,a.created_at LIMIT ?`,
+    )
     .bind(limit)
     .all<PendingRow>();
   for (const row of rows.results) await relay(env, db, row, now);
   return rows.results.length;
+}
+
+/**
+ * The learner is starting Study or Karaoke work with no recorded
+ * authorization: the account's pending sign-in (at most one) is marked as
+ * requested, which also keeps a later sign-in from replacing it, and relayed
+ * now. A slow operator is bounded; the start answers pending and the client's
+ * bounded retry, or the scheduled job, finishes it.
+ */
+export async function requestSignInRelay(
+  env: Pick<StudyEnv, "KARAOKE_OPERATOR">,
+  db: D1Database,
+  accountId: string,
+  now: number,
+  waitMs = 10_000,
+) {
+  await db
+    .prepare(
+      `UPDATE learning_authorizations AS a SET relay_requested_at=?2,updated_at=?2
+      WHERE a.account_id=?1 AND a.state='pending' AND a.relay_requested_at IS NULL AND ${sinceWithdrawal("a")}`,
+    )
+    .bind(accountId, now)
+    .run();
+  const rows = await db
+    .prepare(
+      `${pendingRows} AND a.account_id=? AND a.relay_requested_at IS NOT NULL ORDER BY a.issued_at LIMIT 2`,
+    )
+    .bind(accountId)
+    .all<PendingRow>();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    (async () => {
+      for (const row of rows.results)
+        await relay(env as StudyEnv, db, row, now).catch(() => undefined);
+    })(),
+    new Promise((resolve) => (timer = setTimeout(resolve, waitMs))),
+  ]);
+  clearTimeout(timer);
+}
+
+/**
+ * The authorization a new V4 Study lesson or Karaoke run binds: the recorded
+ * one, or, on the learner's first start without one, the pending sign-in
+ * relayed inline. `pending` remains a retryable refusal.
+ */
+export async function practiceAuthorization(
+  env: Pick<StudyEnv, "KARAOKE_OPERATOR">,
+  db: D1Database,
+  accountId: string,
+  subject: string,
+  atS: number,
+  now: number,
+) {
+  const chosen = await recordedAuthorization(db, accountId, subject, atS);
+  if (chosen.id || !chosen.pending) return chosen;
+  await requestSignInRelay(env, db, accountId, now);
+  return recordedAuthorization(db, accountId, subject, atS);
 }

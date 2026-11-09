@@ -42,7 +42,7 @@ import { consentTypes } from "../packages/protocol/records.ts";
 import { D1Store } from "./storage.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { publishedKaraoke } from "./karaoke-song.ts";
-import { recordedAuthorization, signInV4 } from "./learning-sign-in.ts";
+import { practiceAuthorization, signInV4 } from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
@@ -98,7 +98,8 @@ const authorizationRefusals = new Set([
 ]);
 /**
  * V4: the sign-in authorization a new run binds, chosen as for a Study
- * lesson. A sign-in still being recorded is a retryable refusal.
+ * lesson; the learner's first start relays a pending sign-in inline. A
+ * sign-in still being recorded is a retryable refusal.
  */
 async function authorizationFor(
   ports: KaraokePorts,
@@ -106,11 +107,13 @@ async function authorizationFor(
   atS: number,
 ) {
   insist(learner.account_id, "karaoke_authorization_required", 409);
-  const chosen = await recordedAuthorization(
+  const chosen = await practiceAuthorization(
+    ports.env,
     ports.db,
     learner.account_id!,
     learner.wallet,
     atS,
+    (ports.now ?? Date.now)(),
   );
   if (chosen.id) return chosen.id;
   insist(!chosen.pending, "karaoke_authorization_pending", 409);

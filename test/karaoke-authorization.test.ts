@@ -354,14 +354,15 @@ test("a ticket waits while the sign-in is being recorded, then the same request 
       return real.fetch(input as never, init as never);
     },
   } as Fetcher;
-  let session: Session;
+  let session: Session, refused: Awaited<ReturnType<typeof ticket>>;
   try {
     session = await live.signIn(accounts[7]!);
+    assert.equal((await authorizations(accounts[7]!.address))[0]!.state, "pending");
+    // The first ticket relays the sign-in inline; the relay is out.
+    refused = await ticket(session);
   } finally {
     live.env.KARAOKE_OPERATOR = real;
   }
-  assert.equal((await authorizations(accounts[7]!.address))[0]!.state, "pending");
-  const refused = await ticket(session);
   assert.equal(refused.status, 409);
   assert.deepEqual(refused.value, { error: "karaoke_authorization_pending" });
   // Refused before any ticket, session key or operator work.
@@ -377,8 +378,6 @@ test("a ticket waits while the sign-in is being recorded, then the same request 
       .first<{ n: number }>())!.n,
     0,
   );
-  const again = await ticket(session);
-  assert.deepEqual(again.value, { error: "karaoke_authorization_pending" });
   assert.equal(await stateRows(), rows);
   for (
     let i = 0;

@@ -122,6 +122,11 @@ export async function acceptAuthorization(
       store.delete(key);
       check(false, "stale_sign_in");
     }
+    // The contract requires issuedAt <= block.timestamp. A sign-in issued by
+    // an application clock ahead of the chain is not yet valid, which is
+    // retryable and never the final stale_sign_in. Nothing is reserved.
+    const head = await client(env).getBlock({ blockTag: "latest" });
+    check(a.issuedAt <= head.timestamp, "sign_in_not_yet_valid");
     // Anyone may relay a sign-in; one already recorded needs no transaction.
     const recorded = await read<Address>(
       env,

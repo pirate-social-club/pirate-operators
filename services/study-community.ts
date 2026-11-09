@@ -40,7 +40,7 @@ import type {
 } from "./study-operator.ts";
 import type { ResultsTarget } from "./learning-contract.ts";
 import { studyPublicationQueue } from "./study-publication-queue.ts";
-import { recordedAuthorization } from "./learning-sign-in.ts";
+import { practiceAuthorization } from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 export interface StudyEnv extends KaraokeEnv {
@@ -180,14 +180,17 @@ export function liveStudy(
   }
   /**
    * V4: the account's most recent recorded sign-in authorization issued at or
-   * before `atMs`. A sign-in still being recorded is a retryable refusal.
+   * before `atMs`. Without one, the learner's first start relays the pending
+   * sign-in inline; a sign-in still being recorded is a retryable refusal.
    */
   async function authorizationAt(atMs: number) {
-    const chosen = await recordedAuthorization(
+    const chosen = await practiceAuthorization(
+      ports.env,
       ports.db,
       owner.accountId,
       session.wallet,
       Math.floor(atMs / 1000),
+      now(),
     );
     if (chosen.id) return chosen.id;
     studyCheck(!chosen.pending, "study_authorization_pending", 409);

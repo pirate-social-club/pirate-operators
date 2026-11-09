@@ -34,7 +34,10 @@ import { readMp3Probe } from "../packages/moderation/mp3-windows.ts";
 import { releasePostsFixture } from "../test/fixtures/release-posts.ts";
 import { verifyLoginOnChain } from "./login-verifier.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
-import { relayPendingSignIns } from "../services/learning-sign-in.ts";
+import {
+  relayPendingSignIns,
+  requestSignInRelay,
+} from "../services/learning-sign-in.ts";
 import type { chain } from "./chain.ts";
 import { keys, accounts } from "./runtime.ts";
 import {
@@ -622,8 +625,20 @@ export async function karaokeLive(
       mf,
       resultsV2,
       resultsV4,
-      /** V4: the application's scheduled relay of sign-ins still being recorded. */
-      recordSignIns: () => relayPendingSignIns(env, db, now * 1000),
+      /**
+       * V4: each pending sign-in is relayed as a learner's first Study or
+       * Karaoke start requests it, and the scheduled relay settles the rest.
+       */
+      async recordSignIns() {
+        const pending = await db
+          .prepare(
+            "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
+          )
+          .all<{ account_id: string }>();
+        for (const { account_id } of pending.results)
+          await requestSignInRelay(env, db, account_id, now * 1000);
+        return relayPendingSignIns(env, db, now * 1000);
+      },
       persist,
       config,
       env,

@@ -46,7 +46,10 @@ import {
   AUTHORIZATION_RELAY_WINDOW_S,
   resumeAuthorizations,
 } from "../services/learning-authorization.ts";
-import { SIGN_IN_RELAY_WINDOW_S } from "../services/learning-sign-in.ts";
+import {
+  practiceAuthorization,
+  SIGN_IN_RELAY_WINDOW_S,
+} from "../services/learning-sign-in.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
 import type { Env } from "../services/runtime.ts";
 
@@ -74,6 +77,8 @@ async function fixture(port: number) {
     learningV4PublicityPolicy,
   ]);
   let now = 0;
+  // Seconds the application's (and operator's) clock runs ahead of the chain.
+  let skew = 0;
   const sync = async () => {
     now = Number((await evm.publicClient.getBlock()).timestamp);
   };
@@ -106,7 +111,7 @@ async function fixture(port: number) {
         throw error;
       }
     },
-    now: () => now,
+    now: () => now + skew,
   };
   const operatorEnv = {
     RPC_URL: evm.rpcUrl,
@@ -163,7 +168,7 @@ async function fixture(port: number) {
     verifyLogin: verifyLoginOnChain(evm.publicClient),
     creatorHealth: async () => false,
     publicReads: { client: posts.client, profile: posts.profile },
-    now: () => now * 1000,
+    now: () => (now + skew) * 1000,
   };
   const call = (path: string, init: RequestInit = {}) =>
     communityFetch(new Request(firstSong.origin + path, init), env, ports);
@@ -218,6 +223,21 @@ async function fixture(port: number) {
       )
       .bind(id)
       .first<{ state: string; tx_hash: string | null; policy_version: number }>();
+  /** What a Study or Karaoke start does first: choose, or relay, the sign-in. */
+  async function practise(s: { message: SignIn }) {
+    const { account_id } = (await runtime.db
+      .prepare("SELECT account_id FROM credential_bindings WHERE subject=?")
+      .bind(s.message.learner.toLowerCase())
+      .first<{ account_id: string }>())!;
+    return practiceAuthorization(
+      env,
+      runtime.db,
+      account_id,
+      s.message.learner,
+      now + skew,
+      (now + skew) * 1000,
+    );
+  }
   const session = async (auth: Record<string, string>) =>
     (await (await call("/api/session", { headers: auth })).json()) as {
       publicResults: string;
@@ -237,8 +257,12 @@ async function fixture(port: number) {
     setOperatorDown: (down: boolean) => {
       operatorDown = down;
     },
+    setSkew: (seconds: number) => {
+      skew = seconds;
+    },
     read,
     signIn,
+    practise,
     authorization,
     session,
     scheduled: () => communityScheduled(env, ports),
@@ -251,14 +275,21 @@ async function fixture(port: number) {
 }
 
 test(
-  "a V4 sign-in is relayed, recorded on chain once, and reported as public results",
+  "a V4 sign-in is relayed at the first practice, recorded on chain once, and reported as public results",
   { timeout: 120000 },
   async () => {
     const f = await fixture(19971);
     try {
       const learner = accounts[5];
       const s = await f.signIn(learner);
-      // The sign-in relayed at once; a scheduled pass settles any late receipt.
+      // Signing in only stores the sign-in; nothing is relayed or spent.
+      assert.deepEqual(f.relayed, []);
+      assert.equal((await f.authorization(s.id))!.state, "pending");
+      await f.scheduled();
+      assert.deepEqual(f.relayed, []);
+      assert.equal(f.count("tx:"), 0);
+      // The first practice relays it; a scheduled pass settles a late receipt.
+      await f.practise(s);
       assert.deepEqual(f.relayed, ["POST /authorization"]);
       await f.scheduled();
       const row = (await f.authorization(s.id))!;
@@ -338,10 +369,11 @@ test(
         since: Number(s.message.issuedAt),
         revokedAt: 0,
       });
-      // A later sign-in by the same learner needs no relay.
+      // A later sign-in by the same learner needs no relay, even to practise.
       f.relayed.length = 0;
       await f.advance(5);
-      await f.signIn(learner);
+      const later = await f.signIn(learner);
+      assert.deepEqual(await f.practise(later), { id: s.id });
       assert.deepEqual(f.relayed, []);
       // A sign-in someone else already relayed needs no operator transaction.
       const other = accounts[6];
@@ -358,7 +390,7 @@ test(
         0,
       );
       await f.sync();
-      await f.scheduled();
+      await f.practise(t);
       assert.deepEqual(await f.authorization(t.id), {
         state: "recorded",
         tx_hash: null,
@@ -387,6 +419,7 @@ test(
       const learner = accounts[5];
       f.setOperatorDown(true);
       const s = await f.signIn(learner);
+      assert.deepEqual(await f.practise(s), { id: null, pending: true });
       await f.scheduled();
       assert.equal((await f.authorization(s.id))!.state, "pending");
       f.setOperatorDown(false);
@@ -414,6 +447,7 @@ test(
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
       // Signing in again is a fresh authorization, recorded normally.
       const again = await f.signIn(learner);
+      await f.practise(again);
       await f.scheduled();
       assert.equal((await f.authorization(again.id))!.state, "recorded");
       assert.equal((await f.session(again.auth)).publicResults, "on");
@@ -455,7 +489,7 @@ test(
       );
       assert.equal(f.count("intent:"), 0);
       assert.equal(f.count("sponsor:reservation:"), 0);
-      await f.scheduled();
+      assert.deepEqual(await f.practise(s), { id: null, pending: false });
       assert.deepEqual(await f.authorization(s.id), {
         state: "refused",
         tx_hash: null,
@@ -464,6 +498,7 @@ test(
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
       await f.advance(1);
       const after = await f.signIn(learner);
+      await f.practise(after);
       await f.scheduled();
       assert.equal((await f.authorization(after.id))!.state, "recorded");
       assert.equal(
@@ -560,6 +595,133 @@ test(
         await f.read("authorizedSince", [learner.address]),
         message.issuedAt,
       );
+    } finally {
+      await f.stop();
+    }
+  },
+);
+
+test(
+  "an application clock one or two seconds ahead of the chain keeps the sign-in pending until the chain catches up",
+  { timeout: 120000 },
+  async () => {
+    const f = await fixture(19975);
+    try {
+      for (const [index, skew] of [
+        [5, 1],
+        [6, 2],
+      ] as const) {
+        const learner = accounts[index];
+        // issuedAt is the application's own time, never backdated.
+        f.setSkew(skew);
+        const s = await f.signIn(learner);
+        assert.equal(Number(s.message.issuedAt), f.now() + skew);
+        f.relayed.length = 0;
+        // The first practice relays it; the chain cannot accept it yet.
+        assert.deepEqual(await f.practise(s), { id: null, pending: true });
+        assert.deepEqual(f.relayed, ["POST /authorization"]);
+        assert.equal((await f.authorization(s.id))!.state, "pending");
+        // The operator's answer is the retryable sign_in_not_yet_valid, with
+        // nothing reserved or signed; never the final stale_sign_in.
+        await assert.rejects(
+          acceptAuthorization(f.operatorEnv, f.store, s.message, s.signature),
+          /^Error: sign_in_not_yet_valid$/,
+        );
+        assert.equal(f.count("intent:record_authorize:"), index - 5);
+        assert.equal(f.count("sponsor:reservation:record_authorize:"), index - 5);
+        await f.scheduled();
+        assert.equal((await f.authorization(s.id))!.state, "pending");
+        assert.equal((await f.session(s.auth)).publicResults, "pending");
+        // The chain catches up; the client's retry of the same start records it.
+        await f.advance(skew);
+        f.setSkew(0);
+        await f.practise(s);
+        await f.scheduled();
+        assert.equal((await f.authorization(s.id))!.state, "recorded");
+        assert.deepEqual(await f.practise(s), { id: s.id });
+        assert.equal(
+          await f.read("authorizedSince", [learner.address]),
+          s.message.issuedAt,
+        );
+        assert.equal((await f.session(s.auth)).publicResults, "on");
+      }
+    } finally {
+      await f.stop();
+    }
+  },
+);
+
+test(
+  "six sign-ins without practice send no transaction; with practice an account is relayed at most once",
+  { timeout: 120000 },
+  async () => {
+    const f = await fixture(19976);
+    try {
+      const learner = accounts[7];
+      const rowsOf = async (who: Address) =>
+        (
+          await f.db
+            .prepare(
+              "SELECT authorization_id,state,relay_requested_at FROM learning_authorizations WHERE subject=?",
+            )
+            .bind(who.toLowerCase())
+            .all<{
+              authorization_id: Hex;
+              state: string;
+              relay_requested_at: number | null;
+            }>()
+        ).results;
+      const signIns = [];
+      for (let i = 0; i < 6; i++) {
+        signIns.push(await f.signIn(learner));
+        await f.advance(1);
+      }
+      await f.scheduled();
+      await f.scheduled();
+      // No relay, transaction or sponsorship, and one pending row: each new
+      // sign-in replaced the unrelayed one before it.
+      assert.deepEqual(f.relayed, []);
+      assert.equal(f.count("tx:"), 0);
+      assert.equal(f.count("intent:"), 0);
+      assert.equal(f.count("sponsor:reservation:"), 0);
+      assert.deepEqual(await rowsOf(learner.address), [
+        {
+          authorization_id: signIns.at(-1)!.id,
+          state: "pending",
+          relay_requested_at: null,
+        },
+      ]);
+      // Practice relays the one pending sign-in; later sign-ins and practice
+      // never relay again.
+      await f.practise(signIns.at(-1)!);
+      await f.scheduled();
+      for (let i = 0; i < 3; i++) {
+        await f.advance(1);
+        const again = await f.signIn(learner);
+        assert.deepEqual(await f.practise(again), { id: signIns.at(-1)!.id });
+        await f.scheduled();
+      }
+      assert.deepEqual(f.relayed, ["POST /authorization"]);
+      assert.equal((await rowsOf(learner.address)).length, 1);
+      assert.equal((await rowsOf(learner.address))[0]!.state, "recorded");
+      // A second learner practises while the operator is down: their requested
+      // relay is the account's only pending row, and a new sign-in adds none.
+      const other = accounts[8];
+      f.setOperatorDown(true);
+      const first = await f.signIn(other);
+      assert.deepEqual(await f.practise(first), { id: null, pending: true });
+      await f.advance(1);
+      const second = await f.signIn(other);
+      assert.deepEqual(
+        (await rowsOf(other.address)).map((r) => r.authorization_id),
+        [first.id],
+      );
+      f.setOperatorDown(false);
+      assert.deepEqual(await f.practise(second), { id: first.id });
+      await f.scheduled();
+      assert.equal(f.count("intent:record_authorize:"), 2);
+      assert.equal(f.count("sponsor:reservation:record_authorize:"), 2);
+      assert.equal(f.count("tx:"), 2);
     } finally {
       await f.stop();
     }

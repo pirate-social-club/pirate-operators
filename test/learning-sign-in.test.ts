@@ -18,9 +18,12 @@ import {
 import { signInIdV4 } from "../packages/protocol/learning-results-v4.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import {
+  practiceAuthorization,
   publicResults,
   recordedAuthorization,
+  relayPendingSignIns,
   relaySignIn,
+  requestSignInRelay,
 } from "../services/learning-sign-in.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
 
@@ -494,6 +497,207 @@ test("expired and concurrently replayed V4 challenges are refused as today", asy
     assert.equal(await f.count("community_sessions"), 1);
     assert.equal(await f.count("community_accounts"), 1);
     assert.equal(await f.count("learning_authorizations"), 1);
+  } finally {
+    await f.dispose();
+  }
+});
+
+/** An operator that counts every relay and answers with an outage. */
+function countingOperator() {
+  const relayed: string[] = [];
+  return {
+    relayed,
+    env: {
+      KARAOKE_OPERATOR: {
+        async fetch(input: RequestInfo | URL) {
+          relayed.push(new URL(String(input)).pathname);
+          return Response.json(
+            { error: "operator_unavailable" },
+            { status: 503 },
+          );
+        },
+      },
+    } as never,
+  };
+}
+const stateOf = async (db: D1Database, id: string) =>
+  (await db
+    .prepare(
+      "SELECT state,relay_requested_at FROM learning_authorizations WHERE authorization_id=?",
+    )
+    .bind(id)
+    .first<{ state: string; relay_requested_at: number | null }>())!;
+
+test("a pending sign-in is never relayed while public results are off, even one issued after the recorded withdrawal time", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const c = await v4Challenge(f.db, t0);
+    const signedIn = await loginVerify(
+      f.db,
+      context,
+      c.id,
+      await signChallenge(c),
+      verifyLoginOffline,
+      t0,
+    );
+    const id = signedIn.authorizationId!;
+    const { account_id } = (await f.db
+      .prepare("SELECT account_id FROM credential_bindings")
+      .first<{ account_id: string }>())!;
+    // "Turn off public results" raced the sign-in: the withdrawal holds, but
+    // its recorded time is before this sign-in's issuedAt, so only the
+    // withdrawn flag stops the relay.
+    await f.db
+      .prepare(
+        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)",
+      )
+      .bind(account_id, t0 - 5_000)
+      .run();
+    const operator = countingOperator();
+    // The practice path, the single relay and the scheduled job all refuse it.
+    assert.deepEqual(
+      await practiceAuthorization(
+        operator.env,
+        f.db,
+        account_id,
+        subject,
+        t0 / 1000 + 60,
+        t0 + 60_000,
+      ),
+      { id: null, pending: false },
+    );
+    assert.deepEqual(operator.relayed, []);
+    assert.equal((await stateOf(f.db, id)).state, "refused");
+    await f.db
+      .prepare(
+        "UPDATE learning_authorizations SET state='pending' WHERE authorization_id=?",
+      )
+      .bind(id)
+      .run();
+    await relaySignIn(operator.env, f.db, id, t0 + 60_000);
+    assert.deepEqual(operator.relayed, []);
+    assert.equal((await stateOf(f.db, id)).state, "refused");
+    await f.db
+      .prepare(
+        "UPDATE learning_authorizations SET state='pending' WHERE authorization_id=?",
+      )
+      .bind(id)
+      .run();
+    assert.equal(await relayPendingSignIns(operator.env, f.db, t0 + 60_000), 1);
+    assert.deepEqual(operator.relayed, []);
+    assert.equal((await stateOf(f.db, id)).state, "refused");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a sign-in recorded before the last withdrawal is never chosen for new work, even once public results are on", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const c = await v4Challenge(f.db, t0);
+    const old = (
+      await loginVerify(
+        f.db,
+        context,
+        c.id,
+        await signChallenge(c),
+        verifyLoginOffline,
+        t0,
+      )
+    ).authorizationId!;
+    const { account_id } = (await f.db
+      .prepare("SELECT account_id FROM credential_bindings")
+      .first<{ account_id: string }>())!;
+    await f.db
+      .prepare("UPDATE learning_authorizations SET state='recorded'")
+      .run();
+    const at = t0 / 1000 + 3600;
+    assert.deepEqual(await recordedAuthorization(f.db, account_id, subject, at), {
+      id: old,
+    });
+    // Withdrawn later, then turned back on with no sign-in since.
+    await f.db
+      .prepare(
+        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,NULL,?2)",
+      )
+      .bind(account_id, t0 + 60_000)
+      .run();
+    assert.deepEqual(await recordedAuthorization(f.db, account_id, subject, at), {
+      id: null,
+      pending: false,
+    });
+    const operator = countingOperator();
+    assert.deepEqual(
+      await practiceAuthorization(operator.env, f.db, account_id, subject, at, at * 1000),
+      { id: null, pending: false },
+    );
+    assert.deepEqual(operator.relayed, []);
+    assert.equal(await publicResults(f.db, account_id, true), "off");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("signing in stores one pending sign-in per account; only a requested relay is retried on schedule", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const signInAt = async (time: number) => {
+      const c = await v4Challenge(f.db, time);
+      return (
+        await loginVerify(
+          f.db,
+          context,
+          c.id,
+          await signChallenge(c),
+          verifyLoginOffline,
+          time,
+        )
+      ).authorizationId;
+    };
+    const ids = [];
+    for (let i = 0; i < 6; i++) ids.push(await signInAt(t0 + i * 1000));
+    assert.ok(ids.every(Boolean));
+    const rows = async () =>
+      (
+        await f.db
+          .prepare(
+            "SELECT authorization_id,state,relay_requested_at FROM learning_authorizations",
+          )
+          .all<{ authorization_id: string; state: string; relay_requested_at: number | null }>()
+      ).results;
+    // Each new sign-in replaced the unrelayed one before it.
+    assert.deepEqual(await rows(), [
+      { authorization_id: ids[5], state: "pending", relay_requested_at: null },
+    ]);
+    const operator = countingOperator();
+    // The scheduled job never relays a sign-in no practice asked for.
+    assert.equal(await relayPendingSignIns(operator.env, f.db, t0 + 10_000), 0);
+    assert.deepEqual(operator.relayed, []);
+    const { account_id } = (await f.db
+      .prepare("SELECT account_id FROM credential_bindings")
+      .first<{ account_id: string }>())!;
+    // The first practice requests and attempts it; the outage leaves it pending.
+    await requestSignInRelay(operator.env, f.db, account_id, t0 + 20_000);
+    assert.deepEqual(operator.relayed, ["/authorization"]);
+    assert.deepEqual(await stateOf(f.db, ids[5]!), {
+      state: "pending",
+      relay_requested_at: t0 + 20_000,
+    });
+    // A requested relay is kept: a new sign-in adds no second pending row.
+    assert.equal(await signInAt(t0 + 30_000), undefined);
+    assert.equal((await rows()).length, 1);
+    // The schedule now retries it, and keeps its first request time.
+    assert.equal(await relayPendingSignIns(operator.env, f.db, t0 + 40_000), 1);
+    await requestSignInRelay(operator.env, f.db, account_id, t0 + 50_000);
+    assert.deepEqual(operator.relayed, [
+      "/authorization",
+      "/authorization",
+      "/authorization",
+    ]);
+    assert.equal((await stateOf(f.db, ids[5]!)).relay_requested_at, t0 + 20_000);
   } finally {
     await f.dispose();
   }

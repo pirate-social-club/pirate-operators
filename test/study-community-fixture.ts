@@ -23,7 +23,10 @@ import { studyOperatorRoute } from "../services/study-operator.ts";
 import { acceptEnrollment } from "../services/learning-enrollment.ts";
 import { authorizationRoute } from "../services/learning-authorization.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
-import { relayPendingSignIns } from "../services/learning-sign-in.ts";
+import {
+  relayPendingSignIns,
+  requestSignInRelay,
+} from "../services/learning-sign-in.ts";
 import type {
   SiweChallenge,
   SignInChallenge,
@@ -272,8 +275,18 @@ export async function studyCommunityFixture(
       },
       /** The release step that selects V4: its sign-in schema, migration 0013. */
       applyV4Migration: () => runtime!.applyV4(),
-      /** V4: the scheduled relay settles sign-ins still being recorded. */
+      /**
+       * V4: each pending sign-in is relayed as a learner's first Study or
+       * Karaoke start requests it, and the scheduled relay settles the rest.
+       */
       async recordSignIns() {
+        const pending = await runtime!.db
+          .prepare(
+            "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
+          )
+          .all<{ account_id: string }>();
+        for (const { account_id } of pending.results)
+          await requestSignInRelay(env, runtime!.db, account_id, now);
         await relayPendingSignIns(env, runtime!.db, now);
       },
       authorizationDown: (value: boolean) => {

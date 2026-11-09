@@ -18,11 +18,15 @@ CREATE TABLE learning_authorizations (
   issued_at INTEGER NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('pending','recorded','refused')),
   tx_hash TEXT,
+  -- Milliseconds. Set when a Study or Karaoke start first requests the relay;
+  -- a sign-in without practice is never relayed, and the scheduled retry
+  -- covers only requested rows. An account keeps at most one pending row.
+  relay_requested_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX learning_authorizations_account ON learning_authorizations(account_id,state);
-CREATE INDEX learning_authorizations_relay ON learning_authorizations(state,created_at);
+CREATE INDEX learning_authorizations_relay ON learning_authorizations(state,relay_requested_at);
 -- Withdrawal times are milliseconds. public_results_withdrawn_at is set while
 -- public results are off and cleared when the learner turns them back on.
 -- last_withdrawn_at keeps the latest withdrawal after that: only a sign-in

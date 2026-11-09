@@ -83,7 +83,6 @@ import {
 import {
   publicResults,
   relayPendingSignIns,
-  relaySignIn,
   signInV4,
 } from "./learning-sign-in.ts";
 import { StudyError } from "../packages/study/contracts.ts";
@@ -680,7 +679,11 @@ export async function communityFetch(
       const body = await jsonBody(request);
       if (url.pathname === "/api/auth/challenge") {
         const v4 = signInV4(env, config);
-        // SIWE keeps the wall clock; a V4 sign-in's issuedAt is chain time.
+        // SIWE keeps the wall clock. A V4 sign-in's issuedAt is the
+        // application's own clock, never backdated: a backdated sign-in could
+        // fall at or before a just-recorded withdrawal. If it is ahead of the
+        // chain, the operator answers sign_in_not_yet_valid and the relay is
+        // retried.
         return reply(
           await loginChallenge(
             env.DB,
@@ -699,20 +702,8 @@ export async function communityFetch(
           text(body.signature, 32768),
           ports.verifyLogin,
         );
-        // One prompt relay; a slow or failed operator is retried on schedule.
-        if (verified.authorizationId) {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          await Promise.race([
-            relaySignIn(
-              env,
-              env.DB,
-              verified.authorizationId,
-              (ports.now ?? Date.now)(),
-            ).catch(() => undefined),
-            new Promise((resolve) => (timer = setTimeout(resolve, 10_000))),
-          ]);
-          clearTimeout(timer);
-        }
+        // The V4 sign-in is only stored: it is relayed when the learner
+        // first starts Study or Karaoke work, never at login.
         security.set("set-cookie", verified.cookie);
         return reply({ authenticated: true, csrf: verified.csrf });
       }

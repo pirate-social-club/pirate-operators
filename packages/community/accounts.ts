@@ -323,10 +323,15 @@ export async function loginVerify(
         time,
       ),
   ];
+  // The account's sign-ins that count: issued after its last withdrawal
+  // (issued_at is seconds, withdrawal times milliseconds).
+  const counted = (alias: string) =>
+    `${alias}.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)`;
   if (signIn)
-    // Pending relay, in the same batch as the session. A withdrawn account
-    // stores nothing, nor does one with a sign-in recorded on chain since its
-    // last withdrawal (issued_at is seconds, withdrawal times milliseconds).
+    // Pending sign-in, in the same batch as the session; it is relayed only
+    // when the learner first practises. A withdrawn account stores nothing,
+    // nor does one with a sign-in recorded on chain since its last
+    // withdrawal, nor one whose pending relay was already requested.
     statements.push(
       db
         .prepare(
@@ -335,8 +340,9 @@ export async function loginVerify(
       WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?
       AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>? AND kind='sign-in-v4')
       AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=b.account_id AND s.public_results_withdrawn_at IS NOT NULL)
-      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded'
-        AND r.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1))`,
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded' AND ${counted("r")})
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='pending'
+        AND r.relay_requested_at IS NOT NULL AND ${counted("r")})`,
         )
         .bind(
           signIn.id,
@@ -351,6 +357,14 @@ export async function loginVerify(
           id,
           time,
         ),
+      // At most one pending sign-in per account: the new one replaces any
+      // whose relay was never requested.
+      db
+        .prepare(
+          `DELETE FROM learning_authorizations WHERE state='pending' AND relay_requested_at IS NULL
+      AND authorization_id<>?1 AND account_id=(SELECT account_id FROM learning_authorizations WHERE authorization_id=?1)`,
+        )
+        .bind(signIn.id),
     );
   statements.push(
     db
