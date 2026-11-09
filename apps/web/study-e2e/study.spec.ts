@@ -397,3 +397,31 @@ test("a page left open when the session changes account clears its lesson instea
   expect(kept.progress.presentations).toBe(0);
   expect((await (await request.get("/__fixture")).json()).attempts).toHaveLength(0);
 });
+test("a start refused while sign-in is being recorded retries the same request in the loading state", async ({
+  page,
+  request,
+}) => {
+  await request.patch("/__fixture", { data: { authorizationPending: 2 } });
+  await page.goto("/");
+  // Two refusals, two seconds apart, then the same request starts the lesson.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeEnabled({ timeout: 15000 });
+  await expect(page.getByText("Study is unavailable")).toHaveCount(0);
+  const state = await (await request.get("/__fixture")).json();
+  expect(state.starts).toBe(3);
+  expect(state.lesson.status).toBe("active");
+});
+test("the pending-sign-in retry is bounded and then shows the existing failure", async ({
+  page,
+  request,
+}) => {
+  await request.patch("/__fixture", { data: { authorizationPending: 99 } });
+  await page.goto("/");
+  await expect(page.getByText("Study is unavailable")).toBeVisible({
+    timeout: 20000,
+  });
+  const state = await (await request.get("/__fixture")).json();
+  expect(state.starts).toBe(5);
+  expect(state.lesson).toBeNull();
+});

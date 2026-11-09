@@ -26,6 +26,11 @@ export class StudyAccountChangedError extends Error {
   }
 }
 class StudyLessonNotFoundError extends Error {}
+/** Sign-in permission is still being recorded; starting again shortly works. */
+class StudyAuthorizationPendingError extends Error {}
+/** A short, bounded wait for a just-made sign-in to be recorded. */
+const AUTHORIZATION_RETRIES = 5,
+  AUTHORIZATION_RETRY_MS = 2000;
 export function createStudyClient(
   song: StudySong,
   csrf: () => string,
@@ -56,6 +61,10 @@ export function createStudyClient(
         throw new StudyAccountChangedError();
       if (body.error === "study_lesson_not_found")
         throw new StudyLessonNotFoundError("This lesson is unavailable.");
+      if (body.error === "study_authorization_pending")
+        throw new StudyAuthorizationPendingError(
+          "Your answer could not be saved. Try again.",
+        );
       throw new Error(
         response.status === 401
           ? "Sign in again to continue Study."
@@ -81,13 +90,28 @@ export function createStudyClient(
   }
   async function start() {
     await beforeStart?.();
-    return remember(
-      await call("", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: startRequestId, song }),
-      }),
-    );
+    // The same request is retried while sign-in permission is recorded; the
+    // screen keeps its loading state meanwhile.
+    for (let retry = 0; ; retry++) {
+      try {
+        return remember(
+          await call("", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ requestId: startRequestId, song }),
+          }),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof StudyAuthorizationPendingError) ||
+          retry + 1 >= AUTHORIZATION_RETRIES
+        )
+          throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, AUTHORIZATION_RETRY_MS),
+        );
+      }
+    }
   }
   return {
     async load() {

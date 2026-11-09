@@ -72,7 +72,10 @@ let heard = lines[0].text,
   failure: "known_failed" | "unknown" | null = null,
   lostResponse = false,
   clock = Date.now(),
-  calls = 0;
+  calls = 0,
+  // V4: starts refused as `study_authorization_pending` before one succeeds.
+  authorizationPending = 0,
+  starts = 0;
 const attempts = makeStudyService({
   db,
   now: () => clock,
@@ -125,6 +128,7 @@ const server = createServer(async (req, res) => {
         advanceMs?: number;
         account?: keyof typeof accounts;
         legacyLesson?: boolean;
+        authorizationPending?: number;
       };
       if (req.method === "POST") {
         await db.prepare("DELETE FROM study_attempts").run();
@@ -135,7 +139,11 @@ const server = createServer(async (req, res) => {
         lostResponse = false;
         clock = Date.now();
         account = "first";
+        authorizationPending = 0;
+        starts = 0;
       }
+      if (body.authorizationPending !== undefined)
+        authorizationPending = body.authorizationPending;
       if (body.account !== undefined) account = body.account;
       let seeded: string | undefined;
       if (body.legacyLesson) {
@@ -163,6 +171,7 @@ const server = createServer(async (req, res) => {
     } else if (path === "/__fixture")
       response = Response.json({
         calls,
+        starts,
         account: accounts[account],
         attempts: await attempts.list(ownerOf()),
         lesson: await lessons.latest(ownerOf(), song),
@@ -190,6 +199,11 @@ const server = createServer(async (req, res) => {
           requestId: string;
           song: unknown;
         };
+        starts++;
+        if (authorizationPending > 0) {
+          authorizationPending--;
+          throw new StudyError("study_authorization_pending", 409);
+        }
         response = Response.json(
           await lessons.start(owner, body.requestId, body.song),
           { status: 201 },
