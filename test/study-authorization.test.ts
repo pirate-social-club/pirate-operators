@@ -815,3 +815,65 @@ test(
     }
   },
 );
+
+test(
+  "a V4 community never falls back to V3 enrollment: a configuration outage reads pending and the enrollment request is refused",
+  { timeout: 120000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19980);
+    try {
+      const view = async () =>
+        (
+          await json<{ publicResults: string }>(
+            await f.call("/api/session", { headers: f.auth }),
+          )
+        ).publicResults;
+      assert.equal(await view(), "on");
+      // A temporary configuration failure reads "pending", never
+      // "unavailable", which is the state that offers V3 enrollment.
+      const real = f.ports.configuration;
+      f.ports.configuration = async () => {
+        throw new Error("fixture configuration outage");
+      };
+      try {
+        assert.equal(await view(), "pending");
+      } finally {
+        f.ports.configuration = real;
+      }
+      assert.equal(await view(), "on");
+      // The V3 enrollment request and signed submission are refused before
+      // the operator is asked for anything.
+      const calls: string[] = [];
+      const operator = f.env.KARAOKE_OPERATOR as Fetcher;
+      f.env.KARAOKE_OPERATOR = {
+        fetch(input: RequestInfo | URL, init?: RequestInit) {
+          calls.push(new URL(String(input instanceof Request ? input.url : input)).pathname);
+          return operator.fetch(input as never, init as never);
+        },
+      } as Fetcher;
+      try {
+        for (const body of [
+          { activity: "study" },
+          {
+            enrollment: { learner: accounts[5].address },
+            signature: "0x" + "11".repeat(65),
+          },
+        ]) {
+          const refused = await f.post("/api/karaoke/enrollment", body, f.auth);
+          assert.equal(refused.status, 409);
+          assert.deepEqual(await refused.json(), {
+            error: "enrollment_unavailable",
+          });
+        }
+      } finally {
+        f.env.KARAOKE_OPERATOR = operator;
+      }
+      assert.deepEqual(
+        calls.filter((path) => path.startsWith("/enrollment")),
+        [],
+      );
+    } finally {
+      await f.dispose();
+    }
+  },
+);

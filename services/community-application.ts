@@ -85,6 +85,7 @@ import {
   publicResults,
   relayPendingSignIns,
   signInV4,
+  v4LearningRecords,
 } from "./learning-sign-in.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
@@ -435,16 +436,20 @@ export async function communityFetch(
           ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
           : null,
         pendingConnection: await pendingCreatorConnection(env.DB, session),
-        publicResults: await publicResults(
-          env.DB,
-          session.account_id,
-          // Only a V4 community has public results by sign-in; no RPC otherwise.
-          !!env.STUDY_RESULTS_V4_CONTRACT &&
-            !!(await configuration().then(
-              (config) => signInV4(env, config),
-              () => undefined,
-            )),
-        ),
+        // Only a V4 community has public results by sign-in; no RPC
+        // otherwise. With V4 configured, a failed configuration read is
+        // "pending", never "unavailable", which would offer V3 enrollment.
+        publicResults: !env.STUDY_RESULTS_V4_CONTRACT
+          ? "unavailable"
+          : await configuration().then(
+              (config) =>
+                publicResults(
+                  env.DB,
+                  session.account_id,
+                  !!signInV4(env, config),
+                ),
+              () => "pending" as const,
+            ),
         publisher: await sessionPublisher(session.account_id, session.wallet),
       };
       return reply(view);
@@ -729,8 +734,17 @@ export async function communityFetch(
         return reply(
           await karaokeRevokeEnrollment(karaokePorts, session, body),
         );
-      if (url.pathname === "/api/karaoke/enrollment")
+      if (url.pathname === "/api/karaoke/enrollment") {
+        // V4 learning records: the sign-in is the permission, so the V3
+        // enrollment request and signature are refused. Listing and stopping
+        // an earlier V3 enrollment stay available.
+        insist(
+          !v4LearningRecords(env, config),
+          "enrollment_unavailable",
+          409,
+        );
         return reply(await karaokeEnrollment(karaokePorts, session, body));
+      }
       // V4 account settings; never reached from an exercise.
       if (url.pathname === "/api/learning/public-results/off")
         return reply(

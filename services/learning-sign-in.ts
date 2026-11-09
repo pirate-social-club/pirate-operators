@@ -40,6 +40,15 @@ export function signInV4(
   };
 }
 
+/** The application's V4 contract is the directory's learning records. */
+export const v4LearningRecords = (
+  env: Pick<StudyEnv, "STUDY_RESULTS_V4_CONTRACT">,
+  config: CommunityConfig,
+) =>
+  !!env.STUDY_RESULTS_V4_CONTRACT &&
+  env.STUDY_RESULTS_V4_CONTRACT.toLowerCase() ===
+    config.learningRecords.toLowerCase();
+
 /**
  * Sign-ins count only when issued after the account's last withdrawal.
  * `issued_at` is seconds; withdrawal times are milliseconds.
