@@ -152,3 +152,93 @@ roles. Then come the operator module, which accepts V4 bindings, and then the
 application. The deployed V3 contract and operator stay in place for historical
 results. Reward qualification must read V4 results as well as V3. Agent 2 owns
 that change and confirms it before release.
+
+## Implementation interfaces (fixed 2026-11-09)
+
+These are the contracts between phases and with Agent 2. A change to any of
+them is announced before it lands.
+
+Protocol, in packages/protocol/learning-results-v4.ts:
+- the `SignIn` type and `signInTypes`;
+- `learningResultsV4Domain(chainId, contract)`, name "Pirate Learning
+  Results", version "4";
+- `signInIdV4` (the EIP-712 digest, which is the authorization id);
+- `resultsV4Abi`. This is the V3 result ABI (`publish`, `correct`,
+  `invalidate`, `commitments`, `policyFor`, `activatePolicy`, `VERSION`,
+  `ResultPublished`, `ResultInvalidated`) plus `authorize`, `revoke`,
+  `nextNonce`, `authorizedSince`, `revokedAt`, `authorizationLearner`,
+  `authorizationIssuedAt`, `signInDigest`, `Authorized` and `Revoked`.
+
+Targets:
+- `ResultsTarget.version` becomes `2 | 3 | 4`.
+- The operator Worker reads `RESULTS_V4_CONTRACT`, which takes precedence over
+  V3 for new work when set. The application Worker reads
+  `STUDY_RESULTS_V4_CONTRACT`, which must equal the directory's
+  `learningRecords`, as V3 does today.
+- `retainedTarget` keeps V2 and V3 bindings valid for historical work.
+
+Sign-in, in the application:
+- `/api/auth/challenge` returns `{ id, kind: "sign-in-v4", typedData }` when
+  V4 is configured, and the SIWE `{ id, message }` otherwise.
+- `/api/auth/verify` takes `{ id, signature }` and verifies with
+  `verifyTypedData` on chain 6343.
+- On success it creates or reuses `credential_bindings` (moss, 6343,
+  lowercased wallet) and `community_sessions` exactly as today.
+- It also stores a row in a new D1 table, `learning_authorizations`
+  (migration 0011), with: `authorization_id` (primary key), `account_id`,
+  `subject`, `sign_in_json`, `signature`, `policy_hash`, `policy_version`,
+  `issued_at`, `state` (`pending`, `recorded` or `refused`), `tx_hash`,
+  `created_at` and `updated_at`.
+- A second table, `learning_settings`, holds `account_id` (primary key) and
+  `public_results_withdrawn_at`.
+- A sign-in relays only when the account is not withdrawn and has no
+  `recorded` authorization since its last withdrawal.
+- `/api/session` adds
+  `publicResults: "on" | "pending" | "off" | "unavailable"`.
+
+Relay, in the operator Worker:
+- `POST /authorization` carries `{ signIn, signature }`.
+- `acceptAuthorization` simulates `authorize`, reserves sponsorship and submits
+  the transaction kind `record_authorize`. It is idempotent per authorization
+  id, and `resumeAuthorizations` retries it from the alarm.
+- `GET /authorization/:learner` returns `{ since, revokedAt }` read from chain.
+
+Binding:
+- A V4 Study lesson offer adds `authorizationId`, and so does a Karaoke ticket.
+- The operator accepts the binding only when all of these hold:
+  `authorizationLearner(id) == learner`,
+  `authorizationIssuedAt(id) <= startedAt`, `authorizedSince(learner) != 0`
+  and `authorizedSince(learner) <= authorizationIssuedAt(id)`.
+- The binding stores `authorization: { id, issuedAt, target }` in place of
+  `enrollment`. V2 and V3 bindings keep `enrollment`.
+
+Publication:
+- V4 results set `enrollmentId` to the authorization id, and `sessionId` uses
+  the same digest formula with that id.
+- Before dispatch, publication re-reads `authorizedSince`. If it is 0 or later
+  than the authorization's `issuedAt`, the job goes private with reason
+  `authorization_withdrawn`.
+- A Study terminal other than `completed` goes private with reason
+  `unfinished` and never dispatches. The bounded private-history cleanup and
+  erasure proof are unchanged.
+- Karaoke keeps V3 semantics: every run's final result is published.
+
+Study close bound for a V4 lesson:
+- `open_limit` at `startedAt` + 30 days;
+- leaving;
+- a known `enrollment_required` refusal after withdrawal, recorded as
+  `consent_ended`.
+- There is no consent-expiry bound.
+
+Withdrawal:
+- Account settings offers "Turn off public results". This uses the existing
+  signed revocation, which is an explicit settings action, never an exercise
+  prompt. It sets `public_results_withdrawn_at`.
+- "Turn on public results" clears that and performs a normal sign-in, whose
+  signature is relayed.
+
+Reader, for Agent 2:
+- `readPublicResults` in packages/records accepts V3 or V4 by pinned code
+  hash and `VERSION()`.
+- It returns the same verified-result shape. A V4 `enrollmentId` is the
+  authorization id.
