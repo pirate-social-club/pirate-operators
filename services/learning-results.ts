@@ -28,7 +28,9 @@ import {
   type BoundEnrollment,
 } from "./learning-enrollment.ts";
 import {
+  resultUnsent,
   submitResultTransaction,
+  withdrawUnsentResult,
   type ResultStore,
 } from "./learning-transactions.ts";
 import {
@@ -267,6 +269,9 @@ export async function publishV2(
   const state = { state: "pending" as const, revision };
   store.set(`publicationV2:${ticketId}`, state);
   const keepPrivate = (reason: string) => {
+    // A transaction queued without a nonce is withdrawn so that nothing can
+    // send it later; one that has a nonce may be on its way and is tracked.
+    if (!withdrawUnsentResult(env, store, "record_result", ref)) return state;
     releaseSponsorship(store, sponsorLimits(env), `record_result:${ref}`);
     releaseSponsorship(
       store,
@@ -279,15 +284,18 @@ export async function publishV2(
   };
   // An enrollment-bound run not yet sent stays private once the learner has
   // withdrawn under V4 in this community, by settings or directly on the V4
-  // contract; V4 is the records now. A failed chain read throws, leaving the
-  // run pending for the next tick.
+  // contract; V4 is the records now. Not yet sent means no nonce allocated:
+  // a dispatch that failed before allocating leaves a queued intent, and the
+  // checks still run. A failed chain read throws, leaving the run pending for
+  // the next tick.
+  const unsent = () => resultUnsent(store, "record_result", ref);
   const withheld = async () =>
     !authorization &&
     revision === 1 &&
-    !intentOf(store, "record_result", ref) &&
+    unsent() &&
     (await legacyResultsWithdrawn(env, store, ticket.participant));
   if (await withheld()) return keepPrivate("authorization_withdrawn");
-  if (revision === 1 && !intentOf(store, "record_result", ref)) {
+  if (revision === 1 && unsent()) {
     let permitted: boolean;
     if (authorization)
       // V4 re-reads the contract's rule: a withdrawal since the run's start
@@ -371,7 +379,27 @@ export async function publishV2(
     job = { target: destination, result: header, outcomes, data };
     store.set(`workV2:${ref}`, durableValue(job));
   }
+  // Withheld after its nonce was allocated and proven never sent: it can
+  // never publish, and a cancellation consumes the nonce, here or in
+  // recovery. A row that may have been sent is never sent again, and its
+  // receipt decides.
+  const cancelled = () => {
+    const nonce = intentOf(store, "record_result", ref)?.nonce;
+    const own = nonce == null ? undefined : txRow(store, nonce);
+    if (!own?.withheld || own.broadcast !== "none") return undefined;
+    const next = {
+      state: "private" as const,
+      revision,
+      reason: own.withheld.reason,
+    };
+    store.set(`publicationV2:${ticketId}`, next);
+    return next;
+  };
+  const before = cancelled();
+  if (before) return before;
   // A withdrawal accepted or mined during the reads above still stops it.
+  // The transaction path checks again where the nonce is allocated and
+  // before every send, including recovery's (legacyResultGate).
   if (await withheld()) return keepPrivate("authorization_withdrawn");
   const row = await submitResultTransaction(
     env,
@@ -381,6 +409,8 @@ export async function publishV2(
     job.data,
     destination.contract,
   );
+  const after = cancelled();
+  if (after) return after;
   if (!row?.mined) return state;
   if (
     store.get<Signed<KaraokeResultBody>>(`result:${ticketId}`)?.body

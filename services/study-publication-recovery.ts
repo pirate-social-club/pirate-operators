@@ -1,6 +1,9 @@
 import { check } from "../packages/protocol/index.ts";
 import { resultClient, retainedTarget } from "./learning-contract.ts";
-import type { ResultStore } from "./learning-transactions.ts";
+import {
+  legacyResultGate,
+  type ResultStore,
+} from "./learning-transactions.ts";
 import { recoverTransactions, type TxRow } from "./operator-tx.ts";
 import type { Env } from "./runtime.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
@@ -8,9 +11,13 @@ import {
   resumeStudyPublication,
   type PublicationJob,
 } from "./study-publication.ts";
+/** Every send, including a rebroadcast, passes the earlier-version withdrawal gate. */
 export const recoverLearningTransactions = (env: Env, store: ResultStore) =>
-  recoverTransactions(env, store, (row) =>
-    studyTransactionReady(env, store, row),
+  recoverTransactions(
+    env,
+    store,
+    (row) => studyTransactionReady(env, store, row),
+    legacyResultGate(env, store),
   );
 
 /** The public general recovery endpoint must honor Study's chain-time wait too. */

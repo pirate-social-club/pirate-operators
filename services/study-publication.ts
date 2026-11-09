@@ -27,7 +27,9 @@ import {
   type ResultsTarget,
 } from "./learning-contract.ts";
 import {
+  resultUnsent,
   submitResultTransaction,
+  withdrawUnsentResult,
   type ResultStore,
 } from "./learning-transactions.ts";
 import { intentOf, txRow } from "./operator-tx.ts";
@@ -425,6 +427,11 @@ export async function resumeStudyPublication(
   const observed = await observe(env, store, id, job);
   if (observed.receipt)
     return saveReceipt(store, id, job, observed.receipt, observed.revision);
+  // Withheld after its nonce was allocated and proven never sent: it can
+  // never publish. A row that may have been sent is never sent again; its
+  // commitment, read above, decides.
+  if (observed.row?.withheld && observed.row.broadcast === "none")
+    return keepCancelled(env, store, id, job, observed.row.withheld.reason);
   // V4: an unfinished lesson earns nothing and is never sent. A finished one
   // is sent only while its sign-in permission is unbroken; withdrawal keeps it
   // private. Both keep the bounded private-history erasure.
@@ -447,13 +454,15 @@ export async function resumeStudyPublication(
   }
   // V3: after the learner's V4 withdrawal in this community, by settings or
   // directly on the V4 contract, a result not yet sent stays private,
-  // whatever its enrollment says. The chain is read at the observed block; a
-  // failed read throws and leaves the result pending for the next retry.
+  // whatever its enrollment says. Not yet sent means no nonce allocated: a
+  // dispatch that failed before allocating leaves a queued intent, which the
+  // closure withdraws. The chain is read at the observed block; a failed read
+  // throws and leaves the result pending for the next retry.
   const legacy = job.target.version !== 4,
     learner = job.result.learner;
   const withheld = async (blockNumber?: bigint) =>
     legacy &&
-    !intentOf(store, "record_result", ref) &&
+    resultUnsent(store, "record_result", ref) &&
     (await legacyResultsWithdrawn(env, store, learner, blockNumber));
   if (await withheld(observed.blockNumber))
     return keepPrivate(env, store, id, job, "authorization_withdrawn");
@@ -504,7 +513,9 @@ export async function resumeStudyPublication(
   // A withdrawal accepted or mined during the reads above still stops it.
   if (await withheld())
     return keepPrivate(env, store, id, job, "authorization_withdrawn");
-  await submitResultTransaction(
+  // The transaction path checks again where the nonce is allocated and
+  // before every send, including recovery's (legacyResultGate).
+  const sent = await submitResultTransaction(
     env,
     store,
     "record_result",
@@ -512,6 +523,8 @@ export async function resumeStudyPublication(
     job.data,
     job.target.contract,
   );
+  if (sent?.withheld && sent.broadcast === "none")
+    return keepCancelled(env, store, id, job, sent.withheld.reason);
   // Reload the current CAS baseline after dispatch. A competing response may
   // already have recorded the same canonical commitment.
   job = store.get<PublicationJob>(key(id))!;
@@ -534,6 +547,32 @@ export async function resumeStudyPublication(
   );
 }
 /**
+ * A result whose transaction was withheld before it was ever sent: private,
+ * never submitted. Its cancellation keeps the charge and the nonce; erasure
+ * waits until that cancellation is mined (studyNativeEvidence).
+ */
+async function keepCancelled(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+  reason: string,
+) {
+  const receipt = saveReceipt(store, id, job, {
+    ...job.receipt,
+    state: "private",
+    confirmed: false,
+    reason: reason as "authorization_withdrawn",
+    neverSubmitted: true,
+    transactionHash: null,
+    checkedAt: store.now(),
+  });
+  return (
+    (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
+    receipt
+  );
+}
+/**
  * Records a never-submitted result as private, releases its sponsorship and
  * runs the bounded private-history erasure once that is due.
  */
@@ -544,6 +583,11 @@ async function keepPrivate(
   job: PublicationJob,
   reason: "enrollment_inactive" | "unfinished" | "authorization_withdrawn",
 ) {
+  // Every caller decided before a nonce was allocated. Withdraw the result's
+  // own transaction if it is queued without one, so nothing can send it
+  // later; if a nonce was allocated meanwhile, it may be on its way.
+  if (!withdrawUnsentResult(env, store, "record_result", reference(id)))
+    return job.receipt;
   // Re-check after asynchronous grant reads. A competing queued native
   // operation is recovery evidence, even before it receives a nonce.
   if (
