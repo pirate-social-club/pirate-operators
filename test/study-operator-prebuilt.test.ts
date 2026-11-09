@@ -99,10 +99,10 @@ test(
     assert.equal(closure.sha256, prepared!.artifactSha256);
     assert.equal(closure.bytes, prepared!.artifactBytes);
     if (retained) {
-      assert.equal(closure.bytes, 1024027);
+      assert.equal(closure.bytes, 1026949);
       assert.equal(
         closure.sha256,
-        "0x036bc1f14a4cf36907afca98c208116a70c7a9af4dd169e71c0063c9018beac5",
+        "0xd9cd352110b13828d4ff99594af00d668a6ce17f0a0c92ea8ec8c1817bc5f7a7",
       );
     }
     for (const name of operatorPackageFiles)
