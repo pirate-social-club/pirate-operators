@@ -1,5 +1,6 @@
 // Explicit testnet activation of the unregistered owner policy: directory
 // revision four to five. The default mode never creates a client or state.
+import "../node-network.ts";
 import {
   existsSync,
   lstatSync,
