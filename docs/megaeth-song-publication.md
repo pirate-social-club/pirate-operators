@@ -274,6 +274,47 @@ Learners use MegaETH. Megapot remains an external provider on Base, with
 manual collection and conversion as operator work. Learner participation and
 cash-out verification are unchanged.
 
+## Policy activation
+
+`harness/megaeth/owner-policy-activation.ts` publishes directory revision 5,
+which differs from revision 4 only in `configurationRevision` and
+`policies.admission`, now the unregistered owner policy. It is operator
+tooling outside both deployment packages, run only by the signing executor
+named in the custody record, and only after the managed and community
+publishing deployments are verified.
+
+Its public profile (`pirate.owner-policy-activation/1`) carries the four
+published revisions and their hashes, the derived revision-5 manifest digest
+and pin, the source hash, the deployed release identities, the controller
+inventory and custody records, an independent readiness record, the nonce, gas
+and fee bounds and a window of at most fifteen minutes. The default mode only
+plans and touches no client, key, secret or state. `--observe` and `--status`
+read without a key. `--execute` needs `--expect-profile` and `--key-file`.
+
+The plan refuses unless revision 4 is the expected community, directory,
+registry, posts contract, origin and controller under the November 5 policy,
+and unless the successor equals revision 4 in every other field. Execution
+refuses unless the live directory history equals the profile's four
+revisions exactly. The readiness record (`pirate.owner-policy-activation-readiness/1`,
+decision `accept-activation`, `independent_reviewer`) must be fresh for the
+window and confirm the managed and community publishing deployments, migrations
+0012 and 0004, readers for all post formats, existing songs and history,
+the configured owner release, the historical-operation dispositions and the
+absence of a registration dependency, each with a byte-bound evidence file.
+
+The manifest pin is journaled by digest before its one add and reconciled, not
+re-added, after a lost response. The configure is journaled unsigned before
+the key is read, signed once, and rebroadcast only with the same bytes; a lost
+response is reconciled from the journal and never allocates another nonce or
+payment. Success is reported only after the directory reads back the four
+revisions plus exactly the planned revision 5 with its pinned bytes.
+
+The send and reconcile runner and the manifest pin step are shared with the
+Study activation in `harness/megaeth/configure-activation.ts`; the Study
+activation's checks and error codes are unchanged. Its bundled source hash
+changes with that shared module, so the historical Study activation profile
+no longer matches the current source; that activation already completed.
+
 ## Status
 
 Implemented and tested against the community and managed service code, with
