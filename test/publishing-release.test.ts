@@ -255,6 +255,7 @@ test("the V4 application successor appends only 0013 after the deployed 0012 and
     chainId: 6343,
     contract: "0x" + "c4".repeat(20),
     codeHash: "0x" + "4c".repeat(32),
+    controller: "0x" + "c7".repeat(20),
     publicationPolicy: learningV4PublicityPolicy,
     policyVersion: 4,
   });

@@ -20,7 +20,10 @@ export interface LearningV4ReleaseSelection {
   schema: "pirate.learning-v4-release-selection/1";
   chainId: 6343;
   contract: string;
+  /** keccak256 of the deployed runtime code, checked before binding. */
   codeHash: string;
+  /** The contract's controller, checked before binding. */
+  controller: string;
   publicationPolicy: string;
   policyVersion: 4;
 }
@@ -33,6 +36,7 @@ export function learningV4ReleaseSelection(
     "chainId",
     "contract",
     "codeHash",
+    "controller",
     "publicationPolicy",
     "policyVersion",
   ]);
@@ -45,6 +49,9 @@ export function learningV4ReleaseSelection(
       typeof p.codeHash === "string" &&
       /^0x[0-9a-f]{64}$/.test(p.codeHash) &&
       BigInt(p.codeHash) !== 0n &&
+      typeof p.controller === "string" &&
+      /^0x[0-9a-f]{40}$/.test(p.controller) &&
+      BigInt(p.controller) !== 0n &&
       // The drafted policy the contract's immutable publicationPolicy carries.
       p.publicationPolicy === learningV4PublicityPolicy &&
       p.policyVersion === 4,
@@ -56,6 +63,7 @@ export function learningV4ReleaseSelection(
     chainId: 6343,
     contract: p.contract,
     codeHash: p.codeHash,
+    controller: p.controller,
     publicationPolicy: p.publicationPolicy,
     policyVersion: 4,
   };

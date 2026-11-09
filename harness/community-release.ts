@@ -2,6 +2,7 @@ import { communityDependencyModules } from "./community-dependencies.ts";
 import { readStudyReleaseSelection } from "./study-release-input.ts";
 import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
+import { observeLearningV4Release } from "./learning-v4-release-observation.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
@@ -108,6 +109,11 @@ async function main() {
       409,
     );
   if (study) await observeStudyRelease(megaethReadClient(), study);
+  // The reviewed V4 deployment is observed before LEARNING_RESULTS_V4_CONTRACT
+  // is bound: runtime code hash, version, community, policy, controller and
+  // the publisher's grader roles, at a pinned block.
+  if (learningV4)
+    await observeLearningV4Release(megaethReadClient(), learningV4);
   const safe = operatorEnvironment(process.env),
     state = profile.stateProtection,
     options: OperatorOptions = {
