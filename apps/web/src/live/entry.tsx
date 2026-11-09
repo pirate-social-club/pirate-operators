@@ -101,11 +101,23 @@ function App() {
     timer: ReturnType<typeof setTimeout> | undefined,
     stopped = false;
   async function refreshSession() {
+    const before = session()?.mossAddress;
+    let next: CommunitySessionView | null = null;
     try {
-      setSession(await get<CommunitySessionView>("/api/session"));
+      next = await get<CommunitySessionView>("/api/session");
     } catch {
-      setSession(null);
+      next = null;
     }
+    // A lesson link and its download belong to the account that opened them.
+    // A failed session read keeps them; signing out or in as another account
+    // drops them.
+    if (before && next && next.mossAddress !== before) {
+      const url = new URL(location.href);
+      url.searchParams.delete("lesson");
+      history.replaceState(null, "", url);
+      setLearningActions(null);
+    }
+    setSession(next);
   }
   async function refresh() {
     await refreshSession();
@@ -375,6 +387,9 @@ function App() {
                 onClick={() =>
                   void run(async () => {
                     await post("/api/logout", {}, current().csrf);
+                    const url = new URL(location.href);
+                    url.searchParams.delete("lesson");
+                    history.replaceState(null, "", url);
                     setSession(null);
                     setLearningActions(null);
                     setStatus("Signed out.");
@@ -400,17 +415,21 @@ function App() {
           />
         </div>
       </Show>
-      <Show when={studying() && session()}>
-        <div class="live-study-overlay">
-          <LiveStudy
-            postId={studying()!.postId}
-            title={studying()!.title}
-            csrf={session()!.csrf}
-            wallet={mossWallet}
-            onExit={closeStudy}
-            onLearningActions={(actions) => setLearningActions(actions)}
-          />
-        </div>
+      {/* Keyed by account: another sign-in remounts Study with no prior state. */}
+      <Show when={studying() && session()?.mossAddress} keyed>
+        {(account) => (
+          <div class="live-study-overlay">
+            <LiveStudy
+              postId={studying()!.postId}
+              title={studying()!.title}
+              csrf={session()!.csrf}
+              account={account}
+              wallet={mossWallet}
+              onExit={closeStudy}
+              onLearningActions={(actions) => setLearningActions(actions)}
+            />
+          </div>
+        )}
       </Show>
       <main class="live-main" inert={practiceOpen()}>
         <section class="live-intro">

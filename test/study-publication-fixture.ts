@@ -21,6 +21,7 @@ import type {
 } from "../packages/study/publication.ts";
 import { terminalStudyFacts } from "../packages/study/result-adapter.ts";
 import type { StudyOperatorPorts } from "../services/study-operator-client.ts";
+import { startLegacyThroughRoutes } from "./study-close-bound-fixture.ts";
 
 export async function json<T>(response: Response) {
   const value = await response.json();
@@ -66,6 +67,8 @@ export async function studyPublicationFixture(port: number) {
           ),
         );
       },
+      /** A lesson started before the time limit was removed (legacy). */
+      startLegacy: () => startLegacyThroughRoutes(f, auth, song),
       async get(id: string) {
         return json<StudyLesson>(
           await f.call(lessonPath(id), { headers: auth }),

@@ -1,7 +1,10 @@
 import type { Address, Hex } from "viem";
 import { check } from "../protocol/index.ts";
 import { studyExercisesHash } from "../protocol/learning-results-v3.ts";
-import { STUDY_LESSON_LIFETIME_MS } from "./lesson.ts";
+import {
+  STUDY_LESSON_LIFETIME_MS,
+  STUDY_LESSON_NO_DEADLINE,
+} from "./lesson.ts";
 
 export interface StudyLessonOffer {
   lessonId: string;
@@ -26,7 +29,10 @@ export function validateStudyOffer(value: StudyLessonOffer, nowS: number) {
       value.startedAt >= 0 &&
       value.startedAt <= nowS * 1000 + 5000 &&
       value.expiresAt > nowS * 1000 &&
-      value.expiresAt === value.startedAt + STUDY_LESSON_LIFETIME_MS &&
+      // Lessons have no time limit. A lesson started before that change keeps
+      // its original one-hour bound until it is closed.
+      (value.expiresAt === STUDY_LESSON_NO_DEADLINE ||
+        value.expiresAt === value.startedAt + STUDY_LESSON_LIFETIME_MS) &&
       Array.isArray(value.exercises),
     "invalid_study_lesson_binding",
   );

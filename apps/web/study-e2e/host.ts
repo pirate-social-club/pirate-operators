@@ -12,7 +12,12 @@ import {
   StudyError,
   type StudyLine,
 } from "../../../packages/study/contracts.ts";
-import { songOf } from "../../../packages/study/lesson.ts";
+import {
+  newLesson,
+  songOf,
+  STUDY_LESSON_LIFETIME_MS,
+} from "../../../packages/study/lesson.ts";
+import { StudyLessonStore } from "../../../packages/study/lesson-store.ts";
 import { StudySpeechError } from "../../../packages/study/speech-transcriber.ts";
 
 const origin = "http://127.0.0.1:4177",
@@ -53,8 +58,16 @@ const lines: StudyLine[] = [
   language: "en",
   manifestDigest: "0x" + "d".repeat(64),
 }));
+// Two simulated sign-ins. The session cookie is server-side here; `account`
+// models whichever account the cookie currently belongs to.
+const accounts = {
+  first: "0x" + "a1".repeat(20),
+  second: "0x" + "b8".repeat(20),
+} as const;
 const song = songOf(lines[0]),
-  owner = { accountId: "fixture-learner", communityId: lines[0].communityId };
+  communityId = lines[0].communityId;
+let account: keyof typeof accounts = "first";
+const ownerOf = () => ({ accountId: accounts[account], communityId });
 let heard = lines[0].text,
   failure: "known_failed" | "unknown" | null = null,
   lostResponse = false,
@@ -96,7 +109,11 @@ const server = createServer(async (req, res) => {
     } as RequestInit);
     let response: Response;
     if (path === "/api/study/config")
-      response = Response.json({ song, csrf: "local-fixture-csrf" });
+      response = Response.json({
+        song,
+        csrf: "local-fixture-csrf",
+        account: accounts[account],
+      });
     else if (
       path === "/__fixture" &&
       (req.method === "POST" || req.method === "PATCH")
@@ -106,6 +123,8 @@ const server = createServer(async (req, res) => {
         failure?: boolean | "known_failed" | "unknown";
         lostResponse?: boolean;
         advanceMs?: number;
+        account?: keyof typeof accounts;
+        legacyLesson?: boolean;
       };
       if (req.method === "POST") {
         await db.prepare("DELETE FROM study_attempts").run();
@@ -115,6 +134,20 @@ const server = createServer(async (req, res) => {
         failure = null;
         lostResponse = false;
         clock = Date.now();
+        account = "first";
+      }
+      if (body.account !== undefined) account = body.account;
+      let seeded: string | undefined;
+      if (body.legacyLesson) {
+        // A lesson started before the time limit was removed keeps its hour.
+        const state = newLesson(song, lines, clock);
+        seeded = (
+          await new StudyLessonStore(db).create(
+            ownerOf(),
+            crypto.randomUUID(),
+            { ...state, expiresAt: clock + STUDY_LESSON_LIFETIME_MS },
+          )
+        ).lesson_id;
       }
       if (body.heard !== undefined) heard = body.heard;
       if (body.failure !== undefined)
@@ -126,12 +159,13 @@ const server = createServer(async (req, res) => {
               : body.failure;
       if (body.lostResponse !== undefined) lostResponse = body.lostResponse;
       if (body.advanceMs !== undefined) clock += body.advanceMs;
-      response = Response.json({ fixture: true });
+      response = Response.json({ fixture: true, lessonId: seeded });
     } else if (path === "/__fixture")
       response = Response.json({
         calls,
-        attempts: await attempts.list(owner),
-        lesson: await lessons.latest(owner, song),
+        account: accounts[account],
+        attempts: await attempts.list(ownerOf()),
+        lesson: await lessons.latest(ownerOf(), song),
       });
     else if (path.startsWith("/api/study/lessons")) {
       if (
@@ -139,6 +173,11 @@ const server = createServer(async (req, res) => {
         request.headers.get("x-csrf-token") !== "local-fixture-csrf"
       )
         throw new StudyError("fixture_csrf_required", 403);
+      // Same rule as services/study-community-api.ts.
+      const expected = request.headers.get("x-study-account");
+      if (expected !== null && expected !== accounts[account])
+        throw new StudyError("study_account_changed", 409);
+      const owner = ownerOf();
       if (path === "/api/study/lessons" && req.method === "GET")
         response = Response.json(
           await lessons.latest(

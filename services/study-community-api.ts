@@ -27,6 +27,14 @@ export async function studyCommunityApi(
       ? await accountSession(request, ports.db, context)
       : await authenticatedWrite(request, ports.db, context);
   if (request.method !== "GET") requestOrigin(request, context.origin);
+  // The page names the account whose lesson it shows. If the session cookie now
+  // belongs to another account, refuse rather than mix two accounts' lessons.
+  const expected = request.headers.get("x-study-account");
+  if (
+    expected !== null &&
+    expected.toLowerCase() !== session.wallet.toLowerCase()
+  )
+    throw new StudyError("study_account_changed", 409);
   const reply = (value: unknown) => Response.json(value, { headers });
   const history =
     /^\/api\/study\/lessons\/([a-zA-Z0-9_-]{16,128})\/history$/.exec(

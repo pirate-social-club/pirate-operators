@@ -2,6 +2,7 @@
 import { sha256, type Hex } from "viem";
 import { canonical, check, digest } from "../packages/protocol/index.ts";
 import {
+  STUDY_LESSON_NO_DEADLINE,
   STUDY_MAX_TAKES,
   studyPresentationCap,
 } from "../packages/study/lesson.ts";
@@ -75,9 +76,14 @@ async function bindStudyLesson(
   const exercisesHash = validateStudyOffer(offer, store.now());
   await checkLearningDisclosure(env, target);
   const enrollment = await activeEnrollment(env, offer.learner, target, 2);
+  // A new lesson has no deadline; it can continue only while this consent is
+  // live, because speech below requires it, and the application closes it at
+  // the consent's last second. A legacy lesson keeps its one-hour rule.
   check(
     enrollment.issuedAt * 1000 <= offer.startedAt &&
-      enrollment.expiresAt * 1000 >= offer.expiresAt + 60000,
+      (offer.expiresAt === STUDY_LESSON_NO_DEADLINE
+        ? enrollment.expiresAt * 1000 >= store.now() * 1000 + 60000
+        : enrollment.expiresAt * 1000 >= offer.expiresAt + 60000),
     "study_enrollment_window_too_short",
   );
   return store.transaction(() => {
@@ -170,13 +176,23 @@ async function speak(
   }
   check(store.now() * 1000 < binding.offer.expiresAt, "study_lesson_expired");
   await checkLearningDisclosure(env, binding.target);
+  // Consent that ended, was revoked or was replaced is a known refusal before
+  // any slot or provider call. The application closes the lesson privately.
   const active = await activeEnrollment(
     env,
     binding.offer.learner,
     binding.target,
     2,
-  );
-  check(active.id === binding.enrollment.id, "enrollment_changed");
+  ).catch((error: unknown) => {
+    if (error instanceof Error && error.message === "enrollment_required")
+      return null;
+    throw error;
+  });
+  if (!active || active.id !== binding.enrollment.id)
+    return {
+      state: "unavailable",
+      error: "enrollment_required",
+    } satisfies StudySpeechReceipt;
   check(env.SPEECH_BUDGET, "speech_budget_unconfigured");
   const provider =
     transcriber ?? makeStudyTranscriber(env.ELEVENLABS_API_KEY ?? "");

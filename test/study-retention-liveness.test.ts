@@ -1,4 +1,5 @@
 import test from "node:test";
+import { closeBoundOf } from "./study-close-bound-fixture.ts";
 import assert from "node:assert/strict";
 import { studyPublicationFixture } from "./study-publication-fixture.ts";
 import { communityScheduled } from "../services/community-application.ts";
@@ -37,7 +38,12 @@ test(
     try {
       const lesson = await f.start();
       await postingQueueOutage(f, lesson.lessonId);
-      f.advance(lesson.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+      // Due at the close bound (bound consent end) plus the export window.
+      f.advance(
+        (await closeBoundOf(f.db, lesson.lessonId)).at +
+          STUDY_HISTORY_EXPORT_WINDOW_MS -
+          f.clock(),
+      );
       f.env.STUDY_RESULTS_V3_CONTRACT = undefined;
       await assert.rejects(
         communityScheduled(f.env, f.ports),
@@ -84,7 +90,12 @@ test(
       const counts = f.counts(),
         txCount = f.store.entries("tx:").length,
         ledger = f.store.get("sponsor:ledger");
-      f.advance(invalid.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+      // Due at the close bound (bound consent end) plus the export window.
+      f.advance(
+        (await closeBoundOf(f.db, invalid.lessonId)).at +
+          STUDY_HISTORY_EXPORT_WINDOW_MS -
+          f.clock(),
+      );
       await f.evm.rpc("anvil_mine", ["0xc"]);
       await assert.rejects(
         communityScheduled(f.env, f.ports),
@@ -138,7 +149,12 @@ test(
         f.advance(1);
       }
       const valid = await f.start();
-      f.advance(valid.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+      // Due at the close bound (bound consent end) plus the export window.
+      f.advance(
+        (await closeBoundOf(f.db, valid.lessonId)).at +
+          STUDY_HISTORY_EXPORT_WINDOW_MS -
+          f.clock(),
+      );
       await assert.rejects(
         deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock, 2),
       );

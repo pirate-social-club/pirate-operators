@@ -15,10 +15,13 @@ export type {
   CommunityJobView,
 };
 
-export async function get<T>(path: string): Promise<T> {
+export async function get<T>(
+  path: string,
+  headers?: Record<string, string>,
+): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: { accept: "application/json" },
+    headers: { accept: "application/json", ...headers },
     cache: "no-store",
   });
   if (!response.ok)

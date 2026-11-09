@@ -6,6 +6,8 @@ import {
 } from "../packages/study/contracts.ts";
 import {
   STUDY_MAX_TAKES,
+  studyCloseBound,
+  studyLessonHasDeadline,
   studyPresentationCap,
   type LessonState,
 } from "../packages/study/lesson.ts";
@@ -40,7 +42,7 @@ export async function studyPrivateHistory(
       .bind(id, owner.accountId, owner.communityId),
     db
       .prepare(
-        "SELECT state,receipt_json FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
+        "SELECT state,receipt_json,json_extract(binding_json,'$.enrollment.expiresAt') AS consent_expires_at FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
       )
       .bind(id, owner.accountId, owner.communityId),
   ]);
@@ -48,14 +50,33 @@ export async function studyPrivateHistory(
   studyCheck(lesson, "study_lesson_not_found", 404);
   studyCheck(lesson.history_deleted_at == null, "study_history_expired", 410);
   const state = JSON.parse(lesson.state_json) as LessonState;
-  const completedAt = state.completedAt ?? state.expiresAt;
+  const publication = rows[2].results[0] as
+    | {
+        state: string;
+        receipt_json: string | null;
+        consent_expires_at: number | null;
+      }
+    | undefined;
+  // An open lesson's window runs from its close bound once that has passed:
+  // a legacy deadline, or the end of a new lesson's bound consent. Before
+  // that, an open new lesson can be downloaded at any time.
+  const exportedAt = now();
+  const bound = () =>
+    studyCloseBound(
+      state,
+      publication && !studyLessonHasDeadline(state)
+        ? Number(publication.consent_expires_at)
+        : null,
+    ).at;
+  const completedAt =
+    state.completedAt ??
+    (studyLessonHasDeadline(state) ? bound() : Math.min(exportedAt, bound()));
   studyCheck(
     Number.isSafeInteger(completedAt) && completedAt >= state.startedAt,
     "study_history_unavailable",
     503,
   );
   const exportAvailableUntil = completedAt + STUDY_HISTORY_EXPORT_WINDOW_MS;
-  const exportedAt = now();
   studyCheck(exportedAt < exportAvailableUntil, "study_history_expired", 410);
   studyCheck(
     rows[1].results.length <=
@@ -63,9 +84,6 @@ export async function studyPrivateHistory(
     "study_history_too_large",
     503,
   );
-  const publication = rows[2].results[0] as
-    | { state: string; receipt_json: string | null }
-    | undefined;
   return {
     schema: "pirate.study-private-history/1",
     activity: "study",

@@ -22,10 +22,14 @@ export function LiveStudy(props: {
   postId: string;
   title: string;
   csrf: string;
+  /** The signed-in account whose lessons this Study may show. */
+  account: string;
   wallet: KaraokeWallet;
   onExit(): void;
   onLearningActions?: (actions: { download: () => Promise<void> }) => void;
 }) {
+  // Every Study request names the account this page belongs to.
+  const owner = () => ({ "x-study-account": props.account });
   const [client, setClient] = createSignal<StudyClient | null>(null),
     [error, setError] = createSignal(""),
     [publication, setPublication] = createSignal<Publication | null>(null),
@@ -64,6 +68,7 @@ export function LiveStudy(props: {
     try {
       const song = await get<StudySong>(
         `/api/study/song?postId=${encodeURIComponent(props.postId)}`,
+        owner(),
       );
       if (!active) return;
       const initial =
@@ -82,6 +87,7 @@ export function LiveStudy(props: {
           },
           beforeStart,
           () => active,
+          props.account,
         ),
       );
     } catch (failure) {
@@ -100,12 +106,13 @@ export function LiveStudy(props: {
     setChecking(true);
     try {
       // Reconcile a saved terminal result before reading its durable receipt.
-      await get(`/api/study/lessons/${encodeURIComponent(id)}`);
+      await get(`/api/study/lessons/${encodeURIComponent(id)}`, owner());
       if (!active || terminalId() !== id) return;
       const value = await post<Publication>(
         `/api/study/lessons/${encodeURIComponent(id)}/publication`,
         {},
         props.csrf,
+        owner(),
       );
       if (!active || terminalId() !== id) return;
       setPublication(value);
@@ -147,6 +154,7 @@ export function LiveStudy(props: {
       `/api/study/lessons/${encodeURIComponent(id)}/history`,
       {},
       props.csrf,
+      owner(),
     );
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),

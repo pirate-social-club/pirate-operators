@@ -238,6 +238,7 @@ export function liveStudy(
     db: ports.db,
     attempts,
     now,
+    consentExpiry: (owner, id) => store.consentExpiry(owner, id),
     resolveLines: async (song) =>
       studySourceLines(await source(song)).lines.map((entry) => entry.line),
   });

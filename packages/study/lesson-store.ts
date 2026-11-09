@@ -126,6 +126,18 @@ export class StudyLessonStore {
       .run();
     return result.meta.changes === 1;
   }
+  /** The bound consent's end in seconds, or null for a draft never bound. */
+  async consentExpiry(owner: StudyPrincipal, id: string) {
+    const row = await this.db
+      .prepare(
+        "SELECT json_extract(binding_json,'$.enrollment.expiresAt') AS expires_at FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
+      )
+      .bind(id, owner.accountId, owner.communityId)
+      .first<{ expires_at: number | null }>();
+    if (!row) return null;
+    studyCheck(row.expires_at != null, "study_lesson_binding_invalid", 503);
+    return Number(row.expires_at);
+  }
   async submittedLines(owner: StudyPrincipal, id: string) {
     const rows = await this.db
       .prepare(

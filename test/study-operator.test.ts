@@ -22,7 +22,14 @@ import {
   StudySpeechError,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
-import type { StudyLessonOffer } from "../packages/study/operator-contract.ts";
+import {
+  validateStudyOffer,
+  type StudyLessonOffer,
+} from "../packages/study/operator-contract.ts";
+import {
+  STUDY_LESSON_LIFETIME_MS,
+  STUDY_LESSON_NO_DEADLINE,
+} from "../packages/study/lesson.ts";
 import { resultsTarget } from "../services/learning-contract.ts";
 import { digest } from "../packages/protocol/index.ts";
 import type { Hex } from "viem";
@@ -380,6 +387,102 @@ test(
           e instanceof StudySpeechError && e.outcome === "known_failed",
       );
       assert.deepEqual(f.counts(), { calls: 3, observations: 3 });
+    } finally {
+      await f.stop();
+    }
+  },
+);
+
+test("the operator accepts a legacy one-hour offer or a no-deadline offer and nothing else", () => {
+  const nowS = 1793894400,
+    base: StudyLessonOffer = {
+      lessonId: "study-lesson-0000009",
+      learner: accounts[5].address,
+      sourceDigest: digest("published-source") as Hex,
+      startedAt: nowS * 1000,
+      expiresAt: nowS * 1000 + STUDY_LESSON_LIFETIME_MS,
+      exercises: [1, 4, 7, 9].map((ordinal) => ({
+        ordinal,
+        lineId: digest(`line-${ordinal}`) as Hex,
+        language: "en",
+      })),
+    };
+  validateStudyOffer(base, nowS);
+  validateStudyOffer({ ...base, expiresAt: STUDY_LESSON_NO_DEADLINE }, nowS);
+  for (const expiresAt of [
+    base.expiresAt - 1,
+    base.expiresAt + 1,
+    base.startedAt + 2 * STUDY_LESSON_LIFETIME_MS,
+    STUDY_LESSON_NO_DEADLINE - 1,
+  ])
+    assert.throws(
+      () => validateStudyOffer({ ...base, expiresAt }, nowS),
+      /invalid_study_lesson_binding/,
+    );
+});
+
+test(
+  "the operator refuses speech for a legacy offer after its deadline without dispatch",
+  { timeout: 60000 },
+  async () => {
+    const f = await fixture(19954);
+    try {
+      assert.equal(
+        f.offer.expiresAt,
+        f.offer.startedAt + STUDY_LESSON_LIFETIME_MS,
+      );
+      const binding = await bindManagedStudy(f.ports, f.offer);
+      const speech = managedStudyTranscriber(f.ports, binding);
+      f.advance(STUDY_LESSON_LIFETIME_MS / 1000);
+      await assert.rejects(
+        speech.transcribe(recording(), "audio/webm", "en", f.context),
+        /study_lesson_expired/,
+      );
+      assert.deepEqual(f.counts(), { calls: 0, observations: 0 });
+    } finally {
+      await f.stop();
+    }
+  },
+);
+
+test(
+  "a no-deadline offer has speech hours later while its consent is live, and none after it ends",
+  { timeout: 60000 },
+  async (t) => {
+    const f = await fixture(19955);
+    try {
+      const offer = { ...f.offer, expiresAt: STUDY_LESSON_NO_DEADLINE };
+      const binding = await bindManagedStudy(f.ports, offer);
+      const speech = managedStudyTranscriber(f.ports, binding);
+      f.advance(2 * 3600);
+      assert.equal(
+        (await speech.transcribe(recording(), "audio/webm", "en", f.context))
+          .text,
+        "Hold me close",
+      );
+      assert.deepEqual(f.counts(), { calls: 1, observations: 1 });
+      f.advance(
+        binding.enrollment.expiresAt - Math.floor(f.ports.now!() / 1000),
+      );
+      // activeEnrollment compares the chain expiry with the wall clock
+      // (Date.now), not the store clock, so move both to the consent's end.
+      t.mock.timers.enable({
+        apis: ["Date"],
+        now: binding.enrollment.expiresAt * 1000,
+      });
+      try {
+        await assert.rejects(
+          speech.transcribe(recording(), "audio/webm", "en", {
+            ...f.context,
+            attemptId: "study-attempt-0000002",
+            takeNumber: 2,
+          }),
+          /enrollment_required/,
+        );
+      } finally {
+        t.mock.timers.reset();
+      }
+      assert.deepEqual(f.counts(), { calls: 1, observations: 1 });
     } finally {
       await f.stop();
     }

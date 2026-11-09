@@ -19,6 +19,13 @@ export interface StudyClient {
     durationMs: number,
   ): Promise<StudyLessonSubmission>;
 }
+/** The session now belongs to another account; nothing shown may be kept. */
+export class StudyAccountChangedError extends Error {
+  constructor() {
+    super("You are signed in with a different account. Reload to continue.");
+  }
+}
+class StudyLessonNotFoundError extends Error {}
 export function createStudyClient(
   song: StudySong,
   csrf: () => string,
@@ -26,6 +33,7 @@ export function createStudyClient(
   onOpened?: (id: string) => void,
   beforeStart?: () => Promise<void>,
   active?: () => boolean,
+  account?: string,
 ): StudyClient {
   let lessonId = initialLessonId,
     startRequestId = crypto.randomUUID();
@@ -34,12 +42,20 @@ export function createStudyClient(
     const response = await fetch("/api/study/lessons" + path, {
       ...init,
       credentials: "same-origin",
-      headers: { ...init.headers, "x-csrf-token": csrf() },
+      headers: {
+        ...init.headers,
+        "x-csrf-token": csrf(),
+        ...(account ? { "x-study-account": account } : {}),
+      },
     });
     if (!response.ok) {
       const body = await response
         .json()
         .catch(() => ({ error: "study_unavailable" }));
+      if (body.error === "study_account_changed")
+        throw new StudyAccountChangedError();
+      if (body.error === "study_lesson_not_found")
+        throw new StudyLessonNotFoundError("This lesson is unavailable.");
       throw new Error(
         response.status === 401
           ? "Sign in again to continue Study."
@@ -76,7 +92,14 @@ export function createStudyClient(
   return {
     async load() {
       if (lessonId)
-        return remember(await call("/" + encodeURIComponent(lessonId)));
+        try {
+          return remember(await call("/" + encodeURIComponent(lessonId)));
+        } catch (error) {
+          // A link to a lesson this account does not own opens this account's
+          // own Study for the song instead of another account's lesson.
+          if (!(error instanceof StudyLessonNotFoundError)) throw error;
+          lessonId = undefined;
+        }
       const latest: StudyLesson | null = await call(
         "?song=" + encodeURIComponent(JSON.stringify(song)),
       );
