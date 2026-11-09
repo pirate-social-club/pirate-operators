@@ -35,12 +35,18 @@ import {
   resultClient as client,
   readResultContract as read,
   contractAbi,
+  enrollmentResultsTarget,
   retainedTarget,
   resultsTarget,
   sameResultsTarget,
   resultPolicyAt,
   type ResultsTarget,
 } from "./learning-contract.ts";
+import {
+  studyAuthorizationPermits,
+  studyAuthorizationState,
+  type BoundAuthorization,
+} from "./study-authorization.ts";
 export {
   learningEnrollments,
   activeEnrollment,
@@ -84,7 +90,7 @@ export async function bindEnrollment(
   const previous = store.get<BoundEnrollment>(`enrollment:${ticketId}`);
   const destination = previous
     ? enrollmentTarget(env, store, previous)
-    : resultsTarget(env);
+    : enrollmentResultsTarget(env);
   await checkLearningDisclosure(env, destination);
   const grant = await activeEnrollment(env, learner, destination);
   check(store.now() >= grant.issuedAt, "enrollment_not_active_yet");
@@ -101,6 +107,74 @@ export async function bindEnrollment(
       `record_result:${ticketId}:2`,
     );
     store.set(`enrollment:${ticketId}`, grant);
+  });
+}
+/** A V4 run's binding: the sign-in authorization its ticket named. */
+export const ticketAuthorization = (store: ResultStore, ticketId: string) =>
+  store.get<BoundAuthorization>(`ticketAuthorization:${ticketId}`);
+/**
+ * V4: binds the sign-in authorization the community's signed ticket names, in
+ * place of a V3 enrollment. It must be the learner's and already issued, and
+ * permission must be unbroken since; the run starts after this, so the
+ * contract's `issuedAt <= startedAt` holds. Called again at the run's start,
+ * it re-checks the same authorization. Later sign-ins never move it.
+ */
+export async function bindAuthorization(
+  env: Env,
+  store: ResultStore,
+  ticketId: string,
+  learner: Address,
+  authorizationId: Hex,
+) {
+  check(
+    typeof authorizationId === "string" &&
+      /^0x[0-9a-f]{64}$/.test(authorizationId) &&
+      !/^0x0+$/.test(authorizationId),
+    "karaoke_authorization_mismatch",
+  );
+  const previous = ticketAuthorization(store, ticketId);
+  check(
+    !previous || previous.id === authorizationId,
+    "karaoke_authorization_mismatch",
+  );
+  const target = previous
+    ? retainedTarget(env, previous.target)
+    : resultsTarget(env, 4);
+  check(target.version === 4, "unsupported_results_version");
+  const state = await studyAuthorizationState(
+    env,
+    target,
+    learner,
+    authorizationId,
+  );
+  check(state.ownedBy, "karaoke_authorization_mismatch");
+  check(state.unbroken, "karaoke_authorization_required");
+  // Issued after this operator's clock: in force shortly, so retryable.
+  check(state.issuedAt <= store.now(), "karaoke_authorization_pending");
+  if (previous) return previous;
+  return store.transaction(() => {
+    const concurrent = ticketAuthorization(store, ticketId);
+    if (concurrent) {
+      check(concurrent.id === authorizationId, "karaoke_authorization_mismatch");
+      return concurrent;
+    }
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:${ticketId}:1`,
+    );
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:${ticketId}:2`,
+    );
+    const bound: BoundAuthorization = {
+      id: authorizationId,
+      issuedAt: state.issuedAt,
+      target,
+    };
+    store.set(`ticketAuthorization:${ticketId}`, bound);
+    return bound;
   });
 }
 type FrozenBundle = {
@@ -127,8 +201,12 @@ export async function publishV2(
   const signed = store.get<Signed<KaraokeResultBody>>(`result:${ticketId}`);
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
   const bound = store.get<BoundEnrollment>(`enrollment:${ticketId}`);
-  if (!signed || !ticket || !bound) return;
-  const destination = enrollmentTarget(env, store, bound);
+  // A V4 run binds its sign-in authorization instead of an enrollment.
+  const authorization = ticketAuthorization(store, ticketId);
+  if (!signed || !ticket || (!bound && !authorization)) return;
+  const destination = authorization
+    ? retainedTarget(env, authorization.target)
+    : enrollmentTarget(env, store, bound!);
   const result = signed.body,
     revision = result.revision,
     ref = `${ticketId}:${revision}`;
@@ -188,10 +266,23 @@ export async function publishV2(
   const state = { state: "pending" as const, revision };
   store.set(`publicationV2:${ticketId}`, state);
   if (revision === 1 && !intentOf(store, "record_result", ref)) {
-    const [id, , , expires] = await read<
-      readonly [Hex, bigint, bigint, bigint]
-    >(env, destination, "enrollments", [ticket.participant]);
-    if (id !== bound.id || Number(expires) <= store.now()) {
+    let permitted: boolean;
+    if (authorization)
+      // V4 re-reads the contract's rule: a withdrawal since the run's start
+      // keeps it private. Every run's final result is otherwise published.
+      permitted = await studyAuthorizationPermits(
+        env,
+        authorization,
+        ticket.participant,
+        result.startedAt * 1000,
+      );
+    else {
+      const [id, , , expires] = await read<
+        readonly [Hex, bigint, bigint, bigint]
+      >(env, destination, "enrollments", [ticket.participant]);
+      permitted = id === bound!.id && Number(expires) > store.now();
+    }
+    if (!permitted) {
       releaseSponsorship(store, sponsorLimits(env), `record_result:${ref}`);
       releaseSponsorship(
         store,
@@ -201,7 +292,9 @@ export async function publishV2(
       const next = {
         state: "private" as const,
         revision,
-        reason: "enrollment_inactive",
+        reason: authorization
+          ? "authorization_withdrawn"
+          : "enrollment_inactive",
       };
       store.set(`publicationV2:${ticketId}`, next);
       return next;
@@ -222,7 +315,8 @@ export async function publishV2(
     const header: TerminalResult = {
       sessionId: result.attemptId,
       learner: ticket.participant,
-      enrollmentId: bound.id,
+      // V4: the sign-in authorization the run started under.
+      enrollmentId: authorization ? authorization.id : bound!.id,
       song: { ...manifest.song, chainId: BigInt(manifest.song.chainId) },
       contentRevision: result.manifestSha256,
       exercisesHash: orderedExercisesHash(result.lines.length),

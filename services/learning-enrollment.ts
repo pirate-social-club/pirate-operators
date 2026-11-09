@@ -30,6 +30,7 @@ import {
   contractAbi,
   contractDomain,
   contractEnrollmentId,
+  enrollmentResultsTarget,
   resultsTarget,
   retainedTarget,
   pendingEnrollmentKey,
@@ -107,7 +108,7 @@ export async function learningEnrollments(
 export async function activeEnrollment(
   env: Env,
   learner: Address,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
   requiredActivities: 1 | 2 | 3 = 1,
 ): Promise<BoundEnrollment> {
   destination = retainedTarget(env, destination);
@@ -137,7 +138,7 @@ export async function enrollmentRequest(
   env: Env,
   learner: Address,
   now: number,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   const [nonce, publicityPolicy, communityId] = await Promise.all([
@@ -210,7 +211,7 @@ export async function acceptEnrollment(
   store: ResultStore,
   e: Enrollment,
   signature: Hex,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   if (destination.version === 3) {
@@ -362,7 +363,7 @@ export async function resumeEnrollments(env: Env, store: ResultStore) {
 export async function revocationRequest(
   env: Env,
   learner: Address,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   return {
@@ -384,7 +385,7 @@ export async function acceptRevocation(
   learner: Address,
   nonce: bigint,
   signature: Hex,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   const data = encodeFunctionData({

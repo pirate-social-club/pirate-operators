@@ -52,6 +52,13 @@ export function resultsTarget(
   );
   return { chainId, version, contract: contract.toLowerCase() as Address };
 }
+/**
+ * The newest target that has learning enrollments, for V2 and V3 work. V4 has
+ * none, since its permission is the learner's sign-in, so configuring V4 never
+ * moves enrollment requests, grants or revocations onto it.
+ */
+export const enrollmentResultsTarget = (env: Env) =>
+  resultsTarget(env, env.RESULTS_V3_CONTRACT ? 3 : 2);
 /** No absent legacy field may inherit the successor's default contract. */
 export function retainedTarget(env: Env, saved?: ResultsTarget): ResultsTarget {
   const expected = resultsTarget(env, saved?.version ?? 2);

@@ -54,22 +54,35 @@ import {
   acceptEnrollment,
   acceptRevocation,
   revocationRequest,
+  bindAuthorization,
   bindEnrollment,
   correctV2,
   publicationV2,
   publishV2,
   resumeEnrollments,
+  ticketAuthorization,
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireStudySpeech } from "./study-operator.ts";
 import { resumeStudyPublications, recoverLearningTransactions } from "./study-publication-recovery.ts";
-import { retainedTarget, resultsTarget, type ResultsTarget } from "./learning-contract.ts";
+import {
+  enrollmentResultsTarget,
+  retainedTarget,
+  resultsTarget,
+  type ResultsTarget,
+} from "./learning-contract.ts";
 import {
   expireLearnerHistory,
   learnerHistoryDiagnostics,
   saveLearnerHistory,
 } from "./learner-history.ts";
 
+/**
+ * Learning-results publication applies to this ticket: V2/V3 when configured,
+ * or a V4 run, which binds its sign-in authorization whatever else is set.
+ */
+const learningResultsFor = (env: Env, store: Store, ticketId: string) =>
+  !!env.RESULTS_V2_CONTRACT || !!ticketAuthorization(store, ticketId);
 const load = (store: Store, ticketId: string) => {
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
   const manifest =
@@ -272,7 +285,8 @@ export async function tick(env: Env, store: Store) {
     const ticketId = key.slice("attempt:".length);
     try {
       await advance(env, store, ticketId);
-      if (env.RESULTS_V2_CONTRACT) await publishV2(env, store, ticketId);
+      if (learningResultsFor(env, store, ticketId))
+        await publishV2(env, store, ticketId);
       else await publish(env, store, ticketId);
     } catch {
       // Left for the next tick or recovery; one attempt never blocks the rest.
@@ -348,7 +362,7 @@ export async function karaokeRoute(
     check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
     const { learner, target, activity } = await body<{ learner: Address; target?: ResultsTarget; activity?: "study" }>(request);
     check(activity === undefined || activity === "study", "unsupported_activity");
-    const destination = target ? retainedTarget(env, target) : resultsTarget(env, activity === "study" ? 3 : undefined);
+    const destination = target ? retainedTarget(env, target) : activity === "study" ? resultsTarget(env, 3) : enrollmentResultsTarget(env);
     return Response.json(await enrollmentForPractice(env, store, learner, destination, activity === "study" ? 2 : 1));
   }
   if (url.pathname === "/enrollment/revoke") {
@@ -358,7 +372,7 @@ export async function karaokeRoute(
       signature?: Hex;
       target?: ResultsTarget;
     }>(request);
-    const destination = target ? retainedTarget(env, target) : resultsTarget(env);
+    const destination = target ? retainedTarget(env, target) : enrollmentResultsTarget(env);
     if (!signature) return Response.json(await revocationRequest(env, learner, destination));
     check(nonce !== undefined, "nonce_required");
     const row = await acceptRevocation(
@@ -386,7 +400,7 @@ export async function karaokeRoute(
       nonce: BigInt(input.nonce),
     };
     const row = await acceptEnrollment(env, store, enrollment, signature,
-      target ? retainedTarget(env, target) : resultsTarget(env));
+      target ? retainedTarget(env, target) : enrollmentResultsTarget(env));
     return Response.json({ state: row?.mined?.status ?? "pending" });
   }
   if (url.pathname === "/quote") {
@@ -418,7 +432,17 @@ export async function karaokeRoute(
     );
     const old = store.get<Signed<Ticket>>(`ticket:${ticket.ticketId}`);
     if (old) check(digest(old) === digest(input.ticket), "ticket_conflict");
-    if (env.RESULTS_V2_CONTRACT)
+    // A V4 ticket names the learner's sign-in authorization; V2/V3 tickets
+    // bind the learner's enrollment as before.
+    if (ticket.authorizationId !== undefined)
+      await bindAuthorization(
+        env,
+        store,
+        ticket.ticketId,
+        ticket.participant,
+        ticket.authorizationId,
+      );
+    else if (env.RESULTS_V2_CONTRACT)
       await bindEnrollment(env, store, ticket.ticketId, ticket.participant);
     store.set(`ticket:${ticket.ticketId}`, input.ticket);
     store.set(`manifest:${ticket.manifestSha256}`, input.manifest);
@@ -434,11 +458,10 @@ export async function karaokeRoute(
     // Local control, like /__fault: production corrections need an
     // authenticated operator path that does not exist yet.
     // The correction is recorded here; operator ticks publish it.
-    const corrected = await (env.RESULTS_V2_CONTRACT ? correctV2 : correct)(
-      env,
-      store,
-      await body<Parameters<typeof correct>[2]>(request),
-    );
+    const input = await body<Parameters<typeof correct>[2]>(request);
+    const corrected = await (learningResultsFor(env, store, input.ticketId)
+      ? correctV2
+      : correct)(env, store, input);
     return Response.json({ revision: corrected.revision });
   }
   if (url.pathname === "/consent") {
@@ -454,20 +477,17 @@ export async function karaokeRoute(
     const { ticketId } = await body<{ ticketId: string }>(request);
     return Response.json(store.get(`attemptStart:${ticketId}`) ?? null);
   }
-  if (url.pathname === "/record" && env.RESULTS_V2_CONTRACT) {
-    const { ticketId } = await body<{ ticketId: string }>(request);
-    check(store.get<Attempt>(`attempt:${ticketId}`), "attempt_not_found");
-    return Response.json({
-      consented: true,
-      consent: null,
-      publication: publicationV2(store, ticketId) ?? null,
-    });
-  }
   if (url.pathname === "/record") {
     // What the learner's screen shows about the on-chain record.
     const { ticketId } = await body<{ ticketId: string }>(request);
     const attempt = store.get<Attempt>(`attempt:${ticketId}`);
     check(attempt, "attempt_not_found");
+    if (learningResultsFor(env, store, ticketId))
+      return Response.json({
+        consented: true,
+        consent: null,
+        publication: publicationV2(store, ticketId) ?? null,
+      });
     return Response.json({
       attemptId: attempt.attemptId,
       consented: store.get(`consent:${ticketId}`) !== undefined,
@@ -536,7 +556,17 @@ export async function karaokeRoute(
     "upgrade_required",
   );
   const resumed = attempt !== undefined;
-  if (env.RESULTS_V2_CONTRACT && !resumed)
+  // A new run re-checks its binding when it starts: a V4 run its sign-in
+  // authorization, a V2/V3 run its enrollment.
+  if (!resumed && ticket.authorizationId !== undefined)
+    await bindAuthorization(
+      env,
+      store,
+      ticketId,
+      ticket.participant,
+      ticket.authorizationId,
+    );
+  else if (env.RESULTS_V2_CONTRACT && !resumed)
     await bindEnrollment(env, store, ticketId, ticket.participant);
   // Only the newest connection is live: older sockets for this ticket close,
   // and their later messages or close events are ignored.

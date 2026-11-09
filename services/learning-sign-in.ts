@@ -56,6 +56,31 @@ export async function publicResults(
   return row.recorded ? "on" : row.pending ? "pending" : "off";
 }
 
+/**
+ * The account's most recent recorded sign-in authorization issued at or before
+ * `atS`, the choice a V4 Study lesson makes. Without one, `pending` says
+ * whether a sign-in is still being recorded, which is worth a short retry.
+ */
+export async function recordedAuthorization(
+  db: D1Database,
+  accountId: string,
+  subject: string,
+  atS: number,
+): Promise<{ id: Hex } | { id: null; pending: boolean }> {
+  const row = await db
+    .prepare(
+      `SELECT
+        (SELECT authorization_id FROM learning_authorizations
+          WHERE account_id=?1 AND subject=?2 AND state='recorded' AND issued_at<=?3
+          ORDER BY issued_at DESC,authorization_id DESC LIMIT 1) AS recorded,
+        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='pending') AS pending`,
+    )
+    .bind(accountId, subject.toLowerCase(), atS)
+    .first<{ recorded: string | null; pending: number }>();
+  if (row?.recorded) return { id: row.recorded as Hex };
+  return { id: null, pending: !!row?.pending };
+}
+
 interface PendingRow {
   authorization_id: Hex;
   sign_in_json: string;

@@ -176,6 +176,11 @@ export interface Ticket {
   maxDurationMs: number;
   issuedAt: number;
   expiresAt: number;
+  /**
+   * V4 only: the learner's sign-in authorization the run is published under.
+   * V2 and V3 tickets never carry this field, so their bytes are unchanged.
+   */
+  authorizationId?: Hex;
 }
 export interface Summary {
   scoreBps: number;
