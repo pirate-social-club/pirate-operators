@@ -144,7 +144,10 @@ async function main() {
     );
     await qualifyManagedUpdate(directory, profile, before, password, cloudEnv);
     await readManagedCredentials(profile, get);
-    const registrationReadiness = await qualifyRegistrationFunding(profile);
+    // Owner publishing has no registration operator, grant or chain reads.
+    const registrationReadiness = profile.ownerGrant
+      ? { registration: "absent", reason: "owner_publishing_policy" }
+      : await qualifyRegistrationFunding(profile);
     if (!values.execute) {
       console.log(
         JSON.stringify({

@@ -115,6 +115,16 @@ test("retry of a committed successful release returns preserved evidence only af
       }),
       /completed_release_not_live/,
     );
+    // An owner publishing release has no creator connection to require.
+    assert.deepEqual(
+      await completedCommunityRelease(
+        directory,
+        { ...profile, ownerPublishing: {} },
+        profileHash,
+        { ...live, health: { ...health, creatorConnection: "unavailable" } },
+      ),
+      result,
+    );
     await assert.rejects(
       completedCommunityRelease(directory, profile, profileHash, {
         ...live,
