@@ -17,8 +17,10 @@ import {
   dispatch,
   enqueue,
   intentOf,
+  recheckSuperseded,
   recoverTransactions,
   txRow,
+  WITHHELD_SETTLEMENT_DEPTH,
   withheldUnpublished,
   type SendGate,
   type TxRow,
@@ -52,7 +54,12 @@ function journal(): TxStore {
     },
   };
 }
-/** A scripted node: every request body is kept, sends are recorded, mining is explicit. */
+/**
+ * A scripted node: every request body is kept, sends are recorded and known
+ * by hash, and mining is explicit. A sent row can be mined later with
+ * `mine`; `advance` moves the head; `lag` makes the next reads of a method
+ * answer null, as a lagging replica would.
+ */
 function node() {
   const real = globalThis.fetch;
   const state = {
@@ -60,14 +67,29 @@ function node() {
     sent: [] as Hex[],
     priced: [] as Hex[],
     latest: 0,
+    head: 100,
+    known: new Set<Hex>(),
     receipts: new Map<Hex, { status: Hex; blockNumber: Hex; transactionHash: Hex; logs: [] }>(),
+    lagging: new Map<string, number>(),
     mineSends: true,
     gasPrice: 10n ** 9n,
   };
   const mine = (raw: Hex) => {
     const hash = keccak256(raw);
-    state.receipts.set(hash, { status: "0x1", blockNumber: "0x10", transactionHash: hash, logs: [] });
+    state.known.add(hash);
+    state.receipts.set(hash, {
+      status: "0x1",
+      blockNumber: ("0x" + state.head.toString(16)) as Hex,
+      transactionHash: hash,
+      logs: [],
+    });
     state.latest += 1;
+    state.head += 1;
+  };
+  const lagged = (method: string) => {
+    const left = state.lagging.get(method) ?? 0;
+    if (left > 0) state.lagging.set(method, left - 1);
+    return left > 0;
   };
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     const body = String(init?.body ?? "");
@@ -85,7 +107,11 @@ function node() {
       case "eth_estimateGas":
         return reply("0x5208");
       case "eth_blockNumber":
-        return reply("0x20");
+        return reply("0x" + state.head.toString(16));
+      case "eth_getTransactionByHash":
+        return reply(
+          !lagged(method) && state.known.has(params[0]) ? { hash: params[0] } : null,
+        );
       case "eth_call": {
         // GasPriceOracle.getL1Fee(bytes): record what was priced, answer 0.
         const data = params[0].data as Hex;
@@ -94,15 +120,22 @@ function node() {
         return reply(encodeAbiParameters([{ type: "uint256" }], [0n]));
       }
       case "eth_getTransactionReceipt":
-        return reply(state.receipts.get(params[0]) ?? null);
+        return reply(lagged(method) ? null : (state.receipts.get(params[0]) ?? null));
       case "eth_sendRawTransaction":
         state.sent.push(params[0]);
+        state.known.add(keccak256(params[0]));
         if (state.mineSends) mine(params[0]);
         return reply(keccak256(params[0]));
     }
     throw new Error(`unscripted ${method}`);
   }) as typeof fetch;
-  return { state, mine, restore: () => void (globalThis.fetch = real) };
+  return {
+    state,
+    mine,
+    advance: (blocks = WITHHELD_SETTLEMENT_DEPTH) => void (state.head += blocks),
+    lag: (method: string, times = 1) => void state.lagging.set(method, times),
+    restore: () => void (globalThis.fetch = real),
+  };
 }
 const env = {
   RPC_URL: "http://node.invalid",
@@ -185,7 +218,12 @@ test("a withheld row proven never sent: its signed bytes never reach any RPC; it
   try {
     const store = journal();
     const row = await allocated(store, n);
-    const settled = (await dispatch(env, store, "record_result", "ticket:1", limits, gate({ value: true })))!;
+    const first = (await dispatch(env, store, "record_result", "ticket:1", limits, gate({ value: true })))!;
+    // Mined, but not yet deep enough to settle.
+    assert.equal(first.mined, null);
+    n.advance();
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    const settled = txRow(store, row.nonce)!;
     assert.equal(carries(n.state.bodies, row.raw!), false);
     assert.equal(settled.mined?.status, "cancelled");
     assert.equal(n.state.sent.length, 1);
@@ -214,6 +252,9 @@ test("a withheld none row whose own transaction is mined after all is recorded a
     // Its bytes reach the chain by some other path.
     n.mine(row.raw!);
     n.state.gasPrice = 10n ** 9n;
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, row.nonce)!.mined, null, "not yet deep enough");
+    n.advance();
     await recoverTransactions(env, store, async () => true, gate({ value: true }));
     const settled = txRow(store, row.nonce)!;
     assert.equal(settled.mined?.status, "success");
@@ -250,6 +291,8 @@ test("an older row counts as never sent only when it was never signed", async ()
     delete bare.hash;
     unsignedStore.set(key(bare), bare);
     n.state.sent.length = 0;
+    await recoverTransactions(env, unsignedStore, async () => true, gate({ value: true }));
+    n.advance();
     await recoverTransactions(env, unsignedStore, async () => true, gate({ value: true }));
     const cancelled = txRow(unsignedStore, bare.nonce)!;
     assert.equal(cancelled.mined?.status, "cancelled");
@@ -290,7 +333,7 @@ test("without sponsor limits a waiting cancellation is logged, and nothing is se
   }
 });
 
-test("a withheld row whose nonce another transaction consumed is superseded, and recovery continues past it", async () => {
+test("a nonce consumed with nothing found is superseded only on reads the depth apart; recovery then continues and a later receipt corrects it", async () => {
   const n = node();
   try {
     const store = journal();
@@ -307,9 +350,17 @@ test("a withheld row whose nonce another transaction consumed is superseded, and
     assert.ok(stuck.some((l) => l.includes("operator_nonce_withheld")));
     assert.equal(txRow(store, 1)!.mined, null, "the payment waits behind it");
     assert.equal(n.state.sent.slice(sentBefore).includes(row.raw!), false);
-    // Something else consumes nonce 0; the payment then mines.
+    // Something else consumes nonce 0, and the node no longer knows the row.
     n.state.mineSends = true;
     n.state.latest = 1;
+    n.state.known.delete(row.hash!);
+    const first = await warnings(() => recoverTransactions(env, store, async () => true, gate({ value: true })));
+    assert.ok(first.some((l) => l.includes("operator_nonce_unexplained")));
+    assert.equal(txRow(store, 0)!.mined, null, "one read is not enough");
+    n.advance(WITHHELD_SETTLEMENT_DEPTH - 1);
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, 0)!.mined, null, "nor reads less than the depth apart");
+    n.advance(1);
     const reconciled = await warnings(() => recoverTransactions(env, store, async () => true, gate({ value: true })));
     assert.ok(reconciled.some((l) => l.includes("operator_nonce_superseded")));
     const superseded = txRow(store, 0)!;
@@ -318,8 +369,67 @@ test("a withheld row whose nonce another transaction consumed is superseded, and
     assert.equal(superseded.hash, row.hash);
     assert.equal(withheldUnpublished(superseded), true);
     assert.equal(txRow(store, 1)!.mined?.status, "success");
-    assert.equal(n.state.sent.includes(row.raw!), true, "sent once, before the withdrawal");
-    assert.equal(n.state.sent.filter((raw) => raw === row.raw).length, 1);
+    assert.equal(n.state.sent.filter((raw) => raw === row.raw).length, 1, "sent once, before the withdrawal");
+    // Its receipt appears after all: the re-check records the truth.
+    n.state.receipts.set(row.hash!, { status: "0x1", blockNumber: "0x64", transactionHash: row.hash!, logs: [] });
+    await recheckSuperseded(env, store, 0, true);
+    assert.equal(txRow(store, 0)!.mined?.status, "success");
+    assert.equal(withheldUnpublished(txRow(store, 0)), false);
+  } finally {
+    n.restore();
+  }
+});
+
+test("a mined original whose receipt and transaction reads lag once is never settled superseded", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    enqueue(store, "record_result", "ticket:1", results, "0x1234", 200_000n);
+    n.state.mineSends = false;
+    await dispatch(env, store, "record_result", "ticket:1", limits, gate({ value: false }));
+    const row = txRow(store, 0)!;
+    // The withdrawal is observed while the send's fate is unknown.
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.ok(txRow(store, 0)!.withheld);
+    // The original mines; the replica lags once on both reads.
+    n.mine(row.raw!);
+    n.lag("eth_getTransactionReceipt");
+    n.lag("eth_getTransactionByHash");
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, 0)!.mined, null);
+    n.advance();
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    const settled = txRow(store, 0)!;
+    assert.equal(settled.mined?.status, "success");
+    assert.equal(settled.withheld?.unexplainedSince, undefined);
+    assert.equal(withheldUnpublished(settled), false);
+  } finally {
+    n.restore();
+  }
+});
+
+test("a cancellation receipt that a reorg removes before it is deep never settles the row", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    const row = await allocated(store, n);
+    await dispatch(env, store, "record_result", "ticket:1", limits, gate({ value: true }));
+    const cancellation = txRow(store, row.nonce)!.cancellation!;
+    assert.ok(n.state.receipts.has(cancellation.hash!));
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, row.nonce)!.mined, null, "shallow: not settled");
+    // A reorg drops it: no receipt, nonce not consumed.
+    n.state.receipts.delete(cancellation.hash!);
+    n.state.latest -= 1;
+    n.advance();
+    n.state.sent.length = 0;
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    // Sent again, same bytes, mined again, then settled once deep.
+    assert.deepEqual(n.state.sent, [cancellation.raw]);
+    assert.equal(txRow(store, row.nonce)!.mined, null);
+    n.advance();
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, row.nonce)!.mined?.status, "cancelled");
   } finally {
     n.restore();
   }

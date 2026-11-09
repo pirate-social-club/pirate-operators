@@ -45,6 +45,7 @@ import {
   faultName,
   faults,
   injectFault,
+  mineDepth,
   interceptOnce,
   consumeNonceExternally,
   unsentRow,
@@ -103,8 +104,17 @@ const resume = (c: Study) => resumeStudyPublication(c.f.operatorEnv, c.f.store, 
 const retry = async (c: Study) => {
   for (let i = 0; i < 3; i++) await resume(c);
 };
+/** Background recovery, each pass after the settlement depth has passed. */
 const recover = async (c: Study) => {
-  for (let i = 0; i < 3; i++) await recoverLearningTransactions(c.f.operatorEnv, c.f.store);
+  for (let i = 0; i < 3; i++) {
+    await mineDepth(c.f.evm);
+    await recoverLearningTransactions(c.f.operatorEnv, c.f.store);
+  }
+};
+/** What the operator's regular alarm runs for withheld rows, after the depth. */
+const alarm = async (c: Study) => {
+  await mineDepth(c.f.evm);
+  await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
 };
 async function publication(c: Study, auth: Auth = c.f.auth) {
   return json<{
@@ -282,7 +292,8 @@ test(
       // The fee comes back within the limit; the alarm's settlement, not
       // only /recover, then cancels the nonce.
       watch.clear();
-      await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
+      await alarm(c); // sends the cancellation
+      await alarm(c); // settles it once deep enough
       await nothingOnV3(c);
       await assertWithheldJournal(c.f.store, c.f.evm.publicClient as never, c.ref, allocated, watch.sent);
     } finally {
@@ -431,7 +442,7 @@ test(
       const stalled = await warnings(async () => {
         await recover(c);
         await retry(c);
-        await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
+        await alarm(c);
       });
       const later = c.f.store
         .entries("tx:")
@@ -442,9 +453,11 @@ test(
       assert.ok(stalled.some((line) => line.includes("operator_nonce_withheld") && JSON.parse(line).nonce === own.nonce));
       assert.equal((await publication(c)).state, "pending");
       await consumeNonceExternally(c.f.evm, 31337, own.nonce);
-      const reconciled = await warnings(() =>
-        settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store),
-      );
+      // One read finding nothing is not enough; a read the depth later is.
+      const first = await warnings(() => alarm(c));
+      assert.ok(first.some((line) => line.includes("operator_nonce_unexplained")));
+      assert.equal(txRow(c.f.store, own.nonce)!.mined, null);
+      const reconciled = await warnings(() => alarm(c));
       assert.ok(reconciled.some((line) => line.includes("operator_nonce_superseded")));
       const row = txRow(c.f.store, own.nonce)!;
       assert.equal(row.mined?.status, "superseded");
@@ -492,13 +505,82 @@ test(
       assert.ok(c.f.store.get(`studyPublication:${c.id}`), "kept while the nonce is open");
       assert.equal(closedStudyPublication(c.f.store, c.id), undefined);
       // The alarm resends the cancellation; once mined, erasure proceeds.
-      await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
+      await alarm(c);
+      await alarm(c);
       assert.equal(txRow(c.f.store, allocated.nonce)!.mined?.status, "cancelled");
       await resume(c);
       assert.equal(c.f.store.get(`studyPublication:${c.id}`), undefined);
       assert.equal(closedStudyPublication(c.f.store, c.id)!.receipt.privateHistoryErased, true);
       assert.ok(txRow(c.f.store, allocated.nonce), "the row stays for nonce accounting");
       await nothingOnV3(c);
+    } finally {
+      watch.restore();
+      await c.f.dispose();
+    }
+  },
+);
+
+test(
+  "Study: an original mined during the settlement inside a resume is reported published, never frozen private",
+  { timeout: 300000 },
+  async () => {
+    const c = await study();
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await resume(c);
+      const own = txRow(c.f.store, intentOf(c.f.store, "record_result", c.ref)!.nonce!)!;
+      assert.equal(own.broadcast, "attempted");
+      await withdraw(c, "settings");
+      await warnings(() => resume(c));
+      assert.ok(txRow(c.f.store, own.nonce)!.withheld);
+      assert.equal(txRow(c.f.store, own.nonce)!.mined, null);
+      // In the next resume, after its observation read no commitment, the
+      // original mines while the settlement reads the operator's nonce, and
+      // the receipt read that follows lags once.
+      const real = globalThis.fetch;
+      let fired = false,
+        busy = false;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (!busy && !fired && body.includes('"eth_getTransactionCount"') && !body.includes('"pending"')) {
+          fired = busy = true;
+          try {
+            await c.f.evm.rpc("eth_sendRawTransaction", [own.raw]);
+            await c.f.evm.rpc("evm_mine", []);
+            watch.on("eth_getTransactionReceipt", () => null, 1);
+          } finally {
+            busy = false;
+          }
+        }
+        return real(input, init);
+      }) as typeof fetch;
+      try {
+        await warnings(() => resume(c));
+      } finally {
+        globalThis.fetch = real;
+      }
+      assert.equal(fired, true);
+      assert.notEqual(
+        await c.f.evm.read(c.f.v3, "LearningResultsV3", "commitments", [c.session]),
+        zeroHash,
+      );
+      for (let i = 0; i < 2; i++) {
+        const view = await publication(c);
+        assert.equal(view.state, "published");
+        assert.equal(view.receipt!.transactionHash, own.hash);
+        assert.notEqual(view.receipt!.neverSubmitted, true);
+        await warnings(async () => {
+          await alarm(c);
+          await recover(c);
+          await retry(c);
+        });
+      }
+      assert.equal(txRow(c.f.store, own.nonce)!.mined?.status, "success");
+      // Only the test's own delivery carried those bytes.
+      assert.equal(watch.sent.filter((raw) => raw === own.raw).length, 1);
     } finally {
       watch.restore();
       await c.f.dispose();

@@ -10,6 +10,7 @@ import {
   intentOf,
   maximumFee,
   txRow,
+  WITHHELD_SETTLEMENT_DEPTH,
   type TxRow,
 } from "../services/operator-tx.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
@@ -365,4 +366,10 @@ export async function consumeNonceExternally(
   await evm.rpc("eth_sendRawTransaction", [raw]);
   await evm.rpc("evm_mine", []);
   return raw;
+}
+/** Mines past the depth a withheld row's settlement waits for. */
+export async function mineDepth(evm: {
+  rpc: (method: string, params: unknown[]) => Promise<unknown>;
+}) {
+  await evm.rpc("anvil_mine", ["0x" + (WITHHELD_SETTLEMENT_DEPTH + 1).toString(16)]);
 }

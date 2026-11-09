@@ -34,8 +34,10 @@ import {
   settleWithheldLearningTransactions,
 } from "../services/study-publication-recovery.ts";
 /** What the operator's regular alarm runs for withheld rows on every tick. */
-const alarm = (c: { k: { env: never; store: never } }) =>
-  settleWithheldLearningTransactions(c.k.env, c.k.store);
+const alarm = async (c: { k: { env: never; store: never; evm: never } }) => {
+  await mineDepth(c.k.evm);
+  await settleWithheldLearningTransactions(c.k.env, c.k.store);
+};
 import { learningBindingFixture } from "./learning-binding-fixture.ts";
 import {
   assertNonceAccounting,
@@ -43,6 +45,7 @@ import {
   faultName,
   faults,
   injectFault,
+  mineDepth,
   interceptOnce,
   consumeNonceExternally,
   unsentRow,
@@ -55,6 +58,14 @@ import {
 } from "./unsent-result-support.ts";
 
 type Route = "settings" | "direct";
+/** Private and withheld; a re-checked state also carries when it was read. */
+function assertPrivateState(store: Parameters<typeof publicationV2>[0], id: string) {
+  const state = publicationV2(store, id)!;
+  assert.deepEqual(
+    { state: state.state, revision: state.revision, reason: (state as { reason?: string }).reason },
+    { state: "private", revision: 1, reason: "authorization_withdrawn" },
+  );
+}
 let port = 19800;
 
 /** A finished, enrollment-bound V3 run and a V4 contract for the community. */
@@ -87,8 +98,12 @@ const withdraw = (c: Karaoke, route: Route) =>
 const retry = async (c: Karaoke) => {
   for (let i = 0; i < 3; i++) await publishV2(c.k.env, c.k.store, c.id);
 };
+/** Background recovery, each pass after the settlement depth has passed. */
 const recover = async (c: Karaoke) => {
-  for (let i = 0; i < 3; i++) await recoverLearningTransactions(c.k.env, c.k.store);
+  for (let i = 0; i < 3; i++) {
+    await mineDepth(c.k.evm);
+    await recoverLearningTransactions(c.k.env, c.k.store);
+  }
 };
 async function nothingOnV3(c: Karaoke) {
   assert.equal(
@@ -120,11 +135,7 @@ for (const fault of faults)
               await retry(c);
             }
             await recover(c);
-            assert.deepEqual(publicationV2(c.k.store, c.id), {
-              state: "private",
-              revision: 1,
-              reason: "authorization_withdrawn",
-            });
+            assertPrivateState(c.k.store, c.id);
             await nothingOnV3(c);
             await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, allocated, watch.sent);
             await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
@@ -208,7 +219,8 @@ test(
       // The fee comes back within the limit; the regular alarm's tick, not
       // only /recover, then cancels the nonce.
       watch.clear();
-      await alarm(c as never);
+      await alarm(c as never); // sends the cancellation
+      await alarm(c as never); // settles it once deep enough
       await nothingOnV3(c);
       await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, allocated, watch.sent);
     } finally {
@@ -331,11 +343,7 @@ for (const [route, at] of [
         } finally {
           all.restore();
         }
-        assert.deepEqual(publicationV2(c.k.store, c.id), {
-          state: "private",
-          revision: 1,
-          reason: "authorization_withdrawn",
-        });
+        assertPrivateState(c.k.store, c.id);
         await nothingOnV3(c);
         await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, snapshot!, [...watch.sent, ...all.sent]);
         await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
@@ -383,6 +391,10 @@ test(
       // Another transaction at that nonce consumes it on chain.
       await consumeNonceExternally(c.k.evm, 31337, own.nonce);
       const external = watch.sent.length;
+      // One read finding nothing is not enough; a read the depth later is.
+      const first = await warnings(() => alarm(c as never));
+      assert.ok(first.some((line) => line.includes("operator_nonce_unexplained")));
+      assert.equal(txRow(c.k.store, own.nonce)!.mined, null);
       const reconciled = await warnings(() => alarm(c as never));
       assert.ok(reconciled.some((line) => line.includes("operator_nonce_superseded")));
       const row = txRow(c.k.store, own.nonce)!;
@@ -391,11 +403,7 @@ test(
         assert.equal(row[field], own[field]);
       await recover(c);
       await retry(c);
-      assert.deepEqual(publicationV2(c.k.store, c.id), {
-        state: "private",
-        revision: 1,
-        reason: "authorization_withdrawn",
-      });
+      assertPrivateState(c.k.store, c.id);
       assert.ok(!watch.sent.slice(external).includes(own.raw!));
       assert.equal(watch.sent.filter((raw) => raw === own.raw).length, 0);
       await nothingOnV3(c);
@@ -450,3 +458,89 @@ test("the operator's regular tick settles withheld result transactions", async (
   assert.match(runtime, /async alarm\(\) \{\s*try \{ await tick\(this\.env, this\.store\); \}/);
   assert.match(runtime, /const unsettled = this\.store\.entries\("tx:"\)\.some\(\(\{ value \}\) => !\(value as \{ mined: unknown \}\)\.mined\);/);
 });
+
+test(
+  "Karaoke: a mined original whose receipt read lags once is never settled superseded, and the result is reported published",
+  { timeout: 180000 },
+  async () => {
+    const c = await karaoke("f6");
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await publishV2(c.k.env, c.k.store, c.id);
+      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      assert.equal(own.broadcast, "attempted");
+      await withdraw(c, "settings");
+      await warnings(() => publishV2(c.k.env, c.k.store, c.id));
+      assert.ok(txRow(c.k.store, own.nonce)!.withheld);
+      // The earlier send reached a node after all: the original mines.
+      await c.k.evm.rpc("eth_sendRawTransaction", [own.raw]);
+      await c.k.evm.rpc("evm_mine", []);
+      assert.notEqual(
+        await c.k.evm.read(c.k.v3, "LearningResultsV3", "commitments", [c.session]),
+        zeroHash,
+      );
+      // A lagging replica answers null once for its receipt and for the
+      // transaction; the next read, the depth later, finds it.
+      watch.on("eth_getTransactionReceipt", () => null, 1);
+      watch.on("eth_getTransactionByHash", () => null, 1);
+      await warnings(async () => {
+        await alarm(c as never);
+        await alarm(c as never);
+      });
+      assert.notEqual(txRow(c.k.store, own.nonce)!.mined?.status, "superseded");
+      // The application reports what the chain holds.
+      const external = watch.sent.length;
+      for (let i = 0; i < 3; i++) await publishV2(c.k.env, c.k.store, c.id);
+      await recover(c);
+      assert.equal(publicationV2(c.k.store, c.id)?.state, "published");
+      assert.equal(txRow(c.k.store, own.nonce)!.mined?.status, "success");
+      assert.ok(!watch.sent.slice(external).includes(own.raw!));
+      await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
+    } finally {
+      watch.restore();
+      await c.k.stop();
+    }
+  },
+);
+
+test(
+  "Karaoke: a private result found on chain later is reported published, and a superseded row is corrected by its receipt",
+  { timeout: 180000 },
+  async () => {
+    const c = await karaoke("f7");
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await publishV2(c.k.env, c.k.store, c.id);
+      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      await withdraw(c, "settings");
+      await warnings(() => publishV2(c.k.env, c.k.store, c.id));
+      // The original mines, but every read of it answers null long enough
+      // for the inference: the row is settled superseded.
+      await c.k.evm.rpc("eth_sendRawTransaction", [own.raw]);
+      await c.k.evm.rpc("evm_mine", []);
+      watch.on("eth_getTransactionReceipt", () => null, 1000);
+      watch.on("eth_getTransactionByHash", () => null, 1000);
+      await warnings(async () => {
+        await alarm(c as never);
+        await alarm(c as never);
+      });
+      assert.equal(txRow(c.k.store, own.nonce)!.mined?.status, "superseded");
+      watch.clear();
+      // The view reads the commitment on V3 and reports it published; the
+      // receipt corrects the row.
+      const corrected = await warnings(() => publishV2(c.k.env, c.k.store, c.id));
+      assert.equal(publicationV2(c.k.store, c.id)?.state, "published");
+      assert.equal(txRow(c.k.store, own.nonce)!.mined?.status, "success");
+      assert.ok(corrected.some((line) => line.includes("operator_nonce_superseded_corrected")));
+    } finally {
+      watch.restore();
+      await c.k.stop();
+    }
+  },
+);
