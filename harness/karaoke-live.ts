@@ -133,7 +133,12 @@ const bundle = async (entry: string) =>
     })
   ).outputFiles[0]!.text;
 
-/** 0013, the V4 sign-in schema, only for a V4 community, as a release applies it. */
+/**
+ * A V4 community as a release builds it: 0013, the V4 sign-in schema, is
+ * appended only after the deployed Study, rewards and owner publishing
+ * schema (0009 to 0012), so turning public results off can close Study
+ * lessons.
+ */
 async function migrate(db: D1Database, v4: boolean) {
   for (const name of [
     "0001_setup.sql",
@@ -144,7 +149,15 @@ async function migrate(db: D1Database, v4: boolean) {
     "0006_song_stems.sql",
     "0007_owner_curated.sql",
     "0008_karaoke.sql",
-    ...(v4 ? ["0013_learning_authorization.sql"] : []),
+    ...(v4
+      ? [
+          "0009_study.sql",
+          "0010_study_retention.sql",
+          "0011_manual_rewards.sql",
+          "0012_owner_budget_windows.sql",
+          "0013_learning_authorization.sql",
+        ]
+      : []),
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",
