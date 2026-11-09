@@ -86,21 +86,6 @@ export class RewardStore {
       "reward_program_configuration_changed",
       503,
     );
-    // A rehearsal ID must never name an offer attached with real evidence,
-    // whose settlement would otherwise be routed to the simulated prize.
-    if (this.profile.rehearsal) {
-      const existing = await this.statement(
-        "SELECT purchase_evidence FROM reward_offers WHERE program_id=? AND offer_id=?",
-        this.program,
-        this.profile.rehearsal.offerId,
-      ).first<{ purchase_evidence: string }>();
-      insist(
-        !existing ||
-          JSON.parse(existing.purchase_evidence).mode === "simulated",
-        "reward_rehearsal_offer_conflict",
-        503,
-      );
-    }
     await this.statement(
       "INSERT INTO reward_inventory(program_id) VALUES(?) ON CONFLICT DO NOTHING",
       this.program,

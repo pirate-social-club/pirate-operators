@@ -1,5 +1,9 @@
 import { bytes32, hashJson, insist, object } from "../community/common.ts";
-import { assertRehearsalOffer, isRetiredRehearsal } from "./rehearsal.ts";
+import {
+  assertRehearsalOffer,
+  isRetiredRehearsal,
+  rehearsalTermsFor,
+} from "./rehearsal.ts";
 import type {
   QualificationEntry,
   RewardOffer,
@@ -258,6 +262,14 @@ export class RewardOffers {
   }
   async settle(id: string, claimHash?: string) {
     const input = offerView(await this.store.offer(rewardId(id)));
+    // A rehearsal ID that names an offer attached with real evidence would
+    // route its settlement to the simulated prize; only that offer is refused.
+    insist(
+      input.evidenceMode === "simulated" ||
+        !rehearsalTermsFor(this.store.profile, input.offerId),
+      "reward_rehearsal_offer_conflict",
+      409,
+    );
     if (
       input.evidenceMode === "simulated" &&
       this.store.profile.mode === "live-testnet"

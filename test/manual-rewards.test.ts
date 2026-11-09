@@ -11,6 +11,7 @@ import {
 } from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
 import { MAX_REWARD_ENTRIES } from "../packages/rewards/offers.ts";
+import { resolveRewardQualifiers } from "../services/reward-sources.ts";
 
 test("daily credits remain held until verified; several credits reconcile to one exact payment", async () => {
   const f = await manualRewardsFixture();
@@ -433,6 +434,45 @@ test("an offer always closes: repeats collapse per account and past the limit th
       .bind("offer_crowd_01")
       .first<{ n: number }>();
     assert.equal(credits!.n, MAX_REWARD_ENTRIES);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("the live result reader collapses repeats per wallet and resolves accounts in batched reads", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const [a, b] = f.principals;
+    let reads = 0;
+    const counted = {
+      prepare: (sql: string) => (reads++, f.db.prepare(sql)),
+    } as unknown as D1Database;
+    const results = [];
+    for (let k = 0; k < 3000; k++)
+      results.push({
+        wallet: a.wallet,
+        evidenceHash: rewardHash(30000 + k),
+        completedAt: 5000 + k,
+      });
+    results.push(
+      { wallet: b.wallet, evidenceHash: rewardHash(2), completedAt: 4000 },
+      { wallet: b.wallet, evidenceHash: rewardHash(1), completedAt: 4000 },
+      {
+        wallet: `0x${"77".repeat(20)}`,
+        evidenceHash: rewardHash(3),
+        completedAt: 1,
+      },
+    );
+    const entries = await resolveRewardQualifiers(counted, results);
+    assert.equal(reads, 1, "one batched read for three wallets");
+    assert.deepEqual(
+      entries.map((e) => [e.accountId, e.evidenceHash, e.completedAt]).sort(),
+      [
+        [a.accountId, rewardHash(30000), 5000],
+        [b.accountId, rewardHash(1), 4000],
+      ].sort(),
+      "unbound wallets are dropped; each wallet keeps its earliest result",
+    );
   } finally {
     await f.dispose();
   }

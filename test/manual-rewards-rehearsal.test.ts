@@ -455,17 +455,21 @@ test("a rehearsal rollover keeps the program, its stored hash and the retired of
       withRewardRehearsal(p1, f.sources),
       f.now,
     ).attach(live);
+    const conflicting = rewardProfile(
+      JSON.stringify({
+        ...p1,
+        rehearsal: { ...next, offerId: "live_offer_01" },
+        rehearsalHistory: [config, next],
+      }),
+    );
+    const sc = new RewardStore(f.db, conflicting);
+    await sc.init(); // the rest of the program keeps working
     await assert.rejects(
-      new RewardStore(
-        f.db,
-        rewardProfile(
-          JSON.stringify({
-            ...p1,
-            rehearsal: { ...next, offerId: "live_offer_01" },
-            rehearsalHistory: [config, next],
-          }),
-        ),
-      ).init(),
+      new RewardOffers(
+        sc,
+        withRewardRehearsal(conflicting, f.sources),
+        f.now,
+      ).settle("live_offer_01"),
       /reward_rehearsal_offer_conflict/,
     );
   } finally {
