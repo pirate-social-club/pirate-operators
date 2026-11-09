@@ -119,5 +119,12 @@ The Study time-limit removal changes the operator module to 992158 bytes at
 a no-deadline lesson offer alongside the legacy one-hour offer, binds a
 no-deadline offer to consent that is live at binding time, and reports consent
 that ended, was revoked or was replaced as a known speech refusal before any
-slot or provider call. Legacy offers keep their deadline refusal. This module
-is not yet deployed; deployment remains with runtime custody.
+slot or provider call. Legacy offers keep their deadline refusal; a legacy
+lesson whose consent was revoked or replaced now spends its known-failure takes
+instead of waiting as uncertain until its deadline, with the same end state.
+
+Deployment order: this operator must be live before, or together with, the
+application that creates no-deadline lessons. The deployed 991562-byte operator
+accepts only startedAt plus one hour, so an application released first would
+have every new lesson's binding refused. The new operator still accepts legacy
+offers, so deploying it first is safe. Deployment remains with runtime custody.

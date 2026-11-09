@@ -161,8 +161,10 @@ export async function enrollmentRequest(
   };
 }
 
-/** Allow publication grace plus a minute for the following start request.
- * The binding still checks the actual lesson deadline against the grant. */
+/** Reuse a grant with at least an hour, publication grace and a minute left.
+ * A legacy lesson's binding checks its deadline against the grant; a new
+ * lesson's binding requires the grant to be live, and the lesson closes at the
+ * grant's last second. */
 export async function enrollmentForPractice(
   env: Env,
   store: ResultStore,

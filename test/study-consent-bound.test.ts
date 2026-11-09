@@ -235,7 +235,7 @@ test(
   "retention closes and erases a bound lesson thirty days after start even when its consent ends far later",
   { timeout: 120000 },
   async () => {
-    const f = await studyPublicationFixture(19953);
+    const f = await studyPublicationFixture(19956);
     try {
       let lesson = await f.start();
       lesson = (await f.answer(lesson, false)).lesson;

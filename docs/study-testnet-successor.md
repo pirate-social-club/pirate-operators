@@ -72,7 +72,10 @@ Study has no learner time limit (workspace_owner ruling, 2026-11-08). A new
 lesson stores no deadline and stays open while the consent it was bound to is
 live. It closes privately at the earlier of that consent's last millisecond and
 thirty days after it started, or at once when the operator reports the consent
-revoked, replaced or ended. A draft never bound to consent closes thirty days
+revoked, replaced or ended. A lesson closed at consent end stays private; one
+closed at thirty days while its consent is still live (possible only for a
+consent longer than the thirty days the application requests) can publish as
+abandoned. A draft never bound to consent closes thirty days
 after it started. A lesson started before the ruling keeps its one-hour
 deadline, and a delayed expiry sweep retains that deadline as its terminal
 time. Three takes per graded
@@ -238,6 +241,10 @@ this ordinary publication path accepts one immutable terminal snapshot per lesso
 
 ## Deployment order and acceptance
 
+The no-deadline Study change requires the 992158-byte operator to be live
+before, or together with, the application; the older operator refuses every
+no-deadline lesson binding. See docs/study-operator-release.md.
+
 First deploy and verify the application and readers capable of the current
 and successor configuration histories. Confirm existing songs and V2 Karaoke
 results remain readable. Only then activate the new directory revision and
@@ -267,9 +274,9 @@ The export contains the full private attempt set, including recognized text,
 without the recent-list limit of fifty. A lesson's presentation and take bounds
 permit at most sixty attempts; an oversized history is rejected without silently
 truncating it. The export window ends thirty days after the saved completion, the legacy
-lesson deadline, or an open new lesson's close bound once that has passed. Open
-new lessons can therefore be retained for up to sixty days after their consent
-was signed, against about thirty days and an hour under the former limit; the
+lesson deadline, or an open new lesson's close bound once that has passed. With the
+thirty-day consent the application requests, an open new lesson can therefore be
+retained for up to sixty days after its consent was signed, against about thirty days and an hour under the former limit; the
 V3 disclosure promises no shorter period. Raw audio, managed keys and cookies are not included. This is
 an operator-held JSON copy, not an encrypted learner vault or an official grade
 import. The account menu retains one opened lesson; a full history index is not

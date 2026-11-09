@@ -108,15 +108,11 @@ function App() {
     } catch {
       next = null;
     }
-    // A lesson link and its download belong to the account that opened them.
-    // A failed session read keeps them; signing out or in as another account
-    // drops them.
-    if (before && next && next.mossAddress !== before) {
-      const url = new URL(location.href);
-      url.searchParams.delete("lesson");
-      history.replaceState(null, "", url);
-      setLearningActions(null);
-    }
+    // Study is closed whenever this page refreshes its session (the header is
+    // inert while practice is open), and closing Study drops its lesson link. A
+    // download offered for another account is dropped here; the server would
+    // refuse it anyway. A failed read keeps it.
+    if (before && next && next.mossAddress !== before) setLearningActions(null);
     setSession(next);
   }
   async function refresh() {
@@ -387,9 +383,6 @@ function App() {
                 onClick={() =>
                   void run(async () => {
                     await post("/api/logout", {}, current().csrf);
-                    const url = new URL(location.href);
-                    url.searchParams.delete("lesson");
-                    history.replaceState(null, "", url);
                     setSession(null);
                     setLearningActions(null);
                     setStatus("Signed out.");

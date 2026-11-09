@@ -75,6 +75,8 @@ test("signing out and back in resumes the same lesson; signing in as another acc
     .poll(() => lessonParam(page))
     .toBe(state.firstLesson.lessonId);
   await exitStudy(page);
+  // Leaving Study drops its lesson link; sign-out is only reachable after that.
+  expect(lessonParam(page)).toBeNull();
   await page.getByRole("button", { name: "Learning settings" }).click();
   await expect(
     page.getByRole("menuitem", { name: "Download private history" }),
@@ -84,7 +86,7 @@ test("signing out and back in resumes the same lesson; signing in as another acc
   await expect(
     page.getByRole("button", { name: "Sign in with MOSS" }),
   ).toBeVisible();
-  expect(lessonParam(page)).toBeNull();
+  await expect(page.getByRole("button", { name: "Learning settings" })).toHaveCount(0);
   // Same account again: the lesson in progress is resumed, not replaced.
   state.walletIs("first");
   await signIn(page);
