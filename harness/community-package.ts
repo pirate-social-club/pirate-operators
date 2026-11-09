@@ -99,12 +99,17 @@ import {
   publishingReleaseSelection,
   type PublishingReleaseSelection,
 } from "./publishing-release-profile.ts";
+import {
+  learningV4ReleaseSelection,
+  type LearningV4ReleaseSelection,
+} from "./learning-v4-release-profile.ts";
 export { communityMigrations, OWNER_PUBLISHING_MIGRATION };
 /** Owner-only unregistered publishing requires the Study and rewards schema. */
 export async function communityPackage(
   study?: StudyReleaseSelection,
   rewards?: RewardsReleaseSelection,
   publishingInput?: PublishingReleaseSelection,
+  learningV4Input?: LearningV4ReleaseSelection,
 ) {
   const publishing = publishingInput
     ? publishingReleaseSelection(publishingInput)
@@ -122,6 +127,15 @@ export async function communityPackage(
   insist(
     !publishing || rewardSelection,
     "owner_publishing_rewards_selection_required",
+    409,
+  );
+  // V4 sign-in permission appends after the deployed owner publishing schema.
+  const learningV4 = learningV4Input
+    ? learningV4ReleaseSelection(learningV4Input)
+    : undefined;
+  insist(
+    !learningV4 || publishing,
+    "learning_v4_publishing_selection_required",
     409,
   );
   await verifyCommunityDependencies();
@@ -197,7 +211,11 @@ export async function communityPackage(
   );
   const migrations = communityMigrations(
     await readdir("apps/community-wizard/infra/migrations"),
-    { rewards: !!rewardSelection, ownerPublishing: !!publishing },
+    {
+      rewards: !!rewardSelection,
+      ownerPublishing: !!publishing,
+      v4: !!learningV4,
+    },
   );
   const sourcePaths = [
     ...new Set(
@@ -348,11 +366,14 @@ export async function communityPackage(
   };
   // Owner publishing replaces the registered release fields and drops the
   // registration bounds; the rest of the profile is unchanged.
-  const profile = (
+  const published = (
     publishing ? communityPublishingProfile(base, publishing) : base
   ) as typeof base & {
     ownerPublishing?: PublishingReleaseSelection;
+    learningV4?: LearningV4ReleaseSelection;
   };
+  // Absent unless selected, so every other profile is unchanged.
+  const profile = learningV4 ? { ...published, learningV4 } : published;
   return { profile, profileHash: hashJson(profile), bytes };
 }
 export async function writeCommunityPackage(

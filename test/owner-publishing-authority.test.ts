@@ -910,17 +910,25 @@ test("deployment packages add the publishing migrations only when owner publishi
   const deployed = communityMigrations(names, {
     rewards: true,
     ownerPublishing: false,
+    v4: false,
   });
-  assert.ok(deployed.includes("0011_manual_rewards.sql"));
+  assert.equal(deployed.at(-1), "0011_manual_rewards.sql");
   assert.equal(deployed.includes("0012_owner_budget_windows.sql"), false);
-  // The sign-in authorization migration is not opt-in and sorts last.
-  assert.equal(deployed.at(-1), "0013_learning_authorization.sql");
   assert.deepEqual(
-    communityMigrations(names, { rewards: true, ownerPublishing: true }),
-    [...deployed, "0012_owner_budget_windows.sql"].sort(),
+    communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: false,
+    }),
+    [...deployed, "0012_owner_budget_windows.sql"],
   );
   assert.throws(
-    () => communityMigrations(names, { rewards: false, ownerPublishing: true }),
+    () =>
+      communityMigrations(names, {
+        rewards: false,
+        ownerPublishing: true,
+        v4: false,
+      }),
     /owner_publishing_rewards_selection_required/,
   );
   assert.deepEqual(managedMigrations(false), [
@@ -932,6 +940,55 @@ test("deployment packages add the publishing migrations only when owner publishi
     ...managedMigrations(false),
     "0004_owner_budget_windows.sql",
   ]);
+});
+
+test("the V4 sign-in migration is opt-in and appends only after the deployed 0012", async () => {
+  const names = (await chain(COMMUNITY)).map((p) => p.split("/").at(-1)!);
+  assert.ok(names.includes("0013_learning_authorization.sql"));
+  const publishing = communityMigrations(names, {
+    rewards: true,
+    ownerPublishing: true,
+    v4: false,
+  });
+  // Unselected, no list carries it: Study-only, rewards and publishing.
+  for (const selected of [
+    { rewards: false, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: true, v4: false },
+  ])
+    assert.equal(
+      communityMigrations(names, selected).includes(
+        "0013_learning_authorization.sql",
+      ),
+      false,
+    );
+  assert.equal(publishing.at(-1), "0012_owner_budget_windows.sql");
+  assert.deepEqual(
+    communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: true,
+    }),
+    [...publishing, "0013_learning_authorization.sql"],
+  );
+  // V4 needs the deployed order: owner publishing, which needs rewards.
+  for (const selected of [
+    { rewards: true, ownerPublishing: false, v4: true },
+    { rewards: false, ownerPublishing: false, v4: true },
+  ])
+    assert.throws(
+      () => communityMigrations(names, selected),
+      /learning_v4_publishing_selection_required/,
+    );
+  assert.throws(
+    () =>
+      communityMigrations(names, {
+        rewards: false,
+        ownerPublishing: true,
+        v4: true,
+      }),
+    /owner_publishing_rewards_selection_required/,
+  );
 });
 
 test("after real expiry an existing owner reservation replays and settles, while new spending is refused", async () => {

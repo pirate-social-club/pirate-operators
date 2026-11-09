@@ -28,6 +28,11 @@ import {
   managedPublishingProfile,
   publishingReleaseSelection,
 } from "../harness/publishing-release-profile.ts";
+import {
+  assertLearningV4ApplicationUpgrade,
+  learningV4ReleaseSelection,
+} from "../harness/learning-v4-release-profile.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import { applicationPublishingBindings } from "../apps/community-wizard/infra/publishing-bindings.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { managedUpdate } from "../harness/managed-update-pin.ts";
@@ -231,6 +236,142 @@ test("the community publishing successor appends only 0012, adds the owner selec
       /owner_publishing_scope_changed/,
     );
   }
+});
+
+test("the V4 application successor appends only 0013 after the deployed 0012 and adds the V4 selection", async () => {
+  const rewards = await rewardsApplication();
+  // The deployed publishing application, as the publishing gate admits it.
+  const previous = communityPublishingProfile(
+    {
+      ...structuredClone(rewards),
+      migrations: [...rewards.migrations, "0012_owner_budget_windows.sql"],
+      managedProfileHash: "0x" + "5".repeat(64),
+    },
+    await selection(),
+  ) as Record<string, any>;
+  assert.doesNotThrow(() => assertPublishingApplicationUpgrade(rewards, previous));
+  const v4 = learningV4ReleaseSelection({
+    schema: "pirate.learning-v4-release-selection/1",
+    chainId: 6343,
+    contract: "0x" + "c4".repeat(20),
+    codeHash: "0x" + "4c".repeat(32),
+    publicationPolicy: learningV4PublicityPolicy,
+    policyVersion: 4,
+  });
+  const next = {
+    ...structuredClone(previous),
+    migrations: [...previous.migrations, "0013_learning_authorization.sql"],
+    learningV4: v4,
+  } as Record<string, any>;
+  assert.doesNotThrow(() => assertLearningV4ApplicationUpgrade(previous, next));
+  // The publishing gate alone refuses 0013, which is why this gate exists.
+  assert.throws(
+    () => assertPublishingApplicationUpgrade(previous, next),
+    /owner_publishing_migrations_changed/,
+  );
+  // A later V4 profile with the same selection and migrations is admitted.
+  assert.doesNotThrow(() =>
+    assertLearningV4ApplicationUpgrade(next, structuredClone(next)),
+  );
+  for (const [name, mutate, code] of [
+    ["no selection", (p: any) => delete p.learningV4, /invalid/],
+    [
+      "another policy",
+      (p: any) => (p.learningV4.publicationPolicy = "0x" + "11".repeat(32)),
+      /learning_v4_release_selection_invalid/,
+    ],
+    [
+      "uppercase contract",
+      (p: any) => (p.learningV4.contract = "0x" + "C4".repeat(20)),
+      /learning_v4_release_selection_invalid/,
+    ],
+    [
+      "V3 contract reused",
+      (p: any) => (p.learningV4.contract = p.learning.studyContract),
+      /learning_v4_contract_reused/,
+    ],
+    [
+      "missing 0013",
+      (p: any) => p.migrations.pop(),
+      /learning_v4_migrations_changed/,
+    ],
+    [
+      "0013 before 0012",
+      (p: any) =>
+        (p.migrations = [
+          ...previous.migrations.slice(0, -1),
+          "0013_learning_authorization.sql",
+          "0012_owner_budget_windows.sql",
+        ]),
+      /learning_v4_migrations_changed/,
+    ],
+    [
+      "extra migration",
+      (p: any) => p.migrations.push("0014_unknown.sql"),
+      /learning_v4_migrations_changed/,
+    ],
+    [
+      "other migration changed",
+      (p: any) => (p.migrations[0] = "0001_other.sql"),
+      /learning_v4_migrations_changed/,
+    ],
+    [
+      "duplicate migration",
+      (p: any) => p.migrations.push("0013_learning_authorization.sql"),
+      /learning_v4_migrations_invalid/,
+    ],
+    [
+      "no owner publishing",
+      (p: any) => delete p.ownerPublishing,
+      /learning_v4_publishing_required/,
+    ],
+    [
+      "rewards",
+      (p: any) => (p.rewards.profile.decimals = 18),
+      /reward_release_|invalid/,
+    ],
+    [
+      "Study",
+      (p: any) => (p.learning.studyCodeHash = "0x" + "77".repeat(32)),
+      /reward_release_study_source_changed|study_upgrade_/,
+    ],
+    [
+      "publisher",
+      (p: any) => (p.publisher = "0x" + "77".repeat(20)),
+      /study_upgrade_unrelated_intent_changed/,
+    ],
+  ] as const) {
+    const altered = structuredClone(next);
+    mutate(altered);
+    assert.throws(
+      () => assertLearningV4ApplicationUpgrade(previous, altered),
+      code,
+      name,
+    );
+  }
+  // A predecessor without owner publishing cannot jump to V4.
+  const rewardsNext = {
+    ...structuredClone(rewards),
+    migrations: [...rewards.migrations, "0013_learning_authorization.sql"],
+    learningV4: v4,
+  };
+  assert.throws(
+    () => assertLearningV4ApplicationUpgrade(rewards, rewardsNext),
+    /learning_v4_publishing_required/,
+  );
+  // A V4 predecessor keeps its selection and migrations.
+  const changed = structuredClone(next);
+  changed.learningV4.codeHash = "0x" + "5c".repeat(32);
+  assert.throws(
+    () => assertLearningV4ApplicationUpgrade(next, changed),
+    /learning_v4_selection_changed/,
+  );
+  const grown = structuredClone(next);
+  grown.migrations.push("0014_unknown.sql");
+  assert.throws(
+    () => assertLearningV4ApplicationUpgrade(next, grown),
+    /learning_v4_migrations_changed/,
+  );
 });
 
 test("the managed publishing successor appends only 0004, swaps the grant and drops the registration key and bounds", async () => {

@@ -38,6 +38,7 @@ import {
   object,
 } from "../packages/community/common.ts";
 import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
+import { readLearningV4ReleaseSelection } from "./learning-v4-release-profile.ts";
 import {
   communityInventory,
   communityRemoteModules,
@@ -70,6 +71,7 @@ async function main() {
         "study-profile": { type: "string" },
         "rewards-profile": { type: "string" },
         "publishing-profile": { type: "string" },
+        "learning-v4-profile": { type: "string" },
       },
     }),
     study = values["study-profile"]
@@ -81,10 +83,14 @@ async function main() {
     publishing = values["publishing-profile"]
       ? await readPublishingReleaseSelection(values["publishing-profile"])
       : undefined,
+    learningV4 = values["learning-v4-profile"]
+      ? await readLearningV4ReleaseSelection(values["learning-v4-profile"])
+      : undefined,
     { profile, profileHash, bytes } = await communityPackage(
       study,
       rewards,
       publishing,
+      learningV4,
     );
   if (values["write-plan"])
     await writeFile(
@@ -367,6 +373,10 @@ async function main() {
               LEARNING_RESULTS_CONTRACT: study.resultsV2.contract,
               LEARNING_RESULTS_V3_CONTRACT: study.resultsV3.contract,
             }
+          : {}),
+        // Only a profile that selected V4 binds it; every other is unchanged.
+        ...(profile.learningV4
+          ? { LEARNING_RESULTS_V4_CONTRACT: profile.learningV4.contract }
           : {}),
       },
       secrets = [password, publisherKey, token, issuerKey, speech],

@@ -3,20 +3,32 @@
 import { insist } from "../packages/community/common.ts";
 
 export const OWNER_PUBLISHING_MIGRATION = "0012_owner_budget_windows.sql";
-/** Migrations a community package applies; rewards and publishing are opt-in, in order. */
+export const LEARNING_AUTHORIZATION_MIGRATION =
+  "0013_learning_authorization.sql";
+/**
+ * Migrations a community package applies. Rewards, owner publishing and the
+ * V4 sign-in authorization are opt-in, in that deployed order: V4 appends
+ * after 0012, so it requires owner publishing, which requires rewards.
+ */
 export function communityMigrations(
   names: string[],
-  selected: { rewards: boolean; ownerPublishing: boolean },
+  selected: { rewards: boolean; ownerPublishing: boolean; v4: boolean },
 ) {
   insist(
     !selected.ownerPublishing || selected.rewards,
     "owner_publishing_rewards_selection_required",
     409,
   );
+  insist(
+    !selected.v4 || selected.ownerPublishing,
+    "learning_v4_publishing_selection_required",
+    409,
+  );
   return names
     .filter((p) => /^\d{4}_.+\.sql$/.test(p))
     .filter((p) => p !== "0011_manual_rewards.sql" || selected.rewards)
     .filter((p) => p !== OWNER_PUBLISHING_MIGRATION || selected.ownerPublishing)
+    .filter((p) => p !== LEARNING_AUTHORIZATION_MIGRATION || selected.v4)
     .sort();
 }
 export const MANAGED_MIGRATIONS = [
