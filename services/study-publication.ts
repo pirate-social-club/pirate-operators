@@ -35,6 +35,7 @@ import {
 import {
   intentOf,
   provenUnsent,
+  recheckSuperseded,
   txRow,
   withheldUnpublished,
   type TxRow,
@@ -277,6 +278,8 @@ async function observe(
   const clean = { ...job.receipt };
   delete clean.reason;
   delete clean.canonicalRevision;
+  // A result once held private and found on chain is not "never submitted".
+  delete clean.neverSubmitted;
   if (
     job.receipt.canonicalHead &&
     BigInt(job.receipt.canonicalHead.number) > head.number &&
@@ -425,14 +428,23 @@ export async function resumeStudyPublication(
   );
   job = { ...job, lastTriedAt: store.now() };
   store.set(key(id), job);
+  // A private result whose transaction was allocated and then withheld is
+  // observed again: it is never reported private while its commitment is on
+  // chain. Erasure, below, also requires that commitment to be absent.
+  const withheldPrivate =
+    job.receipt.state === "private" &&
+    !!(intent?.nonce != null && txRow(store, intent.nonce)?.withheld);
   if (
-    job.receipt.state === "private" ||
+    (job.receipt.state === "private" && !withheldPrivate) ||
     (job.receipt.state === "failed" && !studyRevisionRecovery(job.receipt))
   )
     return (await eraseNeverSubmittedStudy(env, store, id, job)) ?? job.receipt;
   const observed = await observe(env, store, id, job);
-  if (observed.receipt)
+  if (observed.receipt) {
+    if (observed.row?.mined?.status === "superseded")
+      await recheckSuperseded(env, store, observed.row.nonce, true);
     return saveReceipt(store, id, job, observed.receipt, observed.revision);
+  }
   // Withheld after its nonce was allocated and proven never sent, or whose
   // nonce went to another transaction: it can never publish. A row that may
   // have been sent is never sent again; its commitment, read above, decides.
@@ -521,7 +533,7 @@ export async function resumeStudyPublication(
     return keepPrivate(env, store, id, job, "authorization_withdrawn");
   // The transaction path checks again where the nonce is allocated and
   // before every send, including recovery's (legacyResultGate).
-  const sent = await submitResultTransaction(
+  await submitResultTransaction(
     env,
     store,
     "record_result",
@@ -529,12 +541,14 @@ export async function resumeStudyPublication(
     job.data,
     job.target.contract,
   );
-  if (withheldUnpublished(sent))
-    return keepCancelled(env, store, id, job, sent!);
   // Reload the current CAS baseline after dispatch. A competing response may
   // already have recorded the same canonical commitment.
   job = store.get<PublicationJob>(key(id))!;
   const after = await observe(env, store, id, job);
+  // Withheld during that dispatch: private only if the commitment, read
+  // after it, is still absent.
+  if (!after.receipt && withheldUnpublished(after.row))
+    return keepCancelled(env, store, id, job, after.row!);
   return saveReceipt(
     store,
     id,

@@ -15,7 +15,15 @@ import type {
   KaraokeManifest,
   KaraokeResultBody,
 } from "../packages/protocol/payments.ts";
-import { intentOf, txRow, withheldUnpublished } from "./operator-tx.ts";
+import {
+  intentOf,
+  recheckSuperseded,
+  txRow,
+  withheldUnpublished,
+} from "./operator-tx.ts";
+
+/** How often a private, withheld Karaoke result is re-read from chain. */
+const WITHHELD_RECHECK_S = 600;
 import {
   releaseSponsorship,
   reserveSponsorship,
@@ -214,9 +222,22 @@ export async function publishV2(
     revision = result.revision,
     ref = `${ticketId}:${revision}`;
   const oldState = publicationV2(store, ticketId);
+  // The run's own result transaction, once a nonce is allocated.
+  const ownRow = () => {
+    const nonce = intentOf(store, "record_result", ref)?.nonce;
+    return nonce == null ? undefined : txRow(store, nonce);
+  };
+  // A private result whose transaction was allocated and then withheld is
+  // re-read from chain, at most every WITHHELD_RECHECK_S: if its commitment
+  // is on V3 after all, it is reported published.
+  const recheck =
+    oldState?.state === "private" &&
+    revision === 1 &&
+    !!ownRow()?.withheld &&
+    (oldState.checkedAt ?? 0) <= store.now() - WITHHELD_RECHECK_S;
   if (
     oldState?.revision === revision &&
-    (oldState.state === "private" ||
+    ((oldState.state === "private" && !recheck) ||
       oldState.state === "failed" ||
       (oldState.confirmed && (oldState.checkedAt ?? 0) > store.now() - 3600))
   )
@@ -236,12 +257,17 @@ export async function publishV2(
   ]);
   if (oldState?.state === "published" && job) {
     if (current === resultCommitment(restoreHeader(job.result), job.outcomes)) {
-      const intent = intentOf(store, "record_result", ref),
-        row = intent?.nonce == null ? undefined : txRow(store, intent.nonce);
+      let row = ownRow();
+      // A withheld row inferred superseded while its result is on chain:
+      // its own receipt corrects it.
+      if (row?.mined?.status === "superseded")
+        row = await recheckSuperseded(env, store, row.nonce, true);
       const head = await client(env).getBlockNumber({ cacheTime: 0 });
       const next = {
         ...oldState,
-        confirmed: !!row?.mined && head >= BigInt(row.mined.block + 12),
+        confirmed:
+          row?.mined?.status === "success" &&
+          head >= BigInt(row.mined.block + 12),
         checkedAt: store.now(),
       };
       store.set(`publicationV2:${ticketId}`, next);
@@ -266,6 +292,52 @@ export async function publishV2(
       });
     }
   }
+  // A withheld result transaction is never reported private while its
+  // commitment is on chain: the chain decides, read now or passed in.
+  const chainTruth = async (known?: Hex) => {
+    const own = ownRow();
+    if (!own?.withheld || !job || revision !== 1) return undefined;
+    const onChain =
+      known ??
+      (await read<Hex>(env, destination, "commitments", [result.attemptId]));
+    if (onChain !== zeroHash) {
+      const published =
+        onChain === resultCommitment(restoreHeader(job.result), job.outcomes);
+      if (published) {
+        if (own.mined?.status === "superseded")
+          await recheckSuperseded(env, store, own.nonce, true);
+        store.set(
+          `bundleV2:${ticketId}`,
+          durableValue({ result: job.result, outcomes: job.outcomes }),
+        );
+      }
+      const next = published
+        ? {
+            state: "published" as const,
+            revision,
+            confirmed: false,
+            checkedAt: store.now(),
+          }
+        : {
+            state: "failed" as const,
+            revision,
+            reason: "canonical_result_changed",
+          };
+      store.set(`publicationV2:${ticketId}`, next);
+      return next;
+    }
+    if (!withheldUnpublished(own)) return undefined;
+    const next = {
+      state: "private" as const,
+      revision,
+      reason: own.withheld.reason,
+      checkedAt: store.now(),
+    };
+    store.set(`publicationV2:${ticketId}`, next);
+    return next;
+  };
+  const truth = await chainTruth(current);
+  if (truth) return truth;
   const state = { state: "pending" as const, revision };
   store.set(`publicationV2:${ticketId}`, state);
   const keepPrivate = (reason: string) => {
@@ -379,24 +451,12 @@ export async function publishV2(
     job = { target: destination, result: header, outcomes, data };
     store.set(`workV2:${ref}`, durableValue(job));
   }
-  // Withheld after its nonce was allocated and proven never sent: it can
-  // never publish, and a cancellation consumes the nonce, here, in the alarm
-  // or in recovery. A row that may have been sent is never sent again: its
-  // receipt decides, or it stays private once its nonce went to another
-  // transaction (superseded).
-  const cancelled = () => {
-    const nonce = intentOf(store, "record_result", ref)?.nonce;
-    const own = nonce == null ? undefined : txRow(store, nonce);
-    if (!withheldUnpublished(own)) return undefined;
-    const next = {
-      state: "private" as const,
-      revision,
-      reason: own!.withheld!.reason,
-    };
-    store.set(`publicationV2:${ticketId}`, next);
-    return next;
-  };
-  const before = cancelled();
+  // Withheld after its nonce was allocated: private only while the chain
+  // holds no commitment for it (chainTruth). Proven never sent, a
+  // cancellation consumes the nonce, here, in the alarm or in recovery. A row
+  // that may have been sent is never sent again: its receipt decides, or its
+  // nonce is inferred superseded.
+  const before = await chainTruth();
   if (before) return before;
   // A withdrawal accepted or mined during the reads above still stops it.
   // The transaction path checks again where the nonce is allocated and
@@ -410,7 +470,7 @@ export async function publishV2(
     job.data,
     destination.contract,
   );
-  const after = cancelled();
+  const after = await chainTruth();
   if (after) return after;
   if (!row?.mined) return state;
   if (

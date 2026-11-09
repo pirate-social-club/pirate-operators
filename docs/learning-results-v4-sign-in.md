@@ -298,16 +298,41 @@ no further publication attempt for that transaction: the row is marked
 `withheld`, its bytes are never sent again, and it is never cancelled or
 replaced.
 
-A withheld row is settled from receipts and chain state only. Once the
-operator account's latest nonce on chain is past the row's nonce, the row is
-recorded as mined by whichever of its own transaction or its cancellation has
-a receipt. If its own transaction was mined, the result is published and
-reported as published. If neither has a receipt, another transaction consumed
-the nonce: the row is recorded with status `superseded`, which nothing reads
-as a publication, and the result is private with reason
-`authorization_withdrawn`, not marked never submitted unless it was proven
-never sent. The operator's regular alarm settles withheld rows and sends
-pending cancellations, as recovery does.
+A withheld row is settled from receipts and chain state only, never by
+sending its bytes. Each settlement reads the head, then the operator
+account's nonce at that head, then receipts. Once that nonce is past the
+row's nonce:
+
+- A receipt for the row's own transaction, or for its cancellation, settles
+  the row as mined by that transaction once the receipt is 64 blocks deep
+  (`WITHHELD_SETTLEMENT_DEPTH`, about a minute of MegaETH's one-second EVM
+  blocks, beyond the 12 blocks this operator uses to call a publication
+  confirmed), so a short reorg cannot leave a wrong status.
+- With no receipt, if the node knows either transaction
+  (`eth_getTransactionByHash`), the row waits.
+- With no receipt and neither transaction known, the operator infers only
+  that some other transaction from its account used the nonce. It records the
+  head of that first read and settles the row as `superseded` only if a read
+  at least 64 blocks later still finds no receipt and neither transaction.
+  This guards against a lagging or load-balanced RPC answering null for a
+  transaction that was in fact mined.
+
+`superseded` is an inference, not a receipt, and is corrected: the alarm
+re-reads a superseded row's own receipt and its cancellation's at most every
+ten minutes for thirty days after the inference, and any publication view
+that finds the result on chain re-reads it at once. A receipt found then
+records the row as mined by that transaction. Nothing reads `superseded` as a
+publication, and the publication views never rely on it alone: whenever a
+result's transaction is withheld, cancelled or superseded, Karaoke and Study
+read the result's commitment on V3 and report it published, with its
+transaction, if the commitment is there. Only when the commitment is absent
+is such a result reported private with reason `authorization_withdrawn`,
+marked never submitted only when it was proven never sent. A private
+Karaoke result of this kind is re-read from chain at most every ten minutes
+when the operator processes it, and a Study result on every view of it.
+Study erases private history only when the commitment is absent, in addition
+to its existing proof. The operator's regular alarm settles withheld rows and
+sends pending cancellations, as recovery does.
 
 While a withheld row that may have been sent is unmined and its nonce is not
 consumed on chain, every later operator transaction waits behind it: payments
@@ -318,13 +343,25 @@ as pending. The operator sees, on each alarm and recovery pass, a log line
 state, and the journal row `tx:<nonce>` carrying `withheld` and no `mined`;
 later rows stay unmined. A cancellation that waits logs
 `operator_cancellation_waiting` with the refusal (including
-`sponsor_limits_unconfigured`), one sent but not yet mined logs
-`operator_cancellation_pending`, and a nonce found consumed by another
-transaction logs `operator_nonce_superseded`. The state clears only when
-that nonce is consumed on chain, by the original transaction or by any other
-transaction from the operator account at that nonce; the next alarm or
-recovery pass then reconciles the row and later nonces proceed. This fix
-provides no automatic way to consume such a nonce.
+`sponsor_limits_unconfigured`), one sent and not yet settled logs
+`operator_cancellation_pending`, a receipt not yet deep enough logs
+`operator_nonce_settling`, a consumed nonce with nothing found logs
+`operator_nonce_unexplained` until it is settled, `operator_nonce_superseded`
+records the inference, and `operator_nonce_superseded_corrected` its
+correction. The state clears only when that nonce is consumed on chain, by
+the original transaction or by any other transaction from the operator
+account at that nonce; the alarm or recovery then settles the row as above
+and later nonces proceed. This fix provides no automatic way to consume such
+a nonce.
+
+The alarm that drives this settlement is armed on every request only for the
+learning profiles (`pirate-karaoke-testnet-v2` and
+`pirate-learning-testnet-v3`), and re-arms itself every thirty seconds while
+any journal row is unmined. The deployed speech operator runs under
+`pirate-learning-testnet-v3` (`harness/study-operator-live.ts`, checked by
+`harness/study-operator-readonly-adapter.ts`), so its alarm runs. Once a
+withheld row is settled the alarm no longer re-arms for it, so the ten-minute
+re-check of a superseded row runs only when the alarm runs for other work.
 
 ### Rewards source succession (Agent 2)
 
