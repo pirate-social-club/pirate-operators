@@ -376,9 +376,12 @@ test("the V4 application successor appends only 0013 after the deployed 0012 and
 });
 
 test("the managed publishing successor appends only 0004, swaps the grant and drops the registration key and bounds", async () => {
-  // The deployed registered predecessor, pinned for the managed update.
+  // The registered predecessor the publishing successor replaced (history).
   const previous = JSON.parse(
-    await readFile(managedUpdate.previousPlanPath, "utf8"),
+    await readFile(
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v8.json",
+      "utf8",
+    ),
   ).profile as Record<string, any>;
   const next = managedPublishingProfile(
     {
@@ -443,7 +446,7 @@ test("the managed publishing successor appends only 0004, swaps the grant and dr
   }
 });
 
-test("the managed update names the deployed published-recovery predecessor and its retained evidence", async () => {
+test("the managed update names the deployed owner publishing predecessor and its retained evidence", async () => {
   const read = async (path: string) => JSON.parse(await readFile(path, "utf8"));
   const plan = await read(managedUpdate.previousPlanPath),
     evidence = (await read(managedUpdate.previousEvidencePath)).services
@@ -466,6 +469,45 @@ test("the managed update names the deployed published-recovery predecessor and i
   }
   assert.equal(evidence.profileHash, plan.profileHash);
   assert.equal(evidence.resultSha256, managedUpdate.expectedResultSha256);
+  const rollout = await read(managedUpdate.previousEvidencePath);
+  assert.equal(rollout.plan, managedUpdate.previousPlanPath);
+  assert.equal(rollout.readback.workerModuleSha256, plan.profile.bundleSha256);
+  // The deployed predecessor is itself owner publishing, so the next managed
+  // successor keeps its owner scope and migrations and changes source only.
+  assert.ok(plan.profile.ownerGrant);
+  const next = {
+    ...structuredClone(plan.profile),
+    update: managedUpdate,
+    sourceHashes: { ...plan.profile.sourceHashes, "harness/x.ts": "0x" + "1".repeat(64) },
+    bundleSha256: "0x" + "2".repeat(64),
+  };
+  assert.doesNotThrow(() => assertPublishingManagedUpgrade(plan.profile, next));
+  // A validly bound grant for another owner wallet is not a replacement.
+  const registered = JSON.parse(
+    await readFile(
+      "docs/deployments/first-song-managed-20261105.moderation-plan-v8.json",
+      "utf8",
+    ),
+  ).profile;
+  const otherOwner = {
+    ...next,
+    ownerGrant: managedPublishingProfile(
+      registered,
+      await selection(undefined, { ownerWallet: "0x" + "cd".repeat(20) }),
+    ).ownerGrant,
+  };
+  assert.throws(
+    () => assertPublishingManagedUpgrade(plan.profile, otherOwner),
+    /owner_publishing_scope_changed/,
+  );
+  assert.throws(
+    () =>
+      assertPublishingManagedUpgrade(plan.profile, {
+        ...next,
+        migrations: [...next.migrations, "0005_unknown.sql"],
+      }),
+    /owner_publishing_migrations_changed/,
+  );
   assert.deepEqual(
     evidence.resources.map((r: { id: string }) => r.id),
     [

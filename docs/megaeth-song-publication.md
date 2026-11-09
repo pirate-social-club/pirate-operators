@@ -247,8 +247,14 @@ report exactly that profile with the selection's owner release configured and
 no registered release. So after the managed publishing deployment, its
 executed plan is committed as `moderation-plan.json` in a reviewed data-only
 change, and the community package is built from that commit. The managed
-update keeps naming the deployed predecessor through
-`harness/managed-update-pin.ts` and its byte copy `moderation-plan-v8.json`.
+update names the deployed predecessor through
+`harness/managed-update-pin.ts`. Since the November 9 owner publishing
+deployment that is profile 0x36ade674…c1bd, pinned byte for byte as
+`moderation-plan-v9.json`, with its public rollout evidence in
+`first-song-managed-20261105.owner-publishing-rollout.json` and retained result
+0x13edb1c9…d5e3. The next managed successor must keep the owner scope and
+migrations; the registered predecessor `moderation-plan-v8.json` stays as
+history.
 Between the two deployments the still-deployed community keeps reading every
 published song. Its registered release path depends on a registered managed
 release, which the live managed service already reports as unconfigured since

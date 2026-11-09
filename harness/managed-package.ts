@@ -110,8 +110,8 @@ export async function managedPackage(
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v8.json",
-    "docs/deployments/first-song-managed-20261105.published-recovery-rollout.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v9.json",
+    "docs/deployments/first-song-managed-20261105.owner-publishing-rollout.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(

@@ -1,0 +1,56 @@
+{
+  "schema": "pirate.owner-publishing-managed-rollout/1",
+  "observedAt": "2026-11-09T08:43:27.434Z",
+  "sourceCommit": "2d6d7b8f8a325d86d7a176cef8b6b72d98c68de8",
+  "plan": "docs/deployments/first-song-managed-20261105.moderation-plan-v9.json",
+  "readback": {
+    "observedAt": "2026-11-09T09:29:18Z",
+    "workerModuleSha256": "0x98606b7e58b2b3b7344029bdc5d6583053f8e705b57945f523307449b2cbc931",
+    "matchesReviewedBundle": true,
+    "privateEvidenceSha256": "0x59de07e91249ea5c82b3cf98af3f813387d857d710e803e4bc05048db74720ee",
+    "custody": "manual_rewards_coordinator"
+  },
+  "services": {
+    "managed": {
+      "profileHash": "0x36ade674c8f6cf75925c3cdfa07b32ff7ff3e09ba7450a46b7b91f2a5789c1bd",
+      "resultSha256": "0x13edb1c96397f9f24f925f23390d40a0583886bd04c2f7e58334ae8ed4bfd5e3",
+      "previousProfileHash": "0xdaff75fad62b99c881e0e50b706e12a3fc8e26264e01f41c9d7494d61d4bc3ea",
+      "previousResultSha256": "0x87c955ebdd6d79950afbb35a8811691167a7aa1cbf8781ac64093696956992d0",
+      "status": {
+        "ownerRelease": {
+          "configured": true,
+          "expiresAt": 1794814532,
+          "grantSha256": "0x2edd0506eee96e1fe9756bba28b1b8ba74e0124cdcb9db18f0c6a30130918237"
+        },
+        "profileHash": "0x36ade674c8f6cf75925c3cdfa07b32ff7ff3e09ba7450a46b7b91f2a5789c1bd",
+        "release": {
+          "configured": false
+        },
+        "service": "pirate-managed-moderation/1",
+        "status": "available"
+      },
+      "resources": [
+        {
+          "id": "7e62742bc4ed4677b68ec5668552a72f",
+          "name": "pirate-managed-firstsong-20261105",
+          "present": true
+        },
+        {
+          "id": "9887376f-8ee6-45f9-b479-6c3f95203f7a",
+          "name": "pirate-managed-firstsong-20261105-db",
+          "present": true
+        },
+        {
+          "id": "pirate-managed-firstsong-20261105-media",
+          "name": "pirate-managed-firstsong-20261105-media",
+          "present": true
+        },
+        {
+          "id": "dc4fcd4d7eae467e8688751b79fb3c09",
+          "name": "pirate-managed-firstsong-20261105-jobs",
+          "present": true
+        }
+      ]
+    }
+  }
+}

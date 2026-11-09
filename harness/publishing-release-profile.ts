@@ -173,7 +173,11 @@ export function managedPublishingProfile<T extends Record<string, unknown>>(
   return next;
 }
 
-/** Same community, owner, policy and destination; only the window may move. */
+/**
+ * Same community, owner, policy and destination. The replacement grant is a
+ * new owner-signed budget, so its window and limits may differ; the runtime
+ * binds each ceiling at the first window claim.
+ */
 function assertSameOwnerScope(
   previous: OwnerBudgetGrant,
   next: OwnerBudgetGrant,
