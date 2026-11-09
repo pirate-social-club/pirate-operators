@@ -371,8 +371,7 @@ test(
     try {
       const requestId = crypto.randomUUID();
       const real = f.env.DB as D1Database;
-      let hook: (() => Promise<void>) | undefined = () =>
-        turnOff(f, f.auth);
+      let hook: (() => Promise<void>) | undefined = () => turnOff(f, f.auth);
       // The turn-off runs just before this start creates its lesson row.
       f.env.DB = new Proxy(real, {
         get(target, property) {
@@ -409,6 +408,48 @@ test(
       assert.equal(start.status, 409, await start.clone().text());
       const id = await lessonByRequest(f, requestId);
       await closedPrivately(f, id);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test(
+  "turning public results off closes only the account's open lessons in this community",
+  { timeout: 240000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19710);
+    try {
+      // Another learner of the same community has an open lesson.
+      const other = await f.login(6);
+      const theirs = await startV4(f, other);
+      // This learner has an open lesson here, and a lesson row recorded
+      // under another community.
+      const mine = await f.start();
+      const elsewhere = crypto.randomUUID();
+      await f.db
+        .prepare(
+          `INSERT INTO study_lessons(lesson_id,account_id,community_id,request_id,song_json,state_json,started_at)
+          SELECT ?2,account_id,?3,request_id||'-elsewhere',song_json,state_json,started_at FROM study_lessons WHERE lesson_id=?1`,
+        )
+        .bind(mine.lessonId, elsewhere, `0x${"ee".repeat(32)}`)
+        .run();
+      await turnOff(f, f.auth);
+      assert.equal(
+        (await lessonState(f.db, mine.lessonId)).status,
+        "abandoned",
+      );
+      assert.equal((await lessonState(f.db, elsewhere)).status, "active");
+      assert.equal((await lessonState(f.db, theirs.lessonId)).status, "active");
+      // The other learner's lesson goes on under their own permission.
+      const view = await json<StudyLesson>(
+        await f.call(lessonPath(theirs.lessonId), { headers: other }),
+      );
+      assert.equal(view.status, "active");
+      const session = await json<{ publicResults: string }>(
+        await f.call("/api/session", { headers: other }),
+      );
+      assert.equal(session.publicResults, "on");
     } finally {
       await f.dispose();
     }
