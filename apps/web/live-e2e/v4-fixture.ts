@@ -7,14 +7,11 @@ import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { StudyLesson, StudySong } from "../../../packages/study/lesson.ts";
-import {
-  readSignInMessageV4,
-  signInMessageV4,
-} from "../../../packages/protocol/learning-results-v4.ts";
+import { fixtureSignIn, fixtureSignInText } from "./v4-sign-in-text.ts";
 
-export const origin = "https://study-v4.example";
-const learner = `0x${"a4".repeat(20)}`;
-const contract = `0x${"4".repeat(40)}`;
+export const origin: string = fixtureSignIn.origin;
+const learner: string = fixtureSignIn.learner;
+const contract: string = fixtureSignIn.contract;
 const song: StudySong = {
   chainId: 6343,
   postsContract: `0x${"1".repeat(40)}`,
@@ -106,11 +103,12 @@ export async function serveV4(page: Page) {
       });
     if (path === "/__fixture/sign") {
       const input = request.postDataJSON();
-      // The V4 sign-in is a SIWE text; it is recorded as "SignIn".
+      // The V4 sign-in is the challenge's SIWE text, signed byte for byte;
+      // only that is recorded as "SignIn".
       signatures.push(
         input.kind === "typed"
           ? input.primaryType
-          : readSignInMessageV4(String(input.message))
+          : input.message === fixtureSignInText
             ? "SignIn"
             : input.kind,
       );
@@ -161,20 +159,7 @@ export async function serveV4(page: Page) {
       return json({
         id: "fixture-challenge",
         kind: "sign-in-v4",
-        message: signInMessageV4(
-          {
-            origin,
-            chainId: 6343,
-            contract: contract as `0x${string}`,
-            communityId: song.communityId as `0x${string}`,
-            publicationPolicy: `0x${"5".repeat(64)}`,
-          },
-          {
-            learner: learner as `0x${string}`,
-            nonce: `0x${"9".repeat(64)}`,
-            issuedAt: BigInt(Math.floor(Date.now() / 1000) - 60),
-          },
-        ),
+        message: fixtureSignInText,
       });
     if (path === "/api/auth/verify") {
       signedIn = true;
