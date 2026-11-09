@@ -157,6 +157,14 @@ async function relay(env: StudyEnv, db: D1Database, row: PendingRow, now: number
     (row.last_withdrawn !== null && row.issued_at * 1000 <= row.last_withdrawn)
   )
     return close(db, row.authorization_id, "refused", null, now);
+  // updated_at is the last relay attempt: the schedule takes the least
+  // recently tried rows first, so rows that stay retryable take turns.
+  await db
+    .prepare(
+      "UPDATE learning_authorizations SET updated_at=? WHERE authorization_id=? AND state='pending'",
+    )
+    .bind(now, row.authorization_id)
+    .run();
   const expired = now > (row.issued_at + SIGN_IN_RELAY_WINDOW_S) * 1000;
   let receipt: OperatorReceipt;
   try {
@@ -197,8 +205,10 @@ export async function relaySignIn(
 }
 
 /**
- * Scheduled and bounded: the oldest requested relays first. A sign-in whose
- * relay no Study or Karaoke start requested is never relayed here.
+ * Scheduled and bounded: the requested relays tried least recently go first,
+ * so a row that stays retryable cannot hold the ones behind it for the
+ * thirty-day window. A sign-in whose relay no Study or Karaoke start
+ * requested is never relayed here.
  */
 export async function relayPendingSignIns(
   env: StudyEnv,
@@ -208,7 +218,7 @@ export async function relayPendingSignIns(
 ) {
   const rows = await db
     .prepare(
-      `${pendingRows} AND a.relay_requested_at IS NOT NULL ORDER BY a.relay_requested_at,a.created_at LIMIT ?`,
+      `${pendingRows} AND a.relay_requested_at IS NOT NULL ORDER BY a.updated_at,a.relay_requested_at,a.created_at LIMIT ?`,
     )
     .bind(limit)
     .all<PendingRow>();

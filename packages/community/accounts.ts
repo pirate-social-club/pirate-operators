@@ -327,22 +327,26 @@ export async function loginVerify(
   // (issued_at is seconds, withdrawal times milliseconds).
   const counted = (alias: string) =>
     `${alias}.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)`;
+  const issuedAt = signIn ? Number(signIn.message.issuedAt) : 0;
   if (signIn)
     // Pending sign-in, in the same batch as the session; it is relayed only
     // when the learner first practises. A withdrawn account stores nothing,
     // nor does one with a sign-in recorded on chain since its last
-    // withdrawal, nor one whose pending relay was already requested.
+    // withdrawal, nor one whose pending relay was already requested. A
+    // sign-in issued at or before the last withdrawal is never stored, and
+    // an older challenge completed late never displaces a newer pending one.
     statements.push(
       db
         .prepare(
           `INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,signature,policy_hash,policy_version,issued_at,state,tx_hash,created_at,updated_at)
-      SELECT ?,b.account_id,b.subject,?,?,?,?,?,'pending',NULL,?,? FROM credential_bindings b
-      WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?
-      AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>? AND kind='sign-in-v4')
+      SELECT ?1,b.account_id,b.subject,?2,?3,?4,?5,?6,'pending',NULL,?7,?7 FROM credential_bindings b
+      WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?8
+      AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=?9 AND consumed=0 AND expires_at>?7 AND kind='sign-in-v4')
+      AND ?6*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)
       AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=b.account_id AND s.public_results_withdrawn_at IS NOT NULL)
       AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded' AND ${counted("r")})
       AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='pending'
-        AND r.relay_requested_at IS NOT NULL AND ${counted("r")})`,
+        AND (r.relay_requested_at IS NOT NULL OR r.issued_at>?6) AND ${counted("r")})`,
         )
         .bind(
           signIn.id,
@@ -350,21 +354,21 @@ export async function loginVerify(
           signature.toLowerCase(),
           signIn.message.publicationPolicy,
           c.policy_version ?? null,
-          Number(signIn.message.issuedAt),
-          time,
+          issuedAt,
           time,
           c.subject,
           id,
-          time,
         ),
       // At most one pending sign-in per account: the new one replaces any
-      // whose relay was never requested.
+      // older one whose relay was never requested. It runs only when the new
+      // row was stored, so a refused older sign-in removes nothing.
       db
         .prepare(
           `DELETE FROM learning_authorizations WHERE state='pending' AND relay_requested_at IS NULL
-      AND authorization_id<>?1 AND account_id=(SELECT account_id FROM learning_authorizations WHERE authorization_id=?1)`,
+      AND authorization_id<>?1 AND issued_at<=?2
+      AND account_id=(SELECT account_id FROM learning_authorizations WHERE authorization_id=?1 AND state='pending')`,
         )
-        .bind(signIn.id),
+        .bind(signIn.id, issuedAt),
     );
   statements.push(
     db

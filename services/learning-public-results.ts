@@ -1,8 +1,11 @@
 // V4 account settings: turning public results off and on. Both are explicit
 // settings actions, never exercise prompts. Turning off relays the learner's
-// signed Revocation and stops relaying their sign-ins. Turning on clears the
-// withdrawal; the learner's next normal sign-in is then relayed. A withdrawal
-// made outside the application is noticed when the operator refuses new work.
+// signed Revocation and stops relaying their sign-ins. The operator applies
+// that Revocation to the learner's V3 Study and Karaoke results not yet sent
+// too: they stay private, and turning on never resumes them. Turning on
+// clears the withdrawal; the learner's next normal sign-in is then relayed.
+// A withdrawal made outside the application is noticed when the operator
+// refuses new work.
 import type { Address } from "viem";
 import { insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
@@ -51,7 +54,7 @@ export async function turnOffPublicResults(
   learner: Learner,
   value: Record<string, unknown>,
   now: number,
-  /** Closes the account's open V4 Study lessons once the withdrawal holds. */
+  /** Closes the account's open Study lessons once the withdrawal holds. */
   endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const operator = operatorFor(env, config);
