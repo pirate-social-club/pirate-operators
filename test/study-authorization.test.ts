@@ -404,6 +404,67 @@ test(
 );
 
 test(
+  "turning public results off closes the open V4 lesson at once as consent_ended; it stays private and is erased on schedule",
+  { timeout: 120000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19990);
+    try {
+      let lesson = await f.start();
+      lesson = (await f.answer(lesson, true)).lesson;
+      assert.equal(lesson.status, "active");
+      await f.mineClock();
+      // "Turn off public results" from settings: request, sign, relay.
+      const request = await json<{
+        primaryType: string;
+        message: { learner: string; nonce: string };
+      }>(await f.post("/api/learning/public-results/off", {}, f.auth));
+      assert.equal(request.primaryType, "Revocation");
+      const signature = await accounts[5].signTypedData(request as never);
+      const calls = f.counts().calls;
+      const offAt = f.clock();
+      const off = await json<{ state: string; publicResults: string }>(
+        await f.post(
+          "/api/learning/public-results/off",
+          { message: request.message, signature },
+          f.auth,
+        ),
+      );
+      assert.ok(off.state === "success" || off.state === "pending");
+      assert.equal(off.publicResults, "off");
+      // Closed at once, at the withdrawal's time, with no further recording
+      // and no speech call.
+      const closed = await lessonState(f.db, lesson.lessonId);
+      assert.equal(closed.status, "abandoned");
+      assert.equal(closed.completionReason, "consent_ended");
+      assert.equal(closed.completedAt, offAt);
+      assert.equal(f.counts().calls, calls);
+      const view = await json<StudyLesson>(
+        await f.call(lessonPath(lesson.lessonId), { headers: f.auth }),
+      );
+      assert.equal(view.status, "abandoned");
+      assert.equal(view.completionReason, "consent_ended");
+      // The private result stays unpublished: never sent, nothing reserved.
+      const publication = await sync(f, lesson.lessonId);
+      assert.equal(publication.state, "private");
+      assert.equal(publication.receipt!.reason, "unfinished");
+      assert.equal(publication.receipt!.neverSubmitted, true);
+      assert.equal(resultIntent(f, lesson.lessonId), undefined);
+      // A repeated request closes nothing more.
+      const again = await f.post(
+        "/api/learning/public-results/off",
+        { message: request.message, signature },
+        f.auth,
+      );
+      assert.equal(again.status, 200, await again.clone().text());
+      assert.equal((await lessonState(f.db, lesson.lessonId)).completedAt, offAt);
+      await eraseOnSchedule(f, view);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test(
   "an open V4 lesson closes at the open limit, the SQL bound agrees, and it stays private and is erased",
   { timeout: 120000 },
   async () => {

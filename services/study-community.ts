@@ -394,6 +394,31 @@ export function liveStudy(
     },
     abandon: async (id: string) =>
       reconcilePublication(await lessons.abandon(owner, id)),
+    /**
+     * "Turn off public results": the account's open V4 lessons close at once
+     * as abandoned with reason consent_ended. Each stays private as
+     * unfinished; V3 lessons keep their own rules.
+     */
+    async endForWithdrawal() {
+      const open = await ports.db
+        .prepare(
+          `SELECT l.lesson_id FROM study_lessons l JOIN study_publications p ON p.lesson_id=l.lesson_id
+          WHERE l.account_id=?1 AND l.community_id=?2 AND p.account_id=?1 AND l.history_deleted_at IS NULL
+          AND json_extract(l.state_json,'$.status')='active'
+          AND json_extract(p.binding_json,'$.authorization.target.version')=4
+          ORDER BY l.started_at,l.lesson_id`,
+        )
+        .bind(owner.accountId, owner.communityId)
+        .all<{ lesson_id: string }>();
+      const closed: StudyLesson[] = [];
+      for (const { lesson_id } of open.results)
+        closed.push(
+          await reconcilePublication(
+            await lessons.abandon(owner, lesson_id, "consent_ended"),
+          ),
+        );
+      return closed;
+    },
     async open(id: string, presentation: number, take: number) {
       await ensureBinding(await lessons.get(owner, id));
       return lessons.openAttempt(owner, id, presentation, take);

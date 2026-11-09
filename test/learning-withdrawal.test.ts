@@ -212,12 +212,12 @@ test(
         error: "study_authorization_required",
       });
       assert.equal(f.store.entries("studyBinding:").length, lessons);
-      // The open lesson closes privately on its next recording, unheard.
-      const calls = f.counts().calls;
-      const closed = await f.answer(open, true);
-      assert.equal(closed.lesson.status, "abandoned");
-      assert.equal(closed.lesson.completionReason, "consent_ended");
-      assert.equal(f.counts().calls, calls);
+      // The open lesson closed privately at once, unheard.
+      const closed = await json<StudyLesson>(
+        await f.call(lessonPath(open.lessonId), { headers: f.auth }),
+      );
+      assert.equal(closed.status, "abandoned");
+      assert.equal(closed.completionReason, "consent_ended");
       assert.equal((await f.publication(open.lessonId)).receipt!.reason, "unfinished");
 
       // A sign-in while withdrawn signs in but records and relays nothing.

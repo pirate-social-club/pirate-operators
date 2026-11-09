@@ -284,7 +284,16 @@ export function makeStudyLessonService(options: {
       const row = await store.latest(owner, song);
       return row ? service.get(owner, row.lesson_id) : null;
     },
-    async abandon(owner: StudyPrincipal, id: string) {
+    /**
+     * Leaving, or `consent_ended` when the learner turns public results off
+     * in settings: the open lesson closes now, privately, through the same
+     * closure, so the bounded retention and erasure apply.
+     */
+    async abandon(
+      owner: StudyPrincipal,
+      id: string,
+      reason: "left" | "consent_ended" = "left",
+    ) {
       ownerFor(owner);
       for (let retry = 0; retry < 12; retry++) {
         const row = await reconcile(owner, id),
@@ -313,7 +322,7 @@ export function makeStudyLessonService(options: {
               late ? bound.status : "abandoned",
               late ? bound.at : closedAt,
               await store.submittedLines(owner, id),
-              late && bound.reason !== "deadline" ? bound.reason : "left",
+              late && bound.reason !== "deadline" ? bound.reason : reason,
             ),
             current,
           )

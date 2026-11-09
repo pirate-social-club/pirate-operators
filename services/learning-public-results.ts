@@ -51,6 +51,8 @@ export async function turnOffPublicResults(
   learner: Learner,
   value: Record<string, unknown>,
   now: number,
+  /** Closes the account's open V4 Study lessons once the withdrawal holds. */
+  endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const operator = operatorFor(env, config);
   if (value.signature === undefined)
@@ -71,8 +73,12 @@ export async function turnOffPublicResults(
     },
   );
   // A pending transaction is the operator's to finish; the withdrawal holds now.
-  if (relayed.state === "success" || relayed.state === "pending")
+  if (relayed.state === "success" || relayed.state === "pending") {
     await recordWithdrawal(db, learner.account_id, now);
+    // As the policy says: an open Study lesson closes at once. A retry of
+    // this request repeats it; the closure is idempotent.
+    await endLessons();
+  }
   return {
     state: relayed.state,
     publicResults: await publicResults(db, learner.account_id, true),

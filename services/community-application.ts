@@ -75,7 +75,7 @@ import {
   type KaraokeEnv,
 } from "./karaoke-community.ts";
 import { studyCommunityApi } from "./study-community-api.ts";
-import { studyAvailable, type StudyEnv } from "./study-community.ts";
+import { liveStudy, studyAvailable, type StudyEnv } from "./study-community.ts";
 import {
   turnOffPublicResults,
   turnOnPublicResults,
@@ -728,6 +728,10 @@ export async function communityFetch(
             session,
             body,
             (ports.now ?? Date.now)(),
+            async () => {
+              if (studyAvailable(env, config))
+                await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
+            },
           ),
         );
       if (url.pathname === "/api/learning/public-results/on")
