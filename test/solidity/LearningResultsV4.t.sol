@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.30;
 import "../../contracts/LearningResultsV4.sol";
+import "../../contracts/test/ReplaySafeAccount.sol";
+import "./SignInVectorsV4.sol";
 
 interface ResultsVmV4 {
     function warp(uint256) external;
@@ -8,6 +10,8 @@ interface ResultsVmV4 {
     function prank(address) external;
     function expectRevert(bytes calldata) external;
     function sign(uint256, bytes32) external returns (uint8, bytes32, bytes32);
+    function chainId(uint256) external;
+    function expectEmit(bool, bool, bool, bool) external;
 }
 
 contract ResultsWalletV4 {
@@ -26,6 +30,7 @@ contract ResultsWalletV4 {
 contract LearningResultsV4Test {
     ResultsVmV4 constant vm = ResultsVmV4(address(uint160(uint256(keccak256("hevm cheat code")))));
     uint256 constant EPOCH = 1793552400;
+    string constant ORIGIN = "https://community.example";
     LearningResultsV4 records;
     address learner;
     address grader;
@@ -34,7 +39,7 @@ contract LearningResultsV4Test {
         vm.warp(EPOCH + 86400);
         learner = vm.addr(21);
         grader = vm.addr(22);
-        records = new LearningResultsV4(address(this), keccak256("community"), keccak256("publicity"));
+        records = new LearningResultsV4(address(this), keccak256("community"), keccak256("publicity"), ORIGIN);
         records.setGrader(grader, 1, true);
         records.setGrader(grader, 2, true);
         _enroll();
@@ -49,20 +54,22 @@ contract LearningResultsV4Test {
     uint256 signIns;
 
     function _signIn(address who, uint64 issuedAt) private returns (LearningResultsV4.SignIn memory) {
-        return LearningResultsV4.SignIn(
-            who,
-            records.communityId(),
-            "https://community.example",
-            records.publicityPolicy(),
-            keccak256(abi.encode("login", ++signIns)),
-            issuedAt,
-            issuedAt + 300
-        );
+        return LearningResultsV4.SignIn(who, keccak256(abi.encode("login", ++signIns)), issuedAt);
+    }
+
+    /// The EIP-191 personal-sign hash of a text, computed here independently.
+    function _personal(bytes memory text) private pure returns (bytes32) {
+        bytes memory length;
+        for (uint256 n = text.length; n > 0; n /= 10) {
+            length = abi.encodePacked(bytes1(uint8(48 + n % 10)), length);
+        }
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n", length, text));
     }
 
     function _authorizeAt(uint64 issuedAt) private returns (bytes32 id) {
         LearningResultsV4.SignIn memory a = _signIn(learner, issuedAt);
         id = records.signInDigest(a);
+        require(id == _personal(bytes(records.signInMessage(a))));
         records.authorize(a, _signature(id));
     }
 
@@ -389,6 +396,51 @@ contract LearningResultsV4Test {
         records.authorize(a, signature);
     }
 
+    function testSameTextSignedTwiceIsOneAuthorization() public {
+        // The id covers learner, nonce and time: a second relay of the same
+        // sign-in, with a fresh signature, is still a replay.
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
+        bytes32 id = records.signInDigest(a);
+        records.authorize(a, _signature(id));
+        (uint8 v, bytes32 r, bytes32 sv) = vm.sign(21, id);
+        vm.expectRevert(bytes("replayed_sign_in"));
+        records.authorize(a, abi.encodePacked(r, sv, v));
+        // The same second with another nonce is a different sign-in.
+        LearningResultsV4.SignIn memory b = _signIn(learner, uint64(block.timestamp));
+        require(records.signInDigest(b) != id);
+        records.authorize(b, _signature(records.signInDigest(b)));
+    }
+
+    function testFutureSignInRefusedAndNotBeforeIsIssuedAt() public {
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp + 1));
+        bytes memory signature = _signature(records.signInDigest(a));
+        vm.expectRevert(bytes("stale_sign_in"));
+        records.authorize(a, signature);
+        vm.warp(block.timestamp + 1);
+        records.authorize(a, signature);
+        require(records.authorizationIssuedAt(records.signInDigest(a)) == block.timestamp);
+    }
+
+    function testSignInBeforeAWithdrawalNeverRestoresAndTheNextSecondDoes() public {
+        uint64 before = uint64(block.timestamp);
+        LearningResultsV4.SignIn memory early = _signIn(learner, before);
+        bytes memory earlySignature = _signature(records.signInDigest(early));
+        vm.warp(block.timestamp + 10);
+        _revoke();
+        uint64 withdrawn = records.revokedAt(learner);
+        LearningResultsV4.SignIn memory at = _signIn(learner, withdrawn);
+        bytes memory atSignature = _signature(records.signInDigest(at));
+        vm.expectRevert(bytes("revoked_sign_in"));
+        records.authorize(early, earlySignature);
+        vm.expectRevert(bytes("revoked_sign_in"));
+        records.authorize(at, atSignature);
+        vm.warp(block.timestamp + 1);
+        LearningResultsV4.SignIn memory next = _signIn(learner, withdrawn + 1);
+        records.authorize(next, _signature(records.signInDigest(next)));
+        require(records.authorizedSince(learner) == withdrawn + 1);
+        require(records.revokedAt(learner) == withdrawn);
+    }
+
     function testRelayWindowIsTheThirtyDaySession() public {
         require(records.RELAY_WINDOW() == 30 days);
         // A sign-in first relayed at the learner's first practice, late in
@@ -434,25 +486,75 @@ contract LearningResultsV4Test {
         _publish(r);
     }
 
-    function testWrongContractCommunityPolicyAndOriginRefused() public {
+    /// A text signed for one deployment authorizes nowhere else: each of
+    /// these differs from `records` in exactly one rendered field.
+    function testWrongContractChainCommunityPolicyAndHostRefused() public {
         LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
         bytes memory signature = _signature(records.signInDigest(a));
-        LearningResultsV4 other = new LearningResultsV4(address(this), records.communityId(), records.publicityPolicy());
+        LearningResultsV4[4] memory others = [
+            new LearningResultsV4(address(this), records.communityId(), records.publicityPolicy(), ORIGIN),
+            new LearningResultsV4(address(this), keccak256("elsewhere"), records.publicityPolicy(), ORIGIN),
+            new LearningResultsV4(address(this), records.communityId(), keccak256("old policy"), ORIGIN),
+            new LearningResultsV4(address(this), records.communityId(), records.publicityPolicy(), "https://phish.example")
+        ];
+        for (uint256 i; i < others.length; ++i) {
+            require(others[i].signInDigest(a) != records.signInDigest(a));
+            vm.expectRevert(bytes("invalid_consent"));
+            others[i].authorize(a, signature);
+        }
+        // The same contract on another chain renders another Chain ID and
+        // eip155 resource.
+        vm.chainId(6343);
         vm.expectRevert(bytes("invalid_consent"));
-        other.authorize(a, signature);
-        a.communityId = keccak256("elsewhere");
-        vm.expectRevert(bytes("invalid_sign_in"));
         records.authorize(a, signature);
-        a = _signIn(learner, uint64(block.timestamp));
-        a.publicationPolicy = keccak256("old policy");
-        signature = _signature(records.signInDigest(a));
-        vm.expectRevert(bytes("invalid_sign_in"));
+        vm.chainId(31337);
         records.authorize(a, signature);
-        a = _signIn(learner, uint64(block.timestamp));
-        signature = _signature(records.signInDigest(a));
-        a.origin = "https://phish.example";
+    }
+
+    function testAuthorizedNamesTheCommunityOrigin() public {
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
+        bytes32 id = records.signInDigest(a);
+        vm.expectEmit(true, true, false, true);
+        emit LearningResultsV4.Authorized(learner, id, ORIGIN, a.issuedAt, records.authorizedSince(learner));
+        records.authorize(a, _signature(id));
+        require(keccak256(bytes(records.communityOrigin())) == keccak256(bytes(ORIGIN)));
+    }
+
+    function testOldTypedSignInAndPlainLoginCannotAuthorize() public {
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
+        // The former EIP-712 SignIn, under this contract's own domain.
+        bytes32 typed = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                records.DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        keccak256(
+                            "SignIn(address learner,bytes32 communityId,string origin,bytes32 publicationPolicy,bytes32 nonce,uint64 issuedAt,uint64 expiresAt)"
+                        ),
+                        a.learner,
+                        records.communityId(),
+                        keccak256(bytes(ORIGIN)),
+                        records.publicityPolicy(),
+                        a.nonce,
+                        a.issuedAt,
+                        a.issuedAt + 300
+                    )
+                )
+            )
+        );
         vm.expectRevert(bytes("invalid_consent"));
-        records.authorize(a, signature);
+        records.authorize(a, _signature(typed));
+        // The deployed plain SIWE login for this learner and community.
+        (address who, string memory login) = SignInVectorsV4.plainLogin();
+        require(who == learner);
+        vm.expectRevert(bytes("invalid_consent"));
+        records.authorize(a, _signature(_personal(bytes(login))));
+        // Signing the digest itself, rather than the text, is not the text.
+        bytes memory overDigest = _signature(_personal(abi.encodePacked(records.signInDigest(a))));
+        vm.expectRevert(bytes("invalid_consent"));
+        records.authorize(a, overDigest);
+        records.authorize(a, _signature(records.signInDigest(a)));
     }
 
     function testV3EnrollmentAndPersonalSignLoginCannotAuthorize() public {
@@ -468,14 +570,16 @@ contract LearningResultsV4Test {
         );
         bytes32 inner = keccak256(
             abi.encode(
-                records.SIGN_IN_TYPEHASH(),
+                keccak256(
+                    "SignIn(address learner,bytes32 communityId,string origin,bytes32 publicationPolicy,bytes32 nonce,uint64 issuedAt,uint64 expiresAt)"
+                ),
                 a.learner,
-                a.communityId,
-                keccak256(bytes(a.origin)),
-                a.publicationPolicy,
+                records.communityId(),
+                keccak256(bytes(ORIGIN)),
+                records.publicityPolicy(),
                 a.nonce,
                 a.issuedAt,
-                a.expiresAt
+                a.issuedAt + 300
             )
         );
         bytes memory v3Signature = _signature(keccak256(abi.encodePacked("\x19\x01", v3Domain, inner)));
@@ -493,6 +597,45 @@ contract LearningResultsV4Test {
         wallet.approve(records.signInDigest(a));
         records.authorize(a, hex"0102");
         require(records.authorizedSince(address(wallet)) == block.timestamp);
+    }
+
+    /// An IthacaAccount-style account signs the ERC1271Sign wrapper of the
+    /// EIP-191 digest; the contract passes it the digest itself.
+    function testReplaySafeAccountSignIn() public {
+        ReplaySafeAccount account = new ReplaySafeAccount(vm.addr(24));
+        ReplaySafeAccount sibling = new ReplaySafeAccount(vm.addr(24));
+        LearningResultsV4.SignIn memory a = _signIn(address(account), uint64(block.timestamp));
+        bytes32 id = records.signInDigest(a);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(24, id);
+        vm.expectRevert(bytes("invalid_consent"));
+        records.authorize(a, abi.encodePacked(r, s, v));
+        // The same key's wrapper for another account is bound to that account.
+        (v, r, s) = vm.sign(24, sibling.wrapped(id));
+        vm.expectRevert(bytes("invalid_consent"));
+        records.authorize(a, abi.encodePacked(r, s, v));
+        (v, r, s) = vm.sign(24, account.wrapped(id));
+        records.authorize(a, abi.encodePacked(r, s, v));
+        require(records.authorizationLearner(id) == address(account));
+        require(records.authorizedSince(address(account)) == block.timestamp);
+    }
+
+    /// Informative bounds; `forge test --gas-report` gives the exact figures.
+    function testGasAuthorizeEoa() public {
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
+        bytes memory signature = _signature(records.signInDigest(a));
+        uint256 start = gasleft();
+        records.authorize(a, signature);
+        require(start - gasleft() < 250000, "authorize_gas");
+    }
+
+    function testGasAuthorizeReplaySafeAccount() public {
+        ReplaySafeAccount account = new ReplaySafeAccount(vm.addr(24));
+        LearningResultsV4.SignIn memory a = _signIn(address(account), uint64(block.timestamp));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(24, account.wrapped(records.signInDigest(a)));
+        bytes memory signature = abi.encodePacked(r, s, v);
+        uint256 start = gasleft();
+        records.authorize(a, signature);
+        require(start - gasleft() < 260000, "authorize_gas");
     }
 
     function testCannotPublishBeforePermissionOrInFuture() public {
