@@ -51,15 +51,31 @@ domain, so no old login becomes permission.
 
 ### Recording authorization on chain
 
-After a successful sign-in, the application relays the same signature to
+A successful sign-in only stores the signature. The application relays it to
 `LearningResultsV4.authorize(SignIn, signature)`, sponsored as enrollment is
-today. It relays only when the learner has no live authorization. A failed relay
-is retried from the stored signature until its relay deadline. Contract rules:
+today, when the learner first starts Study or Karaoke work and has no recorded
+authorization since their last withdrawal. Signing in without practising
+therefore costs no transaction. The relay runs inline on the start path; while
+it is outstanding the start answers `study_authorization_pending` or
+`karaoke_authorization_pending` and the client's bounded retry repeats the same
+request. An account keeps at most one pending sign-in: a new sign-in replaces
+one whose relay was never requested and adds nothing while a requested relay is
+outstanding. A failed requested relay is retried on schedule from the stored
+signature until its relay window ends; a sign-in whose relay was never
+requested is never relayed on schedule. Contract rules:
 
 - The signature is valid for `learner` (ECDSA or ERC-1271), `communityId` and
   `publicationPolicy` match the contract's immutable values, the digest is
-  unused, `issuedAt <= block.timestamp <= issuedAt + RELAY_WINDOW` (seven days),
-  and `issuedAt > revokedAt[learner]`.
+  unused, `issuedAt <= block.timestamp <= issuedAt + RELAY_WINDOW` (thirty
+  days, the community session, so a learner whose first practice comes days
+  after signing in is never asked to sign in again), and
+  `issuedAt > revokedAt[learner]`.
+- `issuedAt` is the application's own clock, never backdated, because a
+  backdated sign-in could fall at or before a just-recorded withdrawal. When
+  the application's clock is ahead of the latest block, the operator answers
+  `sign_in_not_yet_valid`, a retryable refusal distinct from the expired
+  `stale_sign_in`. The application keeps the row pending and retries; it never
+  refuses a sign-in for that reason.
 - The first accepted authorization after any revocation sets
   `authorizedSince[learner] = issuedAt`. Later sign-ins record their digest but
   never move `authorizedSince`, so signing in again cannot end other lessons.
@@ -98,12 +114,16 @@ V3 encodings. Recordings, transcripts and private retries never enter calldata.
   created before V4, with no authorization, simply signs in again.
 - Background retention is separate from sessions and permission. A new Study
   lesson closes privately thirty days after it started (`open_limit`), when the
-  learner leaves, or at once on a known refusal because permission was
-  withdrawn. Consent end no longer exists as a bound. Session expiry still
+  learner leaves, at once when the learner turns public results off in
+  settings, or at once on a known refusal because permission was withdrawn
+  outside the application. Consent end no longer exists as a bound. Session expiry still
   requires a normal sign-in, and does not close lessons.
 - Terms and Privacy links are removed from the Study and Karaoke exercise
-  surfaces. The documents stay in normal site navigation and on the sign-in
-  screen.
+  surfaces in every mode. The documents stay in normal site navigation (the
+  site footer) and on the sign-in screen. The footer links the learning
+  documents of the community's actual version: `/learning/v3/terms` and
+  `/learning/v3/privacy` in a V3 community, `/learning/v4/terms` and
+  `/learning/v4/privacy` in a V4 community.
 - Historical V2/V3 contracts, results and private-history rules are unchanged.
   V3 lessons in progress keep their V3 binding and close by their existing
   rules.
@@ -123,7 +143,8 @@ Because signing in is the permission, a learner who withdraws must not be
 re-authorized silently by their next login. The application records the
 withdrawal on the account and stops relaying that account's sign-ins. Public
 practice then stays unavailable until the learner turns public results back on
-in account settings, which relays their next sign-in. That is a settings
+in account settings; their next sign-in is then relayed when they next
+practise. That is a settings
 control, not an exercise prompt. The contract enforces only that no sign-in made
 at or before the withdrawal can restore permission.
 
@@ -138,6 +159,26 @@ Sign-in keeps the credential_bindings row (moss, 6343, lowercased wallet), and
 `learner` stays that wallet. Custody of the controller key and the deploy, and
 the directory revision naming V4, are assigned by the coordinator. That
 revision is sequenced with the publishing lane's policy revision.
+
+Release observation:
+- Before `LEARNING_RESULTS_V4_CONTRACT` is bound, the release reads the
+  deployed V4 contract at a pinned block and checks the runtime code hash
+  against the selection's `codeHash`, `VERSION() == 4`, `communityId`,
+  `publicityPolicy` against `learningV4PublicityPolicy`, the controller against
+  the selection's `controller`, and the grader roles for activities 1 and 2 of
+  the configured publisher (`harness/learning-v4-release-observation.ts`).
+
+## Open security question
+
+EIP-712 typed data does not get the wallet-side domain check that EIP-4361
+SIWE gets. A SIWE-aware wallet compares the message's domain with the
+requesting origin and warns or refuses on a mismatch. Typed data carries
+`origin` only as a field; the server checks it, but the wallet is not required
+to. A phishing page could therefore ask a learner to sign the `SignIn` typed
+data for this community, and the signature would be valid for login and for
+publication permission. Before deployment, someone must confirm whether the
+MOSS wallet's `signData` shows or enforces the requesting origin, and record
+the answer here.
 
 ## Open product decision
 
@@ -189,7 +230,9 @@ Sign-in, in the application:
   V4, after the deployed 0012), with: `authorization_id` (primary key), `account_id`,
   `subject`, `sign_in_json`, `signature`, `policy_hash`, `policy_version`,
   `issued_at`, `state` (`pending`, `recorded` or `refused`), `tx_hash`,
-  `created_at` and `updated_at`.
+  `relay_requested_at` (set when a Study or Karaoke start first requests the
+  relay; the scheduled retry covers only rows that have it), `created_at` and
+  `updated_at`.
 - A second table, `learning_settings`, holds `account_id` (primary key),
   `public_results_withdrawn_at`, set while public results are off, and
   `last_withdrawn_at`, the latest withdrawal, kept after turning on. Both are
@@ -199,13 +242,20 @@ Sign-in, in the application:
   the authorization a new lesson or run binds, and the relay count only
   sign-ins issued after that withdrawal.
 - `/api/session` adds
-  `publicResults: "on" | "pending" | "off" | "unavailable"`.
+  `publicResults: "on" | "pending" | "off" | "unavailable"`. When
+  `STUDY_RESULTS_V4_CONTRACT` is set, a failed configuration read reports
+  `pending`, never `unavailable`, so a temporary outage cannot fall back to
+  the V3 enrollment prompt.
+- When V4 is the configured learning records, the V3 enrollment request route
+  `/api/karaoke/enrollment` is refused with `enrollment_unavailable`.
 
 Relay, in the operator Worker:
 - `POST /authorization` carries `{ signIn, signature }`.
 - `acceptAuthorization` simulates `authorize`, reserves sponsorship and submits
   the transaction kind `record_authorize`. It is idempotent per authorization
-  id, and `resumeAuthorizations` retries it from the alarm.
+  id, and `resumeAuthorizations` retries it from the alarm. A sign-in whose
+  `issuedAt` is later than the latest block's timestamp is refused, before
+  anything is reserved, with the retryable `sign_in_not_yet_valid`.
 - `GET /authorization/:learner` returns `{ since, revokedAt }` read from chain.
 - `POST /authorization/revoke` with `{ learner }` returns the typed V4
   `Revocation` to sign; with `{ learner, nonce, signature }` it relays `revoke`
@@ -243,8 +293,12 @@ Withdrawal:
 - Account settings offers "Turn off public results". This uses the existing
   signed revocation, which is an explicit settings action, never an exercise
   prompt. It sets `public_results_withdrawn_at`.
+- Turning public results off also closes the account's open V4 Study lessons
+  at once, as abandoned with reason `consent_ended` at that time, through the
+  lesson service's own closure. Their private results stay unpublished and
+  the bounded retention and erasure apply.
 - "Turn on public results" clears that and performs a normal sign-in, whose
-  signature is relayed.
+  signature is relayed when the learner next starts practice.
 - The application routes are `POST /api/learning/public-results/off` (request,
   then the signed revocation) and `POST /api/learning/public-results/on`.
 - When the operator refuses new work with `study_authorization_required` or
