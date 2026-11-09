@@ -18,12 +18,22 @@ import {
   revocationRequestV4,
 } from "../services/learning-authorization.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
-import { intentOf, txRow } from "../services/operator-tx.ts";
+import {
+  dispatch,
+  enqueue,
+  intentOf,
+  txRow,
+  type TxRow,
+} from "../services/operator-tx.ts";
 import {
   resumeStudyPublication,
   type PublicationJob,
 } from "../services/study-publication.ts";
-import { recoverLearningTransactions } from "../services/study-publication-recovery.ts";
+import {
+  recoverLearningTransactions,
+  settleWithheldLearningTransactions,
+} from "../services/study-publication-recovery.ts";
+import { closedStudyPublication } from "../services/study-private-publication.ts";
 import {
   json,
   lessonPath,
@@ -35,6 +45,10 @@ import {
   faultName,
   faults,
   injectFault,
+  interceptOnce,
+  consumeNonceExternally,
+  unsentRow,
+  operator,
   learnerIndex,
   revokeDirectly,
   revokeThroughOperator,
@@ -265,8 +279,10 @@ test(
       assert.ok(logged.some((line) => line.includes("operator_cancellation_waiting")));
       // Proven never sent, it can never publish, even while the nonce waits.
       await assertPrivate(c);
+      // The fee comes back within the limit; the alarm's settlement, not
+      // only /recover, then cancels the nonce.
       watch.clear();
-      await recover(c);
+      await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
       await nothingOnV3(c);
       await assertWithheldJournal(c.f.store, c.f.evm.publicClient as never, c.ref, allocated, watch.sent);
     } finally {
@@ -347,3 +363,145 @@ for (const origin of ["historical", "attempted"] as const)
       }
     },
   );
+
+for (const [route, at] of [
+  ["settings", "receipt"],
+  ["direct", "receipt"],
+  ["settings", "revokedAt"],
+] as const)
+  test(
+    `Study: a ${route} withdrawal during the pre-send ${at} read keeps the original bytes from being sent`,
+    { timeout: 300000 },
+    async () => {
+      const c = await study();
+      let snapshot: ReturnType<typeof unsentRow>;
+      // The settings Revocation is relayed behind the result's unsent nonce,
+      // so the chain shows no withdrawal; only the operator's record does.
+      const hook = interceptOnce(
+        at,
+        async () => {
+          snapshot = structuredClone(unsentRow(c.f.store, c.ref));
+          await withdraw(c, route);
+        },
+        () => !!unsentRow(c.f.store, c.ref),
+      );
+      const watch = rpcWatch();
+      try {
+        try {
+          await resume(c);
+        } finally {
+          watch.restore();
+          hook.restore();
+        }
+        assert.equal(hook.fired(), true);
+        const all = rpcWatch();
+        try {
+          await retry(c);
+          await recover(c);
+          await recover(c);
+        } finally {
+          all.restore();
+        }
+        await assertPrivate(c);
+        await nothingOnV3(c);
+        await assertWithheldJournal(c.f.store, c.f.evm.publicClient as never, c.ref, snapshot!, [...watch.sent, ...all.sent]);
+        await assertNonceAccounting(c.f.store, c.f.evm.publicClient as never);
+      } finally {
+        await c.f.dispose();
+      }
+    },
+  );
+
+test(
+  "Study: a lost send stalls later nonces visibly until the chain consumes it; then the alarm reconciles it as superseded",
+  { timeout: 300000 },
+  async () => {
+    const c = await study();
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await resume(c);
+      const own = txRow(c.f.store, intentOf(c.f.store, "record_result", c.ref)!.nonce!)!;
+      assert.equal(own.broadcast, "attempted");
+      await withdraw(c, "settings");
+      enqueue(c.f.store, "close", "fixture-close", operator, "0x", 30000n);
+      const close = (await dispatch(c.f.operatorEnv, c.f.store, "close", "fixture-close"))!;
+      const stalled = await warnings(async () => {
+        await recover(c);
+        await retry(c);
+        await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
+      });
+      const later = c.f.store
+        .entries("tx:")
+        .map(({ value }) => value as TxRow)
+        .filter((row) => row.nonce > own.nonce);
+      assert.ok(later.length >= 2 && later.every((row) => !row.mined), "every later nonce waits");
+      assert.ok(later.some((row) => row.nonce === close.nonce));
+      assert.ok(stalled.some((line) => line.includes("operator_nonce_withheld") && JSON.parse(line).nonce === own.nonce));
+      assert.equal((await publication(c)).state, "pending");
+      await consumeNonceExternally(c.f.evm, 31337, own.nonce);
+      const reconciled = await warnings(() =>
+        settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store),
+      );
+      assert.ok(reconciled.some((line) => line.includes("operator_nonce_superseded")));
+      const row = txRow(c.f.store, own.nonce)!;
+      assert.equal(row.mined?.status, "superseded");
+      for (const field of ["raw", "hash", "data", "to", "kind", "ref"] as const)
+        assert.equal(row[field], own[field]);
+      await recover(c);
+      await retry(c);
+      const view = await publication(c);
+      assert.equal(view.state, "private");
+      assert.equal(view.receipt!.reason, "authorization_withdrawn");
+      // It may have been sent before the withdrawal, so it is not marked
+      // never submitted; its nonce went to another transaction.
+      assert.notEqual(view.receipt!.neverSubmitted, true);
+      assert.equal(watch.sent.filter((raw) => raw === own.raw).length, 0);
+      await nothingOnV3(c);
+      await assertNonceAccounting(c.f.store, c.f.evm.publicClient as never);
+    } finally {
+      watch.restore();
+      await c.f.dispose();
+    }
+  },
+);
+
+test(
+  "Study: private history is not erased while the cancellation of its withheld transaction is unmined",
+  { timeout: 300000 },
+  async () => {
+    const c = await study();
+    const watch = rpcWatch();
+    try {
+      const allocated = (await injectFault("crash", c.f.operatorEnv, c.f.store, c.ref, () => resume(c)))!;
+      await revokeDirectly(c.f.evm as never, c.v4);
+      // The cancellation is sent, but that send is lost.
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await resume(c);
+      await assertPrivate(c);
+      const row = txRow(c.f.store, allocated.nonce)!;
+      assert.ok(row.cancellation?.hash);
+      assert.equal(row.mined, null);
+      const job = c.f.store.get<PublicationJob>(`studyPublication:${c.id}`)!;
+      c.f.advance(job.privateHistoryExpiresAt + 1000 - c.f.clock());
+      await resume(c);
+      assert.ok(c.f.store.get(`studyPublication:${c.id}`), "kept while the nonce is open");
+      assert.equal(closedStudyPublication(c.f.store, c.id), undefined);
+      // The alarm resends the cancellation; once mined, erasure proceeds.
+      await settleWithheldLearningTransactions(c.f.operatorEnv, c.f.store);
+      assert.equal(txRow(c.f.store, allocated.nonce)!.mined?.status, "cancelled");
+      await resume(c);
+      assert.equal(c.f.store.get(`studyPublication:${c.id}`), undefined);
+      assert.equal(closedStudyPublication(c.f.store, c.id)!.receipt.privateHistoryErased, true);
+      assert.ok(txRow(c.f.store, allocated.nonce), "the row stays for nonce accounting");
+      await nothingOnV3(c);
+    } finally {
+      watch.restore();
+      await c.f.dispose();
+    }
+  },
+);

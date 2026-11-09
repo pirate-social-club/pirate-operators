@@ -2,7 +2,7 @@
 // interception, the dispatch failures that leave a V3 result unsent, and the
 // assertions on the operator's journal. Local anvil only.
 import assert from "node:assert/strict";
-import { type Address, type Hex, type PublicClient } from "viem";
+import { toFunctionSelector, type Address, type Hex, type PublicClient } from "viem";
 import { accounts } from "../harness/runtime.ts";
 import {
   dispatch,
@@ -300,4 +300,69 @@ export async function warnings(run: () => Promise<unknown>) {
     console.warn = real;
   }
   return seen;
+}
+
+const revokedAtSelector = toFunctionSelector("revokedAt(address)").slice(2);
+/**
+ * Runs `during` once, at the first matching JSON-RPC call made while `when`
+ * holds, before that call goes out: the pre-send receipt read
+ * (eth_getTransactionReceipt) or the V4 `revokedAt` read just before a send.
+ */
+export function interceptOnce(
+  at: "receipt" | "revokedAt",
+  during: () => Promise<unknown>,
+  when: () => boolean,
+) {
+  const real = globalThis.fetch;
+  let fired = false,
+    busy = false;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const body = typeof init?.body === "string" ? init.body : "";
+    const matches =
+      at === "receipt"
+        ? body.includes('"eth_getTransactionReceipt"')
+        : body.includes('"eth_call"') && body.includes(revokedAtSelector);
+    if (!busy && !fired && matches && when()) {
+      fired = busy = true;
+      try {
+        await during();
+      } finally {
+        busy = false;
+      }
+    }
+    return real(input, init);
+  }) as typeof fetch;
+  return {
+    fired: () => fired,
+    restore() {
+      globalThis.fetch = real;
+    },
+  };
+}
+/** The result's own row, allocated, signed and not yet sent or withheld. */
+export function unsentRow(store: ResultStore, ref: string) {
+  const nonce = intentOf(store, "record_result", ref)?.nonce;
+  const row = nonce == null ? undefined : txRow(store, nonce);
+  return row?.raw && row.broadcast === "none" && !row.withheld && !row.mined
+    ? row
+    : undefined;
+}
+/** The operator's own self-transfer at `nonce`, sent outside the operator's journal. */
+export async function consumeNonceExternally(
+  evm: { rpc: (method: string, params: unknown[]) => Promise<unknown> },
+  chainId: number,
+  nonce: number,
+) {
+  const raw = await accounts[2]!.signTransaction({
+    type: "legacy",
+    chainId,
+    nonce,
+    to: operator,
+    value: 0n,
+    gas: 21000n,
+    gasPrice: 10n ** 10n,
+  });
+  await evm.rpc("eth_sendRawTransaction", [raw]);
+  await evm.rpc("evm_mine", []);
+  return raw;
 }

@@ -21,8 +21,21 @@ import {
   publicationV2,
   publishV2,
 } from "../services/learning-results.ts";
-import { intentOf, txRow } from "../services/operator-tx.ts";
-import { recoverLearningTransactions } from "../services/study-publication-recovery.ts";
+import {
+  dispatch,
+  enqueue,
+  intentOf,
+  txRow,
+  type TxRow,
+} from "../services/operator-tx.ts";
+import { readFile } from "node:fs/promises";
+import {
+  recoverLearningTransactions,
+  settleWithheldLearningTransactions,
+} from "../services/study-publication-recovery.ts";
+/** What the operator's regular alarm runs for withheld rows on every tick. */
+const alarm = (c: { k: { env: never; store: never } }) =>
+  settleWithheldLearningTransactions(c.k.env, c.k.store);
 import { learningBindingFixture } from "./learning-binding-fixture.ts";
 import {
   assertNonceAccounting,
@@ -30,10 +43,14 @@ import {
   faultName,
   faults,
   injectFault,
+  interceptOnce,
+  consumeNonceExternally,
+  unsentRow,
   revokeDirectly,
   revokeThroughOperator,
   rpcWatch,
   warnings,
+  operator,
   type Fault,
 } from "./unsent-result-support.ts";
 
@@ -188,9 +205,10 @@ test(
       assert.ok(logged.some((line) => line.includes("operator_cancellation_waiting")));
       // Proven never sent, it can never publish, even while the nonce waits.
       assert.equal(publicationV2(c.k.store, c.id)?.state, "private");
-      // The fee comes back within the limit; recovery then cancels the nonce.
+      // The fee comes back within the limit; the regular alarm's tick, not
+      // only /recover, then cancels the nonce.
       watch.clear();
-      await recover(c);
+      await alarm(c as never);
       await nothingOnV3(c);
       await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, allocated, watch.sent);
     } finally {
@@ -274,3 +292,161 @@ for (const origin of ["historical", "attempted"] as const)
       }
     },
   );
+
+for (const [route, at] of [
+  ["settings", "receipt"],
+  ["direct", "receipt"],
+  ["settings", "revokedAt"],
+] as const)
+  test(
+    `Karaoke: a ${route} withdrawal during the pre-send ${at} read keeps the original bytes from being sent`,
+    { timeout: 180000 },
+    async () => {
+      const c = await karaoke(route === "direct" ? "f2" : at === "receipt" ? "f1" : "f3");
+      let snapshot: ReturnType<typeof unsentRow>;
+      // The settings Revocation is relayed behind the result's unsent nonce,
+      // so the chain shows no withdrawal; only the operator's record does.
+      const hook = interceptOnce(
+        at,
+        async () => {
+          snapshot = structuredClone(unsentRow(c.k.store, c.ref));
+          await withdraw(c, route);
+        },
+        () => !!unsentRow(c.k.store, c.ref),
+      );
+      const watch = rpcWatch();
+      try {
+        try {
+          await publishV2(c.k.env, c.k.store, c.id);
+        } finally {
+          watch.restore();
+          hook.restore();
+        }
+        assert.equal(hook.fired(), true);
+        const all = rpcWatch();
+        try {
+          await retry(c);
+          await recover(c);
+          await recover(c);
+        } finally {
+          all.restore();
+        }
+        assert.deepEqual(publicationV2(c.k.store, c.id), {
+          state: "private",
+          revision: 1,
+          reason: "authorization_withdrawn",
+        });
+        await nothingOnV3(c);
+        await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, snapshot!, [...watch.sent, ...all.sent]);
+        await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
+      } finally {
+        await c.k.stop();
+      }
+    },
+  );
+
+test(
+  "Karaoke: a lost send stalls later nonces visibly until the chain consumes it; then the alarm reconciles it as superseded",
+  { timeout: 180000 },
+  async () => {
+    const c = await karaoke("f4");
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await publishV2(c.k.env, c.k.store, c.id);
+      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      assert.equal(own.broadcast, "attempted");
+      await withdraw(c, "settings");
+      // A payment behind it.
+      enqueue(c.k.store, "close", "fixture-close", operator, "0x", 30000n);
+      const close = (await dispatch(c.k.env, c.k.store, "close", "fixture-close"))!;
+      const stalled = await warnings(async () => {
+        await recover(c);
+        await retry(c);
+        await alarm(c as never);
+      });
+      const later = c.k.store
+        .entries("tx:")
+        .map(({ value }) => value as TxRow)
+        .filter((row) => row.nonce > own.nonce);
+      assert.ok(later.length >= 2 && later.every((row) => !row.mined), "every later nonce waits");
+      assert.ok(later.some((row) => row.nonce === close.nonce));
+      assert.ok(stalled.some((line) => line.includes("operator_nonce_withheld") && JSON.parse(line).nonce === own.nonce));
+      assert.equal(txRow(c.k.store, own.nonce)!.mined, null);
+      assert.equal(publicationV2(c.k.store, c.id)?.state, "pending");
+      assert.equal(
+        await c.k.evm.publicClient.getTransactionCount({ address: operator, blockTag: "latest" }),
+        own.nonce,
+      );
+      // Another transaction at that nonce consumes it on chain.
+      await consumeNonceExternally(c.k.evm, 31337, own.nonce);
+      const external = watch.sent.length;
+      const reconciled = await warnings(() => alarm(c as never));
+      assert.ok(reconciled.some((line) => line.includes("operator_nonce_superseded")));
+      const row = txRow(c.k.store, own.nonce)!;
+      assert.equal(row.mined?.status, "superseded");
+      for (const field of ["raw", "hash", "data", "to", "kind", "ref"] as const)
+        assert.equal(row[field], own[field]);
+      await recover(c);
+      await retry(c);
+      assert.deepEqual(publicationV2(c.k.store, c.id), {
+        state: "private",
+        revision: 1,
+        reason: "authorization_withdrawn",
+      });
+      assert.ok(!watch.sent.slice(external).includes(own.raw!));
+      assert.equal(watch.sent.filter((raw) => raw === own.raw).length, 0);
+      await nothingOnV3(c);
+      await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
+    } finally {
+      watch.restore();
+      await c.k.stop();
+    }
+  },
+);
+
+test(
+  "Karaoke: an older journal row that was never signed counts as never sent and is cancelled",
+  { timeout: 180000 },
+  async () => {
+    const c = await karaoke("f5");
+    const watch = rpcWatch();
+    try {
+      const allocated = (await injectFault("crash", c.k.env, c.k.store, c.ref, () =>
+        publishV2(c.k.env, c.k.store, c.id),
+      ))!;
+      // As an older journal left it: allocated, never signed, no marker.
+      const row = txRow(c.k.store, allocated.nonce)!;
+      delete row.broadcast;
+      delete row.raw;
+      delete row.hash;
+      c.k.store.set(`tx:${String(row.nonce).padStart(10, "0")}`, row);
+      await revokeDirectly(c.k.evm as never, c.v4);
+      await recover(c);
+      await retry(c);
+      const settled = txRow(c.k.store, allocated.nonce)!;
+      assert.equal(settled.mined?.status, "cancelled");
+      assert.equal(settled.raw, undefined);
+      assert.ok(!watch.sent.includes(allocated.raw!));
+      assert.equal(publicationV2(c.k.store, c.id)?.state, "private");
+      await nothingOnV3(c);
+      await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
+    } finally {
+      watch.restore();
+      await c.k.stop();
+    }
+  },
+);
+
+test("the operator's regular tick settles withheld result transactions", async () => {
+  // services/karaoke.ts imports the Durable Object runtime, which node cannot
+  // load; this checks the wiring the alarm relies on.
+  const source = await readFile(new URL("../services/karaoke.ts", import.meta.url), "utf8");
+  const body = source.slice(source.indexOf("export async function tick("), source.indexOf("export async function recover("));
+  assert.match(body, /await settleWithheldLearningTransactions\(env, store\);/);
+  const runtime = await readFile(new URL("../services/runtime.ts", import.meta.url), "utf8");
+  assert.match(runtime, /async alarm\(\) \{\s*try \{ await tick\(this\.env, this\.store\); \}/);
+  assert.match(runtime, /const unsettled = this\.store\.entries\("tx:"\)\.some\(\(\{ value \}\) => !\(value as \{ mined: unknown \}\)\.mined\);/);
+});
