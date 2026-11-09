@@ -26,10 +26,10 @@ import {
   resultsV3Domain,
 } from "../packages/protocol/learning-results-v3.ts";
 import {
-  resultsV4Domain,
   signInIdV4,
-  signInTypes,
+  signInMessageV4,
   type SignIn,
+  type SignInV4Context,
 } from "../packages/protocol/learning-results-v4.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import {
@@ -76,10 +76,12 @@ test(
         communityId,
         digest("publicity-v3"),
       ]);
+      const origin = "https://community.example";
       const v4 = await evm.deploy("LearningResultsV4", [
         accounts[3]!.address,
         communityId,
         learningV4PublicityPolicy,
+        origin,
       ]);
       const deployed = await evm.publicClient.getBlock();
       const nextPeriod =
@@ -160,25 +162,23 @@ test(
           expiresAt: Number(grant[3]),
         });
       }
-      const v4Grants = new Map<
-        string,
-        { id: Hex; issuedAt: number; expiresAt: number }
-      >();
+      // V4 sign-in is the standard SIWE text the contract rebuilds on chain.
+      const signInContext: SignInV4Context = {
+        origin,
+        chainId: 6343,
+        contract: v4.toLowerCase() as Address,
+        communityId,
+        publicationPolicy: learningV4PublicityPolicy,
+      };
+      const v4Grants = new Map<string, { id: Hex; issuedAt: number }>();
       for (const learner of [a, c]) {
         const message: SignIn = {
           learner: learner.address,
-          communityId,
-          origin: "https://community.example",
-          publicationPolicy: learningV4PublicityPolicy,
           nonce: digest(`sign-in-${learner.address}`),
           issuedAt: now0,
-          expiresAt: now0 + 300n,
         };
-        const signature = await learner.signTypedData({
-          domain: resultsV4Domain(6343, v4),
-          types: signInTypes,
-          primaryType: "SignIn",
-          message,
+        const signature = await learner.signMessage({
+          message: signInMessageV4(signInContext, message),
         });
         await evm.write(
           v4,
@@ -188,9 +188,8 @@ test(
           2,
         );
         v4Grants.set(learner.address, {
-          id: signInIdV4(6343, v4, message),
+          id: signInIdV4(signInContext, message),
           issuedAt: Number(now0),
-          expiresAt: Number(now0 + 300n),
         });
       }
 
@@ -419,9 +418,6 @@ test(
         offsetMs: number,
       ) {
         const fixture = studyResultFixture(undefined, opensAt + offsetMs);
-        const grant = (version === 3 ? v3Grants : v4Grants).get(
-          learner.address,
-        )!;
         const { enrollment: _fixtureGrant, ...base } = fixture.input;
         const fields = {
           ...base,
@@ -433,11 +429,14 @@ test(
         // learner's open-ended sign-in authorization, as the application does.
         const bundle =
           version === 3
-            ? completedStudyBundle({ ...fields, enrollment: grant })
+            ? completedStudyBundle({
+                ...fields,
+                enrollment: v3Grants.get(learner.address)!,
+              })
             : studyFactsBundle({
                 ...fields,
                 terminal: terminalStudyFacts(fields),
-                authorization: { id: grant.id, issuedAt: grant.issuedAt },
+                authorization: v4Grants.get(learner.address)!,
               });
         await evm.rpc("evm_setNextBlockTimestamp", [
           Number(bundle.result.completedAt) + 1,
