@@ -19,14 +19,19 @@ let evm: Chain;
 const communityId = firstSong.directoryProfile.communityId as Hex;
 const controller = accounts[3].address,
   publisher = accounts[2].address;
-const expected = { communityId, publisher };
+const expected = { communityId, publisher, communityOrigin: firstSong.origin };
 
 /** A V4 deployment with both grader roles, mined below the observed head. */
-async function deployV4(policy: Hex = learningV4PublicityPolicy, community = communityId) {
+async function deployV4(
+  policy: Hex = learningV4PublicityPolicy,
+  community = communityId,
+  origin: string = firstSong.origin,
+) {
   const contract = await evm.deploy("LearningResultsV4", [
     controller,
     community,
     policy,
+    origin,
   ]);
   for (const activity of [1, 2])
     await evm.write(contract, "LearningResultsV4", "setGrader", [publisher, activity, true], 3);
@@ -40,6 +45,7 @@ async function deployV4(policy: Hex = learningV4PublicityPolicy, community = com
     controller: controller.toLowerCase(),
     publicationPolicy: learningV4PublicityPolicy,
     policyVersion: 4,
+    communityOrigin: origin,
   };
   return { contract, selection };
 }
@@ -134,6 +140,32 @@ test("observation refuses a publicity policy other than the V4 policy", async ()
   await assert.rejects(
     observeLearningV4Release(client(), selection, expected),
     /^Error: learning_v4_release_policy_changed$/,
+  );
+});
+
+test("observation refuses a contract whose sign-in names another community origin", async () => {
+  // Deployed for another origin; the selection claims the right one.
+  const { selection } = await deployV4(learningV4PublicityPolicy, communityId, "https://phish.example");
+  assert.equal(selection.communityOrigin, "https://phish.example");
+  await assert.rejects(
+    observeLearningV4Release(client(), { ...selection, communityOrigin: firstSong.origin }, expected),
+    /^Error: learning_v4_release_origin_changed$/,
+  );
+  // A selection that names the deployed origin is still not this community's.
+  await assert.rejects(
+    observeLearningV4Release(client(), selection, expected),
+    /^Error: learning_v4_release_origin_changed$/,
+  );
+  // The right deployment against a selection naming another origin.
+  const right = await deployV4();
+  await assert.rejects(
+    observeLearningV4Release(client(), { ...right.selection, communityOrigin: "https://phish.example" }, expected),
+    /^Error: learning_v4_release_origin_changed$/,
+  );
+  // The selection itself must be a canonical origin.
+  await assert.rejects(
+    observeLearningV4Release(client(), { ...right.selection, communityOrigin: firstSong.origin + "/" }, expected),
+    /^Error: learning_v4_release_selection_invalid$/,
   );
 });
 

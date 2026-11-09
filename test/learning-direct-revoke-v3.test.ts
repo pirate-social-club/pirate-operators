@@ -20,8 +20,7 @@ import { accounts } from "../harness/runtime.ts";
 import type { StudyLesson } from "../packages/study/lesson.ts";
 import type { StudyAttempt } from "../packages/study/contracts.ts";
 import {
-  resultsV4Domain,
-  signInTypes,
+  signInMessageV4,
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
 import { digest } from "../packages/protocol/index.ts";
@@ -56,6 +55,7 @@ async function becomeV4(f: Fixture) {
     accounts[3].address,
     f.config.communityId,
     learningV4PublicityPolicy,
+    firstSong.origin,
   ]);
   await f.evm.write(
     v4,
@@ -366,18 +366,20 @@ test(
       assert.ok(issuedAt > revokedAt);
       const signIn: SignIn = {
         learner,
-        communityId: f.config.communityId,
-        origin: firstSong.origin,
-        publicationPolicy: learningV4PublicityPolicy,
         nonce: digest("sign-in-after-direct-revoke"),
         issuedAt,
-        expiresAt: issuedAt + 300n,
       };
-      const signature = await accounts[5].signTypedData({
-        domain: resultsV4Domain(31337, v4),
-        types: signInTypes,
-        primaryType: "SignIn",
-        message: signIn,
+      const signature = await accounts[5].signMessage({
+        message: signInMessageV4(
+          {
+            origin: firstSong.origin,
+            chainId: 31337,
+            contract: v4.toLowerCase() as Address,
+            communityId: f.config.communityId,
+            publicationPolicy: learningV4PublicityPolicy,
+          },
+          signIn,
+        ),
       });
       await f.evm.write(
         v4,
@@ -566,6 +568,7 @@ test(
         accounts[3].address,
         communityId,
         learningV4PublicityPolicy,
+        firstSong.origin,
       ]);
       f.env.RESULTS_V4_CONTRACT = v4;
       // The learner revokes on V4 directly, then signs in again.
@@ -577,18 +580,20 @@ test(
       await f.evm.rpc("evm_mine", []);
       const signIn: SignIn = {
         learner,
-        communityId,
-        origin: "https://community.example",
-        publicationPolicy: learningV4PublicityPolicy,
         nonce: digest("karaoke-sign-in-after-direct-revoke"),
         issuedAt: revokedAt + 2n,
-        expiresAt: revokedAt + 302n,
       };
-      const signature = await accounts[5]!.signTypedData({
-        domain: resultsV4Domain(31337, v4),
-        types: signInTypes,
-        primaryType: "SignIn",
-        message: signIn,
+      const signature = await accounts[5]!.signMessage({
+        message: signInMessageV4(
+          {
+            origin: firstSong.origin,
+            chainId: 31337,
+            contract: v4.toLowerCase() as Address,
+            communityId,
+            publicationPolicy: learningV4PublicityPolicy,
+          },
+          signIn,
+        ),
       });
       await f.evm.write(v4, "LearningResultsV4", "authorize", [signIn, signature], 2);
       assert.equal(
@@ -682,6 +687,7 @@ test(
         accounts[3].address,
         communityId,
         learningV4PublicityPolicy,
+        firstSong.origin,
       ]);
       k.env.RESULTS_V4_CONTRACT = v4;
       const hook = beforeEnrollmentRead(() =>

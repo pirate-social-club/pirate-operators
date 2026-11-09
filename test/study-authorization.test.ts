@@ -3,12 +3,12 @@
 // posts RPC, IPFS transport and speech provider are the fixture's simulations.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, zeroHash, type Hex } from "viem";
+import { decodeFunctionData, hashMessage, zeroHash, type Hex } from "viem";
 import { accounts } from "../harness/runtime.ts";
 import { digest } from "../packages/protocol/index.ts";
 import {
   resultsV4Abi,
-  signInIdV4,
+  readSignInMessageV4,
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
 import type { SignInChallenge } from "../packages/community/accounts.ts";
@@ -43,6 +43,7 @@ import {
   studyPublicationFixtureV4,
 } from "./study-publication-fixture.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 import { lessonState } from "./study-close-bound-fixture.ts";
 import type { StudyLesson, StudySong } from "../packages/study/lesson.ts";
 import { firstSongFixture } from "../harness/karaoke-live.ts";
@@ -68,15 +69,8 @@ async function signInOnChain(f: Fixture, learner: number) {
     await f.post("/api/auth/challenge", { address: accounts[learner].address })
   ).json()) as SignInChallenge;
   assert.equal(challenge.kind, "sign-in-v4");
-  const message: SignIn = {
-    ...challenge.typedData.message,
-    issuedAt: BigInt(challenge.typedData.message.issuedAt),
-    expiresAt: BigInt(challenge.typedData.message.expiresAt),
-  };
-  const signature = await accounts[learner].signTypedData({
-    ...challenge.typedData,
-    message: challenge.typedData.message as never,
-  });
+  const message: SignIn = readSignInMessageV4(challenge.message)!.signIn;
+  const signature = await accounts[learner].signMessage({ message: challenge.message });
   let receipt = await acceptAuthorization(
     f.operatorEnv,
     f.store,
@@ -91,7 +85,7 @@ async function signInOnChain(f: Fixture, learner: number) {
       signature,
     );
   assert.equal(receipt.state, "success");
-  return { id: signInIdV4(31337, f.v4, message), message };
+  return { id: hashMessage(challenge.message), message };
 }
 const revokeOnChain = (f: Fixture, learner = 5) =>
   f.evm.write(
@@ -648,9 +642,16 @@ test(
         /invalid_study_lesson_binding/,
       );
       await revokeOnChain(f);
-      f.advance(2000);
+      // The application does not know of this direct withdrawal, so its
+      // sign-in is backdated up to a minute; one made after that minute.
+      await f.mineClock();
+      f.advance(61_000);
       await f.mineClock();
       const after = await signInOnChain(f, 5);
+      assert.ok(
+        after.message.issuedAt >
+          ((await f.evm.read(f.v4, "LearningResultsV4", "revokedAt", [accounts[5].address])) as bigint),
+      );
       // The sign-in made before the withdrawal no longer authorizes.
       await assert.rejects(
         bindManagedStudy(
@@ -692,6 +693,7 @@ test(
         accounts[3].address,
         f.config.communityId,
         learningV4PublicityPolicy,
+        firstSong.origin,
       ]);
       await f.evm.write(
         v4,

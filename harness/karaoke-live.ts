@@ -240,7 +240,7 @@ export async function karaokeLive(
   const resultsV2 = options.internalResults && !options.resultsV4 ? await evm.deploy("LearningResultsV2", [accounts[3].address, config.communityId, digest("fixture-publicity")]) : undefined;
   if (resultsV2) await evm.write(resultsV2, "LearningResultsV2", "setGrader", [accounts[2].address, 1, true], 3);
   if (resultsV2) config.learningRecords = resultsV2.toLowerCase() as Address;
-  const resultsV4 = options.resultsV4 ? await evm.deploy("LearningResultsV4", [accounts[3].address, config.communityId, learningV4PublicityPolicy]) : undefined;
+  const resultsV4 = options.resultsV4 ? await evm.deploy("LearningResultsV4", [accounts[3].address, config.communityId, learningV4PublicityPolicy, firstSong.origin]) : undefined;
   if (resultsV4) await evm.write(resultsV4, "LearningResultsV4", "setGrader", [accounts[2].address, 1, true], 3);
   if (resultsV4) config.learningRecords = resultsV4.toLowerCase() as Address;
   const internal = !!(resultsV2 || resultsV4);
@@ -541,18 +541,17 @@ export async function karaokeLive(
     };
 
     /**
-     * Sign-in through the application, as the browser does it: SIWE, or with
-     * V4 the typed SignIn that is also the publication permission.
+     * Sign-in through the application, as the browser does it: the SIWE
+     * text, which with V4 is also the publication permission.
      */
     const signIn = async (wallet: {
       address: Address;
       signMessage: PrivateKeyAccount["signMessage"];
-      signTypedData?: PrivateKeyAccount["signTypedData"];
     }) => {
       const challenge = await json<{
         id: string;
         message: string;
-        typedData?: Parameters<PrivateKeyAccount["signTypedData"]>[0];
+        kind?: "sign-in-v4";
       }>(
         await app("/api/auth/challenge", {
           method: "POST",
@@ -571,11 +570,9 @@ export async function karaokeLive(
         },
         body: JSON.stringify({
           id: challenge.value.id,
-          signature: challenge.value.typedData
-            ? await wallet.signTypedData!(challenge.value.typedData)
-            : await wallet.signMessage({
-                message: challenge.value.message,
-              }),
+          signature: await wallet.signMessage({
+            message: challenge.value.message,
+          }),
         }),
       });
       const body = (await verified.json()) as { csrf: string };

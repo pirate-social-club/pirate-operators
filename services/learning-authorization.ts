@@ -5,8 +5,6 @@
 import { encodeFunctionData, hashTypedData, type Address, type Hex } from "viem";
 import {
   resultsV4Abi,
-  signInIdV4,
-  signInTypes,
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
 import { revocationTypes } from "../packages/protocol/learning-results.ts";
@@ -56,19 +54,16 @@ interface PendingAuthorizationJob {
 }
 const authorizationKey = (target: ResultsTarget, id: Hex) =>
   `pendingAuthorization:${target.contract.toLowerCase()}:${id}`;
+/** The compact sign-in, as the application stores and sends it. */
 export const restoreSignIn = (a: Record<string, unknown>): SignIn => ({
   learner: String(a.learner) as Address,
-  communityId: String(a.communityId) as Hex,
-  origin: String(a.origin),
-  publicationPolicy: String(a.publicationPolicy) as Hex,
   nonce: String(a.nonce) as Hex,
   issuedAt: BigInt(String(a.issuedAt)),
-  expiresAt: BigInt(String(a.expiresAt)),
 });
 const storedSignIn = (a: SignIn): Record<string, string> => ({
-  ...a,
+  learner: a.learner,
+  nonce: a.nonce,
   issuedAt: String(a.issuedAt),
-  expiresAt: String(a.expiresAt),
 });
 /** The contract's own refusals are final; anything else is retried. */
 const contractRefusal =
@@ -99,11 +94,10 @@ export async function acceptAuthorization(
 ): Promise<AuthorizationReceipt> {
   destination = retainedTarget(env, destination);
   check(destination.version === 4, "unsupported_results_version");
-  check(
-    a.communityId.toLowerCase() === env.COMMUNITY_ID.toLowerCase(),
-    "wrong_community",
-  );
-  const id = signInIdV4(destination.chainId, destination.contract, a),
+  // The contract renders the text from its own community, origin and policy:
+  // its digest is the authorization id, and a sign-in for another community
+  // is a different text that it refuses as invalid_consent.
+  const id = await read<Hex>(env, destination, "signInDigest", [a]),
     key = authorizationKey(destination, id);
   const checkPending = () => {
     const pending = store.get<PendingAuthorizationJob>(key);
@@ -153,12 +147,9 @@ export async function acceptAuthorization(
       activation,
       Number(env.PAYMENT_CHAIN_ID),
     );
-    const verified = await client(env).verifyTypedData({
+    const verified = await client(env).verifyHash({
       address: a.learner,
-      domain: contractDomain(destination),
-      types: signInTypes,
-      primaryType: "SignIn",
-      message: { ...a },
+      hash: id,
       signature,
     });
     check(verified, "invalid_consent");

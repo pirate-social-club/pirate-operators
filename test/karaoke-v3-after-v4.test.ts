@@ -25,6 +25,7 @@ import {
   revocationRequestV4,
 } from "../services/learning-authorization.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 
 test(
   "V3 Karaoke runs bind and publish to V3 after V4 becomes the default",
@@ -56,6 +57,7 @@ test(
         accounts[3].address,
         communityId,
         learningV4PublicityPolicy,
+        firstSong.origin,
       ]);
       await f.evm.write(
         v4,
@@ -150,6 +152,7 @@ test(
         accounts[3].address,
         communityId,
         learningV4PublicityPolicy,
+        firstSong.origin,
       ]);
       await f.evm.write(
         v4,
