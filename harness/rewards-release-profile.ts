@@ -7,6 +7,7 @@ import {
   object,
 } from "../packages/community/common.ts";
 import { rewardProfile } from "../packages/rewards/validation.ts";
+import { isRehearsalRollover } from "../packages/rewards/rehearsal.ts";
 import { resultSource } from "../services/reward-sources.ts";
 import type { RewardsProfile } from "../packages/rewards/contracts.ts";
 import type { RewardResultSource } from "../services/reward-sources.ts";
@@ -75,12 +76,17 @@ export function assertRewardsApplicationUpgrade(
     "reward_release_study_source_changed",
     409,
   );
-  if (previous.rewards)
+  if (previous.rewards && canonical(previous.rewards) !== canonical(rewards)) {
+    // The only accepted change is one reviewed rehearsal rollover: same source,
+    // same program, the current rehearsal retired with its terms intact.
+    const prior = rewardsReleaseSelection(previous.rewards);
     insist(
-      canonical(previous.rewards) === canonical(rewards),
+      canonical(prior.source) === canonical(rewards.source) &&
+        isRehearsalRollover(prior.profile, rewards.profile),
       "reward_release_program_changed",
       409,
     );
+  }
   const strip = (p: Record<string, unknown>) => {
     const { rewards: _, ...rest } = p;
     return {

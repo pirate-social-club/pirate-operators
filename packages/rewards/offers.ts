@@ -1,5 +1,5 @@
 import { bytes32, hashJson, insist, object } from "../community/common.ts";
-import { assertRehearsalOffer } from "./rehearsal.ts";
+import { assertRehearsalOffer, isRetiredRehearsal } from "./rehearsal.ts";
 import type {
   QualificationEntry,
   RewardOffer,
@@ -77,6 +77,12 @@ export class RewardOffers {
       );
       return offerView(await this.store.offer(input.offerId));
     }
+    // A retired rehearsal keeps its original offer and terms; it never reopens.
+    insist(
+      !isRetiredRehearsal(this.store.profile, input.offerId),
+      "reward_rehearsal_retired",
+      409,
+    );
     insist(
       input.opensAt >= this.now() && input.cutoffAt > input.opensAt,
       "reward_window_invalid",

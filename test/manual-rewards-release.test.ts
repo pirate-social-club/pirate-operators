@@ -96,6 +96,45 @@ test("rewards successor preserves the accepted Study deployment and appends only
     () => assertRewardsApplicationUpgrade(rehearsal, next),
     /reward_release_program_changed/,
   );
+  // One rehearsal rollover: the current rehearsal is retired with its terms and
+  // a new one is named. Nothing else may change, and it never runs backwards.
+  const rollover = structuredClone(rehearsal);
+  rollover.rewards.profile.rehearsalHistory = [
+    rehearsal.rewards.profile.rehearsal!,
+  ];
+  rollover.rewards.profile.rehearsal = {
+    schema: "pirate.reward-rehearsal/1",
+    offerId: "rehearsal_002",
+    prizeUsdcAtomic: "30000",
+  };
+  assert.doesNotThrow(() =>
+    assertRewardsApplicationUpgrade(rehearsal, rollover),
+  );
+  const second = structuredClone(rollover);
+  second.rewards.profile.rehearsalHistory!.push(
+    rollover.rewards.profile.rehearsal!,
+  );
+  second.rewards.profile.rehearsal!.offerId = "rehearsal_003";
+  assert.doesNotThrow(() => assertRewardsApplicationUpgrade(rollover, second));
+  for (const [from, to] of [
+    [rollover, rehearsal],
+    [rehearsal, second],
+    [next, rollover],
+  ])
+    assert.throws(
+      () => assertRewardsApplicationUpgrade(from, to),
+      /reward_release_program_changed/,
+    );
+  for (const mutate of [
+    (p: any) =>
+      (p.rewards.profile.rehearsalHistory[0].prizeUsdcAtomic = "40000"),
+    (p: any) => (p.rewards.profile.veryAppId = "another_program"),
+    (p: any) => (p.rewards.source.codeHash = rewardTestProfile.programId),
+  ]) {
+    const altered = structuredClone(rollover);
+    mutate(altered);
+    assert.throws(() => assertRewardsApplicationUpgrade(rehearsal, altered));
+  }
   const changed = structuredClone(next);
   changed.rewards.profile.veryAppId = "another_program";
   assert.throws(

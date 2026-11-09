@@ -1,4 +1,5 @@
 import { hashJson, insist, token } from "../community/common.ts";
+import { rewardProfileAncestors } from "./rehearsal.ts";
 import type {
   RewardsProfile,
   RewardPayment,
@@ -74,8 +75,14 @@ export class RewardStore {
       "SELECT profile_hash FROM reward_programs WHERE program_id=?",
       this.program,
     ).first<{ profile_hash: string }>();
+    // The stored hash is never rewritten. A reviewed rehearsal rollover is
+    // accepted only when the stored profile is derivable from this one exactly.
+    const accepted: string[] = [
+      hash,
+      ...rewardProfileAncestors(this.profile).map(hashJson),
+    ];
     insist(
-      row?.profile_hash === hash,
+      !!row && accepted.includes(row.profile_hash),
       "reward_program_configuration_changed",
       503,
     );
