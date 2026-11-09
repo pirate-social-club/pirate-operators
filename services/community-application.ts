@@ -97,7 +97,11 @@ import {
 import { rewardProfile } from "../packages/rewards/validation.ts";
 import { rewardChain } from "../packages/rewards/chain.ts";
 import { rewardVeryProvider } from "../packages/rewards/very-provider.ts";
-import { liveRewardSources, resultSource } from "./reward-sources.ts";
+import {
+  liveRewardSources,
+  resultSource,
+  rewardResultSources,
+} from "./reward-sources.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
@@ -123,6 +127,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
   REWARDS_PROFILE_JSON?: string;
   REWARDS_RESULT_SOURCE_JSON?: string;
+  /** Result sources appended after the original, in order; absent before V4. */
+  REWARDS_RESULT_SUCCESSORS_JSON?: string;
 }
 export interface CommunityDependencies {
   configuration(): Promise<CommunityConfig>;
@@ -335,7 +341,10 @@ export async function communityFetch(
           ? liveRewardSources({
               db: env.DB,
               profile,
-              source: resultSource(env.REWARDS_RESULT_SOURCE_JSON, profile),
+              sources: rewardResultSources(
+                resultSource(env.REWARDS_RESULT_SOURCE_JSON, profile),
+                env.REWARDS_RESULT_SUCCESSORS_JSON,
+              ),
               config,
               reads: publicReads,
             })

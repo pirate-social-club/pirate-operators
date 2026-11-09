@@ -3,6 +3,7 @@ import { readStudyReleaseSelection } from "./study-release-input.ts";
 import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
 import { observeLearningV4Release } from "./learning-v4-release-observation.ts";
+import { observeRewardSuccessors } from "./rewards-successor-observation.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
@@ -148,6 +149,16 @@ async function main() {
     "community_previous_plan_changed",
     409,
   );
+  // Each rewards source this release appends is observed live: code, version,
+  // community, the grader's roles and the policies it pins. Sources the
+  // deployed predecessor already carries are not re-judged.
+  if (rewards?.successors)
+    await observeRewardSuccessors(
+      megaethReadClient(),
+      rewards,
+      undefined,
+      (object(previousProfile.rewards ?? {}).successors as unknown[]) ?? [],
+    );
   const modules = await communityRemoteModules(token);
   insist(
     Object.keys(modules).length === 1 &&
@@ -371,6 +382,14 @@ async function main() {
           ? {
               REWARDS_PROFILE_JSON: JSON.stringify(rewards.profile),
               REWARDS_RESULT_SOURCE_JSON: JSON.stringify(rewards.source),
+              // Absent until a successor is appended, so no binding changes.
+              ...(rewards.successors
+                ? {
+                    REWARDS_RESULT_SUCCESSORS_JSON: JSON.stringify(
+                      rewards.successors,
+                    ),
+                  }
+                : {}),
             }
           : {}),
         ...(study

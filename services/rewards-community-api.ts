@@ -238,6 +238,8 @@ export async function rewardsCommunityApi(
       }
       return reply({
         offers: offers.results.map(offerView),
+        // What a new offer accepts when the operator names no sources.
+        resultSources: ports.sources?.resultSources ?? null,
         payments: await Promise.all(
           paymentRows.results.map((p) => store.paymentView(p)),
         ),
@@ -365,6 +367,18 @@ export async function rewardsCommunityApi(
         cutoffAt: integer(body.cutoffAt, 0, Number.MAX_SAFE_INTEGER),
         purchaseHash: bytes32(body.purchaseHash),
         ticketIds: body.ticketIds,
+        ...(body.resultSources === undefined
+          ? {}
+          : {
+              resultSources: (() => {
+                insist(
+                  Array.isArray(body.resultSources) &&
+                    body.resultSources.length <= 8,
+                  "reward_offer_sources_invalid",
+                );
+                return body.resultSources.map((x) => bytes32(x));
+              })(),
+            }),
       };
       const songs = await (ports.songs?.() ?? Promise.resolve([]));
       insist(

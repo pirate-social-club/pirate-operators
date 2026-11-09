@@ -126,6 +126,7 @@ export function withRewardRehearsal(
   insist(live.mode === "live-testnet", "reward_rehearsal_source_invalid", 409);
   return {
     mode: live.mode,
+    ...(live.resultSources ? { resultSources: live.resultSources } : {}),
     qualifiers: live.qualifiers,
     async purchase(input, current) {
       insist(

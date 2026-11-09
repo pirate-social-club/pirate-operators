@@ -23,11 +23,24 @@ const MAX_QUALIFIER_RESULTS = 20000;
 /** Accounts entered per offer; settlement writes one credit each in one batch. */
 export const MAX_REWARD_ENTRIES = 500;
 
+/** Pinned at attachment; at most this many sources per offer. */
+export const MAX_OFFER_RESULT_SOURCES = 8;
+
 export function offerView(row: OfferRow): RewardOffer {
-  const mode = object(JSON.parse(row.purchase_evidence)).mode;
+  const evidence = object(JSON.parse(row.purchase_evidence)),
+    mode = evidence.mode;
   insist(
     mode === "simulated" || mode === "live-testnet",
     "reward_purchase_mode_missing",
+    503,
+  );
+  // The accepted sources are stored beside the attachment evidence and are
+  // covered by the offer's input hash, which close re-checks.
+  const sources = evidence.resultSources;
+  insist(
+    sources === undefined ||
+      (Array.isArray(sources) && sources.every((x) => typeof x === "string")),
+    "reward_offer_sources_invalid",
     503,
   );
   return {
@@ -39,12 +52,54 @@ export function offerView(row: OfferRow): RewardOffer {
     cutoffAt: row.cutoff_at,
     purchaseHash: row.purchase_hash,
     ticketIds: JSON.parse(row.ticket_ids_json),
+    ...(sources === undefined ? {} : { resultSources: sources as string[] }),
     state: row.state,
     entries: row.entries_json === null ? null : JSON.parse(row.entries_json),
     winningsUsdcAtomic: row.winnings_usdc_atomic,
     payoutAtomic: row.payout_atomic,
     remainderAtomic: row.remainder_atomic,
   };
+}
+/** Exactly the attached input, so its hash can be compared with the stored one. */
+export function offerInput(offer: RewardOfferInput): RewardOfferInput {
+  return {
+    offerId: offer.offerId,
+    drawingId: offer.drawingId,
+    songKey: offer.songKey,
+    cutoffAt: offer.cutoffAt,
+    purchaseHash: offer.purchaseHash,
+    ticketIds: offer.ticketIds,
+    opensAt: offer.opensAt,
+    ...(offer.resultSources === undefined
+      ? {}
+      : { resultSources: offer.resultSources }),
+  };
+}
+/**
+ * A new offer fixes the result sources it accepts at attachment, before its
+ * window opens: the operator's choice, or every live source when none is
+ * named. A chosen set must include the source the community publishes to now.
+ */
+function offerSources(
+  sources: RewardSources["resultSources"],
+  pinned: string[] | undefined,
+): string[] | undefined {
+  if (!sources) {
+    insist(pinned === undefined, "reward_offer_sources_unavailable", 409);
+    return undefined;
+  }
+  const chosen = pinned ?? [...sources.accepted];
+  insist(
+    Array.isArray(chosen) &&
+      chosen.length > 0 &&
+      chosen.length <= MAX_OFFER_RESULT_SOURCES &&
+      new Set(chosen).size === chosen.length &&
+      chosen.every((x) => sources.accepted.includes(bytes32(x))) &&
+      chosen.includes(sources.current),
+    "reward_offer_sources_invalid",
+    409,
+  );
+  return chosen;
 }
 export class RewardOffers {
   readonly store: RewardStore;
@@ -64,7 +119,8 @@ export class RewardOffers {
       503,
     );
   }
-  async attach(input: RewardOfferInput) {
+  async attach(raw: RewardOfferInput) {
+    let input = offerInput(raw);
     rewardId(input.offerId);
     rewardAmount(input.drawingId);
     bytes32(input.songKey);
@@ -79,8 +135,14 @@ export class RewardOffers {
       )
       .first<{ input_hash: string }>();
     if (prior) {
+      // Resubmitting without pins matches an offer whose pins were defaulted.
+      const live = this.source.resultSources;
       insist(
-        prior.input_hash === hashJson(input),
+        prior.input_hash === hashJson(input) ||
+          (input.resultSources === undefined &&
+            !!live &&
+            prior.input_hash ===
+              hashJson({ ...input, resultSources: [...live.accepted] })),
         "reward_offer_conflict",
         409,
       );
@@ -96,6 +158,11 @@ export class RewardOffers {
       input.opensAt >= this.now() && input.cutoffAt > input.opensAt,
       "reward_window_invalid",
     );
+    const resultSources = offerSources(
+      this.source.resultSources,
+      input.resultSources,
+    );
+    input = offerInput({ ...input, resultSources });
     insist(
       input.ticketIds.length > 0 &&
         input.ticketIds.length <= 50 &&
@@ -148,7 +215,11 @@ export class RewardOffers {
         input.purchaseHash,
         JSON.stringify(input.ticketIds),
         hash,
-        JSON.stringify(evidence),
+        JSON.stringify(
+          input.resultSources === undefined
+            ? evidence
+            : { ...evidence, resultSources: input.resultSources },
+        ),
       );
       return {
         value: {
@@ -177,9 +248,16 @@ export class RewardOffers {
     });
   }
   async close(id: string) {
-    const input = offerView(await this.store.offer(rewardId(id)));
+    const stored = await this.store.offer(rewardId(id)),
+      input = offerView(stored);
     if (input.state !== "open") return input;
     insist(this.now() >= input.cutoffAt, "reward_cutoff_not_reached", 409);
+    // The sources read are exactly those pinned when the offer was attached.
+    insist(
+      hashJson(offerInput(input)) === stored.input_hash,
+      "reward_offer_input_changed",
+      503,
+    );
     const candidates = await this.source.qualifiers(input);
     insist(
       candidates.length <= MAX_QUALIFIER_RESULTS,

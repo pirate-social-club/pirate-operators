@@ -150,6 +150,12 @@ export interface RewardOfferInput {
   purchaseHash: string;
   ticketIds: string[];
   opensAt: number;
+  /**
+   * Hashes of the result sources this offer accepts, fixed at attachment
+   * before its window opens. Absent only on offers attached before source
+   * succession, which accept the profile's original source alone.
+   */
+  resultSources?: string[];
 }
 export interface QualificationEntry {
   accountId: string;
@@ -174,6 +180,12 @@ export interface VerificationIntent {
 /** Provider ports must validate original chain/proof evidence before returning these values. */
 export interface RewardSources {
   readonly mode: RewardsProfile["mode"];
+  /**
+   * Live result sources, in append order, and the one the community currently
+   * publishes to. A new offer must pin a subset that includes the current one.
+   * Absent for sources that read no public results.
+   */
+  readonly resultSources?: { accepted: readonly string[]; current: string };
   purchase(
     offer: RewardOfferInput,
     profile: RewardsProfile,

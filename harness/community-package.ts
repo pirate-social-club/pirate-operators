@@ -25,6 +25,7 @@ import {
 import { learningCommunityProfile } from "./learning-community-profile.ts";
 import {
   rewardsReleaseSelection,
+  assertRewardsFollowLearningV4,
   type RewardsReleaseSelection,
 } from "./rewards-release-profile.ts";
 import {
@@ -138,6 +139,8 @@ export async function communityPackage(
     "learning_v4_publishing_selection_required",
     409,
   );
+  // V4 results qualify for rewards only when this release appends the source.
+  assertRewardsFollowLearningV4(rewardSelection, learningV4);
   await verifyCommunityDependencies();
   const learning = await learningCommunityProfile(selection);
   const run = promisify(execFile),
