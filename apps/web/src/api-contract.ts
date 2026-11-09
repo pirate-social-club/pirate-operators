@@ -36,8 +36,12 @@ export interface CommunityCapabilities {
   rewards?: boolean;
   study?: boolean;
   learningServiceMode?: "internal";
-  /** V4: the learning documents a sign-in accepts, for normal site navigation. */
-  learningPolicy?: { termsUrl: string; privacyUrl: string };
+  /**
+   * The learning documents of the community's version (3 or 4), linked from
+   * normal site navigation. A V4 sign-in accepts them, so the sign-in screen
+   * also links them in a V4 community.
+   */
+  learningPolicy?: { version: 3 | 4; termsUrl: string; privacyUrl: string };
   schema: "pirate.community-capabilities/1";
   signIn: boolean;
   /** Preserved for the deferred creator connection; false under owner publishing. */

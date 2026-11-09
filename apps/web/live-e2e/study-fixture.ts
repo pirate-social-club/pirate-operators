@@ -147,6 +147,12 @@ export async function serveStudy(
         upload: false,
         publication: false,
         learningServiceMode: "internal",
+        // A V3 community's learning documents, for the site footer.
+        learningPolicy: {
+          version: 3,
+          termsUrl: "/learning/v3/terms",
+          privacyUrl: "/learning/v3/privacy",
+        },
         study: options.available !== false,
         ...(options.rewardOffers ? { rewards: true } : {}),
         policyVersion: "fixture",

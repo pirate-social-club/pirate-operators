@@ -66,6 +66,30 @@ test("an inconsistent disclosure cannot prompt a signature or start a Study less
   expect(state.counts.starts).toBe(0);
 });
 
+test("a V3 community's footer links the V3 learning documents while the Study surface links none", async ({
+  page,
+}) => {
+  const state = await serveStudy(page);
+  await page.goto(state.url);
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  await expect(page.locator(".live-study-overlay").getByRole("link")).toHaveCount(0);
+  await page.getByRole("button", { name: "Exit study" }).click();
+  const footer = page.getByRole("navigation", { name: "Community documents" });
+  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
+  for (const [name, href] of [
+    ["Terms", "/terms"],
+    ["Privacy", "/privacy"],
+    ["Learning terms", "/learning/v3/terms"],
+    ["Learning privacy", "/learning/v3/privacy"],
+  ] as const)
+    await expect(footer.getByRole("link", { name, exact: true })).toHaveAttribute(
+      "href",
+      href,
+    );
+  // Only the community's own version is linked.
+  await expect(page.locator('a[href^="/learning/v4/"]')).toHaveCount(0);
+});
+
 test("the account menu downloads saved Study history after exit and reports expiry without another lesson", async ({
   page,
 }) => {

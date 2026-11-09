@@ -320,7 +320,14 @@ function App() {
                 <a href="/privacy" target="_blank" rel="noopener">
                   Privacy
                 </a>
-                <Show when={capabilities()?.learningPolicy}>
+                {/* Only a V4 sign-in accepts the learning documents. */}
+                <Show
+                  when={
+                    capabilities()?.learningPolicy?.version === 4
+                      ? capabilities()?.learningPolicy
+                      : undefined
+                  }
+                >
                   {(policy) => (
                     <>
                       {" "}
@@ -665,6 +672,8 @@ function App() {
           <a href="/privacy" target="_blank" rel="noopener">
             Privacy
           </a>
+          {/* The learning documents of the community's own version, V3 or
+              V4; exercise surfaces carry no links in any mode. */}
           <Show when={capabilities()?.learningPolicy}>
             {(policy) => (
               <>

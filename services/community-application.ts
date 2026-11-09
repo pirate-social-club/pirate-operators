@@ -40,6 +40,7 @@ import type {
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
+import { learningV3Disclosure } from "./learning-policy-v3.ts";
 import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
@@ -564,15 +565,27 @@ export async function communityFetch(
         ...(env.KARAOKE_SERVICE_MODE === "internal"
           ? { learningServiceMode: "internal" as const }
           : {}),
-        // A V4 community's sign-in accepts these documents; absent otherwise.
+        // The learning documents of the community's actual version, for the
+        // site footer: exercise surfaces carry no links in any mode. A V4
+        // sign-in accepts them; a V3 community's enrollment did.
         ...(signInV4(env, config)
           ? {
               learningPolicy: {
+                version: 4 as const,
                 termsUrl: learningV4Disclosure.termsUrl,
                 privacyUrl: learningV4Disclosure.privacyUrl,
               },
             }
-          : {}),
+          : env.STUDY_RESULTS_V3_CONTRACT?.toLowerCase() ===
+              config.learningRecords.toLowerCase()
+            ? {
+                learningPolicy: {
+                  version: 3 as const,
+                  termsUrl: learningV3Disclosure.termsUrl,
+                  privacyUrl: learningV3Disclosure.privacyUrl,
+                },
+              }
+            : {}),
         creatorConnection: await creatorAvailable(config),
         upload: releaseReady,
         publication: releaseReady,

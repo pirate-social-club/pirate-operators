@@ -126,6 +126,7 @@ export async function serveV4(page: Page) {
         publication: false,
         learningServiceMode: "internal",
         learningPolicy: {
+          version: 4,
           termsUrl: "/learning/v4/terms",
           privacyUrl: "/learning/v4/privacy",
         },

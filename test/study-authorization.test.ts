@@ -201,6 +201,16 @@ test(
     try {
       const [signIn] = await recorded(f);
       assert.equal(signIn.state, "recorded");
+      // The footer links this V4 community's learning documents.
+      assert.deepEqual(
+        (await json<Record<string, unknown>>(await f.call("/api/capabilities")))
+          .learningPolicy,
+        {
+          version: 4,
+          termsUrl: "/learning/v4/terms",
+          privacyUrl: "/learning/v4/privacy",
+        },
+      );
       const lesson = await complete(f);
       const binding = v4Binding(f, lesson.lessonId);
       assert.equal(binding.target.version, 4);
@@ -782,7 +792,12 @@ test(
       const capabilities = await json<Record<string, unknown>>(
         await f.call("/api/capabilities"),
       );
-      assert.equal("learningPolicy" in capabilities, false);
+      // The footer links the V3 learning documents of this V3 community.
+      assert.deepEqual(capabilities.learningPolicy, {
+        version: 3,
+        termsUrl: "/learning/v3/terms",
+        privacyUrl: "/learning/v3/privacy",
+      });
       // A V3 lesson binds the enrollment and publishes to V3.
       const lesson = await complete(f as unknown as Fixture);
       const binding = studyBinding(f.store, lesson.lessonId)!;
