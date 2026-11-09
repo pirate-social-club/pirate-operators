@@ -448,7 +448,8 @@ export async function inspectExistingJournalReadOnly(
     for (const row of parsed.filter((x) => x.key.startsWith("tx:")))
       insist(
         object(row.value).mined &&
-          ["success", "reverted"].includes(
+          // A cancelled or superseded nonce is consumed, never a success.
+          ["success", "reverted", "cancelled", "superseded"].includes(
             String(object(object(row.value).mined).status),
           ),
         "study_operator_journal_pending_transaction",

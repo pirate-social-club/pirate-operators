@@ -106,9 +106,12 @@ export async function acceptAuthorization(
   checkPending();
   const receipt = (row?: TxRow): AuthorizationReceipt => ({
     id,
-    // Only withheld result rows are ever cancelled; never an authorization.
+    // Only withheld result rows are ever cancelled or superseded; never an
+    // authorization. Neither is a success.
     state:
-      row?.mined && row.mined.status !== "cancelled" ? row.mined.status : "pending",
+      row?.mined?.status === "success" || row?.mined?.status === "reverted"
+        ? row.mined.status
+        : "pending",
     txHash: row?.hash ?? null,
   });
   if (

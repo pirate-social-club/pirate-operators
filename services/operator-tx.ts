@@ -3,14 +3,29 @@
 // call. Dispatching an intent allocates its nonce exactly once; transaction
 // status is then tracked per nonce until the nonce is consumed on chain, even
 // after the purchase it was meant for has been confirmed or has failed.
-import { decodeFunctionResult, encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
+import {
+  decodeFunctionResult,
+  encodeFunctionData,
+  keccak256,
+  parseAbi,
+  serializeTransaction,
+  type Address,
+  type Hex,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { check } from "../packages/protocol/index.ts";
 import {
   receiptSucceeded,
   type Receipt,
 } from "../packages/protocol/payments.ts";
-import { gasPrice, pendingNonce, receiptOf, sendRaw, rpc } from "./chain.ts";
+import {
+  gasPrice,
+  latestNonce,
+  pendingNonce,
+  receiptOf,
+  sendRaw,
+  rpc,
+} from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
 
 /** Record intents are sent in order by the publisher (services/records.ts), never by recovery. */
@@ -60,8 +75,11 @@ export interface TxRow {
   hash?: Hex;
   /**
    * Record results only, set at allocation: "none" until the first send
-   * attempt, then "attempted". A row without it was written before this field
-   * existed, so whether it was sent is unknown.
+   * attempt, then "attempted". While "none", the row's signed bytes have not
+   * been given to any RPC: the data fee is priced from the unsigned bytes. A
+   * row without it was written before this field existed; whether it was sent
+   * is unknown unless it was never signed (no raw bytes and no hash), since
+   * every send path signs and stores the bytes first.
    */
   broadcast?: "none" | "attempted";
   /**
@@ -75,9 +93,14 @@ export interface TxRow {
    * its place. The row's own fields stay as evidence of the withheld work.
    */
   cancellation?: Cancellation;
-  /** "cancelled": the nonce was consumed by the row's cancellation. */
+  /**
+   * "cancelled": the nonce was consumed by the row's cancellation.
+   * "superseded": a withheld row whose nonce the chain shows consumed, with no
+   * receipt for the row's own transaction or its cancellation; `block` is the
+   * head at which that was observed. Neither is ever a success.
+   */
   mined: null | {
-    status: "success" | "reverted" | "cancelled";
+    status: "success" | "reverted" | "cancelled" | "superseded";
     block: number;
   };
 }
@@ -125,15 +148,37 @@ export const intentOf = (store: TxStore, kind: TxKind, ref: string) =>
   store.get<Intent>(intentKey(kind, ref));
 export const txRow = (store: TxStore, nonce: number) =>
   store.get<TxRow>(txKey(nonce));
+/**
+ * Proven never sent: marked "none" by this code, or a row from before the
+ * marker that was never signed. Nothing else counts as evidence.
+ */
+export const provenUnsent = (row: TxRow) =>
+  row.broadcast === "none" ||
+  (row.broadcast === undefined && row.raw === undefined && row.hash === undefined);
+/**
+ * A withheld row that cannot publish: its nonce went to its cancellation or
+ * to another transaction, or it was proven never sent. A withheld row whose
+ * own transaction is mined is a publication, reported as such.
+ */
+export const withheldUnpublished = (row: TxRow | undefined) =>
+  !!row?.withheld &&
+  (row.mined
+    ? row.mined.status === "cancelled" || row.mined.status === "superseded"
+    : provenUnsent(row));
 const realtime = (env: Env) => env.REALTIME_RPC === "1";
 /** The journal's own clock when it has one (the operator's store does). */
 const journalNow = (store: TxStore) =>
   (store as { now?: () => number }).now?.() ?? Math.floor(Date.now() / 1000);
 const dataFeeAbi = parseAbi(["function getL1Fee(bytes data) view returns (uint256)"]);
-async function checkDataFee(env: Env, row: TxRow) {
-  if (!env.RESULTS_V2_CONTRACT || row.chainId === 31337) return;
+/**
+ * Prices the data fee of `priced`: a row's signed bytes as before, or, for a
+ * row still "none" and for a cancellation, the unsigned serialization the
+ * oracle accepts, so those signed bytes never reach an RPC before their send.
+ */
+async function checkDataFee(env: Env, chainId: number, priced: () => Hex) {
+  if (!env.RESULTS_V2_CONTRACT || chainId === 31337) return;
   check(env.SPONSOR_DATA_FEE_WEI && /^\d+$/.test(env.SPONSOR_DATA_FEE_WEI), "data_fee_limit_unconfigured");
-  const data = encodeFunctionData({ abi: dataFeeAbi, functionName: "getL1Fee", args: [row.raw!] });
+  const data = encodeFunctionData({ abi: dataFeeAbi, functionName: "getL1Fee", args: [priced()] });
   const response = await rpc<Hex>(env.RPC_URL, "eth_call", [{ to: "0x420000000000000000000000000000000000000F", data }, "latest"]);
   const fee = decodeFunctionResult({ abi: dataFeeAbi, functionName: "getL1Fee", data: response });
   check(fee <= BigInt(env.SPONSOR_DATA_FEE_WEI), "data_fee_above_limit");
@@ -199,6 +244,19 @@ function markCancelled(store: TxStore, nonce: number, receipt: Receipt) {
     mined: { status: "cancelled", block: Number(BigInt(receipt.blockNumber)) },
   });
 }
+const unsignedOwn = (row: TxRow) =>
+  serializeTransaction({
+    type: "legacy",
+    chainId: row.chainId,
+    nonce: row.nonce,
+    to: row.to,
+    data: row.data,
+    gas: BigInt(row.gas),
+    gasPrice: BigInt(row.gasPrice),
+    value: 0n,
+  });
+const ownPriced = (row: TxRow) => () =>
+  row.broadcast === "none" ? unsignedOwn(row) : row.raw!;
 /** Signing is deterministic, so a crash before storing the bytes re-signs identically. */
 async function signed(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce)!;
@@ -230,7 +288,19 @@ async function signed(env: Env, store: TxStore, nonce: number) {
         type: "legacy",
         gasPrice: BigInt(row.gasPrice),
       });
-  const next = { ...txRow(store, nonce)!, raw, hash: keccak256(raw) };
+  const current = txRow(store, nonce)!;
+  const next: TxRow = {
+    ...current,
+    raw,
+    hash: keccak256(raw),
+    // A result row from before the marker, signed only now, was never sent.
+    ...(current.kind === "record_result" &&
+    current.broadcast === undefined &&
+    current.raw === undefined &&
+    current.hash === undefined
+      ? { broadcast: "none" as const }
+      : {}),
+  };
   store.set(txKey(nonce), next);
   return next;
 }
@@ -328,14 +398,26 @@ export async function dispatch(
 }
 
 /**
- * Sends one row: its cancellation once it is withheld, otherwise its own
- * bytes after the gate's withdrawal check. A failed check sends nothing.
+ * Sends one row: a withheld row is settled (see settleWithheld), any other
+ * row's own bytes are sent after the gate's checks (see sendOwn).
  */
 async function send(env: Env, store: TxStore, nonce: number, gate?: SendGate) {
-  const row = gate ? await withhold(env, store, nonce, gate) : txRow(store, nonce)!;
+  const row = txRow(store, nonce)!;
   if (row.mined) return row;
   if (row.withheld) return settleWithheld(env, store, nonce, gate);
   return sendOwn(env, store, nonce, gate);
+}
+
+/** Synchronous: records the withdrawal on a row not yet mined or withheld. */
+function markWithheld(store: TxStore, nonce: number, reason: string) {
+  const current = txRow(store, nonce)!;
+  if (current.mined || current.withheld) return current;
+  const next: TxRow = {
+    ...current,
+    withheld: { reason, at: journalNow(store) },
+  };
+  store.set(txKey(nonce), next);
+  return next;
 }
 
 /**
@@ -356,17 +438,14 @@ async function withhold(
     !(await gate.withheld(row.kind, row.ref))
   )
     return txRow(store, nonce)!;
-  const current = txRow(store, nonce)!;
-  if (current.mined || current.withheld) return current;
-  const next: TxRow = {
-    ...current,
-    withheld: { reason: gate.reason, at: journalNow(store) },
-  };
-  store.set(txKey(nonce), next);
-  return next;
+  return markWithheld(store, nonce, gate.reason);
 }
 
-/** The row's own bytes; the journal's withdrawal is re-checked just before the send. */
+/**
+ * The row's own bytes. The gate's chain read is the last asynchronous step,
+ * after the data fee and receipt reads, and the journal's withdrawal is
+ * re-checked synchronously just before the send.
+ */
 async function sendOwn(
   env: Env,
   store: TxStore,
@@ -375,17 +454,19 @@ async function sendOwn(
 ): Promise<TxRow> {
   const row = await signed(env, store, nonce);
   if (row.mined) return row;
-  await checkDataFee(env, row);
+  await checkDataFee(env, row.chainId, ownPriced(row));
   const known = await receiptOf(env.RPC_URL, row.hash!);
   if (known) {
     markMined(store, nonce, known);
     return txRow(store, nonce)!;
   }
+  if (gate) await withhold(env, store, nonce, gate);
   // Synchronous from this read to the send.
-  const current = txRow(store, nonce)!;
+  let current = txRow(store, nonce)!;
   if (current.mined) return current;
-  if (current.withheld || gate?.recorded(current.kind, current.ref))
-    return send(env, store, nonce, gate);
+  if (gate?.recorded(current.kind, current.ref))
+    current = markWithheld(store, nonce, gate.reason);
+  if (current.withheld) return settleWithheld(env, store, nonce, gate);
   if (current.broadcast === "none")
     store.set(txKey(nonce), { ...current, broadcast: "attempted" });
   const receipt = await sendRaw(
@@ -398,12 +479,29 @@ async function sendOwn(
   return txRow(store, nonce)!;
 }
 
+const warn = (event: string, row: TxRow, extra: Record<string, unknown> = {}) =>
+  console.warn(
+    JSON.stringify({
+      event,
+      nonce: row.nonce,
+      kind: row.kind,
+      ref: row.ref,
+      hash: row.hash ?? null,
+      broadcast: row.broadcast ?? "unknown",
+      reason: row.withheld?.reason ?? null,
+      ...extra,
+    }),
+  );
+
 /**
- * A withheld row. Proven never sent ("none"): its cancellation consumes the
- * nonce, within the gate's fee limits; when the limits refuse, it waits like
- * any dispatch. Sent or unknown: its own bytes are never sent again and only
- * its receipt is reconciled, so the nonce stays open until that transaction
- * is mined or an operator resolves it.
+ * A withheld row, settled from receipts and chain state; its own bytes are
+ * never sent. Once the operator's latest chain nonce is past it, the row is
+ * recorded as mined by whichever of its transaction or its cancellation has
+ * a receipt, or as superseded when neither has. Before that, a row proven
+ * never sent gets a cancellation within the gate's fee limits; when the
+ * limits refuse, it waits like any dispatch. A row that may have been sent
+ * only waits, and every later nonce waits behind it. Every waiting state is
+ * logged.
  */
 async function settleWithheld(
   env: Env,
@@ -413,48 +511,93 @@ async function settleWithheld(
 ): Promise<TxRow> {
   let row = txRow(store, nonce)!;
   if (row.mined) return row;
-  if (row.broadcast !== "none") {
-    if (row.hash) {
-      const receipt = await receiptOf(env.RPC_URL, row.hash);
-      if (receipt) {
-        markMined(store, nonce, receipt);
+  try {
+    const operator = privateKeyToAccount(env.PRIVATE_KEY).address;
+    if ((await latestNonce(env.RPC_URL, operator)) > nonce) {
+      const own = row.hash ? await receiptOf(env.RPC_URL, row.hash) : null;
+      if (own) {
+        markMined(store, nonce, own);
         return txRow(store, nonce)!;
       }
+      const cancelled = row.cancellation?.hash
+        ? await receiptOf(env.RPC_URL, row.cancellation.hash)
+        : null;
+      if (cancelled) {
+        markCancelled(store, nonce, cancelled);
+        return txRow(store, nonce)!;
+      }
+      const head = Number(
+        BigInt(await rpc<Hex>(env.RPC_URL, "eth_blockNumber", [])),
+      );
+      const current = txRow(store, nonce)!;
+      if (current.mined) return current;
+      store.set(txKey(nonce), {
+        ...current,
+        mined: { status: "superseded", block: head },
+      });
+      warn("operator_nonce_superseded", current, { block: head });
+      return txRow(store, nonce)!;
     }
-    console.warn(
-      JSON.stringify({
-        event: "operator_nonce_withheld",
-        nonce,
-        kind: row.kind,
-        ref: row.ref,
-        hash: row.hash ?? null,
-        broadcast: row.broadcast ?? "unknown",
-        reason: row.withheld!.reason,
+    if (!provenUnsent(row)) {
+      warn("operator_nonce_withheld", row, {
         action:
-          "not resent after withdrawal; later nonces wait until this one is mined or resolved by an operator",
-      }),
+          "not resent after withdrawal; this and every later operator nonce wait until this nonce is consumed on chain",
+      });
+      return row;
+    }
+    if (!row.cancellation) {
+      const limits = gate?.limits();
+      if (!limits) {
+        warn("operator_cancellation_waiting", row, {
+          error: "sponsor_limits_unconfigured",
+        });
+        return row;
+      }
+      row = await prepareCancellation(env, store, nonce, limits);
+      if (row.mined || !row.cancellation) return row;
+    }
+    row = await signedCancellation(env, store, nonce);
+    const cancellation = row.cancellation!;
+    await checkDataFee(env, row.chainId, () => unsignedCancellation(row));
+    const receipt =
+      (await receiptOf(env.RPC_URL, cancellation.hash!)) ??
+      (await sendRaw(
+        env.RPC_URL,
+        cancellation.raw!,
+        cancellation.hash!,
+        realtime(env),
+      ));
+    if (receipt) markCancelled(store, nonce, receipt);
+    else
+      warn("operator_cancellation_pending", row, {
+        cancellation: cancellation.hash,
+      });
+    return txRow(store, nonce)!;
+  } catch (error) {
+    warn(
+      provenUnsent(row) ? "operator_cancellation_waiting" : "operator_nonce_withheld",
+      row,
+      { error: (error as Error).message },
     );
-    return row;
+    throw error;
   }
-  if (!row.cancellation) {
-    const limits = gate?.limits();
-    if (!limits) return row;
-    row = await prepareCancellation(env, store, nonce, limits);
-    if (row.mined || !row.cancellation) return row;
+}
+/**
+ * Settles every withheld row not yet mined, in nonce order, from receipts
+ * and chain state, and sends pending cancellations; nothing else is sent.
+ * The regular alarm runs it, so a waiting cancellation or a consumed nonce
+ * does not wait for /recover. Failures are logged and left for the next run.
+ */
+export async function settleWithheldTransactions(
+  env: Env,
+  store: TxStore,
+  gate: SendGate,
+) {
+  for (const { value } of store.entries("tx:")) {
+    const row = value as TxRow;
+    if (row.mined || !row.withheld) continue;
+    await settleWithheld(env, store, row.nonce, gate).catch(() => undefined);
   }
-  row = await signedCancellation(env, store, nonce);
-  const cancellation = row.cancellation!;
-  await checkDataFee(env, { ...row, raw: cancellation.raw! });
-  const receipt =
-    (await receiptOf(env.RPC_URL, cancellation.hash!)) ??
-    (await sendRaw(
-      env.RPC_URL,
-      cancellation.raw!,
-      cancellation.hash!,
-      realtime(env),
-    ));
-  if (receipt) markCancelled(store, nonce, receipt);
-  return txRow(store, nonce)!;
 }
 
 /**
@@ -479,7 +622,7 @@ async function prepareCancellation(
   );
   return store.transaction(() => {
     const row = txRow(store, nonce)!;
-    if (row.mined || row.cancellation || !row.withheld || row.broadcast !== "none")
+    if (row.mined || row.cancellation || !row.withheld || !provenUnsent(row))
       return row;
     check(gas <= BigInt(row.gas), "cancellation_gas_above_limit");
     const others = store
@@ -495,6 +638,17 @@ async function prepareCancellation(
     return next;
   });
 }
+const unsignedCancellation = (row: TxRow) =>
+  serializeTransaction({
+    type: "legacy",
+    chainId: row.chainId,
+    nonce: row.nonce,
+    to: row.cancellation!.to,
+    data: "0x",
+    gas: BigInt(row.cancellation!.gas),
+    gasPrice: BigInt(row.cancellation!.gasPrice),
+    value: 0n,
+  });
 /** Deterministic, like `signed`: a crash before storing the bytes re-signs identically. */
 async function signedCancellation(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce)!;
@@ -546,17 +700,9 @@ export async function recoverTransactions(
     if (gate) row = await withhold(env, store, row.nonce, gate);
     if (row.mined) continue;
     if (row.withheld) {
+      // Logged inside; an open withheld nonce holds every later one.
       const settled = await settleWithheld(env, store, row.nonce, gate).catch(
-        (error: Error) => {
-          console.warn(
-            JSON.stringify({
-              event: "operator_cancellation_waiting",
-              nonce: row.nonce,
-              error: error.message,
-            }),
-          );
-          return row;
-        },
+        () => row,
       );
       if (!settled.mined) break;
       resolved += 1;
