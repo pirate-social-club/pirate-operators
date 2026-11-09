@@ -187,28 +187,14 @@ function App() {
     setStatus("Continue in MOSS to sign in.");
     const account = await mega.connect();
     if (!account?.address) throw new Error("MOSS sign-in was cancelled.");
-    const challenge = await post<
-      | { id: string; message: string; kind?: undefined }
-      | {
-          id: string;
-          kind: "sign-in-v4";
-          typedData: {
-            domain: unknown;
-            types: unknown;
-            primaryType: string;
-            message: Record<string, unknown>;
-          };
-        }
-    >("/api/auth/challenge", { address: account.address });
-    let signed;
-    if (challenge.kind === "sign-in-v4") {
-      // One signature: sign-in and the standing publication permission.
-      const { message, domain, types, primaryType } = challenge.typedData;
-      const typed = { domain, types, primaryType };
-      signed = await mega.signData({ data: { ...typed, message } });
-      if (signed.status === "error")
-        signed = await mega.signData({ data: { ...typed, value: message } });
-    } else signed = await mega.signMessage(challenge.message);
+    // Plain SIWE, or the V4 sign-in: one SIWE text that is both the sign-in
+    // and the standing publication permission. Either is signed as text.
+    const challenge = await post<{
+      id: string;
+      message: string;
+      kind?: "sign-in-v4";
+    }>("/api/auth/challenge", { address: account.address });
+    const signed = await mega.signMessage(challenge.message);
     if (signed.status !== "success" || !signed.signature)
       throw new Error("The sign-in message was not signed.");
     await post("/api/auth/verify", {

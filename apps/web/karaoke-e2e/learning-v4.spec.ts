@@ -25,9 +25,21 @@ test("a V4 take starts with no signature request and no policy link on the exerc
     const path = new URL(request.url()).pathname;
     if (path === "/__fixture/sign") {
       const input = request.postDataJSON();
+      // The V4 sign-in is a SIWE text that names the V4 policy; it is
+      // recorded as "SignIn".
       if (input.kind !== "address")
         signatures.push(
-          input.kind === "typed" ? input.data?.primaryType : input.kind,
+          input.kind === "typed"
+            ? input.data?.primaryType
+            : input.kind === "message" &&
+                / wants you to sign in with your Ethereum account:\n/.test(
+                  String(input.message),
+                ) &&
+                String(input.message).includes(
+                  "\n- urn:pirate:publication-policy:4:0x",
+                )
+              ? "SignIn"
+              : input.kind,
         );
     }
     if (path.startsWith("/api/karaoke/enrollment")) enrollmentRequests++;
@@ -51,7 +63,7 @@ test("a V4 take starts with no signature request and no policy link on the exerc
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
     timeout: 20000,
   });
-  // One typed sign-in, which is also the permission.
+  // One sign-in, which is also the permission.
   expect(signatures).toEqual(["SignIn"]);
   await page.getByRole("button", { name: "Sing", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start karaoke" })).toBeVisible(

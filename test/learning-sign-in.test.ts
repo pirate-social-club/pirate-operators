@@ -1,21 +1,25 @@
-// V4 sign-in on the application's D1 schema: the challenge is SignIn typed
-// data, verification creates the same account, binding and session as SIWE,
-// and only a verified V4 sign-in stores a pending publication authorization.
+// V4 sign-in on the application's D1 schema: the challenge is the V4 SIWE
+// text, verification creates the same account, binding and session as the
+// plain SIWE login, and only a verified V4 sign-in stores a pending
+// publication authorization. A withdrawn account is given only the plain login.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { getAddress, type Hex } from "viem";
+import { getAddress, hashMessage, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   accountSession,
   loginChallenge,
   loginVerify,
-  signInFromMessage,
   type SignInChallenge,
   type SignInV4,
 } from "../packages/community/accounts.ts";
-import { signInIdV4 } from "../packages/protocol/learning-results-v4.ts";
+import {
+  SIGN_IN_BACKDATE_S,
+  readSignInMessageV4,
+  signInMessageV4,
+} from "../packages/protocol/learning-results-v4.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import {
   practiceAuthorization,
@@ -84,45 +88,45 @@ async function database(
   return { db, migrate, count, dispose: () => runtime.dispose() };
 }
 const signChallenge = (c: SignInChallenge, account = learner) =>
-  account.signTypedData({
-    domain: c.typedData.domain,
-    types: c.typedData.types,
-    primaryType: "SignIn",
-    // The wallet signs exactly the decimal-string message it receives.
-    message: c.typedData.message as never,
-  });
+  account.signMessage({ message: c.message });
+const signInOf = (c: SignInChallenge) => readSignInMessageV4(c.message)!.signIn;
 async function v4Challenge(db: D1Database, time = Date.now()) {
   const c = await loginChallenge(db, context, learner.address, time, v4);
   assert.ok("kind" in c);
   return c;
 }
 
-test("a V4 challenge is the SignIn typed data for this learner, community and policy", async () => {
+test("a V4 challenge is the SIWE sign-in text for this learner, community and policy", async () => {
   const f = await database();
   try {
     const time = 1_800_000_000_123;
     const c = await v4Challenge(f.db, time);
     assert.equal(c.kind, "sign-in-v4");
     assert.match(c.id, /^[a-f0-9]{64}$/);
-    assert.deepEqual(c.typedData.domain, {
-      name: "Pirate Learning Results",
-      version: "4",
-      chainId: 6343,
-      verifyingContract: getAddress(v4.contract),
-    });
-    assert.equal(c.typedData.primaryType, "SignIn");
-    const m = c.typedData.message;
-    assert.equal(m.learner, learner.address);
-    assert.equal(m.communityId, context.communityId);
-    assert.equal(m.origin, origin);
-    assert.equal(m.publicationPolicy, learningV4PublicityPolicy);
+    assert.deepEqual(Object.keys(c).sort(), ["id", "kind", "message"]);
+    const m = signInOf(c);
     assert.match(m.nonce, /^0x[0-9a-f]{64}$/);
-    assert.equal(m.issuedAt, "1800000000");
-    assert.equal(m.expiresAt, "1800000300");
-    assert.ok(!("message" in c));
+    // Backdated by a minute for slow wallet clocks.
+    assert.equal(m.issuedAt, 1_800_000_000n - BigInt(SIGN_IN_BACKDATE_S));
+    assert.equal(
+      c.message,
+      signInMessageV4(
+        {
+          origin,
+          chainId: 6343,
+          contract: v4.contract,
+          communityId: context.communityId,
+          publicationPolicy: learningV4PublicityPolicy,
+        },
+        { learner: learner.address, nonce: m.nonce, issuedAt: m.issuedAt },
+      ),
+    );
+    assert.ok(c.message.startsWith(`community.example wants you to sign in with your Ethereum account:\n${getAddress(learner.address)}\n`));
+    assert.ok(c.message.includes("\nIssued At: 2027-01-15T07:59:00.000Z\nNot Before: 2027-01-15T07:59:00.000Z\nResources:\n"));
+    assert.ok(!c.message.includes("Expiration Time"));
     const row = await f.db
       .prepare(
-        "SELECT kind,policy_version,subject,expires_at FROM login_challenges WHERE challenge_id=?",
+        "SELECT kind,policy_version,subject,expires_at,message FROM login_challenges WHERE challenge_id=?",
       )
       .bind(c.id)
       .first();
@@ -131,10 +135,11 @@ test("a V4 challenge is the SignIn typed data for this learner, community and po
       policy_version: 4,
       subject,
       expires_at: time + 300_000,
+      message: c.message,
     });
     // Each challenge has its own single-use nonce.
     const other = await v4Challenge(f.db, time);
-    assert.notEqual(other.typedData.message.nonce, m.nonce);
+    assert.notEqual(signInOf(other).nonce, m.nonce);
     // Without V4 the challenge is the SIWE message, exactly as before.
     const siwe = await loginChallenge(f.db, context, learner.address, time);
     assert.deepEqual(Object.keys(siwe).sort(), ["id", "message"]);
@@ -170,11 +175,7 @@ test("V4 verify creates the SIWE account, binding and session plus one pending a
       signature,
       verifyLoginOffline,
     );
-    const id = signInIdV4(
-      6343,
-      v4.contract,
-      signInFromMessage(c.typedData.message),
-    );
+    const id = hashMessage(c.message);
     assert.equal(verified.authorizationId, id);
     const binding = await f.db
       .prepare(
@@ -208,13 +209,16 @@ test("V4 verify creates the SIWE account, binding and session plus one pending a
     assert.equal(row.state, "pending");
     assert.equal(row.policy_hash, learningV4PublicityPolicy);
     assert.equal(row.policy_version, 4);
-    assert.equal(row.issued_at, Number(c.typedData.message.issuedAt));
+    assert.equal(row.issued_at, Number(signInOf(c).issuedAt));
     assert.equal(row.signature, signature.toLowerCase());
     assert.equal(row.tx_hash, null);
-    assert.deepEqual(
-      JSON.parse(String(row.sign_in_json)),
-      c.typedData.message,
-    );
+    assert.equal(row.message, c.message);
+    // The compact arguments the operator relays to authorize.
+    assert.deepEqual(JSON.parse(String(row.sign_in_json)), {
+      learner: learner.address,
+      nonce: signInOf(c).nonce,
+      issuedAt: String(signInOf(c).issuedAt),
+    });
     assert.equal(
       await publicResults(f.db, session.account_id, true),
       "pending",
@@ -252,7 +256,7 @@ test("V4 verify creates the SIWE account, binding and session plus one pending a
   }
 });
 
-test("a withdrawn account signs in but gets no authorization row", async () => {
+test("a withdrawn account is given only the plain SIWE login and gets no authorization row", async () => {
   const f = await database();
   try {
     // A first SIWE sign-in creates the account; the learner then withdraws.
@@ -273,18 +277,36 @@ test("a withdrawn account signs in but gets no authorization row", async () => {
       )
       .bind(account_id, Date.now())
       .run();
-    const c = await v4Challenge(f.db);
+    // Never the V4 permission text while public results are off.
+    const c = await loginChallenge(f.db, context, learner.address, Date.now(), v4);
+    assert.deepEqual(Object.keys(c).sort(), ["id", "message"]);
+    assert.ok(c.message.includes("\nSign in to this community. This does not join, create a creator wallet or authorize spending.\n"));
+    assert.equal(readSignInMessageV4(c.message), undefined);
+    assert.equal(
+      (await f.db
+        .prepare("SELECT kind FROM login_challenges WHERE challenge_id=?")
+        .bind(c.id)
+        .first<{ kind: string }>())!.kind,
+      "siwe",
+    );
     const verified = await loginVerify(
       f.db,
       context,
       c.id,
-      await signChallenge(c),
+      await learner.signMessage({ message: c.message }),
       verifyLoginOffline,
     );
     assert.equal(verified.authorizationId, undefined);
     assert.equal(await f.count("community_sessions"), 2);
     assert.equal(await f.count("learning_authorizations"), 0);
     assert.equal(await publicResults(f.db, account_id, true), "off");
+    // Turned back on, the next challenge is the V4 sign-in again, issued
+    // after the withdrawal.
+    await f.db
+      .prepare("UPDATE learning_settings SET public_results_withdrawn_at=NULL")
+      .run();
+    const again = await v4Challenge(f.db);
+    assert.equal(again.kind, "sign-in-v4");
   } finally {
     await f.dispose();
   }
@@ -294,13 +316,14 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
   const f = await database();
   try {
     const t0 = 1_800_000_000_000;
+    // The challenge the application gives: plain SIWE while withdrawn.
     const signInAt = async (time: number) => {
-      const c = await v4Challenge(f.db, time);
+      const c = await loginChallenge(f.db, context, learner.address, time, v4);
       return loginVerify(
         f.db,
         context,
         c.id,
-        await signChallenge(c),
+        await learner.signMessage({ message: c.message }),
         verifyLoginOffline,
         time,
       );
@@ -318,7 +341,7 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
       await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
       { id: first.authorizationId },
     );
-    // Withdrawn: a sign-in signs in but records nothing.
+    // Withdrawn: a sign-in is the plain login; it records nothing.
     const withdrawnAt = t0 + 10_000;
     await f.db
       .prepare(
@@ -343,7 +366,8 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
       { id: null, pending: false },
     );
     // A sign-in in the withdrawal's own second is not after it: it signs in
-    // but is never stored as an authorization.
+    // but is never stored as an authorization. (Backdating never goes below
+    // the second after the withdrawal, nor above the current second.)
     const sameSecond = await signInAt(withdrawnAt);
     assert.ok(sameSecond.cookie);
     assert.equal(sameSecond.authorizationId, undefined);
@@ -354,7 +378,7 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
     const stale = `0x${"5e".repeat(32)}`;
     await f.db
       .prepare(
-        "INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,signature,policy_hash,policy_version,issued_at,state,created_at,updated_at) VALUES(?,?,?,'{}','0x',?,4,?,'pending',?,?)",
+        "INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,message,signature,policy_hash,policy_version,issued_at,state,created_at,updated_at) VALUES(?,?,?,'{}','','0x',?,4,?,'pending',?,?)",
       )
       .bind(stale, account_id, subject, learningV4PublicityPolicy, withdrawnAt / 1000, withdrawnAt, withdrawnAt)
       .run();
@@ -432,19 +456,21 @@ test("SIWE challenges and signatures never produce an authorization", async () =
       return true;
     });
     assert.equal(await f.count("community_sessions"), 2);
-    // A personal (SIWE-style) signature over a V4 challenge does not verify.
+    // A signature over any other text does not verify a V4 challenge: the
+    // plain login, or the V4 text with one character changed.
     const c = await v4Challenge(f.db);
-    await assert.rejects(
-      loginVerify(
-        f.db,
-        context,
-        c.id,
-        await learner.signMessage({ message: JSON.stringify(c.typedData) }),
-        verifyLoginOffline,
-      ),
-      /invalid_login_signature/,
-    );
-    // Nor does another wallet's typed signature.
+    for (const text of [siwe.message, c.message.replace("Version: 1", "Version: 2")])
+      await assert.rejects(
+        loginVerify(
+          f.db,
+          context,
+          c.id,
+          await learner.signMessage({ message: text }),
+          verifyLoginOffline,
+        ),
+        /invalid_login_signature/,
+      );
+    // Nor does another wallet's signature.
     const other = privateKeyToAccount(`0x${"22".repeat(32)}`);
     await assert.rejects(
       loginVerify(
@@ -564,7 +590,7 @@ test("a pending sign-in is never relayed while public results are off, even one 
       .prepare(
         "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)",
       )
-      .bind(account_id, t0 - 5_000)
+      .bind(account_id, t0 - (SIGN_IN_BACKDATE_S + 5) * 1000)
       .run();
     const operator = countingOperator();
     // The practice path, the single relay and the scheduled job all refuse it.
@@ -886,6 +912,91 @@ test("the scheduled relay takes turns: rows that stay retryable never starve a n
     for (const [learnerOf, id] of ids)
       if (learnerOf !== newest)
         assert.equal((await stateOf(f.db, id)).state, "pending");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("the V4 challenge is backdated a minute for wallet clocks, never to or before the last withdrawal, and its session ends with the relay window", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const issuedAtOf = async (time: number) =>
+      signInOf(await v4Challenge(f.db, time)).issuedAt;
+    // No account yet: a full minute back.
+    assert.equal(await issuedAtOf(t0 + 500), 1_800_000_000n - 60n);
+    const first = await v4Challenge(f.db, t0);
+    await loginVerify(f.db, context, first.id, await signChallenge(first), verifyLoginOffline, t0);
+    // The session ends when the sign-in's thirty-day relay window does, not
+    // thirty days after verification.
+    assert.equal(
+      (await f.db.prepare("SELECT expires_at FROM community_sessions").first<{ expires_at: number }>())!
+        .expires_at,
+      (1_800_000_000 - 60 + 30 * 86400) * 1000,
+    );
+    const { account_id } = (await f.db
+      .prepare("SELECT account_id FROM credential_bindings")
+      .first<{ account_id: string }>())!;
+    // Withdrawn 10.5 s ago and turned back on: no backdate into the minute
+    // after it, which leaves room for a revoke mined after the record.
+    await f.db
+      .prepare(
+        "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,NULL,?2)",
+      )
+      .bind(account_id, t0 - 10_500)
+      .run();
+    assert.equal(await issuedAtOf(t0), 1_800_000_000n);
+    // Withdrawn 90 s ago: backdated only to the end of that minute.
+    await f.db.prepare("UPDATE learning_settings SET last_withdrawn_at=?").bind(t0 - 90_000).run();
+    assert.equal(await issuedAtOf(t0), 1_800_000_000n - 90n + 61n);
+    // Withdrawn more than two minutes ago: the full minute again.
+    await f.db.prepare("UPDATE learning_settings SET last_withdrawn_at=?").bind(t0 - 200_000).run();
+    assert.equal(await issuedAtOf(t0), 1_800_000_000n - 60n);
+    // Withdrawn within the current second: never after now, so it is that
+    // second, which the store and the contract both refuse.
+    await f.db.prepare("UPDATE learning_settings SET last_withdrawn_at=?").bind(t0 + 400).run();
+    const same = await v4Challenge(f.db, t0 + 900);
+    assert.equal(signInOf(same).issuedAt, 1_800_000_000n);
+    const verified = await loginVerify(f.db, context, same.id, await signChallenge(same), verifyLoginOffline, t0 + 900);
+    assert.equal(verified.authorizationId, undefined);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("a stored V4 text that is not this learner's, community's or origin's exact sign-in is refused before any verifier", async () => {
+  const f = await database();
+  try {
+    const other = privateKeyToAccount(`0x${"22".repeat(32)}`);
+    const nonce = `0x${"ab".repeat(32)}` as Hex;
+    const ctx = {
+      origin,
+      chainId: 6343,
+      contract: v4.contract,
+      communityId: context.communityId,
+      publicationPolicy: learningV4PublicityPolicy,
+    };
+    const issuedAt = BigInt(Math.floor(Date.now() / 1000));
+    const good = signInMessageV4(ctx, { learner: learner.address, nonce, issuedAt });
+    for (const [name, text] of [
+      ["one byte changed", good.replace("Chain ID: 6343", "Chain ID: 6344")],
+      ["trailing newline", good + "\n"],
+      ["another learner", signInMessageV4(ctx, { learner: other.address, nonce, issuedAt })],
+      ["another origin", signInMessageV4({ ...ctx, origin: "https://other.example" }, { learner: learner.address, nonce, issuedAt })],
+      ["another community", signInMessageV4({ ...ctx, communityId: `0x${"bb".repeat(32)}` }, { learner: learner.address, nonce, issuedAt })],
+    ] as const) {
+      const c = await v4Challenge(f.db);
+      await f.db.prepare("UPDATE login_challenges SET message=? WHERE challenge_id=?").bind(text, c.id).run();
+      let verified = false;
+      await assert.rejects(
+        loginVerify(f.db, context, c.id, await learner.signMessage({ message: text }), async () => (verified = true)),
+        /invalid_login/,
+        name,
+      );
+      assert.equal(verified, false, name);
+    }
+    assert.equal(await f.count("learning_authorizations"), 0);
+    assert.equal(await f.count("community_sessions"), 0);
   } finally {
     await f.dispose();
   }
