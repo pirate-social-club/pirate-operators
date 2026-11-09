@@ -1,5 +1,10 @@
 # Owner-curated rollout
 
+Successor, November 8: the completed registered journey below is unchanged,
+including policy pirate-owner-curated/2026-11-05/1, its hashes and its
+acceptance evidence. The owner-only unregistered successor for launch is
+[owner-only MegaETH song publication](megaeth-song-publication.md).
+
 The first real owner-curated release is published. [Live acceptance](deployments/first-song-managed-20261105.first-song-acceptance.json)
 records both sealed private stems, five verified song pins, one Aeneid ROOT mint
 to the captured creator, one MegaETH post and signed-out playback after reload.

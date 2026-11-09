@@ -24,6 +24,10 @@ import {
 } from "./community-dependencies.ts";
 import { learningCommunityProfile } from "./learning-community-profile.ts";
 import {
+  rewardsReleaseSelection,
+  type RewardsReleaseSelection,
+} from "./rewards-release-profile.ts";
+import {
   applicationInfrastructureSources,
   writeApplicationInfrastructure,
 } from "./community-infrastructure.ts";
@@ -86,8 +90,40 @@ export async function artifactFiles(
   }
   return found.sort();
 }
-export async function communityPackage(study?: StudyReleaseSelection) {
+import {
+  communityMigrations,
+  OWNER_PUBLISHING_MIGRATION,
+} from "./package-migrations.ts";
+import {
+  communityPublishingProfile,
+  publishingReleaseSelection,
+  type PublishingReleaseSelection,
+} from "./publishing-release-profile.ts";
+export { communityMigrations, OWNER_PUBLISHING_MIGRATION };
+/** Owner-only unregistered publishing requires the Study and rewards schema. */
+export async function communityPackage(
+  study?: StudyReleaseSelection,
+  rewards?: RewardsReleaseSelection,
+  publishingInput?: PublishingReleaseSelection,
+) {
+  const publishing = publishingInput
+    ? publishingReleaseSelection(publishingInput)
+    : undefined;
   const selection = study ? studyReleaseSelection(study) : undefined;
+  const rewardSelection = rewards
+    ? rewardsReleaseSelection(rewards)
+    : undefined;
+  insist(
+    !rewardSelection || selection,
+    "reward_release_study_selection_required",
+    409,
+  );
+  // Schema order is Study, then rewards, then owner publishing.
+  insist(
+    !publishing || rewardSelection,
+    "owner_publishing_rewards_selection_required",
+    409,
+  );
   await verifyCommunityDependencies();
   const learning = await learningCommunityProfile(selection);
   const run = promisify(execFile),
@@ -159,9 +195,10 @@ export async function communityPackage(study?: StudyReleaseSelection) {
     ],
     { maxBuffer: 1024 * 1024 },
   );
-  const migrations = (await readdir("apps/community-wizard/infra/migrations"))
-    .filter((p) => /^\d{4}_.+\.sql$/.test(p))
-    .sort();
+  const migrations = communityMigrations(
+    await readdir("apps/community-wizard/infra/migrations"),
+    { rewards: !!rewardSelection, ownerPublishing: !!publishing },
+  );
   const sourcePaths = [
     ...new Set(
       [
@@ -225,7 +262,7 @@ export async function communityPackage(study?: StudyReleaseSelection) {
       ),
     );
   const releaseGrant = await firstSongGrant();
-  const profile = {
+  const base = {
     schema: "pirate.community-application-plan/1",
     accountId: communityAccount,
     prefix: communityPrefix,
@@ -305,8 +342,16 @@ export async function communityPackage(study?: StudyReleaseSelection) {
     },
     acceptance: learning.acceptance,
     learning,
+    ...(rewardSelection ? { rewards: rewardSelection } : {}),
     recovery:
       "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
+  };
+  // Owner publishing replaces the registered release fields and drops the
+  // registration bounds; the rest of the profile is unchanged.
+  const profile = (
+    publishing ? communityPublishingProfile(base, publishing) : base
+  ) as typeof base & {
+    ownerPublishing?: PublishingReleaseSelection;
   };
   return { profile, profileHash: hashJson(profile), bytes };
 }

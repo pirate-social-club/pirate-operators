@@ -84,7 +84,23 @@ import {
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
 import { deleteExpiredStudyHistory } from "./study-retention.ts";
+import {
+  rewardsCommunityApi,
+  type RewardsApiPorts,
+} from "./rewards-community-api.ts";
+import { rewardProfile } from "../packages/rewards/validation.ts";
+import { rewardChain } from "../packages/rewards/chain.ts";
+import { rewardVeryProvider } from "../packages/rewards/very-provider.ts";
+import { liveRewardSources, resultSource } from "./reward-sources.ts";
+import { songKeyOf } from "../packages/protocol/records.ts";
+import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+} from "../packages/community/owner-policy.ts";
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
@@ -94,10 +110,13 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   COMMUNITY_NAME: string;
   PLAN_ID: string;
   APPLICATION_PROFILE_HASH: string;
-  CREATOR_PROFILE_HASH: string;
+  /** Registered release policy only; owner-only publishing has no creator service. */
+  CREATOR_PROFILE_HASH?: string;
   COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
   /** Pirate's provider key for the one forced alignment per lyric revision. */
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
+  REWARDS_PROFILE_JSON?: string;
+  REWARDS_RESULT_SOURCE_JSON?: string;
 }
 export interface CommunityDependencies {
   configuration(): Promise<CommunityConfig>;
@@ -108,6 +127,7 @@ export interface CommunityDependencies {
   publicReads?: PublicReadPorts;
   alignmentTransport?: ProviderTransport;
   now?: () => number;
+  rewards?: Omit<RewardsApiPorts, "db" | "profile" | "now">;
 }
 function dependencies(
   env: CommunityEnv,
@@ -236,6 +256,25 @@ export async function communityFetch(
       );
       return config;
     };
+    // Owner-only publishing has no creator connection; its service is never
+    // contacted for status or capabilities under that policy.
+    const creatorAvailable = async (known?: CommunityConfig) => {
+      // A deployment carrying the owner grant never contacts the creator
+      // service, before or after the owner policy is activated.
+      if (env.OWNER_GRANT_JSON) return false;
+      let config = known;
+      if (!config)
+        try {
+          config = await configuration();
+        } catch {
+          // A registered deployment still reports its creator health
+          // without the policy. Status only.
+          return ports.creatorHealth();
+        }
+      return unregisteredOwner(config.policies.admission)
+        ? false
+        : ports.creatorHealth();
+    };
     const ready = async () => {
       const config = await configuration();
       const runtime =
@@ -244,6 +283,85 @@ export async function communityFetch(
       await runtime.checkServices();
       return { config, ports: runtime };
     };
+    // Display only: whether this account sees release controls. The release
+    // API checks the same authority again before every reservation and seal.
+    const sessionPublisher = async (accountId: string, wallet: string) => {
+      try {
+        const config = await configuration();
+        if (unregisteredOwner(config.policies.admission)) {
+          const runtime =
+            ports.releaseRuntime?.(config) ??
+            firstSongRuntime(env, config, configuration);
+          await requireAuthorizedOwner(
+            runtime.ownerAuthorization,
+            config,
+            wallet,
+          );
+          return true;
+        }
+        if (ownerCurated(config.policies.admission)) {
+          await requireCuratedOwner(env.DB, config, wallet);
+          return true;
+        }
+        // A registered release still needs an existing creator binding.
+        return !!(await env.DB.prepare(
+          "SELECT 1 FROM creator_bindings WHERE account_id=?",
+        )
+          .bind(accountId)
+          .first());
+      } catch {
+        return false;
+      }
+    };
+    if (
+      url.pathname.startsWith("/api/rewards/") ||
+      url.pathname.startsWith("/api/operator/rewards")
+    ) {
+      insist(env.REWARDS_PROFILE_JSON, "rewards_not_configured", 503);
+      const profile = rewardProfile(env.REWARDS_PROFILE_JSON);
+      const config = await configuration();
+      const sources =
+        ports.rewards?.sources ??
+        (profile.mode === "live-testnet" && env.REWARDS_RESULT_SOURCE_JSON
+          ? liveRewardSources({
+              db: env.DB,
+              profile,
+              source: resultSource(env.REWARDS_RESULT_SOURCE_JSON, profile),
+              config,
+              reads: publicReads,
+            })
+          : undefined);
+      const result = await rewardsCommunityApi(
+        request,
+        {
+          db: env.DB,
+          profile,
+          chain: ports.rewards?.chain ?? rewardChain(),
+          verification: ports.rewards?.verification ?? rewardVeryProvider(),
+          sources,
+          now: ports.now,
+          songs:
+            ports.rewards?.songs ??
+            (async () =>
+              (await publicSongViews(env.DB, config, publicReads)).map(
+                (song) => ({
+                  title: song.manifest.title,
+                  postId: song.manifest.postId,
+                  songKey: songKeyOf({
+                    chainId: 6343,
+                    posts: config.postsContract,
+                    communityId: config.communityId,
+                    postId: bytes32(song.manifest.postId),
+                  }),
+                }),
+              )),
+        },
+        context,
+        security,
+      );
+      insist(result, "reward_route_not_found", 404);
+      return result;
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       const schema = await env.DB.prepare(
         "SELECT version FROM setup_schema WHERE version=1",
@@ -254,7 +372,7 @@ export async function communityFetch(
         503,
       );
       await ensureCommunityIdentity(env.DB, context);
-      const creatorHealth = ports.creatorHealth().catch(() => false);
+      const creatorHealth = creatorAvailable().catch(() => false);
       let publicReady = false;
       try {
         publicReady = await firstSongPublicReady(
@@ -319,6 +437,7 @@ export async function communityFetch(
               () => undefined,
             )),
         ),
+        publisher: await sessionPublisher(session.account_id, session.wallet),
       };
       return reply(view);
     }
@@ -431,13 +550,14 @@ export async function communityFetch(
         /* Fail closed while a required peer is unavailable. */
       }
       const capabilities: CommunityCapabilities = {
+        ...(env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
         study: studyAvailable(env, config),
         schema: "pirate.community-capabilities/1",
         signIn: true,
         ...(env.KARAOKE_SERVICE_MODE === "internal"
           ? { learningServiceMode: "internal" as const }
           : {}),
-        creatorConnection: await ports.creatorHealth(),
+        creatorConnection: await creatorAvailable(config),
         upload: releaseReady,
         publication: releaseReady,
         policyVersion: config.policies.admission.version,
@@ -600,6 +720,9 @@ export async function communityFetch(
         url.pathname === "/api/creator/connect" ||
         url.pathname === "/api/creator/complete"
       ) {
+        // The connection code is preserved for the deferred integration; an
+        // owner deployment refuses it before contacting the creator service.
+        insist(!env.OWNER_GRANT_JSON, "creator_connection_unavailable", 503);
         insist(await ports.creatorHealth(), "creator_service_unavailable", 503);
         insist(
           /^0x[0-9a-f]{64}$/i.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY),
@@ -716,8 +839,50 @@ export async function communityScheduled(
       failures.push(error);
     }
   }
+  // Read-only payment reconciliation runs last so a slow or failing reward
+  // RPC cannot hold Study retention, job recovery or lesson recovery. It never
+  // submits or retries a payment.
+  if (env.REWARDS_PROFILE_JSON) {
+    try {
+      await reconcileRewardPayments(
+        env.DB,
+        rewardProfile(env.REWARDS_PROFILE_JSON),
+        provided?.rewards?.chain,
+        provided?.now,
+      );
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   if (failures.length)
     throw new AggregateError(failures, "community_scheduled_failed");
+}
+
+/** The publication queue handler; dependencies are injectable for acceptance. */
+export async function communityQueue(
+  batch: Pick<MessageBatch<{ jobId: string }>, "messages">,
+  env: CommunityEnv,
+  provided?: CommunityDependencies,
+) {
+  const ports = provided ?? dependencies(env),
+    config = await ports.configuration();
+  insist(
+    config.communityId === firstSong.directoryProfile.communityId &&
+      config.app.origin === firstSong.origin,
+    "community_configuration_changed",
+    503,
+  );
+  const runtime =
+    ports.releaseRuntime?.(config) ??
+    firstSongRuntime(env, config, ports.configuration);
+  for (const message of batch.messages) {
+    try {
+      await runCommunityJob(runtime, env.JOBS, message.body.jobId);
+      message.ack();
+    } catch {
+      message.retry({ delaySeconds: 60 });
+    }
+  }
 }
 
 export default {
@@ -725,23 +890,7 @@ export default {
     return communityFetch(request, env);
   },
   async queue(batch: MessageBatch<{ jobId: string }>, env: CommunityEnv) {
-    const ports = dependencies(env),
-      config = await ports.configuration();
-    insist(
-      config.communityId === firstSong.directoryProfile.communityId &&
-        config.app.origin === firstSong.origin,
-      "community_configuration_changed",
-      503,
-    );
-    const runtime = firstSongRuntime(env, config, ports.configuration);
-    for (const message of batch.messages) {
-      try {
-        await runCommunityJob(runtime, env.JOBS, message.body.jobId);
-        message.ack();
-      } catch {
-        message.retry({ delaySeconds: 60 });
-      }
-    }
+    await communityQueue(batch, env);
   },
   async scheduled(_event, env) {
     await communityScheduled(env);

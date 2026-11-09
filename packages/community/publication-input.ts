@@ -15,7 +15,15 @@ import {
 } from "./manifest-core.ts";
 import { validateLyrics } from "./lyric-manifest.ts";
 import { loadJob } from "./publication-store.ts";
-import type { Submission, SongMetadata } from "./submissions.ts";
+import type {
+  OwnerSongMetadata,
+  Submission,
+  SongMetadata,
+} from "./submissions.ts";
+import {
+  UNREGISTERED_OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "./owner-policy.ts";
 import type { ReleaseContext } from "../release/authority.ts";
 import { selectedCuratedAmendment } from "./curated-amendment.ts";
 import { curatedAdmissionId } from "./curated-amendment.ts";
@@ -37,24 +45,44 @@ export async function publicationInput(
     .bind(job.submission_id)
     .first<Submission>();
   insist(row, "sealed_submission_unavailable", 503);
-  const raw = object(JSON.parse(row.metadata_json));
-  exact(raw, ["title", "language", "lyrics", "original", "acceptedPolicy"]);
-  const metadata: SongMetadata = {
-    title: text(raw.title, 200),
-    language: text(raw.language, 35),
-    lyrics: validateLyrics(raw.lyrics),
-    original: true,
-    acceptedPolicy: RELEASE_POLICY,
-  };
+  const raw = object(JSON.parse(row.metadata_json)),
+    // The job's own captured policy decides its shape, never the current config.
+    owner = raw.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
+  exact(raw, [
+    "title",
+    "language",
+    "lyrics",
+    "original",
+    "acceptedPolicy",
+    ...(owner ? ["rating"] : []),
+  ]);
+  const metadata: SongMetadata | OwnerSongMetadata = owner
+    ? {
+        title: text(raw.title, 200),
+        language: text(raw.language, 35),
+        lyrics: validateLyrics(raw.lyrics),
+        original: true,
+        acceptedPolicy: UNREGISTERED_OWNER_POLICY_VERSION,
+        rating: raw.rating === "adult" ? "adult" : "general",
+      }
+    : {
+        title: text(raw.title, 200),
+        language: text(raw.language, 35),
+        lyrics: validateLyrics(raw.lyrics),
+        original: true,
+        acceptedPolicy: RELEASE_POLICY,
+      };
   insist(
     raw.original === true &&
-      raw.acceptedPolicy === RELEASE_POLICY &&
+      (owner
+        ? raw.rating === "general" || raw.rating === "adult"
+        : raw.acceptedPolicy === RELEASE_POLICY) &&
       metadata.language === metadata.lyrics.language,
     "sealed_metadata_changed",
     503,
   );
   const policy = object(authority.policy),
-    creator = object(authority.creator);
+    creator = owner ? null : object(authority.creator);
   insist(
     authority.chainId === originalConfig.chainId &&
       authority.communityId === originalConfig.communityId &&
@@ -66,9 +94,16 @@ export async function publicationInput(
       authority.accountId === row.account_id &&
       authority.authorId === row.author_id &&
       authority.wallet === row.captured_wallet &&
-      policy.version === RELEASE_POLICY &&
-      policy.sha256 === RELEASE_POLICY_HASH &&
-      canonical(creator) === row.creator_json,
+      (owner
+        ? policy.version === UNREGISTERED_OWNER_POLICY_VERSION &&
+          policy.sha256 === UNREGISTERED_OWNER_POLICY_HASH &&
+          authority.creator === null &&
+          row.creator_json === "null" &&
+          typeof authority.ownerAuthorizationSha256 === "string" &&
+          !signed
+        : policy.version === RELEASE_POLICY &&
+          policy.sha256 === RELEASE_POLICY_HASH &&
+          canonical(creator) === row.creator_json),
     "publication_authority_changed",
     409,
   );
@@ -108,9 +143,11 @@ export async function publicationInput(
         }),
     postId: row.post_id,
     authorId: row.author_id,
-    recipient: address(creator.evm_address),
+    // No external registration: the owner wallet stands as the release recipient.
+    recipient: address(owner ? row.captured_wallet : creator!.evm_address),
     lineage: "root",
     lyrics: metadata.lyrics,
+    ...("rating" in metadata ? { rating: metadata.rating } : {}),
   };
   if (signed) {
     const a = signed.amendment,

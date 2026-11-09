@@ -140,7 +140,7 @@ async function migrate(db: D1Database) {
     "0006_song_stems.sql",
     "0007_owner_curated.sql",
     "0008_karaoke.sql",
-    "0011_learning_authorization.sql",
+    "0013_learning_authorization.sql",
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",

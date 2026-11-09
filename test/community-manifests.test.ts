@@ -17,6 +17,12 @@ import {
   validatePostForEvent,
   type PublicationEvent,
 } from "../packages/community/manifests.ts";
+import {
+  OWNER_POLICY_HASH,
+  OWNER_POLICY_VERSION,
+  UNREGISTERED_OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "../packages/community/owner-policy.ts";
 
 const addr = (n: string) => `0x${n.repeat(40)}` as const;
 const cid = `ipfs://${CID.createV1(0x55, create(0x12, hexToBytes(hashText("public fixture")))).toString()}`;
@@ -115,7 +121,10 @@ test("public manifests accept the frozen schemas and reject private or unrecogni
     /invalid_unicode/,
   );
   assert.equal(validateConfig(config()).communityId, id);
-  assert.equal(validatePost(post()).registration.chainId, 1315);
+  assert.equal(
+    (validatePost(post()).registration as { chainId: number }).chainId,
+    1315,
+  );
   assert.throws(
     () => validatePost({ ...post(), accountId: "private-account" }),
     /invalid_fields/,
@@ -314,5 +323,143 @@ test("publisher revocations are cumulative, inclusive and tied to historical con
         105n,
       ),
     /invalid_revocation_block/,
+  );
+});
+
+function unregisteredPost() {
+  const { registration: _receipt, ...rest } = post();
+  return {
+    ...rest,
+    schema: "pirate.community-post/3",
+    admission: {
+      ...post().admission,
+      policyVersion: UNREGISTERED_OWNER_POLICY_VERSION,
+      policySha256: UNREGISTERED_OWNER_POLICY_HASH,
+      automatedContent: "deferred",
+      declarationSource: "operator_declared",
+    },
+    registration: { status: "absent", reason: "deferred_for_launch" },
+  };
+}
+function unregisteredConfig() {
+  const c = config();
+  c.policies.admission = {
+    version: UNREGISTERED_OWNER_POLICY_VERSION,
+    sha256: UNREGISTERED_OWNER_POLICY_HASH,
+  };
+  return c;
+}
+test("the November 5 owner policy keeps its exact bytes and hash", () => {
+  assert.equal(OWNER_POLICY_VERSION, "pirate-owner-curated/2026-11-05/1");
+  assert.equal(
+    OWNER_POLICY_HASH,
+    "0xeac6c5663b1942264851404e8a713b43eb222335338a8f68a2d09ad083b26d97",
+  );
+  assert.notEqual(UNREGISTERED_OWNER_POLICY_HASH, OWNER_POLICY_HASH);
+});
+test("pirate.community-post/3 records registration as absent and nothing else", () => {
+  const p = validatePost(unregisteredPost());
+  assert.equal(p.schema, "pirate.community-post/3");
+  assert.deepEqual(p.registration, {
+    status: "absent",
+    reason: "deferred_for_launch",
+  });
+  assert.equal(p.admission.declarationSource, "operator_declared");
+  assert.equal(validatePost(JSON.parse(JSON.stringify(p))).postId, postId);
+  // A fabricated or pending receipt cannot ride along with an absent registration.
+  assert.throws(
+    () =>
+      validatePost({
+        ...unregisteredPost(),
+        registration: { ...post().registration },
+      }),
+    /invalid_fields/,
+  );
+  assert.throws(
+    () =>
+      validatePost({
+        ...unregisteredPost(),
+        registration: {
+          status: "absent",
+          reason: "deferred_for_launch",
+          transactionHash: hashText("invented"),
+        },
+      }),
+    /invalid_fields/,
+  );
+  assert.throws(
+    () =>
+      validatePost({
+        ...unregisteredPost(),
+        registration: { status: "pending", reason: "deferred_for_launch" },
+      }),
+    /invalid_absent_registration/,
+  );
+  // /3 binds the new owner policy; it cannot claim the registered owner policy.
+  assert.throws(
+    () =>
+      validatePost({
+        ...unregisteredPost(),
+        admission: {
+          ...unregisteredPost().admission,
+          policyVersion: OWNER_POLICY_VERSION,
+          policySha256: OWNER_POLICY_HASH,
+        },
+      }),
+    /invalid_admission_summary/,
+  );
+  assert.throws(
+    () =>
+      validatePost({
+        ...unregisteredPost(),
+        admission: {
+          ...unregisteredPost().admission,
+          automatedContent: undefined,
+        },
+      }),
+    /invalid_admission_summary|invalid_fields/,
+  );
+});
+test("older schemas keep strict confirmed receipts and cannot declare absence", () => {
+  for (const schema of ["pirate.community-post/1", "pirate.community-post/2"])
+    assert.throws(
+      () =>
+        validatePost({
+          ...post(),
+          schema,
+          registration: { status: "absent", reason: "deferred_for_launch" },
+        }),
+      /invalid_fields|invalid_admission_summary/,
+    );
+});
+test("readers pair /3 only with the unregistered owner policy configuration", () => {
+  const c3 = validateConfig(unregisteredConfig()),
+    c1 = validateConfig(config()),
+    p3 = validatePost(unregisteredPost()),
+    p1 = validatePost(post());
+  const event = (p: { authorId: `0x${string}` }, manifest: unknown) => ({
+    ...identity,
+    kind: 0 as const,
+    authorId: p.authorId,
+    revision: 1,
+    configurationRevision: 1,
+    manifestSha256: hashJson(manifest),
+    manifestURI: cid,
+  });
+  assert.equal(
+    validatePostForEvent(p3, event(p3, p3), c3).schema,
+    "pirate.community-post/3",
+  );
+  assert.equal(
+    validatePostForEvent(p1, event(p1, p1), c1).schema,
+    "pirate.community-post/1",
+  );
+  assert.throws(
+    () => validatePostForEvent(p3, event(p3, p3), c1),
+    /post_admission_policy_mismatch/,
+  );
+  assert.throws(
+    () => validatePostForEvent(p1, event(p1, p1), c3),
+    /post_admission_policy_mismatch/,
   );
 });

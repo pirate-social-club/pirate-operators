@@ -19,7 +19,7 @@ import {
   curatedAdmissionId,
   type CuratedAmendment,
 } from "../packages/community/curated-amendment.ts";
-import { publicationExecutionProfile } from "../packages/community/publication-profile.ts";
+import { registeredExecutionProfile } from "../packages/community/publication-profile.ts";
 import { readMp3Probe } from "../packages/moderation/mp3-windows.ts";
 import { getAdmission } from "../packages/moderation/admission-store.ts";
 import {
@@ -136,7 +136,7 @@ export async function curatedReleasePlan() {
       signer,
     ),
     client = { origin: firstSong.managedOrigin, configuration },
-    execution = publicationExecutionProfile({
+    execution = registeredExecutionProfile({
       managed: client,
       release: {
         client,

@@ -1,5 +1,5 @@
 import type { Address, Hex } from "viem";
-import { ownerCurated } from "./owner-policy.ts";
+import { ownerCurated, unregisteredOwner } from "./owner-policy.ts";
 import {
   bytes32,
   canonical,
@@ -91,7 +91,8 @@ export function validateConfig(
   insist(
     (admission.version === RELEASE_POLICY &&
       admission.sha256 === RELEASE_POLICY_HASH) ||
-      ownerCurated(admission as { version: string; sha256: string }),
+      ownerCurated(admission as { version: string; sha256: string }) ||
+      unregisteredOwner(admission as { version: string; sha256: string }),
     "unsupported_admission_policy",
   );
   const tld = text(o.tld, 63),

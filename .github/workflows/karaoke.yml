@@ -67,6 +67,13 @@ jobs:
             apps/web/package-lock.json
       # anvil runs the disposable local chain that publication pays on.
       - uses: foundry-rs/foundry-toolchain@v1
+        id: foundry
+        continue-on-error: true
+        with:
+          version: v1.9.0
+      - name: Retry pinned Foundry installation
+        if: steps.foundry.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.9.0
       - name: Install root and web dependencies

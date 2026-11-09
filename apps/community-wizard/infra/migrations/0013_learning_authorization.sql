@@ -27,4 +27,4 @@ CREATE TABLE learning_settings (
   account_id TEXT PRIMARY KEY REFERENCES community_accounts(account_id),
   public_results_withdrawn_at INTEGER
 );
-INSERT INTO setup_schema(version) VALUES(11);
+INSERT INTO setup_schema(version) VALUES(13);

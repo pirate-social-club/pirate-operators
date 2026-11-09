@@ -1,5 +1,13 @@
 # MegaETH aggregate feed
 
+Launch applicability, November 8: new owner songs use pirate.community-post/3
+under policy pirate-owner-curated/2026-11-08/1. Its registration object states
+status absent with reason deferred_for_launch and carries no asset or
+transaction fields. Readers accept /1, /2 and /3; /1 and /2 keep strict
+confirmed-receipt validation. Recovery and the old/new reader order are in
+[owner-only MegaETH song publication](../megaeth-song-publication.md).
+General-user hide and removal belong to a later release.
+
 Yes: directory and post events can drive a community feed and a Pirate
 aggregate feed. Goldsky is the proposed event-indexing service. The feed is
 a rebuildable read model over canonical publications and verified public

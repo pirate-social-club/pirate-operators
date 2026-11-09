@@ -25,7 +25,8 @@ const phaseText: Record<string, string> = {
   admission: "Checking the recording and lyrics.",
   pin_audio: "Saving the admitted recording.",
   pin_lyrics: "Saving your lyrics.",
-  registration: "Registering the release to your creator wallet.",
+  // Only an earlier registered release reaches this step.
+  registration: "Finishing an earlier release.",
   pin_manifest: "Preparing the public release.",
   publication: "Publishing to the community.",
   published: "Published. Find your song in Latest songs.",
@@ -34,6 +35,8 @@ const phaseText: Record<string, string> = {
   held: "This release is held for review and has not been published.",
   failed: "This release was rejected and has not been published.",
 };
+/** The one-release curated policy accepts no new submission. */
+const SINGLE_CURATED_RELEASE = "pirate-owner-curated/2026-11-05/1";
 export function SongUpload(props: {
   session: CommunitySessionView;
   policy: string;
@@ -208,7 +211,7 @@ export function SongUpload(props: {
       <h2>Release a song</h2>
       <Show
         when={
-          !draft()?.jobId && !props.policy.startsWith("pirate-owner-curated/")
+          !draft()?.jobId && props.policy !== SINGLE_CURATED_RELEASE
         }
       >
         <label>
@@ -292,7 +295,6 @@ export function SongUpload(props: {
           disabled={
             busy() ||
             !props.enabled ||
-            !props.session.creator ||
             (!draft() &&
               (!file() ||
                 !instrumental() ||
@@ -310,7 +312,7 @@ export function SongUpload(props: {
       </p>
       <Show
         when={
-          !props.policy.startsWith("pirate-owner-curated/") &&
+          props.policy !== SINGLE_CURATED_RELEASE &&
           draft()?.jobId &&
           ["held", "failed", "published"].includes(
             jobs()[draft()!.jobId!]?.phase ?? "",

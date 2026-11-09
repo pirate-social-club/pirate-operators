@@ -4,7 +4,12 @@ import { managedRequest, type ManagedClient } from "./managed-client.ts";
 import type { PublicationInput } from "./publication-input.ts";
 import type { OperationResult, Reconciliation } from "./publication.ts";
 import { verifyAdmission } from "../moderation/admission.ts";
-import { ownerCurated, OWNER_POLICY } from "./owner-policy.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+  OWNER_POLICY,
+  UNREGISTERED_OWNER_POLICY,
+} from "./owner-policy.ts";
 
 async function interpretAdmission(
   input: PublicationInput,
@@ -42,10 +47,23 @@ async function interpretAdmission(
     };
   insist(body.state === "complete", "unsupported_admission_state", 503);
   const result = object(body.result);
-  const curated = ownerCurated(client.configuration.policies.admission);
+  const curated = ownerCurated(client.configuration.policies.admission),
+    // Decided by the job's own captured policy, which the job input verified.
+    recognition =
+      (input.authority.policy as { version?: unknown } | undefined)?.version ===
+      UNREGISTERED_OWNER_POLICY.version;
+  insist(
+    recognition === unregisteredOwner(client.configuration.policies.admission),
+    "admission_policy_changed",
+    409,
+  );
   insist(
     result.schema ===
-      (curated ? "pirate.owner-admission/1" : "pirate.managed-admission/1") &&
+      (recognition
+        ? "pirate.owner-recognition/1"
+        : curated
+          ? "pirate.owner-admission/1"
+          : "pirate.managed-admission/1") &&
       result.admissionId === expected &&
       Array.isArray(result.evidence) &&
       Array.isArray(result.windows),
@@ -76,7 +94,12 @@ async function interpretAdmission(
       title: input.metadata.title,
       lyrics: input.metadata.lyrics.sourceText,
       songType: "original",
-      declaredRating: input.amendment?.amendment.rating ?? "general",
+      declaredRating:
+        "rating" in input.metadata
+          ? input.metadata.rating === "adult"
+            ? "adult_18"
+            : "general"
+          : (input.amendment?.amendment.rating ?? "general"),
       windows: result.windows as Parameters<
         typeof verifyAdmission
       >[0]["windows"],
@@ -85,9 +108,11 @@ async function interpretAdmission(
     result.evidence,
     {
       operators: [client.configuration.policies.moderationSigner],
-      maxAgeSeconds: curated
-        ? OWNER_POLICY.recognition.maximumAgeSeconds
-        : 3600,
+      maxAgeSeconds: recognition
+        ? UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds
+        : curated
+          ? OWNER_POLICY.recognition.maximumAgeSeconds
+          : 3600,
       policyVersion: client.configuration.policies.admission.version,
     },
     Math.floor(Date.now() / 1000),
@@ -118,7 +143,8 @@ async function admissionBody(
     communityId: client.configuration.communityId,
     checks: [
       "audio.identification",
-      ...(!ownerCurated(client.configuration.policies.admission)
+      ...(!ownerCurated(client.configuration.policies.admission) &&
+      !unregisteredOwner(client.configuration.policies.admission)
         ? ["title.rating", ...(caps.lyrics ? ["lyrics.classification"] : [])]
         : []),
     ],

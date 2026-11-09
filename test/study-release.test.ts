@@ -149,12 +149,23 @@ test("packaged Alchemy app resolves its copied bindings outside the source check
       logLevel: "silent",
     });
     const inputs = Object.keys(result.metafile!.inputs).map((p) => resolve(p));
-    assert.equal(inputs.length, 4);
+    // Includes the owner publishing bindings beside learning and rewards.
+    assert.equal(inputs.length, 6);
     assert.ok(inputs.every((p) => p.startsWith(directory + "/")));
     assert.ok(inputs.includes(join(directory, "learning-bindings.ts")));
     assert.deepEqual(
       await readFile(join(directory, "learning-bindings.ts")),
       await readFile("apps/community-wizard/infra/learning-bindings.ts"),
+    );
+    assert.ok(inputs.includes(join(directory, "rewards-bindings.ts")));
+    assert.deepEqual(
+      await readFile(join(directory, "rewards-bindings.ts")),
+      await readFile("apps/community-wizard/infra/rewards-bindings.ts"),
+    );
+    assert.ok(inputs.includes(join(directory, "publishing-bindings.ts")));
+    assert.deepEqual(
+      await readFile(join(directory, "publishing-bindings.ts")),
+      await readFile("apps/community-wizard/infra/publishing-bindings.ts"),
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

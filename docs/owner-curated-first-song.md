@@ -1,5 +1,10 @@
 # Owner-curated first song
 
+Successor, November 8: the completed registered journey below is unchanged,
+including policy pirate-owner-curated/2026-11-05/1, its hashes and its
+acceptance evidence. The owner-only unregistered successor for launch is
+[owner-only MegaETH song publication](megaeth-song-publication.md).
+
 The owner corrected the active release scope on November 5: automated content
 moderation is deferred. Creator-wallet ownership, source recognition, ROOT
 registration and publication remain required. The existing managed community

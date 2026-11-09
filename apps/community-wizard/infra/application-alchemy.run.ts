@@ -5,6 +5,8 @@ import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import { encryptedLocalState } from "./encrypted-state.ts";
 import { applicationLearningBindings } from "./learning-bindings.ts";
+import { applicationRewardsBindings } from "./rewards-bindings.ts";
+import { applicationPublishingBindings } from "./publishing-bindings.ts";
 
 export default Alchemy.Stack(
   "pirate-first-song-20261105",
@@ -45,6 +47,8 @@ export default Alchemy.Stack(
       },
       env: {
         ...applicationLearningBindings(process.env),
+        ...applicationRewardsBindings(process.env),
+        ...applicationPublishingBindings(process.env),
         DB,
         MEDIA,
         JOBS,
@@ -52,12 +56,7 @@ export default Alchemy.Stack(
         PLAN_ID:
           "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
         APPLICATION_PROFILE_HASH: process.env.APPLICATION_PROFILE_HASH!,
-        CREATOR_PROFILE_HASH: process.env.CREATOR_PROFILE_HASH!,
         MANAGED_PROFILE_HASH: process.env.MANAGED_PROFILE_HASH!,
-        RELEASE_GRANT_HASH: process.env.RELEASE_GRANT_HASH!,
-        REGISTRATION_OPERATOR_ADDRESS:
-          process.env.REGISTRATION_OPERATOR_ADDRESS!,
-        POSTING_EXPIRES_AT: process.env.POSTING_EXPIRES_AT!,
         COMMUNITY_PUBLISHER_PRIVATE_KEY: Config.Redacted(
           "COMMUNITY_PUBLISHER_PRIVATE_KEY",
         ),

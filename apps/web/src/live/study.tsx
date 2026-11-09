@@ -68,7 +68,7 @@ export function LiveStudy(props: {
     try {
       const song = await get<StudySong>(
         `/api/study/song?postId=${encodeURIComponent(props.postId)}`,
-        owner(),
+        { headers: owner() },
       );
       if (!active) return;
       const initial =
@@ -106,7 +106,9 @@ export function LiveStudy(props: {
     setChecking(true);
     try {
       // Reconcile a saved terminal result before reading its durable receipt.
-      await get(`/api/study/lessons/${encodeURIComponent(id)}`, owner());
+      await get(`/api/study/lessons/${encodeURIComponent(id)}`, {
+        headers: owner(),
+      });
       if (!active || terminalId() !== id) return;
       const value = await post<Publication>(
         `/api/study/lessons/${encodeURIComponent(id)}/publication`,

@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { createSignal, For, Show, onCleanup } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -12,6 +12,9 @@ import {
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
 import { LiveStudy } from "./study.tsx";
+import { LiveRewardWallet } from "./rewards.tsx";
+import { LiveRewardOperator } from "./reward-operator.tsx";
+import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
 import {
   stopPublicEnrollment,
   type LearningEnrollments,
@@ -31,7 +34,6 @@ import {
 import { buttonVariants } from "@/components/actions/button/button";
 import { IconGearSix } from "@/components/media/icons";
 
-const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
   await mega.initialise({
@@ -61,12 +63,17 @@ const mossWallet: KaraokeWallet = {
 const shortened = (address: string) =>
   `${address.slice(0, 8)}…${address.slice(-6)}`;
 function App() {
+  const walletPage = ["/wallet", "/verify/very", "/operator/rewards"].includes(
+    location.pathname,
+  );
   const [name, setName] = createSignal("Your community"),
     [boot, setBoot] = createSignal<CommunityClientConfig | null>(null),
     [session, setSession] = createSignal<CommunitySessionView | null>(null),
     [capabilities, setCapabilities] =
       createSignal<CommunityCapabilities | null>(null),
     [feed, setFeed] = createSignal<CommunityFeed | null>(null),
+    [rewardOffers, setRewardOffers] =
+      createSignal<RewardAvailableOffers | null>(null),
     [busy, setBusy] = createSignal(false),
     [learningActions, setLearningActions] =
       createSignal<LearningActions | null>(null),
@@ -97,9 +104,6 @@ function App() {
     url.searchParams.delete("lesson");
     history.replaceState(null, "", url);
   }
-  let popup: Window | null = null,
-    timer: ReturnType<typeof setTimeout> | undefined,
-    stopped = false;
   async function refreshSession() {
     const before = session()?.mossAddress;
     let next: CommunitySessionView | null = null;
@@ -140,6 +144,20 @@ function App() {
     const song = posts.posts.find((post) => post.manifest.postId === requested);
     if (session() && caps.study && song)
       openStudy({ postId: song.manifest.postId, title: song.manifest.title });
+    // Reward offers are optional. Study must never wait for them.
+    if (session() && caps.rewards && !walletPage) void loadRewardOffers();
+    else {
+      offersRequest++;
+      setRewardOffers(null);
+    }
+  }
+  let offersRequest = 0;
+  async function loadRewardOffers() {
+    const current = ++offersRequest;
+    const offers = await get<RewardAvailableOffers>("/api/rewards/offers", {
+      timeoutMs: 10000,
+    }).catch(() => null);
+    if (current === offersRequest) setRewardOffers(offers);
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -223,112 +241,15 @@ function App() {
       }),
     );
   }
-  async function finishConnection(connectionId: string, state: string) {
-    const current = session();
-    if (!current) return false;
-    const result = await post<{ state: string; requiresReconnect?: boolean }>(
-      "/api/creator/complete",
-      { connectionId, state },
-      current.csrf,
-    );
-    if (result.state === "waiting") return false;
-    await refreshSession();
-    if (result.state === "connected")
-      setStatus("Creator wallet connected. Your progress is saved.");
-    else if (result.state === "verification_expired")
-      setStatus(
-        "The wallet verification expired. Reopen your saved wallet for a fresh check.",
-      );
-    else if (result.state === "choose_another_wallet")
-      setStatus(
-        "This wallet is already linked to another account in this community. Reopen the connection and choose another wallet.",
-      );
-    return true;
-  }
-  async function connectWallet() {
-    const current = session();
-    if (!current) return;
-    // Open from the button's user gesture, before the asynchronous launch.
-    popup = window.open("about:blank", "_blank", "popup,width=560,height=820");
-    try {
-      const connection = await post<{
-          connectionId: string;
-          state: string;
-          url: string;
-        }>("/api/creator/connect", {}, current.csrf),
-        target = new URL(connection.url);
-      if (target.origin !== walletOrigin || target.pathname !== "/wallet")
-        throw new Error("The wallet address could not be verified.");
-      await refreshSession();
-      if (popup) popup.location.href = target.href;
-      else location.assign(target.href);
-      setStatus(
-        "Use your saved passkey in the wallet window, then confirm Return to community.",
-      );
-      schedule();
-    } catch (failure) {
-      popup?.close();
-      popup = null;
-      throw failure;
-    }
-  }
-  async function pollConnection() {
-    const pending = session()?.pendingConnection;
-    if (!pending?.state) return;
-    try {
-      await finishConnection(pending.connectionId, pending.state);
-    } catch {
-      /* The server retains the request. The next poll reuses it. */
-    }
-  }
-  function schedule() {
-    if (timer) clearTimeout(timer);
-    if (stopped || !session()?.pendingConnection) return;
-    timer = setTimeout(() => {
-      void pollConnection().finally(schedule);
-    }, 10000);
-  }
-  const receiver = (event: MessageEvent) => {
-    const pending = session()?.pendingConnection;
-    if (
-      event.origin !== walletOrigin ||
-      event.source !== popup ||
-      event.data?.type !== "pirate:creator" ||
-      event.data.state !== pending?.state ||
-      !pending?.state
-    )
-      return;
-    void run(async () => {
-      await finishConnection(pending.connectionId, pending.state!);
-      popup = null;
-      schedule();
-    });
-  };
-  window.addEventListener("message", receiver);
-  onCleanup(() => {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    window.removeEventListener("message", receiver);
-  });
+  // Owner-only publishing has no creator connection step. Preserved creator
+  // connection routes stay on the server for the deferred integration.
   void run(async () => {
     await refresh();
-    const returning = new URL(location.href),
-      pending = session()?.pendingConnection;
-    if (
-      returning.pathname === "/creator/complete" &&
-      pending?.state &&
-      returning.searchParams.get("connection") === pending.connectionId &&
-      returning.searchParams.get("state") === pending.state
-    ) {
-      history.replaceState(null, "", "/");
-      await finishConnection(pending.connectionId, pending.state);
-    } else
-      setStatus(
-        session()
-          ? "Your community is ready."
-          : "Sign in to release your song.",
-      );
-    schedule();
+    setStatus(
+      session()
+        ? "Your community is ready."
+        : "Sign in to study or sing.",
+    );
   });
   return (
     <>
@@ -364,6 +285,9 @@ function App() {
         >
           {(current) => (
             <div class="live-account">
+              <Show when={capabilities()?.rewards}>
+                <a href="/wallet">Wallet</a>
+              </Show>
               <span title={current().mossAddress}>
                 {shortened(current().mossAddress)}
               </span>
@@ -412,6 +336,28 @@ function App() {
           )}
         </Show>
       </header>
+      <Show when={walletPage && session()}>
+        <Show
+          when={location.pathname === "/operator/rewards"}
+          fallback={
+            <LiveRewardWallet
+              csrf={session()!.csrf}
+              onExit={() => location.assign("/")}
+            />
+          }
+        >
+          <LiveRewardOperator
+            csrf={session()!.csrf}
+            onExit={() => location.assign("/wallet")}
+          />
+        </Show>
+      </Show>
+      <Show when={walletPage && !session()}>
+        <main class="live-main">
+          <h1>Sign in to view your wallet</h1>
+          <p role="status">{status()}</p>
+        </main>
+      </Show>
       <Show when={singing() && session()}>
         <div class="live-karaoke-overlay">
           <LiveKaraoke
@@ -445,154 +391,180 @@ function App() {
           </div>
         )}
       </Show>
-      <main class="live-main" inert={practiceOpen()}>
-        <section class="live-intro">
-          <p class="live-kicker">INDEPENDENT MUSIC</p>
-          <h1>{name()}</h1>
-          <p>A home for songs and the people who make them.</p>
-        </section>
-        <section
-          class={`live-status${error() ? " live-error" : ""}`}
-          role="status"
-          aria-live="polite"
-        >
-          {status()}
-        </section>
-        <Show when={session()}>
-          {(current) => (
-            <section class="live-release">
-              <div>
-                <p class="live-kicker">YOUR NEXT RELEASE</p>
-                <h2>
-                  {current().creator
-                    ? "Your creator wallet is connected."
-                    : "Bring your first song."}
-                </h2>
-                <p>
-                  {current().creator
-                    ? `Creator wallet ${shortened(current().creator!.evmAddress)}`
-                    : "Use your saved creator passkey. Creator setup is covered by capped operator funding."}
-                </p>
-                <p class="live-muted">
-                  {capabilities()?.publication
-                    ? "Upload your recording and lyrics to begin."
-                    : "Release processing is being prepared. Your wallet connection will stay saved."}
-                </p>
-              </div>
-              <Button
-                disabled={busy() || !capabilities()?.creatorConnection}
-                onClick={() => void run(connectWallet)}
-              >
-                {current().creator
-                  ? "Reopen creator wallet"
-                  : "Connect creator wallet"}
-              </Button>
-            </section>
-          )}
-        </Show>
-        <Show when={session()}>
-          {(current) => (
-            <SongUpload
-              session={current()}
-              policy={capabilities()?.policyVersion ?? ""}
-              enabled={capabilities()?.upload === true}
-              refreshFeed={refresh}
-            />
-          )}
-        </Show>
-        <section class="live-songs">
-          <div class="live-section-heading">
-            <h2>Latest songs</h2>
-            <Button
-              variant="ghost"
-              disabled={busy()}
-              onClick={() => void run(refresh)}
-            >
-              Refresh
-            </Button>
-          </div>
-          <Show
-            when={(feed()?.posts.length ?? 0) > 0}
-            fallback={
-              <div class="live-empty">
-                <span>♪</span>
-                <h3>The first release starts here.</h3>
-                <p>Published songs will appear in this community feed.</p>
-              </div>
-            }
+      <Show when={!walletPage}>
+        <main class="live-main" inert={practiceOpen()}>
+          <section class="live-intro">
+            <p class="live-kicker">INDEPENDENT MUSIC</p>
+            <h1>{name()}</h1>
+            <p>A home for songs and the people who make them.</p>
+          </section>
+          <section
+            class={`live-status${error() ? " live-error" : ""}`}
+            role="status"
+            aria-live="polite"
           >
-            <For each={feed()?.posts}>
-              {(song) => (
-                <article class="live-song" id={`song-${song.manifest.postId}`}>
-                  <p class="live-kicker">
-                    {song.manifest.rating === "adult" ? "EXPLICIT" : "SONG"}
-                  </p>
-                  <h3>
-                    <a href={song.postUrl}>{song.manifest.title}</a>
-                  </h3>
-                  <p class="live-muted">
-                    Creator {song.manifest.authorId.slice(2, 10)}
-                  </p>
-                  <Show
-                    when={
-                      song.manifest.declarationSource === "operator_declared"
-                    }
-                  >
-                    <p class="live-muted">
-                      Rating and language declared by the operator. Automated
-                      content moderation is deferred.
-                    </p>
-                  </Show>
-                  <audio controls preload="metadata" src={song.audioUrl} />
-                  <Show when={session()}>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        setSinging({
-                          postId: song.manifest.postId,
-                          title: song.manifest.title,
-                        })
-                      }
-                    >
-                      Sing
-                    </Button>
-                  </Show>
-                  <Show when={session() && capabilities()?.study}>
-                    <Button
-                      variant="outline"
-                      onClick={() =>
-                        openStudy({
-                          postId: song.manifest.postId,
-                          title: song.manifest.title,
-                        })
-                      }
-                    >
-                      Study
-                    </Button>
-                  </Show>
-                  <Show when={song.lyricsText}>
-                    <details>
-                      <summary>Lyrics</summary>
-                      <p class="live-lyrics">{song.lyricsText}</p>
-                    </details>
-                  </Show>
-                  <a
-                    class="live-receipt"
-                    href={`/api/public/posts/${song.manifest.postId}/proof`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Publication receipt ↗
-                  </a>
-                </article>
-              )}
-            </For>
+            {status()}
+          </section>
+          <Show when={session()?.publisher ? session() : null}>
+            {(current) => (
+              <SongUpload
+                session={current()}
+                policy={capabilities()?.policyVersion ?? ""}
+                enabled={capabilities()?.upload === true}
+                refreshFeed={refresh}
+              />
+            )}
           </Show>
-        </section>
-      </main>
+          <section class="live-songs">
+            <div class="live-section-heading">
+              <h2>Latest songs</h2>
+              <Button
+                variant="ghost"
+                disabled={busy()}
+                onClick={() => void run(refresh)}
+              >
+                Refresh
+              </Button>
+            </div>
+            <Show
+              when={(feed()?.posts.length ?? 0) > 0}
+              fallback={
+                <div class="live-empty">
+                  <span>♪</span>
+                  <h3>The first release starts here.</h3>
+                  <p>Published songs will appear in this community feed.</p>
+                </div>
+              }
+            >
+              <For each={feed()?.posts}>
+                {(song) => (
+                  <article
+                    class="live-song"
+                    id={`song-${song.manifest.postId}`}
+                  >
+                    <p class="live-kicker">
+                      {song.manifest.rating === "adult" ? "EXPLICIT" : "SONG"}
+                    </p>
+                    <h3>
+                      <a href={song.postUrl}>{song.manifest.title}</a>
+                    </h3>
+                    <p class="live-muted">
+                      Creator {song.manifest.authorId.slice(2, 10)}
+                    </p>
+                    <Show
+                      when={
+                        song.manifest.declarationSource === "operator_declared"
+                      }
+                    >
+                      <p class="live-muted">
+                        Rating and language declared by the operator. Automated
+                        content moderation is deferred.
+                      </p>
+                    </Show>
+                    <audio controls preload="metadata" src={song.audioUrl} />
+                    <Show when={session() && capabilities()?.rewards}>
+                      <Show
+                        when={rewardOffers()}
+                        fallback={
+                          <p class="live-muted">
+                            Reward details are unavailable.
+                          </p>
+                        }
+                      >
+                        {(available) => (
+                          <>
+                            <For
+                              each={available().offers.filter(
+                                (o) => o.postId === song.manifest.postId,
+                              )}
+                            >
+                              {(offer) => (
+                                <details>
+                                  <summary>
+                                    Lottery reward · {offer.ticketCount}{" "}
+                                    {offer.ticketCount === 1
+                                      ? "ticket"
+                                      : "tickets"}
+                                  </summary>
+                                  <p>
+                                    Practice rewards have no cash value in this
+                                    pilot. Complete Study with at least 70%
+                                    correct on the first try, or Karaoke with a
+                                    score of at least 70% and at least 90% of
+                                    lines measured. One entry per account.
+                                  </p>
+                                  <p>
+                                    Complete and publish your result between{" "}
+                                    {new Date(offer.opensAt).toLocaleString()}{" "}
+                                    and{" "}
+                                    {new Date(offer.cutoffAt).toLocaleString()}.
+                                    Winnings are shared equally among qualifying
+                                    accounts. There may be no prize. Any
+                                    remainder stays with the operator.
+                                  </p>
+                                  <p>
+                                    Winning shares appear in your wallet. Scan
+                                    your palm to claim; payments are approved
+                                    daily. Unclaimed shares stay available. If
+                                    nobody qualifies, winnings stay with the
+                                    operator.
+                                  </p>
+                                </details>
+                              )}
+                            </For>
+                          </>
+                        )}
+                      </Show>
+                    </Show>
+                    <Show when={session()}>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          setSinging({
+                            postId: song.manifest.postId,
+                            title: song.manifest.title,
+                          })
+                        }
+                      >
+                        Sing
+                      </Button>
+                    </Show>
+                    <Show when={session() && capabilities()?.study}>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          openStudy({
+                            postId: song.manifest.postId,
+                            title: song.manifest.title,
+                          })
+                        }
+                      >
+                        Study
+                      </Button>
+                    </Show>
+                    <Show when={song.lyricsText}>
+                      <details>
+                        <summary>Lyrics</summary>
+                        <p class="live-lyrics">{song.lyricsText}</p>
+                      </details>
+                    </Show>
+                    <a
+                      class="live-receipt"
+                      href={`/api/public/posts/${song.manifest.postId}/proof`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Publication receipt ↗
+                    </a>
+                  </article>
+                )}
+              </For>
+            </Show>
+          </section>
+        </main>
+      </Show>
       <footer class="live-footer" inert={practiceOpen()}>
-        A community of independent creators. Creator ownership stays with your
-        wallet.
+        A community of independent creators.
       </footer>
     </>
   );

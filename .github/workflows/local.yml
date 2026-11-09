@@ -15,6 +15,13 @@ jobs:
           node-version: "24"
           cache: npm
       - uses: foundry-rs/foundry-toolchain@v1
+        id: foundry
+        continue-on-error: true
+        with:
+          version: v1.9.0
+      - name: Retry pinned Foundry installation
+        if: steps.foundry.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
         with:
           version: v1.9.0
       - name: Bootstrap dependencies and Solidity compiler

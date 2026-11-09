@@ -40,7 +40,7 @@ async function database(
   migrations = [
     "0001_setup.sql",
     "0002_first_song.sql",
-    "0011_learning_authorization.sql",
+    "0013_learning_authorization.sql",
   ],
 ) {
   const runtime = new Miniflare({
@@ -288,7 +288,7 @@ test("SIWE challenges and signatures never produce an authorization", async () =
   try {
     // A challenge issued before migration 0011 is SIWE once migrated.
     const old = await loginChallenge(f.db, context, learner.address);
-    await f.migrate(["0011_learning_authorization.sql"]);
+    await f.migrate(["0013_learning_authorization.sql"]);
     const verified = await loginVerify(
       f.db,
       context,
