@@ -8,6 +8,7 @@ import {
 import {
   readPublicResults,
   type PublicResultV3,
+  type V3SourcePorts,
 } from "../packages/records/results-v3.ts";
 import { sourceAuthenticator } from "../packages/records/source-authentication.ts";
 import {
@@ -345,6 +346,14 @@ export function liveRewardSources(input: {
   reads: PublicReadPorts;
   /** The verified public results reader; replaced only in tests. */
   readResults?: typeof readPublicResults;
+  /**
+   * Song and lyric source authentication for the reader. Defaults to the
+   * community's posts and IPFS; replaced only where no posts contract exists.
+   */
+  sourcePorts?: Pick<
+    V3SourcePorts,
+    "karaokeManifest" | "authenticateKaraoke" | "studyManifest" | "authenticateStudy"
+  >;
 }): RewardSources {
   const { profile, sources, reads, config, db } = input;
   const readResults = input.readResults ?? readPublicResults;
@@ -429,9 +438,11 @@ export function liveRewardSources(input: {
             chainId: 6343,
             fromBlock: range.fromBlock,
             toBlock: range.head.number,
-            authenticateKaraoke: sourceAuthenticator(context),
-            studyManifest: studySourceReader(context),
-            authenticateStudy: studySourceAuthenticator(context),
+            ...(input.sourcePorts ?? {
+              authenticateKaraoke: sourceAuthenticator(context),
+              studyManifest: studySourceReader(context),
+              authenticateStudy: studySourceAuthenticator(context),
+            }),
           },
         );
         for (const result of evidence)

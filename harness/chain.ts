@@ -11,7 +11,9 @@ import { accounts } from "./runtime.ts";
 import { compile } from "./compile.ts";
 import { ACTIVITY_KARAOKE } from "../packages/protocol/records.ts";
 
-export async function chain(port = 18545) {
+/** A local anvil; chainId defaults to foundry's and may be set to a pilot chain id. */
+export async function chain(port = 18545, chainId = 31337) {
+  const network = chainId === foundry.id ? foundry : { ...foundry, id: chainId };
   const child = spawn(
     "anvil",
     [
@@ -20,7 +22,7 @@ export async function chain(port = 18545) {
       "--port",
       String(port),
       "--chain-id",
-      "31337",
+      String(chainId),
       "--timestamp",
       "1800000000",
       "--block-base-fee-per-gas",
@@ -34,7 +36,7 @@ export async function chain(port = 18545) {
     stderr += data;
   });
   const transport = http(`http://127.0.0.1:${port}`);
-  const publicClient = createPublicClient({ chain: foundry, transport });
+  const publicClient = createPublicClient({ chain: network, transport });
   try {
     let ready = false;
     for (let i = 0; i < 100; i++) {
@@ -65,7 +67,7 @@ export async function chain(port = 18545) {
       await rpc("anvil_setBalance", [account.address, "0x3635c9adc5dea00000"]);
     const artifacts = compile();
     const clients = accounts.map((account) =>
-      createWalletClient({ chain: foundry, transport, account }),
+      createWalletClient({ chain: network, transport, account }),
     );
     const deploy = async (name: string, args: readonly unknown[]) => {
       const hash = await clients[0].deployContract({
