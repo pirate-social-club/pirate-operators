@@ -434,3 +434,30 @@ test("a cancellation receipt that a reorg removes before it is deep never settle
     n.restore();
   }
 });
+
+test("a consumed nonce whose receipt lags but whose transaction the node knows is never inferred superseded", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    enqueue(store, "record_result", "ticket:1", results, "0x1234", 200_000n);
+    n.state.mineSends = false;
+    await dispatch(env, store, "record_result", "ticket:1", limits, gate({ value: false }));
+    const row = txRow(store, 0)!;
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    n.mine(row.raw!);
+    // Receipts lag on two reads the depth apart; the transaction is known.
+    n.lag("eth_getTransactionReceipt", 2);
+    const logged = await warnings(async () => {
+      await recoverTransactions(env, store, async () => true, gate({ value: true }));
+      n.advance();
+      await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    });
+    assert.equal(txRow(store, 0)!.mined, null);
+    assert.ok(logged.some((l) => l.includes("operator_nonce_settling")));
+    assert.ok(!logged.some((l) => l.includes("operator_nonce_superseded")));
+    await recoverTransactions(env, store, async () => true, gate({ value: true }));
+    assert.equal(txRow(store, 0)!.mined?.status, "success");
+  } finally {
+    n.restore();
+  }
+});

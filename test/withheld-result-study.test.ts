@@ -9,7 +9,7 @@
 // posts RPC, IPFS transport and speech provider are the fixture's simulations.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { zeroHash, type Hex } from "viem";
+import { toFunctionSelector, zeroHash, type Hex } from "viem";
 import { accounts } from "../harness/runtime.ts";
 import type { StudyLesson } from "../packages/study/lesson.ts";
 import { firstSong } from "../services/first-song-profile.ts";
@@ -581,6 +581,62 @@ test(
       assert.equal(txRow(c.f.store, own.nonce)!.mined?.status, "success");
       // Only the test's own delivery carried those bytes.
       assert.equal(watch.sent.filter((raw) => raw === own.raw).length, 1);
+    } finally {
+      watch.restore();
+      await c.f.dispose();
+    }
+  },
+);
+
+test(
+  "Study: a result held private while its row was inferred superseded is reported published once its commitment is read",
+  { timeout: 300000 },
+  async () => {
+    const c = await study();
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await resume(c);
+      const own = txRow(c.f.store, intentOf(c.f.store, "record_result", c.ref)!.nonce!)!;
+      await withdraw(c, "settings");
+      await warnings(() => resume(c));
+      // The original mines, but every read of it answers null long enough
+      // for the inference, and the commitment read lags too.
+      await c.f.evm.rpc("eth_sendRawTransaction", [own.raw]);
+      await c.f.evm.rpc("evm_mine", []);
+      watch.on("eth_getTransactionReceipt", () => null, 1000);
+      watch.on("eth_getTransactionByHash", () => null, 1000);
+      await warnings(async () => {
+        await alarm(c);
+        await alarm(c);
+      });
+      assert.equal(txRow(c.f.store, own.nonce)!.mined?.status, "superseded");
+      const commitments = toFunctionSelector("commitments(bytes32)").slice(2);
+      const real = globalThis.fetch;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (body.includes('"eth_call"') && body.includes(commitments))
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(body).id, result: zeroHash }),
+            { headers: { "content-type": "application/json" } },
+          );
+        return real(input, init);
+      }) as typeof fetch;
+      try {
+        await warnings(() => resume(c));
+      } finally {
+        globalThis.fetch = real;
+      }
+      assert.equal(c.f.store.get<PublicationJob>(`studyPublication:${c.id}`)!.receipt.state, "private");
+      // The replica catches up: the next view reads the commitment.
+      watch.clear();
+      const view = await publication(c);
+      assert.equal(view.state, "published");
+      assert.equal(view.receipt!.transactionHash, own.hash);
+      assert.notEqual(view.receipt!.neverSubmitted, true);
+      assert.equal(txRow(c.f.store, own.nonce)!.mined?.status, "success");
     } finally {
       watch.restore();
       await c.f.dispose();
