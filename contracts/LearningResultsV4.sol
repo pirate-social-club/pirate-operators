@@ -21,8 +21,10 @@ contract LearningResultsV4 {
     uint8 public constant KARAOKE = 1;
     uint8 public constant STUDY = 2;
     uint16 public constant MAX_SOURCE_LINES = 2000;
-    /// A sign-in may be relayed for this long after it was signed.
-    uint64 public constant RELAY_WINDOW = 7 days;
+    /// A sign-in may be relayed for this long after it was signed: the
+    /// thirty-day community session, so a sign-in relayed at the learner's
+    /// first practice in that session is never refused as stale.
+    uint64 public constant RELAY_WINDOW = 30 days;
     bytes32 public constant SIGN_IN_TYPEHASH = keccak256(
         "SignIn(address learner,bytes32 communityId,string origin,bytes32 publicationPolicy,bytes32 nonce,uint64 issuedAt,uint64 expiresAt)"
     );

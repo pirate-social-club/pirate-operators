@@ -46,6 +46,7 @@ import {
   AUTHORIZATION_RELAY_WINDOW_S,
   resumeAuthorizations,
 } from "../services/learning-authorization.ts";
+import { SIGN_IN_RELAY_WINDOW_S } from "../services/learning-sign-in.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
 import type { Env } from "../services/runtime.ts";
 
@@ -371,11 +372,18 @@ test(
 );
 
 test(
-  "the seven-day relay window is a hard limit; the learner simply signs in again",
+  "the thirty-day relay window is a hard limit; the learner simply signs in again",
   { timeout: 120000 },
   async () => {
     const f = await fixture(19972);
     try {
+      // The operator's and the application's windows are the contract's.
+      assert.equal(
+        await f.read("RELAY_WINDOW", []),
+        BigInt(AUTHORIZATION_RELAY_WINDOW_S),
+      );
+      assert.equal(SIGN_IN_RELAY_WINDOW_S, AUTHORIZATION_RELAY_WINDOW_S);
+      assert.equal(AUTHORIZATION_RELAY_WINDOW_S, 30 * 86400);
       const learner = accounts[5];
       f.setOperatorDown(true);
       const s = await f.signIn(learner);

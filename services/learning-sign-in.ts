@@ -1,8 +1,9 @@
 // The application's half of V4: a community sign-in is the learner's
 // publication authorization. The sign-in is stored at login (accounts.ts);
 // here it is relayed to the operator, which records it on chain, and the
-// row is closed as recorded or refused. The seven-day relay window is a hard
-// limit: after it the learner simply signs in again.
+// row is closed as recorded or refused. The thirty-day relay window, the
+// contract's RELAY_WINDOW and the community session, is a hard limit: after
+// it the learner simply signs in again.
 import type { Address, Hex } from "viem";
 import type { SignInV4 } from "../packages/community/accounts.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
@@ -10,7 +11,7 @@ import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
 
-export const SIGN_IN_RELAY_WINDOW_S = 7 * 86400;
+export const SIGN_IN_RELAY_WINDOW_S = 30 * 86400;
 export type PublicResults = "on" | "pending" | "off" | "unavailable";
 
 /** V4 sign-in only when the application's V4 contract is the directory's learning records. */

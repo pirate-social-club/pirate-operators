@@ -37,8 +37,11 @@ import {
 import type { Env } from "./runtime.ts";
 import { body } from "./service-call.ts";
 
-/** The V4 contract's RELAY_WINDOW: a sign-in is recorded within seven days or never. */
-export const AUTHORIZATION_RELAY_WINDOW_S = 7 * 86400;
+/**
+ * The V4 contract's RELAY_WINDOW, the thirty-day community session: a sign-in
+ * is recorded within it or never.
+ */
+export const AUTHORIZATION_RELAY_WINDOW_S = 30 * 86400;
 export interface AuthorizationReceipt {
   id: Hex;
   state: "pending" | "success" | "reverted";

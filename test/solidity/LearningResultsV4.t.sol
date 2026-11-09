@@ -380,13 +380,41 @@ contract LearningResultsV4Test {
         records.authorize(a, signature);
         a = _signIn(learner, uint64(block.timestamp));
         signature = _signature(records.signInDigest(a));
-        vm.warp(block.timestamp + 7 days + 1);
+        vm.warp(block.timestamp + 30 days + 1);
         vm.expectRevert(bytes("stale_sign_in"));
         records.authorize(a, signature);
         a = _signIn(learner, uint64(block.timestamp + 1));
         signature = _signature(records.signInDigest(a));
         vm.expectRevert(bytes("stale_sign_in"));
         records.authorize(a, signature);
+    }
+
+    function testRelayWindowIsTheThirtyDaySession() public {
+        require(records.RELAY_WINDOW() == 30 days);
+        // A sign-in first relayed at the learner's first practice, late in
+        // the thirty-day session, is still accepted.
+        LearningResultsV4.SignIn memory a = _signIn(learner, uint64(block.timestamp));
+        bytes memory signature = _signature(records.signInDigest(a));
+        vm.warp(block.timestamp + 30 days);
+        records.authorize(a, signature);
+        require(records.authorizationLearner(records.signInDigest(a)) == learner);
+    }
+
+    function testLiveLearnerCannotPublishUnderAnotherLearnersAuthorization() public {
+        // A second learner signs in at the same time, so their permission is
+        // live and every time rule of the first learner's authorization holds.
+        address other = vm.addr(23);
+        LearningResultsV4.SignIn memory a = _signIn(other, uint64(block.timestamp));
+        (uint8 v, bytes32 rs, bytes32 ss) = vm.sign(23, records.signInDigest(a));
+        records.authorize(a, abi.encodePacked(rs, ss, v));
+        require(records.authorizedSince(other) == records.authorizationIssuedAt(authorizationId));
+        LearningResultsV4.Result memory r = _result();
+        r.learner = other;
+        // Only authorizationLearner[r.enrollmentId] == r.learner refuses this.
+        vm.expectRevert(bytes("authorization_inactive"));
+        _publish(r);
+        r.enrollmentId = records.signInDigest(a);
+        _publish(r);
     }
 
     function testOnlyTheLearnersOwnSignatureAuthorizes() public {
