@@ -1,10 +1,10 @@
-// A V4 community where a learner still has V3 Study work from before V4 became
-// the learning records. Turning public results off (the learner's signed V4
-// Revocation) closes every open lesson privately and stops the learner's V3
-// results not yet sent, so nothing more is published to V3, even after
-// public results are turned back on. Actual community routes, D1, operator and
-// local V3 and V4 contracts; the posts RPC, IPFS transport and speech provider
-// are the fixture's simulations.
+// Turning public results off (the learner's signed V4 Revocation) closes every
+// open Study lesson of the account in the community privately: V4 lessons,
+// bound or not, and V3 lessons from before V4 became the learning records. It
+// also stops the learner's V3 results not yet sent, so nothing more is
+// published to V3, even after public results are turned back on. Actual
+// community routes, D1, operator and local V3 and V4 contracts; the posts
+// RPC, IPFS transport and speech provider are the fixture's simulations.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { zeroHash, type Hex } from "viem";
@@ -18,6 +18,7 @@ import {
   json,
   lessonPath,
   studyPublicationFixture,
+  studyPublicationFixtureV4,
 } from "./study-publication-fixture.ts";
 
 type Fixture = Awaited<ReturnType<typeof studyPublicationFixture>>;
@@ -233,6 +234,181 @@ test(
       await turnOn(f, auth);
       await sweep(f);
       await nothingOnV3(f, sessions);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+/** Lessons of the fixture's learner, by request id. */
+async function lessonByRequest(f: Fixture, requestId: string) {
+  return (await f.db
+    .prepare("SELECT lesson_id FROM study_lessons WHERE request_id=?")
+    .bind(requestId)
+    .first<{ lesson_id: string }>())!.lesson_id;
+}
+const bound = async (f: Fixture, id: string) =>
+  !!(await f.db
+    .prepare("SELECT 1 AS present FROM study_publications WHERE lesson_id=?")
+    .bind(id)
+    .first());
+/** The lesson is closed as consent_ended and can never publish. */
+async function closedPrivately(f: Fixture, id: string) {
+  const closed = await lessonState(f.db, id);
+  assert.equal(closed.status, "abandoned");
+  assert.equal(closed.completionReason, "consent_ended");
+  await f.mineClock();
+  await resumeStudyPublications(f.operatorEnv, f.store);
+  await communityScheduled(f.env, f.ports);
+  const publication = await f.publication(id);
+  assert.notEqual(publication.state, "published");
+  assert.notEqual(publication.state, "pending");
+  assert.deepEqual(f.store.entries("intent:record_result:"), []);
+}
+/** Wraps the operator binding; `after` runs once the operator answers. */
+function aroundOperator(
+  f: Fixture,
+  path: string,
+  options: { fail?: boolean; after?: () => Promise<void> },
+) {
+  const real = f.env.KARAOKE_OPERATOR as Fetcher;
+  let fired = false;
+  f.env.KARAOKE_OPERATOR = {
+    async fetch(input: RequestInfo | URL, init?: RequestInit) {
+      const request = new Request(input, init);
+      const matched = !fired && new URL(request.url).pathname === path;
+      if (matched) fired = true;
+      if (matched && options.fail) throw Error("fixture operator outage");
+      const response = await real.fetch(request);
+      if (matched && options.after) await options.after();
+      return response;
+    },
+  } as Fetcher;
+  return () => {
+    f.env.KARAOKE_OPERATOR = real;
+  };
+}
+
+test(
+  "turning public results off closes a V4 lesson whose start failed after creating it",
+  { timeout: 240000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19705);
+    try {
+      const requestId = crypto.randomUUID();
+      const restore = aroundOperator(f, "/study/bind", { fail: true });
+      const failed = await f.post(
+        "/api/study/lessons",
+        { requestId, song: f.song },
+        f.auth,
+      );
+      restore();
+      assert.notEqual(failed.status, 200);
+      const id = await lessonByRequest(f, requestId);
+      assert.equal((await lessonState(f.db, id)).status, "active");
+      assert.equal(await bound(f, id), false);
+      const offAt = f.clock();
+      await turnOff(f, f.auth);
+      assert.equal((await lessonState(f.db, id)).completedAt, offAt);
+      // Retrying the same start never reopens or binds it.
+      const retry = await f.post(
+        "/api/study/lessons",
+        { requestId, song: f.song },
+        f.auth,
+      );
+      assert.equal(retry.status, 409);
+      await closedPrivately(f, id);
+      assert.equal(await bound(f, id), false);
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test(
+  "a V4 binding that lands after the withdrawal finds its lesson closed; it never publishes",
+  { timeout: 240000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19706);
+    try {
+      const requestId = crypto.randomUUID();
+      // The operator binds the lesson; the turn-off completes before the
+      // application stores that binding.
+      const restore = aroundOperator(f, "/study/bind", {
+        after: () => turnOff(f, f.auth),
+      });
+      const start = await f.post(
+        "/api/study/lessons",
+        { requestId, song: f.song },
+        f.auth,
+      );
+      restore();
+      assert.equal(start.status, 409, await start.clone().text());
+      assert.equal(
+        ((await start.json()) as { error: string }).error,
+        "study_authorization_required",
+      );
+      const id = await lessonByRequest(f, requestId);
+      assert.equal(await bound(f, id), true);
+      await closedPrivately(f, id);
+      const publication = await json<{
+        state: string;
+        receipt: { reason?: string } | null;
+      }>(await f.post(lessonPath(id) + "/publication", {}, f.auth));
+      assert.equal(publication.state, "private");
+      assert.equal(publication.receipt!.reason, "unfinished");
+    } finally {
+      await f.dispose();
+    }
+  },
+);
+
+test(
+  "a withdrawal between a start's permission check and its new lesson closes that lesson at once",
+  { timeout: 240000 },
+  async () => {
+    const f = await studyPublicationFixtureV4(19709);
+    try {
+      const requestId = crypto.randomUUID();
+      const real = f.env.DB as D1Database;
+      let hook: (() => Promise<void>) | undefined = () =>
+        turnOff(f, f.auth);
+      // The turn-off runs just before this start creates its lesson row.
+      f.env.DB = new Proxy(real, {
+        get(target, property) {
+          if (property === "prepare")
+            return (sql: string) => {
+              const statement = target.prepare(sql);
+              if (!hook || !sql.startsWith("INSERT INTO study_lessons("))
+                return statement;
+              return {
+                bind: (...values: unknown[]) => {
+                  const ready = statement.bind(...values);
+                  return {
+                    async run() {
+                      const before = hook!;
+                      hook = undefined;
+                      await before();
+                      return ready.run();
+                    },
+                  };
+                },
+              };
+            };
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const start = await f.post(
+        "/api/study/lessons",
+        { requestId, song: f.song },
+        f.auth,
+      );
+      f.env.DB = real;
+      assert.equal(hook, undefined);
+      assert.equal(start.status, 409, await start.clone().text());
+      const id = await lessonByRequest(f, requestId);
+      await closedPrivately(f, id);
     } finally {
       await f.dispose();
     }

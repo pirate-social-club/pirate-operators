@@ -40,7 +40,10 @@ import type {
 } from "./study-operator.ts";
 import type { ResultsTarget } from "./learning-contract.ts";
 import { studyPublicationQueue } from "./study-publication-queue.ts";
-import { practiceAuthorization } from "./learning-sign-in.ts";
+import {
+  practiceAuthorization,
+  recordedAuthorization,
+} from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 export interface StudyEnv extends KaraokeEnv {
@@ -383,7 +386,28 @@ export function liveStudy(
       // so the client's retry starts the lesson once it is.
       if (version === 4) await authorizationAt(now());
       const lesson = await lessons.start(owner, requestId, song);
-      await ensureBinding(lesson);
+      const failed = await ensureBinding(lesson).then(
+        () => undefined,
+        (error: unknown) => ({ error }),
+      );
+      // V4: turning public results off closes only lessons that exist. One
+      // created after a withdrawal that this start's check preceded closes
+      // here, bound or not, so no active lesson outlives the withdrawal.
+      if (
+        version === 4 &&
+        !(
+          await recordedAuthorization(
+            ports.db,
+            owner.accountId,
+            session.wallet,
+            Math.floor(lesson.startedAt / 1000),
+          )
+        ).id
+      ) {
+        await lessons.abandon(owner, lesson.lessonId, "consent_ended");
+        throw new StudyError("study_authorization_required", 409);
+      }
+      if (failed) throw failed.error;
       return lesson;
     },
     get: async (id: string) =>
@@ -395,20 +419,22 @@ export function liveStudy(
     abandon: async (id: string) =>
       reconcilePublication(await lessons.abandon(owner, id)),
     /**
-     * "Turn off public results": the account's open lessons in this
-     * community close at once as abandoned with reason consent_ended, V4
-     * lessons and any V3 lesson still open from before V4 became the
-     * records. Each stays private: a V4 lesson as unfinished, a V3 lesson
-     * because the operator withholds the learner's unsent V3 results once
-     * it holds their V4 Revocation.
+     * "Turn off public results": every open lesson of the account in this
+     * community closes at once as abandoned with reason consent_ended: V4
+     * lessons, bound or not (a start that failed after creating its lesson,
+     * or a binding still landing), and any V3 lesson still open from before
+     * V4 became the records. Each stays private: a V4 lesson as unfinished,
+     * a V3 lesson because the operator withholds the learner's unsent V3
+     * results once it holds their V4 Revocation. A binding that lands later
+     * finds its lesson closed.
      */
     async endForWithdrawal() {
       const open = await ports.db
         .prepare(
-          `SELECT l.lesson_id FROM study_lessons l JOIN study_publications p ON p.lesson_id=l.lesson_id
-          WHERE l.account_id=?1 AND l.community_id=?2 AND p.account_id=?1 AND l.history_deleted_at IS NULL
-          AND json_extract(l.state_json,'$.status')='active'
-          ORDER BY l.started_at,l.lesson_id`,
+          `SELECT lesson_id FROM study_lessons
+          WHERE account_id=?1 AND community_id=?2 AND history_deleted_at IS NULL
+          AND json_extract(state_json,'$.status')='active'
+          ORDER BY started_at,lesson_id`,
         )
         .bind(owner.accountId, owner.communityId)
         .all<{ lesson_id: string }>();
