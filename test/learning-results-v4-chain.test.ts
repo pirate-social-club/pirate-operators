@@ -180,7 +180,9 @@ test(
       );
       await evm.write(contract, "LearningResultsV4", "authorize", [smart, await wrap(account)], 2);
       assert.equal(getAddress(String(await read(contract, "authorizationLearner", [smartId]))), getAddress(account));
-      // The constructor and the builder agree on which origins are canonical.
+      // For these origins the constructor and canonicalOriginV4 agree.
+      // canonicalOriginV4 also refuses some origins the constructor accepts
+      // but signInMessageV4 cannot render (learning-v4-release-observation).
       for (const o of [
         "https://community.example",
         "https://localhost:8787",
