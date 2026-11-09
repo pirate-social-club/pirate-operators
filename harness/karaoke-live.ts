@@ -639,6 +639,8 @@ export async function karaokeLive(
           await requestSignInRelay(env, db, account_id, now * 1000);
         return relayPendingSignIns(env, db, now * 1000);
       },
+      /** V4: only the Worker cron's retry of relays a start already requested. */
+      scheduledSignInRelay: () => relayPendingSignIns(env, db, now * 1000),
       persist,
       config,
       env,

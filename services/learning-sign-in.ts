@@ -3,9 +3,9 @@
 // here it is relayed to the operator, which records it on chain, and the
 // row is closed as recorded or refused. Relay is lazy: only the learner's
 // first Study or Karaoke start without a recorded authorization requests it,
-// so signing in without practising sends no sponsored transaction. The thirty-day relay window, the
-// contract's RELAY_WINDOW and the community session, is a hard limit: after
-// it the learner simply signs in again.
+// so signing in without practising sends no sponsored transaction. The
+// thirty-day relay window, the contract's RELAY_WINDOW and the community
+// session, is a hard limit: after it the learner simply signs in again.
 import type { Address, Hex } from "viem";
 import type { SignInV4 } from "../packages/community/accounts.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";

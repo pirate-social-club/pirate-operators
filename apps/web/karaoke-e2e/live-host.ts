@@ -115,7 +115,8 @@ if (aligned.value.state !== "complete")
   throw new Error(`alignment failed: ${JSON.stringify(aligned.value)}`);
 
 // The operator's and the application's clocks follow real time. With V4,
-// the application's scheduled relay records sign-ins as the Worker cron does.
+// the application's scheduled relay retries requested sign-ins as the Worker
+// cron does; a sign-in is first relayed by the learner's first take.
 const t0 = Date.now(),
   base = live.now();
 let ticking = false;
@@ -126,7 +127,7 @@ setInterval(() => {
   ticking = true;
   void (async () => {
     if (target > live.now()) await live.at(target);
-    if (resultsV4) await live.recordSignIns();
+    if (resultsV4) await live.scheduledSignInRelay();
   })()
     .catch((error) => console.error("clock", error))
     .finally(() => {
