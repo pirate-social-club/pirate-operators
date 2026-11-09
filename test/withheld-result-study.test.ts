@@ -643,3 +643,62 @@ test(
     }
   },
 );
+
+test(
+  "Study: a row settled superseded inside a resume's own dispatch is reported published when its commitment is read after that dispatch",
+  { timeout: 300000 },
+  async () => {
+    const c = await study();
+    const watch = rpcWatch();
+    try {
+      watch.on("eth_sendRawTransaction", () => {
+        throw new TypeError("fixture send outage");
+      });
+      await resume(c);
+      const own = txRow(c.f.store, intentOf(c.f.store, "record_result", c.ref)!.nonce!)!;
+      await withdraw(c, "settings");
+      await warnings(() => resume(c));
+      // The original mines; reads of it answer null from here on, so the
+      // first settlement records the unexplained nonce.
+      await c.f.evm.rpc("eth_sendRawTransaction", [own.raw]);
+      await c.f.evm.rpc("evm_mine", []);
+      watch.on("eth_getTransactionReceipt", () => null, 1000);
+      watch.on("eth_getTransactionByHash", () => null, 1000);
+      await warnings(() => alarm(c));
+      assert.equal(txRow(c.f.store, own.nonce)!.mined, null);
+      assert.notEqual(txRow(c.f.store, own.nonce)!.withheld?.unexplainedSince, undefined);
+      await mineDepth(c.f.evm);
+      // The resume's first commitment read lags; its dispatch then settles
+      // the row superseded; the commitment read after that dispatch is real.
+      const commitments = toFunctionSelector("commitments(bytes32)").slice(2);
+      const real = globalThis.fetch;
+      let lagged = false;
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (!lagged && body.includes('"eth_call"') && body.includes(commitments)) {
+          lagged = true;
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(body).id, result: zeroHash }),
+            { headers: { "content-type": "application/json" } },
+          );
+        }
+        return real(input, init);
+      }) as typeof fetch;
+      try {
+        await warnings(() => resume(c));
+      } finally {
+        globalThis.fetch = real;
+      }
+      assert.equal(lagged, true);
+      assert.equal(txRow(c.f.store, own.nonce)!.mined?.status, "superseded");
+      assert.equal(c.f.store.get<PublicationJob>(`studyPublication:${c.id}`)!.receipt.state, "published");
+      watch.clear();
+      const view = await publication(c);
+      assert.equal(view.state, "published");
+      assert.equal(view.receipt!.transactionHash, own.hash);
+    } finally {
+      watch.restore();
+      await c.f.dispose();
+    }
+  },
+);
