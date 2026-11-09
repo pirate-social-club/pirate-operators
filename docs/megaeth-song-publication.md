@@ -240,6 +240,30 @@ Before packaging, confirm that no database applied the earlier bytes; a
 database that did must be recreated or given a successor migration rather than
 re-applying 0012 or 0004.
 
+Deploy the managed service first, then the community application. The
+community publishing profile pins the managed profile hash from the committed
+`moderation-plan.json`, and its peer check requires the live managed service to
+report exactly that profile with the selection's owner release configured and
+no registered release. So after the managed publishing deployment, its
+executed plan is committed as `moderation-plan.json` in a reviewed data-only
+change, and the community package is built from that commit. The managed
+update keeps naming the deployed predecessor through
+`harness/managed-update-pin.ts` and its byte copy `moderation-plan-v8.json`.
+Between the two deployments the still-deployed community keeps reading every
+published song. Its registered release path depends on a registered managed
+release, which the live managed service already reports as unconfigured since
+that grant expired, and the November 5 policy accepts no new submission. A community deployment carrying the owner grant never contacts the
+creator service, before or after activation: its health and capabilities report
+creator connection unavailable, the release peer check skips that peer, and
+the post-deployment health check does not require it.
+
+The first song's managed release-grant reservation was settled on November 9
+with workspace_owner approval. The published state file and its hash stay
+unchanged; `first-song-managed-20261105.published-state-repair-20261109.json`
+records the two managed spending summaries that changed, their provenance and
+the pre-repair evidence digests, and the managed retained-state check applies
+exactly that record.
+
 Deploy readers that accept all three formats and both owner policies first.
 Verify existing songs and history. Only then publish the new directory
 configuration revision naming the new policy, and enable submissions. If a

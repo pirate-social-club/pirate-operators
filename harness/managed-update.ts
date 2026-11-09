@@ -56,8 +56,15 @@ export async function qualifyManagedUpdate(
     409,
   );
   const intent = (input: unknown) => {
-    const { sourceHashes, bundleSha256, bundleBytes, update, ...rest } =
-      object(input);
+    const {
+      sourceHashes,
+      bundleSha256,
+      bundleBytes,
+      update,
+      // Pinned by hash and checked against live state in qualifyRetainedState.
+      curatedStateRepair,
+      ...rest
+    } = object(input);
     return rest;
   };
   if (
@@ -200,6 +207,7 @@ export async function qualifyManagedUpdate(
       profile.accountId,
       profile.curatedState,
       "managed",
+      (profile as { curatedStateRepair?: unknown }).curatedStateRepair,
     );
     return;
   }

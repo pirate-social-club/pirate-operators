@@ -243,15 +243,17 @@ export async function communityFetch(
     // Owner-only publishing has no creator connection; its service is never
     // contacted for status or capabilities under that policy.
     const creatorAvailable = async (known?: CommunityConfig) => {
+      // A deployment carrying the owner grant never contacts the creator
+      // service, before or after the owner policy is activated.
+      if (env.OWNER_GRANT_JSON) return false;
       let config = known;
       if (!config)
         try {
           config = await configuration();
         } catch {
-          // Without the policy, a deployment carrying the owner grant reports
-          // unavailable rather than contact the creator service; a registered
-          // deployment still reports its creator health. Status only.
-          return env.OWNER_GRANT_JSON ? false : ports.creatorHealth();
+          // A registered deployment still reports its creator health
+          // without the policy. Status only.
+          return ports.creatorHealth();
         }
       return unregisteredOwner(config.policies.admission)
         ? false
@@ -667,6 +669,9 @@ export async function communityFetch(
         url.pathname === "/api/creator/connect" ||
         url.pathname === "/api/creator/complete"
       ) {
+        // The connection code is preserved for the deferred integration; an
+        // owner deployment refuses it before contacting the creator service.
+        insist(!env.OWNER_GRANT_JSON, "creator_connection_unavailable", 503);
         insist(await ports.creatorHealth(), "creator_service_unavailable", 503);
         insist(
           /^0x[0-9a-f]{64}$/i.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY),

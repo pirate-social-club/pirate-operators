@@ -20,6 +20,7 @@ export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
 import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
 import { managedUpdate } from "./managed-update-pin.ts";
+import { publishedStateRepairPath } from "./published-state.ts";
 import {
   managedPublishingProfile,
   publishingReleaseSelection,
@@ -91,6 +92,7 @@ export async function managedPackage(
     "apps/managed-moderation/protected-data.ts",
     ...migrations.map((name) => `apps/managed-moderation/migrations/${name}`),
     "docs/deployments/first-song-managed-20261105.published-state.json",
+    publishedStateRepairPath,
     releaseGrantPath,
     "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
     "apps/community-wizard/infra/encrypted-state.ts",
@@ -170,6 +172,10 @@ export async function managedPackage(
         "docs/deployments/first-song-managed-20261105.published-state.json",
         "utf8",
       ),
+    ),
+    // The reviewed managed-state successor; the published state stays as is.
+    curatedStateRepair: JSON.parse(
+      await readFile(publishedStateRepairPath, "utf8"),
     ),
     registrationCredential: {
       ...JSON.parse(

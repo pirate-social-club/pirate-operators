@@ -4,6 +4,7 @@ import { open } from "node:fs/promises";
 import {
   bytes32,
   canonical,
+  hashJson,
   exact,
   insist,
   integer,
@@ -17,6 +18,7 @@ import {
 import { unregisteredOwner } from "../packages/community/owner-policy.ts";
 import type { SignedOwnerAuthorization } from "../packages/community/owner-authorization.ts";
 import { assertRewardsApplicationUpgrade } from "./rewards-release-profile.ts";
+import { publishedStateRepairHash } from "./published-state.ts";
 import {
   MANAGED_OWNER_PUBLISHING_MIGRATION,
   OWNER_PUBLISHING_MIGRATION,
@@ -277,6 +279,13 @@ export function assertPublishingManagedUpgrade(
   next: Record<string, unknown>,
 ) {
   const grant = validateOwnerGrant(next.ownerGrant);
+  // Only the one reviewed managed-state successor may be added.
+  insist(
+    next.curatedStateRepair === undefined ||
+      hashJson(next.curatedStateRepair) === publishedStateRepairHash,
+    "owner_publishing_state_repair_changed",
+    409,
+  );
   for (const key of MANAGED_REGISTERED_FIELDS)
     insist(!(key in next), "owner_publishing_registered_field_kept", 409);
   insist(
@@ -316,6 +325,7 @@ export function assertPublishingManagedUpgrade(
     "signerSource",
     "secretNames",
     "bounds",
+    "curatedStateRepair",
   ]);
   const fixed = (p: Record<string, unknown>) =>
     Object.fromEntries(Object.entries(p).filter(([k]) => !changed.has(k)));

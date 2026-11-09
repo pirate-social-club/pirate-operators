@@ -404,7 +404,9 @@ async function main() {
         status.profileHash === profileHash &&
         status.planId === profile.planId &&
         status.signIn === "available" &&
-        status.creatorConnection === "available",
+        // Owner publishing has no creator service dependency.
+        (profile.ownerPublishing != null ||
+          status.creatorConnection === "available"),
       "community_application_health_unqualified",
       503,
     );

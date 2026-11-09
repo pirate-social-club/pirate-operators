@@ -31,6 +31,7 @@ import {
 import { applicationPublishingBindings } from "../apps/community-wizard/infra/publishing-bindings.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { managedUpdate } from "../harness/managed-update-pin.ts";
+import { publishedStateRepairPath } from "../harness/published-state.ts";
 
 // Public local fixture key. Never fund or deploy it.
 const controller = privateKeyToAccount(`0x${"61".repeat(32)}`),
@@ -233,11 +234,9 @@ test("the community publishing successor appends only 0012, adds the owner selec
 });
 
 test("the managed publishing successor appends only 0004, swaps the grant and drops the registration key and bounds", async () => {
+  // The deployed registered predecessor, pinned for the managed update.
   const previous = JSON.parse(
-    await readFile(
-      "docs/deployments/first-song-managed-20261105.moderation-plan.json",
-      "utf8",
-    ),
+    await readFile(managedUpdate.previousPlanPath, "utf8"),
   ).profile as Record<string, any>;
   const next = managedPublishingProfile(
     {
@@ -258,6 +257,24 @@ test("the managed publishing successor appends only 0004, swaps the grant and dr
   );
   assert.equal("targetChain" in next.signerSource, false);
   assert.doesNotThrow(() => assertPublishingManagedUpgrade(previous, next));
+  // Only the one reviewed state repair may accompany the publishing successor.
+  const repair = JSON.parse(await readFile(publishedStateRepairPath, "utf8"));
+  assert.doesNotThrow(() =>
+    assertPublishingManagedUpgrade(previous, {
+      ...next,
+      curatedStateRepair: repair,
+    }),
+  );
+  const tamperedRepair = structuredClone(repair);
+  tamperedRepair.summaries.spending_budgets.to.count = 7;
+  assert.throws(
+    () =>
+      assertPublishingManagedUpgrade(previous, {
+        ...next,
+        curatedStateRepair: tamperedRepair,
+      }),
+    /owner_publishing_state_repair_changed/,
+  );
   for (const [name, mutate] of [
     ["pairings", (p: any) => (p.pairings[0].requestCap = 99)],
     ["service cap", (p: any) => p.serviceRequestCap++],
@@ -292,14 +309,19 @@ test("the managed update names the deployed published-recovery predecessor and i
     startup = (await read(managedUpdate.startupEvidencePath)).resourceIds;
   assert.equal(plan.profileHash, managedUpdate.previousProfileHash);
   assert.equal(hashJson(plan.profile), plan.profileHash);
-  // The pinned predecessor is a byte copy of the committed deployed plan.
-  assert.equal(
-    await readFile(managedUpdate.previousPlanPath, "utf8"),
-    await readFile(
-      "docs/deployments/first-song-managed-20261105.moderation-plan.json",
-      "utf8",
-    ),
+  // The committed managed plan is either still this predecessor, byte for
+  // byte, or the deployed publishing successor that its gate accepts.
+  const current = await readFile(
+    "docs/deployments/first-song-managed-20261105.moderation-plan.json",
+    "utf8",
   );
+  if (current !== (await readFile(managedUpdate.previousPlanPath, "utf8"))) {
+    const successor = JSON.parse(current);
+    assert.equal(hashJson(successor.profile), successor.profileHash);
+    assert.doesNotThrow(() =>
+      assertPublishingManagedUpgrade(plan.profile, successor.profile),
+    );
+  }
   assert.equal(evidence.profileHash, plan.profileHash);
   assert.equal(evidence.resultSha256, managedUpdate.expectedResultSha256);
   assert.deepEqual(

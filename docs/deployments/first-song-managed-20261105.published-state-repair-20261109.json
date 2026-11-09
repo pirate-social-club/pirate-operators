@@ -1,0 +1,66 @@
+{
+  "schema": "pirate.published-first-song-state-repair/1",
+  "predecessorStateSha256": "0x84a0c5d483c9dc0a0c486ee8ea892c45b1bc10c7e4bd363991e7ed3ef38284ec",
+  "side": "managed",
+  "repairedAt": "2026-11-09T07:30:58.418Z",
+  "purpose": "Settle the first song's managed release-grant reservation, which the registered release reserved at establishment and had no settling path. Approved by the workspace_owner as part of the owner-publishing acceptance run, as reported by the manual_rewards_coordinator, who executed it.",
+  "operation": {
+    "reservationId": "0xad3841f90f9227ccf2fb4c60991adf0139ecf8b2d0a3b634a08974ddc4fef421",
+    "scope": "release:grant:0x29c7bbe965c52c63ffca5be2c3aa324fa66c55f28aa4b511e9aa355180c5143e",
+    "period": "first-song-20261105-v1",
+    "asset": "root_releases",
+    "reservation": {
+      "from": {
+        "status": "reserved",
+        "amount": "1",
+        "actual": null
+      },
+      "to": {
+        "status": "settled",
+        "amount": "1",
+        "actual": "1"
+      }
+    },
+    "budget": {
+      "from": {
+        "ceiling": "1",
+        "reserved": "1",
+        "spent": "0",
+        "version": 1
+      },
+      "to": {
+        "ceiling": "1",
+        "reserved": "0",
+        "spent": "1",
+        "version": 2
+      }
+    }
+  },
+  "evidence": {
+    "repairJournalSha256": "50dfa5ea84f5668f1db1ad8dba23350b8384cc3f27960fb51c5637010c733d2a",
+    "preRepairCaptureSha256": "68b85fac719ba13394efd977db033233a55bfb071c60a0a181cbe33cbd63c099",
+    "location": "manual_rewards_coordinator worktree, .local/publishing-release-qualification-20261109/ (repair-journal.jsonl, preserved-before-activation/uncertain-operations.json)"
+  },
+  "summaries": {
+    "spending_budgets": {
+      "from": {
+        "count": 6,
+        "sha256": "0x9d2816779f075f7f4c3007276411e6ac614f7aa68cbe236465b3fbb0914dbd52"
+      },
+      "to": {
+        "count": 6,
+        "sha256": "0x6333b09e0486095e853283c48f688a3869bd66117f660a69d91bb6b1f221c56d"
+      }
+    },
+    "spending_reservations": {
+      "from": {
+        "count": 14,
+        "sha256": "0x2dadf3552064a08d7b2eadc11f6f4a4029af4015d4998e2ea006af32a70970d3"
+      },
+      "to": {
+        "count": 14,
+        "sha256": "0xb400cd11e35698a579a3a88a26bedb394d1e202c8f13fedb37acfd2e09c44bf6"
+      }
+    }
+  }
+}

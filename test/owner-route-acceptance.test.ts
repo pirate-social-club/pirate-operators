@@ -18,6 +18,8 @@ import {
 import { firstSong } from "../services/first-song-profile.ts";
 import { loadJob } from "../packages/community/publication-store.ts";
 import {
+  OWNER_POLICY_HASH,
+  OWNER_POLICY_VERSION,
   UNREGISTERED_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_VERSION,
 } from "../packages/community/owner-policy.ts";
@@ -335,6 +337,34 @@ test("a signed-in learner, a missing CSRF token and a foreign Origin are refused
     };
     a.ports.configuration = configuration;
     assert.equal(status.creatorConnection, "unavailable");
+    assert.equal(a.creatorChecks(), 0);
+    // Before activation the configuration still names the November 5 policy;
+    // an owner deployment still never contacts the creator service.
+    a.ports.configuration = async () => ({
+      ...f.configuration,
+      policies: {
+        ...f.configuration.policies,
+        admission: { version: OWNER_POLICY_VERSION, sha256: OWNER_POLICY_HASH },
+      },
+    });
+    const before = (await (await a.call("/health")).json()) as {
+      creatorConnection: string;
+    };
+    const beforeCapabilities = (await (
+      await a.call("/api/capabilities")
+    ).json()) as { creatorConnection: boolean };
+    a.ports.configuration = configuration;
+    assert.equal(before.creatorConnection, "unavailable");
+    assert.equal(beforeCapabilities.creatorConnection, false);
+    // The preserved connection routes refuse before any creator contact.
+    for (const route of ["/api/creator/connect", "/api/creator/complete"]) {
+      const refused = await own.write(route, "POST", "{}", json);
+      assert.equal(refused.status, 503);
+      assert.equal(
+        ((await refused.json()) as { error: string }).error,
+        "creator_connection_unavailable",
+      );
+    }
     assert.equal(a.creatorChecks(), 0);
   } finally {
     await f.dispose();
