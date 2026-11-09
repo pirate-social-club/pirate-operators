@@ -208,6 +208,7 @@ export async function qualifyManagedUpdate(
       profile.curatedState,
       "managed",
       (profile as { curatedStateRepair?: unknown }).curatedStateRepair,
+      (profile as { ownerGrant?: unknown }).ownerGrant,
     );
     return;
   }
