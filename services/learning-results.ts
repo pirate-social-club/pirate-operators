@@ -36,7 +36,7 @@ import {
   readResultContract as read,
   contractAbi,
   enrollmentResultsTarget,
-  legacyResultsWithheld,
+  legacyResultsWithdrawn,
   retainedTarget,
   resultsTarget,
   sameResultsTarget,
@@ -278,13 +278,15 @@ export async function publishV2(
     return next;
   };
   // An enrollment-bound run not yet sent stays private once the learner has
-  // withdrawn under V4 in this community; V4 is the records now.
-  const withheld = () =>
+  // withdrawn under V4 in this community, by settings or directly on the V4
+  // contract; V4 is the records now. A failed chain read throws, leaving the
+  // run pending for the next tick.
+  const withheld = async () =>
     !authorization &&
     revision === 1 &&
     !intentOf(store, "record_result", ref) &&
-    legacyResultsWithheld(store, ticket.participant);
-  if (withheld()) return keepPrivate("authorization_withdrawn");
+    (await legacyResultsWithdrawn(env, store, ticket.participant));
+  if (await withheld()) return keepPrivate("authorization_withdrawn");
   if (revision === 1 && !intentOf(store, "record_result", ref)) {
     let permitted: boolean;
     if (authorization)
@@ -369,8 +371,8 @@ export async function publishV2(
     job = { target: destination, result: header, outcomes, data };
     store.set(`workV2:${ref}`, durableValue(job));
   }
-  // A withdrawal accepted during the reads above still stops it.
-  if (withheld()) return keepPrivate("authorization_withdrawn");
+  // A withdrawal accepted or mined during the reads above still stops it.
+  if (await withheld()) return keepPrivate("authorization_withdrawn");
   const row = await submitResultTransaction(
     env,
     store,

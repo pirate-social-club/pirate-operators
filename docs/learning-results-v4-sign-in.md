@@ -172,6 +172,26 @@ publication, because V4 is the records now. None of this adds a menu item or a
 second wallet signature, and the learner's V3 enrollment is not revoked on
 chain, which only the learner's own signature could do.
 
+A learner may also withdraw by calling `revoke` on the V4 contract directly,
+which never reaches the operator's relay. That stops V3 publication too. When
+the operator's V4 contract is configured, both V3 dispatch paths read the
+learner's `revokedAt` from it whenever the operator's record above is absent:
+the Study path at the block its dispatch already observes, and both paths
+again in the check just before sending. Only `revoke` writes `revokedAt`, and
+a later sign-in (`authorize`) never resets it, so it stays nonzero from the
+first withdrawal on, even when the learner signs in again before the result is
+dispatched. A nonzero value is recorded as the same operator record and keeps
+the result private with reason `authorization_withdrawn`. A failed read sends
+nothing: the result stays pending and is retried. With no V4 contract
+configured, nothing is read. The application notices a direct withdrawal when
+the operator refuses new Study or Karaoke work for missing permission. It
+records the withdrawal, as before, and while the chain withdrawal holds with
+no later sign-in it also closes the account's open V3 and V4 Study lessons in
+that community as abandoned with reason `consent_ended`, the same closure the
+settings turn-off uses. A V3 lesson the application has not closed, because
+the learner signed in again first, still cannot publish: its result is
+withheld by the operator's read.
+
 ### Rewards source succession (Agent 2)
 
 Reward qualification reads one pinned results source through readPublicResultsV3.

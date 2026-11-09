@@ -5,7 +5,9 @@
 // too: they stay private, and turning on never resumes them. Turning on
 // clears the withdrawal; the learner's next normal sign-in is then relayed.
 // A withdrawal made outside the application is noticed when the operator
-// refuses new work.
+// refuses new work; it then closes the account's open Study lessons in the
+// community as turning off does. The operator stops that learner's V3
+// results not yet sent by reading the withdrawal from the V4 contract.
 import type { Address } from "viem";
 import { insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
@@ -110,12 +112,16 @@ export async function turnOnPublicResults(
  * a withdrawal made outside the application (directly on chain) is recorded,
  * so the session shows "off" and settings offers turning it back on. It is
  * recorded only when the chain shows a revocation and no sign-in the account
- * still counts was issued after it. Nothing is relayed here.
+ * still counts was issued after it. While that holds, `endLessons` closes the
+ * account's open Study lessons in this community, V3 and V4, as turning off
+ * does; it is idempotent, so a repeated notice repeats it harmlessly.
+ * Nothing is relayed here.
  */
 export async function noteChainWithdrawal(
   env: { KARAOKE_OPERATOR?: Fetcher },
   db: D1Database,
   learner: Learner,
+  endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   if (!env.KARAOKE_OPERATOR) return false;
   const response = await env.KARAOKE_OPERATOR.fetch(
@@ -134,9 +140,11 @@ export async function noteChainWithdrawal(
     )
     .bind(learner.account_id, revokedAt)
     .first<{ later: number; withdrawn: number | null }>();
-  if (!later || later.later || later.withdrawn !== null) return false;
-  await recordWithdrawal(db, learner.account_id, revokedAt * 1000);
-  return true;
+  if (!later || later.later) return false;
+  const recorded = later.withdrawn === null;
+  if (recorded) await recordWithdrawal(db, learner.account_id, revokedAt * 1000);
+  await endLessons();
+  return recorded;
 }
 
 /** Runs `work`; on a known refusal for missing permission, notes a chain withdrawal first. */

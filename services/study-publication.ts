@@ -18,7 +18,7 @@ import type { StudyBinding } from "./study-operator.ts";
 import { studyAuthorizationState } from "./study-authorization.ts";
 import {
   contractAbi,
-  legacyResultsWithheld,
+  legacyResultsWithdrawn,
   resultClient,
   readResultContract,
   resultPolicyAt,
@@ -365,6 +365,7 @@ async function observe(
   return {
     row,
     current,
+    blockNumber: head.number,
     timestamp: head.timestamp,
     revision,
     receipt:
@@ -444,15 +445,17 @@ export async function resumeStudyPublication(
     )
       return keepPrivate(env, store, id, job, "authorization_withdrawn");
   }
-  // V3: after the learner's V4 withdrawal in this community, a result not
-  // yet sent stays private, whatever its enrollment says.
+  // V3: after the learner's V4 withdrawal in this community, by settings or
+  // directly on the V4 contract, a result not yet sent stays private,
+  // whatever its enrollment says. The chain is read at the observed block; a
+  // failed read throws and leaves the result pending for the next retry.
   const legacy = job.target.version !== 4,
     learner = job.result.learner;
-  const withheld = () =>
+  const withheld = async (blockNumber?: bigint) =>
     legacy &&
     !intentOf(store, "record_result", ref) &&
-    legacyResultsWithheld(store, learner);
-  if (withheld())
+    (await legacyResultsWithdrawn(env, store, learner, blockNumber));
+  if (await withheld(observed.blockNumber))
     return keepPrivate(env, store, id, job, "authorization_withdrawn");
   // Wait for chain time without charging a transaction that would revert.
   if (BigInt(job.result.completedAt) > observed.timestamp)
@@ -498,8 +501,8 @@ export async function resumeStudyPublication(
       !studyRevisionRecovery(latest.receipt))
   )
     return latest.receipt;
-  // A withdrawal accepted during the reads above still stops it.
-  if (withheld())
+  // A withdrawal accepted or mined during the reads above still stops it.
+  if (await withheld())
     return keepPrivate(env, store, id, job, "authorization_withdrawn");
   await submitResultTransaction(
     env,

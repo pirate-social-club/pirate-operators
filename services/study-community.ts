@@ -244,15 +244,18 @@ export function liveStudy(
         v4,
       ).catch(async (error: unknown) => {
         // Permission withdrawn on chain: the same answer as no sign-in. A
-        // withdrawal made outside the application is noted first.
+        // withdrawal made outside the application is noted first, and closes
+        // the account's open lessons here as turning off does.
         if (
           error instanceof Error &&
           error.message === "study_authorization_required"
         ) {
-          await noteChainWithdrawal(ports.env, ports.db, {
-            account_id: owner.accountId,
-            wallet: session.wallet,
-          }).catch(() => false);
+          await noteChainWithdrawal(
+            ports.env,
+            ports.db,
+            { account_id: owner.accountId, wallet: session.wallet },
+            endForWithdrawal,
+          ).catch(() => false);
           throw new StudyError("study_authorization_required", 409);
         }
         throw error;
@@ -356,6 +359,36 @@ export function liveStudy(
       await publications.sync(lesson.lessonId).catch(() => undefined);
     return lesson; // Publication outages never hide a saved private result.
   }
+  /**
+   * Public results withdrawn, by "Turn off public results" or directly on
+   * the V4 contract: every open lesson of the account in this community
+   * closes at once as abandoned with reason consent_ended: V4 lessons, bound
+   * or not (a start that failed after creating its lesson, or a binding
+   * still landing), and any V3 lesson still open from before V4 became the
+   * records. Each stays private: a V4 lesson as unfinished, a V3 lesson
+   * because the operator withholds the learner's unsent V3 results once it
+   * holds their V4 Revocation or reads a withdrawal on the V4 contract. A
+   * binding that lands later finds its lesson closed.
+   */
+  async function endForWithdrawal() {
+    const open = await ports.db
+      .prepare(
+        `SELECT lesson_id FROM study_lessons
+        WHERE account_id=?1 AND community_id=?2 AND history_deleted_at IS NULL
+        AND json_extract(state_json,'$.status')='active'
+        ORDER BY started_at,lesson_id`,
+      )
+      .bind(owner.accountId, owner.communityId)
+      .all<{ lesson_id: string }>();
+    const closed: StudyLesson[] = [];
+    for (const { lesson_id } of open.results)
+      closed.push(
+        await reconcilePublication(
+          await lessons.abandon(owner, lesson_id, "consent_ended"),
+        ),
+      );
+    return closed;
+  }
   return {
     owner,
     lessons,
@@ -418,35 +451,8 @@ export function liveStudy(
     },
     abandon: async (id: string) =>
       reconcilePublication(await lessons.abandon(owner, id)),
-    /**
-     * "Turn off public results": every open lesson of the account in this
-     * community closes at once as abandoned with reason consent_ended: V4
-     * lessons, bound or not (a start that failed after creating its lesson,
-     * or a binding still landing), and any V3 lesson still open from before
-     * V4 became the records. Each stays private: a V4 lesson as unfinished,
-     * a V3 lesson because the operator withholds the learner's unsent V3
-     * results once it holds their V4 Revocation. A binding that lands later
-     * finds its lesson closed.
-     */
-    async endForWithdrawal() {
-      const open = await ports.db
-        .prepare(
-          `SELECT lesson_id FROM study_lessons
-          WHERE account_id=?1 AND community_id=?2 AND history_deleted_at IS NULL
-          AND json_extract(state_json,'$.status')='active'
-          ORDER BY started_at,lesson_id`,
-        )
-        .bind(owner.accountId, owner.communityId)
-        .all<{ lesson_id: string }>();
-      const closed: StudyLesson[] = [];
-      for (const { lesson_id } of open.results)
-        closed.push(
-          await reconcilePublication(
-            await lessons.abandon(owner, lesson_id, "consent_ended"),
-          ),
-        );
-      return closed;
-    },
+    /** "Turn off public results"; see endForWithdrawal above. */
+    endForWithdrawal,
     async open(id: string, presentation: number, take: number) {
       await ensureBinding(await lessons.get(owner, id));
       return lessons.openAttempt(owner, id, presentation, take);

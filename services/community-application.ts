@@ -745,6 +745,12 @@ export async function communityFetch(
         );
         return reply(await karaokeEnrollment(karaokePorts, session, body));
       }
+      // A withdrawal, in settings or found on chain, closes the account's
+      // open Study lessons in this community.
+      const endStudyLessons = async () => {
+        if (studyAvailable(env, config))
+          await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
+      };
       // V4 account settings; never reached from an exercise.
       if (url.pathname === "/api/learning/public-results/off")
         return reply(
@@ -755,10 +761,7 @@ export async function communityFetch(
             session,
             body,
             (ports.now ?? Date.now)(),
-            async () => {
-              if (studyAvailable(env, config))
-                await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
-            },
+            endStudyLessons,
           ),
         );
       if (url.pathname === "/api/learning/public-results/on")
@@ -766,7 +769,9 @@ export async function communityFetch(
           await turnOnPublicResults(env, env.DB, config, session),
         );
       if (url.pathname === "/api/karaoke/tickets")
-        return reply(await karaokeTicket(karaokePorts, session, body));
+        return reply(
+          await karaokeTicket(karaokePorts, session, body, endStudyLessons),
+        );
       if (url.pathname === "/api/karaoke/purchases")
         return reply(await karaokePurchase(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/consent")
