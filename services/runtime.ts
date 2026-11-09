@@ -197,7 +197,7 @@ export class ServiceState extends DurableObject<Env> {
         ((publication) => publication?.state === "pending" || (publication?.state === "published" && !publication.confirmed))(
           this.store.get<{ state: string; confirmed?: boolean }>(`publicationV2:${key.slice(8)}`)));
       const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
-      const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
+      const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("pendingAuthorization:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
       const expiries = [...this.store.entries("history:"), ...this.store.entries("studySpeech:")].map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
       const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
         .filter((publication) => publication.state === "published" && publication.confirmed)
