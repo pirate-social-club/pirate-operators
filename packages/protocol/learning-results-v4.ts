@@ -46,7 +46,7 @@ export const resultsV4Domain = (chainId: number, verifyingContract: Address) => 
  * `-`, containing a dot or equal to `localhost`, and an optional port with no
  * leading zero, at most 65535 and not 443. No path, query or trailing slash.
  */
-export function canonicalOriginV4(origin: string): boolean {
+function constructorOriginRule(origin: string): boolean {
   const m = /^https:\/\/([a-z0-9.-]+)(?::([1-9][0-9]{0,4}))?$/.exec(origin);
   if (!m) return false;
   const host = m[1]!,
@@ -57,6 +57,34 @@ export function canonicalOriginV4(origin: string): boolean {
   )
     return false;
   return port === undefined || (Number(port) <= 65535 && port !== "443");
+}
+
+/**
+ * Whether a V4 community may be released with this origin: the constructor's
+ * rule above, and signInMessageV4 must build a text for it. The constructor
+ * also accepts some origins the builder refuses (a one-letter or numeric top
+ * label, a label over 63 characters, an IPv4 form that URL rewrites, invalid
+ * punycode). communityOrigin is immutable, so a contract deployed with one of
+ * those could never sign anyone in; this check refuses them before release.
+ */
+export function canonicalOriginV4(origin: string): boolean {
+  if (!constructorOriginRule(origin)) return false;
+  const one = (bytes: number) => `0x${"00".repeat(bytes - 1)}01` as Hex;
+  try {
+    signInMessageV4(
+      {
+        origin,
+        chainId: 6343,
+        contract: one(20) as Address,
+        communityId: one(32),
+        publicationPolicy: one(32),
+      },
+      { learner: one(20) as Address, nonce: one(32), issuedAt: 1n },
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const hex64 = /^0x[0-9a-f]{64}$/;
@@ -80,7 +108,7 @@ const resourcesOf = (ctx: SignInV4Context) => [
  */
 export function signInMessageV4(ctx: SignInV4Context, s: SignIn): string {
   if (
-    !canonicalOriginV4(ctx.origin) ||
+    !constructorOriginRule(ctx.origin) ||
     new URL(ctx.origin).origin !== ctx.origin ||
     !Number.isSafeInteger(ctx.chainId) ||
     ctx.chainId <= 0 ||

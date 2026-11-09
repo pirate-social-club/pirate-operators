@@ -317,8 +317,13 @@ Release observation:
   the configured publisher, and `communityOrigin()` against the selection's
   `communityOrigin` and the community's origin
   (`harness/learning-v4-release-observation.ts`). The release profile
-  requires the selection's `communityOrigin` to be canonical and equal to the
-  application profile's `origin` (`harness/learning-v4-release-profile.ts`).
+  requires the selection's `communityOrigin` to be canonical, one for which
+  `signInMessageV4` builds a text, and equal to the application profile's
+  `origin` (`harness/learning-v4-release-profile.ts`). The constructor also
+  accepts some origins the builder refuses (a one-letter or numeric top
+  label, a label over 63 characters, an IPv4 form that `URL` rewrites,
+  invalid punycode); a contract deployed with one could never sign anyone
+  in, and `communityOrigin` is immutable, so the release refuses them.
 
 ## Phishing and relay (settled by the SIWE sign-in)
 
@@ -378,7 +383,8 @@ Protocol, in packages/protocol/learning-results-v4.ts:
 - `readSignInMessageV4(text)`, which returns the context and sign-in only
   when `signInMessageV4` rebuilds the text byte for byte;
 - `SIGN_IN_STATEMENT_V4`, `SIGN_IN_BACKDATE_S`, `signInIssuedAtV4` and
-  `canonicalOriginV4`, the constructor's origin rule;
+  `canonicalOriginV4`, the constructor's origin rule narrowed to origins
+  `signInMessageV4` can render;
 - `resultsV4Domain(chainId, contract)`, name "Pirate Learning Results",
   version "4", now used only by the Revocation;
 - `resultsV4Abi`. This is the V3 result ABI (`publish`, `correct`,

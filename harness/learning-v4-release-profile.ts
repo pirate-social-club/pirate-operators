@@ -61,6 +61,9 @@ export function learningV4ReleaseSelection(
       p.publicationPolicy === learningV4PublicityPolicy &&
       p.policyVersion === 4 &&
       typeof p.communityOrigin === "string" &&
+      // The constructor's rule, and a sign-in text must build for it: the
+      // contract accepts some origins viem's SIWE builder refuses, and
+      // communityOrigin is immutable.
       canonicalOriginV4(p.communityOrigin),
     "learning_v4_release_selection_invalid",
     409,

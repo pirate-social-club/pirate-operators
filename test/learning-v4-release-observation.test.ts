@@ -9,7 +9,14 @@ import { keccak256, type Address, type Hex, type PublicClient } from "viem";
 import { chain } from "../harness/chain.ts";
 import { accounts } from "../harness/runtime.ts";
 import { observeLearningV4Release } from "../harness/learning-v4-release-observation.ts";
-import type { LearningV4ReleaseSelection } from "../harness/learning-v4-release-profile.ts";
+import {
+  learningV4ReleaseSelection,
+  type LearningV4ReleaseSelection,
+} from "../harness/learning-v4-release-profile.ts";
+import {
+  canonicalOriginV4,
+  signInMessageV4,
+} from "../packages/protocol/learning-results-v4.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import { stopChain } from "./payments-fixture.ts";
@@ -167,6 +174,49 @@ test("observation refuses a contract whose sign-in names another community origi
     observeLearningV4Release(client(), { ...right.selection, communityOrigin: firstSong.origin + "/" }, expected),
     /^Error: learning_v4_release_selection_invalid$/,
   );
+});
+
+test("a release refuses an origin the contract accepts but the sign-in builder cannot render", async () => {
+  // communityOrigin is immutable: a contract deployed with one of these could
+  // never sign anyone in, so the release selection refuses it.
+  const unbuildable = [
+    "https://a.b",
+    "https://example.c1",
+    "https://example.123",
+    `https://${"a".repeat(64)}.com`,
+    "https://1.2.3",
+    "https://0x7f.1",
+    "https://xn--a.com",
+  ];
+  const ctx = {
+    chainId: 6343,
+    contract: `0x${"ab".repeat(20)}` as Address,
+    communityId,
+    publicationPolicy: learningV4PublicityPolicy,
+  };
+  const signIn = { learner: publisher, nonce: `0x${"33".repeat(32)}` as Hex, issuedAt: 1794240000n };
+  for (const origin of unbuildable) {
+    assert.throws(() => signInMessageV4({ ...ctx, origin }, signIn), Error, origin);
+    assert.equal(canonicalOriginV4(origin), false, origin);
+    const { selection } = await deployV4(learningV4PublicityPolicy, communityId, origin);
+    assert.equal(selection.communityOrigin, origin);
+    assert.throws(() => learningV4ReleaseSelection(selection), /^Error: learning_v4_release_selection_invalid$/, origin);
+    await assert.rejects(
+      observeLearningV4Release(client(), selection, { ...expected, communityOrigin: origin }),
+      /^Error: learning_v4_release_selection_invalid$/,
+      origin,
+    );
+  }
+  for (const origin of [
+    firstSong.origin,
+    "https://community.example",
+    "https://localhost:8443",
+    "https://127.0.0.1:8443",
+    "https://xn--bcher-kva.example",
+  ]) {
+    assert.equal(canonicalOriginV4(origin), true, origin);
+    assert.ok(signInMessageV4({ ...ctx, origin }, signIn).includes(`URI: ${origin}\n`), origin);
+  }
 });
 
 test("observation refuses a controller other than the selection's", async () => {
