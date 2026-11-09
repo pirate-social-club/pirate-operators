@@ -691,7 +691,8 @@ export async function communityScheduled(
       failures.push(error);
     }
   }
-  if (env.STUDY_RESULTS_V3_CONTRACT) {
+  // Study recovery covers V3 lessons and, when configured, V4 lessons.
+  if (env.STUDY_RESULTS_V3_CONTRACT || env.STUDY_RESULTS_V4_CONTRACT) {
     try {
       ports ??= provided ?? dependencies(env);
       const config = await ports.configuration();

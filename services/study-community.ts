@@ -2,10 +2,15 @@ import { Effect } from "effect";
 import type { Address, Hex } from "viem";
 import { canonical, check, digest } from "../packages/protocol/index.ts";
 import {
+  StudyError,
   studyCheck,
   type StudyPrincipal,
   type StudySelection,
 } from "../packages/study/contracts.ts";
+import type {
+  AnyStudyLessonOffer,
+  StudyLessonOfferV4,
+} from "../packages/study/operator-contract.ts";
 import {
   studySong,
   type StudySong,
@@ -28,7 +33,12 @@ import {
   managedStudyTranscriber,
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type {
+  StudyAuthorizationBinding,
+  StudyBinding,
+  StudyOperatorBinding,
+} from "./study-operator.ts";
+import type { ResultsTarget } from "./learning-contract.ts";
 import { studyPublicationQueue } from "./study-publication-queue.ts";
 
 export interface StudyEnv extends KaraokeEnv {
@@ -48,31 +58,46 @@ interface BoundRow {
   binding_json: string;
   learner: string;
 }
-export function studyAvailable(env: StudyEnv, config: CommunityConfig) {
-  return !!(
-    env.STUDY_RESULTS_V3_CONTRACT &&
+/**
+ * The results version new lessons use: V4 when its contract is configured
+ * and is the directory's learning records, otherwise V3 under the same rule,
+ * otherwise none.
+ */
+export function studyVersion(
+  env: StudyEnv,
+  config: CommunityConfig,
+): 3 | 4 | null {
+  const managed = !!(
     env.KARAOKE_SERVICE_MODE === "internal" &&
     env.KARAOKE_OPERATOR &&
     env.KARAOKE_SIGNER_PRIVATE_KEY &&
     env.KARAOKE_OPERATOR_ADDRESS &&
-    [31337, 6343].includes(Number(env.KARAOKE_PAYMENT_CHAIN_ID)) &&
-    env.STUDY_RESULTS_V3_CONTRACT.toLowerCase() ===
-      config.learningRecords.toLowerCase()
+    [31337, 6343].includes(Number(env.KARAOKE_PAYMENT_CHAIN_ID))
   );
+  const records = config.learningRecords.toLowerCase();
+  if (managed && env.STUDY_RESULTS_V4_CONTRACT?.toLowerCase() === records)
+    return 4;
+  if (managed && env.STUDY_RESULTS_V3_CONTRACT?.toLowerCase() === records)
+    return 3;
+  return null;
+}
+export function studyAvailable(env: StudyEnv, config: CommunityConfig) {
+  return studyVersion(env, config) !== null;
 }
 
 export function liveStudy(
   ports: StudyCommunityPorts,
   session: { account_id: string; wallet: string },
 ) {
-  studyCheck(studyAvailable(ports.env, ports.config), "study_unavailable", 503);
+  const version = studyVersion(ports.env, ports.config);
+  studyCheck(version !== null, "study_unavailable", 503);
   const owner: StudyPrincipal = {
     accountId: session.account_id,
     communityId: ports.config.communityId,
   };
   const now = ports.now ?? Date.now,
     store = new StudyLessonStore(ports.db);
-  const operator: StudyOperatorPorts = {
+  const operatorPorts = (contract: string): StudyOperatorPorts => ({
     binding: ports.env.KARAOKE_OPERATOR!,
     issuerKey: ports.env.KARAOKE_SIGNER_PRIVATE_KEY as Hex,
     now,
@@ -80,9 +105,35 @@ export function liveStudy(
       chainId: Number(ports.env.KARAOKE_PAYMENT_CHAIN_ID) as 31337 | 6343,
       communityId: ports.config.communityId,
       operator: ports.env.KARAOKE_OPERATOR_ADDRESS as Address,
-      contract: ports.env.STUDY_RESULTS_V3_CONTRACT as Address,
+      contract: contract as Address,
     },
-  };
+  });
+  // New lessons use the configured version's contract.
+  const operator = operatorPorts(
+    (version === 4
+      ? ports.env.STUDY_RESULTS_V4_CONTRACT
+      : ports.env.STUDY_RESULTS_V3_CONTRACT)!,
+  );
+  /**
+   * A bound lesson is served under the contract it was bound to: a V3 lesson
+   * keeps its V3 contract after V4 becomes the default for new lessons.
+   */
+  function operatorFor(target: ResultsTarget) {
+    const contract =
+      target.version === 4
+        ? ports.env.STUDY_RESULTS_V4_CONTRACT
+        : target.version === 3
+          ? ports.env.STUDY_RESULTS_V3_CONTRACT
+          : undefined;
+    studyCheck(
+      !!contract &&
+        target.chainId === operator.authority.chainId &&
+        target.contract.toLowerCase() === contract.toLowerCase(),
+      "study_contract_changed",
+      409,
+    );
+    return operatorPorts(contract!);
+  }
   async function source(song: StudySong) {
     studyCheck(
       song.communityId === owner.communityId &&
@@ -118,16 +169,35 @@ export function liveStudy(
       "study_lesson_not_bound",
       409,
     );
-    const binding = JSON.parse(row.binding_json) as StudyOperatorBinding;
-    studyCheck(
-      binding.target.version === 3 &&
-        binding.target.chainId === operator.authority.chainId &&
-        binding.target.contract.toLowerCase() ===
-          operator.authority.contract.toLowerCase(),
-      "study_contract_changed",
-      409,
-    );
-    return { binding, source: JSON.parse(row.source_json) as LyricManifest };
+    const binding = JSON.parse(row.binding_json) as StudyBinding;
+    return {
+      binding,
+      operator: operatorFor(binding.target),
+      source: JSON.parse(row.source_json) as LyricManifest,
+    };
+  }
+  /**
+   * V4: the account's most recent recorded sign-in authorization issued at or
+   * before `atMs`. A sign-in still being recorded is a retryable refusal.
+   */
+  async function authorizationAt(atMs: number) {
+    const row = await ports.db
+      .prepare(
+        `SELECT
+        (SELECT authorization_id FROM learning_authorizations
+          WHERE account_id=?1 AND subject=?2 AND state='recorded' AND issued_at<=?3
+          ORDER BY issued_at DESC,authorization_id DESC LIMIT 1) AS recorded,
+        EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND state='pending') AS pending`,
+      )
+      .bind(
+        owner.accountId,
+        session.wallet.toLowerCase(),
+        Math.floor(atMs / 1000),
+      )
+      .first<{ recorded: string | null; pending: number }>();
+    if (row?.recorded) return row.recorded as Hex;
+    studyCheck(!row?.pending, "study_authorization_pending", 409);
+    throw new StudyError("study_authorization_required", 409);
   }
   async function ensureBinding(lesson: StudyLesson) {
     const existing = await ports.db
@@ -162,11 +232,43 @@ export function liveStudy(
         language: line.language,
       })),
     };
-    const binding = await bindManagedStudy(operator, offer);
+    let binding: StudyBinding, offered: AnyStudyLessonOffer;
+    if (version === 4) {
+      // The lesson binds the sign-in in force when it started.
+      const v4: StudyLessonOfferV4 = {
+        ...offer,
+        authorizationId: await authorizationAt(state.startedAt),
+      };
+      const accepted: StudyAuthorizationBinding = await bindManagedStudy(
+        operator,
+        v4,
+      ).catch((error: unknown) => {
+        // Permission withdrawn on chain: the same answer as no sign-in.
+        if (
+          error instanceof Error &&
+          error.message === "study_authorization_required"
+        )
+          throw new StudyError("study_authorization_required", 409);
+        throw error;
+      });
+      check(
+        accepted.authorization?.id === v4.authorizationId,
+        "study_binding_changed",
+      );
+      binding = accepted;
+      offered = v4;
+    } else {
+      const accepted: StudyOperatorBinding = await bindManagedStudy(
+        operator,
+        offer,
+      );
+      binding = accepted;
+      offered = offer;
+    }
     check(
-      binding.offerHash === digest(offer) &&
-        canonical(binding.offer) === canonical(offer) &&
-        binding.target.version === 3 &&
+      binding.offerHash === digest(offered) &&
+        canonical(binding.offer) === canonical(offered) &&
+        binding.target.version === version &&
         binding.target.contract.toLowerCase() ===
           operator.authority.contract.toLowerCase(),
       "study_binding_changed",
@@ -219,7 +321,7 @@ export function liveStudy(
       providerRetention: "stored",
       async recover(context, audioDigest) {
         const saved = await bound(context.lessonId);
-        return managedStudyTranscriber(operator, saved.binding).recover!(
+        return managedStudyTranscriber(saved.operator, saved.binding).recover!(
           context,
           audioDigest,
         );
@@ -227,12 +329,10 @@ export function liveStudy(
       async transcribe(audio, contentType, language, context) {
         studyCheck(context, "study_lesson_not_bound", 409);
         const saved = await bound(context.lessonId);
-        return managedStudyTranscriber(operator, saved.binding).transcribe(
-          audio,
-          contentType,
-          language,
-          context,
-        );
+        return managedStudyTranscriber(
+          saved.operator,
+          saved.binding,
+        ).transcribe(audio, contentType, language, context);
       },
     },
   });
@@ -244,7 +344,7 @@ export function liveStudy(
     resolveLines: async (song) =>
       studySourceLines(await source(song)).lines.map((entry) => entry.line),
   });
-  const publications = studyPublicationQueue(ports.db, operator, owner, now);
+  const publications = studyPublicationQueue(ports.db, operatorFor, owner, now);
   async function reconcilePublication(lesson: StudyLesson) {
     if (lesson.status !== "active")
       await publications.sync(lesson.lessonId).catch(() => undefined);
@@ -276,6 +376,9 @@ export function liveStudy(
       });
     },
     async start(requestId: string, song: unknown) {
+      // V4: refuse before creating a lesson while sign-in is being recorded,
+      // so the client's retry starts the lesson once it is.
+      if (version === 4) await authorizationAt(now());
       const lesson = await lessons.start(owner, requestId, song);
       await ensureBinding(lesson);
       return lesson;

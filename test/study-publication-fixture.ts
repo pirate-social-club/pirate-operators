@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { keccak256 } from "viem";
-import { readPublicResultsV3 } from "../packages/records/results-v3.ts";
+import {
+  readPublicResults,
+  readPublicResultsV3,
+} from "../packages/records/results-v3.ts";
 import {
   studySourceReader,
   studySourceAuthenticator,
@@ -29,11 +32,19 @@ export async function json<T>(response: Response) {
   return value as T;
 }
 export const lessonPath = (id: string) => "/api/study/lessons/" + id;
-export async function studyPublicationFixture(port: number) {
-  const f = await studyCommunityFixture(port);
+/**
+ * With `v4`, the community's learning records are LearningResultsV4: the
+ * learner's sign-in is the publication permission and no enrollment is made.
+ */
+export async function studyPublicationFixture(
+  port: number,
+  options: { v4?: boolean } = {},
+) {
+  const f = await studyCommunityFixture(port, options);
   try {
     const auth = await f.login();
-    await f.enroll();
+    if (options.v4) await f.recordSignIns();
+    else await f.enroll();
     const song = await json<StudySong>(
       await f.call("/api/study/song?postId=" + firstSongFixture.postId, {
         headers: auth,
@@ -47,7 +58,7 @@ export async function studyPublicationFixture(port: number) {
         chainId: 31337,
         communityId: f.config.communityId,
         operator: f.operatorEnv.OPERATOR_ADDRESS,
-        contract: f.v3,
+        contract: options.v4 ? f.v4 : f.v3,
       },
     };
     return {
@@ -126,6 +137,27 @@ export async function studyPublicationFixture(port: number) {
           history: [f.config],
           transport: reads.transport,
         };
+        if (options.v4)
+          return readPublicResults(
+            {
+              contract: f.v4,
+              codeHash: keccak256(
+                (await f.evm.publicClient.getCode({ address: f.v4 }))!,
+              ),
+              version: 4,
+            },
+            {
+              rpcUrl: f.evm.rpcUrl,
+              chainId: 31337,
+              communityId: f.config.communityId,
+              fromBlock: 0n,
+              toBlock: await f.evm.publicClient.getBlockNumber({
+                cacheTime: 0,
+              }),
+              studyManifest: studySourceReader(source),
+              authenticateStudy: studySourceAuthenticator(source),
+            },
+          );
         return readPublicResultsV3({
           rpcUrl: f.evm.rpcUrl,
           chainId: 31337,
@@ -165,3 +197,6 @@ export async function studyPublicationFixture(port: number) {
     throw error;
   }
 }
+/** The V4 variant: sign-in is the publication permission. */
+export const studyPublicationFixtureV4 = (port: number) =>
+  studyPublicationFixture(port, { v4: true });

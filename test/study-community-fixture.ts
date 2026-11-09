@@ -1,5 +1,7 @@
 // Actual community routes, D1 migrations, signatures and V3 contract. The posts
 // RPC, IPFS transport and speech provider below are explicit local simulations.
+// With `v4`, a LearningResultsV4 contract is also deployed and is the
+// directory's learning records; V3 stays configured for historical lessons.
 import { readFile } from "node:fs/promises";
 import { encodeFunctionData } from "viem";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
@@ -18,17 +20,37 @@ import {
   type CommunityDependencies,
 } from "../services/community-application.ts";
 import { studyOperatorRoute } from "../services/study-operator.ts";
-import { acceptEnrollment } from "../services/learning-enrollment.ts";
+import {
+  acceptEnrollment,
+  authorizationRoute,
+} from "../services/learning-enrollment.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { relayPendingSignIns } from "../services/learning-sign-in.ts";
+import type {
+  SiweChallenge,
+  SignInChallenge,
+} from "../packages/community/accounts.ts";
+import type { Address } from "viem";
 import type {
   StudyTranscriber,
   StudyTranscript,
 } from "../packages/study/speech-transcriber.ts";
 
-export async function studyCommunityFixture(port: number) {
+export async function studyCommunityFixture(
+  port: number,
+  options: { v4?: boolean } = {},
+) {
   const f = await learningBindingFixture(port, firstSongFixture.communityId);
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
   try {
     runtime = await communityRuntime();
+    const v4: Address | undefined = options.v4
+      ? await f.evm.deploy("LearningResultsV4", [
+          accounts[3].address,
+          firstSongFixture.communityId,
+          learningV4PublicityPolicy,
+        ])
+      : undefined;
     const publisher = privateKeyToAccount(`0x${"12".repeat(32)}`);
     const deployment = async (file: string) =>
       JSON.parse(
@@ -47,7 +69,7 @@ export async function studyCommunityFixture(port: number) {
           "first-song-managed-20261105.curated-configuration.json",
         )),
         publisher: publisher.address.toLowerCase(),
-        learningRecords: f.v3.toLowerCase(),
+        learningRecords: (v4 ?? f.v3).toLowerCase(),
       },
       [original],
     );
@@ -104,6 +126,17 @@ export async function studyCommunityFixture(port: number) {
       [accounts[2].address, 2, true],
       3,
     );
+    if (v4) {
+      f.env.RESULTS_V4_CONTRACT = v4;
+      await f.evm.write(
+        v4,
+        "LearningResultsV4",
+        "setGrader",
+        [accounts[2].address, 2, true],
+        3,
+      );
+    }
+    let authorizationDown = false;
     f.env.ISSUER = accounts[1].address;
     f.env.SPEECH_BUDGET = {
       getByName(name: string) {
@@ -123,12 +156,12 @@ export async function studyCommunityFixture(port: number) {
         const path = new URL(request.url).pathname;
         if (statusDown && path === "/study/speech/status")
           throw Error("fixture status outage");
-        const response = await studyOperatorRoute(
-          request,
-          f.env,
-          store,
-          provider,
-        );
+        if (authorizationDown && path.startsWith("/authorization"))
+          throw Error("fixture authorization outage");
+        // The operator's Study route, then its sign-in relay route.
+        const response =
+          (await studyOperatorRoute(request, f.env, store, provider)) ??
+          (await authorizationRoute(request, f.env, store));
         if (path === loss) {
           loss = null;
           throw Error("fixture response lost");
@@ -152,6 +185,7 @@ export async function studyCommunityFixture(port: number) {
       KARAOKE_SIGNER_PRIVATE_KEY: keys[1],
       KARAOKE_PAYMENT_CHAIN_ID: "31337",
       STUDY_RESULTS_V3_CONTRACT: f.v3,
+      ...(v4 ? { STUDY_RESULTS_V4_CONTRACT: v4 } : {}),
     } as unknown as CommunityEnv;
     const ports: CommunityDependencies = {
       configuration: async () => config,
@@ -194,6 +228,7 @@ export async function studyCommunityFixture(port: number) {
       });
     return {
       ...f,
+      v4: v4!,
       operatorEnv: f.env,
       db: runtime.db,
       env,
@@ -207,12 +242,19 @@ export async function studyCommunityFixture(port: number) {
           await post("/api/auth/challenge", {
             address: accounts[index].address,
           })
-        ).json()) as { id: string; message: string };
+        ).json()) as SiweChallenge | SignInChallenge;
+        // A V4 community's sign-in is typed data; it is also the permission.
         const response = await post("/api/auth/verify", {
           id: challenge.id,
-          signature: await accounts[index].signMessage({
-            message: challenge.message,
-          }),
+          signature:
+            "typedData" in challenge
+              ? await accounts[index].signTypedData({
+                  ...challenge.typedData,
+                  message: challenge.typedData.message as never,
+                })
+              : await accounts[index].signMessage({
+                  message: challenge.message,
+                }),
         });
         const session = (await response.json()) as { csrf: string };
         return {
@@ -229,6 +271,13 @@ export async function studyCommunityFixture(port: number) {
           enrollment.signature,
         );
         now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
+      },
+      /** V4: the scheduled relay settles sign-ins still being recorded. */
+      async recordSignIns() {
+        await relayPendingSignIns(env, runtime!.db, now);
+      },
+      authorizationDown: (value: boolean) => {
+        authorizationDown = value;
       },
       counts: () => ({ calls, observations }),
       heard: (text: string) => {

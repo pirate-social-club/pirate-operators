@@ -45,6 +45,8 @@ export interface StudyCloseBound {
  * completed outside that consent cannot be frozen, published or erased, and
  * thirty days after it started, so a consent with a distant end date cannot
  * keep private data indefinitely. The consent bound is its last millisecond.
+ * A V4 lesson, bound to a sign-in that lasts until withdrawn, passes
+ * +Infinity and always closes at the open limit.
  */
 export function studyCloseBound(
   state: Pick<LessonState, "startedAt" | "expiresAt">,
@@ -55,8 +57,11 @@ export function studyCloseBound(
   const limit = state.startedAt + STUDY_OPEN_LESSON_MAX_MS;
   if (consentExpiresAtS === null)
     return { at: limit, status: "abandoned", reason: "never_bound" };
+  // A V4 lesson's sign-in permission has no end: +Infinity, so its bound is
+  // the open limit.
   studyCheck(
-    Number.isFinite(consentExpiresAtS) && consentExpiresAtS > 0,
+    consentExpiresAtS === Infinity ||
+      (Number.isFinite(consentExpiresAtS) && consentExpiresAtS > 0),
     "study_lesson_binding_invalid",
     503,
   );
@@ -68,6 +73,30 @@ export function studyCloseBound(
         reason: "consent_ended",
       }
     : { at: limit, status: "abandoned", reason: "open_limit" };
+}
+
+/**
+ * The consent end, in seconds, recorded in a stored binding. A V3 binding has
+ * its enrollment's end. A V4 binding has a sign-in authorization, which lasts
+ * until withdrawn, so it is +Infinity; it never carries an enrollment end.
+ */
+export function studyConsentExpiry(row: {
+  expires_at: number | null;
+  version: number | null;
+  authorization_id: string | null;
+}) {
+  if (row.version === 4) {
+    studyCheck(
+      row.expires_at == null &&
+        typeof row.authorization_id === "string" &&
+        /^0x[0-9a-f]{64}$/.test(row.authorization_id),
+      "study_lesson_binding_invalid",
+      503,
+    );
+    return Infinity;
+  }
+  studyCheck(row.expires_at != null, "study_lesson_binding_invalid", 503);
+  return Number(row.expires_at);
 }
 
 export const STUDY_MAX_TAKES = 3;

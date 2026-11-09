@@ -6,11 +6,16 @@ import {
   STUDY_MAX_TAKES,
   studyPresentationCap,
 } from "../packages/study/lesson.ts";
-import { verifyStudyAuthorization } from "../packages/study/operator-auth.ts";
+import {
+  STUDY_AUTH_HEADER,
+  verifyStudyAuthorization,
+} from "../packages/study/operator-auth.ts";
 import {
   validateStudyOffer,
   studyId,
+  type AnyStudyLessonOffer,
   type StudyLessonOffer,
+  type StudyLessonOfferV4,
   type StudySpeechParameters,
   type StudySpeechReceipt,
 } from "../packages/study/operator-contract.ts";
@@ -31,19 +36,37 @@ import {
 import {
   resultsTarget,
   retainedTarget,
+  sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
+import {
+  studyAuthorizationPermits,
+  studyAuthorizationState,
+  type BoundAuthorization,
+} from "./study-authorization.ts";
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import type { Env } from "./runtime.ts";
 
+/** A V3 lesson binding: the learner's learning enrollment. */
 export interface StudyOperatorBinding {
   offer: StudyLessonOffer;
   offerHash: Hex;
   exercisesHash: Hex;
   target: ResultsTarget;
   enrollment: BoundEnrollment;
+  authorization?: never;
 }
+/** A V4 lesson binding: the sign-in authorization in force at its start. */
+export interface StudyAuthorizationBinding {
+  offer: StudyLessonOfferV4;
+  offerHash: Hex;
+  exercisesHash: Hex;
+  target: ResultsTarget;
+  authorization: BoundAuthorization;
+  enrollment?: never;
+}
+export type StudyBinding = StudyOperatorBinding | StudyAuthorizationBinding;
 interface SpeechJob {
   bindingHash: Hex;
   requestHash: Hex;
@@ -53,27 +76,57 @@ interface SpeechJob {
   expiresAt: number;
 }
 export const studyBinding = (store: ResultStore, id: string) =>
-  store.get<StudyOperatorBinding>(`studyBinding:${id}`);
+  store.get<StudyBinding>(`studyBinding:${id}`);
+
+/**
+ * The results contract the community issuer named. V4 is chosen only when
+ * the request names the configured V4 contract; anything else is V3 as before,
+ * so V3 lessons keep working beside V4.
+ */
+function authorityTarget(env: Env, request: Request): ResultsTarget {
+  if (env.RESULTS_V4_CONTRACT) {
+    let named: unknown;
+    try {
+      named = JSON.parse(request.headers.get(STUDY_AUTH_HEADER) ?? "")?.request
+        ?.contract;
+    } catch {
+      /* Verification below refuses a malformed header. */
+    }
+    // Only a request naming V4 depends on the V4 setting's validity.
+    if (
+      typeof named === "string" &&
+      named.toLowerCase() === env.RESULTS_V4_CONTRACT.toLowerCase()
+    )
+      return resultsTarget(env, 4);
+  }
+  return resultsTarget(env, 3);
+}
 
 async function bindStudyLesson(
   env: Env,
   store: ResultStore,
-  offer: StudyLessonOffer,
+  offer: AnyStudyLessonOffer,
+  target: ResultsTarget,
 ) {
   check(
     !closedStudyPublication(store, offer.lessonId),
     "study_history_expired",
   );
-  const target = resultsTarget(env, 3),
-    key = `studyBinding:${offer.lessonId}`;
+  const key = `studyBinding:${offer.lessonId}`;
   const old = studyBinding(store, offer.lessonId),
     hash = digest(offer) as Hex;
   if (old) {
     retainedTarget(env, old.target);
-    check(old.offerHash === hash, "study_lesson_binding_changed");
+    check(
+      old.offerHash === hash && sameResultsTarget(old.target, target),
+      "study_lesson_binding_changed",
+    );
     return old;
   }
-  const exercisesHash = validateStudyOffer(offer, store.now());
+  if (target.version === 4)
+    return bindAuthorizedLesson(env, store, offer, target, hash);
+  check(target.version === 3, "unsupported_results_version");
+  const exercisesHash = validateStudyOffer(offer, store.now(), 3);
   await checkLearningDisclosure(env, target);
   const enrollment = await activeEnrollment(env, offer.learner, target, 2);
   // A new lesson has no deadline; it can continue only while this consent is
@@ -114,6 +167,68 @@ async function bindStudyLesson(
       enrollment,
     };
     store.set(key, binding);
+    return binding;
+  });
+}
+
+/**
+ * V4: the lesson binds the sign-in authorization the application chose. It
+ * must be the learner's, issued no later than the lesson started, with
+ * permission unbroken since. Later sign-ins never move that start.
+ */
+async function bindAuthorizedLesson(
+  env: Env,
+  store: ResultStore,
+  offer: AnyStudyLessonOffer,
+  target: ResultsTarget,
+  hash: Hex,
+): Promise<StudyAuthorizationBinding> {
+  const exercisesHash = validateStudyOffer(offer, store.now(), 4),
+    v4 = offer as StudyLessonOfferV4;
+  const state = await studyAuthorizationState(
+    env,
+    target,
+    v4.learner,
+    v4.authorizationId,
+  );
+  check(
+    state.ownedBy && state.issuedAt * 1000 <= v4.startedAt,
+    "study_authorization_mismatch",
+  );
+  check(state.unbroken, "study_authorization_required");
+  return store.transaction(() => {
+    check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
+    const concurrent = studyBinding(store, v4.lessonId);
+    if (concurrent) {
+      check(
+        concurrent.offerHash === hash &&
+          sameResultsTarget(concurrent.target, target),
+        "study_lesson_binding_changed",
+      );
+      return concurrent as StudyAuthorizationBinding;
+    }
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:study:${v4.lessonId}:1`,
+    );
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:study:${v4.lessonId}:2`,
+    );
+    const binding: StudyAuthorizationBinding = {
+      offer: v4,
+      offerHash: hash,
+      exercisesHash,
+      target,
+      authorization: {
+        id: v4.authorizationId,
+        issuedAt: state.issuedAt,
+        target,
+      },
+    };
+    store.set(`studyBinding:${v4.lessonId}`, binding);
     return binding;
   });
 }
@@ -178,17 +293,22 @@ async function speak(
   await checkLearningDisclosure(env, binding.target);
   // Consent that ended, was revoked or was replaced is a known refusal before
   // any slot or provider call. The application closes the lesson privately.
-  const active = await activeEnrollment(
-    env,
-    binding.offer.learner,
-    binding.target,
-    2,
-  ).catch((error: unknown) => {
-    if (error instanceof Error && error.message === "enrollment_required")
-      return null;
-    throw error;
-  });
-  if (!active || active.id !== binding.enrollment.id)
+  // A V4 lesson re-checks its sign-in authorization the same way.
+  const permitted = binding.authorization
+    ? await studyAuthorizationPermits(
+        env,
+        binding.authorization,
+        binding.offer.learner,
+        binding.offer.startedAt,
+      )
+    : await activeEnrollment(env, binding.offer.learner, binding.target, 2)
+        .catch((error: unknown) => {
+          if (error instanceof Error && error.message === "enrollment_required")
+            return null;
+          throw error;
+        })
+        .then((active) => !!active && active.id === binding.enrollment.id);
+  if (!permitted)
     return {
       state: "unavailable",
       error: "enrollment_required",
@@ -279,7 +399,7 @@ export async function studyOperatorRoute(
     Response.json(value, {
       headers: { "cache-control": "no-store" },
     });
-  const target = resultsTarget(env, 3);
+  const target = authorityTarget(env, request);
   const auth = await verifyStudyAuthorization(
     request,
     {
@@ -291,7 +411,22 @@ export async function studyOperatorRoute(
     env.ISSUER,
     store.now(),
   );
-  if (path === "/study/speech")
+  // A V4 lesson is served only under V4 authority, and a V3 lesson only under
+  // V3 authority. V3 contract changes keep their existing refusals.
+  const sameContract = (lessonId: unknown) => {
+    const bound =
+      typeof lessonId === "string" && studyId(lessonId)
+        ? studyBinding(store, lessonId)
+        : undefined;
+    check(
+      !bound ||
+        (bound.target.version !== 4 && target.version !== 4) ||
+        sameResultsTarget(bound.target, target),
+      "study_contract_changed",
+    );
+  };
+  if (path === "/study/speech") {
+    sameContract(auth.parameters.lessonId);
     return reply(
       await speak(
         env,
@@ -302,6 +437,7 @@ export async function studyOperatorRoute(
         transcriber,
       ),
     );
+  }
   const reader = request.body?.getReader();
   check(reader, "invalid_study_request_body");
   const chunks: Uint8Array[] = [];
@@ -333,7 +469,8 @@ export async function studyOperatorRoute(
   check(canonical(auth.parameters) === "{}", "invalid_study_parameters");
   const value = JSON.parse(new TextDecoder().decode(bytes));
   if (path === "/study/bind")
-    return reply(await bindStudyLesson(env, store, value));
+    return reply(await bindStudyLesson(env, store, value, target));
+  sameContract(value?.lessonId);
   if (path === "/study/terminal")
     return reply(await publishStudyTerminal(env, store, value));
   check(

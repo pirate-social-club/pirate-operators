@@ -12,7 +12,8 @@ import {
 } from "./study-outbox.ts";
 import type { StudyPublicationReceipt } from "../packages/study/publication.ts";
 import type { LyricManifest } from "../packages/community/lyric-manifest.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type { StudyBinding } from "./study-operator.ts";
+import type { ResultsTarget } from "./learning-contract.ts";
 import {
   publishManagedStudy,
   type StudyOperatorPorts,
@@ -23,9 +24,13 @@ import {
 } from "./study-private-history.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 
+/**
+ * `operatorFor` returns the operator authority for the contract a lesson was
+ * bound to, or refuses with `study_contract_changed`.
+ */
 export function studyPublicationQueue(
   db: D1Database,
-  operator: StudyOperatorPorts,
+  operatorFor: (target: ResultsTarget) => StudyOperatorPorts,
   owner: StudyPrincipal,
   now = Date.now,
 ) {
@@ -69,15 +74,8 @@ export function studyPublicationQueue(
           row.updated_at > now() - 3600000)
       )
         return prior;
-      const binding = JSON.parse(row.binding_json) as StudyOperatorBinding;
-      studyCheck(
-        binding.target.version === 3 &&
-          binding.target.chainId === operator.authority.chainId &&
-          binding.target.contract.toLowerCase() ===
-            operator.authority.contract.toLowerCase(),
-        "study_contract_changed",
-        409,
-      );
+      const binding = JSON.parse(row.binding_json) as StudyBinding;
+      const operator = operatorFor(binding.target);
       // Preserve a retryable row before the request; publication cannot depend
       // on this HTTP response reaching either the app or its browser.
       await db
@@ -119,7 +117,10 @@ export function studyPublicationQueue(
         receipt.sessionId ===
           digest({
             schema: "pirate.study-result-id/1",
-            enrollmentId: binding.enrollment.id,
+            // V4: the result's enrollmentId is the sign-in authorization.
+            enrollmentId: binding.authorization
+              ? binding.authorization.id
+              : binding.enrollment.id,
             lessonId: id,
           }) &&
           receipt.chainId === binding.target.chainId &&

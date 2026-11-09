@@ -7,6 +7,7 @@ import {
 import {
   STUDY_MAX_TAKES,
   studyCloseBound,
+  studyConsentExpiry,
   studyLessonHasDeadline,
   studyPresentationCap,
   type LessonState,
@@ -42,7 +43,7 @@ export async function studyPrivateHistory(
       .bind(id, owner.accountId, owner.communityId),
     db
       .prepare(
-        "SELECT state,receipt_json,json_extract(binding_json,'$.enrollment.expiresAt') AS consent_expires_at FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
+        "SELECT state,receipt_json,json_extract(binding_json,'$.enrollment.expiresAt') AS consent_expires_at,json_extract(binding_json,'$.target.version') AS version,json_extract(binding_json,'$.authorization.id') AS authorization_id FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
       )
       .bind(id, owner.accountId, owner.communityId),
   ]);
@@ -55,6 +56,8 @@ export async function studyPrivateHistory(
         state: string;
         receipt_json: string | null;
         consent_expires_at: number | null;
+        version: number | null;
+        authorization_id: string | null;
       }
     | undefined;
   // An open lesson's window runs from its close bound once that has passed:
@@ -65,7 +68,13 @@ export async function studyPrivateHistory(
     studyCloseBound(
       state,
       publication && !studyLessonHasDeadline(state)
-        ? Number(publication.consent_expires_at)
+        ? publication.version === 4
+          ? studyConsentExpiry({
+              expires_at: publication.consent_expires_at,
+              version: publication.version,
+              authorization_id: publication.authorization_id,
+            })
+          : Number(publication.consent_expires_at)
         : null,
     ).at;
   const completedAt =
