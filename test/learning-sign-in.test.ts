@@ -814,3 +814,79 @@ test("without any withdrawal, an older challenge completed late never replaces a
     await f.dispose();
   }
 });
+
+test("the scheduled relay takes turns: rows that stay retryable never starve a newer requested one", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    // Public local fixture keys. Never fund them.
+    const learners = Array.from({ length: 11 }, (_, i) =>
+      privateKeyToAccount(`0x${(0x31 + i).toString(16).repeat(32)}` as Hex),
+    );
+    const ids = new Map<string, string>();
+    for (const [i, account] of learners.entries()) {
+      const time = t0 + i * 1000;
+      const c = await loginChallenge(f.db, context, account.address, time, v4);
+      assert.ok("kind" in c);
+      const verified = await loginVerify(
+        f.db,
+        context,
+        c.id,
+        await signChallenge(c, account),
+        verifyLoginOffline,
+        time,
+      );
+      ids.set(account.address.toLowerCase(), verified.authorizationId!);
+    }
+    const newest = learners.at(-1)!.address.toLowerCase();
+    // The first ten stay retryable on every attempt; the newest is refused
+    // only while its start is still running, then the operator records it.
+    let scheduled = false;
+    const attempts: string[] = [];
+    const env = {
+      KARAOKE_OPERATOR: {
+        async fetch(_input: RequestInfo | URL, init?: RequestInit) {
+          const { signIn } = JSON.parse(String(init!.body)) as {
+            signIn: { learner: string };
+          };
+          const learnerOf = signIn.learner.toLowerCase();
+          attempts.push(learnerOf);
+          if (!scheduled || learnerOf !== newest)
+            return Response.json(
+              { error: "operator_unavailable" },
+              { status: 503 },
+            );
+          return Response.json({
+            id: ids.get(learnerOf),
+            state: "success",
+            txHash: `0x${"ab".repeat(32)}`,
+          });
+        },
+      },
+    } as never;
+    const accountsByAge = (
+      await f.db
+        .prepare(
+          "SELECT account_id FROM learning_authorizations ORDER BY issued_at",
+        )
+        .all<{ account_id: string }>()
+    ).results;
+    for (const [i, { account_id }] of accountsByAge.entries())
+      await requestSignInRelay(env, f.db, account_id, t0 + 60_000 + i * 1000);
+    assert.equal(attempts.length, 11);
+    scheduled = true;
+    const newestId = ids.get(newest)!;
+    // The default batch is ten: the ten older rows fill the first run.
+    assert.equal(await relayPendingSignIns(env, f.db, t0 + 120_000), 10);
+    assert.equal((await stateOf(f.db, newestId)).state, "pending");
+    // The next run reaches the newer row instead of the same ten again.
+    await relayPendingSignIns(env, f.db, t0 + 180_000);
+    assert.equal((await stateOf(f.db, newestId)).state, "recorded");
+    // The stuck rows keep their turns and stay pending.
+    for (const [learnerOf, id] of ids)
+      if (learnerOf !== newest)
+        assert.equal((await stateOf(f.db, id)).state, "pending");
+  } finally {
+    await f.dispose();
+  }
+});
