@@ -27,7 +27,9 @@ Anyone with an account may earn; there is no operator approval of participants.
 A qualifying result must be a genuine published result inside the window,
 signed by that account's own MOSS sign-in wallet. Closing the offer freezes those entries. Provider settlement and actual
 USDC collection are required before crediting wins; a zero prize is explicit.
-Repeated activities collapse into one entry per account/offer. Exact split
+Repeated activities collapse into each account's earliest one per offer. At
+most 500 accounts enter an offer; if more qualify, the earliest 500 enter, so
+an offer can always close and settle. Exact split
 arithmetic preserves the remainder in the ticket wallet. No-qualifier winnings
 stay there. Unclaimed and subject-conflict credits remain owed without expiry.
 Eligibility scans only publication blocks within that offer's advertised time
@@ -189,7 +191,8 @@ and every historical offer stay as they were. A retired rehearsal offer still
 closes through normal qualification and settles at its own simulated prize,
 but it can never be attached again. Each rehearsal's fictional drawing is its
 position in that list, so the first keeps drawing 0 and each successor has its
-own drawing slot for the same song.
+own drawing slot for the same song. A successor rehearsal keeps the retired one's prize, and
+a rehearsal ID that names an offer attached with real evidence is refused.
 
 The operator attaches that rehearsal before its window opens, allowing enough
 time for a real qualifying public Study or Karaoke result. Account mapping,

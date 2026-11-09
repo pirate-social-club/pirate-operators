@@ -130,6 +130,7 @@ test("rewards successor preserves the accepted Study deployment and appends only
       (p.rewards.profile.rehearsalHistory[0].prizeUsdcAtomic = "40000"),
     (p: any) => (p.rewards.profile.veryAppId = "another_program"),
     (p: any) => (p.rewards.source.codeHash = rewardTestProfile.programId),
+    (p: any) => (p.rewards.profile.rehearsal.prizeUsdcAtomic = "999000000"),
   ]) {
     const altered = structuredClone(rollover);
     mutate(altered);

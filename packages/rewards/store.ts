@@ -86,6 +86,21 @@ export class RewardStore {
       "reward_program_configuration_changed",
       503,
     );
+    // A rehearsal ID must never name an offer attached with real evidence,
+    // whose settlement would otherwise be routed to the simulated prize.
+    if (this.profile.rehearsal) {
+      const existing = await this.statement(
+        "SELECT purchase_evidence FROM reward_offers WHERE program_id=? AND offer_id=?",
+        this.program,
+        this.profile.rehearsal.offerId,
+      ).first<{ purchase_evidence: string }>();
+      insist(
+        !existing ||
+          JSON.parse(existing.purchase_evidence).mode === "simulated",
+        "reward_rehearsal_offer_conflict",
+        503,
+      );
+    }
     await this.statement(
       "INSERT INTO reward_inventory(program_id) VALUES(?) ON CONFLICT DO NOTHING",
       this.program,
@@ -96,6 +111,7 @@ export class RewardStore {
     build: () => Promise<{ statements: D1PreparedStatement[]; value: T }>,
   ): Promise<T> {
     await this.init();
+    let lastError: unknown;
     for (let retry = 0; retry < 8; retry++) {
       const row = await this.statement(
         "SELECT revision FROM reward_programs WHERE program_id=?",
@@ -113,10 +129,14 @@ export class RewardStore {
           "SELECT revision FROM reward_programs WHERE program_id=?",
           this.program,
         ).first<{ revision: number }>();
-        if (now?.revision !== row.revision) continue;
+        if (now?.revision !== row.revision) {
+          lastError = error;
+          continue;
+        }
         throw error;
       }
       const { statements, value } = built;
+      lastError = undefined;
       const guard = token();
       try {
         await this.db.batch([
@@ -146,7 +166,8 @@ export class RewardStore {
           throw error;
       }
     }
-    throw new Error("reward_program_contention");
+    // Under sustained contention, report the invariant that kept failing.
+    throw lastError ?? new Error("reward_program_contention");
   }
   async offer(id: string): Promise<OfferRow> {
     const row = await this.statement(

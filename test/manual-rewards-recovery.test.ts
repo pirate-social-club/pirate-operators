@@ -218,6 +218,17 @@ test("an invariant that fails on a torn read is retried after another batch comm
       /reward_reservation_corrupt/,
     );
     assert.equal(stable, 1);
+    // Under sustained contention the invariant itself is reported.
+    let contended = 0;
+    await assert.rejects(
+      f.store.atomic(async () => {
+        contended++;
+        await f.store.atomic(async () => ({ value: null, statements: [] }));
+        throw new Error("reward_reservation_corrupt");
+      }),
+      /reward_reservation_corrupt/,
+    );
+    assert.equal(contended, 8);
   } finally {
     await f.dispose();
   }

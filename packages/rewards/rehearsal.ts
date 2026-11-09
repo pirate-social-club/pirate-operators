@@ -91,7 +91,13 @@ export function isRehearsalRollover(
   next: RewardsProfile,
 ) {
   const parent = rewardProfileAncestors(next)[0];
-  return !!parent && canonical(parent) === canonical(previous);
+  // The new rehearsal keeps the retired one's prize, so a rollover cannot
+  // enlarge the program's obligations.
+  return (
+    !!parent &&
+    canonical(parent) === canonical(previous) &&
+    next.rehearsal!.prizeUsdcAtomic === parent.rehearsal!.prizeUsdcAtomic
+  );
 }
 
 export function assertRehearsalOffer(

@@ -10,6 +10,7 @@ import {
   rewardProfile,
 } from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
+import { MAX_REWARD_ENTRIES } from "../packages/rewards/offers.ts";
 
 test("daily credits remain held until verified; several credits reconcile to one exact payment", async () => {
   const f = await manualRewardsFixture();
@@ -365,6 +366,73 @@ test("any signed-in account earns without operator approval, but only from its o
       f.offers.close("offer_open_02"),
       /reward_qualifier_wallet_changed/,
     );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an offer always closes: repeats collapse per account and past the limit the earliest accounts enter, all credited in one settlement", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    const extra = Array.from({ length: MAX_REWARD_ENTRIES + 2 }, (_, i) => ({
+      accountId: `singer_${String(i).padStart(4, "0")}`,
+      wallet: `0x${(BigInt(i + 1) + 0x1000n).toString(16).padStart(40, "0")}`,
+    }));
+    for (let i = 0; i < extra.length; i += 50)
+      await f.db.batch(
+        extra
+          .slice(i, i + 50)
+          .flatMap((p, j) => [
+            f.db
+              .prepare(
+                "INSERT INTO community_accounts(account_id,author_id,created_at) VALUES(?,?,0)",
+              )
+              .bind(p.accountId, rewardHash(5000 + i + j)),
+            f.db
+              .prepare(
+                "INSERT INTO credential_bindings(binding_id,account_id,namespace,network,subject,created_at) VALUES(?,?,'moss',6343,?,0)",
+              )
+              .bind(`binding_singer_${i + j}`, p.accountId, p.wallet),
+          ]),
+      );
+    const open = await f.offer("offer_crowd_01", "9");
+    // The last two accounts sang latest; one early account repeats many times.
+    const results = extra.map((p, i) => ({
+      ...p,
+      evidenceHash: rewardHash(10000 + i),
+      completedAt: open.opensAt + 10 + i,
+    }));
+    for (let k = 0; k < 2000; k++)
+      results.push({
+        ...extra[0],
+        evidenceHash: rewardHash(20000 + k),
+        completedAt: open.opensAt + 5000 + k,
+      });
+    f.setCandidates(results);
+    f.setNow(open.cutoffAt);
+    const closed = await f.offers.close("offer_crowd_01");
+    const ids = closed.entries!.map((e) => e.accountId);
+    assert.equal(ids.length, MAX_REWARD_ENTRIES);
+    assert.deepEqual(
+      ids,
+      extra
+        .slice(0, MAX_REWARD_ENTRIES)
+        .map((p) => p.accountId)
+        .sort(),
+    );
+    assert.equal(
+      closed.entries!.find((e) => e.accountId === extra[0].accountId)!
+        .evidenceHash,
+      rewardHash(10000),
+      "an account's earliest result is the one entered",
+    );
+    const settled = await f.offers.settle("offer_crowd_01");
+    assert.equal(settled.state, "settled");
+    const credits = await f.db
+      .prepare("SELECT count(*) AS n FROM reward_credits WHERE offer_id=?")
+      .bind("offer_crowd_01")
+      .first<{ n: number }>();
+    assert.equal(credits!.n, MAX_REWARD_ENTRIES);
   } finally {
     await f.dispose();
   }

@@ -335,6 +335,18 @@ test("a rehearsal rollover keeps the program, its stored hash and the retired of
   assert.ok(isRehearsalRollover(p0, p1) && isRehearsalRollover(p1, p2));
   assert.ok(!isRehearsalRollover(p1, p0) && !isRehearsalRollover(p0, p2));
   assert.ok(!isRehearsalRollover(p0, p0));
+  assert.ok(
+    !isRehearsalRollover(
+      p0,
+      rewardProfile(
+        JSON.stringify({
+          ...p1,
+          rehearsal: { ...next, prizeUsdcAtomic: "999000000" },
+        }),
+      ),
+    ),
+    "a rollover cannot enlarge the simulated prize",
+  );
   for (const bad of [
     { ...p0, rehearsalHistory: [] },
     { ...p0, rehearsalHistory: [config] },
@@ -409,6 +421,53 @@ test("a rehearsal rollover keeps the program, its stored hash and the retired of
     // A later rollover still derives the stored profile. The release gate,
     // not the ledger, limits each release to one step.
     await new RewardStore(f.db, p2).init();
+
+    // Production rollback: the stored hash is the original profile, so the
+    // ledger still opens under it, but the newer rehearsal's money stays shut.
+    const s0 = new RewardStore(f.db, p0);
+    await s0.init();
+    const rolledBack = new RewardOffers(
+      s0,
+      withRewardRehearsal(p0, f.sources),
+      f.now,
+    );
+    f.setNow(second.cutoffAt);
+    await rolledBack.close(second.offerId);
+    await assert.rejects(
+      rolledBack.settle(second.offerId),
+      /reward_rehearsal_offer_changed/,
+    );
+    assert.equal((await s0.offer(second.offerId)).state, "closed");
+
+    // A rehearsal may never name an offer that was attached with real evidence.
+    const live = {
+      ...first,
+      offerId: "live_offer_01",
+      drawingId: "11492",
+      purchaseHash: rewardHash(4242),
+      ticketIds: ["4242"],
+      songKey: rewardHash(4243),
+      opensAt: f.now() + 1000,
+      cutoffAt: f.now() + 9000,
+    };
+    await new RewardOffers(
+      s1,
+      withRewardRehearsal(p1, f.sources),
+      f.now,
+    ).attach(live);
+    await assert.rejects(
+      new RewardStore(
+        f.db,
+        rewardProfile(
+          JSON.stringify({
+            ...p1,
+            rehearsal: { ...next, offerId: "live_offer_01" },
+            rehearsalHistory: [config, next],
+          }),
+        ),
+      ).init(),
+      /reward_rehearsal_offer_conflict/,
+    );
   } finally {
     await f.dispose();
   }
