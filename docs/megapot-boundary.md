@@ -1,5 +1,10 @@
 # Reward-pool settlement boundary
 
+Launch applicability, November 8: learner rewards settled through this
+external boundary are distinct from creator royalties. Song sales and creator
+royalties are deferred for launch; see
+[owner-only MegaETH song publication](megaeth-song-publication.md).
+
 This document covers local contract/provider experiments. External Megapot is
 on Base; it does not authorize Pirate contracts there. The reward funding and
 production payout route remain undecided. See the [current setup overview](decentralized-setup.md).

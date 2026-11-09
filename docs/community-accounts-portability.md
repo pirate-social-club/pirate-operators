@@ -1,5 +1,12 @@
 # Community accounts, sponsorship and portability, version 1
 
+Launch applicability, November 8: the workspace owner is the only song
+publisher and publishes through the ordinary account, with no creator
+activation or posting-time Palm; see
+[owner-only MegaETH song publication](megaeth-song-publication.md). Learner
+participation and cash-out verification rules are unchanged. The wallets,
+royalties and costs section describes deferred creator revenue routes.
+
 The 2026-11-06 [learner-held history specification](learner-history.md) owns
 private language-history portability, optional encrypted backup and tutor access.
 Local community account IDs do not give communities ownership of that history.

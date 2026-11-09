@@ -7,6 +7,14 @@ without duplicate charges, registrations or posts. Verified discovery and native
 app.tld/browser acceptance are later gates. Sponsored customer names, HNS browser
 access and karaoke remain outside this milestone.
 
+Launch applicability, November 8: the owner-only launch profile follows
+[owner-only MegaETH song publication](megaeth-song-publication.md). It requires
+media storage and pinning, ACRCloud recognition and MegaETH publication
+readiness. It does not require Sui or Ika inventory, a creator wallet, a
+registration service or registration readiness, and it adds no new wizard. The
+registered-song milestone and creator-service sections below describe the
+completed first journey and the deferred integration, not launch requirements.
+
 Alchemy.run owns Cloudflare provisioning, and Infisical is the service-secret
 source. PR 15 supplies a provisioning wizard with separate live recovery evidence;
 it does not implement the song application. Main includes payments, learning

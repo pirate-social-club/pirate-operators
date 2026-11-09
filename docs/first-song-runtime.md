@@ -10,7 +10,21 @@ and its registry/directory/posts contracts exist; the
 records the initial deployed profiles. [Actual first-song acceptance](deployments/first-song-managed-20261105.first-song-acceptance.json)
 records the published owner-curated release and anonymous playback after reload.
 
-The current owner-curated run follows
+Owner-only unregistered publication is the launch successor. Its contract is
+[owner-only MegaETH song publication](megaeth-song-publication.md). A job
+captured under policy pirate-owner-curated/2026-11-08/1 runs recognition-only
+admission, the audio, lyrics and post-manifest pins and MegaETH publication of
+a pirate.community-post/3 song. It has no registration step, creator binding,
+registration signer, creator service or Aeneid, Sui or Ika client, and
+readiness checks only the managed owner release. Owner reservations capture
+the controller-signed owner authorization in place of a creator binding.
+Spending is bounded by the owner budget grant. The job sequence is chosen from
+the captured policy, so jobs captured under an earlier policy keep their
+original sequence and are never rewritten into an unregistered job. The
+registration, creator-binding and ROOT recovery text below describes those
+registered jobs and stays accurate for them.
+
+The completed owner-curated run follows
 [the explicit policy successor](owner-curated-first-song.md). Automated content
 moderation is deferred. Rating/language are operator declarations, and genuine
 retained ACRCloud evidence keeps its original acquisition time. The old held

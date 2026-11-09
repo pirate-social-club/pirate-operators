@@ -7,6 +7,16 @@ independent providers. [Learner-held history](docs/learner-history.md) defines
 the private tutoring/export boundary. These specifications do not change the
 current v1 runtime or resolve the MOSS consent release gate.
 
+For launch, the workspace owner is the only song publisher.
+[Owner-only MegaETH song publication](docs/megaeth-song-publication.md) is the
+active launch contract: the owner signs in with the ordinary MOSS account and
+publishes a pirate.community-post/3 song under policy
+pirate-owner-curated/2026-11-08/1, with no DATA registration, Ika activation,
+creator wallet or Royalties step. Media and lyrics stay off-chain. That is
+Release 1. Palm-verified publishing by other users is a separate later release
+and is not implemented. Registration, creator-wallet and royalty material below
+describes the completed registered journey or deferred integration work.
+
 A standalone experiment for independently operated communities, song admission,
 karaoke and operator payments. The [setup-to-first-song plan](docs/decentralized-setup.md)
 explains the first milestone: ordinary HTTPS, a genuine registry, community
@@ -81,10 +91,14 @@ The [community browser contract](docs/community-web-client.md) specifies the
 stable community HTTPS origin, same-origin cookie sessions, karaoke handshake,
 publication-time pages and read-only IPFS mirrors. The apps/web project retains
 its fixture-backed static/mirror release and separately builds the live community
-client. The live client connects MOSS, the saved creator wallet, private master
-and fixed-slot stem uploads, job status and public song playback.
+client. The live client connects MOSS, private master and fixed-slot stem
+uploads, job status and public song playback. Under the owner publishing policy
+only the controller-authorized owner account is shown release controls, and the
+release routes refuse every other account before any reservation. The launch
+client has no creator wallet connection step; the server's creator connection
+routes are preserved for the deferred integration.
 
-The creator-wallet design in PR 10 adds operator-funded Sui/Ika setup and a
+Deferred for launch: the creator-wallet design in PR 10 adds operator-funded Sui/Ika setup and a
 creator-owned EVM recipient for the separate Aeneid song-registration test.
 It does not change ordinary MOSS participation or establish a production DATA
 migration. Saved passkey access and reopen-and-sign acceptance remain to be

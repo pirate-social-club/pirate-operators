@@ -303,6 +303,22 @@ routing and health. The other acceptance cases still use the fixture's
 `addSong`, which calls the community reservation, upload and sealing functions
 directly.
 
+The launch web client (`apps/web/src/live`) has no creator wallet connection,
+registration progress or Royalties step. `/api/session` carries a display-only
+`publisher` flag: true only for the controller-authorized owner wallet under
+the owner policy, for the curated owner under the November 5 policy, and for
+an account with an existing creator binding under a registered policy. The
+client shows release controls only when it is true. It confers no authority;
+the release routes check the owner authorization on every write, and the route
+acceptance test asserts the flag is true for the owner and false for the
+learner before the learner's direct upload is refused. Browser tests show a
+signed-in learner gets no creator or release controls, including on the old
+wallet return path, and that the owner uploads, resumes and publishes under the
+new policy without contacting any creator route. The server's creator
+connection routes, session fields and capability flag are preserved for the
+deferred integration; the launch client ignores them. Active entry documents
+now point here or label themselves historical or deferred.
+
 Not yet implemented:
 
 - A packaging run of the community and managed release CLIs with a real
@@ -312,7 +328,8 @@ Not yet implemented:
 - Disposition of old registered jobs left uncertain when the configuration
   moves to the owner policy: the owner runtime does not carry registration
   ports, so such a job stays parked rather than being converted.
-- The web client: removing creator connection, registration progress and
-  Royalties from the launch flow.
-- Reconciling the active web-client, runtime and setup documents, which still
-  describe creator activation and registration as required.
+- Workspace-level pointers in the control plane's specification index and
+  the affected learner, wallet, funding, wizard and moderation task records,
+  which belong to their owners.
+- Paper annotation of the owner-only flow, which is follow-up documentation
+  and not a Release 1 gate.
