@@ -1,5 +1,13 @@
 # Managed community creator connection
 
+Launch applicability, November 8: deferred integration material. Under the
+adopted launch ruling the workspace owner is the only song publisher and
+publishes through [owner-only MegaETH song publication](megaeth-song-publication.md)
+with no creator wallet, funding, registration or Royalties step. This document
+keeps the registered first-song journey and the preserved wallet and connection
+code accurate; it is not a launch requirement and implies no further wallet,
+funding or sponsorship work.
+
 The first-song community uses the existing dedicated wallet origin and passkey
 RP. Its private account UUID becomes a community-scoped opaque account reference
 for the native service. It does not become the public author ID. The community

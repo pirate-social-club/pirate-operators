@@ -45,6 +45,8 @@ export interface Reservation {
   issuedAt: number;
   expiresAt: number;
   startedAt: number | null;
+  /** V4: the sign-in authorization chosen when the ticket opened. */
+  authorizationId?: Hex;
 }
 export interface WalletState {
   usage: string;
@@ -105,6 +107,8 @@ export async function ensureTicket(
     maxDurationMs: open.maxDurationMs,
     issuedAt: open.issuedAt,
     expiresAt: open.expiresAt,
+    // Present only on a V4 ticket, so V2/V3 ticket bytes are unchanged.
+    ...(open.authorizationId ? { authorizationId: open.authorizationId } : {}),
   };
   const ticket = await sign("ticket", body, env.PRIVATE_KEY, signatureChainId(env));
   await store.set(`ticket:${open.ticketId}`, ticket);

@@ -1,3 +1,4 @@
+import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
 import { qualifyRegistrationFunding } from "./first-song-peers.ts";
 import {
   bindManagedCredentials,
@@ -49,9 +50,13 @@ async function main() {
       preflight: { type: "boolean" },
       "expected-profile": { type: "string" },
       "write-plan": { type: "boolean" },
+      "publishing-profile": { type: "string" },
     },
   });
-  const packaged = await managedPackage(),
+  const publishing = values["publishing-profile"]
+    ? await readPublishingReleaseSelection(values["publishing-profile"])
+    : undefined;
+  const packaged = await managedPackage({ publishing }),
     { profile, profileHash } = packaged;
   if (values["write-plan"])
     await writeFile(
@@ -139,7 +144,10 @@ async function main() {
     );
     await qualifyManagedUpdate(directory, profile, before, password, cloudEnv);
     await readManagedCredentials(profile, get);
-    const registrationReadiness = await qualifyRegistrationFunding(profile);
+    // Owner publishing has no registration operator, grant or chain reads.
+    const registrationReadiness = profile.ownerGrant
+      ? { registration: "absent", reason: "owner_publishing_policy" }
+      : await qualifyRegistrationFunding(profile);
     if (!values.execute) {
       console.log(
         JSON.stringify({
@@ -194,7 +202,11 @@ async function main() {
     }
     const secrets = await bindManagedCredentials(sdk, profile, get);
     await preserveManagedDeployment(directory, profileHash);
-    const cwd = await writeManagedPackage(directory, packaged.bytes);
+    const cwd = await writeManagedPackage(
+      directory,
+      packaged.bytes,
+      profile.migrations,
+    );
     const env = {
       ...cloudEnv,
       PIRATE_WIZARD_STATE_PASSWORD: password,
@@ -206,7 +218,11 @@ async function main() {
       SERVICE_BUDGET_PERIOD: profile.serviceBudgetPeriod,
       SERVICE_REQUEST_CAP: String(profile.serviceRequestCap),
       ACRCLOUD_HOST: profile.acrHost,
-      RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant),
+      // Owner publishing binds only the owner grant; a registered profile
+      // binds only the registered release grant.
+      ...(profile.ownerGrant
+        ? { OWNER_GRANT_JSON: JSON.stringify(profile.ownerGrant) }
+        : { RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant) }),
     };
     const secretValues = [password, cloudflare, ...Object.values(secrets)];
     const logs: string[] = [];

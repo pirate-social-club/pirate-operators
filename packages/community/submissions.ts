@@ -21,6 +21,11 @@ import {
 } from "./manifest-core.ts";
 
 import type { PublicationExecutionProfile } from "./publication-profile.ts";
+import {
+  UNREGISTERED_OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "./owner-policy.ts";
+import type { OwnerAuthorization } from "./owner-authorization.ts";
 
 export interface SubmissionProfile extends Omit<PublicationIdentity, "postId"> {
   configurationRevision: number;
@@ -51,6 +56,15 @@ export interface SongMetadata {
   lyrics: LyricManifest;
   original: true;
   acceptedPolicy: typeof RELEASE_POLICY;
+}
+/** Owner-only metadata under the unregistered owner policy. */
+export interface OwnerSongMetadata {
+  title: string;
+  language: string;
+  lyrics: LyricManifest;
+  original: true;
+  acceptedPolicy: typeof UNREGISTERED_OWNER_POLICY_VERSION;
+  rating: "general" | "adult";
 }
 interface CreatorBinding {
   service_origin: string;
@@ -181,6 +195,113 @@ export async function reserveSubmission(
   return saved;
 }
 
+/**
+ * Owner-only reservation under the unregistered owner policy. The caller has
+ * already verified the controller-signed owner authorization for this session
+ * wallet. No creator binding is read or captured.
+ */
+export async function reserveOwnerSubmission(
+  db: D1Database,
+  session: AccountSession,
+  profile: SubmissionProfile,
+  authorization: OwnerAuthorization,
+  input: unknown,
+  idempotencyKey: string,
+  time = Date.now(),
+) {
+  insist(
+    /^[A-Za-z0-9_-]{16,128}$/.test(idempotencyKey),
+    "idempotency_key_required",
+  );
+  insist(
+    session.wallet.toLowerCase() === authorization.ownerWallet,
+    "owner_publication_only",
+    403,
+  );
+  const body = object(input);
+  exact(body, [
+    "title",
+    "language",
+    "lyrics",
+    "original",
+    "acceptedPolicy",
+    "rating",
+    "audioSha256",
+    "audioBytes",
+  ]);
+  const title = text(body.title, 200),
+    lyrics = text(body.lyrics, 32768),
+    language = text(body.language, 35);
+  insist(title.trim().length > 0, "title_required");
+  insist(
+    body.original === true &&
+      body.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION,
+    "publication_consent_required",
+  );
+  insist(
+    body.rating === "general" || body.rating === "adult",
+    "invalid_declared_rating",
+  );
+  const audioSha256 = bytes32(body.audioSha256),
+    audioBytes = integer(body.audioBytes, 1, MAX_AUDIO_BYTES);
+  const requestHash = hashJson({ input: body, profile });
+  const existing = await db
+    .prepare(
+      "SELECT * FROM media_submissions WHERE account_id=? AND idempotency_key=?",
+    )
+    .bind(session.account_id, idempotencyKey)
+    .first<Submission>();
+  if (existing) {
+    insist(
+      existing.request_hash === requestHash,
+      "idempotency_key_conflict",
+      409,
+    );
+    return existing;
+  }
+  const postId = publicId(),
+    submissionId = crypto.randomUUID();
+  const metadata: OwnerSongMetadata = {
+    title,
+    language,
+    lyrics: createLyrics(identity({ ...profile, postId }), lyrics, language),
+    original: true,
+    acceptedPolicy: UNREGISTERED_OWNER_POLICY_VERSION,
+    rating: body.rating,
+  };
+  await db
+    .prepare(
+      `INSERT INTO media_submissions(submission_id,account_id,author_id,post_id,idempotency_key,request_hash,metadata_json,captured_wallet,creator_json,audio_sha256,audio_bytes,object_key,upload_state,created_at)
+    SELECT ?,?,?,?,?,?,?,?,'null',?,?,?,'reserved',? WHERE (SELECT COUNT(*) FROM media_submissions WHERE account_id=? AND upload_state!='sealed')<5
+    ON CONFLICT(account_id,idempotency_key) DO NOTHING`,
+    )
+    .bind(
+      submissionId,
+      session.account_id,
+      session.author_id,
+      postId,
+      idempotencyKey,
+      requestHash,
+      canonical(metadata),
+      session.wallet,
+      audioSha256,
+      audioBytes,
+      `staging/${submissionId}/${token()}`,
+      time,
+      session.account_id,
+    )
+    .run();
+  const saved = await db
+    .prepare(
+      "SELECT * FROM media_submissions WHERE account_id=? AND idempotency_key=?",
+    )
+    .bind(session.account_id, idempotencyKey)
+    .first<Submission>();
+  insist(saved, "unfinished_upload_limit", 429);
+  insist(saved.request_hash === requestHash, "idempotency_key_conflict", 409);
+  return saved;
+}
+
 export async function sealSubmission(
   db: D1Database,
   media: R2Bucket,
@@ -188,6 +309,7 @@ export async function sealSubmission(
   profile: SubmissionProfile,
   id: string,
   time = Date.now(),
+  ownerAuthorization?: OwnerAuthorization,
 ) {
   const row = await ownedSubmission(db, id, session.account_id);
   insist(
@@ -204,23 +326,41 @@ export async function sealSubmission(
     "sealed_media_missing_or_changed",
     409,
   );
-  const authority = {
-    ...profile,
-    accountId: row.account_id,
-    authorId: row.author_id,
-    wallet: row.captured_wallet,
-    creator: JSON.parse(row.creator_json),
-    policy: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
-  };
   // Reopening after a configuration change cannot silently move an upload to a
   // different publisher/policy. Its initial request already captured the profile.
-  const metadata = JSON.parse(row.metadata_json) as SongMetadata;
+  const metadata = JSON.parse(row.metadata_json) as
+    | SongMetadata
+    | OwnerSongMetadata;
+  const owner = metadata.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
+  insist(owner === !!ownerAuthorization, "submission_policy_mismatch", 409);
+  const authority = owner
+    ? {
+        ...profile,
+        accountId: row.account_id,
+        authorId: row.author_id,
+        wallet: row.captured_wallet,
+        creator: null,
+        policy: {
+          version: UNREGISTERED_OWNER_POLICY_VERSION,
+          sha256: UNREGISTERED_OWNER_POLICY_HASH,
+        },
+        ownerAuthorizationSha256: hashJson(ownerAuthorization),
+      }
+    : {
+        ...profile,
+        accountId: row.account_id,
+        authorId: row.author_id,
+        wallet: row.captured_wallet,
+        creator: JSON.parse(row.creator_json),
+        policy: { version: RELEASE_POLICY, sha256: RELEASE_POLICY_HASH },
+      };
   const requestInput = {
     title: metadata.title,
     language: metadata.language,
     lyrics: metadata.lyrics.sourceText,
     original: metadata.original,
     acceptedPolicy: metadata.acceptedPolicy,
+    ...("rating" in metadata ? { rating: metadata.rating } : {}),
     audioSha256: row.audio_sha256,
     audioBytes: row.audio_bytes,
   };

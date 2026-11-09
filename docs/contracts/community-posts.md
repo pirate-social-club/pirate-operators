@@ -1,5 +1,13 @@
 # Community post index V1
 
+Launch applicability, November 8: new owner songs use pirate.community-post/3
+under policy pirate-owner-curated/2026-11-08/1. Its registration object states
+status absent with reason deferred_for_launch and carries no asset or
+transaction fields. Readers accept /1, /2 and /3; /1 and /2 keep strict
+confirmed-receipt validation. Recovery and the old/new reader order are in
+[owner-only MegaETH song publication](../megaeth-song-publication.md).
+General-user hide and removal belong to a later release.
+
 [CommunityPostsV1](../../contracts/community/CommunityPostsV1.sol) implements
 [ICommunityPostsV1](../../contracts/interfaces/community/ICommunityPostsV1.sol)
 locally. See the [implementation profile](community-implementation.md) for its

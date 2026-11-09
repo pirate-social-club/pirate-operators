@@ -25,8 +25,13 @@ export async function readManagedCredentials(
     "managed_signer_file_not_private",
   );
   const bytes = await readFile(file);
+  // The same keys file supplies the moderation signer; a publishing profile
+  // records its digest as signerSource.
+  const source = (profile.signerSource ?? profile.registrationCredential) as {
+    sha256: string;
+  };
   insist(
-    sha256(new Uint8Array(bytes)) === profile.registrationCredential.sha256,
+    sha256(new Uint8Array(bytes)) === source.sha256,
     "managed_registration_source_file_changed",
     409,
   );
@@ -55,14 +60,17 @@ export async function readManagedCredentials(
     credentials.sourcePath,
     "FILEBASE_IPFS_TOKEN",
   );
-  secrets.REGISTRATION_OPERATOR_PRIVATE_KEY = keys.keys.communityAdmin;
-  insist(
-    privateKeyToAccount(
-      secrets.REGISTRATION_OPERATOR_PRIVATE_KEY as `0x${string}`,
-    ).address.toLowerCase() === profile.releaseGrant.registration.operator,
-    "managed_registration_operator_changed",
-    409,
-  );
+  // Owner publishing needs no registration operator key.
+  if (profile.secretNames.includes("REGISTRATION_OPERATOR_PRIVATE_KEY")) {
+    secrets.REGISTRATION_OPERATOR_PRIVATE_KEY = keys.keys.communityAdmin;
+    insist(
+      privateKeyToAccount(
+        secrets.REGISTRATION_OPERATOR_PRIVATE_KEY as `0x${string}`,
+      ).address.toLowerCase() === profile.releaseGrant.registration.operator,
+      "managed_registration_operator_changed",
+      409,
+    );
+  }
   return secrets;
 }
 export async function bindManagedCredentials(

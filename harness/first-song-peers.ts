@@ -17,6 +17,7 @@ import {
   rootRegistrationData,
 } from "../packages/community/registration-chain.ts";
 import { publishedStateHash } from "./published-state.ts";
+import { publishingReleaseSelection } from "./publishing-release-profile.ts";
 import type { communityPackage } from "./community-package.ts";
 import type { managedPackage } from "./managed-package.ts";
 
@@ -149,6 +150,27 @@ export function assertApplicationPeers(
   reviewedUpdate = false,
 ) {
   const release = object(managed.release);
+  const ownerPublishing = (profile as { ownerPublishing?: unknown })
+    .ownerPublishing;
+  if (ownerPublishing != null) {
+    // Owner publishing has no creator service peer and no registered release.
+    // The managed peer must already run the pinned publishing profile with
+    // exactly this selection's owner grant, inside its window.
+    const grant = publishingReleaseSelection(ownerPublishing).ownerGrant,
+      owner = object(managed.ownerRelease ?? {});
+    insist(
+      managed.profileHash === profile.managedProfileHash &&
+        release.configured === false &&
+        owner.configured === true &&
+        owner.grantSha256 === grant.sha256 &&
+        owner.expiresAt === grant.expiresAt &&
+        grant.validFrom <= now &&
+        grant.expiresAt > now,
+      "application_owner_peer_unqualified",
+      503,
+    );
+    return;
+  }
   const expiredPublishedUpdate =
     reviewedUpdate &&
     !!profile.reviewedUpdate &&
@@ -190,12 +212,20 @@ export async function qualifyApplicationPeers(
     insist(response.ok, "application_release_peer_unavailable", 503);
     return object(await response.json());
   };
-  const [native, managed] = await Promise.all([
-    get("https://pirate-wallet-test.piratesocialclub.workers.dev/api/health"),
+  const managedHealth = () =>
     get(
       "https://pirate-managed-firstsong-20261105.piratesocialclub.workers.dev/health",
-    ),
-  ]);
+    );
+  // The owner publishing path never contacts the creator service.
+  const [native, managed] =
+    (profile as { ownerPublishing?: unknown }).ownerPublishing != null
+    ? [{}, await managedHealth()]
+    : await Promise.all([
+        get(
+          "https://pirate-wallet-test.piratesocialclub.workers.dev/api/health",
+        ),
+        managedHealth(),
+      ]);
   assertApplicationPeers(
     profile,
     native,

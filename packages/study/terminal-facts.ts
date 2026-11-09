@@ -20,17 +20,29 @@ export interface StudyTerminalFacts {
   outcomes: Hex;
 }
 
-/** The existing authenticated community issuer attests the validated queue. */
-export function studyFactsBundle(input: {
+/** A V4 lesson's sign-in authorization: it has a start and no end. */
+export interface StudyAuthorizationGrant {
+  id: Hex;
+  issuedAt: number;
+}
+interface StudyFactsInput {
   lessonId: string;
   source: LyricManifest;
   terminal: StudyTerminalFacts;
-  enrollment: StudyPublicationGrant;
   learner: Address;
   grader: Address;
   qualificationPolicy: Hex;
-}): { result: TerminalResult; outcomes: Hex } {
-  const { terminal: facts, enrollment, source } = input;
+}
+/** The existing authenticated community issuer attests the validated queue. */
+export function studyFactsBundle(
+  input: StudyFactsInput &
+    (
+      | { enrollment: StudyPublicationGrant; authorization?: never }
+      | { authorization: StudyAuthorizationGrant; enrollment?: never }
+    ),
+): { result: TerminalResult; outcomes: Hex } {
+  const { terminal: facts, source } = input;
+  const grant = input.authorization ?? input.enrollment;
   check(
     facts &&
       facts.schema === "pirate.study-terminal-facts/1" &&
@@ -63,7 +75,7 @@ export function studyFactsBundle(input: {
   check(
     input.lessonId.length > 0 &&
       input.lessonId.length <= 128 &&
-      enrollment.id !== zeroHash,
+      grant.id !== zeroHash,
     "invalid_study_publication_identity",
   );
   check(
@@ -87,22 +99,32 @@ export function studyFactsBundle(input: {
   const selected = studySourceSelection(source, ordinals);
   const startedAt = Math.floor(facts.startedAt / 1000),
     completedAt = Math.floor(facts.completedAt / 1000);
-  check(
-    Number.isSafeInteger(enrollment.issuedAt) &&
-      Number.isSafeInteger(enrollment.expiresAt) &&
-      startedAt >= enrollment.issuedAt &&
-      completedAt < enrollment.expiresAt,
-    "study_enrollment_mismatch",
-  );
+  if (input.authorization)
+    // Permission lasts until withdrawn, which publication re-reads on chain.
+    check(
+      Number.isSafeInteger(input.authorization.issuedAt) &&
+        startedAt >= input.authorization.issuedAt,
+      "study_authorization_mismatch",
+    );
+  else {
+    const { enrollment } = input;
+    check(
+      Number.isSafeInteger(enrollment.issuedAt) &&
+        Number.isSafeInteger(enrollment.expiresAt) &&
+        startedAt >= enrollment.issuedAt &&
+        completedAt < enrollment.expiresAt,
+      "study_enrollment_mismatch",
+    );
+  }
   return {
     result: {
       sessionId: digest({
         schema: "pirate.study-result-id/1",
-        enrollmentId: enrollment.id,
+        enrollmentId: grant.id,
         lessonId: input.lessonId,
       }),
       learner: input.learner,
-      enrollmentId: enrollment.id,
+      enrollmentId: grant.id,
       song: {
         chainId: BigInt(source.chainId),
         posts: source.postsContract,

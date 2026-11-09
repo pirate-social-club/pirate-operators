@@ -9,7 +9,9 @@ import {
   type StudyOperatorPath,
 } from "../packages/study/operator-auth.ts";
 import type {
+  AnyStudyLessonOffer,
   StudyLessonOffer,
+  StudyLessonOfferV4,
   StudySpeechReceipt,
   StudySpeechStatus,
 } from "../packages/study/operator-contract.ts";
@@ -17,7 +19,11 @@ import {
   StudySpeechError,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type {
+  StudyAuthorizationBinding,
+  StudyBinding,
+  StudyOperatorBinding,
+} from "./study-operator.ts";
 import type {
   StudyTerminalRequest,
   StudyPublicationReceipt,
@@ -54,10 +60,21 @@ async function call<T>(
 }
 const encoded = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value));
-export const bindManagedStudy = (
+/** A V3 offer binds an enrollment; a V4 offer binds its sign-in authorization. */
+export function bindManagedStudy(
   ports: StudyOperatorPorts,
   offer: StudyLessonOffer,
-) => call<StudyOperatorBinding>(ports, "/study/bind", encoded(offer));
+): Promise<StudyOperatorBinding>;
+export function bindManagedStudy(
+  ports: StudyOperatorPorts,
+  offer: StudyLessonOfferV4,
+): Promise<StudyAuthorizationBinding>;
+export function bindManagedStudy(
+  ports: StudyOperatorPorts,
+  offer: AnyStudyLessonOffer,
+) {
+  return call<StudyBinding>(ports, "/study/bind", encoded(offer));
+}
 export const publishManagedStudy = (
   ports: StudyOperatorPorts,
   input: StudyTerminalRequest,
@@ -74,7 +91,7 @@ export const managedStudyReceipt = (
   );
 export function managedStudyTranscriber(
   ports: StudyOperatorPorts,
-  binding: StudyOperatorBinding,
+  binding: StudyBinding,
 ): StudyTranscriber {
   return {
     providerRetention: "stored",

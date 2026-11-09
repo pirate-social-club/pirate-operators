@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { studyPublicationFixture } from "./study-publication-fixture.ts";
 import { deleteExpiredStudyHistory } from "../services/study-retention.ts";
 import { STUDY_HISTORY_EXPORT_WINDOW_MS } from "../services/study-history.ts";
+import { studyCloseBound } from "../packages/study/lesson.ts";
 
 interface Draft {
   lesson_id: string;
@@ -47,12 +48,16 @@ test(
         txs = f.store.entries("tx:"),
         ledger = f.store.get("sponsor:ledger"),
         bindings = f.store.entries("studyBinding:");
-      f.advance(
-        JSON.parse(draft.state_json).expiresAt +
-          STUDY_HISTORY_EXPORT_WINDOW_MS +
-          1 -
-          f.clock(),
+      // A draft never bound to consent closes thirty days after it started;
+      // its private association is erased after the export window from then.
+      const bound = studyCloseBound(JSON.parse(draft.state_json), null);
+      assert.equal(bound.reason, "never_bound");
+      f.advance(bound.at + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock() - 1);
+      assert.equal(
+        await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
+        0,
       );
+      f.advance(2);
       assert.equal(
         await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
         1,
@@ -126,12 +131,16 @@ test(
           .first<{ n: number }>())!.n,
         0,
       );
-      f.advance(
-        JSON.parse(draft.state_json).expiresAt +
-          STUDY_HISTORY_EXPORT_WINDOW_MS +
-          1 -
-          f.clock(),
+      // A draft never bound to consent closes thirty days after it started;
+      // its private association is erased after the export window from then.
+      const bound = studyCloseBound(JSON.parse(draft.state_json), null);
+      assert.equal(bound.reason, "never_bound");
+      f.advance(bound.at + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock() - 1);
+      assert.equal(
+        await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
+        0,
       );
+      f.advance(2);
       assert.equal(
         await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
         1,

@@ -16,6 +16,7 @@ export async function completedCommunityRelease(
     queueConsumer?: unknown;
     bundleSha256: string;
     reviewedUpdate?: ReviewedUpdate;
+    ownerPublishing?: unknown;
   },
   profileHash: string,
   live: {
@@ -65,7 +66,9 @@ export async function completedCommunityRelease(
       live.health.profileHash === profileHash &&
       live.health.planId === profile.planId &&
       live.health.signIn === "available" &&
-      live.health.creatorConnection === "available" &&
+      // Owner publishing has no creator service dependency.
+      (profile.ownerPublishing != null ||
+        live.health.creatorConnection === "available") &&
       live.inventory.resources.length === communityOwned.length &&
       live.inventory.resources.every(
         (r, i) => r.present && r.id === communityOwned[i]!.id,

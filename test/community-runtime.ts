@@ -1,7 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
 
-export async function communityRuntime() {
+/**
+ * The community D1 and R2. Migration 0013 is the V4 sign-in authorization
+ * schema, applied only for a V4 community, as a release applies it only when
+ * V4 is selected; a V3 community runs with none of its tables or columns.
+ */
+export async function communityRuntime(options: { v4?: boolean } = {}) {
   // Semantic D1/R2 qualification with the pinned local engine, not live
   // acceptance of the deployed November compatibility date.
   const runtime = new Miniflare({
@@ -27,26 +32,27 @@ export async function communityRuntime() {
       "0008_karaoke.sql",
       "0009_study.sql",
       "0010_study_retention.sql",
-    ]) {
-      const sql = await readFile(
-        new URL(
-          `../apps/community-wizard/infra/migrations/${name}`,
-          import.meta.url,
-        ),
-        "utf8",
-      );
-      await db.batch(
-        sql
-          .replace(/--[^\n]*/g, "")
-          .split(";")
-          .map((s) => s.trim())
-          .filter(Boolean)
-          .map((s) => db.prepare(s)),
-      );
-    }
-    return { db, media, dispose: () => runtime.dispose() };
+    ])
+      await apply(db, name);
+    const applyV4 = () => apply(db, "0013_learning_authorization.sql");
+    if (options.v4) await applyV4();
+    return { db, media, applyV4, dispose: () => runtime.dispose() };
   } catch (error) {
     await runtime.dispose();
     throw error;
   }
+}
+async function apply(db: D1Database, name: string) {
+  const sql = await readFile(
+    new URL(`../apps/community-wizard/infra/migrations/${name}`, import.meta.url),
+    "utf8",
+  );
+  await db.batch(
+    sql
+      .replace(/--[^\n]*/g, "")
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => db.prepare(s)),
+  );
 }

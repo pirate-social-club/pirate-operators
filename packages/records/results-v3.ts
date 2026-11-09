@@ -203,8 +203,13 @@ export async function readPublicResultsV3(
     runtimeCodeHash: Hex;
     fromBlock: bigint;
     toBlock: bigint;
+    /** V4 keeps V3's Result struct and ResultPublished event; only its
+     * permission model differs, so the same verification applies. */
+    version?: 3 | 4;
   },
 ) {
+  const expectedVersion = input.version ?? 3;
+  check(expectedVersion === 3 || expectedVersion === 4, "unsupported_results_version");
   check(input.chainId === 31337 || input.chainId === 6343, "unsupported_chain");
   check(
     input.fromBlock >= 0n && input.toBlock >= input.fromBlock,
@@ -236,7 +241,7 @@ export async function readPublicResultsV3(
     }),
   ]);
   check(
-    version === 3 && communityId === input.communityId,
+    version === expectedVersion && communityId === input.communityId,
     "wrong_result_contract",
   );
   const events: ResultEvidence[] = [];
@@ -264,3 +269,26 @@ export async function readPublicResultsV3(
   check(before.hash === after.hash, "canonical_head_changed_retry");
   return results;
 }
+
+/** A results contract an offer accepts, pinned at attach time. */
+export interface PublicResultSource {
+  contract: Address;
+  codeHash: Hex;
+  version: 3 | 4;
+}
+/** Version-agnostic entry: the same verified-result output for V3 and V4. */
+export const readPublicResults = (
+  source: PublicResultSource,
+  input: V3SourcePorts & {
+    rpcUrl: string;
+    chainId: 31337 | 6343;
+    fromBlock: bigint;
+    toBlock: bigint;
+  },
+) =>
+  readPublicResultsV3({
+    ...input,
+    contract: source.contract,
+    runtimeCodeHash: source.codeHash,
+    version: source.version,
+  });

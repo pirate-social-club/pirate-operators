@@ -12,6 +12,7 @@ export function compile() {
     "contracts/LearningRecords.sol",
     "contracts/LearningResultsV2.sol",
     "contracts/LearningResultsV3.sol",
+    "contracts/LearningResultsV4.sol",
     "contracts/interfaces/IMegapot.sol",
   ];
   const sources = Object.fromEntries(

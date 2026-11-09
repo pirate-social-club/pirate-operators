@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { createSignal, For, Show, onCleanup } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -20,6 +20,11 @@ import {
   type LearningEnrollments,
 } from "./learning-revocation.ts";
 import {
+  publicResultsAction,
+  turnOffPublicResults,
+  turnOnPublicResults,
+} from "./public-results.ts";
+import {
   LiveKaraoke,
   type KaraokeWallet,
   type LearningActions,
@@ -34,7 +39,6 @@ import {
 import { buttonVariants } from "@/components/actions/button/button";
 import { IconGearSix } from "@/components/media/icons";
 
-const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
   await mega.initialise({
@@ -105,15 +109,20 @@ function App() {
     url.searchParams.delete("lesson");
     history.replaceState(null, "", url);
   }
-  let popup: Window | null = null,
-    timer: ReturnType<typeof setTimeout> | undefined,
-    stopped = false;
   async function refreshSession() {
+    const before = session()?.mossAddress;
+    let next: CommunitySessionView | null = null;
     try {
-      setSession(await get<CommunitySessionView>("/api/session"));
+      next = await get<CommunitySessionView>("/api/session");
     } catch {
-      setSession(null);
+      next = null;
     }
+    // Study is closed whenever this page refreshes its session (the header is
+    // inert while practice is open), and closing Study drops its lesson link. A
+    // download offered for another account is dropped here; the server would
+    // refuse it anyway. A failed read keeps it.
+    if (before && next && next.mossAddress !== before) setLearningActions(null);
+    setSession(next);
   }
   async function refresh() {
     await refreshSession();
@@ -178,11 +187,28 @@ function App() {
     setStatus("Continue in MOSS to sign in.");
     const account = await mega.connect();
     if (!account?.address) throw new Error("MOSS sign-in was cancelled.");
-    const challenge = await post<{ id: string; message: string }>(
-        "/api/auth/challenge",
-        { address: account.address },
-      ),
-      signed = await mega.signMessage(challenge.message);
+    const challenge = await post<
+      | { id: string; message: string; kind?: undefined }
+      | {
+          id: string;
+          kind: "sign-in-v4";
+          typedData: {
+            domain: unknown;
+            types: unknown;
+            primaryType: string;
+            message: Record<string, unknown>;
+          };
+        }
+    >("/api/auth/challenge", { address: account.address });
+    let signed;
+    if (challenge.kind === "sign-in-v4") {
+      // One signature: sign-in and the standing publication permission.
+      const { message, domain, types, primaryType } = challenge.typedData;
+      const typed = { domain, types, primaryType };
+      signed = await mega.signData({ data: { ...typed, message } });
+      if (signed.status === "error")
+        signed = await mega.signData({ data: { ...typed, value: message } });
+    } else signed = await mega.signMessage(challenge.message);
     if (signed.status !== "success" || !signed.signature)
       throw new Error("The sign-in message was not signed.");
     await post("/api/auth/verify", {
@@ -220,112 +246,51 @@ function App() {
       }),
     );
   }
-  async function finishConnection(connectionId: string, state: string) {
-    const current = session();
-    if (!current) return false;
-    const result = await post<{ state: string; requiresReconnect?: boolean }>(
-      "/api/creator/complete",
-      { connectionId, state },
-      current.csrf,
-    );
-    if (result.state === "waiting") return false;
-    await refreshSession();
-    if (result.state === "connected")
-      setStatus("Creator wallet connected. Your progress is saved.");
-    else if (result.state === "verification_expired")
-      setStatus(
-        "The wallet verification expired. Reopen your saved wallet for a fresh check.",
-      );
-    else if (result.state === "choose_another_wallet")
-      setStatus(
-        "This wallet is already linked to another account in this community. Reopen the connection and choose another wallet.",
-      );
-    return true;
-  }
-  async function connectWallet() {
+  /** V4 settings: the learner's signed withdrawal, relayed by the community. */
+  async function publicResultsOff() {
     const current = session();
     if (!current) return;
-    // Open from the button's user gesture, before the asynchronous launch.
-    popup = window.open("about:blank", "_blank", "popup,width=560,height=820");
-    try {
-      const connection = await post<{
-          connectionId: string;
-          state: string;
-          url: string;
-        }>("/api/creator/connect", {}, current.csrf),
-        target = new URL(connection.url);
-      if (target.origin !== walletOrigin || target.pathname !== "/wallet")
-        throw new Error("The wallet address could not be verified.");
-      await refreshSession();
-      if (popup) popup.location.href = target.href;
-      else location.assign(target.href);
-      setStatus(
-        "Use your saved passkey in the wallet window, then confirm Return to community.",
-      );
-      schedule();
-    } catch (failure) {
-      popup?.close();
-      popup = null;
-      throw failure;
-    }
-  }
-  async function pollConnection() {
-    const pending = session()?.pendingConnection;
-    if (!pending?.state) return;
-    try {
-      await finishConnection(pending.connectionId, pending.state);
-    } catch {
-      /* The server retains the request. The next poll reuses it. */
-    }
-  }
-  function schedule() {
-    if (timer) clearTimeout(timer);
-    if (stopped || !session()?.pendingConnection) return;
-    timer = setTimeout(() => {
-      void pollConnection().finally(schedule);
-    }, 10000);
-  }
-  const receiver = (event: MessageEvent) => {
-    const pending = session()?.pendingConnection;
-    if (
-      event.origin !== walletOrigin ||
-      event.source !== popup ||
-      event.data?.type !== "pirate:creator" ||
-      event.data.state !== pending?.state ||
-      !pending?.state
-    )
-      return;
-    void run(async () => {
-      await finishConnection(pending.connectionId, pending.state!);
-      popup = null;
-      schedule();
+    const message = await turnOffPublicResults({
+      request: () =>
+        post<import("./karaoke.tsx").KaraokeConsentRequest>(
+          "/api/learning/public-results/off",
+          {},
+          current.csrf,
+        ),
+      submit: (request, signature) =>
+        post<{ state: string }>(
+          "/api/learning/public-results/off",
+          { message: request.message, signature },
+          current.csrf,
+        ),
+      wallet: mossWallet,
+      status: setStatus,
     });
-  };
-  window.addEventListener("message", receiver);
-  onCleanup(() => {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    window.removeEventListener("message", receiver);
-  });
+    await refreshSession();
+    setStatus(message);
+  }
+  /** V4 settings: clear the withdrawal, then the normal sign-in is relayed. */
+  async function publicResultsOn() {
+    const current = session();
+    if (!current) return;
+    setStatus(
+      await turnOnPublicResults({
+        enable: () =>
+          post("/api/learning/public-results/on", {}, current.csrf),
+        signIn,
+        status: setStatus,
+      }),
+    );
+  }
+  // Owner-only publishing has no creator connection step. Preserved creator
+  // connection routes stay on the server for the deferred integration.
   void run(async () => {
     await refresh();
-    const returning = new URL(location.href),
-      pending = session()?.pendingConnection;
-    if (
-      returning.pathname === "/creator/complete" &&
-      pending?.state &&
-      returning.searchParams.get("connection") === pending.connectionId &&
-      returning.searchParams.get("state") === pending.state
-    ) {
-      history.replaceState(null, "", "/");
-      await finishConnection(pending.connectionId, pending.state);
-    } else
-      setStatus(
-        session()
-          ? "Your community is ready."
-          : "Sign in to release your song.",
-      );
-    schedule();
+    setStatus(
+      session()
+        ? "Your community is ready."
+        : "Sign in to study or sing.",
+    );
   });
   return (
     <>
@@ -355,6 +320,36 @@ function App() {
                 <a href="/privacy" target="_blank" rel="noopener">
                   Privacy
                 </a>
+                {/* Only a V4 sign-in accepts the learning documents. */}
+                <Show
+                  when={
+                    capabilities()?.learningPolicy?.version === 4
+                      ? capabilities()?.learningPolicy
+                      : undefined
+                  }
+                >
+                  {(policy) => (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a
+                        href={policy().termsUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Learning terms
+                      </a>{" "}
+                      ·{" "}
+                      <a
+                        href={policy().privacyUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Learning privacy
+                      </a>
+                    </>
+                  )}
+                </Show>
               </p>
             </div>
           }
@@ -388,9 +383,32 @@ function App() {
                         Download private history
                       </DropdownMenuItem>
                     </Show>
-                    <DropdownMenuItem onSelect={() => void run(revokeLearning)}>
-                      Stop public enrollment
-                    </DropdownMenuItem>
+                    <Show
+                      when={publicResultsAction(current().publicResults)}
+                      keyed
+                    >
+                      {(action) =>
+                        action === "off" ? (
+                          <DropdownMenuItem
+                            onSelect={() => void run(publicResultsOff)}
+                          >
+                            Turn off public results
+                          </DropdownMenuItem>
+                        ) : action === "on" ? (
+                          <DropdownMenuItem
+                            onSelect={() => void run(publicResultsOn)}
+                          >
+                            Turn on public results
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            onSelect={() => void run(revokeLearning)}
+                          >
+                            Stop public enrollment
+                          </DropdownMenuItem>
+                        )
+                      }
+                    </Show>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Show>
@@ -442,22 +460,34 @@ function App() {
             csrf={session()!.csrf}
             wallet={mossWallet}
             serviceMode={capabilities()?.learningServiceMode}
+            // A V4 community reports public results by sign-in.
+            signInPermission={["on", "pending", "off"].includes(
+              session()!.publicResults,
+            )}
             onExit={() => setSinging(null)}
             onLearningActions={(actions) => setLearningActions(actions)}
           />
         </div>
       </Show>
-      <Show when={studying() && session()}>
-        <div class="live-study-overlay">
-          <LiveStudy
-            postId={studying()!.postId}
-            title={studying()!.title}
-            csrf={session()!.csrf}
-            wallet={mossWallet}
-            onExit={closeStudy}
-            onLearningActions={(actions) => setLearningActions(actions)}
-          />
-        </div>
+      {/* Keyed by account: another sign-in remounts Study with no prior state. */}
+      <Show when={studying() && session()?.mossAddress} keyed>
+        {(account) => (
+          <div class="live-study-overlay">
+            <LiveStudy
+              postId={studying()!.postId}
+              title={studying()!.title}
+              csrf={session()!.csrf}
+              account={account}
+              wallet={mossWallet}
+              // A V4 community's Study needs no enrollment before a lesson.
+              signInPermission={["on", "pending", "off"].includes(
+                session()!.publicResults,
+              )}
+              onExit={closeStudy}
+              onLearningActions={(actions) => setLearningActions(actions)}
+            />
+          </div>
+        )}
       </Show>
       <Show when={!walletPage}>
         <main class="live-main" inert={practiceOpen()}>
@@ -473,39 +503,7 @@ function App() {
           >
             {status()}
           </section>
-          <Show when={session()}>
-            {(current) => (
-              <section class="live-release">
-                <div>
-                  <p class="live-kicker">YOUR NEXT RELEASE</p>
-                  <h2>
-                    {current().creator
-                      ? "Your creator wallet is connected."
-                      : "Bring your first song."}
-                  </h2>
-                  <p>
-                    {current().creator
-                      ? `Creator wallet ${shortened(current().creator!.evmAddress)}`
-                      : "Use your saved creator passkey. Creator setup is covered by capped operator funding."}
-                  </p>
-                  <p class="live-muted">
-                    {capabilities()?.publication
-                      ? "Upload your recording and lyrics to begin."
-                      : "Release processing is being prepared. Your wallet connection will stay saved."}
-                  </p>
-                </div>
-                <Button
-                  disabled={busy() || !capabilities()?.creatorConnection}
-                  onClick={() => void run(connectWallet)}
-                >
-                  {current().creator
-                    ? "Reopen creator wallet"
-                    : "Connect creator wallet"}
-                </Button>
-              </section>
-            )}
-          </Show>
-          <Show when={session()}>
+          <Show when={session()?.publisher ? session() : null}>
             {(current) => (
               <SongUpload
                 session={current()}
@@ -663,9 +661,32 @@ function App() {
           </section>
         </main>
       </Show>
+      {/* Normal site navigation: the documents stay reachable while signed
+          in, outside the Study and Karaoke overlays. */}
       <footer class="live-footer" inert={practiceOpen()}>
-        A community of independent creators. Creator ownership stays with your
-        wallet.
+        <span>A community of independent creators.</span>
+        <nav class="live-footer-links" aria-label="Community documents">
+          <a href="/terms" target="_blank" rel="noopener">
+            Terms
+          </a>
+          <a href="/privacy" target="_blank" rel="noopener">
+            Privacy
+          </a>
+          {/* The learning documents of the community's own version, V3 or
+              V4; exercise surfaces carry no links in any mode. */}
+          <Show when={capabilities()?.learningPolicy}>
+            {(policy) => (
+              <>
+                <a href={policy().termsUrl} target="_blank" rel="noopener">
+                  Learning terms
+                </a>
+                <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                  Learning privacy
+                </a>
+              </>
+            )}
+          </Show>
+        </nav>
       </footer>
     </>
   );

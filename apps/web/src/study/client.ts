@@ -19,6 +19,18 @@ export interface StudyClient {
     durationMs: number,
   ): Promise<StudyLessonSubmission>;
 }
+/** The session now belongs to another account; nothing shown may be kept. */
+export class StudyAccountChangedError extends Error {
+  constructor() {
+    super("You are signed in with a different account. Reload to continue.");
+  }
+}
+class StudyLessonNotFoundError extends Error {}
+/** Sign-in permission is still being recorded; starting again shortly works. */
+class StudyAuthorizationPendingError extends Error {}
+/** A short, bounded wait for a just-made sign-in to be recorded. */
+const AUTHORIZATION_RETRIES = 5,
+  AUTHORIZATION_RETRY_MS = 2000;
 export function createStudyClient(
   song: StudySong,
   csrf: () => string,
@@ -26,6 +38,7 @@ export function createStudyClient(
   onOpened?: (id: string) => void,
   beforeStart?: () => Promise<void>,
   active?: () => boolean,
+  account?: string,
 ): StudyClient {
   let lessonId = initialLessonId,
     startRequestId = crypto.randomUUID();
@@ -34,15 +47,29 @@ export function createStudyClient(
     const response = await fetch("/api/study/lessons" + path, {
       ...init,
       credentials: "same-origin",
-      headers: { ...init.headers, "x-csrf-token": csrf() },
+      headers: {
+        ...init.headers,
+        "x-csrf-token": csrf(),
+        ...(account ? { "x-study-account": account } : {}),
+      },
     });
     if (!response.ok) {
       const body = await response
         .json()
         .catch(() => ({ error: "study_unavailable" }));
+      if (body.error === "study_account_changed")
+        throw new StudyAccountChangedError();
+      if (body.error === "study_lesson_not_found")
+        throw new StudyLessonNotFoundError("This lesson is unavailable.");
+      if (body.error === "study_authorization_pending")
+        throw new StudyAuthorizationPendingError(
+          "Your answer could not be saved. Try again.",
+        );
       throw new Error(
         response.status === 401
           ? "Sign in again to continue Study."
+          : body.error === "study_authorization_required"
+            ? "Public results are off. Turn them on in settings to study."
           : body.error === "study_recording_too_short"
             ? "Record for at least one second, then try again."
             : "Your answer could not be saved. Try again.",
@@ -65,18 +92,40 @@ export function createStudyClient(
   }
   async function start() {
     await beforeStart?.();
-    return remember(
-      await call("", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: startRequestId, song }),
-      }),
-    );
+    // The same request is retried while sign-in permission is recorded; the
+    // screen keeps its loading state meanwhile.
+    for (let retry = 0; ; retry++) {
+      try {
+        return remember(
+          await call("", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ requestId: startRequestId, song }),
+          }),
+        );
+      } catch (error) {
+        if (
+          !(error instanceof StudyAuthorizationPendingError) ||
+          retry + 1 >= AUTHORIZATION_RETRIES
+        )
+          throw error;
+        await new Promise((resolve) =>
+          setTimeout(resolve, AUTHORIZATION_RETRY_MS),
+        );
+      }
+    }
   }
   return {
     async load() {
       if (lessonId)
-        return remember(await call("/" + encodeURIComponent(lessonId)));
+        try {
+          return remember(await call("/" + encodeURIComponent(lessonId)));
+        } catch (error) {
+          // A link to a lesson this account does not own opens this account's
+          // own Study for the song instead of another account's lesson.
+          if (!(error instanceof StudyLessonNotFoundError)) throw error;
+          lessonId = undefined;
+        }
       const latest: StudyLesson | null = await call(
         "?song=" + encodeURIComponent(JSON.stringify(song)),
       );

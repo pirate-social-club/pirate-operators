@@ -6,6 +6,7 @@ import { makeStudyLessonService } from "../services/study-lessons.ts";
 import { songOf, type StudyLesson } from "../packages/study/lesson.ts";
 import { StudySpeechError } from "../packages/study/speech-transcriber.ts";
 import type { StudyLine } from "../packages/study/contracts.ts";
+import { makeLegacyLesson } from "./study-close-bound-fixture.ts";
 
 export function lessonRecording(duration = 1000, suffix = 1) {
   return new Request("https://study.example/audio", {
@@ -64,7 +65,9 @@ export async function lessonFixture(
   let heard = lines[0].text,
     calls = 0,
     failure: "known_failed" | "unknown" | null = null,
-    clock = 1793894400000;
+    clock = 1793894400000,
+    // Lesson-only databases have no bindings; tests may simulate one consent.
+    consent: number | null = null;
   const attemptOptions = {
     db,
     now: () => clock,
@@ -85,6 +88,7 @@ export async function lessonFixture(
     attempts,
     resolveLines: async () => lines,
     now: () => clock,
+    consentExpiry: async () => consent,
   };
   const lessons = makeStudyLessonService(lessonOptions);
   return {
@@ -109,6 +113,17 @@ export async function lessonFixture(
     },
     start: (requestId = "lesson-request-" + crypto.randomUUID()) =>
       lessons.start(owner, requestId, song),
+    /** A lesson started before the time limit was removed (one-hour deadline). */
+    async startLegacy(requestId = "lesson-request-" + crypto.randomUUID()) {
+      const lesson = await lessons.start(owner, requestId, song);
+      await makeLegacyLesson(db, lesson.lessonId);
+      return lessons.get(owner, lesson.lessonId);
+    },
+    /** Simulate the bound consent's end, in seconds, for every lesson. */
+    consent: (expiresAtS: number | null) => {
+      consent = expiresAtS;
+    },
+    clock: () => clock,
     async answer(lesson: StudyLesson, correct: boolean) {
       const current = lesson.current!;
       heard = correct ? current.line.text : "unrelated words";

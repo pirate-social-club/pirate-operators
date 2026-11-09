@@ -14,13 +14,15 @@ import type {
   StudyPublicationReceipt,
 } from "../packages/study/publication.ts";
 import { studyId } from "../packages/study/operator-contract.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type { StudyBinding } from "./study-operator.ts";
+import { studyAuthorizationState } from "./study-authorization.ts";
 import {
   contractAbi,
   resultClient,
   readResultContract,
   resultPolicyAt,
   retainedTarget,
+  sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
 import {
@@ -137,15 +139,20 @@ async function freeze(
     check(old.requestHash === hash, "study_terminal_changed");
     return;
   }
-  const binding = store.get<StudyOperatorBinding>(
-    "studyBinding:" + input.lessonId,
-  );
+  const binding = store.get<StudyBinding>("studyBinding:" + input.lessonId);
   check(binding, "study_lesson_not_bound");
   const target = retainedTarget(env, binding.target);
-  check(
-    target.version === 3 && binding.enrollment.activities! & 2,
-    "study_enrollment_mismatch",
-  );
+  if (binding.authorization)
+    check(
+      target.version === 4 &&
+        sameResultsTarget(binding.authorization.target, target),
+      "study_authorization_mismatch",
+    );
+  else
+    check(
+      target.version === 3 && binding.enrollment.activities! & 2,
+      "study_enrollment_mismatch",
+    );
   check(
     input.terminal.startedAt === binding.offer.startedAt &&
       input.terminal.expiresAt === binding.offer.expiresAt &&
@@ -154,13 +161,22 @@ async function freeze(
       input.source.communityId === env.COMMUNITY_ID,
     "study_terminal_binding_changed",
   );
-  const bundle = studyFactsBundle({
+  const facts = {
     ...input,
-    enrollment: binding.enrollment,
     learner: binding.offer.learner,
     grader: env.OPERATOR_ADDRESS,
     qualificationPolicy: zeroHash,
-  });
+  };
+  // V4: the authorization id is the result's enrollmentId and its session's.
+  const bundle = binding.authorization
+    ? studyFactsBundle({
+        ...facts,
+        authorization: {
+          id: binding.authorization.id,
+          issuedAt: binding.authorization.issuedAt,
+        },
+      })
+    : studyFactsBundle({ ...facts, enrollment: binding.enrollment });
   check(
     bundle.result.exercisesHash === binding.exercisesHash &&
       canonical(
@@ -407,6 +423,26 @@ export async function resumeStudyPublication(
   const observed = await observe(env, store, id, job);
   if (observed.receipt)
     return saveReceipt(store, id, job, observed.receipt, observed.revision);
+  // V4: an unfinished lesson earns nothing and is never sent. A finished one
+  // is sent only while its sign-in permission is unbroken; withdrawal keeps it
+  // private. Both keep the bounded private-history erasure.
+  if (job.target.version === 4 && intent?.nonce == null) {
+    if (Number(job.result.status) !== 1)
+      return keepPrivate(env, store, id, job, "unfinished");
+    // The contract's publish rule, re-read just before dispatch.
+    const permission = await studyAuthorizationState(
+      env,
+      job.target,
+      job.result.learner,
+      job.result.enrollmentId,
+    );
+    if (
+      !permission.ownedBy ||
+      !permission.unbroken ||
+      BigInt(permission.issuedAt) > BigInt(job.result.startedAt)
+    )
+      return keepPrivate(env, store, id, job, "authorization_withdrawn");
+  }
   // Wait for chain time without charging a transaction that would revert.
   if (BigInt(job.result.completedAt) > observed.timestamp)
     return saveReceipt(store, id, job, {
@@ -431,7 +467,7 @@ export async function resumeStudyPublication(
       mined: null,
     });
   }
-  if (intent?.nonce == null) {
+  if (intent?.nonce == null && job.target.version !== 4) {
     const [grant, activities, , expires] = await readResultContract<
       readonly [Hex, bigint, bigint, bigint]
     >(env, job.target, "enrollments", [job.result.learner]);
@@ -439,33 +475,8 @@ export async function resumeStudyPublication(
       grant !== job.result.enrollmentId ||
       !(activities & 2n) ||
       Number(expires) <= store.now()
-    ) {
-      // Re-check after asynchronous grant reads. A competing queued native
-      // operation is recovery evidence, even before it receives a nonce.
-      if (
-        !(await proveNeverSubmittedStudy(env, store, id, job)) ||
-        studyNativeEvidence(store, id)
-      )
-        return job.receipt;
-      releaseSponsorship(store, sponsorLimits(env), "record_result:" + ref);
-      releaseSponsorship(
-        store,
-        sponsorLimits(env),
-        "record_result:study:" + id + ":2",
-      );
-      const receipt = saveReceipt(store, id, job, {
-        ...job.receipt,
-        state: "private",
-        confirmed: false,
-        reason: "enrollment_inactive",
-        neverSubmitted: true,
-        checkedAt: store.now(),
-      });
-      return (
-        (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
-        receipt
-      );
-    }
+    )
+      return keepPrivate(env, store, id, job, "enrollment_inactive");
   }
   const latest = store.get<PublicationJob>(key(id));
   const final = closedStudyPublication(store, id);
@@ -503,6 +514,47 @@ export async function resumeStudyPublication(
         : {}),
     },
     after.revision,
+  );
+}
+/**
+ * Records a never-submitted result as private, releases its sponsorship and
+ * runs the bounded private-history erasure once that is due.
+ */
+async function keepPrivate(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+  reason: "enrollment_inactive" | "unfinished" | "authorization_withdrawn",
+) {
+  // Re-check after asynchronous grant reads. A competing queued native
+  // operation is recovery evidence, even before it receives a nonce.
+  if (
+    !(await proveNeverSubmittedStudy(env, store, id, job)) ||
+    studyNativeEvidence(store, id)
+  )
+    return job.receipt;
+  releaseSponsorship(
+    store,
+    sponsorLimits(env),
+    "record_result:" + reference(id),
+  );
+  releaseSponsorship(
+    store,
+    sponsorLimits(env),
+    "record_result:study:" + id + ":2",
+  );
+  const receipt = saveReceipt(store, id, job, {
+    ...job.receipt,
+    state: "private",
+    confirmed: false,
+    reason,
+    neverSubmitted: true,
+    checkedAt: store.now(),
+  });
+  return (
+    (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
+    receipt
   );
 }
 export async function publishStudyTerminal(

@@ -7,6 +7,7 @@ export const applicationInfrastructure = [
   "protected-data.ts",
   "learning-bindings.ts",
   "rewards-bindings.ts",
+  "publishing-bindings.ts",
 ];
 export const applicationInfrastructureSources = applicationInfrastructure.map(
   (p) => `apps/community-wizard/infra/${p}`,

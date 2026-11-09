@@ -1,5 +1,8 @@
 import type { Address, Hex } from "viem";
-import { OWNER_POLICY_VERSION } from "../community/owner-policy.ts";
+import {
+  OWNER_POLICY_VERSION,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "../community/owner-policy.ts";
 import { RELEASE_POLICY } from "../community/manifest-core.ts";
 import {
   canonical,
@@ -156,7 +159,11 @@ export async function verifyAdmission(
     values.length <= 32 && facts.windows.length <= 2,
     "too_many_evidence_records",
   );
-  const curated = policy.policyVersion === OWNER_POLICY_VERSION;
+  // Both owner policies require recognition only; rating and language are
+  // operator declarations and automated content moderation is deferred.
+  const curated =
+    policy.policyVersion === OWNER_POLICY_VERSION ||
+    policy.policyVersion === UNREGISTERED_OWNER_POLICY_VERSION;
   insist(
     !policy.policyVersion || curated || policy.policyVersion === RELEASE_POLICY,
     "unsupported_admission_policy",

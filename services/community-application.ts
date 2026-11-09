@@ -40,6 +40,8 @@ import type {
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
+import { learningV3Disclosure } from "./learning-policy-v3.ts";
+import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { configurationHealth } from "./configuration-health.ts";
 import { serveInputCapability } from "../packages/community/input-capabilities.ts";
 import { communityReleaseApi } from "./community-release-api.ts";
@@ -74,7 +76,17 @@ import {
   type KaraokeEnv,
 } from "./karaoke-community.ts";
 import { studyCommunityApi } from "./study-community-api.ts";
-import { studyAvailable, type StudyEnv } from "./study-community.ts";
+import { liveStudy, studyAvailable, type StudyEnv } from "./study-community.ts";
+import {
+  turnOffPublicResults,
+  turnOnPublicResults,
+} from "./learning-public-results.ts";
+import {
+  publicResults,
+  relayPendingSignIns,
+  signInV4,
+  v4LearningRecords,
+} from "./learning-sign-in.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
 import { deleteExpiredStudyHistory } from "./study-retention.ts";
@@ -89,6 +101,12 @@ import { liveRewardSources, resultSource } from "./reward-sources.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+} from "../packages/community/owner-policy.ts";
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
@@ -98,7 +116,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   COMMUNITY_NAME: string;
   PLAN_ID: string;
   APPLICATION_PROFILE_HASH: string;
-  CREATOR_PROFILE_HASH: string;
+  /** Registered release policy only; owner-only publishing has no creator service. */
+  CREATOR_PROFILE_HASH?: string;
   COMMUNITY_PUBLISHER_PRIVATE_KEY: string;
   /** Pirate's provider key for the one forced alignment per lyric revision. */
   ALIGNMENT_ELEVENLABS_API_KEY?: string;
@@ -151,10 +170,20 @@ function dependencies(
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
-    async verifyLogin(address, message, signature) {
+    async verifyLogin(address, proof, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
-      return client.verifyMessage({ address, message, signature });
+      // Both cover EOAs and ERC-1271/6492 smart accounts such as MOSS.
+      return typeof proof === "string"
+        ? client.verifyMessage({ address, message: proof, signature })
+        : client.verifyTypedData({
+            address,
+            domain: proof.domain,
+            types: proof.types,
+            primaryType: proof.primaryType,
+            message: { ...proof.message },
+            signature,
+          });
     },
     async creatorHealth() {
       try {
@@ -213,7 +242,10 @@ export async function communityFetch(
     };
   try {
     insist(url.origin === firstSong.origin, "wrong_community_host", 403);
-    const policy = learningPolicyPage(url.pathname);
+    const policy = learningPolicyPage(
+      url.pathname,
+      !!env.STUDY_RESULTS_V4_CONTRACT,
+    );
     if (policy) return policy;
     const context = {
       communityId: firstSong.directoryProfile.communityId,
@@ -233,6 +265,25 @@ export async function communityFetch(
       );
       return config;
     };
+    // Owner-only publishing has no creator connection; its service is never
+    // contacted for status or capabilities under that policy.
+    const creatorAvailable = async (known?: CommunityConfig) => {
+      // A deployment carrying the owner grant never contacts the creator
+      // service, before or after the owner policy is activated.
+      if (env.OWNER_GRANT_JSON) return false;
+      let config = known;
+      if (!config)
+        try {
+          config = await configuration();
+        } catch {
+          // A registered deployment still reports its creator health
+          // without the policy. Status only.
+          return ports.creatorHealth();
+        }
+      return unregisteredOwner(config.policies.admission)
+        ? false
+        : ports.creatorHealth();
+    };
     const ready = async () => {
       const config = await configuration();
       const runtime =
@@ -240,6 +291,36 @@ export async function communityFetch(
         firstSongRuntime(env, config, configuration);
       await runtime.checkServices();
       return { config, ports: runtime };
+    };
+    // Display only: whether this account sees release controls. The release
+    // API checks the same authority again before every reservation and seal.
+    const sessionPublisher = async (accountId: string, wallet: string) => {
+      try {
+        const config = await configuration();
+        if (unregisteredOwner(config.policies.admission)) {
+          const runtime =
+            ports.releaseRuntime?.(config) ??
+            firstSongRuntime(env, config, configuration);
+          await requireAuthorizedOwner(
+            runtime.ownerAuthorization,
+            config,
+            wallet,
+          );
+          return true;
+        }
+        if (ownerCurated(config.policies.admission)) {
+          await requireCuratedOwner(env.DB, config, wallet);
+          return true;
+        }
+        // A registered release still needs an existing creator binding.
+        return !!(await env.DB.prepare(
+          "SELECT 1 FROM creator_bindings WHERE account_id=?",
+        )
+          .bind(accountId)
+          .first());
+      } catch {
+        return false;
+      }
     };
     if (
       url.pathname.startsWith("/api/rewards/") ||
@@ -300,7 +381,7 @@ export async function communityFetch(
         503,
       );
       await ensureCommunityIdentity(env.DB, context);
-      const creatorHealth = ports.creatorHealth().catch(() => false);
+      const creatorHealth = creatorAvailable().catch(() => false);
       let publicReady = false;
       try {
         publicReady = await firstSongPublicReady(
@@ -355,6 +436,21 @@ export async function communityFetch(
           ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
           : null,
         pendingConnection: await pendingCreatorConnection(env.DB, session),
+        // Only a V4 community has public results by sign-in; no RPC
+        // otherwise. With V4 configured, a failed configuration read is
+        // "pending", never "unavailable", which would offer V3 enrollment.
+        publicResults: !env.STUDY_RESULTS_V4_CONTRACT
+          ? "unavailable"
+          : await configuration().then(
+              (config) =>
+                publicResults(
+                  env.DB,
+                  session.account_id,
+                  !!signInV4(env, config),
+                ),
+              () => "pending" as const,
+            ),
+        publisher: await sessionPublisher(session.account_id, session.wallet),
       };
       return reply(view);
     }
@@ -474,7 +570,28 @@ export async function communityFetch(
         ...(env.KARAOKE_SERVICE_MODE === "internal"
           ? { learningServiceMode: "internal" as const }
           : {}),
-        creatorConnection: await ports.creatorHealth(),
+        // The learning documents of the community's actual version, for the
+        // site footer: exercise surfaces carry no links in any mode. A V4
+        // sign-in accepts them; a V3 community's enrollment did.
+        ...(signInV4(env, config)
+          ? {
+              learningPolicy: {
+                version: 4 as const,
+                termsUrl: learningV4Disclosure.termsUrl,
+                privacyUrl: learningV4Disclosure.privacyUrl,
+              },
+            }
+          : env.STUDY_RESULTS_V3_CONTRACT?.toLowerCase() ===
+              config.learningRecords.toLowerCase()
+            ? {
+                learningPolicy: {
+                  version: 3 as const,
+                  termsUrl: learningV3Disclosure.termsUrl,
+                  privacyUrl: learningV3Disclosure.privacyUrl,
+                },
+              }
+            : {}),
+        creatorConnection: await creatorAvailable(config),
         upload: releaseReady,
         publication: releaseReady,
         policyVersion: config.policies.admission.version,
@@ -578,8 +695,23 @@ export async function communityFetch(
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
       const body = await jsonBody(request);
-      if (url.pathname === "/api/auth/challenge")
-        return reply(await loginChallenge(env.DB, context, body.address));
+      if (url.pathname === "/api/auth/challenge") {
+        const v4 = signInV4(env, config);
+        // SIWE keeps the wall clock. A V4 sign-in's issuedAt is the
+        // application's own clock, never backdated: a backdated sign-in could
+        // fall at or before a just-recorded withdrawal. If it is ahead of the
+        // chain, the operator answers sign_in_not_yet_valid and the relay is
+        // retried.
+        return reply(
+          await loginChallenge(
+            env.DB,
+            context,
+            body.address,
+            v4 ? (ports.now ?? Date.now)() : Date.now(),
+            v4,
+          ),
+        );
+      }
       if (url.pathname === "/api/auth/verify") {
         const verified = await loginVerify(
           env.DB,
@@ -588,6 +720,8 @@ export async function communityFetch(
           text(body.signature, 32768),
           ports.verifyLogin,
         );
+        // The V4 sign-in is only stored: it is relayed when the learner
+        // first starts Study or Karaoke work, never at login.
         security.set("set-cookie", verified.cookie);
         return reply({ authenticated: true, csrf: verified.csrf });
       }
@@ -600,8 +734,37 @@ export async function communityFetch(
         return reply(
           await karaokeRevokeEnrollment(karaokePorts, session, body),
         );
-      if (url.pathname === "/api/karaoke/enrollment")
+      if (url.pathname === "/api/karaoke/enrollment") {
+        // V4 learning records: the sign-in is the permission, so the V3
+        // enrollment request and signature are refused. Listing and stopping
+        // an earlier V3 enrollment stay available.
+        insist(
+          !v4LearningRecords(env, config),
+          "enrollment_unavailable",
+          409,
+        );
         return reply(await karaokeEnrollment(karaokePorts, session, body));
+      }
+      // V4 account settings; never reached from an exercise.
+      if (url.pathname === "/api/learning/public-results/off")
+        return reply(
+          await turnOffPublicResults(
+            env,
+            env.DB,
+            config,
+            session,
+            body,
+            (ports.now ?? Date.now)(),
+            async () => {
+              if (studyAvailable(env, config))
+                await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
+            },
+          ),
+        );
+      if (url.pathname === "/api/learning/public-results/on")
+        return reply(
+          await turnOnPublicResults(env, env.DB, config, session),
+        );
       if (url.pathname === "/api/karaoke/tickets")
         return reply(await karaokeTicket(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/purchases")
@@ -612,6 +775,9 @@ export async function communityFetch(
         url.pathname === "/api/creator/connect" ||
         url.pathname === "/api/creator/complete"
       ) {
+        // The connection code is preserved for the deferred integration; an
+        // owner deployment refuses it before contacting the creator service.
+        insist(!env.OWNER_GRANT_JSON, "creator_connection_unavailable", 503);
         insist(await ports.creatorHealth(), "creator_service_unavailable", 503);
         insist(
           /^0x[0-9a-f]{64}$/i.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY),
@@ -685,10 +851,29 @@ export async function communityScheduled(
   } catch (error) {
     failures.push(error);
   }
-  if (env.STUDY_RESULTS_V3_CONTRACT) {
+  let ports: CommunityDependencies | undefined;
+  if (env.STUDY_RESULTS_V4_CONTRACT) {
     try {
-      const ports = provided ?? dependencies(env),
-        config = await ports.configuration();
+      ports ??= provided ?? dependencies(env);
+      const config = await ports.configuration();
+      insist(
+        config.communityId === firstSong.directoryProfile.communityId &&
+          config.app.origin === firstSong.origin,
+        "community_configuration_changed",
+        503,
+      );
+      // Pending sign-ins are relayed even if V4 was since unconfigured: the
+      // relay window then closes them as refused.
+      await relayPendingSignIns(env, env.DB, ports.now?.() ?? Date.now());
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  // Study recovery covers V3 lessons and, when configured, V4 lessons.
+  if (env.STUDY_RESULTS_V3_CONTRACT || env.STUDY_RESULTS_V4_CONTRACT) {
+    try {
+      ports ??= provided ?? dependencies(env);
+      const config = await ports.configuration();
       insist(
         config.communityId === firstSong.directoryProfile.communityId &&
           config.app.origin === firstSong.origin,
@@ -728,28 +913,39 @@ export async function communityScheduled(
     throw new AggregateError(failures, "community_scheduled_failed");
 }
 
+/** The publication queue handler; dependencies are injectable for acceptance. */
+export async function communityQueue(
+  batch: Pick<MessageBatch<{ jobId: string }>, "messages">,
+  env: CommunityEnv,
+  provided?: CommunityDependencies,
+) {
+  const ports = provided ?? dependencies(env),
+    config = await ports.configuration();
+  insist(
+    config.communityId === firstSong.directoryProfile.communityId &&
+      config.app.origin === firstSong.origin,
+    "community_configuration_changed",
+    503,
+  );
+  const runtime =
+    ports.releaseRuntime?.(config) ??
+    firstSongRuntime(env, config, ports.configuration);
+  for (const message of batch.messages) {
+    try {
+      await runCommunityJob(runtime, env.JOBS, message.body.jobId);
+      message.ack();
+    } catch {
+      message.retry({ delaySeconds: 60 });
+    }
+  }
+}
+
 export default {
   fetch(request, env) {
     return communityFetch(request, env);
   },
   async queue(batch: MessageBatch<{ jobId: string }>, env: CommunityEnv) {
-    const ports = dependencies(env),
-      config = await ports.configuration();
-    insist(
-      config.communityId === firstSong.directoryProfile.communityId &&
-        config.app.origin === firstSong.origin,
-      "community_configuration_changed",
-      503,
-    );
-    const runtime = firstSongRuntime(env, config, ports.configuration);
-    for (const message of batch.messages) {
-      try {
-        await runCommunityJob(runtime, env.JOBS, message.body.jobId);
-        message.ack();
-      } catch {
-        message.retry({ delaySeconds: 60 });
-      }
-    }
+    await communityQueue(batch, env);
   },
   async scheduled(_event, env) {
     await communityScheduled(env);

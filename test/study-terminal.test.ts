@@ -163,11 +163,12 @@ test("a late provider response cannot rewrite a durably abandoned lesson after r
   }
 });
 
-test("expiry keeps a previously saved grade and uses the fixed deadline, not delayed recovery time", async () => {
+test("legacy expiry keeps a previously saved grade and uses the fixed deadline, not delayed recovery time", async () => {
   const f = await lessonFixture();
   try {
-    const lesson = await f.start(),
-      second = await f.start();
+    const lesson = await f.startLegacy(),
+      second = await f.startLegacy();
+    assert.equal(lesson.expiresAt, lesson.startedAt + STUDY_LESSON_LIFETIME_MS);
     const opened = await f.lessons.openAttempt(f.owner, lesson.lessonId, 1, 1);
     await Effect.runPromise(
       f.attempts.submit(f.owner, opened.attempt.attemptId, lessonRecording()),
@@ -195,10 +196,10 @@ test("expiry keeps a previously saved grade and uses the fixed deadline, not del
   }
 });
 
-test("a response received after the deadline is unmeasured, never a new first-pass grade", async () => {
+test("a legacy response received after the deadline is unmeasured, never a new first-pass grade", async () => {
   const f = await lessonFixture();
   try {
-    const lesson = await f.start();
+    const lesson = await f.startLegacy();
     f.attemptOptions.transcriber.transcribe = async () => {
       f.advanceClock(STUDY_LESSON_LIFETIME_MS);
       return { text: f.lines[0].text, language: "en" };

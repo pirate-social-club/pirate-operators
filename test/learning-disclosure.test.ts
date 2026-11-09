@@ -6,6 +6,10 @@ import { digest } from "../packages/protocol/index.ts";
 import { revocationTypes } from "../packages/protocol/learning-results.ts";
 import { learningPolicyPage } from "../services/learning-policy-pages.ts";
 import {
+  learningV4Disclosure,
+  learningV4PublicityPolicy,
+} from "../services/learning-policy-v4.ts";
+import {
   learningV3Disclosure,
   learningV3PublicityPolicy,
 } from "../services/learning-policy-v3.ts";
@@ -52,6 +56,23 @@ test("versioned served documents bind the V3 contract and signature while V2 byt
   );
   assert.equal(keccak256(stringToHex(document)), learningV3PublicityPolicy);
   assert.equal(learningPolicyPage("/learning/v3/unknown"), null);
+  // The V4 documents are served only in a V4 community, and hash to its policy.
+  assert.equal(learningPolicyPage(learningV4Disclosure.termsUrl), null);
+  assert.equal(learningPolicyPage(learningV4Disclosure.privacyUrl), null);
+  const v4Body = (path: string) => learningPolicyPage(path, true)!.text();
+  assert.equal(
+    keccak256(
+      stringToHex(
+        `${await v4Body(learningV4Disclosure.termsUrl)}\n\n${await v4Body(learningV4Disclosure.privacyUrl)}`,
+      ),
+    ),
+    learningV4PublicityPolicy,
+  );
+  assert.equal(
+    await v4Body(learningV3Disclosure.termsUrl),
+    await body(learningV3Disclosure.termsUrl),
+  );
+  assert.equal(learningPolicyPage("/learning/v4/unknown", true), null);
   const f = await learningBindingFixture(19896);
   try {
     f.env.RESULTS_V3_CONTRACT = f.v3;

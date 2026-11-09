@@ -4,8 +4,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const origin = "https://community.example",
-  wallet = "https://pirate-wallet-test.piratesocialclub.workers.dev";
+const origin = "https://community.example";
 async function serve(
   page: Page,
   authenticated = false,
@@ -13,8 +12,7 @@ async function serve(
   releasing = false,
   referrerPolicy = "strict-origin",
 ) {
-  let connected = releasing,
-    exchanges = 0,
+  let creatorCalls = 0,
     reservations = 0,
     storedUploads = 0,
     uploadCalls = 0,
@@ -46,12 +44,6 @@ async function serve(
     state: sealed ? phase : "uploaded",
     jobId: sealed ? jobId : null,
   });
-  const pending = {
-    connectionId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
-    state: "s".repeat(43),
-    requestId: "a".repeat(64),
-    expiresAt: Date.now() + 86400000,
-  };
   await page.route(`${origin}/**`, async (route) => {
     const request = route.request(),
       path = new URL(request.url()).pathname;
@@ -75,10 +67,10 @@ async function serve(
     if (path === "/api/capabilities")
       return json({
         signIn: true,
-        creatorConnection: true,
+        creatorConnection: false,
         upload: releasing,
         publication: releasing,
-        policyVersion: "pirate-release/2026-08-29",
+        policyVersion: "pirate-owner-curated/2026-11-08/1",
       });
     if (path === "/api/feed") return json({ posts: [] });
     if (path === "/api/uploads" && request.method() === "GET")
@@ -179,21 +171,15 @@ async function serve(
             authorId: "0x" + "1".repeat(64),
             mossAddress: "0x" + "2".repeat(40),
             csrf: "fixture-csrf",
-            creator: connected
-              ? { evmAddress: "0x" + "3".repeat(40), verifiedAt: Date.now() }
-              : null,
-            pendingConnection: connected ? null : pending,
+            creator: null,
+            pendingConnection: null,
+            // Only the authorized owner sees release controls.
+            publisher: releasing,
           })
         : json({ error: "session_required" }, 401);
-    if (path === "/api/creator/complete") {
-      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
-      expect(request.postDataJSON()).toEqual({
-        connectionId: pending.connectionId,
-        state: pending.state,
-      });
-      exchanges++;
-      connected = true;
-      return json({ state: "connected" });
+    if (path.startsWith("/api/creator/")) {
+      creatorCalls++;
+      return json({ error: "fixture_creator_unused" }, 410);
     }
     if (path === "/api/logout") {
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
@@ -219,8 +205,7 @@ async function serve(
     });
   });
   return {
-    pending,
-    exchanges: () => exchanges,
+    creatorCalls: () => creatorCalls,
     reservations: () => reservations,
     storedUploads: () => storedUploads,
     uploadCalls: () => uploadCalls,
@@ -273,33 +258,28 @@ test("an existing session can sign out after a reload during a directory outage"
   await expect(page.getByRole("button", { name: "Sign out" })).toHaveCount(0);
 });
 
-test("same-window wallet return completes its saved connection with CSRF, then survives reload", async ({
+test("a signed-in learner sees no creator setup or release controls, even on the old wallet return path", async ({
   page,
 }) => {
   const state = await serve(page, true);
   await page.goto(
-    `${origin}/creator/complete?connection=${state.pending.connectionId}&state=${state.pending.state}`,
+    `${origin}/creator/complete?connection=aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa&state=${"s".repeat(43)}`,
   );
+  await expect(page.locator(".live-status")).toHaveText(
+    "Your community is ready.",
+  );
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
   await expect(
-    page.getByText("Your creator wallet is connected."),
-  ).toBeVisible();
-  expect(state.exchanges()).toBe(1);
-  await expect(page).toHaveURL(origin + "/");
+    page.getByRole("heading", { name: "Release a song" }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Song title", { exact: true })).toHaveCount(0);
+  await expect(page.getByText(/creator wallet/i)).toHaveCount(0);
+  await expect(page.getByText(/royalt/i)).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByText("Your creator wallet is connected."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Reopen creator wallet" }),
-  ).toBeEnabled();
-  expect(state.exchanges()).toBe(1);
-  await expect(page.getByRole("checkbox")).toHaveCount(1);
-  await expect(
-    page.getByText("Original composition", { exact: true }),
+    page.getByRole("heading", { name: "Release a song" }),
   ).toHaveCount(0);
-  await expect(
-    page.getByText("Historical recording", { exact: true }),
-  ).toHaveCount(0);
+  expect(state.creatorCalls()).toBe(0);
 });
 
 test("saved binary and release intent survive an interrupted upload and reload; held/rejected jobs cannot publish", async ({
@@ -307,6 +287,9 @@ test("saved binary and release intent survive an interrupted upload and reload; 
 }) => {
   const state = await serve(page, true, false, true);
   await page.goto(origin);
+  // The authorized owner publishes with no creator connection step.
+  await expect(page.getByText(/creator wallet/i)).toHaveCount(0);
+  await expect(page.getByText(/royalt/i)).toHaveCount(0);
   await page
     .getByLabel("Song title", { exact: true })
     .fill("Browser saved song");
@@ -403,6 +386,8 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   ).toBeVisible();
   await page.getByRole("button", { name: "Start another release" }).click();
   await expect(page.getByLabel("Song title", { exact: true })).toBeEditable();
+  await expect(page.getByText(/regist/i)).toHaveCount(0);
+  expect(state.creatorCalls()).toBe(0);
   await page.screenshot({
     path: "/tmp/pirate-first-song-upload-recovery.png",
     fullPage: true,

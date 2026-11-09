@@ -67,7 +67,9 @@ for (const [mode, port] of [
             `0x${"98".repeat(32)}`,
           )
           .run();
-        const lesson = await f.start();
+        // A lesson from before the time limit was removed keeps its one-hour
+        // deadline, so scheduled recovery closes and publishes it here.
+        const lesson = await f.startLegacy();
         f.behavior(async () => {
           throw new StudySpeechError("speech_timeout", "unknown");
         });

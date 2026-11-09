@@ -1,5 +1,13 @@
 # Community uploads and media publication
 
+Launch applicability, November 8: new owner songs use pirate.community-post/3
+under policy pirate-owner-curated/2026-11-08/1. Its registration object states
+status absent with reason deferred_for_launch and carries no asset or
+transaction fields. Readers accept /1, /2 and /3; /1 and /2 keep strict
+confirmed-receipt validation. Recovery and the old/new reader order are in
+[owner-only MegaETH song publication](../megaeth-song-publication.md).
+General-user hide and removal belong to a later release.
+
 Use private R2 for uploads, sealed source media and restricted evidence. Use
 Filebase's IPFS service for admitted public media and immutable publication
 manifests. Keep sessions, authorization, job state and account mappings in the

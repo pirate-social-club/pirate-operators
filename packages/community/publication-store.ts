@@ -1,4 +1,9 @@
 import { canonical, hashJson, insist, object, token } from "./common.ts";
+import {
+  unregisteredOwner,
+  UNREGISTERED_OWNER_POLICY_HASH,
+  UNREGISTERED_OWNER_POLICY_VERSION,
+} from "./owner-policy.ts";
 
 export const publicationSteps = [
   "admission",
@@ -9,6 +14,25 @@ export const publicationSteps = [
   "publication",
 ] as const;
 export type PublicationStep = (typeof publicationSteps)[number];
+/** Jobs captured under the unregistered owner policy never register. */
+export const unregisteredPublicationSteps: readonly PublicationStep[] =
+  publicationSteps.filter((step) => step !== "registration");
+/**
+ * The sequence comes from the job's own captured authority, never from the
+ * current community configuration, so a configuration change cannot move an
+ * existing job onto a different sequence.
+ */
+export function jobSteps(
+  job: Pick<PublicationJob, "authority_json">,
+): readonly PublicationStep[] {
+  const authority = object(JSON.parse(job.authority_json)),
+    policy = authority.policy;
+  return policy &&
+    typeof policy === "object" &&
+    unregisteredOwner(policy as { version: string; sha256: string })
+    ? unregisteredPublicationSteps
+    : publicationSteps;
+}
 export interface PublicationJob {
   job_id: string;
   submission_id: string;
@@ -48,13 +72,37 @@ export async function loadJob(db: D1Database, id: string) {
   return job;
 }
 export async function leaseJob(db: D1Database, id: string, time: number) {
+  // Refuse a phase outside the job's own captured sequence before any lease,
+  // attempt or timestamp changes. The SQL condition repeats the check inside
+  // the update so a concurrent phase change cannot slip past it.
+  const current = await db
+    .prepare("SELECT authority_json,phase FROM publication_jobs WHERE job_id=?")
+    .bind(id)
+    .first<Pick<PublicationJob, "authority_json" | "phase">>();
+  if (
+    current &&
+    isPublicationStep(current.phase) &&
+    !jobSteps(current).includes(current.phase)
+  )
+    insist(false, "step_outside_job_sequence", 409);
   const lease = token();
   const job = await db
     .prepare(
       `UPDATE publication_jobs SET lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
-    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication') RETURNING *`,
+    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication')
+    AND NOT (phase='registration' AND COALESCE(json_extract(authority_json,'$.policy.version'),'')=? AND COALESCE(json_extract(authority_json,'$.policy.sha256'),'')=?)
+    RETURNING *`,
     )
-    .bind(lease, time + 180_000, time, id, time, time)
+    .bind(
+      lease,
+      time + 180_000,
+      time,
+      id,
+      time,
+      time,
+      UNREGISTERED_OWNER_POLICY_VERSION,
+      UNREGISTERED_OWNER_POLICY_HASH,
+    )
     .first<PublicationJob>();
   return job;
 }
@@ -241,8 +289,9 @@ export async function advanceJob(
   result: unknown,
   time: number,
 ) {
-  const next =
-    publicationSteps[publicationSteps.indexOf(step) + 1] ?? "published";
+  const steps = jobSteps(job);
+  insist(steps.includes(step), "step_outside_job_sequence", 409);
+  const next = steps[steps.indexOf(step) + 1] ?? "published";
   const progress = object(JSON.parse(job.progress_json));
   delete progress.resumePhase;
   const updated = await db
@@ -274,7 +323,8 @@ export async function resumeUncertainJob(
   insist(
     job.phase === "uncertain" &&
       typeof progress.resumePhase === "string" &&
-      isPublicationStep(progress.resumePhase),
+      isPublicationStep(progress.resumePhase) &&
+      jobSteps(job).includes(progress.resumePhase),
     "job_not_reconcilable",
     409,
   );

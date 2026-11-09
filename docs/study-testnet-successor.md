@@ -68,11 +68,20 @@ or unresolved lesson cannot be turned into a completed qualifying lesson by
 the adapter. Public data excludes transcripts, recordings, private attempt IDs
 and retry history.
 
-The local runtime fixes a one-hour deadline when a lesson starts. A delayed
-expiry sweep retains that deadline as the terminal time. Three takes per graded
+Study has no learner time limit (workspace_owner ruling, 2026-11-08). A new
+lesson stores no deadline and stays open while the consent it was bound to is
+live. It closes privately at the earlier of that consent's last millisecond and
+thirty days after it started, or at once when the operator reports the consent
+revoked, replaced or ended. A lesson closed at consent end stays private; one
+closed at thirty days while its consent is still live (possible only for a
+consent longer than the thirty days the application requests) can publish as
+abandoned. A draft never bound to consent closes thirty days
+after it started. A lesson started before the ruling keeps its one-hour
+deadline, and a delayed expiry sweep retains that deadline as its terminal
+time. Three takes per graded
 presentation bound known-failure retries; uncertainty still prevents redispatch.
 Study again explicitly abandons the previous active lesson before opening one.
-Leaving the browser without that action is recovered through the fixed expiry.
+Leaving the browser without that action is recovered at the close bound above.
 Only a saved grade advances the queue. Atomic closure retains first passes,
 marks submitted but ungraded work unmeasured and unreached work unattempted,
 and prevents late provider responses or new claims from changing the result.
@@ -158,15 +167,17 @@ The application migration, authenticated routes, managed speech bridge, terminal
 publication queue and expiry schedule are implemented locally. The live feed now
 offers Study only when the V3 service matches the directory configuration. A
 Study link resumes after MOSS sign-in without creator-wallet or membership gates.
-New lessons request V3 Study authority and renew a grant that cannot cover a
-full lesson and publication grace. Loading an existing lesson keeps its frozen
+New lessons request V3 Study authority and renew a grant with less than an
+hour and the publication grace left; a lesson started on such a grant can last
+only as long as the grant. Loading an existing lesson keeps its frozen
 grant. New Study work waits while renewal is pending, and reuse includes an
 extra minute of request headroom beyond the contract's publication grace.
-The binding still checks the actual saved lesson deadline. The client retains
+The binding checks a legacy lesson's saved deadline, and for a new lesson that
+the grant is live at binding time. The client retains
 its lesson URL, recovers a lost start response through
 the saved latest lesson, and distinguishes private completion from pending or
 confirmed public publication. Closing the screen preserves the active lesson
-until it is resumed or reaches its saved deadline.
+until it is resumed or reaches its close bound.
 
 Leaving Study stops new enrollment, lesson and recording dispatch after pending
 requests or wallet signing return. It cannot undo a request already sent. A
@@ -216,8 +227,11 @@ completion ahead of chain time waits without allocating or charging a new
 transaction. The general transaction recovery path honors that wait too.
 
 Scheduled community recovery scans at most twenty due lessons per invocation,
-closes abandoned-browser lessons at their original deadline and resumes the
-outbox. Unbound drafts expire privately without obtaining a grant. One binding
+closes abandoned-browser lessons at their close bound (a legacy deadline, or a
+new lesson's consent end or thirty-day limit) and resumes the outbox. A new
+lesson closed at its consent end is published only if that consent is still
+live, which in practice means it stays private. Unbound drafts close privately
+without obtaining a grant. One binding
 or RPC failure does not suppress other due work. Private publication status is
 available only through the owning account's no-store route.
 
@@ -226,6 +240,10 @@ invalidation. The managed Study correction control path remains a release gate;
 this ordinary publication path accepts one immutable terminal snapshot per lesson.
 
 ## Deployment order and acceptance
+
+The no-deadline Study change requires the 992158-byte operator to be live
+before, or together with, the application; the older operator refuses every
+no-deadline lesson binding. See docs/study-operator-release.md.
 
 First deploy and verify the application and readers capable of the current
 and successor configuration histories. Confirm existing songs and V2 Karaoke
@@ -255,8 +273,11 @@ provider or operator and remains usable when new practice is disabled.
 The export contains the full private attempt set, including recognized text,
 without the recent-list limit of fifty. A lesson's presentation and take bounds
 permit at most sixty attempts; an oversized history is rejected without silently
-truncating it. The export window ends thirty days after the saved completion or
-lesson deadline. Raw audio, managed keys and cookies are not included. This is
+truncating it. The export window ends thirty days after the saved completion, the legacy
+lesson deadline, or an open new lesson's close bound once that has passed. With the
+thirty-day consent the application requests, an open new lesson can therefore be
+retained for up to sixty days after its consent was signed, against about thirty days and an hour under the former limit; the
+V3 disclosure promises no shorter period. Raw audio, managed keys and cookies are not included. This is
 an operator-held JSON copy, not an encrypted learner vault or an official grade
 import. The account menu retains one opened lesson; a full history index is not
 claimed by this slice.
@@ -265,8 +286,8 @@ An expired export is refused immediately. Migration 0010 adds a private-history
 deletion marker and compact terminal outbox. Scheduled bounded deletion erases
 the expired attempt rows and replaces the private queue with an empty object,
 even when new practice is disabled. It first consumes grades durably saved
-before a lesson deadline and closes unattended lessons without another speech
-request. Unknown dispatch remains unmeasured rather than becoming wrong.
+before a lesson's close bound and closes unattended lessons there without
+another speech request. Unknown dispatch remains unmeasured rather than becoming wrong.
 One failed row is reported after other selected rows can progress. Due rows
 with the fewest previous cleanup attempts go first, so even a full batch of bad
 rows cannot repeatedly hide later due work. Retry bookkeeping changes neither

@@ -24,6 +24,7 @@ import {
   contractAbi,
   contractDomain,
   contractEnrollmentId,
+  enrollmentResultsTarget,
   resultsTarget,
   retainedTarget,
   pendingEnrollmentKey,
@@ -32,6 +33,10 @@ import {
   type ResultsTarget,
 } from "./learning-contract.ts";
 import type { Env } from "./runtime.ts";
+import {
+  acceptRevocationV4,
+  revocationRequestV4,
+} from "./learning-authorization.ts";
 import { STUDY_LESSON_LIFETIME_MS } from "../packages/study/lesson.ts";
 import {
   learningV3Disclosure,
@@ -100,7 +105,7 @@ export async function learningEnrollments(
 export async function activeEnrollment(
   env: Env,
   learner: Address,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
   requiredActivities: 1 | 2 | 3 = 1,
 ): Promise<BoundEnrollment> {
   destination = retainedTarget(env, destination);
@@ -130,7 +135,7 @@ export async function enrollmentRequest(
   env: Env,
   learner: Address,
   now: number,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   const [nonce, publicityPolicy, communityId] = await Promise.all([
@@ -161,8 +166,10 @@ export async function enrollmentRequest(
   };
 }
 
-/** Allow publication grace plus a minute for the following start request.
- * The binding still checks the actual lesson deadline against the grant. */
+/** Reuse a grant with at least an hour, publication grace and a minute left.
+ * A legacy lesson's binding checks its deadline against the grant; a new
+ * lesson's binding requires the grant to be live, and the lesson closes at the
+ * grant's last second. */
 export async function enrollmentForPractice(
   env: Env,
   store: ResultStore,
@@ -201,7 +208,7 @@ export async function acceptEnrollment(
   store: ResultStore,
   e: Enrollment,
   signature: Hex,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
   if (destination.version === 3) {
@@ -334,7 +341,8 @@ export async function resumeEnrollments(env: Env, store: ResultStore) {
   }
   for (const { value } of store.entries("revocationIntent:")) {
     const job = value as RevocationJob;
-    if (!job.pending) continue;
+    // V4 withdrawals are retried with the sign-in relay (learning-authorization.ts).
+    if (!job.pending || job.target?.version === 4) continue;
     try {
       await acceptRevocation(
         env,
@@ -353,9 +361,10 @@ export async function resumeEnrollments(env: Env, store: ResultStore) {
 export async function revocationRequest(
   env: Env,
   learner: Address,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
+  if (destination.version === 4) return revocationRequestV4(env, learner);
   return {
     target: destination,
     domain: contractDomain(destination),
@@ -375,9 +384,12 @@ export async function acceptRevocation(
   learner: Address,
   nonce: bigint,
   signature: Hex,
-  destination: ResultsTarget = resultsTarget(env),
+  destination: ResultsTarget = enrollmentResultsTarget(env),
 ) {
   destination = retainedTarget(env, destination);
+  // V4 has no enrollment grant: its withdrawal has its own relay.
+  if (destination.version === 4)
+    return acceptRevocationV4(env, store, learner, nonce, signature);
   const data = encodeFunctionData({
     abi: contractAbi(destination),
     functionName: "revoke",

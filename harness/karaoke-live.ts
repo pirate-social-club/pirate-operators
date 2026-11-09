@@ -32,6 +32,12 @@ import { validateConfig } from "../packages/community/config-manifest.ts";
 import { postsAbi } from "../packages/community/post-chain.ts";
 import { readMp3Probe } from "../packages/moderation/mp3-windows.ts";
 import { releasePostsFixture } from "../test/fixtures/release-posts.ts";
+import { verifyLoginOnChain } from "./login-verifier.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import {
+  relayPendingSignIns,
+  requestSignInRelay,
+} from "../services/learning-sign-in.ts";
 import type { chain } from "./chain.ts";
 import { keys, accounts } from "./runtime.ts";
 import {
@@ -127,7 +133,13 @@ const bundle = async (entry: string) =>
     })
   ).outputFiles[0]!.text;
 
-async function migrate(db: D1Database) {
+/**
+ * A V4 community as a release builds it: 0013, the V4 sign-in schema, is
+ * appended only after the deployed Study, rewards and owner publishing
+ * schema (0009 to 0012), so turning public results off can close Study
+ * lessons.
+ */
+async function migrate(db: D1Database, v4: boolean) {
   for (const name of [
     "0001_setup.sql",
     "0002_first_song.sql",
@@ -137,6 +149,15 @@ async function migrate(db: D1Database) {
     "0006_song_stems.sql",
     "0007_owner_curated.sql",
     "0008_karaoke.sql",
+    ...(v4
+      ? [
+          "0009_study.sql",
+          "0010_study_retention.sql",
+          "0011_manual_rewards.sql",
+          "0012_owner_budget_windows.sql",
+          "0013_learning_authorization.sql",
+        ]
+      : []),
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",
@@ -159,6 +180,11 @@ export const SIMULATED_KEY = "simulated-elevenlabs-key";
 
 export interface LiveOptions {
   internalResults?: boolean;
+  /**
+   * Internal results on LearningResultsV4, the directory's learning records:
+   * signing in is the publication permission, with no enrollment.
+   */
+  resultsV4?: boolean;
   evm: LocalChain;
   now: number;
   streams: SimulatedStream[];
@@ -211,9 +237,15 @@ export async function karaokeLive(
         }),
       ],
     );
-  const resultsV2 = options.internalResults ? await evm.deploy("LearningResultsV2", [accounts[3].address, config.communityId, digest("fixture-publicity")]) : undefined;
+  const resultsV2 = options.internalResults && !options.resultsV4 ? await evm.deploy("LearningResultsV2", [accounts[3].address, config.communityId, digest("fixture-publicity")]) : undefined;
   if (resultsV2) await evm.write(resultsV2, "LearningResultsV2", "setGrader", [accounts[2].address, 1, true], 3);
   if (resultsV2) config.learningRecords = resultsV2.toLowerCase() as Address;
+  const resultsV4 = options.resultsV4 ? await evm.deploy("LearningResultsV4", [accounts[3].address, config.communityId, learningV4PublicityPolicy]) : undefined;
+  if (resultsV4) await evm.write(resultsV4, "LearningResultsV4", "setGrader", [accounts[2].address, 1, true], 3);
+  if (resultsV4) config.learningRecords = resultsV4.toLowerCase() as Address;
+  const internal = !!(resultsV2 || resultsV4);
+  const internalBindings = { SERVICE_MODE: "internal", HISTORY_RETENTION_DAYS: "30",
+    SPONSOR_CAP_WEI: "1000000000000000000", SPONSOR_GAS_PRICE_WEI: "10000000000", SPONSOR_GAS_LIMIT: "2000000", SPONSOR_DATA_FEE_WEI: "0" };
   const [operator, simulator] = await Promise.all([
     bundle("services/karaoke-audio-runtime.ts"),
     bundle("harness/karaoke-elevenlabs-simulator.ts"),
@@ -246,8 +278,8 @@ export async function karaokeLive(
           PAYMENT_CHAIN_ID: "31337",
           PAYMENT_TOKEN: evm.paymentToken,
           PAYMENTS_CONTRACT: evm.paymentsContract,
-          ...(resultsV2 ? { RESULTS_V2_CONTRACT: resultsV2, SERVICE_MODE: "internal", HISTORY_RETENTION_DAYS: "30",
-            SPONSOR_CAP_WEI: "1000000000000000000", SPONSOR_GAS_PRICE_WEI: "10000000000", SPONSOR_GAS_LIMIT: "2000000", SPONSOR_DATA_FEE_WEI: "0" } : { RECORDS_CONTRACT: evm.recordsContract }),
+          ...(resultsV2 ? { RESULTS_V2_CONTRACT: resultsV2, ...internalBindings }
+            : resultsV4 ? { RESULTS_V4_CONTRACT: resultsV4, ...internalBindings } : { RECORDS_CONTRACT: evm.recordsContract }),
           COMMUNITY_ADDRESS: accounts[3]!.address,
           ACCOUNT_DELEGATE: evm.mockAccount,
           ACCOUNT_INITIALIZER: evm.mockInitializer,
@@ -287,7 +319,7 @@ export async function karaokeLive(
       media = (await mf.getR2Bucket("MEDIA", "storage")) as unknown as R2Bucket,
       operatorWorker = (await mf.getWorker("operator")) as unknown as Fetcher,
       simulatorWorker = await mf.getWorker("elevenlabs");
-    await migrate(db);
+    await migrate(db, !!resultsV4);
     let now = options.now;
     const posts = releasePostsFixture(publisher, config),
       ipfs = new Map<string, Uint8Array>([
@@ -308,9 +340,10 @@ export async function karaokeLive(
       APPLICATION_PROFILE_HASH: `0x${"a".repeat(64)}`,
       CREATOR_PROFILE_HASH: `0x${"b".repeat(64)}`,
       COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
-      ...(resultsV2 ? { KARAOKE_SERVICE_MODE: "internal", KARAOKE_SPEECH_BUDGET: { getByName: () => ({ claim: async () => ({ fixture: true }) }) } } : {}),
+      ...(internal ? { KARAOKE_SERVICE_MODE: "internal", KARAOKE_SPEECH_BUDGET: { getByName: () => ({ claim: async () => ({ fixture: true }) }) } } : {}),
+      ...(resultsV4 ? { STUDY_RESULTS_V4_CONTRACT: resultsV4 } : {}),
       KARAOKE_OPERATOR: operatorWorker,
-      KARAOKE_OPERATOR_ADDRESS: resultsV2 ? accounts[2]!.address.toLowerCase() : accounts[2]!.address,
+      KARAOKE_OPERATOR_ADDRESS: internal ? accounts[2]!.address.toLowerCase() : accounts[2]!.address,
       // A browser reaches the operator at Miniflare's address through its routes.
       KARAOKE_OPERATOR_ORIGIN:
         options.operatorOrigin ??
@@ -326,8 +359,7 @@ export async function karaokeLive(
     const ports: CommunityDependencies = {
       configuration: async () => config,
       // Through the chain, so a smart account's signature verifies as on MegaETH.
-      verifyLogin: (address, message, signature) =>
-        evm.publicClient.verifyMessage({ address, message, signature }),
+      verifyLogin: verifyLoginOnChain(evm.publicClient),
       creatorHealth: async () => false,
       publicReads: {
         client: posts.client,
@@ -508,12 +540,20 @@ export async function karaokeLive(
       );
     };
 
-    /** SIWE sign-in through the application, as the browser does it. */
+    /**
+     * Sign-in through the application, as the browser does it: SIWE, or with
+     * V4 the typed SignIn that is also the publication permission.
+     */
     const signIn = async (wallet: {
       address: Address;
       signMessage: PrivateKeyAccount["signMessage"];
+      signTypedData?: PrivateKeyAccount["signTypedData"];
     }) => {
-      const challenge = await json<{ id: string; message: string }>(
+      const challenge = await json<{
+        id: string;
+        message: string;
+        typedData?: Parameters<PrivateKeyAccount["signTypedData"]>[0];
+      }>(
         await app("/api/auth/challenge", {
           method: "POST",
           headers: {
@@ -531,9 +571,11 @@ export async function karaokeLive(
         },
         body: JSON.stringify({
           id: challenge.value.id,
-          signature: await wallet.signMessage({
-            message: challenge.value.message,
-          }),
+          signature: challenge.value.typedData
+            ? await wallet.signTypedData!(challenge.value.typedData)
+            : await wallet.signMessage({
+                message: challenge.value.message,
+              }),
         }),
       });
       const body = (await verified.json()) as { csrf: string };
@@ -594,7 +636,24 @@ export async function karaokeLive(
       };
     return {
       mf,
-    resultsV2,
+      resultsV2,
+      resultsV4,
+      /**
+       * V4: each pending sign-in is relayed as a learner's first Study or
+       * Karaoke start requests it, and the scheduled relay settles the rest.
+       */
+      async recordSignIns() {
+        const pending = await db
+          .prepare(
+            "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
+          )
+          .all<{ account_id: string }>();
+        for (const { account_id } of pending.results)
+          await requestSignInRelay(env, db, account_id, now * 1000);
+        return relayPendingSignIns(env, db, now * 1000);
+      },
+      /** V4: only the Worker cron's retry of relays a start already requested. */
+      scheduledSignInRelay: () => relayPendingSignIns(env, db, now * 1000),
       persist,
       config,
       env,

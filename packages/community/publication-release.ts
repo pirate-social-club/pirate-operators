@@ -2,6 +2,7 @@ import type { Address, PublicClient } from "viem";
 import {
   bytes32,
   canonical,
+  CommunityError,
   exact,
   hashJson,
   hashText,
@@ -17,16 +18,33 @@ import type { PublicationInput } from "./publication-input.ts";
 import { observeRootRegistration } from "./registration-chain.ts";
 import { validatePost, validateRegistration } from "./post-manifest.ts";
 import { pinOperationId, type ReleaseRole } from "../release/artifacts.ts";
+import { ownerReleaseKey } from "../release/owner-release.ts";
+import type { OwnerBudgetGrant } from "../release/owner-grant.ts";
 import type { RetainedPin } from "../release/pin-operations.ts";
 import type { OperationResult, Reconciliation } from "./publication.ts";
 
 export interface ReleasePorts {
   client: ManagedClient;
   grantHash: string;
-  registrationOperator: Address;
-  story: PublicClient;
+  /** Registered releases only. Absent under the unregistered owner policy. */
+  registrationOperator?: Address;
+  story?: PublicClient;
+  /** Present only under the unregistered owner policy. */
+  ownerGrant?: OwnerBudgetGrant;
   ipfs?: IpfsTransport;
 }
+/** Pin operation identity: per release key for owner jobs, per grant otherwise. */
+const releasePinId = (
+  input: PublicationInput,
+  ports: ReleasePorts,
+  role: ReleaseRole,
+) =>
+  pinOperationId(
+    ports.ownerGrant
+      ? ownerReleaseKey(ports.ownerGrant, input.job.job_id)
+      : ports.grantHash,
+    role,
+  );
 function validatedPin(value: unknown): RetainedPin {
   const p = object(value);
   const gateway = publicGateways.find((g) => g === p.gateway);
@@ -56,6 +74,15 @@ function validatedPin(value: unknown): RetainedPin {
     verifiedAt: integer(p.verifiedAt, 1, Math.floor(Date.now() / 1000)),
   };
 }
+const ownerBudgetRefusals = new Set([
+  "funding_cap_exhausted",
+  "owner_budget_window_not_current",
+  "owner_budget_window_overlap",
+  "owner_budget_window_superseded",
+  "owner_budget_limits_changed",
+  "budget_profile_changed",
+  "owner_grant_outside_window",
+]);
 async function response(
   ports: ReleasePorts,
   path: string,
@@ -63,7 +90,21 @@ async function response(
   body: Record<string, unknown>,
   operationId: string,
 ) {
-  const reply = await managedRequest(ports.client, path, action, body);
+  let reply: Awaited<ReturnType<typeof managedRequest>>;
+  try {
+    reply = await managedRequest(ports.client, path, action, body);
+  } catch (error) {
+    // Owner budget refusals happen before any provider spend, so they are a
+    // definite outcome, not an uncertain one.
+    if (
+      ports.ownerGrant &&
+      error instanceof CommunityError &&
+      (error.status === 403 || error.status === 409) &&
+      ownerBudgetRefusals.has(error.code)
+    )
+      return { state: "refused", code: error.code };
+    throw error;
+  }
   if (reply.status === 404 && reply.body.state === "absent")
     return { state: "absent" };
   insist(
@@ -81,10 +122,13 @@ export async function releasePin(
   role: ReleaseRole,
   mode: "execute" | "reconcile",
 ): Promise<Reconciliation> {
-  const id = pinOperationId(ports.grantHash, role),
+  const id = releasePinId(input, ports, role),
     value = await response(
       ports,
-      "/v1/releases/pin" + (mode === "reconcile" ? "/status" : ""),
+      // Owner jobs use the pins-only owner release; registered jobs keep the
+      // registered release paths, so their reconciliation stays available.
+      (ports.ownerGrant ? "/v1/owner-releases/pin" : "/v1/releases/pin") +
+        (mode === "reconcile" ? "/status" : ""),
       mode === "reconcile" ? "release_pin_status" : "release_pin",
       { context: input.context, role },
       id,
@@ -98,6 +142,13 @@ export async function releasePin(
         grantHash: ports.grantHash,
         state: "absent",
       }),
+    };
+  if (value.state === "refused")
+    return {
+      kind: "held",
+      providerId: id,
+      code: String(value.code),
+      value: { serviceState: "refused", errorCode: value.code },
     };
   if (value.state !== "confirmed") return { kind: "unknown" };
   const pin = validatedPin(value.pin);
@@ -226,6 +277,11 @@ export async function releaseRegistration(
       }),
     };
   if (result.state !== "confirmed") return { kind: "unknown" };
+  insist(
+    ports.story && ports.registrationOperator,
+    "registration_not_applicable",
+    409,
+  );
   const receipt = validateRegistration(result.receipt),
     actual = await observeRootRegistration(
       ports.story,
@@ -260,16 +316,29 @@ export async function validateReleaseResult(
   step: "pin_audio" | "pin_lyrics" | "pin_manifest" | "registration",
   result: OperationResult,
 ) {
+  // An owner budget refusal is a definite held outcome with no provider spend.
+  if (
+    result.kind === "held" &&
+    ports.ownerGrant &&
+    step !== "registration" &&
+    ownerBudgetRefusals.has(result.code)
+  )
+    return;
   insist(result.kind === "confirmed", "invalid_release_outcome", 503);
   if (step === "registration") {
+    insist(
+      !ports.ownerGrant && ports.story && ports.registrationOperator,
+      "registration_not_applicable",
+      409,
+    );
     const receipt = validateRegistration(result.value.receipt),
       ip = validatedPin(result.value.metadata),
       nft = validatedPin(result.value.nftMetadata),
       createdAt = await metadata(input, ports, ip, nft);
     const actual = await observeRootRegistration(
-      ports.story,
+      ports.story!,
       receipt.transactionHash,
-      ports.registrationOperator,
+      ports.registrationOperator!,
       {
         recipient: input.context.recipient as Address,
         contentSha256: input.row.audio_sha256 as `0x${string}`,
@@ -326,9 +395,25 @@ export async function validateReleaseResult(
     );
     const audio = validatedPin(object(input.progress.pin_audio).pin),
       lyrics = validatedPin(object(input.progress.pin_lyrics).pin),
-      registration = object(input.progress.registration),
+      owner = !!ports.ownerGrant,
+      // Owner jobs never register; publishedAt is the managed admission time.
+      registration = owner ? null : object(input.progress.registration),
       admission = object(input.progress.admission),
-      decision = object(admission.decision);
+      decision = object(admission.decision),
+      created = Math.floor(input.createdAt / 1000);
+    insist(
+      owner
+        ? post.schema === "pirate.community-post/3" &&
+            canonical(post.registration) ===
+              canonical({ status: "absent", reason: "deferred_for_launch" }) &&
+            post.publishedAt >= created &&
+            post.publishedAt <= Math.floor(Date.now() / 1000)
+        : post.schema !== "pirate.community-post/3" &&
+            post.publishedAt === registration!.metadataCreatedAt &&
+            canonical(post.registration) === canonical(registration!.receipt),
+      "post_manifest_registration_mismatch",
+      503,
+    );
     insist(
       post.chainId === 6343 &&
         post.postsContract === ports.client.configuration.postsContract &&
@@ -340,8 +425,6 @@ export async function validateReleaseResult(
         post.revision === 1 &&
         post.configurationRevision ===
           ports.client.configuration.configurationRevision &&
-        post.publishedAt === registration.metadataCreatedAt &&
-        canonical(post.registration) === canonical(registration.receipt) &&
         post.admission.evidenceSha256 === admission.evidenceSha256 &&
         post.rating ===
           (decision.rating === "adult_18" ? "adult" : "general") &&

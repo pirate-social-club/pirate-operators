@@ -113,3 +113,18 @@ The later live Study fetch repair changes that reviewed runtime by one literal
 only, to991562bytes at6fa28d54. The earlier991561/EA checkpoint and its closed
 release records remain historical. The current actual-reader regression pins
 the successor's exact module bytes and still rejects the oversized default glob.
+
+The Study time-limit removal changes the operator module to 992158 bytes at
+0xaa977c9d1e12d483f51f91b332a6c727eb12099adacd9405e5ade41dc2b5682f. It accepts
+a no-deadline lesson offer alongside the legacy one-hour offer, binds a
+no-deadline offer to consent that is live at binding time, and reports consent
+that ended, was revoked or was replaced as a known speech refusal before any
+slot or provider call. Legacy offers keep their deadline refusal; a legacy
+lesson whose consent was revoked or replaced now spends its known-failure takes
+instead of waiting as uncertain until its deadline, with the same end state.
+
+Deployment order: this operator must be live before, or together with, the
+application that creates no-deadline lessons. The deployed 991562-byte operator
+accepts only startedAt plus one hour, so an application released first would
+have every new lesson's binding refused. The new operator still accepts legacy
+offers, so deploying it first is safe. Deployment remains with runtime custody.

@@ -223,9 +223,11 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
       );
       postDocument(value, config.value);
       requireFact(
-        ["pirate.community-post/1", "pirate.community-post/2"].includes(
-          value.schema,
-        ) &&
+        [
+          "pirate.community-post/1",
+          "pirate.community-post/2",
+          "pirate.community-post/3",
+        ].includes(value.schema) &&
           value.kind === "song" &&
           value.chainId === p.chainId &&
           sameAddress(value.postsContract, p.posts.address) &&

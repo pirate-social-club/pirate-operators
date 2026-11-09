@@ -104,7 +104,8 @@ export async function publicSongViews(
         title: post.title,
         language: post.language,
         rating: post.rating,
-        ...(post.schema === "pirate.community-post/2"
+        ...(post.schema === "pirate.community-post/2" ||
+        post.schema === "pirate.community-post/3"
           ? {
               declarationSource: post.admission.declarationSource,
               automatedContent: post.admission.automatedContent,

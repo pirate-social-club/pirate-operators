@@ -11,7 +11,7 @@ import type {
   StudyLessonSubmission,
 } from "../../../../packages/study/lesson.ts";
 import { STUDY_MAX_TAKES } from "../../../../packages/study/lesson.ts";
-import type { StudyClient } from "./client.ts";
+import { StudyAccountChangedError, type StudyClient } from "./client.ts";
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 import { StudyingSurface } from "./presentation/studying-surface.tsx";
 import type { StudyingSurfaceState } from "./presentation/studying-model.ts";
@@ -60,6 +60,17 @@ export function StudyScreen(props: {
     props.onLesson?.(value);
     setMiss(null);
   }
+  /** Never keep showing a lesson that belongs to the previous account. */
+  function forgetAccount(e: unknown) {
+    if (!(e instanceof StudyAccountChangedError)) return false;
+    generation++;
+    cleanup();
+    setLesson(null);
+    setMiss(null);
+    setError(e.message);
+    setPhase("idle");
+    return true;
+  }
   async function load(restart = false) {
     const version = ++generation;
     setPhase("loading");
@@ -71,9 +82,15 @@ export function StudyScreen(props: {
         : props.client.load());
       if (active && version === generation) install(value);
     } catch (e) {
+      if (forgetAccount(e)) return;
       if (restart && active && version === generation) {
         // Abandon may have succeeded before enrollment or the next start failed.
-        const saved = await props.client.load().catch(() => null);
+        let changed = false;
+        const saved = await props.client.load().catch((error) => {
+          changed = forgetAccount(error);
+          return null;
+        });
+        if (changed) return;
         if (saved && active && version === generation) install(saved);
       }
       if (active && version === generation)
@@ -127,7 +144,7 @@ export function StudyScreen(props: {
       );
       if (active && version === generation) apply(response);
     } catch (e) {
-      if (!active || version !== generation) return;
+      if (!active || version !== generation || forgetAccount(e)) return;
       try {
         const restored = await props.client.load();
         if (!active || version !== generation) return;
@@ -144,7 +161,8 @@ export function StudyScreen(props: {
           );
           setPhase("idle");
         }
-      } catch {
+      } catch (restoreError) {
+        if (forgetAccount(restoreError)) return;
         setError("Your answer could not be saved. Try again.");
         setPhase("idle");
       }

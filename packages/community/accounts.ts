@@ -1,5 +1,5 @@
 import { createSiweMessage } from "viem/siwe";
-import { isAddress, type Address, type Hex } from "viem";
+import { getAddress, isAddress, type Address, type Hex } from "viem";
 import {
   cookie,
   bytes32,
@@ -10,6 +10,12 @@ import {
   token,
 } from "./common.ts";
 import { equalTokens } from "./token-comparison.ts";
+import {
+  resultsV4Domain,
+  signInIdV4,
+  signInTypes,
+  type SignIn,
+} from "../protocol/learning-results-v4.ts";
 
 export interface AccountSession {
   session_hash: string;
@@ -52,23 +58,131 @@ export async function ensureCommunityIdentity(
     503,
   );
 }
+/** The V4 results contract a sign-in authorizes, when the community uses it. */
+export interface SignInV4 {
+  chainId: number;
+  contract: Address;
+  communityId: Hex;
+  publicationPolicy: Hex;
+  policyVersion: number;
+}
+/** SignIn as the wallet receives it: integers are decimal strings. */
+export interface SignInMessage {
+  learner: Address;
+  communityId: Hex;
+  origin: string;
+  publicationPolicy: Hex;
+  nonce: Hex;
+  issuedAt: string;
+  expiresAt: string;
+}
+export interface SignInTypedData {
+  domain: ReturnType<typeof resultsV4Domain>;
+  types: typeof signInTypes;
+  primaryType: "SignIn";
+  message: SignInMessage;
+}
+/** What a verifier checks: the SIWE text, or the V4 SignIn typed data. */
+export type LoginProof =
+  | string
+  | {
+      domain: ReturnType<typeof resultsV4Domain>;
+      types: typeof signInTypes;
+      primaryType: "SignIn";
+      message: SignIn;
+    };
 export type VerifyLogin = (
   address: Address,
-  message: string,
+  proof: LoginProof,
   signature: Hex,
 ) => Promise<boolean>;
+export const signInFromMessage = (m: SignInMessage): SignIn => ({
+  learner: m.learner,
+  communityId: m.communityId,
+  origin: m.origin,
+  publicationPolicy: m.publicationPolicy,
+  nonce: m.nonce,
+  issuedAt: BigInt(m.issuedAt),
+  expiresAt: BigInt(m.expiresAt),
+});
 
+export interface SiweChallenge {
+  id: string;
+  message: string;
+}
+export interface SignInChallenge {
+  id: string;
+  kind: "sign-in-v4";
+  typedData: SignInTypedData;
+}
+/** Without a V4 configuration the challenge is exactly the SIWE message. */
+export async function loginChallenge(
+  db: D1Database,
+  context: AuthContext,
+  address: unknown,
+  time?: number,
+): Promise<SiweChallenge>;
+export async function loginChallenge(
+  db: D1Database,
+  context: AuthContext,
+  address: unknown,
+  time: number,
+  signInV4: SignInV4 | undefined,
+): Promise<SiweChallenge | SignInChallenge>;
 export async function loginChallenge(
   db: D1Database,
   context: AuthContext,
   address: unknown,
   time = Date.now(),
-) {
+  signInV4?: SignInV4,
+): Promise<SiweChallenge | SignInChallenge> {
   await ensureCommunityIdentity(db, context);
   const origin = context.origin;
   insist(typeof address === "string" && isAddress(address), "invalid_wallet");
   const subject = address.toLowerCase();
   const id = token();
+  if (signInV4) {
+    insist(
+      signInV4.communityId === context.communityId &&
+        isAddress(signInV4.contract) &&
+        bytes32(signInV4.publicationPolicy) &&
+        (signInV4.chainId === 6343 || signInV4.chainId === 31337) &&
+        Number.isSafeInteger(signInV4.policyVersion) &&
+        signInV4.policyVersion > 0,
+      "sign_in_unavailable",
+      503,
+    );
+    const issuedAt = Math.floor(time / 1000);
+    const typedData: SignInTypedData = {
+      domain: resultsV4Domain(signInV4.chainId, getAddress(signInV4.contract)),
+      types: signInTypes,
+      primaryType: "SignIn",
+      message: {
+        learner: getAddress(address),
+        communityId: context.communityId,
+        origin,
+        publicationPolicy: signInV4.publicationPolicy,
+        nonce: publicId(),
+        issuedAt: String(issuedAt),
+        expiresAt: String(issuedAt + 300),
+      },
+    };
+    await db
+      .prepare(
+        "INSERT INTO login_challenges(challenge_id,community_id,community_origin,subject,message,expires_at,kind,policy_version) VALUES(?,?,?,?,?,?,'sign-in-v4',?)",
+      )
+      .bind(
+        id,
+        context.communityId,
+        origin,
+        subject,
+        JSON.stringify(typedData),
+        time + 300_000,
+        signInV4.policyVersion,
+      )
+      .run();
+    return { id, kind: "sign-in-v4" as const, typedData };
+  }
   const message = createSiweMessage({
     address: address as Address,
     chainId: 6343,
@@ -90,6 +204,28 @@ export async function loginChallenge(
   return { id, message };
 }
 
+/** The stored V4 challenge, checked against this community before any verifier sees it. */
+function signInChallenge(context: AuthContext, subject: string, text: string) {
+  const typed = JSON.parse(text) as SignInTypedData;
+  const message = signInFromMessage(typed.message);
+  insist(
+    typed.primaryType === "SignIn" &&
+      message.learner.toLowerCase() === subject &&
+      message.communityId === context.communityId &&
+      message.origin === context.origin,
+    "invalid_login",
+  );
+  return {
+    typed,
+    message,
+    id: signInIdV4(
+      typed.domain.chainId,
+      typed.domain.verifyingContract,
+      message,
+    ),
+  };
+}
+
 export async function loginVerify(
   db: D1Database,
   context: AuthContext,
@@ -104,9 +240,11 @@ export async function loginVerify(
       signature.length <= 32768,
     "invalid_login",
   );
-  const c = await db
+  // Every column: a community without the V4 migration has no kind or
+  // policy_version, and each of its challenges is SIWE.
+  const row = await db
     .prepare(
-      "SELECT subject,message,expires_at,consumed FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
+      "SELECT * FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
     )
     .bind(id, context.communityId, context.origin)
     .first<{
@@ -114,14 +252,34 @@ export async function loginVerify(
       message: string;
       expires_at: number;
       consumed: number;
+      kind?: "siwe" | "sign-in-v4";
+      policy_version?: number | null;
     }>();
   insist(
-    c && !c.consumed && c.expires_at > time,
+    row && !row.consumed && row.expires_at > time,
     "expired_or_replayed_challenge",
     401,
   );
+  const c = { ...row, kind: row.kind ?? "siwe" };
+  insist(c.kind === "siwe" || c.kind === "sign-in-v4", "invalid_login");
+  // A SIWE challenge never carries an authorization; only typed V4 data does.
+  const signIn =
+    c.kind === "sign-in-v4"
+      ? signInChallenge(context, c.subject, c.message)
+      : undefined;
   insist(
-    await verify(c.subject, c.message, signature as Hex),
+    await verify(
+      c.subject,
+      signIn
+        ? {
+            domain: signIn.typed.domain,
+            types: signInTypes,
+            primaryType: "SignIn",
+            message: signIn.message,
+          }
+        : c.message,
+      signature as Hex,
+    ),
     "invalid_login_signature",
     401,
   );
@@ -133,7 +291,7 @@ export async function loginVerify(
     csrf = token();
   const open =
     "EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>?)";
-  const result = await db.batch([
+  const statements = [
     db
       .prepare(
         `INSERT INTO community_accounts(account_id,author_id,created_at)
@@ -164,18 +322,70 @@ export async function loginVerify(
         id,
         time,
       ),
+  ];
+  // The account's sign-ins that count: issued after its last withdrawal
+  // (issued_at is seconds, withdrawal times milliseconds).
+  const counted = (alias: string) =>
+    `${alias}.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)`;
+  if (signIn)
+    // Pending sign-in, in the same batch as the session; it is relayed only
+    // when the learner first practises. A withdrawn account stores nothing,
+    // nor does one with a sign-in recorded on chain since its last
+    // withdrawal, nor one whose pending relay was already requested.
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,signature,policy_hash,policy_version,issued_at,state,tx_hash,created_at,updated_at)
+      SELECT ?,b.account_id,b.subject,?,?,?,?,?,'pending',NULL,?,? FROM credential_bindings b
+      WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?
+      AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>? AND kind='sign-in-v4')
+      AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=b.account_id AND s.public_results_withdrawn_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded' AND ${counted("r")})
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='pending'
+        AND r.relay_requested_at IS NOT NULL AND ${counted("r")})`,
+        )
+        .bind(
+          signIn.id,
+          JSON.stringify(signIn.typed.message),
+          signature.toLowerCase(),
+          signIn.message.publicationPolicy,
+          c.policy_version ?? null,
+          Number(signIn.message.issuedAt),
+          time,
+          time,
+          c.subject,
+          id,
+          time,
+        ),
+      // At most one pending sign-in per account: the new one replaces any
+      // whose relay was never requested.
+      db
+        .prepare(
+          `DELETE FROM learning_authorizations WHERE state='pending' AND relay_requested_at IS NULL
+      AND authorization_id<>?1 AND account_id=(SELECT account_id FROM learning_authorizations WHERE authorization_id=?1)`,
+        )
+        .bind(signIn.id),
+    );
+  statements.push(
     db
       .prepare(
         "UPDATE login_challenges SET consumed=1 WHERE challenge_id=? AND consumed=0 AND expires_at>?",
       )
       .bind(id, time),
-  ]);
+  );
+  const result = await db.batch(statements);
   insist(
-    result[2]!.meta.changes === 1 && result[3]!.meta.changes === 1,
+    result[2]!.meta.changes === 1 && result.at(-1)!.meta.changes === 1,
     "expired_or_replayed_challenge",
     401,
   );
-  return { cookie: cookie(sessionToken), csrf };
+  return {
+    cookie: cookie(sessionToken),
+    csrf,
+    ...(signIn && result[3]!.meta.changes === 1
+      ? { authorizationId: signIn.id }
+      : {}),
+  };
 }
 
 export async function accountSession(

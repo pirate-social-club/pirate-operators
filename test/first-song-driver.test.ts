@@ -203,7 +203,7 @@ test("sealed upload resumes across managed admission, pinning, ROOT mint and pen
     assert.equal(feed.length, 1);
     assert.equal(feed[0]!.post.postId, row.post_id);
     assert.equal(
-      feed[0]!.post.registration.recipient,
+      (feed[0]!.post.registration as { recipient: string }).recipient,
       managed.context.recipient,
     );
     assert.equal(JSON.stringify(feed).includes(session.account_id), false);
