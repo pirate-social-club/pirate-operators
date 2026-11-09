@@ -911,11 +911,13 @@ test("deployment packages add the publishing migrations only when owner publishi
     rewards: true,
     ownerPublishing: false,
   });
-  assert.equal(deployed.at(-1), "0011_manual_rewards.sql");
+  assert.ok(deployed.includes("0011_manual_rewards.sql"));
   assert.equal(deployed.includes("0012_owner_budget_windows.sql"), false);
+  // The sign-in authorization migration is not opt-in and sorts last.
+  assert.equal(deployed.at(-1), "0013_learning_authorization.sql");
   assert.deepEqual(
     communityMigrations(names, { rewards: true, ownerPublishing: true }),
-    [...deployed, "0012_owner_budget_windows.sql"],
+    [...deployed, "0012_owner_budget_windows.sql"].sort(),
   );
   assert.throws(
     () => communityMigrations(names, { rewards: false, ownerPublishing: true }),
