@@ -25,29 +25,59 @@ be reinterpreted as permission.
 
 ### One signature with both purposes
 
-The sign-in challenge becomes EIP-712 typed data signed through MOSS
-`signData`, the call already used today for enrollment. One user action covers
-both purposes:
+The workspace_owner chose a standard SIWE (EIP-4361) login text, with the same
+single signature covering login and the versioned publication permission. The
+sign-in challenge is one EIP-4361 message signed through MOSS `signMessage`,
+the call the deployed login already uses, so MOSS's own SIWE check applies:
+it compares the message's domain with the host of the page that opened it,
+the address with the connected account and the chain with its network, and
+refuses to sign before Not Before. One user action covers both purposes, and
+the sign-in screen is unchanged.
+
+The text is built only by viem `createSiweMessage`, through
+`signInMessageV4` in packages/protocol:
 
 ```
-EIP712Domain(name "Pirate Learning Results", version "4", chainId, verifyingContract = V4)
-SignIn(
-  address learner,
-  bytes32 communityId,
-  string origin,              // the community origin, checked by the server like SIWE's domain
-  bytes32 publicationPolicy,  // hash of the versioned publication policy accepted by signing in
-  bytes32 nonce,              // the server's single-use login challenge nonce
-  uint64 issuedAt,
-  uint64 expiresAt            // login challenge expiry, five minutes as today
-)
+{host} wants you to sign in with your Ethereum account:
+{learner, EIP-55}
+
+{Statement}
+
+URI: {community origin}
+Version: 1
+Chain ID: {6343, or 31337 locally}
+Nonce: {64 lowercase hex digits}
+Issued At: {issuedAt, YYYY-MM-DDTHH:MM:SS.000Z}
+Not Before: {the same}
+Resources:
+- {origin}/learning/v4/terms
+- {origin}/learning/v4/privacy
+- urn:pirate:publication-policy:4:0x{publicationPolicy}
+- urn:pirate:community:0x{communityId}
+- eip155:{chainId}:0x{V4 contract}
 ```
 
-The server verifies login with viem `verifyTypedData`, which covers EOAs and
-ERC-1271/6492 smart accounts such as MOSS, exactly as `verifyMessage` does
-today. It stores the challenge, the signature and the accepted policy hash and
-version against the account. The challenge, single use, expiry and session
-rules are otherwise unchanged. A SIWE signature cannot verify under this V4
-domain, so no old login becomes permission.
+There is no Expiration Time and no trailing newline. The Statement is a draft
+for the workspace_owner's approval, held as `SIGN_IN_STATEMENT` in the
+contract and `SIGN_IN_STATEMENT_V4` in packages/protocol, which a test keeps
+equal:
+
+> Sign in to this community and let it publish your Karaoke and Study results
+> under its terms, version 4, until you turn them off in settings. This does
+> not join, create a creator wallet or authorize spending.
+
+`LearningResultsV4` fixes the community origin at construction (`https://`,
+a lowercase host, an optional port, nothing else) and rebuilds this exact
+text on chain from `authorize(SignIn{learner, nonce, issuedAt}, signature)`:
+`signInMessage` renders it and `signInDigest` is its EIP-191 personal-sign
+hash, which equals viem `hashMessage(text)` and is the authorization id. A
+text for another host, community, policy, chain or contract is a different
+text, so its signature is `invalid_consent`. The server verifies login with
+viem `verifyMessage`, which covers EOAs and ERC-1271/6492 smart accounts such
+as MOSS. For a smart account the contract passes the same digest to
+`isValidSignature`; an IthacaAccount-style account checks its key's signature
+over its own `ERC1271Sign(bytes32 digest)` wrapper of that digest. The
+deployed plain login text and the former EIP-712 `SignIn` never authorize.
 
 ### Recording authorization on chain
 
@@ -64,18 +94,32 @@ outstanding. A failed requested relay is retried on schedule from the stored
 signature until its relay window ends; a sign-in whose relay was never
 requested is never relayed on schedule. Contract rules:
 
-- The signature is valid for `learner` (ECDSA or ERC-1271), `communityId` and
-  `publicationPolicy` match the contract's immutable values, the digest is
-  unused, `issuedAt <= block.timestamp <= issuedAt + RELAY_WINDOW` (thirty
-  days, the community session, so a learner whose first practice comes days
-  after signing in is never asked to sign in again), and
+- The signature is valid for `learner` (ECDSA or ERC-1271) over the text the
+  contract renders from its own origin, `communityId`, `publicationPolicy`,
+  chain and address, the digest is unused,
+  `issuedAt <= block.timestamp <= issuedAt + RELAY_WINDOW` (thirty days, the
+  community session, so a learner whose first practice comes days after
+  signing in is never asked to sign in again), and
   `issuedAt > revokedAt[learner]`.
-- `issuedAt` is the application's own clock, never backdated, because a
-  backdated sign-in could fall at or before a just-recorded withdrawal. When
-  the application's clock is ahead of the latest block, the operator answers
+- `issuedAt` comes from the application's own clock, backdated by at most
+  `SIGN_IN_BACKDATE_S` (60 seconds) so that a wallet whose clock is behind
+  still signs (Not Before equals Issued At), and never backdated into the
+  minute after the account's last withdrawal recorded by the application:
+  `issuedAt = min(now, max(now - 60, floor(lastWithdrawnAt / 1000) + 61))`.
+  The application records a withdrawal on its own clock when the operator
+  accepts the Revocation, which can be before the revoke is mined, so the
+  chain's `revokedAt` can be a little later than the record; within that
+  minute a sign-in is issued at the current second, as it was before the
+  backdate.
+  A V4 session ends no later than `(issuedAt + RELAY_WINDOW)`, so a sign-in
+  relayed during its session is never stale. When the application's clock is
+  more than the backdate ahead of the latest block, the operator answers
   `sign_in_not_yet_valid`, a retryable refusal distinct from the expired
   `stale_sign_in`. The application keeps the row pending and retries; it never
-  refuses a sign-in for that reason.
+  refuses a sign-in for that reason. A withdrawal made directly on chain is
+  not known to the application, so a sign-in within the minute after it is
+  issued before it and refused (`revoked_sign_in`); it never authorizes, and
+  the next sign-in after that minute does.
 - The first accepted authorization after any revocation sets
   `authorizedSince[learner] = issuedAt`. Later sign-ins record their digest but
   never move `authorizedSince`, so signing in again cannot end other lessons.
@@ -105,9 +149,10 @@ V3 encodings. Recordings, transcripts and private retries never enter calldata.
 
 ### Application
 
-- Sign-in: the challenge and verify routes issue and check the typed `SignIn`;
-  the live app calls `signData` instead of `signMessage`. The session view
-  reports whether the account's publication authorization is recorded.
+- Sign-in: the challenge and verify routes issue and check the V4 SIWE text;
+  the live app signs it with `signMessage`, as it signs the plain login. The
+  sign-in screen and its Terms and Privacy links are unchanged. The session
+  view reports whether the account's publication authorization is recorded.
 - Study and Karaoke: the enrollment request/sign step
   (`apps/web/src/live/study-enrollment.ts`, the Karaoke equivalent) is removed.
   A lesson or run binds to the account's recorded authorization. A session
@@ -141,7 +186,10 @@ approval before deployment.
 
 Because signing in is the permission, a learner who withdraws must not be
 re-authorized silently by their next login. The application records the
-withdrawal on the account and stops relaying that account's sign-ins. Public
+withdrawal on the account and stops relaying that account's sign-ins. While
+the account's public results are off, `/api/auth/challenge` gives it only the
+plain deployed SIWE login, never the V4 text, so a V4 sign-in made after a
+withdrawal exists only once the learner has turned public results back on. Public
 practice then stays unavailable until the learner turns public results back on
 in account settings; their next sign-in is then relayed when they next
 practise. That is a settings
@@ -209,37 +257,42 @@ Release observation:
   deployed V4 contract at a pinned block and checks the runtime code hash
   against the selection's `codeHash`, `VERSION() == 4`, `communityId`,
   `publicityPolicy` against `learningV4PublicityPolicy`, the controller against
-  the selection's `controller`, and the grader roles for activities 1 and 2 of
-  the configured publisher (`harness/learning-v4-release-observation.ts`).
+  the selection's `controller`, the grader roles for activities 1 and 2 of
+  the configured publisher, and `communityOrigin()` against the selection's
+  `communityOrigin` and the community's origin
+  (`harness/learning-v4-release-observation.ts`). The release profile
+  requires the selection's `communityOrigin` to be canonical and equal to the
+  application profile's `origin` (`harness/learning-v4-release-profile.ts`).
 
-## Open security question
+## Phishing and relay (settled by the SIWE sign-in)
 
-EIP-712 typed data does not get the wallet-side domain check that EIP-4361
-SIWE gets. A SIWE-aware wallet compares the message's domain with the
-requesting origin and warns or refuses on a mismatch. Typed data carries
-`origin` only as a field; the server checks it, but the wallet is not required
-to. A phishing page could therefore ask a learner to sign the `SignIn` typed
-data for this community, and the signature would be valid for login and for
-publication permission. Before deployment, someone must confirm whether the
-MOSS wallet's `signData` shows or enforces the requesting origin, and record
-the answer here.
+The former typed `SignIn` had no wallet-side origin check, so a phishing page
+could obtain a valid sign-in and permission, and a crafted future `issuedAt`
+could be relayed after a withdrawal. The SIWE sign-in closes this in three
+layers:
 
-Two further facts bound what a phished signature yields. First, it is a
-complete sign-in: `/api/auth/verify` accepts it and creates a community
-session for the learner's account, so the phisher holds a full account session
-for thirty days, not only publication permission. Second, `authorize` can be
-relayed by anyone, and after a withdrawal the contract checks only that the
-sign-in's `issuedAt` is later than the learner's `revokedAt` (and inside the
-thirty-day relay window once chain time reaches it). A phisher who has the
-learner sign a crafted `SignIn` with a future `issuedAt` (not one from the
-application's challenge, whose `issuedAt` is the application's clock) can
-therefore relay it after the learner withdraws and restore on-chain permission
-(`authorizedSince`) without the learner. The application still ignores it: a
-lesson or Karaoke run binds only a sign-in stored in the application's own
-database, which never stores one for a withdrawn account or one issued at or
-before its last withdrawal, and an authorization bound before the withdrawal
-stays broken because `authorizedSince` then follows it. Third-party readers of
-the contract would nevertheless see the learner as authorized.
+1. The text is valid on chain only for the community origin fixed in the
+   contract. MOSS signs a SIWE message only for the host of the page that
+   opened it (`domainMismatch` blocks Sign), so a phishing host can obtain
+   only a text naming itself, which the contract refuses as `invalid_consent`.
+   The release observation checks that origin before binding the contract.
+2. Not Before equals Issued At, and MOSS refuses to sign while Not Before is
+   later than the device clock, so a future `issuedAt` cannot be signed in
+   advance; with `issuedAt > revokedAt`, an accepted sign-in was made after
+   the withdrawal.
+3. While an account's public results are off, the application issues it only
+   the plain login, so a V4 text exists after a withdrawal only once the
+   learner turns public results back on.
+
+Layers 1 and 2 rest on MOSS's checks, which the hosted wallet can change; the
+on-chain origin and layer 3 do not. test/learning-sign-in-moss.test.ts holds
+the hosted wallet's strict pattern, `checkSiwe` and parser verbatim (bundle
+sha256 `7c258d10...6accaf`, fetched 2026-11-09) and checks the V4 text against
+them. What remains to confirm with a real MOSS account before deployment: that
+the account's on-chain `isValidSignature(hashMessage(text), signature)` accepts
+MOSS `signMessage` output, that MOSS shows the Statement rather than signing
+silently, and that the one-minute backdate covers real device clocks. The
+Revocation stays EIP-712, signed with `signData` in account settings.
 
 ## Open product decision
 
@@ -261,15 +314,23 @@ These are the contracts between phases and with Agent 2. A change to any of
 them is announced before it lands.
 
 Protocol, in packages/protocol/learning-results-v4.ts:
-- the `SignIn` type and `signInTypes`;
-- `learningResultsV4Domain(chainId, contract)`, name "Pirate Learning
-  Results", version "4";
-- `signInIdV4` (the EIP-712 digest, which is the authorization id);
+- the compact `SignIn` type `{ learner, nonce, issuedAt }` and the
+  `SignInV4Context` `{ origin, chainId, contract, communityId,
+  publicationPolicy }`;
+- `signInMessageV4(context, signIn)`, the exact text, and `signInIdV4`, its
+  EIP-191 hash, which is the authorization id;
+- `readSignInMessageV4(text)`, which returns the context and sign-in only
+  when `signInMessageV4` rebuilds the text byte for byte;
+- `SIGN_IN_STATEMENT_V4`, `SIGN_IN_BACKDATE_S`, `signInIssuedAtV4` and
+  `canonicalOriginV4`, the constructor's origin rule;
+- `resultsV4Domain(chainId, contract)`, name "Pirate Learning Results",
+  version "4", now used only by the Revocation;
 - `resultsV4Abi`. This is the V3 result ABI (`publish`, `correct`,
   `invalidate`, `commitments`, `policyFor`, `activatePolicy`, `VERSION`,
   `ResultPublished`, `ResultInvalidated`) plus `authorize`, `revoke`,
   `nextNonce`, `authorizedSince`, `revokedAt`, `authorizationLearner`,
-  `authorizationIssuedAt`, `signInDigest`, `Authorized` and `Revoked`.
+  `authorizationIssuedAt`, `signInDigest`, `signInMessage`,
+  `communityOrigin`, `SIGN_IN_STATEMENT`, `Authorized` and `Revoked`.
 
 Targets:
 - `ResultsTarget.version` becomes `2 | 3 | 4`.
@@ -280,16 +341,20 @@ Targets:
 - `retainedTarget` keeps V2 and V3 bindings valid for historical work.
 
 Sign-in, in the application:
-- `/api/auth/challenge` returns `{ id, kind: "sign-in-v4", typedData }` when
-  V4 is configured, and the SIWE `{ id, message }` otherwise.
-- `/api/auth/verify` takes `{ id, signature }` and verifies with
-  `verifyTypedData` on chain 6343.
+- `/api/auth/challenge` returns `{ id, kind: "sign-in-v4", message }` when
+  V4 is configured and the account's public results are not off, and the
+  plain SIWE `{ id, message }` otherwise.
+- `/api/auth/verify` takes `{ id, signature }` and verifies the stored text
+  with `verifyMessage` on chain 6343. A stored V4 text must read back as this
+  learner's, community's and origin's sign-in before any verifier sees it.
 - On success it creates or reuses `credential_bindings` (moss, 6343,
   lowercased wallet) and `community_sessions` exactly as today.
 - It also stores a row in a new D1 table, `learning_authorizations`
   (migration 0013, renumbered from 0011; applied only when a release selects
-  V4, after the deployed 0012), with: `authorization_id` (primary key), `account_id`,
-  `subject`, `sign_in_json`, `signature`, `policy_hash`, `policy_version`,
+  V4, after the deployed 0012), with: `authorization_id` (primary key, the
+  text's EIP-191 hash), `account_id`, `subject`, `sign_in_json` (the compact
+  `authorize` arguments), `message` (the exact signed text), `signature`,
+  `policy_hash`, `policy_version`,
   `issued_at`, `state` (`pending`, `recorded` or `refused`), `tx_hash`,
   `relay_requested_at` (set when a Study or Karaoke start first requests the
   relay; the scheduled retry covers only rows that have it), `created_at` and
@@ -311,8 +376,12 @@ Sign-in, in the application:
   `/api/karaoke/enrollment` is refused with `enrollment_unavailable`.
 
 Relay, in the operator Worker:
-- `POST /authorization` carries `{ signIn, signature }`.
-- `acceptAuthorization` simulates `authorize`, reserves sponsorship and submits
+- `POST /authorization` carries `{ signIn, signature }`, with `signIn` the
+  compact `{ learner, nonce, issuedAt }`.
+- `acceptAuthorization` takes the authorization id from the contract's own
+  `signInDigest`, so it needs no origin setting, verifies an ERC-8010
+  signature with `verifyHash` over that id, simulates `authorize`, reserves
+  sponsorship and submits
   the transaction kind `record_authorize`. It is idempotent per authorization
   id, and `resumeAuthorizations` retries it from the alarm. A sign-in whose
   `issuedAt` is later than the latest block's timestamp is refused, before
