@@ -148,6 +148,30 @@ practise. That is a settings
 control, not an exercise prompt. The contract enforces only that no sign-in made
 at or before the withdrawal can restore permission.
 
+The application also never stores a sign-in issued at or before the account's
+last withdrawal, so a challenge requested before turning off and signed after
+turning back on is a login only. A login replaces only a pending, unrequested
+sign-in that is not newer than its own, so an older challenge completed late
+never displaces a newer one. The scheduled relay takes the requested rows
+tried least recently first, so rows that stay retryable take turns.
+
+Turning public results off closes every open Study lesson of the account in
+that community at once, privately, as abandoned with reason `consent_ended`.
+That covers V4 lessons, bound or not (a start that failed after creating its
+lesson, or one whose binding is still landing), and any V3 lesson still open
+from before V4 became the records. A start whose permission check came just
+before the withdrawal re-checks once its lesson exists and closes it the same
+way. The withdrawal also stops V3 publication for that learner in that
+community. When the operator accepts the learner's signed V4 Revocation, it
+records that the learner's results bound to an earlier version (a V3 Study
+lesson, or a V2 or V3 Karaoke run) and not yet sent on chain stay private.
+Both V3 dispatch paths check this just before sending, so a V3 result queued
+in the application or held at the operator is kept private with reason
+`authorization_withdrawn`. Turning public results back on never resumes V3
+publication, because V4 is the records now. None of this adds a menu item or a
+second wallet signature, and the learner's V3 enrollment is not revoked on
+chain, which only the learner's own signature could do.
+
 ### Rewards source succession (Agent 2)
 
 Reward qualification reads one pinned results source through readPublicResultsV3.
@@ -179,6 +203,23 @@ data for this community, and the signature would be valid for login and for
 publication permission. Before deployment, someone must confirm whether the
 MOSS wallet's `signData` shows or enforces the requesting origin, and record
 the answer here.
+
+Two further facts bound what a phished signature yields. First, it is a
+complete sign-in: `/api/auth/verify` accepts it and creates a community
+session for the learner's account, so the phisher holds a full account session
+for thirty days, not only publication permission. Second, `authorize` can be
+relayed by anyone, and after a withdrawal the contract checks only that the
+sign-in's `issuedAt` is later than the learner's `revokedAt` (and inside the
+thirty-day relay window once chain time reaches it). A phisher who has the
+learner sign a crafted `SignIn` with a future `issuedAt` (not one from the
+application's challenge, whose `issuedAt` is the application's clock) can
+therefore relay it after the learner withdraws and restore on-chain permission
+(`authorizedSince`) without the learner. The application still ignores it: a
+lesson or Karaoke run binds only a sign-in stored in the application's own
+database, which never stores one for a withdrawn account or one issued at or
+before its last withdrawal, and an authorization bound before the withdrawal
+stays broken because `authorizedSince` then follows it. Third-party readers of
+the contract would nevertheless see the learner as authorized.
 
 ## Open product decision
 
