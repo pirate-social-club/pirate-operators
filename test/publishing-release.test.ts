@@ -30,6 +30,7 @@ import {
 } from "../harness/publishing-release-profile.ts";
 import { applicationPublishingBindings } from "../apps/community-wizard/infra/publishing-bindings.ts";
 import { firstSong } from "../services/first-song-profile.ts";
+import { managedUpdate } from "../harness/managed-update-pin.ts";
 
 // Public local fixture key. Never fund or deploy it.
 const controller = privateKeyToAccount(`0x${"61".repeat(32)}`),
@@ -281,6 +282,35 @@ test("the managed publishing successor appends only 0004, swaps the grant and dr
       name,
     );
   }
+});
+
+test("the managed update names the deployed published-recovery predecessor and its retained evidence", async () => {
+  const read = async (path: string) => JSON.parse(await readFile(path, "utf8"));
+  const plan = await read(managedUpdate.previousPlanPath),
+    evidence = (await read(managedUpdate.previousEvidencePath)).services
+      .managed,
+    startup = (await read(managedUpdate.startupEvidencePath)).resourceIds;
+  assert.equal(plan.profileHash, managedUpdate.previousProfileHash);
+  assert.equal(hashJson(plan.profile), plan.profileHash);
+  // The pinned predecessor is a byte copy of the committed deployed plan.
+  assert.equal(
+    await readFile(managedUpdate.previousPlanPath, "utf8"),
+    await readFile(
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json",
+      "utf8",
+    ),
+  );
+  assert.equal(evidence.profileHash, plan.profileHash);
+  assert.equal(evidence.resultSha256, managedUpdate.expectedResultSha256);
+  assert.deepEqual(
+    evidence.resources.map((r: { id: string }) => r.id),
+    [
+      startup.worker.id,
+      startup.database.uuid,
+      startup.media.name,
+      startup.queue.queue_id,
+    ],
+  );
 });
 
 test("infrastructure binds the owner values or the registered values, never both", async () => {

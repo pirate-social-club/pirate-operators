@@ -19,6 +19,7 @@ import { hashJson, hashText, insist } from "../packages/community/common.ts";
 export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
 import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
+import { managedUpdate } from "./managed-update-pin.ts";
 import {
   managedPublishingProfile,
   publishingReleaseSelection,
@@ -102,14 +103,15 @@ export async function managedPackage(
     "apps/community-wizard/server/diagnostics.ts",
     "apps/community-wizard/package-lock.json",
     "harness/managed-package.ts",
+    "harness/managed-update-pin.ts",
     "harness/managed-service.ts",
     "harness/managed-inventory.ts",
     "harness/managed-update.ts",
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
-    "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v8.json",
+    "docs/deployments/first-song-managed-20261105.published-recovery-rollout.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -153,19 +155,7 @@ export async function managedPackage(
     accountId: "08a4c22cf52e2ecae883e36f80a33f4a",
     prefix: managedPrefix,
     origin: managedOrigin,
-    update: {
-      previousProfileHash:
-        "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
-      previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
-      startupEvidencePath:
-        "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-      previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
-      requireIdle: false,
-      expectedResultSha256:
-        "0x8863d3f0c558237839ddc1e02d720da4ce7f0eb6c8edc95dedf068471e682f7f",
-    },
+    update: managedUpdate,
     resources: {
       worker: managedPrefix,
       database: `${managedPrefix}-db`,
