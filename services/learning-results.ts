@@ -36,6 +36,7 @@ import {
   readResultContract as read,
   contractAbi,
   enrollmentResultsTarget,
+  legacyResultsWithheld,
   retainedTarget,
   resultsTarget,
   sameResultsTarget,
@@ -265,6 +266,25 @@ export async function publishV2(
   }
   const state = { state: "pending" as const, revision };
   store.set(`publicationV2:${ticketId}`, state);
+  const keepPrivate = (reason: string) => {
+    releaseSponsorship(store, sponsorLimits(env), `record_result:${ref}`);
+    releaseSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:${ticketId}:2`,
+    );
+    const next = { state: "private" as const, revision, reason };
+    store.set(`publicationV2:${ticketId}`, next);
+    return next;
+  };
+  // An enrollment-bound run not yet sent stays private once the learner has
+  // withdrawn under V4 in this community; V4 is the records now.
+  const withheld = () =>
+    !authorization &&
+    revision === 1 &&
+    !intentOf(store, "record_result", ref) &&
+    legacyResultsWithheld(store, ticket.participant);
+  if (withheld()) return keepPrivate("authorization_withdrawn");
   if (revision === 1 && !intentOf(store, "record_result", ref)) {
     let permitted: boolean;
     if (authorization)
@@ -282,23 +302,10 @@ export async function publishV2(
       >(env, destination, "enrollments", [ticket.participant]);
       permitted = id === bound!.id && Number(expires) > store.now();
     }
-    if (!permitted) {
-      releaseSponsorship(store, sponsorLimits(env), `record_result:${ref}`);
-      releaseSponsorship(
-        store,
-        sponsorLimits(env),
-        `record_result:${ticketId}:2`,
+    if (!permitted)
+      return keepPrivate(
+        authorization ? "authorization_withdrawn" : "enrollment_inactive",
       );
-      const next = {
-        state: "private" as const,
-        revision,
-        reason: authorization
-          ? "authorization_withdrawn"
-          : "enrollment_inactive",
-      };
-      store.set(`publicationV2:${ticketId}`, next);
-      return next;
-    }
   }
   if (!job) {
     const manifest = store.get<KaraokeManifest>(
@@ -362,6 +369,8 @@ export async function publishV2(
     job = { target: destination, result: header, outcomes, data };
     store.set(`workV2:${ref}`, durableValue(job));
   }
+  // A withdrawal accepted during the reads above still stops it.
+  if (withheld()) return keepPrivate("authorization_withdrawn");
   const row = await submitResultTransaction(
     env,
     store,

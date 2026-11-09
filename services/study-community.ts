@@ -395,9 +395,12 @@ export function liveStudy(
     abandon: async (id: string) =>
       reconcilePublication(await lessons.abandon(owner, id)),
     /**
-     * "Turn off public results": the account's open V4 lessons close at once
-     * as abandoned with reason consent_ended. Each stays private as
-     * unfinished; V3 lessons keep their own rules.
+     * "Turn off public results": the account's open lessons in this
+     * community close at once as abandoned with reason consent_ended, V4
+     * lessons and any V3 lesson still open from before V4 became the
+     * records. Each stays private: a V4 lesson as unfinished, a V3 lesson
+     * because the operator withholds the learner's unsent V3 results once
+     * it holds their V4 Revocation.
      */
     async endForWithdrawal() {
       const open = await ports.db
@@ -405,7 +408,6 @@ export function liveStudy(
           `SELECT l.lesson_id FROM study_lessons l JOIN study_publications p ON p.lesson_id=l.lesson_id
           WHERE l.account_id=?1 AND l.community_id=?2 AND p.account_id=?1 AND l.history_deleted_at IS NULL
           AND json_extract(l.state_json,'$.status')='active'
-          AND json_extract(p.binding_json,'$.authorization.target.version')=4
           ORDER BY l.started_at,l.lesson_id`,
         )
         .bind(owner.accountId, owner.communityId)

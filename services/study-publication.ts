@@ -18,6 +18,7 @@ import type { StudyBinding } from "./study-operator.ts";
 import { studyAuthorizationState } from "./study-authorization.ts";
 import {
   contractAbi,
+  legacyResultsWithheld,
   resultClient,
   readResultContract,
   resultPolicyAt,
@@ -443,6 +444,16 @@ export async function resumeStudyPublication(
     )
       return keepPrivate(env, store, id, job, "authorization_withdrawn");
   }
+  // V3: after the learner's V4 withdrawal in this community, a result not
+  // yet sent stays private, whatever its enrollment says.
+  const legacy = job.target.version !== 4,
+    learner = job.result.learner;
+  const withheld = () =>
+    legacy &&
+    !intentOf(store, "record_result", ref) &&
+    legacyResultsWithheld(store, learner);
+  if (withheld())
+    return keepPrivate(env, store, id, job, "authorization_withdrawn");
   // Wait for chain time without charging a transaction that would revert.
   if (BigInt(job.result.completedAt) > observed.timestamp)
     return saveReceipt(store, id, job, {
@@ -487,6 +498,9 @@ export async function resumeStudyPublication(
       !studyRevisionRecovery(latest.receipt))
   )
     return latest.receipt;
+  // A withdrawal accepted during the reads above still stops it.
+  if (withheld())
+    return keepPrivate(env, store, id, job, "authorization_withdrawn");
   await submitResultTransaction(
     env,
     store,

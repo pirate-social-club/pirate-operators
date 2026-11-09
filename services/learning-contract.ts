@@ -130,6 +130,19 @@ export const resultPolicyAt = (
 };
 export const pendingEnrollmentKey = (target: ResultsTarget, learner: Address) =>
   `pendingEnrollment:${target.version === 2 ? "" : `${target.version}:${target.contract.toLowerCase()}:`}${learner.toLowerCase()}`;
+/**
+ * Set when this operator accepts the learner's signed V4 Revocation. From
+ * then on, that learner's results bound to an earlier version (a V2 or V3
+ * enrollment) that are not yet sent stay private: V4 is the community's
+ * records, and turning public results back on never resumes them. It needs
+ * no V3 revoke, which only the learner can sign.
+ */
+export const legacyResultsWithheldKey = (learner: string) =>
+  `legacyResultsWithheld:${learner.toLowerCase()}`;
+export const legacyResultsWithheld = (
+  store: { get<T>(key: string): T | undefined },
+  learner: string,
+) => store.get(legacyResultsWithheldKey(learner)) !== undefined;
 export const revocationKey = (
   target: ResultsTarget,
   learner: Address,

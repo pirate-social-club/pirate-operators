@@ -28,6 +28,8 @@ import {
   resultClient as client,
   readResultContract as read,
   contractDomain,
+  legacyResultsWithheld,
+  legacyResultsWithheldKey,
   resultsTarget,
   retainedTarget,
   revocationKey,
@@ -337,6 +339,13 @@ export async function acceptRevocationV4(
       sameResultsTarget(retainedTarget(env, job.target), target),
     "revocation_payload_changed",
   );
+  // The withdrawal also stops this learner's earlier-version results that
+  // are not yet sent, before the revoke is even mined.
+  if (!legacyResultsWithheld(store, learner))
+    store.set(legacyResultsWithheldKey(learner), {
+      at: store.now(),
+      nonce: job.nonce,
+    });
   const row = await submitResultTransaction(
     env,
     store,
