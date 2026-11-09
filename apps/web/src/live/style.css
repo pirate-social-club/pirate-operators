@@ -264,6 +264,15 @@ button:disabled {
   color: #7c8b7d;
   font-size: 12px;
   border-top: 1px solid #ffffff12;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.live-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
 }
 @media (max-width: 640px) {
   .live-header {
@@ -328,24 +337,6 @@ body:has(.live-study-overlay) {
 .live-study {
   position: relative;
   min-height: 100dvh;
-}
-.study-policy-links {
-  position: absolute;
-  right: 16px;
-  bottom: env(safe-area-inset-bottom, 0px);
-  z-index: 51;
-}
-
-.learning-policy-links {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-.learning-policy-links a {
-  padding: 2px 0;
-  line-height: 20px;
 }
 @source "./reward-payment-panel.tsx";
 @source "./reward-offer-panel.tsx";

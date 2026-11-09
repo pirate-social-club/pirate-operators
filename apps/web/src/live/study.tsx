@@ -25,6 +25,8 @@ export function LiveStudy(props: {
   /** The signed-in account whose lessons this Study may show. */
   account: string;
   wallet: KaraokeWallet;
+  /** V4: signing in is the publication permission; no enrollment step. */
+  signInPermission?: boolean;
   onExit(): void;
   onLearningActions?: (actions: { download: () => Promise<void> }) => void;
 }) {
@@ -42,7 +44,10 @@ export function LiveStudy(props: {
     active = false;
     clearTimeout(timer);
   });
-  const beforeStart = () =>
+  // A V3 community keeps its enrollment step before a new lesson. In a V4
+  // community a lesson binds the sign-in; the client retries briefly while
+  // that sign-in is still being recorded.
+  const enroll = () =>
     ensureStudyEnrollment({
       active: () => active,
       request: () =>
@@ -85,7 +90,7 @@ export function LiveStudy(props: {
             url.searchParams.set("lesson", id);
             history.replaceState(null, "", url);
           },
-          beforeStart,
+          props.signInPermission ? undefined : enroll,
           () => active,
           props.account,
         ),
@@ -193,18 +198,6 @@ export function LiveStudy(props: {
           />
         )}
       </Show>
-      <nav
-        class="learning-policy-links study-policy-links"
-        aria-label="Study policies"
-      >
-        <a href="/learning/v3/terms" target="_blank" rel="noopener">
-          Terms
-        </a>
-        <span aria-hidden="true">·</span>
-        <a href="/learning/v3/privacy" target="_blank" rel="noopener">
-          Privacy
-        </a>
-      </nav>
     </section>
   );
 }

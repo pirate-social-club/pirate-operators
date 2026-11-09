@@ -88,7 +88,9 @@ const messages: Record<string, string> = {
     "You are signed in with a different account. Reload to continue.",
   karaoke_authorization_pending:
     "Your sign-in is still being confirmed. Try again in a moment.",
-  karaoke_authorization_required: "Sign in again to keep singing.",
+  karaoke_authorization_required:
+    "Public results are off. Turn them on in settings to keep singing.",
+  public_results_unavailable: "Public results settings are unavailable here.",
   reward_unmatched_outgoing:
     "Review the unmatched outgoing transfer before preparing another payment.",
   reward_audit_catching_up:

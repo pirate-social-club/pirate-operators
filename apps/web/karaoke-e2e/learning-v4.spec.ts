@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 // A V4 community (karaoke-e2e/live-host.ts with KARAOKE_RESULTS_V4=1): the
 // learner's one sign-in is the publication permission. A take starts with no
 // further signature, no enrollment request and no policy link on the exercise
-// surface; the Terms and Privacy documents stay in the header's sign-in area.
+// surface; the Terms and Privacy documents stay in normal site navigation.
 test.afterEach(async ({ page }, info) => {
   if (info.status !== info.expectedStatus)
     console.log(
@@ -34,14 +34,19 @@ test("a V4 take starts with no signature request and no policy link on the exerc
   });
   await page.goto("/?learner=5");
   const header = page.locator("header.live-header");
-  await expect(header.getByRole("link", { name: "Terms" })).toHaveAttribute(
-    "href",
-    "/terms",
-  );
-  await expect(header.getByRole("link", { name: "Privacy" })).toHaveAttribute(
-    "href",
-    "/privacy",
-  );
+  await expect(
+    header.getByRole("link", { name: "Terms", exact: true }),
+  ).toHaveAttribute("href", "/terms");
+  await expect(
+    header.getByRole("link", { name: "Privacy", exact: true }),
+  ).toHaveAttribute("href", "/privacy");
+  // The V4 learning documents the sign-in accepts, beside them.
+  await expect(
+    header.getByRole("link", { name: "Learning terms", exact: true }),
+  ).toHaveAttribute("href", "/learning/v4/terms");
+  await expect(
+    header.getByRole("link", { name: "Learning privacy", exact: true }),
+  ).toHaveAttribute("href", "/learning/v4/privacy");
   await page.getByRole("button", { name: "Sign in with MOSS" }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
     timeout: 20000,

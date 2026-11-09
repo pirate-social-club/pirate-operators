@@ -68,6 +68,8 @@ export function createStudyClient(
       throw new Error(
         response.status === 401
           ? "Sign in again to continue Study."
+          : body.error === "study_authorization_required"
+            ? "Public results are off. Turn them on in settings to study."
           : body.error === "study_recording_too_short"
             ? "Record for at least one second, then try again."
             : "Your answer could not be saved. Try again.",

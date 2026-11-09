@@ -20,6 +20,11 @@ import {
   type LearningEnrollments,
 } from "./learning-revocation.ts";
 import {
+  publicResultsAction,
+  turnOffPublicResults,
+  turnOnPublicResults,
+} from "./public-results.ts";
+import {
   LiveKaraoke,
   type KaraokeWallet,
   type LearningActions,
@@ -241,6 +246,42 @@ function App() {
       }),
     );
   }
+  /** V4 settings: the learner's signed withdrawal, relayed by the community. */
+  async function publicResultsOff() {
+    const current = session();
+    if (!current) return;
+    const message = await turnOffPublicResults({
+      request: () =>
+        post<import("./karaoke.tsx").KaraokeConsentRequest>(
+          "/api/learning/public-results/off",
+          {},
+          current.csrf,
+        ),
+      submit: (request, signature) =>
+        post<{ state: string }>(
+          "/api/learning/public-results/off",
+          { message: request.message, signature },
+          current.csrf,
+        ),
+      wallet: mossWallet,
+      status: setStatus,
+    });
+    await refreshSession();
+    setStatus(message);
+  }
+  /** V4 settings: clear the withdrawal, then the normal sign-in is relayed. */
+  async function publicResultsOn() {
+    const current = session();
+    if (!current) return;
+    setStatus(
+      await turnOnPublicResults({
+        enable: () =>
+          post("/api/learning/public-results/on", {}, current.csrf),
+        signIn,
+        status: setStatus,
+      }),
+    );
+  }
   // Owner-only publishing has no creator connection step. Preserved creator
   // connection routes stay on the server for the deferred integration.
   void run(async () => {
@@ -279,6 +320,29 @@ function App() {
                 <a href="/privacy" target="_blank" rel="noopener">
                   Privacy
                 </a>
+                <Show when={capabilities()?.learningPolicy}>
+                  {(policy) => (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <a
+                        href={policy().termsUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Learning terms
+                      </a>{" "}
+                      ·{" "}
+                      <a
+                        href={policy().privacyUrl}
+                        target="_blank"
+                        rel="noopener"
+                      >
+                        Learning privacy
+                      </a>
+                    </>
+                  )}
+                </Show>
               </p>
             </div>
           }
@@ -312,9 +376,32 @@ function App() {
                         Download private history
                       </DropdownMenuItem>
                     </Show>
-                    <DropdownMenuItem onSelect={() => void run(revokeLearning)}>
-                      Stop public enrollment
-                    </DropdownMenuItem>
+                    <Show
+                      when={publicResultsAction(current().publicResults)}
+                      keyed
+                    >
+                      {(action) =>
+                        action === "off" ? (
+                          <DropdownMenuItem
+                            onSelect={() => void run(publicResultsOff)}
+                          >
+                            Turn off public results
+                          </DropdownMenuItem>
+                        ) : action === "on" ? (
+                          <DropdownMenuItem
+                            onSelect={() => void run(publicResultsOn)}
+                          >
+                            Turn on public results
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem
+                            onSelect={() => void run(revokeLearning)}
+                          >
+                            Stop public enrollment
+                          </DropdownMenuItem>
+                        )
+                      }
+                    </Show>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Show>
@@ -385,6 +472,10 @@ function App() {
               csrf={session()!.csrf}
               account={account}
               wallet={mossWallet}
+              // A V4 community's Study needs no enrollment before a lesson.
+              signInPermission={["on", "pending", "off"].includes(
+                session()!.publicResults,
+              )}
               onExit={closeStudy}
               onLearningActions={(actions) => setLearningActions(actions)}
             />
@@ -563,8 +654,30 @@ function App() {
           </section>
         </main>
       </Show>
+      {/* Normal site navigation: the documents stay reachable while signed
+          in, outside the Study and Karaoke overlays. */}
       <footer class="live-footer" inert={practiceOpen()}>
-        A community of independent creators.
+        <span>A community of independent creators.</span>
+        <nav class="live-footer-links" aria-label="Community documents">
+          <a href="/terms" target="_blank" rel="noopener">
+            Terms
+          </a>
+          <a href="/privacy" target="_blank" rel="noopener">
+            Privacy
+          </a>
+          <Show when={capabilities()?.learningPolicy}>
+            {(policy) => (
+              <>
+                <a href={policy().termsUrl} target="_blank" rel="noopener">
+                  Learning terms
+                </a>
+                <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                  Learning privacy
+                </a>
+              </>
+            )}
+          </Show>
+        </nav>
       </footer>
     </>
   );

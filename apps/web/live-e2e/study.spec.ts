@@ -71,14 +71,12 @@ test("the account menu downloads saved Study history after exit and reports expi
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
-  const disclosure = page.getByRole("navigation", { name: "Study policies" });
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The exercise surface carries no policy links; the documents stay in
+  // normal site navigation.
   await expect(
-    disclosure.getByRole("link", { name: "Terms", exact: true }),
-  ).toHaveAttribute("href", "/learning/v3/terms");
-  await expect(
-    disclosure.getByRole("link", { name: "Privacy", exact: true }),
-  ).toHaveAttribute("href", "/learning/v3/privacy");
+    page.getByRole("navigation", { name: "Study policies" }),
+  ).toHaveCount(0);
   await expect(page.locator(".study-surface h2")).toBeVisible();
   const lessonId = new URL(page.url()).searchParams.get("lesson");
   await page.getByRole("button", { name: "Exit study" }).click();
@@ -364,7 +362,7 @@ for (const status of ["expired", "abandoned"] as const) {
     await expectNoPublicationPanel(page);
     await expect(
       page.getByRole("navigation", { name: "Study policies" }),
-    ).toBeInViewport();
+    ).toHaveCount(0);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
@@ -417,14 +415,10 @@ for (const width of [1366, 390]) {
       surface.getByRole("button", { name: "Exit study", exact: true }),
     ).toBeInViewport();
     const record = surface.getByRole("button", { name: "Record", exact: true });
-    const policies = page.getByRole("navigation", { name: "Study policies" });
     await expect(record).toBeInViewport();
-    await expect(policies).toBeInViewport();
-    const [buttonBox, policyBox] = await Promise.all([
-      record.boundingBox(),
-      policies.boundingBox(),
-    ]);
-    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(policyBox!.y);
+    await expect(
+      page.getByRole("navigation", { name: "Study policies" }),
+    ).toHaveCount(0);
     const header = await surface.locator("[data-study-header]").boundingBox();
     expect(header!.width).toBeLessThanOrEqual(Math.min(width, 640));
     expect(
