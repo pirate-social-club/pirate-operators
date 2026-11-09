@@ -64,7 +64,11 @@ import {
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
 import { expireStudySpeech } from "./study-operator.ts";
-import { resumeStudyPublications, recoverLearningTransactions } from "./study-publication-recovery.ts";
+import {
+  resumeStudyPublications,
+  recoverLearningTransactions,
+  settleWithheldLearningTransactions,
+} from "./study-publication-recovery.ts";
 import {
   enrollmentResultsTarget,
   retainedTarget,
@@ -292,6 +296,9 @@ export async function tick(env: Env, store: Store) {
       // Left for the next tick or recovery; one attempt never blocks the rest.
     }
   }
+  // Withheld result transactions: pending cancellations and nonces the
+  // chain shows consumed. Each waiting state is logged.
+  await settleWithheldLearningTransactions(env, store);
 }
 /** Recovers unresolved nonces first, so closures behind them can execute. */
 export async function recover(env: Env, store: Store) {

@@ -9,6 +9,7 @@ import {
   object,
 } from "../packages/community/common.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { canonicalOriginV4 } from "../packages/protocol/learning-results-v4.ts";
 import {
   LEARNING_AUTHORIZATION_MIGRATION,
   OWNER_PUBLISHING_MIGRATION,
@@ -26,6 +27,9 @@ export interface LearningV4ReleaseSelection {
   controller: string;
   publicationPolicy: string;
   policyVersion: 4;
+  /** The contract's communityOrigin, which its sign-in text names; the
+   * application's own origin. */
+  communityOrigin: string;
 }
 export function learningV4ReleaseSelection(
   value: unknown,
@@ -39,6 +43,7 @@ export function learningV4ReleaseSelection(
     "controller",
     "publicationPolicy",
     "policyVersion",
+    "communityOrigin",
   ]);
   insist(
     p.schema === "pirate.learning-v4-release-selection/1" &&
@@ -54,7 +59,12 @@ export function learningV4ReleaseSelection(
       BigInt(p.controller) !== 0n &&
       // The drafted policy the contract's immutable publicationPolicy carries.
       p.publicationPolicy === learningV4PublicityPolicy &&
-      p.policyVersion === 4,
+      p.policyVersion === 4 &&
+      typeof p.communityOrigin === "string" &&
+      // The constructor's rule, and a sign-in text must build for it: the
+      // contract accepts some origins viem's SIWE builder refuses, and
+      // communityOrigin is immutable.
+      canonicalOriginV4(p.communityOrigin),
     "learning_v4_release_selection_invalid",
     409,
   );
@@ -66,6 +76,7 @@ export function learningV4ReleaseSelection(
     controller: p.controller,
     publicationPolicy: p.publicationPolicy,
     policyVersion: 4,
+    communityOrigin: p.communityOrigin,
   };
 }
 
@@ -110,6 +121,12 @@ export function assertLearningV4ApplicationUpgrade(
     selection.contract !== learning.contract &&
       selection.contract !== learning.studyContract,
     "learning_v4_contract_reused",
+    409,
+  );
+  // The sign-in text names the contract's origin: it must be this application's.
+  insist(
+    selection.communityOrigin === next.origin,
+    "learning_v4_origin_changed",
     409,
   );
   const migrations = (p: Record<string, unknown>) => {

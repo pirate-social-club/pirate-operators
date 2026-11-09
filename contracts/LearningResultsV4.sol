@@ -9,9 +9,10 @@ interface ResultConsent1271V4 {
 /// @dev Graders assert performance and timestamps. Indexers authenticate historical
 /// source manifests; structural coverage checks do not prove an honest performance.
 /// @notice Successor of LearningResultsV3. Publication permission is the
-/// learner's sign-in signature (EIP-712 SignIn), recorded once and valid until
-/// withdrawn. A later sign-in never moves the start of permission, so it cannot
-/// strand lessons started earlier. Results, outcomes, grading roles, coverage
+/// learner's sign-in signature over a standard EIP-4361 message that this
+/// contract rebuilds, recorded once and valid until withdrawn. A later sign-in
+/// never moves the start of permission, so it cannot strand lessons started
+/// earlier. Results, outcomes, grading roles, coverage
 /// and correction rules are V3's.
 contract LearningResultsV4 {
     uint256 public constant EPOCH_START = 1793552400;
@@ -25,25 +26,25 @@ contract LearningResultsV4 {
     /// thirty-day community session, so a sign-in relayed at the learner's
     /// first practice in that session is never refused as stale.
     uint64 public constant RELAY_WINDOW = 30 days;
-    bytes32 public constant SIGN_IN_TYPEHASH = keccak256(
-        "SignIn(address learner,bytes32 communityId,string origin,bytes32 publicationPolicy,bytes32 nonce,uint64 issuedAt,uint64 expiresAt)"
-    );
+    /// The sign-in Statement. Draft wording for the workspace_owner's
+    /// approval; packages/protocol carries the same constant.
+    string public constant SIGN_IN_STATEMENT =
+        "Sign in to this community and let it publish your Karaoke and Study results under its terms, version 4, until you turn them off in settings. This does not join, create a creator wallet or authorize spending.";
     bytes32 public constant REVOCATION_TYPEHASH = keccak256("Revocation(address learner,uint64 nonce)");
     bytes32 public immutable DOMAIN_SEPARATOR;
     bytes32 public immutable communityId;
     bytes32 public immutable publicityPolicy;
     address public controller;
+    /// The community origin, fixed at construction: the sign-in names its
+    /// host as the domain and the origin itself as the URI.
+    string public communityOrigin;
 
-    /// @dev The same typed data is the community login. `expiresAt` is the
-    /// login challenge's expiry; the application enforces it at sign-in.
+    /// @dev The arguments of the EIP-4361 sign-in text this contract renders;
+    /// see signInMessage. The community login signs the same text.
     struct SignIn {
         address learner;
-        bytes32 communityId;
-        string origin;
-        bytes32 publicationPolicy;
         bytes32 nonce;
         uint64 issuedAt;
-        uint64 expiresAt;
     }
 
     struct Song {
@@ -114,11 +115,13 @@ contract LearningResultsV4 {
         _;
     }
 
-    constructor(address authority, bytes32 community, bytes32 publicity) {
+    constructor(address authority, bytes32 community, bytes32 publicity, string memory origin) {
         require(authority != address(0) && community != 0 && publicity != 0, "invalid_configuration");
+        require(_canonicalOrigin(bytes(origin)), "invalid_origin");
         controller = authority;
         communityId = community;
         publicityPolicy = publicity;
+        communityOrigin = origin;
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(
                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
@@ -143,35 +146,29 @@ contract LearningResultsV4 {
         emit GraderSet(grader, activity, allowed);
     }
 
+    /// @notice The exact EIP-4361 text the learner signs: this community's
+    /// host and origin, the Statement, this chain, the nonce as 64 hex digits,
+    /// Issued At and Not Before both `issuedAt`, no Expiration Time, and
+    /// Resources naming the terms, the policy version and hash, the community
+    /// and this contract. ASCII only, with no trailing newline.
+    function signInMessage(SignIn calldata a) public view returns (string memory) {
+        return string(_message(a.learner, a.nonce, a.issuedAt));
+    }
+
+    /// @notice The EIP-191 personal-sign hash of signInMessage, which is also
+    /// the authorization id.
     function signInDigest(SignIn calldata a) public view returns (bytes32) {
-        return _typed(
-            keccak256(
-                abi.encode(
-                    SIGN_IN_TYPEHASH,
-                    a.learner,
-                    a.communityId,
-                    keccak256(bytes(a.origin)),
-                    a.publicationPolicy,
-                    a.nonce,
-                    a.issuedAt,
-                    a.expiresAt
-                )
-            )
-        );
+        bytes memory text = _message(a.learner, a.nonce, a.issuedAt);
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n", _decimal(text.length), text));
     }
 
     /// @notice Records a learner's sign-in as publication permission. Anyone
-    /// may relay it; only the learner's own signature authorizes.
+    /// may relay it; only the learner's own signature authorizes. A text for
+    /// another host, community, policy, chain or contract is a different text.
     function authorize(SignIn calldata a, bytes calldata signature) external {
+        require(a.learner != address(0) && a.nonce != 0, "invalid_sign_in");
         require(
-            a.learner != address(0) && a.communityId == communityId && a.publicationPolicy == publicityPolicy
-                && bytes(a.origin).length > 0 && a.nonce != 0,
-            "invalid_sign_in"
-        );
-        require(
-            a.issuedAt <= block.timestamp && block.timestamp <= uint256(a.issuedAt) + RELAY_WINDOW
-                && a.expiresAt > a.issuedAt,
-            "stale_sign_in"
+            a.issuedAt <= block.timestamp && block.timestamp <= uint256(a.issuedAt) + RELAY_WINDOW, "stale_sign_in"
         );
         // A sign-in made before or at a withdrawal cannot restore permission.
         require(a.issuedAt > revokedAt[a.learner], "revoked_sign_in");
@@ -184,7 +181,158 @@ contract LearningResultsV4 {
         // Relays can arrive out of order; permission starts at the earliest
         // sign-in after the last withdrawal.
         if (since == 0 || a.issuedAt < since) authorizedSince[a.learner] = a.issuedAt;
-        emit Authorized(a.learner, id, a.origin, a.issuedAt, authorizedSince[a.learner]);
+        emit Authorized(a.learner, id, communityOrigin, a.issuedAt, authorizedSince[a.learner]);
+    }
+
+    function _message(address learner, bytes32 nonce, uint64 issuedAt) private view returns (bytes memory) {
+        bytes memory site = bytes(communityOrigin);
+        bytes memory host = new bytes(site.length - 8);
+        assembly ("memory-safe") {
+            mcopy(add(host, 32), add(site, 40), mload(host))
+        }
+        bytes memory time = _iso(issuedAt);
+        bytes memory chain = _decimal(block.chainid);
+        bytes memory head = abi.encodePacked(
+            host,
+            " wants you to sign in with your Ethereum account:\n",
+            _checksummed(learner),
+            "\n\n",
+            SIGN_IN_STATEMENT,
+            "\n\nURI: ",
+            site,
+            "\nVersion: 1\nChain ID: ",
+            chain,
+            "\nNonce: ",
+            _hex(uint256(nonce), 64)
+        );
+        bytes memory times = abi.encodePacked("\nIssued At: ", time, "\nNot Before: ", time);
+        bytes memory resources = abi.encodePacked(
+            "\nResources:\n- ",
+            site,
+            "/learning/v4/terms\n- ",
+            site,
+            "/learning/v4/privacy\n- urn:pirate:publication-policy:4:0x",
+            _hex(uint256(publicityPolicy), 64),
+            "\n- urn:pirate:community:0x",
+            _hex(uint256(communityId), 64),
+            "\n- eip155:",
+            chain,
+            ":0x",
+            _hex(uint160(address(this)), 40)
+        );
+        return abi.encodePacked(head, times, resources);
+    }
+
+    /// @dev `https://`, then a lowercase host of `[a-z0-9.-]` labels with no
+    /// empty label and no label starting or ending with `-`, containing a dot
+    /// or equal to `localhost`, then an optional port with no leading zero,
+    /// at most 65535 and not 443. No path, query or trailing slash.
+    function _canonicalOrigin(bytes memory o) private pure returns (bool) {
+        uint256 n = o.length;
+        if (n < 9 || keccak256(_slice(o, 0, 8)) != keccak256("https://")) return false;
+        uint256 i = 8;
+        bool dot;
+        bytes1 previous = ".";
+        for (; i < n && o[i] != ":"; ++i) {
+            bytes1 c = o[i];
+            if (c == ".") {
+                if (previous == "." || previous == "-") return false;
+                dot = true;
+            } else if (c == "-") {
+                if (previous == ".") return false;
+            } else if (!((c >= "a" && c <= "z") || (c >= "0" && c <= "9"))) {
+                return false;
+            }
+            previous = c;
+        }
+        if (previous == "." || previous == "-") return false;
+        if (!dot && keccak256(_slice(o, 8, i)) != keccak256("localhost")) return false;
+        if (i == n) return true;
+        if (n - i < 2 || n - i > 6 || o[i + 1] == "0") return false;
+        uint256 port;
+        for (uint256 j = i + 1; j < n; ++j) {
+            if (o[j] < "0" || o[j] > "9") return false;
+            port = port * 10 + uint8(o[j]) - 48;
+        }
+        return port <= 65535 && port != 443;
+    }
+
+    function _slice(bytes memory b, uint256 start, uint256 end) private pure returns (bytes memory out) {
+        out = new bytes(end - start);
+        for (uint256 i; i < out.length; ++i) {
+            out[i] = b[start + i];
+        }
+    }
+
+    /// @dev The low `digits` nibbles of `value`, lowercase, leading zeros kept.
+    function _hex(uint256 value, uint256 digits) private pure returns (bytes memory out) {
+        out = new bytes(digits);
+        assembly ("memory-safe") {
+            // The 16 digits in scratch space: mload(k) ends with digit k.
+            mstore(0x0f, 0x30313233343536373839616263646566)
+            let start := add(out, 32)
+            for { let p := add(start, digits) } gt(p, start) {} {
+                p := sub(p, 1)
+                mstore8(p, mload(and(value, 15)))
+                value := shr(4, value)
+            }
+        }
+    }
+
+    /// @dev EIP-55: a letter is uppercase when the matching nibble of
+    /// keccak256 of the 40 lowercase hex digits is 8 or more.
+    function _checksummed(address account) private pure returns (bytes memory out) {
+        out = abi.encodePacked("0x", _hex(uint160(account), 40));
+        assembly ("memory-safe") {
+            let p := add(out, 34)
+            let h := keccak256(p, 40)
+            for { let i := 0 } lt(i, 40) { i := add(i, 1) } {
+                let c := byte(0, mload(add(p, i)))
+                if and(gt(c, 0x60), gt(and(shr(sub(252, mul(4, i)), h), 15), 7)) { mstore8(add(p, i), sub(c, 32)) }
+            }
+        }
+    }
+
+    function _decimal(uint256 value) private pure returns (bytes memory out) {
+        uint256 digits = 1;
+        for (uint256 v = value; v >= 10; v /= 10) {
+            ++digits;
+        }
+        out = new bytes(digits);
+        _digits(out, 0, value, digits);
+    }
+
+    /// @dev Unix seconds as `YYYY-MM-DDTHH:MM:SS.000Z`, the form of viem's
+    /// Date.toISOString for whole seconds; civil-from-days, before year 10000.
+    function _iso(uint256 t) private pure returns (bytes memory out) {
+        require(t < 253402300800, "invalid_sign_in");
+        uint256 z = t / 86400 + 719468;
+        uint256 era = z / 146097;
+        uint256 doe = z - era * 146097;
+        uint256 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        uint256 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        uint256 mp = (5 * doy + 2) / 153;
+        uint256 month = mp < 10 ? mp + 3 : mp - 9;
+        uint256 s = t % 86400;
+        out = "0000-00-00T00:00:00.000Z";
+        _digits(out, 0, yoe + era * 400 + (month <= 2 ? 1 : 0), 4);
+        _digits(out, 5, month, 2);
+        _digits(out, 8, doy - (153 * mp + 2) / 5 + 1, 2);
+        _digits(out, 11, s / 3600, 2);
+        _digits(out, 14, (s / 60) % 60, 2);
+        _digits(out, 17, s % 60, 2);
+    }
+
+    /// @dev Writes the low `width` decimal digits of `value` at `out[at:]`;
+    /// callers keep `at + width` within `out`.
+    function _digits(bytes memory out, uint256 at, uint256 value, uint256 width) private pure {
+        assembly ("memory-safe") {
+            for { let p := add(add(add(out, 32), at), width) } width { width := sub(width, 1) } {
+                p := sub(p, 1)
+                mstore8(p, add(48, mod(value, 10)))
+                value := div(value, 10)
+            }
+        }
     }
 
     function revocationDigest(address learner, uint64 nonce) public view returns (bytes32) {

@@ -16,6 +16,7 @@ const abi = parseAbi([
   "function publicityPolicy() view returns (bytes32)",
   "function controller() view returns (address)",
   "function graders(address,uint8) view returns (bool)",
+  "function communityOrigin() view returns (string)",
 ]);
 type Client = Pick<
   PublicClient,
@@ -26,10 +27,13 @@ export interface LearningV4ReleaseExpectation {
   communityId: Hex;
   /** The operator publisher that must hold the Karaoke and Study grader roles. */
   publisher: Address;
+  /** The community origin the contract's sign-in text must name. */
+  communityOrigin: string;
 }
 export const learningV4ReleaseExpectation: LearningV4ReleaseExpectation = {
   communityId: firstSong.directoryProfile.communityId as Hex,
   publisher: retainedLearningOperator.publisher,
+  communityOrigin: firstSong.origin,
 };
 
 export async function observeLearningV4Release(
@@ -94,6 +98,14 @@ export async function observeLearningV4Release(
   insist(
     karaoke === true && study === true,
     "learning_v4_release_grader_missing",
+    409,
+  );
+  // Read only from a reviewed V4: the origin its sign-in text names.
+  const origin = await read("communityOrigin");
+  insist(
+    origin === selection.communityOrigin &&
+      origin === expected.communityOrigin,
+    "learning_v4_release_origin_changed",
     409,
   );
   const checked = await client.getBlock({ blockNumber });

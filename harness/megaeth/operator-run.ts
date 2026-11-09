@@ -238,9 +238,27 @@ async function main() {
     }
     const transactions = await Promise.all(
       (await state("tx:")).map(async (r) => {
-        const row = r.value as { nonce: number; kind: string; hash: Hex; mined: { status: string; block: number } | null };
-        const receipt = await chain.getTransactionReceipt({ hash: row.hash });
-        return { nonce: row.nonce, kind: row.kind, hash: row.hash, status: receipt.status, gasUsed: receipt.gasUsed.toString(), block: receipt.blockNumber.toString() };
+        const row = r.value as {
+          nonce: number;
+          kind: string;
+          hash: Hex;
+          mined: { status: string; block: number } | null;
+          cancellation?: { hash?: Hex };
+        };
+        // A superseded nonce has no receipt of its own; a cancelled one is
+        // the cancellation's. Neither is reported as the row's success.
+        if (row.mined?.status === "superseded")
+          return { nonce: row.nonce, kind: row.kind, hash: row.hash, status: "superseded", gasUsed: "0", block: String(row.mined.block) };
+        const hash = row.mined?.status === "cancelled" ? row.cancellation!.hash! : row.hash;
+        const receipt = await chain.getTransactionReceipt({ hash });
+        return {
+          nonce: row.nonce,
+          kind: row.kind,
+          hash,
+          status: row.mined?.status === "cancelled" ? "cancelled" : receipt.status,
+          gasUsed: receipt.gasUsed.toString(),
+          block: receipt.blockNumber.toString(),
+        };
       }),
     );
     const units = [

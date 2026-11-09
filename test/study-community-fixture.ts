@@ -50,6 +50,7 @@ export async function studyCommunityFixture(
           accounts[3].address,
           firstSongFixture.communityId,
           learningV4PublicityPolicy,
+          firstSong.origin,
         ])
       : undefined;
     const publisher = privateKeyToAccount(`0x${"12".repeat(32)}`);
@@ -244,18 +245,13 @@ export async function studyCommunityFixture(
             address: accounts[index].address,
           })
         ).json()) as SiweChallenge | SignInChallenge;
-        // A V4 community's sign-in is typed data; it is also the permission.
+        // Plain SIWE, or a V4 community's SIWE text that is also the
+        // permission: either is signed as text.
         const response = await post("/api/auth/verify", {
           id: challenge.id,
-          signature:
-            "typedData" in challenge
-              ? await accounts[index].signTypedData({
-                  ...challenge.typedData,
-                  message: challenge.typedData.message as never,
-                })
-              : await accounts[index].signMessage({
-                  message: challenge.message,
-                }),
+          signature: await accounts[index].signMessage({
+            message: challenge.message,
+          }),
         });
         const session = (await response.json()) as { csrf: string };
         return {

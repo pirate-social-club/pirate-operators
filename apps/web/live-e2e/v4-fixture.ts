@@ -7,6 +7,10 @@ import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import type { StudyLesson, StudySong } from "../../../packages/study/lesson.ts";
+import {
+  readSignInMessageV4,
+  signInMessageV4,
+} from "../../../packages/protocol/learning-results-v4.ts";
 
 export const origin = "https://study-v4.example";
 const learner = `0x${"a4".repeat(20)}`;
@@ -93,16 +97,23 @@ export async function serveV4(page: Page) {
       return route.fulfill({
         contentType: "application/javascript",
         body: `
-      const record = (kind, primaryType) => fetch("/__fixture/sign", {method:"POST",
-        body: JSON.stringify({kind, primaryType})});
+      const record = (kind, primaryType, message) => fetch("/__fixture/sign", {method:"POST",
+        body: JSON.stringify({kind, primaryType, message})});
       export const mega = { async initialise(){},
         async connect(){return {address:"${learner}"}},
-        async signMessage(){await record("message");return {status:"success",signature:"0x5157"}},
+        async signMessage(message){await record("message", undefined, message);return {status:"success",signature:"0x5157"}},
         async signData({data}){await record("typed", data.primaryType);return {status:"success",signature:"0x7d"}} };`,
       });
     if (path === "/__fixture/sign") {
       const input = request.postDataJSON();
-      signatures.push(input.kind === "typed" ? input.primaryType : input.kind);
+      // The V4 sign-in is a SIWE text; it is recorded as "SignIn".
+      signatures.push(
+        input.kind === "typed"
+          ? input.primaryType
+          : readSignInMessageV4(String(input.message))
+            ? "SignIn"
+            : input.kind,
+      );
       return json({ ok: true });
     }
     if (documents[path])
@@ -150,17 +161,20 @@ export async function serveV4(page: Page) {
       return json({
         id: "fixture-challenge",
         kind: "sign-in-v4",
-        typedData: {
-          domain: {
-            name: "Pirate Learning Results",
-            version: "4",
+        message: signInMessageV4(
+          {
+            origin,
             chainId: 6343,
-            verifyingContract: contract,
+            contract: contract as `0x${string}`,
+            communityId: song.communityId as `0x${string}`,
+            publicationPolicy: `0x${"5".repeat(64)}`,
           },
-          types: { SignIn: [] },
-          primaryType: "SignIn",
-          message: { learner, nonce: `0x${"9".repeat(64)}` },
-        },
+          {
+            learner: learner as `0x${string}`,
+            nonce: `0x${"9".repeat(64)}`,
+            issuedAt: BigInt(Math.floor(Date.now() / 1000) - 60),
+          },
+        ),
       });
     if (path === "/api/auth/verify") {
       signedIn = true;

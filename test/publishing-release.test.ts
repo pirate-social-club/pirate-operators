@@ -258,6 +258,7 @@ test("the V4 application successor appends only 0013 after the deployed 0012 and
     controller: "0x" + "c7".repeat(20),
     publicationPolicy: learningV4PublicityPolicy,
     policyVersion: 4,
+    communityOrigin: previous.origin,
   });
   const next = {
     ...structuredClone(previous),
@@ -285,6 +286,21 @@ test("the V4 application successor appends only 0013 after the deployed 0012 and
       "uppercase contract",
       (p: any) => (p.learningV4.contract = "0x" + "C4".repeat(20)),
       /learning_v4_release_selection_invalid/,
+    ],
+    [
+      "another community origin",
+      (p: any) => (p.learningV4.communityOrigin = "https://phish.example"),
+      /learning_v4_origin_changed/,
+    ],
+    [
+      "non-canonical community origin",
+      (p: any) => (p.learningV4.communityOrigin = p.origin + "/"),
+      /learning_v4_release_selection_invalid/,
+    ],
+    [
+      "no community origin",
+      (p: any) => delete p.learningV4.communityOrigin,
+      /invalid/,
     ],
     [
       "V3 contract reused",

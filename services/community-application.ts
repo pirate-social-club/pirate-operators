@@ -179,17 +179,9 @@ function dependencies(
     async verifyLogin(address, proof, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
-      // Both cover EOAs and ERC-1271/6492 smart accounts such as MOSS.
-      return typeof proof === "string"
-        ? client.verifyMessage({ address, message: proof, signature })
-        : client.verifyTypedData({
-            address,
-            domain: proof.domain,
-            types: proof.types,
-            primaryType: proof.primaryType,
-            message: { ...proof.message },
-            signature,
-          });
+      // The plain and the V4 sign-in are both personal-sign texts; this
+      // covers EOAs and ERC-1271/6492 smart accounts such as MOSS.
+      return client.verifyMessage({ address, message: proof, signature });
     },
     async creatorHealth() {
       try {
@@ -706,11 +698,11 @@ export async function communityFetch(
       const body = await jsonBody(request);
       if (url.pathname === "/api/auth/challenge") {
         const v4 = signInV4(env, config);
-        // SIWE keeps the wall clock. A V4 sign-in's issuedAt is the
-        // application's own clock, never backdated: a backdated sign-in could
-        // fall at or before a just-recorded withdrawal. If it is ahead of the
-        // chain, the operator answers sign_in_not_yet_valid and the relay is
-        // retried.
+        // SIWE keeps the wall clock. A V4 sign-in's issuedAt comes from the
+        // application's own clock, backdated by at most a minute for wallet
+        // clocks behind it and never to or before the account's last
+        // withdrawal. If it is ahead of the chain, the operator answers
+        // sign_in_not_yet_valid and the relay is retried.
         return reply(
           await loginChallenge(
             env.DB,
@@ -754,6 +746,12 @@ export async function communityFetch(
         );
         return reply(await karaokeEnrollment(karaokePorts, session, body));
       }
+      // A withdrawal, in settings or found on chain, closes the account's
+      // open Study lessons in this community.
+      const endStudyLessons = async () => {
+        if (studyAvailable(env, config))
+          await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
+      };
       // V4 account settings; never reached from an exercise.
       if (url.pathname === "/api/learning/public-results/off")
         return reply(
@@ -764,10 +762,7 @@ export async function communityFetch(
             session,
             body,
             (ports.now ?? Date.now)(),
-            async () => {
-              if (studyAvailable(env, config))
-                await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
-            },
+            endStudyLessons,
           ),
         );
       if (url.pathname === "/api/learning/public-results/on")
@@ -775,7 +770,9 @@ export async function communityFetch(
           await turnOnPublicResults(env, env.DB, config, session),
         );
       if (url.pathname === "/api/karaoke/tickets")
-        return reply(await karaokeTicket(karaokePorts, session, body));
+        return reply(
+          await karaokeTicket(karaokePorts, session, body, endStudyLessons),
+        );
       if (url.pathname === "/api/karaoke/purchases")
         return reply(await karaokePurchase(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/consent")

@@ -213,11 +213,16 @@ async function connectionProof(
   });
 }
 
-/** One open ticket per learner; a retry for the same song returns it. */
+/**
+ * One open ticket per learner; a retry for the same song returns it.
+ * `endLessons` closes the account's open Study lessons in the community when
+ * a refusal reveals a withdrawal made directly on chain.
+ */
 export async function karaokeTicket(
   ports: KaraokePorts,
   learner: KaraokeLearner,
   value: Record<string, unknown>,
+  endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const postId = bytes32(value.postId);
   const { env, store, manifest, manifestSha256, quote } = await prepared(
@@ -275,10 +280,12 @@ export async function karaokeTicket(
           karaokeResultsV4(ports.env, ports.config) &&
           learner.account_id
         )
-          await noteChainWithdrawal(ports.env, ports.db, {
-            account_id: learner.account_id,
-            wallet: learner.wallet,
-          }).catch(() => false);
+          await noteChainWithdrawal(
+            ports.env,
+            ports.db,
+            { account_id: learner.account_id, wallet: learner.wallet },
+            endLessons,
+          ).catch(() => false);
         if (authorizationRefusals.has(error.message))
           insist(false, error.message, 409);
         throw error;

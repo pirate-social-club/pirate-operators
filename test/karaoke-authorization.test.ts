@@ -4,7 +4,7 @@
 // the posts RPC, IPFS and ElevenLabs are the harness's explicit simulations.
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, keccak256, type Address, type Hex } from "viem";
+import { decodeFunctionData, hashMessage, keccak256, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { accounts, keys } from "../harness/runtime.ts";
 import { chain } from "../harness/chain.ts";
@@ -25,9 +25,12 @@ import {
 } from "../packages/protocol/payments.ts";
 import {
   resultsV4Abi,
-  signInIdV4,
+  readSignInMessageV4,
+  signInMessageV4,
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 import { readPublicResults } from "../packages/records/results-v3.ts";
 import type { SignInChallenge } from "../packages/community/accounts.ts";
 import type { BoundAuthorization } from "../services/study-authorization.ts";
@@ -109,8 +112,11 @@ async function signIn(index: number) {
 /**
  * A later sign-in recorded on chain directly through the operator's relay
  * route. The application stores no second row for an account already on.
+ * While the account's public results are off the application gives only the
+ * plain login, so with `outside` the learner's V4 text is built here, as one
+ * signed outside the application.
  */
-async function laterSignInOnChain(index: number) {
+async function laterSignInOnChain(index: number, outside = false) {
   const challenge = (
     await live.json<SignInChallenge>(
       await live.app("/api/auth/challenge", {
@@ -123,16 +129,22 @@ async function laterSignInOnChain(index: number) {
       }),
     )
   ).value;
-  assert.equal(challenge.kind, "sign-in-v4");
-  const signature = await accounts[index]!.signTypedData({
-    ...challenge.typedData,
-    message: challenge.typedData.message as never,
-  });
-  const message: SignIn = {
-    ...challenge.typedData.message,
-    issuedAt: BigInt(challenge.typedData.message.issuedAt),
-    expiresAt: BigInt(challenge.typedData.message.expiresAt),
-  };
+  if (outside) {
+    assert.equal(challenge.kind, undefined);
+    assert.equal(readSignInMessageV4(challenge.message), undefined);
+    challenge.message = signInMessageV4(
+      {
+        origin: firstSong.origin,
+        chainId: 31337,
+        contract: v4().toLowerCase() as Address,
+        communityId: live.config.communityId,
+        publicationPolicy: learningV4PublicityPolicy,
+      },
+      { learner: accounts[index]!.address, nonce: digest(`outside-${live.now()}`), issuedAt: BigInt(live.now()) },
+    );
+  } else assert.equal(challenge.kind, "sign-in-v4");
+  const signature = await accounts[index]!.signMessage({ message: challenge.message });
+  const message: SignIn = readSignInMessageV4(challenge.message)!.signIn;
   let state = "pending";
   for (let i = 0; i < 5 && state !== "success"; i++)
     state = (
@@ -141,14 +153,14 @@ async function laterSignInOnChain(index: number) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            signIn: challenge.typedData.message,
+            signIn: { ...message, issuedAt: String(message.issuedAt) },
             signature,
           }),
         })
       ).json()) as { state: string }
     ).state;
   assert.equal(state, "success");
-  return { id: signInIdV4(31337, v4(), message), issuedAt: Number(message.issuedAt) };
+  return { id: hashMessage(challenge.message), issuedAt: Number(message.issuedAt) };
 }
 const ticket = (session: Session) =>
   live.post<{
@@ -442,7 +454,7 @@ test("an on-chain revoke keeps an unpublished run private and refuses new and pr
   assert.equal(before.value.error, "karaoke_authorization_required");
   // A sign-in after the withdrawal binds; the earlier one still does not.
   await live.at(live.now() + 2);
-  const after = await laterSignInOnChain(8);
+  const after = await laterSignInOnChain(8, true);
   const renewed = await craftedTicket(accounts[8]!.address, after.id);
   assert.equal(renewed.status, 200, JSON.stringify(renewed.value));
   const stale = await craftedTicket(accounts[8]!.address, authorization.authorization_id);

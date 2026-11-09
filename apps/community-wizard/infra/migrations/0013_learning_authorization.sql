@@ -1,6 +1,7 @@
 -- V4: a community sign-in is the learner's publication authorization.
--- A challenge is either the SIWE message or the V4 SignIn typed data. Every
--- earlier challenge is SIWE, which never produces an authorization.
+-- A challenge is the plain SIWE login or the V4 sign-in, which is also an
+-- EIP-4361 text: both are signed as text. Every earlier challenge is plain
+-- SIWE, which never produces an authorization.
 ALTER TABLE login_challenges ADD COLUMN kind TEXT NOT NULL DEFAULT 'siwe'
   CHECK(kind IN ('siwe','sign-in-v4'));
 ALTER TABLE login_challenges ADD COLUMN policy_version INTEGER
@@ -11,7 +12,10 @@ CREATE TABLE learning_authorizations (
       AND substr(authorization_id,3) NOT GLOB '*[^0-9a-f]*'),
   account_id TEXT NOT NULL REFERENCES community_accounts(account_id),
   subject TEXT NOT NULL,
+  -- The compact LearningResultsV4.authorize arguments {learner,nonce,issuedAt}.
   sign_in_json TEXT NOT NULL CHECK(json_valid(sign_in_json)),
+  -- The exact signed text; authorization_id is its EIP-191 hash.
+  message TEXT NOT NULL,
   signature TEXT NOT NULL,
   policy_hash TEXT NOT NULL,
   policy_version INTEGER NOT NULL CHECK(policy_version>0),

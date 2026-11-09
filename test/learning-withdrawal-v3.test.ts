@@ -12,6 +12,7 @@ import { accounts } from "../harness/runtime.ts";
 import type { StudyLesson } from "../packages/study/lesson.ts";
 import { communityScheduled } from "../services/community-application.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 import { resumeStudyPublications } from "../services/study-publication-recovery.ts";
 import { lessonState } from "./study-close-bound-fixture.ts";
 import {
@@ -30,6 +31,7 @@ async function becomeV4(f: Fixture) {
     accounts[3].address,
     f.config.communityId,
     learningV4PublicityPolicy,
+    firstSong.origin,
   ]);
   await f.evm.write(
     v4,

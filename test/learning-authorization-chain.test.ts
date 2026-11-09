@@ -1,5 +1,5 @@
-// The V4 sign-in relay on a local chain: the application issues the SignIn
-// challenge, a real viem typed-data signature signs in, and the operator's
+// The V4 sign-in relay on a local chain: the application issues the V4 SIWE
+// challenge, a real viem personal-sign signature signs in, and the operator's
 // acceptAuthorization records it with LearningResultsV4.authorize. Explicit
 // local contracts, fixture keys and journals; no public network or provider.
 import test from "node:test";
@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   encodeFunctionData,
+  hashMessage,
   hashTypedData,
   parseAbi,
   serializeErc8010Signature,
@@ -34,9 +35,9 @@ import { firstSong } from "../services/first-song-profile.ts";
 import { validateConfig } from "../packages/community/config-manifest.ts";
 import type { SignInChallenge } from "../packages/community/accounts.ts";
 import {
+  readSignInMessageV4,
   resultsV4Abi,
   signInIdV4,
-  signInTypes,
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
@@ -75,6 +76,7 @@ async function fixture(port: number) {
     accounts[3].address,
     communityId,
     learningV4PublicityPolicy,
+    firstSong.origin,
   ]);
   let now = 0;
   // Seconds the application's (and operator's) clock runs ahead of the chain.
@@ -189,30 +191,23 @@ async function fixture(port: number) {
       functionName,
       args,
     } as never) as Promise<T>;
-  /** The browser's sign-in: one typed signature over the challenge as received. */
+  /** The browser's sign-in: one personal signature over the text as received. */
   async function signIn(account: PrivateKeyAccount) {
     const challenge = (await (
       await post("/api/auth/challenge", { address: account.address })
     ).json()) as SignInChallenge;
     assert.equal(challenge.kind, "sign-in-v4");
-    const signature = await account.signTypedData({
-      ...challenge.typedData,
-      message: challenge.typedData.message as never,
-    });
+    const signature = await account.signMessage({ message: challenge.message });
     const verified = await post("/api/auth/verify", {
       id: challenge.id,
       signature,
     });
     assert.equal(verified.status, 200, await verified.clone().text());
-    const message: SignIn = {
-      ...challenge.typedData.message,
-      issuedAt: BigInt(challenge.typedData.message.issuedAt),
-      expiresAt: BigInt(challenge.typedData.message.expiresAt),
-    };
+    const message: SignIn = readSignInMessageV4(challenge.message)!.signIn;
     return {
       message,
       signature,
-      id: signInIdV4(31337, v4, message),
+      id: hashMessage(challenge.message),
       auth: { cookie: verified.headers.get("set-cookie")!.split(";")[0]! },
     };
   }
@@ -343,7 +338,6 @@ test(
               signIn: {
                 ...s.message,
                 issuedAt: String(s.message.issuedAt),
-                expiresAt: String(s.message.expiresAt),
               },
               signature: s.signature,
             }),
@@ -496,7 +490,16 @@ test(
         policy_version: 4,
       });
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
+      // The application does not know of a withdrawal made directly on
+      // chain, so a sign-in within the one-minute backdate after it is
+      // issued before it: refused, never authorizing.
       await f.advance(1);
+      const early = await f.signIn(learner);
+      assert.ok(early.message.issuedAt <= revokedAt);
+      await f.practise(early);
+      assert.equal((await f.authorization(early.id))!.state, "refused");
+      assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
+      await f.advance(60);
       const after = await f.signIn(learner);
       await f.practise(after);
       await f.scheduled();
@@ -531,28 +534,21 @@ test(
       f.operatorEnv.APPROVED_ACTIVATION_ACCOUNT = learner.address;
       const message: SignIn = {
         learner: learner.address,
-        communityId: firstSong.directoryProfile.communityId,
-        origin: firstSong.origin,
-        publicationPolicy: learningV4PublicityPolicy,
         nonce: `0x${"5a".repeat(32)}`,
         issuedAt: BigInt(f.now()),
-        expiresAt: BigInt(f.now() + 300),
       };
-      const id = signInIdV4(31337, f.v4, message);
-      assert.equal(
-        hashTypedData({
-          domain: {
-            name: "Pirate Learning Results",
-            version: "4",
-            chainId: 31337,
-            verifyingContract: f.v4 as Address,
-          },
-          types: signInTypes,
-          primaryType: "SignIn",
-          message,
-        }),
-        id,
+      // The account's key signs the EIP-191 hash of the V4 text.
+      const id = signInIdV4(
+        {
+          origin: firstSong.origin,
+          chainId: 31337,
+          contract: f.v4.toLowerCase() as Address,
+          communityId: firstSong.directoryProfile.communityId,
+          publicationPolicy: learningV4PublicityPolicy,
+        },
+        message,
       );
+      assert.equal(await f.read("signInDigest", [message]), id);
       const signature = serializeErc8010Signature({
         authorization: await learner.signAuthorization({
           contractAddress: f.evm.mockAccount,
@@ -602,20 +598,30 @@ test(
 );
 
 test(
-  "an application clock one or two seconds ahead of the chain keeps the sign-in pending until the chain catches up",
+  "an application clock more than the one-minute backdate ahead of the chain keeps the sign-in pending until the chain catches up",
   { timeout: 120000 },
   async () => {
     const f = await fixture(19975);
     try {
+      // Within the backdate, a clock ahead of the chain is absorbed.
+      f.setSkew(30);
+      const absorbed = await f.signIn(accounts[4]);
+      assert.equal(Number(absorbed.message.issuedAt), f.now() + 30 - 60);
+      f.relayed.length = 0;
+      await f.practise(absorbed);
+      await f.scheduled();
+      assert.equal((await f.authorization(absorbed.id))!.state, "recorded");
+      f.setSkew(0);
+      await f.sync();
       for (const [index, skew] of [
-        [5, 1],
-        [6, 2],
+        [5, 61],
+        [6, 62],
       ] as const) {
         const learner = accounts[index];
-        // issuedAt is the application's own time, never backdated.
+        // issuedAt is the application's own time less the one-minute backdate.
         f.setSkew(skew);
         const s = await f.signIn(learner);
-        assert.equal(Number(s.message.issuedAt), f.now() + skew);
+        assert.equal(Number(s.message.issuedAt), f.now() + skew - 60);
         f.relayed.length = 0;
         // The first practice relays it; the chain cannot accept it yet.
         assert.deepEqual(await f.practise(s), { id: null, pending: true });
@@ -627,13 +633,13 @@ test(
           acceptAuthorization(f.operatorEnv, f.store, s.message, s.signature),
           /^Error: sign_in_not_yet_valid$/,
         );
-        assert.equal(f.count("intent:record_authorize:"), index - 5);
-        assert.equal(f.count("sponsor:reservation:record_authorize:"), index - 5);
+        assert.equal(f.count("intent:record_authorize:"), index - 4);
+        assert.equal(f.count("sponsor:reservation:record_authorize:"), index - 4);
         await f.scheduled();
         assert.equal((await f.authorization(s.id))!.state, "pending");
         assert.equal((await f.session(s.auth)).publicResults, "pending");
         // The chain catches up; the client's retry of the same start records it.
-        await f.advance(skew);
+        await f.advance(skew - 60);
         f.setSkew(0);
         await f.practise(s);
         await f.scheduled();

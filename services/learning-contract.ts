@@ -143,6 +143,46 @@ export const legacyResultsWithheld = (
   store: { get<T>(key: string): T | undefined },
   learner: string,
 ) => store.get(legacyResultsWithheldKey(learner)) !== undefined;
+/**
+ * Whether the learner's earlier-version results not yet sent stay private:
+ * the marker above, or a withdrawal on this operator's V4 contract by any
+ * path, including the learner's own direct `revoke` call, which never reaches
+ * this operator. Only `revoke` writes `revokedAt`, and a later sign-in
+ * (`authorize`) never resets it, so it is nonzero from the learner's first
+ * withdrawal on, even after they sign in again. A withdrawal found on chain
+ * is recorded as the marker, so it holds from then on without another read.
+ * Without a configured V4 contract nothing is read. A failed read throws, so
+ * the caller keeps the result pending and never sends it on an error.
+ */
+export async function legacyResultsWithdrawn(
+  env: Env,
+  store: {
+    get<T>(key: string): T | undefined;
+    set(key: string, value: unknown): void;
+    now(): number;
+  },
+  learner: Address,
+  blockNumber?: bigint,
+) {
+  if (legacyResultsWithheld(store, learner)) return true;
+  if (!env.RESULTS_V4_CONTRACT) return false;
+  const target = resultsTarget(env, 4);
+  const revokedAt = (await resultClient(env).readContract({
+    address: target.contract,
+    abi: resultsV4Abi,
+    functionName: "revokedAt",
+    args: [learner],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  })) as bigint;
+  if (revokedAt === 0n) return false;
+  if (!legacyResultsWithheld(store, learner))
+    store.set(legacyResultsWithheldKey(learner), {
+      at: store.now(),
+      revokedAt: String(revokedAt),
+      source: "chain",
+    });
+  return true;
+}
 export const revocationKey = (
   target: ResultsTarget,
   learner: Address,
