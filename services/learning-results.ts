@@ -15,7 +15,7 @@ import type {
   KaraokeManifest,
   KaraokeResultBody,
 } from "../packages/protocol/payments.ts";
-import { intentOf, txRow } from "./operator-tx.ts";
+import { intentOf, txRow, withheldUnpublished } from "./operator-tx.ts";
 import {
   releaseSponsorship,
   reserveSponsorship,
@@ -380,17 +380,18 @@ export async function publishV2(
     store.set(`workV2:${ref}`, durableValue(job));
   }
   // Withheld after its nonce was allocated and proven never sent: it can
-  // never publish, and a cancellation consumes the nonce, here or in
-  // recovery. A row that may have been sent is never sent again, and its
-  // receipt decides.
+  // never publish, and a cancellation consumes the nonce, here, in the alarm
+  // or in recovery. A row that may have been sent is never sent again: its
+  // receipt decides, or it stays private once its nonce went to another
+  // transaction (superseded).
   const cancelled = () => {
     const nonce = intentOf(store, "record_result", ref)?.nonce;
     const own = nonce == null ? undefined : txRow(store, nonce);
-    if (!own?.withheld || own.broadcast !== "none") return undefined;
+    if (!withheldUnpublished(own)) return undefined;
     const next = {
       state: "private" as const,
       revision,
-      reason: own.withheld.reason,
+      reason: own!.withheld!.reason,
     };
     store.set(`publicationV2:${ticketId}`, next);
     return next;

@@ -253,8 +253,9 @@ publication paths, the operator's transaction dispatch, and its background
 transaction recovery (`recoverLearningTransactions`), which rebroadcasts
 unmined transactions. The operator's own record of the Revocation is checked
 where the nonce is allocated and again immediately before any send, with no
-asynchronous step in between. The V4 contract's `revokedAt` is read before
-each send; a failed read sends nothing and leaves the transaction for later.
+asynchronous step in between. The V4 contract's `revokedAt` is read after the
+data-fee and receipt reads, as the last asynchronous step before each send;
+a failed read sends nothing and leaves the transaction for later.
 
 A dispatch can fail after its transaction was queued and before a nonce was
 allocated: a failed `eth_gasPrice` read, `gas_price_above_limit`,
@@ -264,37 +265,66 @@ withdrawal, and a withheld result's queued transaction is removed, so no path
 can dispatch it later, and its sponsorship reservation is refunded.
 
 From allocation on, the journal row of a result transaction records whether
-it was ever handed to an RPC: `broadcast` is `none` from allocation until
-immediately before the first send, then `attempted`. A row withheld while
-`none` was provably never sent. Its own bytes are never sent, and the nonce
-is consumed in its place by a cancellation: a legacy transaction at the same
-nonce, of zero value, to the operator's own address, with empty calldata and
-no authorization list. It meets the limits every dispatch meets: the fee read
-must not exceed the sponsor gas price, its gas, from `eth_estimateGas`, must
-fit the withheld transaction's own gas limit, and the journal's fee total,
-counting this nonce once, by its cancellation, must stay within the sponsor
-cap. When the limits refuse, nothing is sent and the cancellation waits, like
-any dispatch. The row keeps the withheld transaction's kind, reference,
-target, calldata, signed bytes and hash, adds `withheld` and `cancellation`,
-and is marked mined with status `cancelled`, which nothing reads as a
-publication. The result is private, never submitted, with reason
+its signed bytes were ever given to an RPC: `broadcast` is `none` from
+allocation until immediately before the first send, then `attempted`. While
+a row is `none`, its data fee is priced from the unsigned transaction, so its
+signed bytes reach no RPC before that send. A row from before this field
+existed counts as sent or uncertain, with one exception: a row with no signed
+bytes and no hash was never signed, and every send path, in this code and in
+every earlier version of the journal, signs and stores the bytes before it
+sends them, so such a row was never sent. No other evidence is accepted.
+
+A row withheld while proven never sent has its own bytes never sent, and the
+nonce is consumed in its place by a cancellation: a legacy transaction at the
+same nonce, of zero value, to the operator's own address, with empty calldata
+and no authorization list. It meets the limits every dispatch meets: the fee
+read must not exceed the sponsor gas price, its gas, from `eth_estimateGas`,
+must fit the withheld transaction's own gas limit, and the journal's fee
+total, counting this nonce once, by its cancellation, must stay within the
+sponsor cap. When the limits refuse, nothing is sent and the cancellation
+waits, like any dispatch. The row keeps the withheld transaction's kind,
+reference, target, calldata, signed bytes and hash, adds `withheld` and
+`cancellation`, and is marked mined with status `cancelled`, which nothing
+reads as a publication. The result is private, never submitted, with reason
 `authorization_withdrawn`, and no result is published for it.
 
-A row marked `attempted`, and any row written before the `broadcast` field
-existed, may already have been sent, so the operator treats it as sent or
-uncertain. The journal holds no evidence that would show such a row was never
-sent, and none is accepted. V3 does not read V4, so a V3 result transaction
-already sent, or whose send outcome is uncertain, when the withdrawal happens
-can still be mined, and so can one sent after the operator's last read of
-`revokedAt` and before a direct revoke it has not yet observed. Once the
-operator observes the withdrawal, it sends no further publication attempt for
-that transaction: the row is marked `withheld`, its bytes are never sent
-again, and only its receipt is reconciled. If that transaction is mined, the
-result is published. It is never cancelled or replaced. While it stays
-unmined, its nonce stays open and the operator's later transactions wait
-behind it; each recovery pass logs `operator_nonce_withheld` with the nonce,
-kind, reference and hash, and the journal row `tx:<nonce>` carries
-`withheld`. Resolving such a nonce is left to an operator.
+A row marked `attempted`, and any older row that was signed, may already have
+been sent, so the operator treats it as sent or uncertain. V3 does not read
+V4, so a V3 result transaction already sent, or whose send outcome is
+uncertain, when the withdrawal happens can still be mined, and so can one
+sent after the operator's last read of `revokedAt` and before a direct revoke
+it has not yet observed. Once the operator observes the withdrawal, it sends
+no further publication attempt for that transaction: the row is marked
+`withheld`, its bytes are never sent again, and it is never cancelled or
+replaced.
+
+A withheld row is settled from receipts and chain state only. Once the
+operator account's latest nonce on chain is past the row's nonce, the row is
+recorded as mined by whichever of its own transaction or its cancellation has
+a receipt. If its own transaction was mined, the result is published and
+reported as published. If neither has a receipt, another transaction consumed
+the nonce: the row is recorded with status `superseded`, which nothing reads
+as a publication, and the result is private with reason
+`authorization_withdrawn`, not marked never submitted unless it was proven
+never sent. The operator's regular alarm settles withheld rows and sends
+pending cancellations, as recovery does.
+
+While a withheld row that may have been sent is unmined and its nonce is not
+consumed on chain, every later operator transaction waits behind it: payments
+and closures, the learner's own relayed `record_revoke`, enrollments and
+sign-in relays alike. Recovery stops at that nonce, and the publication shows
+as pending. The operator sees, on each alarm and recovery pass, a log line
+`operator_nonce_withheld` with the nonce, kind, reference, hash and broadcast
+state, and the journal row `tx:<nonce>` carrying `withheld` and no `mined`;
+later rows stay unmined. A cancellation that waits logs
+`operator_cancellation_waiting` with the refusal (including
+`sponsor_limits_unconfigured`), one sent but not yet mined logs
+`operator_cancellation_pending`, and a nonce found consumed by another
+transaction logs `operator_nonce_superseded`. The state clears only when
+that nonce is consumed on chain, by the original transaction or by any other
+transaction from the operator account at that nonce; the next alarm or
+recovery pass then reconciles the row and later nonces proceed. This fix
+provides no automatic way to consume such a nonce.
 
 ### Rewards source succession (Agent 2)
 

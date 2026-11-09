@@ -4,7 +4,11 @@ import {
   legacyResultGate,
   type ResultStore,
 } from "./learning-transactions.ts";
-import { recoverTransactions, type TxRow } from "./operator-tx.ts";
+import {
+  recoverTransactions,
+  settleWithheldTransactions,
+  type TxRow,
+} from "./operator-tx.ts";
 import type { Env } from "./runtime.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 import {
@@ -19,6 +23,12 @@ export const recoverLearningTransactions = (env: Env, store: ResultStore) =>
     (row) => studyTransactionReady(env, store, row),
     legacyResultGate(env, store),
   );
+
+/** The alarm's part: settles withheld earlier-version results only (no other send). */
+export const settleWithheldLearningTransactions = (
+  env: Env,
+  store: ResultStore,
+) => settleWithheldTransactions(env, store, legacyResultGate(env, store));
 
 /** The public general recovery endpoint must honor Study's chain-time wait too. */
 export async function studyTransactionReady(

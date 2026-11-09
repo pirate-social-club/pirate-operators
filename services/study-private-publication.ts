@@ -9,7 +9,7 @@ import {
   type ResultsTarget,
 } from "./learning-contract.ts";
 import type { ResultStore } from "./learning-transactions.ts";
-import type { TxRow } from "./operator-tx.ts";
+import { provenUnsent, type TxRow } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { PublicationJob } from "./study-publication.ts";
 import type { Env } from "./runtime.ts";
@@ -25,9 +25,10 @@ export const closedStudyPublication = (store: ResultStore, id: string) =>
 
 /**
  * Any queued work, orphan transaction or charged allowance is retained. The
- * one exception is the first revision's own transaction once it was withheld
- * before it was ever sent and its cancellation has consumed the nonce: that
- * intent, row and charge prove the result can never be published.
+ * one exception is the first revision's own transaction once it was withheld,
+ * proven never sent, and its nonce is consumed on chain by its cancellation
+ * or another transaction: that intent, row and charge prove the result can
+ * never be published. A cancellation not yet mined is not enough.
  */
 export function studyNativeEvidence(store: ResultStore, id: string) {
   const ref = "study:" + id + ":",
@@ -40,9 +41,9 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
   const cancelled =
     own?.ref === first &&
     own.kind === "record_result" &&
-    own.broadcast === "none" &&
+    provenUnsent(own) &&
     !!own.withheld &&
-    own.mined?.status === "cancelled";
+    (own.mined?.status === "cancelled" || own.mined?.status === "superseded");
   return (
     store
       .entries("intent:record_result:" + ref)

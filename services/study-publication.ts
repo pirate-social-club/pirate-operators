@@ -32,7 +32,13 @@ import {
   withdrawUnsentResult,
   type ResultStore,
 } from "./learning-transactions.ts";
-import { intentOf, txRow } from "./operator-tx.ts";
+import {
+  intentOf,
+  provenUnsent,
+  txRow,
+  withheldUnpublished,
+  type TxRow,
+} from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { Env } from "./runtime.ts";
 import {
@@ -427,11 +433,11 @@ export async function resumeStudyPublication(
   const observed = await observe(env, store, id, job);
   if (observed.receipt)
     return saveReceipt(store, id, job, observed.receipt, observed.revision);
-  // Withheld after its nonce was allocated and proven never sent: it can
-  // never publish. A row that may have been sent is never sent again; its
-  // commitment, read above, decides.
-  if (observed.row?.withheld && observed.row.broadcast === "none")
-    return keepCancelled(env, store, id, job, observed.row.withheld.reason);
+  // Withheld after its nonce was allocated and proven never sent, or whose
+  // nonce went to another transaction: it can never publish. A row that may
+  // have been sent is never sent again; its commitment, read above, decides.
+  if (withheldUnpublished(observed.row))
+    return keepCancelled(env, store, id, job, observed.row!);
   // V4: an unfinished lesson earns nothing and is never sent. A finished one
   // is sent only while its sign-in permission is unbroken; withdrawal keeps it
   // private. Both keep the bounded private-history erasure.
@@ -523,8 +529,8 @@ export async function resumeStudyPublication(
     job.data,
     job.target.contract,
   );
-  if (sent?.withheld && sent.broadcast === "none")
-    return keepCancelled(env, store, id, job, sent.withheld.reason);
+  if (withheldUnpublished(sent))
+    return keepCancelled(env, store, id, job, sent!);
   // Reload the current CAS baseline after dispatch. A competing response may
   // already have recorded the same canonical commitment.
   job = store.get<PublicationJob>(key(id))!;
@@ -547,24 +553,25 @@ export async function resumeStudyPublication(
   );
 }
 /**
- * A result whose transaction was withheld before it was ever sent: private,
- * never submitted. Its cancellation keeps the charge and the nonce; erasure
- * waits until that cancellation is mined (studyNativeEvidence).
+ * A result whose withheld transaction can never publish: private. It is
+ * never submitted only when the transaction was proven never sent; erasure
+ * waits until its nonce is consumed on chain (studyNativeEvidence).
  */
 async function keepCancelled(
   env: Env,
   store: ResultStore,
   id: string,
   job: PublicationJob,
-  reason: string,
+  row: TxRow,
 ) {
+  const unsent = provenUnsent(row);
   const receipt = saveReceipt(store, id, job, {
     ...job.receipt,
     state: "private",
     confirmed: false,
-    reason: reason as "authorization_withdrawn",
-    neverSubmitted: true,
-    transactionHash: null,
+    reason: row.withheld!.reason as "authorization_withdrawn",
+    neverSubmitted: unsent,
+    transactionHash: unsent ? null : (row.hash ?? null),
     checkedAt: store.now(),
   });
   return (
