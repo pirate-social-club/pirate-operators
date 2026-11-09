@@ -1,14 +1,6 @@
 import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import { ownedModuleGraph } from "./owned-module-graph.ts";
-import {
-  readFile,
-  copyFile,
-  writeFile,
-  symlink,
-  lstat,
-  realpath,
-  unlink,
-} from "node:fs/promises";
+import { readFile, copyFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -22,6 +14,11 @@ import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
 import { managedUpdate } from "./managed-update-pin.ts";
 import { publishedStateRepairPath } from "./published-state.ts";
 import {
+  linkRetainedDependencies,
+  managedDependencyModules,
+  verifyManagedDependencies,
+} from "./community-dependencies.ts";
+import {
   managedPublishingProfile,
   publishingReleaseSelection,
   type PublishingReleaseSelection,
@@ -34,8 +31,9 @@ export async function managedPackage(
     ? publishingReleaseSelection(options.publishing)
     : undefined;
   const migrations = managedMigrations(!!publishing);
+  // The retained binary is the one the managed deployment runs.
   const cli = await promisify(execFile)(
-    resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
+    join(managedDependencyModules, ".bin/alchemy"),
     ["--version"],
     {
       cwd: resolve("apps/managed-moderation"),
@@ -240,6 +238,11 @@ export async function writeManagedPackage(
   directory: string,
   bytes: Uint8Array,
   migrations: readonly string[] = MANAGED_MIGRATIONS,
+  // The retained dependency tree the preservation record names for this runner.
+  dependencies: { modules: string; verify(): Promise<void> } = {
+    modules: managedDependencyModules,
+    verify: verifyManagedDependencies,
+  },
 ) {
   const cwd = join(directory, "deployment");
   for (const path of [
@@ -267,21 +270,6 @@ export async function writeManagedPackage(
     );
   for (const file of ["encrypted-state.ts", "protected-data.ts"])
     await copyFile(`apps/managed-moderation/${file}`, join(cwd, file));
-  const modules = join(cwd, "node_modules"),
-    expected = resolve("apps/managed-moderation/node_modules");
-  try {
-    insist(
-      (await lstat(modules)).isSymbolicLink(),
-      "unexpected_managed_dependencies",
-    );
-    await unlink(modules);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await symlink(expected, modules, "dir");
-  insist(
-    (await realpath(modules)) === (await realpath(expected)),
-    "unexpected_managed_dependencies",
-  );
+  await linkRetainedDependencies(join(cwd, "node_modules"), dependencies);
   return cwd;
 }

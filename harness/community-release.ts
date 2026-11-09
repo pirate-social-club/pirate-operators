@@ -1,3 +1,4 @@
+import "./node-network.ts";
 import { communityDependencyModules } from "./community-dependencies.ts";
 import { readStudyReleaseSelection } from "./study-release-input.ts";
 import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
