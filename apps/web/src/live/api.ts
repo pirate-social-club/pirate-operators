@@ -56,9 +56,13 @@ export async function post<T>(
   });
   const value = (await response.json()) as T & { error?: string };
   if (!response.ok)
-    throw new Error(
-      messages[value.error ?? ""] ??
-        "This step could not complete. Retry the same step.",
+    // The server's code stays available to callers that retry on it.
+    throw Object.assign(
+      new Error(
+        messages[value.error ?? ""] ??
+          "This step could not complete. Retry the same step.",
+      ),
+      { code: value.error },
     );
   return value;
 }
@@ -86,6 +90,8 @@ const messages: Record<string, string> = {
   public_result_manifest_unavailable: "This song's public learning material is still being prepared.",
   account_activation_not_approved: "This testnet wallet needs operator activation approval before enrollment.",
   enrollment_not_active_yet: "Your enrollment is confirming. Try again in a moment.",
+  karaoke_authorization_pending: "Your sign-in is still being confirmed. Try again in a moment.",
+  karaoke_authorization_required: "Sign in again to keep singing.",
   creator_service_unavailable:
     "The creator wallet service is unavailable. Your progress is saved.",
   release_processing_unavailable:

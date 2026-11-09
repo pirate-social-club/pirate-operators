@@ -420,6 +420,10 @@ function App() {
             csrf={session()!.csrf}
             wallet={mossWallet}
             serviceMode={capabilities()?.learningServiceMode}
+            // A V4 community reports public results by sign-in.
+            signInPermission={["on", "pending", "off"].includes(
+              session()!.publicResults,
+            )}
             onExit={() => setSinging(null)}
             onLearningActions={(actions) => setLearningActions(actions)}
           />

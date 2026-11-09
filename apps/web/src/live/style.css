@@ -344,9 +344,3 @@ body:has(.live-study-overlay) {
   padding: 2px 0;
   line-height: 20px;
 }
-.karaoke-policy-links {
-  position: absolute;
-  right: 16px;
-  bottom: env(safe-area-inset-bottom, 0px);
-  z-index: 51;
-}
