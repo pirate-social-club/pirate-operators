@@ -75,6 +75,12 @@ import {
 } from "./karaoke-community.ts";
 import { studyCommunityApi } from "./study-community-api.ts";
 import { studyAvailable, type StudyEnv } from "./study-community.ts";
+import {
+  publicResults,
+  relayPendingSignIns,
+  relaySignIn,
+  signInV4,
+} from "./learning-sign-in.ts";
 import { StudyError } from "../packages/study/contracts.ts";
 import { recoverStudyLessons } from "./study-recovery.ts";
 import { deleteExpiredStudyHistory } from "./study-retention.ts";
@@ -138,10 +144,20 @@ function dependencies(
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
-    async verifyLogin(address, message, signature) {
+    async verifyLogin(address, proof, signature) {
       const client = megaethReadClient();
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
-      return client.verifyMessage({ address, message, signature });
+      // Both cover EOAs and ERC-1271/6492 smart accounts such as MOSS.
+      return typeof proof === "string"
+        ? client.verifyMessage({ address, message: proof, signature })
+        : client.verifyTypedData({
+            address,
+            domain: proof.domain,
+            types: proof.types,
+            primaryType: proof.primaryType,
+            message: { ...proof.message },
+            signature,
+          });
     },
     async creatorHealth() {
       try {
@@ -293,6 +309,16 @@ export async function communityFetch(
           ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
           : null,
         pendingConnection: await pendingCreatorConnection(env.DB, session),
+        publicResults: await publicResults(
+          env.DB,
+          session.account_id,
+          // Only a V4 community has public results by sign-in; no RPC otherwise.
+          !!env.STUDY_RESULTS_V4_CONTRACT &&
+            !!(await configuration().then(
+              (config) => signInV4(env, config),
+              () => undefined,
+            )),
+        ),
       };
       return reply(view);
     }
@@ -515,8 +541,19 @@ export async function communityFetch(
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
       const body = await jsonBody(request);
-      if (url.pathname === "/api/auth/challenge")
-        return reply(await loginChallenge(env.DB, context, body.address));
+      if (url.pathname === "/api/auth/challenge") {
+        const v4 = signInV4(env, config);
+        // SIWE keeps the wall clock; a V4 sign-in's issuedAt is chain time.
+        return reply(
+          await loginChallenge(
+            env.DB,
+            context,
+            body.address,
+            v4 ? (ports.now ?? Date.now)() : Date.now(),
+            v4,
+          ),
+        );
+      }
       if (url.pathname === "/api/auth/verify") {
         const verified = await loginVerify(
           env.DB,
@@ -525,6 +562,20 @@ export async function communityFetch(
           text(body.signature, 32768),
           ports.verifyLogin,
         );
+        // One prompt relay; a slow or failed operator is retried on schedule.
+        if (verified.authorizationId) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([
+            relaySignIn(
+              env,
+              env.DB,
+              verified.authorizationId,
+              (ports.now ?? Date.now)(),
+            ).catch(() => undefined),
+            new Promise((resolve) => (timer = setTimeout(resolve, 10_000))),
+          ]);
+          clearTimeout(timer);
+        }
         security.set("set-cookie", verified.cookie);
         return reply({ authenticated: true, csrf: verified.csrf });
       }
@@ -622,10 +673,28 @@ export async function communityScheduled(
   } catch (error) {
     failures.push(error);
   }
+  let ports: CommunityDependencies | undefined;
+  if (env.STUDY_RESULTS_V4_CONTRACT) {
+    try {
+      ports ??= provided ?? dependencies(env);
+      const config = await ports.configuration();
+      insist(
+        config.communityId === firstSong.directoryProfile.communityId &&
+          config.app.origin === firstSong.origin,
+        "community_configuration_changed",
+        503,
+      );
+      // Pending sign-ins are relayed even if V4 was since unconfigured: the
+      // relay window then closes them as refused.
+      await relayPendingSignIns(env, env.DB, ports.now?.() ?? Date.now());
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   if (env.STUDY_RESULTS_V3_CONTRACT) {
     try {
-      const ports = provided ?? dependencies(env),
-        config = await ports.configuration();
+      ports ??= provided ?? dependencies(env);
+      const config = await ports.configuration();
       insist(
         config.communityId === firstSong.directoryProfile.communityId &&
           config.app.origin === firstSong.origin,

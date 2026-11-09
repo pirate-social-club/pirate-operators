@@ -33,6 +33,8 @@ import { studyPublicationQueue } from "./study-publication-queue.ts";
 
 export interface StudyEnv extends KaraokeEnv {
   STUDY_RESULTS_V3_CONTRACT?: string;
+  /** The V4 results contract; must equal the directory's learningRecords. */
+  STUDY_RESULTS_V4_CONTRACT?: string;
 }
 export interface StudyCommunityPorts {
   env: StudyEnv;

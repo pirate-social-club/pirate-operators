@@ -2,7 +2,8 @@
 // chain transports. This is local composition evidence, not live acceptance.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { verifyMessage, sha256 } from "viem";
+import { sha256 } from "viem";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { loginChallenge, loginVerify } from "../packages/community/accounts.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { CommunityError } from "../packages/community/common.ts";
@@ -48,8 +49,7 @@ test("authenticated release HTTP retains one upload/job through reload and queue
         context,
         challenge.id,
         await publisher.signMessage({ message: challenge.message }),
-        (address, message, signature) =>
-          verifyMessage({ address, message, signature }),
+        verifyLoginOffline,
       ),
       auth = {
         cookie: login.cookie.split(";")[0]!,
@@ -212,8 +212,7 @@ test("authenticated release HTTP retains one upload/job through reload and queue
         context,
         otherChallenge.id,
         await other.signMessage({ message: otherChallenge.message }),
-        (address, message, signature) =>
-          verifyMessage({ address, message, signature }),
+        verifyLoginOffline,
       ),
       otherAuth = {
         cookie: otherLogin.cookie.split(";")[0]!,

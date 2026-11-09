@@ -1,7 +1,8 @@
 // Actual community routes, D1 migrations, signatures and V3 contract. The posts
 // RPC, IPFS transport and speech provider below are explicit local simulations.
 import { readFile } from "node:fs/promises";
-import { encodeFunctionData, verifyMessage } from "viem";
+import { encodeFunctionData } from "viem";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
 import { learningBindingFixture } from "./learning-binding-fixture.ts";
@@ -154,8 +155,7 @@ export async function studyCommunityFixture(port: number) {
     } as unknown as CommunityEnv;
     const ports: CommunityDependencies = {
       configuration: async () => config,
-      verifyLogin: (address, message, signature) =>
-        verifyMessage({ address, message, signature }),
+      verifyLogin: verifyLoginOffline,
       creatorHealth: async () => false,
       now: () => now,
       publicReads: {

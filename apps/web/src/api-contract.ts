@@ -24,6 +24,8 @@ export interface CommunitySessionView {
   csrf: string;
   creator: { evmAddress: string; verifiedAt: number } | null;
   pendingConnection: CreatorConnectionView | null;
+  /** Whether this account's sign-in authorizes public Study and Karaoke results. */
+  publicResults: "on" | "pending" | "off" | "unavailable";
 }
 export interface CommunityCapabilities {
   study?: boolean;

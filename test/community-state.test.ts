@@ -62,7 +62,11 @@ async function fixture() {
   });
   try {
     const db = await runtime.getD1Database("DB");
-    for (const name of ["0001_setup.sql", "0002_first_song.sql"]) {
+    for (const name of [
+      "0001_setup.sql",
+      "0002_first_song.sql",
+      "0011_learning_authorization.sql",
+    ]) {
       const sql = await readFile(
         new URL(
           `../apps/community-wizard/infra/migrations/${name}`,

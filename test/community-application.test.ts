@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { verifyMessage } from "viem";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
 import {
@@ -57,8 +57,7 @@ async function fixture() {
   const ports: CommunityDependencies = {
     publicReads: { client: posts.client, profile: posts.profile },
     configuration: async () => config,
-    verifyLogin: (address, message, signature) =>
-      verifyMessage({ address, message, signature }),
+    verifyLogin: verifyLoginOffline,
     creatorHealth: async () => true,
     creatorTransport: async (request: Request) => {
       const verified = await authorizeCreatorRequest(

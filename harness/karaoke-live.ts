@@ -32,6 +32,7 @@ import { validateConfig } from "../packages/community/config-manifest.ts";
 import { postsAbi } from "../packages/community/post-chain.ts";
 import { readMp3Probe } from "../packages/moderation/mp3-windows.ts";
 import { releasePostsFixture } from "../test/fixtures/release-posts.ts";
+import { verifyLoginOnChain } from "./login-verifier.ts";
 import type { chain } from "./chain.ts";
 import { keys, accounts } from "./runtime.ts";
 import {
@@ -137,6 +138,7 @@ async function migrate(db: D1Database) {
     "0006_song_stems.sql",
     "0007_owner_curated.sql",
     "0008_karaoke.sql",
+    "0011_learning_authorization.sql",
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",
@@ -326,8 +328,7 @@ export async function karaokeLive(
     const ports: CommunityDependencies = {
       configuration: async () => config,
       // Through the chain, so a smart account's signature verifies as on MegaETH.
-      verifyLogin: (address, message, signature) =>
-        evm.publicClient.verifyMessage({ address, message, signature }),
+      verifyLogin: verifyLoginOnChain(evm.publicClient),
       creatorHealth: async () => false,
       publicReads: {
         client: posts.client,
