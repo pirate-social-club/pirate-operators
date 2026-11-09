@@ -85,7 +85,12 @@ export function StudyScreen(props: {
       if (forgetAccount(e)) return;
       if (restart && active && version === generation) {
         // Abandon may have succeeded before enrollment or the next start failed.
-        const saved = await props.client.load().catch(() => null);
+        let changed = false;
+        const saved = await props.client.load().catch((error) => {
+          changed = forgetAccount(error);
+          return null;
+        });
+        if (changed) return;
         if (saved && active && version === generation) install(saved);
       }
       if (active && version === generation)

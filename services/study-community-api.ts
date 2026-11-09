@@ -22,19 +22,22 @@ export async function studyCommunityApi(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/study/")) return null;
-  const session =
-    request.method === "GET"
-      ? await accountSession(request, ports.db, context)
-      : await authenticatedWrite(request, ports.db, context);
+  // Writes refuse a foreign Origin before reading the session.
   if (request.method !== "GET") requestOrigin(request, context.origin);
+  const current = await accountSession(request, ports.db, context);
   // The page names the account whose lesson it shows. If the session cookie now
-  // belongs to another account, refuse rather than mix two accounts' lessons.
+  // belongs to another account, refuse before CSRF, whose token also changed,
+  // so the page learns why and clears instead of reporting a failed save.
   const expected = request.headers.get("x-study-account");
   if (
     expected !== null &&
-    expected.toLowerCase() !== session.wallet.toLowerCase()
+    expected.toLowerCase() !== current.wallet.toLowerCase()
   )
     throw new StudyError("study_account_changed", 409);
+  const session =
+    request.method === "GET"
+      ? current
+      : await authenticatedWrite(request, ports.db, context);
   const reply = (value: unknown) => Response.json(value, { headers });
   const history =
     /^\/api\/study\/lessons\/([a-zA-Z0-9_-]{16,128})\/history$/.exec(

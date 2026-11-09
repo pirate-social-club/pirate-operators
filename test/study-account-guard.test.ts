@@ -59,6 +59,14 @@ test(
             ...second,
             "x-study-account": accounts[5].address,
           }),
+        // A stale page: the new account's cookie with the old page's CSRF
+        // token. The account refusal comes first, so the page can clear.
+        () =>
+          f.post(path + "/abandon", {}, {
+            cookie: second.cookie,
+            "x-csrf-token": first["x-csrf-token"],
+            "x-study-account": accounts[5].address,
+          }),
       ]) {
         const response = await request();
         assert.equal(response.status, 409);

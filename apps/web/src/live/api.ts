@@ -24,12 +24,18 @@ export async function get<T>(
     headers: { accept: "application/json", ...headers },
     cache: "no-store",
   });
-  if (!response.ok)
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
     throw new Error(
       response.status === 401
         ? "Sign in to continue."
-        : "The community is temporarily unavailable. Please try again.",
+        : error.error === "study_account_changed"
+          ? messages.study_account_changed
+          : "The community is temporarily unavailable. Please try again.",
     );
+  }
   return response.json() as Promise<T>;
 }
 export async function post<T>(
@@ -71,6 +77,8 @@ export async function putAudio(path: string, file: File, csrf: string) {
     );
 }
 const messages: Record<string, string> = {
+  study_account_changed:
+    "You are signed in with a different account. Reload to continue.",
   study_history_expired: "This private history has expired.",
   sponsor_exhausted: "Sponsored practice is paused because the community allowance is exhausted.",
   gas_price_above_limit: "Sponsored publication is waiting for the network fee to fall within the community limit.",
