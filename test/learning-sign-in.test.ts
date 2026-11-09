@@ -342,10 +342,22 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
       await recordedAuthorization(f.db, account_id, subject, t0 / 1000 + 60),
       { id: null, pending: false },
     );
-    // A sign-in in the withdrawal's own second is not after it.
+    // A sign-in in the withdrawal's own second is not after it: it signs in
+    // but is never stored as an authorization.
     const sameSecond = await signInAt(withdrawnAt);
-    assert.ok(sameSecond.authorizationId);
+    assert.ok(sameSecond.cookie);
+    assert.equal(sameSecond.authorizationId, undefined);
+    assert.equal(await f.count("learning_authorizations"), 1);
     assert.equal(await publicResults(f.db, account_id, true), "off");
+    // A pending row from that second (stored before this rule) is still
+    // refused by the relay, never sent.
+    const stale = `0x${"5e".repeat(32)}`;
+    await f.db
+      .prepare(
+        "INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,signature,policy_hash,policy_version,issued_at,state,created_at,updated_at) VALUES(?,?,?,'{}','0x',?,4,?,'pending',?,?)",
+      )
+      .bind(stale, account_id, subject, learningV4PublicityPolicy, withdrawnAt / 1000, withdrawnAt, withdrawnAt)
+      .run();
     const relayed: string[] = [];
     const env = {
       KARAOKE_OPERATOR: {
@@ -355,12 +367,12 @@ test("after a withdrawal and turn-on, only a sign-in issued after the last withd
         },
       },
     } as never;
-    await relaySignIn(env, f.db, sameSecond.authorizationId!, withdrawnAt + 1);
+    await relaySignIn(env, f.db, stale as Hex, withdrawnAt + 1);
     assert.deepEqual(relayed, []);
     assert.equal(
       (await f.db
         .prepare("SELECT state FROM learning_authorizations WHERE authorization_id=?")
-        .bind(sameSecond.authorizationId)
+        .bind(stale)
         .first<{ state: string }>())!.state,
       "refused",
     );
@@ -698,6 +710,106 @@ test("signing in stores one pending sign-in per account; only a requested relay 
       "/authorization",
     ]);
     assert.equal((await stateOf(f.db, ids[5]!)).relay_requested_at, t0 + 20_000);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("an older challenge completed after a withdrawal is never stored and never replaces a newer pending sign-in", async () => {
+  for (const withNewer of [true, false]) {
+    const f = await database();
+    try {
+      const t0 = 1_800_000_000_000;
+      const verify = async (c: SignInChallenge, time: number) =>
+        loginVerify(f.db, context, c.id, await signChallenge(c), verifyLoginOffline, time);
+      // The first sign-in creates the account.
+      await verify(await v4Challenge(f.db, t0), t0);
+      const { account_id } = (await f.db
+        .prepare("SELECT account_id FROM credential_bindings")
+        .first<{ account_id: string }>())!;
+      const rows = async () =>
+        (
+          await f.db
+            .prepare(
+              "SELECT authorization_id,state,issued_at FROM learning_authorizations ORDER BY issued_at",
+            )
+            .all<{ authorization_id: string; state: string; issued_at: number }>()
+        ).results;
+      // Device A requests a challenge and leaves it unsigned.
+      const deviceA = await v4Challenge(f.db, t0 + 10_000);
+      // Public results off at t0+20 s, then on again.
+      await f.db
+        .prepare(
+          "INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2) ON CONFLICT(account_id) DO UPDATE SET public_results_withdrawn_at=excluded.public_results_withdrawn_at,last_withdrawn_at=excluded.last_withdrawn_at",
+        )
+        .bind(account_id, t0 + 20_000)
+        .run();
+      await f.db
+        .prepare("UPDATE learning_settings SET public_results_withdrawn_at=NULL WHERE account_id=?")
+        .bind(account_id)
+        .run();
+      let newer: string | undefined;
+      if (withNewer) {
+        // Device B signs in after the withdrawal: a valid pending sign-in.
+        newer = (await verify(await v4Challenge(f.db, t0 + 40_000), t0 + 40_000))
+          .authorizationId;
+        assert.ok(newer);
+        assert.equal(await publicResults(f.db, account_id, true), "pending");
+      }
+      const before = await rows();
+      // Device A completes its older challenge inside its lifetime: the
+      // session is created, but no authorization is stored or replaced.
+      const late = await verify(deviceA, t0 + 60_000);
+      assert.ok(late.cookie);
+      assert.equal(late.authorizationId, undefined);
+      assert.deepEqual(await rows(), before);
+      const operator = countingOperator();
+      const at = (t0 + 70_000) / 1000;
+      if (withNewer) {
+        assert.equal(await publicResults(f.db, account_id, true), "pending");
+        assert.deepEqual(
+          (await rows()).filter((row) => row.state === "pending").map((row) => row.authorization_id),
+          [newer],
+        );
+        assert.deepEqual(
+          await recordedAuthorization(f.db, account_id, subject, at),
+          { id: null, pending: true },
+        );
+      } else {
+        assert.equal(await publicResults(f.db, account_id, true), "off");
+        assert.deepEqual(
+          await practiceAuthorization(operator.env, f.db, account_id, subject, at, at * 1000),
+          { id: null, pending: false },
+        );
+      }
+    } finally {
+      await f.dispose();
+    }
+  }
+});
+
+test("without any withdrawal, an older challenge completed late never replaces a newer pending sign-in", async () => {
+  const f = await database();
+  try {
+    const t0 = 1_800_000_000_000;
+    const verify = async (c: SignInChallenge, time: number) =>
+      loginVerify(f.db, context, c.id, await signChallenge(c), verifyLoginOffline, time);
+    await verify(await v4Challenge(f.db, t0), t0);
+    const deviceA = await v4Challenge(f.db, t0 + 10_000);
+    const newer = (await verify(await v4Challenge(f.db, t0 + 20_000), t0 + 20_000))
+      .authorizationId;
+    assert.ok(newer);
+    const late = await verify(deviceA, t0 + 30_000);
+    assert.ok(late.cookie);
+    assert.equal(late.authorizationId, undefined);
+    assert.deepEqual(
+      (
+        await f.db
+          .prepare("SELECT authorization_id,state FROM learning_authorizations")
+          .all()
+      ).results,
+      [{ authorization_id: newer, state: "pending" }],
+    );
   } finally {
     await f.dispose();
   }
