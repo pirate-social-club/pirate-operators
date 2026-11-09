@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { createSignal, For, Show, onCleanup } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -34,7 +34,6 @@ import {
 import { buttonVariants } from "@/components/actions/button/button";
 import { IconGearSix } from "@/components/media/icons";
 
-const walletOrigin = "https://pirate-wallet-test.piratesocialclub.workers.dev";
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
   await mega.initialise({
@@ -105,9 +104,6 @@ function App() {
     url.searchParams.delete("lesson");
     history.replaceState(null, "", url);
   }
-  let popup: Window | null = null,
-    timer: ReturnType<typeof setTimeout> | undefined,
-    stopped = false;
   async function refreshSession() {
     try {
       setSession(await get<CommunitySessionView>("/api/session"));
@@ -220,112 +216,15 @@ function App() {
       }),
     );
   }
-  async function finishConnection(connectionId: string, state: string) {
-    const current = session();
-    if (!current) return false;
-    const result = await post<{ state: string; requiresReconnect?: boolean }>(
-      "/api/creator/complete",
-      { connectionId, state },
-      current.csrf,
-    );
-    if (result.state === "waiting") return false;
-    await refreshSession();
-    if (result.state === "connected")
-      setStatus("Creator wallet connected. Your progress is saved.");
-    else if (result.state === "verification_expired")
-      setStatus(
-        "The wallet verification expired. Reopen your saved wallet for a fresh check.",
-      );
-    else if (result.state === "choose_another_wallet")
-      setStatus(
-        "This wallet is already linked to another account in this community. Reopen the connection and choose another wallet.",
-      );
-    return true;
-  }
-  async function connectWallet() {
-    const current = session();
-    if (!current) return;
-    // Open from the button's user gesture, before the asynchronous launch.
-    popup = window.open("about:blank", "_blank", "popup,width=560,height=820");
-    try {
-      const connection = await post<{
-          connectionId: string;
-          state: string;
-          url: string;
-        }>("/api/creator/connect", {}, current.csrf),
-        target = new URL(connection.url);
-      if (target.origin !== walletOrigin || target.pathname !== "/wallet")
-        throw new Error("The wallet address could not be verified.");
-      await refreshSession();
-      if (popup) popup.location.href = target.href;
-      else location.assign(target.href);
-      setStatus(
-        "Use your saved passkey in the wallet window, then confirm Return to community.",
-      );
-      schedule();
-    } catch (failure) {
-      popup?.close();
-      popup = null;
-      throw failure;
-    }
-  }
-  async function pollConnection() {
-    const pending = session()?.pendingConnection;
-    if (!pending?.state) return;
-    try {
-      await finishConnection(pending.connectionId, pending.state);
-    } catch {
-      /* The server retains the request. The next poll reuses it. */
-    }
-  }
-  function schedule() {
-    if (timer) clearTimeout(timer);
-    if (stopped || !session()?.pendingConnection) return;
-    timer = setTimeout(() => {
-      void pollConnection().finally(schedule);
-    }, 10000);
-  }
-  const receiver = (event: MessageEvent) => {
-    const pending = session()?.pendingConnection;
-    if (
-      event.origin !== walletOrigin ||
-      event.source !== popup ||
-      event.data?.type !== "pirate:creator" ||
-      event.data.state !== pending?.state ||
-      !pending?.state
-    )
-      return;
-    void run(async () => {
-      await finishConnection(pending.connectionId, pending.state!);
-      popup = null;
-      schedule();
-    });
-  };
-  window.addEventListener("message", receiver);
-  onCleanup(() => {
-    stopped = true;
-    if (timer) clearTimeout(timer);
-    window.removeEventListener("message", receiver);
-  });
+  // Owner-only publishing has no creator connection step. Preserved creator
+  // connection routes stay on the server for the deferred integration.
   void run(async () => {
     await refresh();
-    const returning = new URL(location.href),
-      pending = session()?.pendingConnection;
-    if (
-      returning.pathname === "/creator/complete" &&
-      pending?.state &&
-      returning.searchParams.get("connection") === pending.connectionId &&
-      returning.searchParams.get("state") === pending.state
-    ) {
-      history.replaceState(null, "", "/");
-      await finishConnection(pending.connectionId, pending.state);
-    } else
-      setStatus(
-        session()
-          ? "Your community is ready."
-          : "Sign in to release your song.",
-      );
-    schedule();
+    setStatus(
+      session()
+        ? "Your community is ready."
+        : "Sign in to study or sing.",
+    );
   });
   return (
     <>
@@ -473,39 +372,7 @@ function App() {
           >
             {status()}
           </section>
-          <Show when={session()}>
-            {(current) => (
-              <section class="live-release">
-                <div>
-                  <p class="live-kicker">YOUR NEXT RELEASE</p>
-                  <h2>
-                    {current().creator
-                      ? "Your creator wallet is connected."
-                      : "Bring your first song."}
-                  </h2>
-                  <p>
-                    {current().creator
-                      ? `Creator wallet ${shortened(current().creator!.evmAddress)}`
-                      : "Use your saved creator passkey. Creator setup is covered by capped operator funding."}
-                  </p>
-                  <p class="live-muted">
-                    {capabilities()?.publication
-                      ? "Upload your recording and lyrics to begin."
-                      : "Release processing is being prepared. Your wallet connection will stay saved."}
-                  </p>
-                </div>
-                <Button
-                  disabled={busy() || !capabilities()?.creatorConnection}
-                  onClick={() => void run(connectWallet)}
-                >
-                  {current().creator
-                    ? "Reopen creator wallet"
-                    : "Connect creator wallet"}
-                </Button>
-              </section>
-            )}
-          </Show>
-          <Show when={session()}>
+          <Show when={session()?.publisher ? session() : null}>
             {(current) => (
               <SongUpload
                 session={current()}
@@ -671,8 +538,7 @@ function App() {
         </main>
       </Show>
       <footer class="live-footer" inert={practiceOpen()}>
-        A community of independent creators. Creator ownership stays with your
-        wallet.
+        A community of independent creators.
       </footer>
     </>
   );

@@ -89,7 +89,12 @@ import { liveRewardSources, resultSource } from "./reward-sources.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
-import { unregisteredOwner } from "../packages/community/owner-policy.ts";
+import {
+  ownerCurated,
+  unregisteredOwner,
+} from "../packages/community/owner-policy.ts";
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
@@ -260,6 +265,36 @@ export async function communityFetch(
       await runtime.checkServices();
       return { config, ports: runtime };
     };
+    // Display only: whether this account sees release controls. The release
+    // API checks the same authority again before every reservation and seal.
+    const sessionPublisher = async (accountId: string, wallet: string) => {
+      try {
+        const config = await configuration();
+        if (unregisteredOwner(config.policies.admission)) {
+          const runtime =
+            ports.releaseRuntime?.(config) ??
+            firstSongRuntime(env, config, configuration);
+          await requireAuthorizedOwner(
+            runtime.ownerAuthorization,
+            config,
+            wallet,
+          );
+          return true;
+        }
+        if (ownerCurated(config.policies.admission)) {
+          await requireCuratedOwner(env.DB, config, wallet);
+          return true;
+        }
+        // A registered release still needs an existing creator binding.
+        return !!(await env.DB.prepare(
+          "SELECT 1 FROM creator_bindings WHERE account_id=?",
+        )
+          .bind(accountId)
+          .first());
+      } catch {
+        return false;
+      }
+    };
     if (
       url.pathname.startsWith("/api/rewards/") ||
       url.pathname.startsWith("/api/operator/rewards")
@@ -374,6 +409,7 @@ export async function communityFetch(
           ? { evmAddress: creator.evm_address, verifiedAt: creator.verified_at }
           : null,
         pendingConnection: await pendingCreatorConnection(env.DB, session),
+        publisher: await sessionPublisher(session.account_id, session.wallet),
       };
       return reply(view);
     }

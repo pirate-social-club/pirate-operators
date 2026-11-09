@@ -105,7 +105,12 @@ const messages: Record<string, string> = {
   creator_service_unavailable:
     "The creator wallet service is unavailable. Your progress is saved.",
   release_processing_unavailable:
-    "Release processing is temporarily unavailable. Your wallet connection is saved.",
+    "Release processing is temporarily unavailable. Your saved release stays saved.",
+  owner_publication_only: "Only the community owner can release songs here.",
+  owner_authorization_outside_window:
+    "Releasing is paused until the operator renews publishing. Your saved release stays saved.",
+  owner_authorization_unavailable:
+    "Release processing is temporarily unavailable. Your saved release stays saved.",
   invalid_login_signature:
     "MOSS could not verify the sign-in. Please try again.",
   expired_or_replayed_challenge:

@@ -118,7 +118,7 @@ async function application() {
     const cookie = verified.headers.get("set-cookie")!.split(";")[0]!,
       session = (await (
         await call("/api/session", { headers: { cookie } })
-      ).json()) as { csrf: string };
+      ).json()) as { csrf: string; publisher: boolean };
     const write = (
       path: string,
       method: string,
@@ -135,7 +135,7 @@ async function application() {
         },
         body,
       });
-    return { cookie, csrf: session.csrf, write };
+    return { cookie, csrf: session.csrf, publisher: session.publisher, write };
   };
   /** Delivers queued wakeups to the community queue handler until settled. */
   const runQueue = async (jobId: string, rounds = 40) => {
@@ -198,6 +198,8 @@ test("the owner signs in, uploads and seals through the community routes, and th
     assert.equal(capabilities.creatorConnection, false);
     assert.equal(capabilities.policyVersion, UNREGISTERED_OWNER_POLICY_VERSION);
     const session = await a.signIn(owner);
+    // Display only; the release routes check the same authorization.
+    assert.equal(session.publisher, true);
     const audio = f.managed.audio;
     const reserved = await session.write(
       "/api/uploads",
@@ -286,6 +288,8 @@ test("a signed-in learner, a missing CSRF token and a foreign Origin are refused
     const body = metadata(f.managed.audio, f.managed.lyrics, "Not yours");
     const json = { "content-type": "application/json" };
     const other = await a.signIn(learner);
+    // The learner is shown no release controls, and the route refuses anyway.
+    assert.equal(other.publisher, false);
     const refused = await other.write("/api/uploads", "POST", body, {
       ...json,
       "idempotency-key": "learner-upload-key-0001",

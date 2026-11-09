@@ -22,8 +22,13 @@ export interface CommunitySessionView {
   authorId: string;
   mossAddress: string;
   csrf: string;
+  /** Preserved for the deferred creator connection; the launch client ignores it. */
   creator: { evmAddress: string; verifiedAt: number } | null;
+  /** Preserved for the deferred creator connection; the launch client ignores it. */
   pendingConnection: CreatorConnectionView | null;
+  /** Whether this account sees release controls. Display only: the release
+   * API enforces the owner authorization on every write. */
+  publisher: boolean;
 }
 export interface CommunityCapabilities {
   rewards?: boolean;
@@ -31,6 +36,7 @@ export interface CommunityCapabilities {
   learningServiceMode?: "internal";
   schema: "pirate.community-capabilities/1";
   signIn: boolean;
+  /** Preserved for the deferred creator connection; false under owner publishing. */
   creatorConnection: boolean;
   upload: boolean;
   publication: boolean;
