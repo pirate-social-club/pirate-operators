@@ -102,7 +102,21 @@ export class RewardStore {
         this.program,
       ).first<{ revision: number }>();
       insist(row, "reward_program_missing", 503);
-      const { statements, value } = await build();
+      let built: Awaited<ReturnType<typeof build>>;
+      try {
+        built = await build();
+      } catch (error) {
+        // Reads inside build are not one snapshot. If another batch committed
+        // meanwhile, a failed invariant may only reflect that torn read, so it
+        // is retried against the new revision; otherwise it stands.
+        const now = await this.statement(
+          "SELECT revision FROM reward_programs WHERE program_id=?",
+          this.program,
+        ).first<{ revision: number }>();
+        if (now?.revision !== row.revision) continue;
+        throw error;
+      }
+      const { statements, value } = built;
       const guard = token();
       try {
         await this.db.batch([

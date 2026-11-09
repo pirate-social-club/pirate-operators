@@ -193,3 +193,32 @@ test("a payment winning the cancellation race is paid once; ambiguous or malform
     await f.dispose();
   }
 });
+
+test("an invariant that fails on a torn read is retried after another batch commits, and stands otherwise", async () => {
+  const f = await manualRewardsFixture();
+  try {
+    let calls = 0;
+    const value = await f.store.atomic(async () => {
+      calls++;
+      if (calls === 1) {
+        // Another writer commits between this build's reads.
+        await f.store.atomic(async () => ({ value: null, statements: [] }));
+        throw new Error("reward_reservation_corrupt");
+      }
+      return { value: "retried", statements: [] };
+    });
+    assert.equal(value, "retried");
+    assert.equal(calls, 2);
+    let stable = 0;
+    await assert.rejects(
+      f.store.atomic(async () => {
+        stable++;
+        throw new Error("reward_reservation_corrupt");
+      }),
+      /reward_reservation_corrupt/,
+    );
+    assert.equal(stable, 1);
+  } finally {
+    await f.dispose();
+  }
+});
