@@ -107,7 +107,8 @@ export function rewardsData(csrf: string) {
         {},
         csrf,
       ),
-    operator: () => get<RewardOperatorView>("/api/operator/rewards"),
+    operator: () =>
+      get<RewardOperatorView>("/api/operator/rewards", { timeoutMs: 15000 }),
     operation: <T>(path: string, body: unknown) =>
       post<T>(`/api/operator/rewards${path}`, body, csrf),
   };

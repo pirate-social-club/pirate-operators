@@ -443,8 +443,6 @@ test("reload with delayed audio metadata preserves position and shows fresh late
   );
   expect(attempt).toBeTruthy();
   postReload = true;
-  await page.reload();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   let releaseAudio!: () => void;
   const waitAudio = new Promise<void>((resolve) => {
     releaseAudio = resolve;
@@ -454,7 +452,11 @@ test("reload with delayed audio metadata preserves position and shows fresh late
     await route.continue();
   });
   try {
-    await page.getByRole("button", { name: "Sing", exact: true }).click();
+    // Install the metadata delay before reload: the shell restores this route
+    // immediately, so reopening the covered background song is not a user action.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await expect(page).toHaveURL(/[?&]sing=/);
     await page
       .getByRole("button", { name: "Start karaoke", exact: true })
       .click();

@@ -181,7 +181,13 @@ test("a reload resumes the open take where the song is and still scores it", asy
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
     timeout: 20000,
   });
-  await openSong(page);
+  // The shell restores the direct Karaoke route on reload. Its overlay already
+  // covers the background song action; resume this take instead of opening it again.
+  await expect(
+    page
+      .locator(".live-karaoke-overlay")
+      .getByRole("button", { name: "Start karaoke" }),
+  ).toBeVisible({ timeout: 30000 });
   // The old page is gone and no new capture has started. Retained grades alone
   // cannot prove that this fresh page's audio is accepted by the same take.
   const paused = await fixture<{

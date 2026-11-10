@@ -1,8 +1,9 @@
 // Explicit presentation/provider simulation. These facts are not live chain, Very or MOSS evidence.
 import { render } from "@solidjs/web";
-import { createSignal } from "solid-js";
+import { createSignal, createMemo } from "solid-js";
 import QRCode from "qrcode";
 import { WalletReceivePanel } from "../src/wallet/receive-panel.tsx";
+import { LiveRewardOperator } from "../src/live/reward-operator.tsx";
 import { LiveRewardWallet } from "../src/live/rewards.tsx";
 import { RewardOfferPanel } from "../src/live/reward-offer-panel.tsx";
 import { WalletSendPanel } from "../src/wallet/send-panel.tsx";
@@ -199,7 +200,7 @@ const adapter: WalletSendAdapterV1 = {
     return save(next);
   },
 };
-function OperatorFixture() {
+function OperatorFixture(props: { stalled?: boolean }) {
   const cutoffAt = 1000000;
   const offer = {
     offerId: "offer_0001",
@@ -216,18 +217,54 @@ function OperatorFixture() {
     payoutAtomic: null,
     remainderAtomic: null,
   };
-  const [confirmed, setConfirmed] = createSignal(false);
+  const [confirmed, setConfirmed] = createSignal(!!props.stalled);
   window.addEventListener("fixture-confirm", () => setConfirmed(true));
-  const current = (): RewardOperatorView =>
-    ({
-      offers: [offer],
-      songs: [],
-      closeReadiness: rewardCloseReadiness(
-        [offer],
-        Date.now(),
-        confirmed() ? cutoffAt : cutoffAt - 1,
-      ),
-    }) as unknown as RewardOperatorView;
+  const current = createMemo(
+    () =>
+      ({
+        offers: [offer],
+        songs: [],
+        payments: [],
+        ready: [],
+        funding: [],
+        unmatched: [],
+        inventory: {
+          received_atomic: "0",
+          reserved_atomic: "0",
+          paid_atomic: "0",
+          cost_atomic: "0",
+        },
+        liabilities: { total: "0", unclaimed: "0", held: "0", accepted: "0" },
+        payoutWallet: address,
+        observedBalanceAtomic: "0",
+        decimals: 18,
+        token,
+        chainId: 6343,
+        simulatedWinnings: false,
+        practiceOnly: true,
+        closeReadiness: rewardCloseReadiness(
+          [offer],
+          Date.now(),
+          confirmed() ? cutoffAt : cutoffAt - 1,
+        ),
+      }) as unknown as RewardOperatorView,
+  );
+  let reads = 0;
+  if (props.stalled)
+    return (
+      <LiveRewardOperator
+        csrf="fixture"
+        onExit={() => {}}
+        data={{
+          ...data,
+          operator: async () => {
+            increment("fixture_operator_reads");
+            if (reads++ === 0) return current();
+            return new Promise<RewardOperatorView>(() => {});
+          },
+        }}
+      />
+    );
   return (
     <RewardOfferPanel
       view={current()}
@@ -269,6 +306,8 @@ render(
   () =>
     mode === "receive-switch" ? (
       <ReceiveSwitchFixture />
+    ) : mode === "operator-stall" ? (
+      <OperatorFixture stalled />
     ) : mode === "operator" ? (
       <OperatorFixture />
     ) : mode === "quoted" ? (

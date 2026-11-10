@@ -31,3 +31,25 @@ Focused unit and fixture-browser checks are local/simulated evidence. Full
 required checks, exact integrated-source review, hosted CI, dry plan, fresh live
 preflight and serial release/readback remain separate gates. No real MOSS,
 personhood, provider, song-upload or physical-device acceptance is inferred.
+
+The final integrated review additionally found that a stalled confirmation
+refresh could leave Close enabled beyond the evidence lifetime. The successor
+adds a reactive expiry clock, a click-time freshness check, a bounded overview
+request and a bounded refresh that releases polling after failure. Regressions
+exercise expiry without another response and a stalled polling request.
+
+The shell restores direct activity routes on reload. Karaoke acceptance must
+resume the already restored screen rather than click the covered background
+Sing action. The delayed-metadata test installs interception before reload; its
+same-ticket, generation, clock, new-audio and later-grade checks remain.
+
+The release source map now includes every owned client source directory,
+including shell and wallet. The new v27 predecessor pin copies the exact
+previously executed plan at live profile0x3099aa2c. It does not execute a release
+or activate another feature. Initial full-root verification reported1020 passes,
+37 failures within three fixed-port suites, and one skip while an unintended
+Telegram broad run overlapped. That non-green log is retained; isolated retries
+and remaining Solidity/acceptance gates are required. The initial separate
+Karaoke route failure and stopped obsolete delayed-reload suite are also
+retained. Corrected complete suites, independent final review and exact-head
+CI remain release gates.

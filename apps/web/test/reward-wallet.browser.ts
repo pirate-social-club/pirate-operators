@@ -305,3 +305,35 @@ test("Close entries stays disabled after wall cutoff until safe-head confirmatio
   expect(await count(page, "fixture_closes")).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test("Close confirmation expires independently of another response", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const errors = await fixture(page, "operator");
+  await page.evaluate(() => dispatchEvent(new Event("fixture-confirm")));
+  const close = page.getByRole("button", { name: "Close entries" });
+  await expect(close).toBeEnabled();
+  await page.clock.runFor(61001);
+  await expect(close).toBeDisabled();
+  await expect(
+    page.getByText("Refresh to check chain confirmation."),
+  ).toBeVisible();
+  expect(await count(page, "fixture_closes")).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test("a stalled operator refresh expires and releases the polling slot", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const errors = await fixture(page, "operator-stall");
+  const close = page.getByRole("button", { name: "Close entries" });
+  await expect(close).toBeEnabled();
+  await page.clock.runFor(31001);
+  await expect(close).toBeDisabled();
+  await page.clock.runFor(16000);
+  expect(await count(page, "fixture_operator_reads")).toBeGreaterThanOrEqual(3);
+  expect(await count(page, "fixture_closes")).toBe(0);
+  expect(errors).toEqual([]);
+});

@@ -40,7 +40,8 @@ export function LiveRewardOperator(props: {
     [sourceAmount, setSourceAmount] = createSignal("0"),
     [fee, setFee] = createSignal("0");
   let stopped = false,
-    refreshing = false;
+    refreshing = false,
+    refreshSerial = 0;
   const timer = setInterval(() => {
     if (
       busy() ||
@@ -65,8 +66,22 @@ export function LiveRewardOperator(props: {
     clearInterval(timer);
   });
   async function refresh() {
-    const next = await data.operator();
-    if (!stopped) setView(next);
+    const serial = ++refreshSerial;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const next = await Promise.race([
+        data.operator(),
+        new Promise<never>((_resolve, reject) => {
+          deadline = setTimeout(
+            () => reject(Error("Reward confirmation refresh timed out.")),
+            15000,
+          );
+        }),
+      ]);
+      if (!stopped && serial === refreshSerial) setView(next);
+    } finally {
+      clearTimeout(deadline);
+    }
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -92,7 +107,7 @@ export function LiveRewardOperator(props: {
     }
   }
   onSettled(() => {
-    void Promise.resolve().then(() => run(refresh));
+    void Promise.resolve().then(() => run(async () => {}));
   });
   const ready = createMemo(() => {
     const rows = new Map<
@@ -413,7 +428,7 @@ export function LiveRewardOperator(props: {
       <Button
         variant="ghost"
         disabled={busy()}
-        onClick={() => void run(refresh)}
+        onClick={() => void run(async () => {})}
       >
         Refresh records
       </Button>
