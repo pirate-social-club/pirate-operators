@@ -200,6 +200,7 @@ export async function botFixture(
     transcriber,
     files,
     permit: (job) => study.permit(job as TelegramStudyWork),
+    beforeSubmission: (job) => study.beforeSubmission(job as TelegramStudyWork),
     now: f.now,
   });
   study = new TelegramStudyService({

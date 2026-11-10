@@ -190,6 +190,12 @@ export class TelegramGrants {
     // and must check it again; the grant itself does not periodically expire.
     return { ...grant, authorityVersion: account.authorityVersion };
   }
+  private accountIndex(scope: BotScope, accountId: string) {
+    return `account-grant:${scope.communityId}:${scope.botId}:${accountId}`;
+  }
+  private retireAccountIndex(index: string, expectedRow: string) {
+    if (this.store.get<string>(index) === expectedRow) this.store.delete(index);
+  }
   /** Called only after independently verified Telegram identity and account-bound redemption. */
   commit(
     actor: ChatActor,
@@ -201,8 +207,14 @@ export class TelegramGrants {
       this.current(actor);
       this.checkLinkFence(actor, account.accountId, fence);
       const key = `grant:${actor.communityId}:${actor.botId}:${actor.userId}`;
-      const index = `account-grant:${actor.communityId}:${actor.botId}:${account.accountId}`;
+      const index = this.accountIndex(actor, account.accountId);
       const previous = this.effective(this.store.get<TelegramGrant>(key));
+      const other = this.forAccount(actor, account.accountId);
+      telegramCheck(
+        !other || other.userId === actor.userId,
+        "telegram_link_conflict",
+        409,
+      );
       if (previous?.revokedAt === null) {
         telegramCheck(
           previous.accountId === account.accountId &&
@@ -210,17 +222,16 @@ export class TelegramGrants {
           "telegram_link_conflict",
           409,
         );
+        this.store.set(index, key);
         return previous;
       }
-      const otherKey = this.store.get<string>(index),
-        other = this.effective(
-          otherKey ? this.store.get<TelegramGrant>(otherKey) : undefined,
+      // A reused sender row must not remain addressable through its former
+      // account. Do not remove a pointer that now belongs to another sender.
+      if (previous)
+        this.retireAccountIndex(
+          this.accountIndex(actor, previous.accountId),
+          key,
         );
-      telegramCheck(
-        !other || other.revokedAt !== null || other.userId === actor.userId,
-        "telegram_link_conflict",
-        409,
-      );
       const grant: TelegramGrant = {
         ...account,
         id: transactionId,
@@ -252,13 +263,24 @@ export class TelegramGrants {
       "telegram_bot_changed",
       409,
     );
-    const key = this.store.get<string>(
-      `account-grant:${scope.communityId}:${scope.botId}:${accountId}`,
-    );
-    const grant = this.effective(
-      key ? this.store.get<TelegramGrant>(key) : undefined,
-    );
-    return grant?.revokedAt === null ? grant : null;
+    return this.store.transaction(() => {
+      const index = this.accountIndex(scope, accountId);
+      const key = this.store.get<string>(index);
+      if (!key) return null;
+      const grant = this.effective(this.store.get<TelegramGrant>(key));
+      if (
+        grant?.revokedAt === null &&
+        grant.accountId === accountId &&
+        grant.communityId === scope.communityId &&
+        grant.botId === scope.botId &&
+        key === `grant:${scope.communityId}:${scope.botId}:${grant.userId}`
+      )
+        return grant;
+      // Legacy stale index repair is lazy and bounded; the row it referenced
+      // may belong to a different live account and must never be changed.
+      this.retireAccountIndex(index, key);
+      return null;
+    });
   }
   unlink(scope: BotScope, accountId: string) {
     return this.store.transaction(() => {
@@ -271,10 +293,9 @@ export class TelegramGrants {
       if (!grant) return false;
       const userFence = `unlink-user:${actorKey({ ...scope, userId: grant.userId, chatId: grant.userId })}`;
       this.store.set(userFence, (this.store.get<number>(userFence) ?? 0) + 1);
-      this.store.set(
-        `grant:${grant.communityId}:${grant.botId}:${grant.userId}`,
-        { ...grant, revokedAt: this.now() },
-      );
+      const row = `grant:${grant.communityId}:${grant.botId}:${grant.userId}`;
+      this.store.set(row, { ...grant, revokedAt: this.now() });
+      this.retireAccountIndex(this.accountIndex(scope, accountId), row);
       return true;
     });
   }

@@ -1,5 +1,6 @@
 import { digest } from "../packages/protocol/index.ts";
 import {
+  TELEGRAM_OPEN_MS,
   actorKey,
   telegramCheck,
   type ChatActor,
@@ -249,6 +250,46 @@ export class TelegramStudyService {
       409,
     );
   }
+  /** Runs synchronously with the submission claim after async admission and
+   * account checks. This is the local boundary, not the shared publication fence. */
+  beforeSubmission(job: TelegramStudyWork) {
+    const grants = this.options.grants;
+    grants.binding(job.actor);
+    const active = grants.store.get<string>(
+      `active-session:${actorKey(job.actor)}`,
+    );
+    const session = grants.store.get<TelegramStudySession>(
+      this.sessionKey(job.actor, job.lessonId),
+    );
+    telegramCheck(
+      active === job.lessonId && session?.mode === job.mode,
+      "telegram_lesson_changed",
+      409,
+    );
+    telegramCheck(
+      session.view.status === "active" &&
+        grants.now() < session.view.startedAt + TELEGRAM_OPEN_MS,
+      "telegram_lesson_closed",
+      410,
+    );
+    telegramCheck(
+      session.view.prompt?.key === job.promptKey,
+      "telegram_prompt_changed",
+      409,
+    );
+    if (job.grant) {
+      const current = grants.read(job.actor);
+      telegramCheck(
+        current?.revokedAt === null &&
+          current.id === job.grant.id &&
+          current.accountId === job.grant.accountId &&
+          current.wallet === job.grant.wallet &&
+          session.grant?.id === job.grant.id,
+        "telegram_authority_changed",
+        403,
+      );
+    }
+  }
   async work(id: string): Promise<TelegramStudyWork> {
     const grants = this.options.grants,
       key = `speech-job:${id}`;
@@ -266,6 +307,7 @@ export class TelegramStudyService {
             linked: this.options.linked,
             files: this.options.files,
             permit: (job) => this.permit(job),
+            beforeSubmission: (job) => this.beforeSubmission(job),
             now: grants.now,
           },
           job,

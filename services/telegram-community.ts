@@ -95,6 +95,7 @@ export function telegramCommunity(options: {
     transcriber: options.speech.transcriber,
     files: options.files,
     permit: (job) => study.permit(job as TelegramStudyWork),
+    beforeSubmission: (job) => study.beforeSubmission(job as TelegramStudyWork),
     now: grants.now,
     grading: options.trialGrading,
   });

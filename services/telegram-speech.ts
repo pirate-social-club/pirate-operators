@@ -88,6 +88,7 @@ export class TelegramTrialSpeech {
   readonly transcriber: StudyTranscriber;
   readonly files: TelegramVoiceFiles;
   readonly permit: (job: TelegramSpeechJob) => void | Promise<void>;
+  readonly beforeSubmission: (job: TelegramSpeechJob) => void;
   readonly now: () => number;
   readonly grading: TelegramTrialGradingPort;
   constructor(options: {
@@ -97,6 +98,7 @@ export class TelegramTrialSpeech {
     transcriber: StudyTranscriber;
     files: TelegramVoiceFiles;
     permit: (job: TelegramSpeechJob) => void | Promise<void>;
+    beforeSubmission: (job: TelegramSpeechJob) => void;
     now?: () => number;
     grading?: TelegramTrialGradingPort;
   }) {
@@ -106,6 +108,7 @@ export class TelegramTrialSpeech {
     this.transcriber = options.transcriber;
     this.files = options.files;
     this.permit = options.permit;
+    this.beforeSubmission = options.beforeSubmission;
     this.now = options.now ?? Date.now;
     this.grading = options.grading ?? releasedTelegramGrading;
     telegramCheck(
@@ -236,9 +239,18 @@ export class TelegramTrialSpeech {
         if (permit.reservation.state !== "dispatched")
           return save({ state: "uncertain", failure: "speech_pending" });
       }
+      // Admission is awaited; authority may have changed while its reply was
+      // in flight. Do this for both a new permit and a proven-unsent reclaim.
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
+      await this.permit(job);
       // No await between this CAS and invoking the transcriber. A paused old
-      // owner cannot call it after a proven-unsent restart claims the job.
-      if (!ownership.beginSubmission(job.dispatchToken!)) return this.get(id);
+      // owner cannot call it after a reclaim or local authority change.
+      if (
+        !ownership.beginSubmission(job.dispatchToken!, () =>
+          this.beforeSubmission(job),
+        )
+      )
+        return this.get(id);
       dispatched = true;
       const transcript = await this.transcriber.transcribe(
         audio.audio,

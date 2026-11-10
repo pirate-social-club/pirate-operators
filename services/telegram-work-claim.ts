@@ -1,4 +1,5 @@
 import { randomToken } from "../packages/telegram/security.ts";
+import { telegramCheck } from "../packages/telegram/contracts.ts";
 import type { TelegramSpeechJob } from "./telegram-speech.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
 
@@ -58,7 +59,7 @@ export function telegramWorkClaim<T extends TelegramSpeechJob>(
         return next;
       });
     },
-    beginSubmission(token: string) {
+    beginSubmission(token: string, authorize: () => void) {
       return store.transaction(() => {
         const current = read();
         if (
@@ -68,6 +69,12 @@ export function telegramWorkClaim<T extends TelegramSpeechJob>(
           current.submissionStarted !== false
         )
           return false;
+        const result: unknown = authorize();
+        telegramCheck(
+          result === undefined,
+          "telegram_submission_authority_not_sync",
+          503,
+        );
         store.set(key, { ...current, submissionStarted: true });
         return true;
       });

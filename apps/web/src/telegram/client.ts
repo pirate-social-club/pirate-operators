@@ -16,6 +16,10 @@ export function telegramConnectionClient(options: {
   ): Promise<T> {
     const account = options.account();
     if (!account) throw new Error("Sign in to continue.");
+    const assertAccount = () => {
+      if (options.account() !== account)
+        throw new Error("The signed-in account changed. Try again.");
+    };
     const response = await transport(path, {
       method,
       credentials: "same-origin",
@@ -33,9 +37,15 @@ export function telegramConnectionClient(options: {
       },
       ...(value === undefined ? {} : { body: JSON.stringify(value) }),
     });
-    if (options.account() !== account)
-      throw new Error("The signed-in account changed. Try again.");
-    const body = await response.json();
+    assertAccount();
+    let body;
+    try {
+      body = await response.json();
+    } finally {
+      // Headers and body can arrive under different UI account contexts. Fence
+      // both the result and parse/read errors before exposing either to callers.
+      assertAccount();
+    }
     if (!response.ok)
       throw new Error(
         typeof body.error === "string"

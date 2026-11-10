@@ -39,6 +39,8 @@ export function restartedSpeech(
     transcriber: f.speech.transcriber,
     files: f.files,
     now: f.now,
+    beforeSubmission: (job) =>
+      f.study.beforeSubmission(job as TelegramStudyWork),
     async permit(job) {
       if (pause && once && job.state === "dispatching") {
         once = false;

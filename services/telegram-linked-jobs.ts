@@ -16,6 +16,7 @@ export async function workTelegramLinked(
     linked: TelegramLinkedStudyPort;
     files: TelegramVoiceFiles;
     permit(job: TelegramStudyWork): Promise<void>;
+    beforeSubmission(job: TelegramStudyWork): void;
     now(): number;
   },
   input: TelegramStudyWork,
@@ -72,7 +73,12 @@ export async function workTelegramLinked(
   job = claimed;
   try {
     await options.permit(job);
-    if (!ownership.beginSubmission(job.dispatchToken!)) return read();
+    if (
+      !ownership.beginSubmission(job.dispatchToken!, () =>
+        options.beforeSubmission(job),
+      )
+    )
+      return read();
     const result = await options.linked.answer(
       job.actor,
       job.grant!,
