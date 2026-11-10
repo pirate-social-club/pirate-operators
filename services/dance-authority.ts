@@ -7,6 +7,7 @@ import type {
   ReviewerContext,
 } from "../packages/dance/contracts.ts";
 import type { DanceRepository } from "../packages/dance/repository.ts";
+import { localReviewerFences } from "../packages/dance/local-guards.ts";
 import {
   danceId,
   danceTime,
@@ -109,8 +110,15 @@ export class DancePermissions {
       sameCapturedPrincipal(f.actor, r.capture.learner);
       return { facts: f, fences: [f.fence, originalAuthorization] };
     }
-    await this.reviewer(f);
-    return { facts: f, fences: [f.fence, originalAuthorization] };
+    const reviewer = await this.reviewer(f);
+    return {
+      facts: f,
+      fences: [
+        f.fence,
+        originalAuthorization,
+        ...localReviewerFences(this.communityId, reviewer),
+      ],
+    };
   }
   async delegate(
     actor: string,
@@ -127,6 +135,30 @@ export class DancePermissions {
       input.operation === "grant" || input.operation === "revoke",
       "dance_invalid_operation",
     );
+    const recover = async (prior: DanceControlIntent) => {
+      insist(
+        prior.communityId === this.communityId && prior.actorId === actor,
+        "dance_delegation_not_found",
+        404,
+      );
+      // Recovery checks CURRENT HTTP owner access, not fresh target admission or
+      // the original chain epochs. Retain the original immutable payload bytes.
+      const current = await this.facts(actor, actor);
+      await this.owner(current);
+      insist(
+        prior.delegationId === input.delegationId &&
+          prior.accountId === input.accountId &&
+          prior.operation === input.operation &&
+          prior.expiresAtMs ===
+            (input.operation === "grant" ? input.expiresAtMs : 0),
+        "dance_idempotency_conflict",
+        409,
+      );
+      await this.store.assert([current.fence]);
+      return prior;
+    };
+    const retained = await this.store.controlIntent(commandId);
+    if (retained) return recover(retained);
     // Revocation authenticates the CURRENT owner and reads the STORED grant.
     // It never resolves an inactive target as a fresh admitted learner.
     const f = await this.facts(
@@ -175,8 +207,15 @@ export class DancePermissions {
       expiresAtMs: input.operation === "grant" ? input.expiresAtMs : 0,
       status: "pending_canonical" as const,
     };
-    return this.store.control({ ...body, localIntegrityHash: hashJson(body) }, [
-      f.fence,
-    ]);
+    try {
+      return await this.store.control(
+        { ...body, localIntegrityHash: hashJson(body) },
+        [f.fence],
+      );
+    } catch (error) {
+      const accepted = await this.store.controlIntent(commandId);
+      if (accepted) return recover(accepted);
+      throw error;
+    }
   }
 }

@@ -328,3 +328,86 @@ test("background status observation is read-only and cannot resume an uncertain 
   assert.match(f.controller.state.error, /dance_response_unknown/);
   assert.equal(recoveries, 1);
 });
+for (const status of [401, 403]) {
+  test(`plain-text ${status} after private result load clears controller and private media`, async () => {
+    const model = danceFixture();
+    const prepared = await model.prepare();
+    const review = await model.store.review(prepared.reviewId);
+    let requests = 0;
+    const journal = new MemoryJournal();
+    const client = createDanceClient({
+      ...options(journal, async () => {
+        if (++requests === 1) return Response.json(review);
+        return new Response("authoritative private access denial", { status });
+      }),
+      accountId: "learner",
+    });
+    const f = await learnerFixture(client);
+    await f.controller.load(review.reviewId);
+    assert.equal(f.controller.state.phase, "submitted");
+    assert.ok(f.controller.state.review);
+    await f.controller.observe(review.reviewId);
+    assert.equal(f.controller.state.phase, "denied");
+    assert.equal(f.controller.state.review, null);
+    assert.equal(f.controller.state.capture, null);
+    assert.equal(f.controller.state.take, null);
+    assert.ok(f.cleared());
+    await assert.rejects(client.get(review.reviewId), (error) => {
+      assert.ok(error instanceof DanceClientError);
+      assert.equal(error.status, status);
+      assert.equal(error.unknown, false);
+      return true;
+    });
+    client.dispose();
+  });
+}
+
+test("plain-text denial during original-command recovery clears private state without changing journal bytes", async () => {
+  const model = danceFixture(),
+    prepared = await model.prepare();
+  const review = await model.store.review(prepared.reviewId);
+  const journal = new MemoryJournal(),
+    bodies: string[] = [];
+  const client = createDanceClient({
+    ...options(journal, async (_url, init) => {
+      if (init?.method !== "POST") return Response.json(review);
+      bodies.push(String(init.body));
+      if (bodies.length === 1) throw Error("fixture lost write response");
+      return new Response("forbidden", { status: 403 });
+    }),
+    accountId: "learner",
+  });
+  const f = await learnerFixture(client);
+  await f.controller.load(review.reviewId);
+  await assert.rejects(
+    client.withdraw(review.reviewId, review.revision),
+    /dance_response_unknown/,
+  );
+  const original = structuredClone(journal.pending);
+  await f.controller.load(review.reviewId);
+  assert.equal(f.controller.state.phase, "denied");
+  assert.equal(f.controller.state.review, null);
+  assert.ok(f.cleared());
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+  assert.deepEqual(journal.pending, original);
+  client.dispose();
+});
+
+test("malformed success and server-error bodies preserve uncertain original write identity", async () => {
+  for (const status of [200, 500]) {
+    const journal = new MemoryJournal();
+    const client = createDanceClient(
+      options(journal, async () => new Response("not JSON", { status })),
+    );
+    await assert.rejects(client.withdraw("review_1", 1), (error) => {
+      assert.ok(error instanceof DanceClientError);
+      assert.equal(error.unknown, true);
+      if (status === 500) assert.equal(error.status, 500);
+      return true;
+    });
+    assert.ok(journal.pending);
+    assert.equal(journal.pending.path, "reviews/review_1/withdraw");
+    client.dispose();
+  }
+});

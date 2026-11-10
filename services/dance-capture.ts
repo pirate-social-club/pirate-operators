@@ -140,8 +140,14 @@ export class DanceCaptureService {
   ) {
     const r = await this.store.review(reviewId),
       access = await this.permissions.read(actor, r);
+    const receipt = await this.store.receipt(
+      this.communityId,
+      actor,
+      command,
+      hash,
+    );
     await this.store.assert(access.fences);
-    return this.store.receipt(this.communityId, actor, command, hash);
+    return receipt;
   }
   async submit(
     actor: string,

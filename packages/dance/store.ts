@@ -10,7 +10,9 @@ import {
   type DanceCanonicalEvidence,
   type DanceOutbox,
   type DanceAttempt,
+  type DanceControlIntent,
 } from "./contracts.ts";
+import { dispatchFence, localReviewerFences } from "./local-guards.ts";
 import type { DanceRepository } from "./repository.ts";
 import { validateFence } from "./validation.ts";
 import {
@@ -80,6 +82,31 @@ export class DanceStore implements DanceRepository {
             DANCE_DB_NOW +
             "<json_extract(receipt_json,'$.reviewDeadlineMs'))",
           values: [r.reviewId, r.revision],
+        },
+      ],
+      [],
+    );
+  }
+  async assertDispatch(r: DanceReview, b: DanceOutbox, f: DanceFence[]) {
+    insist(
+      r.state === "decision_pending" && r.decision?.commandId === b.commandId,
+      "dance_dispatch_unavailable",
+      409,
+    );
+    await this.atomic(
+      [
+        ...f,
+        dispatchFence(b.commandId),
+        {
+          sql: "EXISTS(SELECT 1 FROM dance_reviews r JOIN dance_outbox b ON b.subject_id=r.review_id WHERE r.review_id=? AND r.revision=? AND b.command_id=? AND b.kind='decision' AND b.community_id=? AND b.payload_json=? AND b.local_integrity_hash=?)",
+          values: [
+            r.reviewId,
+            r.revision,
+            b.commandId,
+            r.capture.communityId,
+            b.payloadJson,
+            b.localIntegrityHash,
+          ],
         },
       ],
       [],
@@ -231,7 +258,7 @@ export class DanceStore implements DanceRepository {
   }
   saveReceipt(c: string, a: string, k: string, h: string, id: string) {
     return this.stmt(
-      "INSERT INTO dance_receipts SELECT ?,?,?,?,json_object('version',?,'commandId',?,'reviewId',r.review_id,'revision',r.revision,'state',r.state,'intentId',i.command_id) FROM dance_reviews r JOIN dance_consents co ON co.capture_id=c.capture_id LEFT JOIN dance_decision_intents i ON i.review_id=r.review_id WHERE r.review_id=?",
+      "INSERT INTO dance_receipts SELECT ?,?,?,?,json_object('version',?,'commandId',?,'reviewId',r.review_id,'revision',r.revision,'state',r.state,'intentId',i.command_id) FROM dance_reviews r JOIN dance_consents co ON co.capture_id=r.review_id LEFT JOIN dance_decision_intents i ON i.review_id=r.review_id WHERE r.review_id=?",
       c,
       a,
       k,
@@ -318,7 +345,16 @@ export class DanceStore implements DanceRepository {
       "dance_intent_corrupt",
       503,
     );
-    await this.atomic(i.fences, decisionStatements(this, i));
+    await this.atomic(
+      [
+        ...i.fences,
+        ...localReviewerFences(
+          i.review.capture.communityId,
+          i.intent.preimage.reviewer,
+        ),
+      ],
+      decisionStatements(this, i),
+    );
     const r = await this.receipt(
       i.review.capture.communityId,
       i.actor,
@@ -348,21 +384,35 @@ export class DanceStore implements DanceRepository {
     return r;
   }
   async control(i: Parameters<DanceRepository["control"]>[0], f: DanceFence[]) {
-    const prior = await this.stmt(
-      "SELECT body_json,local_integrity_hash FROM dance_control_intents WHERE command_id=?",
-      i.commandId,
-    ).first<{ body_json: string; local_integrity_hash: string }>();
+    const prior = await this.controlIntent(i.commandId);
     if (prior) {
       insist(
-        prior.local_integrity_hash === i.localIntegrityHash,
+        prior.localIntegrityHash === i.localIntegrityHash,
         "dance_idempotency_conflict",
         409,
       );
       await this.assert(f);
-      return JSON.parse(prior.body_json) as typeof i;
+      return prior;
     }
     await this.atomic(f, controlStatements(this, i));
     return i;
+  }
+  async controlIntent(k: string) {
+    const row = await this.stmt(
+      "SELECT body_json,local_integrity_hash FROM dance_control_intents WHERE command_id=?",
+      k,
+    ).first<{ body_json: string; local_integrity_hash: string }>();
+    if (!row) return null;
+    const intent = JSON.parse(row.body_json) as DanceControlIntent;
+    const { localIntegrityHash, ...body } = intent;
+    insist(
+      intent.commandId === k &&
+        localIntegrityHash === row.local_integrity_hash &&
+        hashJson(body) === localIntegrityHash,
+      "dance_control_corrupt",
+      503,
+    );
+    return intent;
   }
   async locallyRevoked(c: string, a: string, w: string) {
     const r = await this.stmt(
@@ -412,14 +462,10 @@ export class DanceStore implements DanceRepository {
     insist(r, "dance_outbox_not_found", 404);
     return r;
   }
-  async attempt(a: DanceAttempt) {
+  async attempt(a: DanceAttempt, fences: DanceFence[]) {
+    insist(fences.length > 0, "dance_dispatch_fence_required", 503);
     await this.atomic(
-      [
-        {
-          sql: "EXISTS(SELECT 1 FROM dance_outbox WHERE command_id=? AND status IN ('ready','unknown','orphaned'))",
-          values: [a.commandId],
-        },
-      ],
+      [...fences, dispatchFence(a.commandId)],
       [
         this.stmt(
           "INSERT INTO dance_transaction_attempts VALUES(?,?,?,?,?)",

@@ -19,6 +19,11 @@ import {
   decisionEvidencePreimage,
 } from "../packages/dance/intent.ts";
 import { reviewDeadline } from "../packages/dance/validation.ts";
+import {
+  dispatchable,
+  localReviewerFences,
+  LOCAL_REVIEWER_ALLOWED_SQL,
+} from "../packages/dance/local-guards.ts";
 const copy = <T>(v: T): T => structuredClone(v);
 export class MemoryDanceStore implements DanceRepository {
   time = 1800000000000;
@@ -40,8 +45,19 @@ export class MemoryDanceStore implements DanceRepository {
   guard(f: DanceFence[]) {
     this.onCommit?.();
     this.onCommit = null;
-    for (const v of f)
-      insist(this.checks.get(v.sql)?.(), "dance_fence_changed", 409);
+    for (const v of f) {
+      const allowed =
+        v.sql === LOCAL_REVIEWER_ALLOWED_SQL
+          ? ![...this.controls.values()].some(
+              (c) =>
+                c.communityId === v.values[0] &&
+                c.operation === "revoke" &&
+                (c.accountId === v.values[1] ||
+                  c.wallet.toLowerCase() === v.values[2]),
+            )
+          : this.checks.get(v.sql)?.();
+      insist(allowed, "dance_fence_changed", 409);
+    }
   }
   async assert(f: DanceFence[]) {
     this.guard(f);
@@ -57,6 +73,40 @@ export class MemoryDanceStore implements DanceRepository {
       "dance_fence_changed",
       409,
     );
+  }
+  private dispatchCheck(b: DanceOutbox) {
+    insist(dispatchable(b.status), "dance_fence_changed", 409);
+    if (b.kind !== "decision") return;
+    const r = this.records.get(b.subjectId);
+    insist(
+      r &&
+        r.state === "decision_pending" &&
+        !r.localDenied &&
+        this.time < r.receipt.reviewDeadlineMs &&
+        r.decision?.commandId === b.commandId &&
+        r.decision.localIntegrityHash === b.localIntegrityHash,
+      "dance_fence_changed",
+      409,
+    );
+    this.guard(
+      localReviewerFences(r.capture.communityId, r.decision.preimage.reviewer),
+    );
+  }
+  async assertDispatch(
+    r: DanceReview,
+    entry: DanceOutbox,
+    fences: DanceFence[],
+  ) {
+    this.guard(fences);
+    const current = this.boxes.get(entry.commandId);
+    insist(
+      current &&
+        current.payloadJson === entry.payloadJson &&
+        this.records.get(r.reviewId)?.revision === r.revision,
+      "dance_fence_changed",
+      409,
+    );
+    this.dispatchCheck(current);
   }
   async capture(id: string) {
     const c = this.captures.get(id);
@@ -236,7 +286,13 @@ export class MemoryDanceStore implements DanceRepository {
     return { ids: ids.slice(0, limit), hasMore: ids.length > limit };
   }
   async stageDecision(i: Parameters<DanceRepository["stageDecision"]>[0]) {
-    this.guard(i.fences);
+    this.guard([
+      ...i.fences,
+      ...localReviewerFences(
+        i.review.capture.communityId,
+        i.intent.preimage.reviewer,
+      ),
+    ]);
     const r = this.records.get(i.review.reviewId)!;
     insist(
       r.revision === i.review.revision &&
@@ -295,6 +351,10 @@ export class MemoryDanceStore implements DanceRepository {
     const g = this.grants.get(id);
     insist(g, "dance_delegation_not_found", 404);
     return copy(g);
+  }
+  async controlIntent(k: string) {
+    const prior = this.controls.get(k);
+    return prior ? copy(prior) : null;
   }
   async control(i: DanceControlIntent, f: DanceFence[]) {
     this.guard(f);
@@ -357,7 +417,13 @@ export class MemoryDanceStore implements DanceRepository {
     insist(b, "dance_outbox_not_found", 404);
     return copy(b);
   }
-  async attempt(a: DanceAttempt) {
+  async attempt(a: DanceAttempt, fences: DanceFence[]) {
+    insist(fences.length > 0, "dance_dispatch_fence_required", 503);
+    this.guard(fences);
+    const b = this.boxes.get(a.commandId);
+    insist(b, "dance_outbox_not_found", 404);
+    this.dispatchCheck(b);
     this.attempts.push(copy(a));
+    b.status = "unknown";
   }
 }

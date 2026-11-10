@@ -81,6 +81,15 @@ export function createDanceClient(options: {
     try {
       v = await response.json();
     } catch {
+      current();
+      if (!response.ok)
+        throw new DanceClientError(
+          response.status === 401 || response.status === 403
+            ? "dance_request_denied"
+            : "dance_request_failed",
+          write && response.status >= 500,
+          response.status,
+        );
       throw new DanceClientError("dance_response_unknown", write);
     }
     current();

@@ -17,6 +17,11 @@ export interface DanceRepository {
   now(): Promise<number>;
   assert(fences: DanceFence[]): Promise<void>;
   assertAccess(review: DanceReview, fences: DanceFence[]): Promise<void>;
+  assertDispatch(
+    review: DanceReview,
+    outbox: DanceOutbox,
+    fences: DanceFence[],
+  ): Promise<void>;
   capture(id: string): Promise<DanceCapture>;
   findCapture(
     community: string,
@@ -75,6 +80,7 @@ export interface DanceRepository {
     fences: DanceFence[];
   }): Promise<DanceReceipt>;
   grant(id: string): Promise<DanceStoredGrant>;
+  controlIntent(commandId: string): Promise<DanceControlIntent | null>;
   control(
     intent: DanceControlIntent,
     fences: DanceFence[],
@@ -90,5 +96,5 @@ export interface DanceRepository {
     evidence: DanceCanonicalEvidence,
   ): Promise<void>;
   outbox(commandId: string): Promise<DanceOutbox>;
-  attempt(value: DanceAttempt): Promise<void>;
+  attempt(value: DanceAttempt, fences: DanceFence[]): Promise<void>;
 }

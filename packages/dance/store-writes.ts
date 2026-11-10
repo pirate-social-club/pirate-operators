@@ -41,6 +41,7 @@ export function submissionStatements(
     ),
     s.changed(),
     s.saveReceipt(c.communityId, a, i.commandId, i.requestHash, id),
+    s.changed(),
     ...plan.afterAcceptance,
   ];
 }
@@ -77,6 +78,7 @@ export function decisionStatements(
       i.intent.localIntegrityHash,
     ),
     s.saveReceipt(c, i.actor, k, i.requestHash, id),
+    s.changed(),
   ];
 }
 export function withdrawalStatements(
@@ -112,6 +114,7 @@ export function withdrawalStatements(
       hashJson(JSON.parse(p)),
     ),
     s.saveReceipt(c, i.actor, i.commandId, i.requestHash, r.reviewId),
+    s.changed(),
   ];
 }
 export function controlStatements(

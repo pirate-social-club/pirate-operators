@@ -4,7 +4,12 @@ import {
   type DanceQueue,
   type DanceReview,
   type DanceVerdict,
+  type DanceFence,
 } from "../packages/dance/contracts.ts";
+import {
+  dispatchable,
+  localReviewerFences,
+} from "../packages/dance/local-guards.ts";
 import { DanceStore } from "../packages/dance/store.ts";
 import { decisionIntent } from "../packages/dance/intent.ts";
 import {
@@ -20,22 +25,23 @@ export class DanceReviewService extends DanceCaptureService {
     danceId(id);
     const r = await this.store.review(id),
       a = await this.permissions.read(actor, r);
-    await this.store.assert(a.fences);
-    if (
+    const expired =
       r.state === "awaiting_review" &&
-      (await this.store.now()) >= r.receipt.reviewDeadlineMs
-    )
-      return { ...r, state: "expired" };
-    return r;
+      (await this.store.now()) >= r.receipt.reviewDeadlineMs;
+    // Last local admission after EVERY awaited observation, including the clock.
+    await this.store.assert(a.fences);
+    return expired ? { ...r, state: "expired" } : r;
   }
-  async inspect(actor: string, id: string) {
-    const r = await this.get(actor, id);
+  private async mediaFences(
+    actor: string,
+    r: DanceReview,
+    access: { fences: DanceFence[] },
+  ): Promise<DanceFence[]> {
     insist(
       !r.localDenied && (await this.store.now()) < r.receipt.reviewDeadlineMs,
       "dance_media_unavailable",
       410,
     );
-    const access = await this.permissions.read(actor, r);
     const ready =
       actor === r.capture.learner.accountId
         ? await this.ports.media.readyForSubmission(
@@ -56,10 +62,12 @@ export class DanceReviewService extends DanceCaptureService {
       "dance_media_changed",
       409,
     );
-    await this.store.assertAccess(r, [
-      ...access.fences,
-      this.ports.media.commitFence(ready.witness),
-    ]);
+    return [...access.fences, this.ports.media.commitFence(ready.witness)];
+  }
+  async inspect(actor: string, id: string) {
+    const r = await this.get(actor, id);
+    const access = await this.permissions.read(actor, r);
+    await this.store.assertAccess(r, await this.mediaFences(actor, r, access));
     return { reviewId: id, mediaId: r.receipt.mediaId };
   }
   async decide(
@@ -253,8 +261,11 @@ export class DanceReviewService extends DanceCaptureService {
       if (page.ids.length === 0) break;
     }
     const current = await this.permissions.facts(actor, actor);
-    await this.permissions.reviewer(current, false);
-    await this.store.assert([current.fence]);
+    const reviewer = await this.permissions.reviewer(current, false);
+    await this.store.assert([
+      current.fence,
+      ...localReviewerFences(this.communityId, reviewer),
+    ]);
     return {
       version: DANCE_VERSION,
       items,
@@ -281,8 +292,8 @@ export class DanceReviewService extends DanceCaptureService {
     const r = await this.store.review(id);
     insist(r.decision, "dance_intent_missing", 409);
     insist(!r.localDenied, "dance_dispatch_locally_denied", 409);
+    insist(r.state === "decision_pending", "dance_dispatch_unavailable", 409);
     const a = await this.permissions.read(actor, r);
-    await this.permissions.reviewer(a.facts);
     const original = r.decision.preimage.reviewer,
       current = await this.permissions.reviewer(a.facts);
     insist(
@@ -300,16 +311,18 @@ export class DanceReviewService extends DanceCaptureService {
       "dance_dispatch_context_changed",
       409,
     );
-    await this.inspect(actor, id);
-    await this.store.assert([a.facts.fence, await this.ports.rules(r.capture)]);
-    await this.store.assert([
+    const fences = [
+      ...(await this.mediaFences(actor, r, a)),
+      await this.ports.rules(r.capture),
       await this.ports.reviewerAuthorization(
         original,
         r.decision.preimage.intentAcceptedAtMs,
       ),
-    ]);
+    ];
     const entry = await this.store.outbox(r.decision.commandId);
     insist(entry.status !== "held", "dance_protocol_admission_held", 409);
+    insist(dispatchable(entry.status), "dance_dispatch_unavailable", 409);
+    await this.store.assertDispatch(r, entry, fences);
     return entry;
   }
 }
