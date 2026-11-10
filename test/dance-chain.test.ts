@@ -357,6 +357,35 @@ test("canonical reader refuses a removed log, different receipt bytes, and forei
   );
 });
 
+test("matching receipt bytes cannot admit noncanonical event padding or extra words", async () => {
+  const replaceByte = (value: Hex, offset: number) => {
+    const index = 2 + offset * 2;
+    return `${value.slice(0, index)}01${value.slice(index + 2)}` as Hex;
+  };
+  for (const mutate of [
+    (log: DanceLog) => {
+      log.data = `${log.data}${"00".repeat(32)}`;
+    },
+    (log: DanceLog) => {
+      log.topics = [log.topics[0]!, ...log.topics.slice(1), word(99)];
+    },
+    (log: DanceLog) => {
+      log.data = replaceByte(log.data, 5 * 32);
+    },
+    (log: DanceLog) => {
+      log.topics[3] = replaceByte(log.topics[3]!, 0);
+    },
+  ]) {
+    const f = fixture();
+    mutate(f.log);
+    f.receipt.logs[0] = { ...f.log };
+    await assert.rejects(
+      verifyDanceVerdict(f.rpc, f.source, f.log),
+      /dance_event_encoding_invalid/,
+    );
+  }
+});
+
 test("a caller cannot substitute a later safe anchor and historical pin drift fails closed", async () => {
   const f = fixture();
   await assert.rejects(

@@ -1,4 +1,12 @@
-import { decodeEventLog, keccak256, type Address, type Hex } from "viem";
+import {
+  decodeEventLog,
+  encodeAbiParameters,
+  encodeEventTopics,
+  keccak256,
+  type AbiParameter,
+  type Address,
+  type Hex,
+} from "viem";
 import { insist } from "../community/common.ts";
 import { danceVerdictsAbi } from "./abi.ts";
 import {
@@ -76,6 +84,12 @@ const isDigest = (value: string | null): value is Hex =>
   value !== null && /^0x[\da-fA-F]{64}$/.test(value) && BigInt(value) !== 0n;
 const position = (value: number | null): value is number =>
   value !== null && Number.isSafeInteger(value) && value >= 0;
+const verdictEvent = danceVerdictsAbi.find(
+  (item) => item.type === "event" && item.name === "VerdictCommitted",
+)!;
+const verdictEventData = verdictEvent.inputs.filter(
+  (input) => !input.indexed,
+) as readonly AbiParameter[];
 const maxUint64 = (1n << 64n) - 1n;
 const maxSeconds = BigInt(Number.MAX_SAFE_INTEGER) / 1000n;
 
@@ -211,6 +225,11 @@ export async function verifyDanceVerdict(
     "dance_receipt_log_not_owned",
     503,
   );
+  insist(
+    log.topics.length === 4 && /^0x[0-9a-fA-F]{576}$/.test(log.data),
+    "dance_event_encoding_invalid",
+    503,
+  );
   const event = decodeEventLog({
     abi: danceVerdictsAbi,
     eventName: "VerdictCommitted",
@@ -226,6 +245,26 @@ export async function verifyDanceVerdict(
     learnerAccountCommitment,
     commandId,
   } = event.args;
+  const topics = encodeEventTopics({
+    abi: danceVerdictsAbi,
+    eventName: "VerdictCommitted",
+    args: { submissionId, commandId, learner },
+  });
+  insist(
+    topics.every(
+      (topic, i) => typeof topic === "string" && same(log.topics[i], topic),
+    ) &&
+      same(
+        log.data,
+        encodeAbiParameters(verdictEventData, [
+          learnerAccountCommitment,
+          sourceHash,
+          verdict,
+        ]),
+      ),
+    "dance_event_encoding_invalid",
+    503,
+  );
   insist(
     same(sourceHash, source.sourceHash) &&
       verdict.committedAtSeconds === block.timestamp &&
