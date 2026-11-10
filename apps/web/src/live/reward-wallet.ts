@@ -18,18 +18,23 @@ export interface RewardMoss {
   }): Promise<unknown>;
   connect(): Promise<{ address?: string; network: string }>;
   open(): Promise<void>;
+  send?(request: { token: `0x${string}` }): Promise<unknown>;
   callContract(request: {
     address: `0x${string}`;
     data: `0x${string}`;
     silent: false;
     silentUIApproveFallback: false;
     sponsor: false;
+    maxGasAllowance?: bigint;
   }): Promise<unknown>;
 }
 async function wallet() {
   return (await import("@megaeth-labs/wallet-sdk")).mega;
 }
-async function connect(expected: string, load: () => Promise<RewardMoss>) {
+export async function connectRewardWallet(
+  expected: string,
+  load: () => Promise<RewardMoss>,
+) {
   const moss = await load();
   await moss.initialise({
     network: "testnet",
@@ -49,7 +54,9 @@ export async function openRewardWallet(
   view: RewardWalletView,
   load: () => Promise<RewardMoss> = wallet,
 ) {
-  const moss = await connect(view.address, load);
+  if (view.chainId !== 6343)
+    throw Error("This wallet is available on testnet only.");
+  const moss = await connectRewardWallet(view.address, load);
   await moss.open();
 }
 /** One explicit account batch: consume the frozen guard, then pay (or only consume it to cancel). */
@@ -59,6 +66,7 @@ export async function signRewardPayment(
   attemptId: string,
   beforeCall: () => Promise<RewardPayment>,
   load: () => Promise<RewardMoss> = wallet,
+  options?: { maxGasAllowanceWei: string },
 ): Promise<RewardWalletOutcome> {
   if (
     payment.chainId !== 6343 ||
@@ -71,7 +79,13 @@ export async function signRewardPayment(
   )
     throw Error("This payment is not ready for signing.");
   const request = guardedRewardCall(payment, action);
-  const moss = await connect(payment.sender, load);
+  if (
+    options &&
+    (!/^[1-9][0-9]*$/.test(options.maxGasAllowanceWei) ||
+      BigInt(options.maxGasAllowanceWei) >= 2n ** 256n)
+  )
+    throw Error("The quoted fee allowance is invalid.");
+  const moss = await connectRewardWallet(payment.sender, load);
   const dispatched = await beforeCall(),
     attempt = dispatched.attempts.find((a) => a.attemptId === attemptId);
   if (
@@ -96,6 +110,9 @@ export async function signRewardPayment(
       silent: false,
       silentUIApproveFallback: false,
       sponsor: false,
+      ...(options
+        ? { maxGasAllowance: BigInt(options.maxGasAllowanceWei) }
+        : {}),
     });
   } catch {
     return { outcome: "unknown" };

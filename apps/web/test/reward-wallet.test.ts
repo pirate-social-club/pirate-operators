@@ -269,3 +269,46 @@ test("missing receipt chain metadata never bypasses the connected network check"
   assert.equal(persisted, 0);
   assert.equal(calls, 0);
 });
+
+test("a provider-quoted native gas cap is forwarded exactly and invalid caps never dispatch", async () => {
+  let calls = 0,
+    persisted = 0;
+  const moss: RewardMoss = {
+    initialise: async () => {},
+    connect: async () => ({ address: sender, network: "testnet" }),
+    open: async () => {},
+    callContract: async (request) => {
+      calls++;
+      assert.equal(request.maxGasAllowance, 500000000000n);
+      assert.equal(request.silent, false);
+      assert.equal(request.sponsor, false);
+      return { status: "cancelled" };
+    },
+  };
+  const before = async () => {
+    persisted++;
+    return dispatched();
+  };
+  await signRewardPayment(
+    payment,
+    "pay",
+    "attempt_001",
+    before,
+    async () => moss,
+    { maxGasAllowanceWei: "500000000000" },
+  );
+  for (const maxGasAllowanceWei of ["0", "-1", "1e6", (2n ** 256n).toString()])
+    await assert.rejects(
+      signRewardPayment(
+        payment,
+        "pay",
+        "attempt_001",
+        before,
+        async () => moss,
+        { maxGasAllowanceWei },
+      ),
+      /fee allowance/,
+    );
+  assert.equal(calls, 1);
+  assert.equal(persisted, 1);
+});
