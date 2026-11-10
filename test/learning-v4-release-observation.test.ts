@@ -16,6 +16,7 @@ import {
 import {
   canonicalOriginV4,
   signInMessageV4,
+  resultsV4Abi,
 } from "../packages/protocol/learning-results-v4.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
@@ -75,7 +76,7 @@ after(async () => {
 
 test("the reviewed V4 deployment is observed at a pinned block before it is bound", async () => {
   const { selection } = await deployV4();
-  const head = await evm.publicClient.getBlockNumber();
+  const head = await evm.publicClient.getBlockNumber({ cacheTime: 0 });
   const observed = await observeLearningV4Release(client(), selection, expected);
   assert.equal(observed.blockNumber, (head - 1n).toString());
   assert.equal(
@@ -186,7 +187,6 @@ test("a release refuses an origin the contract accepts but the sign-in builder c
     `https://${"a".repeat(64)}.com`,
     "https://1.2.3",
     "https://0x7f.1",
-    "https://xn--a.com",
   ];
   const ctx = {
     chainId: 6343,
@@ -216,6 +216,24 @@ test("a release refuses an origin the contract accepts but the sign-in builder c
   ]) {
     assert.equal(canonicalOriginV4(origin), true, origin);
     assert.ok(signInMessageV4({ ...ctx, origin }, signIn).includes(`URI: ${origin}\n`), origin);
+  }
+  // Node/ICU versions differ on this IDNA form. The release rule requires
+  // compatibility with the actual builder, rather than a cached verdict from
+  // a different runtime's URL parser.
+  const origin = "https://xn--a.com";
+  let built: string | undefined;
+  try {
+    built = signInMessageV4({ ...ctx, origin }, signIn);
+  } catch { /* A parser refusal must also refuse the release. */ }
+  assert.equal(canonicalOriginV4(origin), built !== undefined);
+  const {contract, selection} = await deployV4(learningV4PublicityPolicy,communityId,origin);
+  if (built === undefined) {
+    assert.throws(() => learningV4ReleaseSelection(selection), /^Error: learning_v4_release_selection_invalid$/);
+  } else {
+    assert.doesNotThrow(() => learningV4ReleaseSelection(selection));
+    assert.equal(await evm.publicClient.readContract({address:contract,abi:resultsV4Abi,functionName:"signInMessage",args:[signIn]}),
+      signInMessageV4({...ctx,origin,chainId:31337,contract:contract.toLowerCase() as Address},signIn));
+    await observeLearningV4Release(client(),selection,{...expected,communityOrigin:origin});
   }
 });
 
