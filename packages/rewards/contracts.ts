@@ -191,6 +191,24 @@ export interface RewardSources {
     profile: RewardsProfile,
   ): Promise<{ receiptHash: string; mode: RewardsProfile["mode"] }>;
   qualifiers(offer: RewardOfferInput): Promise<QualificationEntry[]>;
+  /** Opted in at attachment. Closed entries and this evidence share a transaction. */
+  closure?: {
+    requires(offer: RewardOfferInput): boolean;
+    scan(
+      offer: RewardOfferInput,
+      inputHash: string,
+    ): Promise<{
+      entries: QualificationEntry[];
+      // Only candidates authenticated against the retained capture can bypass
+      // the mutable current-credential lookup used by older result sources.
+      captured: ReadonlySet<string>;
+      evidence: import("./closure.ts").RewardClosureEvidence;
+    }>;
+    verify(
+      offer: RewardOfferInput,
+      evidence: import("./closure.ts").RewardClosureEvidence,
+    ): Promise<void>;
+  };
   winnings(
     offer: RewardOfferInput,
     profile: RewardsProfile,

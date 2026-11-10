@@ -1,9 +1,10 @@
 import { bytes32, hashJson, insist } from "../community/common.ts";
-import type { RewardChain, RewardPayment } from "./contracts.ts";
+import type { RewardChain, RewardPayment, RewardSources } from "./contracts.ts";
 import { RewardStore, type PaymentRow } from "./store.ts";
 import { rewardAmount, rewardId } from "./validation.ts";
 import { RewardTreasury } from "./treasury.ts";
 import { paymentGuardNonce } from "./moss-guard.ts";
+import { verifyRewardOfferIds } from "./offers.ts";
 import { RewardPaymentLifecycle } from "./payment-lifecycle.ts";
 
 interface Inventory {
@@ -17,14 +18,17 @@ export class RewardPayments {
   readonly store: RewardStore;
   readonly chain: RewardChain;
   readonly now: () => number;
+  readonly source?: RewardSources;
   constructor(
     store: RewardStore,
     chain: RewardChain,
     now: () => number = Date.now,
+    source?: RewardSources,
   ) {
     this.store = store;
     this.chain = chain;
     this.now = now;
+    this.source = source;
   }
   private async inventory() {
     const r = await this.store
@@ -220,6 +224,11 @@ export class RewardPayments {
         "reward_reserve_not_funded",
         409,
       );
+      await verifyRewardOfferIds(
+        this.store,
+        this.source,
+        credits.map((credit) => credit.offer_id),
+      );
       return {
         value: null,
         statements: [
@@ -262,7 +271,12 @@ export class RewardPayments {
     return this.store.paymentView(await this.store.payment(id));
   }
   private lifecycle() {
-    return new RewardPaymentLifecycle(this.store, this.chain, this.now);
+    return new RewardPaymentLifecycle(
+      this.store,
+      this.chain,
+      this.now,
+      this.source,
+    );
   }
   dispatch(id: string, action: "pay" | "cancel", attemptId: string) {
     return this.lifecycle().dispatch(id, action, attemptId);

@@ -2,6 +2,7 @@
 // build imports so tests can load it directly.
 import { insist } from "../packages/community/common.ts";
 
+export const REWARD_CLOSURE_MIGRATION = "0014_reward_closure_snapshots.sql";
 export const OWNER_PUBLISHING_MIGRATION = "0012_owner_budget_windows.sql";
 export const LEARNING_AUTHORIZATION_MIGRATION =
   "0013_learning_authorization.sql";
@@ -12,7 +13,12 @@ export const LEARNING_AUTHORIZATION_MIGRATION =
  */
 export function communityMigrations(
   names: string[],
-  selected: { rewards: boolean; ownerPublishing: boolean; v4: boolean },
+  selected: {
+    rewards: boolean;
+    ownerPublishing: boolean;
+    v4: boolean;
+    rewardClosure?: boolean;
+  },
 ) {
   insist(
     !selected.ownerPublishing || selected.rewards,
@@ -24,11 +30,17 @@ export function communityMigrations(
     "learning_v4_publishing_selection_required",
     409,
   );
+  insist(
+    !selected.rewardClosure || selected.v4,
+    "reward_closure_v4_selection_required",
+    409,
+  );
   return names
     .filter((p) => /^\d{4}_.+\.sql$/.test(p))
     .filter((p) => p !== "0011_manual_rewards.sql" || selected.rewards)
     .filter((p) => p !== OWNER_PUBLISHING_MIGRATION || selected.ownerPublishing)
     .filter((p) => p !== LEARNING_AUTHORIZATION_MIGRATION || selected.v4)
+    .filter((p) => p !== REWARD_CLOSURE_MIGRATION || selected.rewardClosure)
     .sort();
 }
 export const MANAGED_MIGRATIONS = [

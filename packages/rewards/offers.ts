@@ -10,6 +10,12 @@ import type {
   RewardOfferInput,
   RewardSources,
 } from "./contracts.ts";
+import {
+  checkRewardClosureEvidence,
+  requiresRewardClosure,
+  verifyRewardClosure,
+  type RewardClosureSnapshot,
+} from "./closure.ts";
 import { RewardStore, type OfferRow } from "./store.ts";
 import {
   rewardAddress,
@@ -75,6 +81,35 @@ export function offerInput(offer: RewardOfferInput): RewardOfferInput {
       : { resultSources: offer.resultSources }),
   };
 }
+export async function verifyStoredRewardClosure(
+  store: RewardStore,
+  source: RewardSources | undefined,
+  row: OfferRow,
+) {
+  if (requiresRewardClosure(row))
+    await verifyRewardClosure(store, source, row, offerInput(offerView(row)));
+}
+
+export async function verifyRewardOfferIds(
+  store: RewardStore,
+  source: RewardSources | undefined,
+  offerIds: Iterable<string>,
+) {
+  const ids = [...new Set(offerIds)];
+  if (ids.length === 0) return;
+  insist(ids.length <= 50, "reward_payment_credit_limit", 409);
+  const rows = await store
+    .statement(
+      `SELECT * FROM reward_offers WHERE program_id=? AND offer_id IN (${ids.map(() => "?").join(",")}) ORDER BY offer_id`,
+      store.program,
+      ...ids,
+    )
+    .all<OfferRow>();
+  insist(rows.results.length === ids.length, "reward_offer_not_found", 503);
+  for (const row of rows.results)
+    await verifyStoredRewardClosure(store, source, row);
+}
+
 /**
  * A new offer fixes the result sources it accepts at attachment, before its
  * window opens: the operator's choice, or every live source when none is
@@ -170,6 +205,7 @@ export class RewardOffers {
       "invalid_reward_tickets",
     );
     for (const id of input.ticketIds) rewardAmount(id);
+    const closureVersion = this.source.closure?.requires(input) ? 1 : undefined;
     const evidence = await this.source.purchase(input, this.store.profile);
     bytes32(evidence.receiptHash);
     const expectedMode =
@@ -215,11 +251,13 @@ export class RewardOffers {
         input.purchaseHash,
         JSON.stringify(input.ticketIds),
         hash,
-        JSON.stringify(
-          input.resultSources === undefined
-            ? evidence
-            : { ...evidence, resultSources: input.resultSources },
-        ),
+        JSON.stringify({
+          ...evidence,
+          ...(input.resultSources === undefined
+            ? {}
+            : { resultSources: input.resultSources }),
+          ...(closureVersion === undefined ? {} : { closureVersion }),
+        }),
       );
       return {
         value: {
@@ -258,7 +296,16 @@ export class RewardOffers {
       "reward_offer_input_changed",
       503,
     );
-    const candidates = await this.source.qualifiers(input);
+    const closure = this.source.closure;
+    const required = requiresRewardClosure(stored);
+    insist(!required || closure, "reward_closure_unavailable", 503);
+    const scanned = required
+      ? await closure!.scan(offerInput(input), stored.input_hash)
+      : null;
+    if (scanned)
+      checkRewardClosureEvidence(offerInput(input), scanned.evidence);
+    const candidates =
+      scanned?.entries ?? (await this.source.qualifiers(input));
     insist(
       candidates.length <= MAX_QUALIFIER_RESULTS,
       "reward_entry_limit",
@@ -268,6 +315,12 @@ export class RewardOffers {
       const row = await this.store.offer(id);
       if (row.state !== "open")
         return { value: offerView(row), statements: [] };
+      insist(
+        row.input_hash === stored.input_hash &&
+          row.purchase_evidence === stored.purchase_evidence,
+        "reward_offer_input_changed",
+        503,
+      );
       // Repeated results collapse to each account's earliest one before any
       // limit applies, so one account cannot crowd others out.
       const earliest = new Map<string, QualificationEntry>();
@@ -307,8 +360,11 @@ export class RewardOffers {
         )
         .slice(0, MAX_REWARD_ENTRIES)
         .sort((a, b) => a.accountId.localeCompare(b.accountId));
-      for (let i = 0; i < sorted.length; i += 90) {
-        const chunk = sorted.slice(i, i + 90);
+      const currentBindings = sorted.filter(
+        (entry) => !scanned?.captured.has(hashJson(entry)),
+      );
+      for (let i = 0; i < currentBindings.length; i += 90) {
+        const chunk = currentBindings.slice(i, i + 90);
         const bound = await this.store
           .statement(
             `SELECT account_id,subject FROM credential_bindings WHERE namespace='moss' AND network=6343 AND account_id IN (${chunk.map(() => "?").join(",")})`,
@@ -325,6 +381,14 @@ export class RewardOffers {
             409,
           );
       }
+      const snapshot: RewardClosureSnapshot | null = scanned && {
+        schema: "pirate.reward-closure/1",
+        programId: this.store.program,
+        inputHash: row.input_hash,
+        entriesHash: hashJson(sorted),
+        evidence: scanned.evidence,
+      };
+      if (snapshot) await closure!.verify(offerInput(input), snapshot.evidence);
       return {
         value: { ...offerView(row), state: "closed" as const, entries: sorted },
         statements: [
@@ -334,12 +398,24 @@ export class RewardOffers {
             this.store.program,
             id,
           ),
+          ...(snapshot
+            ? [
+                this.store.statement(
+                  "INSERT INTO reward_closure_snapshots(program_id,offer_id,snapshot_json,snapshot_hash) VALUES(?,?,?,?)",
+                  this.store.program,
+                  id,
+                  JSON.stringify(snapshot),
+                  hashJson(snapshot),
+                ),
+              ]
+            : []),
         ],
       };
     });
   }
   async settle(id: string, claimHash?: string) {
-    const input = offerView(await this.store.offer(rewardId(id)));
+    const stored = await this.store.offer(rewardId(id));
+    const input = offerView(stored);
     // A rehearsal ID that names an offer attached with real evidence would
     // route its settlement to the simulated prize; only that offer is refused.
     insist(
@@ -361,6 +437,7 @@ export class RewardOffers {
     }
     if (input.state === "settled" || input.state === "no_prize") return input;
     insist(input.state !== "open", "reward_entries_not_closed", 409);
+    await verifyStoredRewardClosure(this.store, this.source, stored);
     if (claimHash) bytes32(claimHash);
     const observed = await this.source.winnings(
       input,
@@ -414,6 +491,7 @@ export class RewardOffers {
         "reward_entries_not_closed",
         409,
       );
+      await verifyStoredRewardClosure(this.store, this.source, row);
       const entries: QualificationEntry[] = JSON.parse(row.entries_json);
       const share = entries.length ? payout / BigInt(entries.length) : 0n;
       const remainder = payout - share * BigInt(entries.length);
