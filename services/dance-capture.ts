@@ -1,112 +1,135 @@
 import { bytes32, insist, token } from "../packages/community/common.ts";
-import {
-  REVIEW_WINDOW_MS,
-  type DanceCapture,
-  type DancePorts,
+import type {
+  DanceCapture,
+  DanceConsentAcceptance,
+  DancePorts,
+  DanceSelection,
 } from "../packages/dance/contracts.ts";
-import { DanceStore, DANCE_DB_NOW } from "../packages/dance/store.ts";
+import type { DanceRepository } from "../packages/dance/repository.ts";
+import { DanceStore } from "../packages/dance/store.ts";
 import {
   danceId,
   mediaBinding,
+  sameCapturedPrincipal,
   validateCapture,
+  validateConsent,
   validateMedia,
 } from "../packages/dance/validation.ts";
 import { DancePermissions } from "./dance-authority.ts";
-
 export class DanceCaptureService {
-  readonly store: DanceStore;
   readonly permissions: DancePermissions;
+  readonly store: DanceRepository;
   readonly ports: DancePorts;
   readonly communityId: string;
-  constructor(db: D1Database, ports: DancePorts, communityId: string) {
-    bytes32(communityId);
-    this.store = new DanceStore(db);
+  constructor(store: DanceRepository, ports: DancePorts, communityId: string) {
+    this.store = store;
     this.ports = ports;
     this.communityId = communityId;
-    this.permissions = new DancePermissions(this.store, ports, communityId);
+    bytes32(communityId);
+    this.permissions = new DancePermissions(store, ports, communityId);
   }
   async capture(
     actor: string,
     commandId: string,
-    selection: {
-      songKey: string;
-      offerId: string | null;
-      referenceId: string | null;
-    },
+    selection: DanceSelection,
+    acceptance: DanceConsentAcceptance,
   ): Promise<DanceCapture> {
     danceId(actor);
     danceId(commandId);
     bytes32(selection.songKey);
-    if (selection.offerId !== null) danceId(selection.offerId);
-    if (selection.referenceId !== null) danceId(selection.referenceId);
-    const f = await this.permissions.facts(actor, actor);
-    const hash = DanceStore.request("capture", selection);
-    const find = () =>
-      this.store
-        .stmt(
-          `SELECT request_hash,capture_json FROM dance_captures
-      WHERE community_id=? AND account_id=? AND command_id=?`,
-          this.communityId,
-          actor,
-          commandId,
-        )
-        .first<{ request_hash: string; capture_json: string }>();
-    const prior = await find();
-    if (prior) {
-      insist(prior.request_hash === hash, "dance_idempotency_conflict", 409);
-      await this.store.atomic([f.fence], []);
-      return JSON.parse(prior.capture_json);
+    const f = await this.permissions.facts(actor, actor),
+      hash = DanceStore.request("capture", { selection, acceptance });
+    const prior = await this.store.findCapture(
+      this.communityId,
+      actor,
+      commandId,
+      hash,
+    );
+    if (prior?.consent) {
+      sameCapturedPrincipal(f.actor, prior.learner);
+      validateConsent(acceptance, prior.consent);
+      await this.store.assert([f.fence, await this.ports.authorization(prior)]);
+      return prior;
     }
     const admitted = await this.ports.admitCapture(
       this.communityId,
       actor,
       selection,
     );
-    const c: DanceCapture = { ...admitted.capture, captureId: token() };
-    validateCapture(c);
     insist(
-      c.communityId === this.communityId &&
-        c.accountId === actor &&
-        c.identityId === f.actor.identityId &&
-        c.accountRevision === f.actor.revision &&
-        c.wallet === f.actor.wallet &&
-        c.songKey === selection.songKey &&
-        (c.offer?.offerId ?? null) === selection.offerId &&
-        (c.reference?.id ?? null) === selection.referenceId,
-      "dance_capture_binding_mismatch",
+      admitted.consentPolicy.admission === "admitted",
+      "dance_terms_admission_held",
       409,
     );
-    try {
-      await this.store.atomic(
-        [
-          f.fence,
-          admitted.fence,
-          { sql: `${DANCE_DB_NOW} < ?`, values: [c.expiresAtMs] },
-        ],
-        [
-          this.store.stmt(
-            `INSERT INTO dance_captures VALUES(?,?,?,?,?,?,${DANCE_DB_NOW})`,
-            c.captureId,
-            this.communityId,
-            actor,
-            commandId,
-            hash,
-            JSON.stringify(c),
-          ),
-        ],
-      );
-      return c;
-    } catch (error) {
-      const recovered = await find();
-      if (!recovered) throw error;
+    validateConsent(acceptance, admitted.consentPolicy);
+    const complete = async (c: DanceCapture) => {
       insist(
-        recovered.request_hash === hash,
-        "dance_idempotency_conflict",
+        acceptance.termsHash === c.termsHash &&
+          admitted.capture.source.policyHash === c.source.policyHash,
+        "dance_consent_binding_mismatch",
         409,
       );
       const current = await this.permissions.facts(actor, actor);
-      await this.store.atomic([current.fence], []);
-      return JSON.parse(recovered.capture_json);
+      sameCapturedPrincipal(current.actor, c.learner);
+      const accepted = await this.store.acceptConsent(
+        c,
+        acceptance,
+        commandId,
+        [current.fence, admitted.fence, await this.ports.authorization(c)],
+      );
+      validateCapture(accepted);
+      return accepted;
+    };
+    if (prior) return complete(prior);
+    const reserved = {
+      ...admitted.capture,
+      captureId: token(),
+      reservedAtMs: await this.store.now(),
+    };
+    if (reserved.offer)
+      insist(
+        reserved.offer.offerIdCommitment ===
+          (await this.ports.offerIdCommitment(
+            reserved.offer.offerId,
+            reserved.source,
+          )),
+        "dance_offer_id_commitment_mismatch",
+        409,
+      );
+    sameCapturedPrincipal(f.actor, reserved.learner);
+    insist(
+      reserved.communityId === this.communityId &&
+        reserved.songKey === selection.songKey &&
+        (reserved.offer?.offerId ?? null) === selection.offerId &&
+        (reserved.reference?.id ?? null) === selection.referenceId &&
+        reserved.expected.ownerEpoch === f.owner.epoch &&
+        reserved.expected.configurationRevision ===
+          f.epochs.configurationRevision,
+      "dance_capture_binding_mismatch",
+      409,
+    );
+    const c: DanceCapture = {
+      ...reserved,
+      captureHash: bytes32(await this.ports.captureCommitment(reserved)),
+      consent: null,
+    };
+    validateCapture(c, false);
+    try {
+      // Freeze IDs/context/reservedAt FIRST, then accept exact versioned consent.
+      await this.store.reserveCapture(c, actor, commandId, hash, [
+        f.fence,
+        admitted.fence,
+      ]);
+      return await complete(c);
+    } catch (e) {
+      const recovered = await this.store.findCapture(
+        this.communityId,
+        actor,
+        commandId,
+        hash,
+      );
+      if (recovered) return complete(recovered);
+      throw e;
     }
   }
   protected async recovery(
@@ -115,9 +138,9 @@ export class DanceCaptureService {
     hash: string,
     reviewId: string,
   ) {
-    const r = await this.store.review(reviewId);
-    const read = await this.permissions.read(actor, r);
-    await this.store.atomic(read.fences, []);
+    const r = await this.store.review(reviewId),
+      access = await this.permissions.read(actor, r);
+    await this.store.assert(access.fences);
     return this.store.receipt(this.communityId, actor, command, hash);
   }
   async submit(
@@ -125,90 +148,94 @@ export class DanceCaptureService {
     commandId: string,
     captureId: string,
     mediaId: string,
+    recordingSha256: string,
   ) {
     [actor, commandId, captureId, mediaId].forEach(danceId);
+    bytes32(recordingSha256);
     const c = await this.store.capture(captureId);
     insist(
-      c.communityId === this.communityId && c.accountId === actor,
+      c.communityId === this.communityId && c.learner.accountId === actor,
       "dance_not_found",
       404,
     );
-    const f = await this.permissions.facts(actor, actor);
-    const hash = DanceStore.request("submit", { captureId, mediaId });
+    const hash = DanceStore.request("submit", {
+      captureId,
+      mediaId,
+      recordingSha256,
+    });
     const prior = await this.store.receipt(
       this.communityId,
       actor,
       commandId,
       hash,
     );
-    if (prior) return this.recovery(actor, commandId, hash, captureId);
+    const complete = async () => {
+      const result = await this.recovery(actor, commandId, hash, captureId);
+      insist(result, "dance_outcome_unknown", 503);
+      const review = await this.store.review(captureId);
+      await this.store.ensureSubmissionOutbox(review, commandId);
+      return result;
+    };
+    if (prior) return complete();
+    const f = await this.permissions.facts(actor, actor);
+    sameCapturedPrincipal(f.actor, c.learner);
+    validateCapture(c);
     insist(
-      c.accountRevision === f.learner.revision &&
-        c.identityId === f.learner.identityId,
-      "dance_capture_authorization_changed",
-      403,
+      (await this.store.now()) < c.expiresAtMs,
+      "dance_capture_expired",
+      410,
     );
-    const m = await this.ports.media(mediaId, mediaBinding(c), actor);
-    validateMedia(c, m);
-    insist(m.id === mediaId, "dance_media_binding_mismatch", 409);
-    const created = await this.store
-      .stmt(
-        "SELECT created_at_ms FROM dance_captures WHERE capture_id=?",
-        captureId,
-      )
-      .first<{ created_at_ms: number }>();
-    insist(
-      created && m.uploadedAtMs >= created.created_at_ms,
-      "dance_recording_predates_capture",
-      409,
-    );
-    const deadline = m.uploadedAtMs + REVIEW_WINDOW_MS;
-    const rules = await this.ports.rules(c);
-    try {
-      await this.store.atomic(
-        [
-          f.fence,
-          m.fence,
-          rules,
-          {
-            sql: `${DANCE_DB_NOW} >= ? AND ${DANCE_DB_NOW} < ? AND ${DANCE_DB_NOW} < ? AND ${DANCE_DB_NOW} < ?`,
-            values: [m.uploadedAtMs, c.expiresAtMs, m.expiresAtMs, deadline],
-          },
-        ],
-        [
-          this.store.stmt(
-            `INSERT INTO dance_reviews
-        (review_id,community_id,account_id,media_id,media_revision,recording_digest,
-         uploaded_at_ms,submitted_at_ms,deadline_ms,state)
-        VALUES(?,?,?,?,?,?,?,${DANCE_DB_NOW},?,'pending')`,
-            captureId,
-            this.communityId,
-            actor,
-            mediaId,
-            m.revision,
-            m.recordingSha256,
-            m.uploadedAtMs,
-            deadline,
-          ),
-          this.store.saveReceipt(
-            this.communityId,
-            actor,
-            commandId,
-            hash,
-            captureId,
-          ),
-        ],
+    const binding = mediaBinding(c, recordingSha256);
+    const ready = await this.ports.media.readyForSubmission(mediaId, binding, {
+      accountId: actor,
+    });
+    validateMedia(binding, ready.media);
+    insist(ready.media.id === mediaId, "dance_media_binding_mismatch", 409);
+    this.ports.media.projectDanceMedia(ready.media, ready.witness);
+    const rules = await this.ports.rules(c),
+      commitment = bytes32(
+        await this.ports.mediaBindingHash({
+          source: c.source,
+          captureHash: c.captureHash,
+          mediaId,
+          expectedPostRetentionGeneration: ready.witness.revision + 1,
+          recordingSha256,
+        }),
       );
-    } catch (error) {
-      const recovered = await this.recovery(
+    try {
+      await this.store.acceptSubmission({
+        capture: c,
+        media: binding,
+        witness: ready.witness,
+        commandId,
+        requestHash: hash,
+        bindingCommitment: commitment,
+        fences: [
+          f.fence,
+          rules,
+          await this.ports.authorization(c),
+          this.ports.media.commitFence(ready.witness),
+        ],
+        mediaPort: this.ports.media,
+      });
+      const result = await complete(),
+        fresh = await this.ports.media.readyForSubmission(mediaId, binding, {
+          accountId: actor,
+        });
+      this.ports.media.projectDanceSubmission(
+        this.ports.media.projectDanceMedia(fresh.media, fresh.witness),
+        (await this.store.review(captureId)).receipt,
+      );
+      return result;
+    } catch (e) {
+      const recovered = await this.store.receipt(
+        this.communityId,
         actor,
         commandId,
         hash,
-        captureId,
-      ).catch(() => null);
-      if (recovered) return recovered;
-      throw error;
+      );
+      if (recovered) return complete();
+      throw e;
     }
-    return this.recovery(actor, commandId, hash, captureId);
   }
 }

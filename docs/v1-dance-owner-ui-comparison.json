@@ -1,0 +1,231 @@
+{
+  "version": 1,
+  "authority": "/home/t42/Documents/agents/handoffs/pirate-v1-testnet-handoff-2026-11-10/parallel-execution/owner-ui-direction-20261110.json",
+  "authoritySha256": "285ce0f88f238ebcaa9b8a17c241e0b73cecae03e84aa3f81683167990829558",
+  "referenceRepository": "pirate-web-solid",
+  "referenceCommit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+  "observedHead": "667a6f22325cc7dd07ed7bcdfc088864e519f71d",
+  "allListedFilesIdenticalAtPinHeadAndWorkingFile": true,
+  "evidenceLevel": "Exact Git object and Storybook source/interaction comparison; stories were read, not executed or visually accepted",
+  "sourcePins": [
+    {
+      "path": "src/features/dance/dance-song-page.stories.tsx",
+      "gitBlob": "f9d8241abd89251a25d1fcfcd877972c0433ad2c",
+      "sha256": "5ca3044d4b7ac26959ba5748cb5d8faa4af52c940ac17e4a64ac00fb1f96cf15",
+      "lines": 116,
+      "comparisonLines": {
+        "ChooseAndFrame": [35],
+        "NoPoseCamera": [8, 17, 43],
+        "RecordAndReview": [52],
+        "SavedOriginal": [61],
+        "AlreadyWaiting": [69],
+        "OwnerCannotRecord": [73],
+        "PermissionRefused": [77],
+        "FundedObjectiveAcceptance": [85],
+        "SlowProcessing": [99]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/dance/dance-recorder-panel.tsx",
+      "gitBlob": "8d09423b5a209cf71867b021fd779b60129c4ba5",
+      "sha256": "328783aee0d266c165ca59b9ec34975b3d0ffcf3c617f4126d040901721d6fbf",
+      "lines": 131,
+      "comparisonLines": {
+        "export function DanceRecorderPanel": [17],
+        "OriginalVideoCaptureSurface title=": [116],
+        "<DanceReviewPage": [127]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/dance/dance-review-page.tsx",
+      "gitBlob": "399827aa202a5bcfe9d7c481f0bac4903e9af1dc",
+      "sha256": "6dcedfdedc5d5a0026bba0f75170052955b4ebcf86dc9a55c09a98b6ec12a4e9",
+      "lines": 272,
+      "comparisonLines": {
+        "const scheduleObservation": [67],
+        "const observe =": [76],
+        "return <main": [213],
+        "<ActionFooterShell": [215],
+        "<details class=": [255],
+        "<Modal open=": [260]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/dance/dance-review-page.stories.tsx",
+      "gitBlob": "05a9205baaeda33c1d6c0a0f56a555bfddc2589c",
+      "sha256": "53dce625f33ff8d065681faafdb5aa2d712784ff576c7097e7edd3dc1228cfbd",
+      "lines": 90,
+      "comparisonLines": {
+        "ReadyToSubmit": [31],
+        "SubmitPrivately": [35],
+        "ChangePendingChoice": [42],
+        "CancelPendingReview": [50],
+        "RecoverLostSubmit": [58],
+        "VerifyBeforePublicSubmission": [67],
+        "PostingAccessUnknown": [80]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/dance/dance-owner-page.tsx",
+      "gitBlob": "99eac94ad9bef298d33c3d68b0457c63df6b75a1",
+      "sha256": "5f2710a2906275c347070da2d14efb416e679213dbbb1a503343ced8e3c684db",
+      "lines": 172,
+      "comparisonLines": {
+        "return <main": [123],
+        "<Show when={queue()}": [129],
+        "No opening cue is required": [150],
+        "<Show when={receipt.outcome": [161],
+        "Back to reviews": [166]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/dance/dance-owner-page.stories.tsx",
+      "gitBlob": "7732bd3e63c3c18fcd39494e17a6756c23704682",
+      "sha256": "b30105345ea8df9f0c1b0238019fa179b3d788a35447c1a89fd3e65033a439ea",
+      "lines": 25,
+      "comparisonLines": {
+        "Queue": [16],
+        "CapturedRubric": [17],
+        "Pass:": [18],
+        "NotPassed": [19],
+        "RecoverLostVerdict": [20],
+        "NoPoseRubric": [21]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "src/features/posts/post-composer/video-original-audio-surface.tsx",
+      "gitBlob": "2b1fc38d138b002a75d2d72cd299c531d8cf6a20",
+      "sha256": "a4914e21cbc739b146079645d0ddd072ca6c6e4259d9b92ebeef271bcab71d7b",
+      "lines": 370,
+      "comparisonLines": {
+        "export function OriginalVideoCaptureSurface": [61],
+        "Camera or microphone access is off.": [81],
+        "This browser can\u2019t record video.": [92]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "packages/solid-ui/src/patterns/layout/action-footer-shell/action-footer-shell.tsx",
+      "gitBlob": "5b287ee701a7f0cdbdb1f6bc074034e6423bc890",
+      "sha256": "32a53ecfa417ac2dc2c3cdaec6066f1079f9aa0cbe586ea1fd34b477d65f047f",
+      "lines": 84,
+      "comparisonLines": {
+        "export function ActionFooterShell": [36]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "packages/solid-ui/src/patterns/layout/action-footer-shell/action-footer-shell.stories.tsx",
+      "gitBlob": "c361aab889b413f8d2d7be33940497cffb16e59b",
+      "sha256": "f05b773a9cba6ed4b117d4f7020b10da0d984aae51e532c65713e7a505716f14",
+      "lines": 112,
+      "comparisonLines": {
+        "ShortViewport": [87],
+        "Mobile:": [97]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "packages/solid-ui/src/patterns/navigation/mobile-page-header/mobile-page-header.tsx",
+      "gitBlob": "2ba7b664b36c4854366ad02c3dd5fdd61d803a29",
+      "sha256": "126d387bb9c2d30772dd40baf11bad333581e609c1cccab4ba2cddb4de92fcb7",
+      "lines": 84,
+      "comparisonLines": {
+        "export function MobilePageHeader": [33]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "packages/solid-ui/src/patterns/navigation/mobile-page-header/mobile-page-header.stories.tsx",
+      "gitBlob": "ce1975b87030ec5f78d499fac1856cc0dc26c8ba",
+      "sha256": "7741162bc7d85923831d63c33192890c34f3b784e8f5685a994240e5a9fca911",
+      "lines": 61,
+      "comparisonLines": {
+        "export const Default": [37],
+        "CloseAndAction": [45]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    },
+    {
+      "path": "packages/solid-ui/src/patterns/overlays/modal/modal.tsx",
+      "gitBlob": "476f95060adb894cb129e6e8bc478fc60c3b35ed",
+      "sha256": "20a48557b4fdc717f2716099184f1932817e0ed85e241bace5872cdf5322928f",
+      "lines": 192,
+      "comparisonLines": {
+        "export function Modal(": [57],
+        "export function ModalContent": [91]
+      },
+      "identicalAtObservedHeadAndWorkingFile": true
+    }
+  ],
+  "comparisons": [
+    {
+      "stories": [
+        "Flows/Dance/Recording: ChooseAndFrame, NoPoseCamera, RecordAndReview"
+      ],
+      "reference": "Open selected dance \u2192 Do this dance \u2192 camera \u2192 explicit take review. RecordAndReview explicitly rejects a Check recording step.",
+      "consumer": "DancePanel starts with an already selected reference/song supplied by the host, reuses the exact source3 CaptureSurface and RecordingReviewSurface; no pose, upload alternative, extra check or ready-take Record again action.",
+      "ownershipLimit": "Song/reference selection and route/entry mounts remain root/shell integration. Do not invent another chooser in this component."
+    },
+    {
+      "stories": [
+        "Screens/Dance/Recording review: ReadyToSubmit, SubmitPrivately, RecoverLostSubmit"
+      ],
+      "reference": "Playable take, Your recording compact header, pinned Submit for review footer; uncertain response exposes Resume submission with original identity.",
+      "consumer": "Pinned source3 port supplies actual preview/review surface. IndexedDB reserves the exact command before dispatch and reload replays it. Explicit Submit remains separate from recording.",
+      "departure": "Show publicly if it passes and publication-choice operations remain absent because owner public-posting policy is denied; no Dance pass changes private audience."
+    },
+    {
+      "stories": [
+        "Screens/Dance/Recording review: SubmitPrivately, ChangePendingChoice, CancelPendingReview"
+      ],
+      "reference": "Submission remains in Your recording with Waiting for review, deadline, Done, Recording options and cancel confirmation. Pending reads run every 3 seconds, pause hidden, rest after 90 attempts and resume on return/online.",
+      "consumer": "reference-recording-status.tsx adopts the pure review branch using the pinned ActionFooterShell, MobilePageHeader, Type, Button and Modal. review-observer.ts adopts bounded visible-page reads. No extra result route, manual refresh step during normal observation or publication-choice control.",
+      "departure": "Cancel confirmation truthfully stops local private access/new dispatch; it cannot promise cancellation of an already broadcast canonical decision. Confirmed cancellation clears private state. Unknown responses preserve original command recovery."
+    },
+    {
+      "stories": [
+        "Flows/Dance/Recording: PermissionRefused, SavedOriginal, SlowProcessing"
+      ],
+      "reference": "Actual permission/refusal/recovery and processing states; saved originals resume without starting another recording.",
+      "consumer": "Existing CaptureSurface status/notice props retain the capture renderer with the recorder\u2019s Dance-specific permission/capability copy. Source3 removes generic composer upload alternatives when allowUpload=false. The producer owns camera/processing/player behavior. Consumer distinguishes definite canceled/expired capture from uncertain accepted submission and clears private state on 401/403.",
+      "limit": "No browser, real camera, media processing or persistence-reload runtime proof is claimed in this round; combined producer integration remains held."
+    },
+    {
+      "stories": [
+        "Screens/Dance/Owner review: Queue, CapturedRubric, NoPoseRubric, Pass, NotPassed, RecoverLostVerdict"
+      ],
+      "reference": "Queue \u2192 Review recording \u2192 private playback + selected reference + frozen What to review/interval/inspection copy \u2192 Pass or Not passed; Back to reviews belongs only to detail.",
+      "consumer": "reference-owner-surface.tsx retains these pure branches and pinned Button/Type. Exact reference/player comes through the media port; no pose cue is added. Queue access failures skip/report rows and retain continuation. Back to reviews is hidden on the queue.",
+      "departure": "A local accepted command is Decision pending, not Decision recorded. Only actual reconciled canonical evidence supplies final verdict/time. Same-account/wallet/known-alias checks replace centralized persona/session authority without claiming human uniqueness."
+    },
+    {
+      "stories": [
+        "Patterns/Layout/ActionFooterShell: ShortViewport, Mobile",
+        "Patterns/Navigation/MobilePageHeader: Default"
+      ],
+      "reference": "Scrolling body with pinned footer, full viewport, compact fixed header/back callback.",
+      "consumer": "Uses the existing @pirate/web-solid-ui c7cb8783 vendored primitives without local reimplementation. Source3 capture/review pins are unchanged.",
+      "limit": "Source and type comparison only; viewport, a11y, visual and hydration acceptance await browser slot."
+    }
+  ],
+  "backendDrivenDepartures": [
+    "Community-local authenticated APIs, MOSS and authority adapters remain decentralized. No centralized auth, API client, persona runtime, router or workspace import is adopted.",
+    "Consent is versioned/bound to the sealed reservation before recording/file acceptance, within the existing capture notice and Record action. Live terms admission is held; no new speculative acceptance screen or public consent control is added.",
+    "V5 local decision intent/outbox and separately verified canonical event seconds replace centralized applied-at verdict semantics. Final ABI/hash/source admission and activation remain held.",
+    "Private access is rechecked on every media GET/HEAD/range. A witness is not a playback capability. Host mounts must compose Dance.inspect and supply current authority/identity handling; no media URL enters the journal.",
+    "Owner queue buttons call the host controller instead of centralized router links. The same queue/detail interaction is retained; root owns final routes and navigation."
+  ],
+  "remainingAcceptance": [
+    "Root mount preserves centralized selection/Do this dance entry without duplicating it and composes actual media/camera/review ports.",
+    "Root supplies current community session/identity handling and browser private-page lifecycle, including pagehide/back-forward-cache restoration, at the admitted mount.",
+    "Deferred combined D1/Worker/browser tests cover preview/submit/resume/cancel, 401/403 cleanup, all private byte routes, permissions, visibility/restoration, mobile footer, focus and no-pose rubric.",
+    "Actual canonical verifier/ABI/source and terms/public capability policy acceptance are separate held gates."
+  ]
+}

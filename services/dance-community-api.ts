@@ -15,6 +15,8 @@ import {
 import type { DancePorts } from "../packages/dance/contracts.ts";
 import { danceId } from "../packages/dance/validation.ts";
 import { DanceReviewService } from "./dance-review.ts";
+import { DanceStore } from "../packages/dance/store.ts";
+import { decodeDanceDecision } from "../packages/dance/commands.ts";
 
 export interface DanceCommunityPorts {
   db: D1Database;
@@ -38,7 +40,7 @@ export async function danceCommunityApi(
   if (expected !== null)
     insist(expected === session.account_id, "dance_account_changed", 409);
   const api = new DanceReviewService(
-      ports.db,
+      new DanceStore(ports.db),
       ports.dance,
       context.communityId,
     ),
@@ -62,24 +64,38 @@ export async function danceCommunityApi(
   insist(request.method === "POST", "method_not_allowed", 405);
   const body = object(await jsonBody(request));
   if (url.pathname === "/api/dance/captures") {
-    exact(body, ["commandId", "songKey", "offerId", "referenceId"]);
+    exact(body, ["commandId", "songKey", "offerId", "referenceId", "consent"]);
+    const consent = object(body.consent);
+    exact(consent, ["accepted", "version", "termsHash", "publicityPolicyHash"]);
+    insist(consent.accepted === true, "dance_consent_required", 403);
     return reply(
-      await api.capture(actor, danceId(body.commandId), {
-        songKey: text(body.songKey, 128),
-        offerId: body.offerId === null ? null : danceId(body.offerId),
-        referenceId:
-          body.referenceId === null ? null : danceId(body.referenceId),
-      }),
+      await api.capture(
+        actor,
+        danceId(body.commandId),
+        {
+          songKey: text(body.songKey, 128),
+          offerId: body.offerId === null ? null : danceId(body.offerId),
+          referenceId:
+            body.referenceId === null ? null : danceId(body.referenceId),
+        },
+        {
+          accepted: true,
+          version: text(consent.version, 128),
+          termsHash: text(consent.termsHash, 128),
+          publicityPolicyHash: text(consent.publicityPolicyHash, 128),
+        },
+      ),
     );
   }
   if (url.pathname === "/api/dance/reviews") {
-    exact(body, ["commandId", "captureId", "mediaId"]);
+    exact(body, ["commandId", "captureId", "mediaId", "recordingSha256"]);
     return reply(
       await api.submit(
         actor,
         danceId(body.commandId),
         danceId(body.captureId),
         danceId(body.mediaId),
+        text(body.recordingSha256, 128),
       ),
     );
   }
@@ -108,13 +124,16 @@ export async function danceCommunityApi(
     const revision = integer(body.revision, 1, Number.MAX_SAFE_INTEGER),
       command = danceId(body.commandId);
     if (match[2] === "verdict") {
-      exact(body, ["commandId", "revision", "verdict"]);
-      insist(
-        body.verdict === "passed" || body.verdict === "not_passed",
-        "dance_verdict_invalid",
-      );
+      const decoded = decodeDanceDecision(body);
       return reply(
-        await api.decide(actor, command, match[1], revision, body.verdict),
+        await api.decide(
+          actor,
+          decoded.commandId,
+          match[1],
+          decoded.revision,
+          decoded.verdict,
+          decoded.consentVersion,
+        ),
       );
     }
     exact(body, ["commandId", "revision"]);

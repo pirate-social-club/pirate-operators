@@ -1,312 +1,404 @@
-/** Explicit external authority/media models; SQL transactions are real D1. */
-import { readFile } from "node:fs/promises";
-import { Miniflare } from "miniflare";
-import type {
-  DanceCapture,
-  DancePorts,
-  DancePrincipal,
-  DanceReadyMedia,
+/** Pure modeled authority/media/canonical ports. No process, D1 or provider. */
+import { hashJson, insist } from "../packages/community/common.ts";
+import {
+  DANCE_VERSION,
+  DANCE_PRIVATE_MEDIA_POLICY,
+  type DanceAuthority,
+  type DanceCapture,
+  type DancePrincipal,
+  type DancePorts,
+  type DanceReadyMedia,
+  type DanceCanonicalEvidence,
+  type DanceDecisionIntent,
+  type DanceFence,
 } from "../packages/dance/contracts.ts";
-import { DANCE_VERSION } from "../packages/dance/contracts.ts";
-import { DANCE_DB_NOW } from "../packages/dance/store.ts";
 import { DanceReviewService } from "../services/dance-review.ts";
-import { insist } from "../packages/community/common.ts";
-
-export const dh = (n: number) => `0x${n.toString(16).padStart(64, "0")}`;
-export async function danceFixture(options: { realClock?: boolean } = {}) {
-  const runtime = new Miniflare({
-    modules: true,
-    script: "export default {fetch(){return new Response('fixture')}}",
-    compatibilityDate: "2026-08-06",
-    d1Databases: ["DB"],
-  });
-  try {
-    const raw = await runtime.getD1Database("DB");
-    let now = 1_800_000_000_000;
-    const statements = new WeakMap<object, D1PreparedStatement>();
-    // Only the database clock is frozen for exact millisecond boundary proofs.
-    // Every condition, constraint, rollback and transaction runs in workerd D1.
-    const db = new Proxy(raw, {
-      get(target, key) {
-        if (key === "prepare")
-          return (sql: string) => {
-            const statement = target.prepare(
-              options.realClock
-                ? sql
-                : sql.replaceAll(DANCE_DB_NOW, String(now)),
-            );
-            const proxy = new Proxy(statement, {
-              get(t, k) {
-                if (k === "bind")
-                  return (...values: unknown[]) => {
-                    const bound = t.bind(...values);
-                    statements.set(bound, bound);
-                    return bound;
-                  };
-                const v = Reflect.get(t, k);
-                return typeof v === "function" ? v.bind(t) : v;
-              },
-            });
-            statements.set(proxy, statement);
-            return proxy;
-          };
-        if (key === "batch")
-          return (s: D1PreparedStatement[]) =>
-            target.batch(s.map((v) => statements.get(v) ?? v));
-        const v = Reflect.get(target, key);
-        return typeof v === "function" ? v.bind(target) : v;
+import { MemoryDanceStore } from "./dance-memory-store.ts";
+export const dh = (n: number) => "0x" + n.toString(16).padStart(64, "0");
+export const dw = (n: number) => "0x" + n.toString(16).padStart(40, "0");
+export function danceFixture() {
+  const store = new MemoryDanceStore(),
+    principals: Record<string, DancePrincipal> = {};
+  for (const [n, id] of [
+    "owner",
+    "learner",
+    "moderator",
+    "stranger",
+    "learner2",
+    "learner3",
+    "alternate",
+  ].entries())
+    principals[id] = {
+      accountId: id,
+      wallet: dw(n + 1),
+      active: true,
+      identityEpoch: 1,
+      groupId: "group_" + id,
+      groupEpoch: 1,
+      knownAliases: [id],
+      authorizationId: dh(n + 50),
+      accountCommitment: dh(n + 60),
+    };
+  const validAuthorizations = new Set(
+    Object.values(principals).map((p) => p.authorizationId),
+  );
+  let ownerEpoch = 1,
+    rulesRevision = 1,
+    sequence = 0,
+    termsAdmitted = true;
+  const delegates = new Set<string>(),
+    media = new Map<string, DanceReadyMedia>(),
+    deadMedia = new Set<string>(),
+    evidence = new Map<string, DanceCanonicalEvidence>();
+  const pin = {
+    chainId: 6343,
+    address: dw(20),
+    runtimeCodeHash: dh(21),
+    fromBlock: "1",
+    communityId: dh(1),
+    publisher: dw(22),
+    policyHash: dh(23),
+    sourceHash: dh(24),
+  };
+  const consent = {
+    accepted: true as const,
+    version: "dance-consent-proposed-v4",
+    termsHash: dh(5),
+    publicityPolicyHash: dh(25),
+  };
+  function fence(use: () => boolean): DanceFence {
+    const key = "modeled-fence-" + ++sequence;
+    store.checks.set(key, use);
+    return { sql: key, values: [] };
+  }
+  const currentMedia = (id: string) => {
+    const m = media.get(id);
+    insist(m && !deadMedia.has(id), "media_unavailable", 410);
+    const accepted = [...store.records.values()].find(
+      (r) => r.receipt.mediaId === id,
+    );
+    return accepted
+      ? {
+          ...m,
+          revision: accepted.receipt.mediaRevision,
+          expiresAt: accepted.receipt.reviewDeadlineMs,
+        }
+      : m;
+  };
+  const ready = async (id: string) => {
+    const m = currentMedia(id);
+    return {
+      media: structuredClone(m),
+      witness: {
+        id,
+        communityId: m.communityId,
+        accountId: m.accountId,
+        revision: m.revision,
+        recordingSha256: m.recordingSha256,
+        expiresAt: m.expiresAt,
       },
-    });
-    const sql = await readFile(
-      new URL("../packages/dance/schema.sql", import.meta.url),
-      "utf8",
-    );
-    await db.batch(
-      sql
-        .replace(/--[^\n]*/g, "")
-        .trim()
-        .split(/;\s*(?=CREATE|$)/)
-        .filter((s) => s.trim())
-        .map((s) => db.prepare(s)),
-    );
-    await db.batch([
-      db.prepare(
-        "CREATE TABLE fixture_authority(account_id TEXT PRIMARY KEY,identity_id TEXT,revision INTEGER,active INTEGER)",
-      ),
-      db.prepare(
-        "CREATE TABLE fixture_owner(community_id TEXT PRIMARY KEY,account_id TEXT,identity_id TEXT,assignment_id TEXT,revision INTEGER)",
-      ),
-      db.prepare(
-        "CREATE TABLE fixture_media(id TEXT PRIMARY KEY,revision INTEGER,state TEXT,community_id TEXT,digest TEXT)",
-      ),
-      db.prepare("CREATE TABLE fixture_rules(revision INTEGER)"),
-      db.prepare("INSERT INTO fixture_rules VALUES(1)"),
-      db.prepare(
-        "CREATE TABLE fixture_offer(revision INTEGER,admitted INTEGER,open INTEGER)",
-      ),
-      db.prepare("INSERT INTO fixture_offer VALUES(1,1,1)"),
-    ]);
-    const principals: Record<string, DancePrincipal> = {};
-    for (const [i, id] of [
-      "owner",
-      "learner",
-      "moderator",
-      "stranger",
-      "alternate",
-    ].entries()) {
-      principals[id] = {
-        accountId: id,
-        identityId: id === "alternate" ? "learner_identity" : `${id}_identity`,
-        active: true,
-        revision: 1,
-        wallet: `0x${(i + 10).toString(16).repeat(40).slice(0, 40)}`,
+    };
+  };
+  const ports: DancePorts = {
+    async authority(c, a, l) {
+      insist(c === dh(1), "dance_not_found", 404);
+      const ae = principals[a],
+        le = principals[l];
+      insist(ae && le, "dance_not_found", 404);
+      const actor = structuredClone(ae),
+        learner = structuredClone(le),
+        observed = ownerEpoch;
+      const f: DanceAuthority = {
+        actor,
+        learner,
+        owner: {
+          accountId: "owner",
+          wallet: principals.owner.wallet,
+          assignmentId: "assignment_" + ownerEpoch,
+          epoch: ownerEpoch,
+          expiresAtMs: store.time + 864000000,
+          canonicalAccepted: true,
+        },
+        epochs: {
+          configurationRevision: ownerEpoch,
+          rulesEpoch: 0,
+          mediaEpoch: 1,
+        },
+        reviewer: delegates.has(a)
+          ? {
+              delegationId: "grant_" + a,
+              ownerEpoch,
+              roleEpoch: 1,
+              expiresAtMs: store.time + 864000000,
+              canonicalAccepted: true,
+            }
+          : null,
+        fence: fence(
+          () =>
+            ownerEpoch === observed &&
+            hashJson(principals[a]) === hashJson(actor) &&
+            hashJson(principals[l]) === hashJson(learner),
+        ),
       };
-      await db
-        .prepare("INSERT INTO fixture_authority VALUES(?,?,1,1)")
-        .bind(id, principals[id].identityId)
-        .run();
-    }
-    await db
-      .prepare("INSERT INTO fixture_owner VALUES(?,?,?,?,1)")
-      .bind(dh(1), "owner", principals.owner.identityId, "assignment_1")
-      .run();
-    const media = new Map<string, DanceReadyMedia>();
-    let offerOpen = now - 1000,
-      offerCutoff = now + 100000;
-    const ports: DancePorts = {
-      async authority(community, actor, learner) {
-        const row = await db
-          .prepare("SELECT * FROM fixture_owner WHERE community_id=?")
-          .bind(community)
-          .first<{
-            account_id: string;
-            identity_id: string;
-            assignment_id: string;
-            revision: number;
-          }>();
-        insist(row, "fixture_wrong_community", 403);
-        const read = async (id: string) => {
-          const a = await db
-            .prepare("SELECT * FROM fixture_authority WHERE account_id=?")
-            .bind(id)
-            .first<{ identity_id: string; revision: number; active: number }>();
-          insist(a, "fixture_unknown_account", 403);
-          return {
-            ...principals[id],
-            identityId: a.identity_id,
-            active: !!a.active,
-            revision: a.revision,
-          };
-        };
-        const a = await read(actor),
-          l = await read(learner);
-        return {
-          actor: a,
-          learner: l,
-          owner: {
-            accountId: row.account_id,
-            identityId: row.identity_id,
-            assignmentId: row.assignment_id,
-          },
-          fence: {
-            sql: `EXISTS(SELECT 1 FROM fixture_owner WHERE community_id=? AND revision=?) AND
-            EXISTS(SELECT 1 FROM fixture_authority WHERE account_id=? AND identity_id=? AND revision=? AND active=1) AND
-            EXISTS(SELECT 1 FROM fixture_authority WHERE account_id=? AND identity_id=? AND revision=? AND active=1)`,
-            values: [
-              community,
-              row.revision,
-              actor,
-              a.identityId,
-              a.revision,
-              learner,
-              l.identityId,
-              l.revision,
-            ],
-          },
-        };
-      },
-      async admitCapture(community, actor, selection) {
-        const p = principals[actor];
-        const capture: Omit<DanceCapture, "captureId"> = {
+      return f;
+    },
+    async admitCapture(c, a, s) {
+      const capturedRule = rulesRevision;
+      return {
+        capture: {
           version: DANCE_VERSION,
-          communityId: community,
-          accountId: actor,
-          identityId: p.identityId,
-          accountRevision: p.revision,
-          wallet: p.wallet,
-          songKey: selection.songKey,
+          communityId: c,
+          learner: structuredClone(principals[a]),
+          songKey: s.songKey,
           songRevision: 1,
+          songDurationSamples: 4800000,
+          manifestSha256: dh(2),
           audioSha256: dh(3),
-          mediaPolicyVersion: "pirate.dance-private/1",
-          reference: null,
-          startSample: 0,
-          durationSamples: 10 * 48000,
-          policy: "moderator-review-policy-v2",
-          rulesHash: dh(4),
-          termsHash: dh(5),
-          rubricHash: dh(6),
-          expiresAtMs: Math.min(
-            now + 10000,
-            selection.offerId ? offerCutoff : now + 10000,
-          ),
-          offer: selection.offerId
+          mediaPolicyVersion: DANCE_PRIVATE_MEDIA_POLICY.version,
+          mediaPolicyHash: dh(4),
+          reference: s.referenceId
             ? {
-                offerId: selection.offerId,
-                inputHash: dh(7),
-                sourceId: dh(8),
-                opensAtMs: offerOpen,
-                cutoffAtMs: offerCutoff,
+                id: s.referenceId,
+                revision: 1,
+                epoch: 1,
+                segmentId: "segment_1",
+                segmentLayoutSha256: dh(7),
               }
             : null,
-        };
-        return {
-          capture,
-          fence: {
-            sql: "EXISTS(SELECT 1 FROM fixture_rules WHERE revision=1)",
-            values: [],
+          startSample: 0,
+          durationSamples: 480000,
+          policy: "moderator-review-policy-v2",
+          rulesHash: dh(6),
+          termsHash: dh(5),
+          rubricHash: dh(8),
+          rubricText: "Perform the selected whole dance.",
+          offer: s.offerId
+            ? {
+                offerId: s.offerId,
+                offerIdCommitment: dh(90),
+                inputHash: dh(9),
+                sourceHash: pin.sourceHash,
+                opensAtMs: store.time - 10000,
+                cutoffAtMs: store.time + 2 * 86400000,
+              }
+            : null,
+          expected: {
+            ownerEpoch,
+            configurationRevision: ownerEpoch,
+            rulesEpoch: 0,
+            mediaEpoch: 0,
           },
-        };
-      },
-      async media(id, _binding, _actor) {
-        const m = media.get(id);
-        insist(m, "fixture_media_missing", 404);
-        return m;
-      },
-      async rules() {
-        return {
-          sql: "EXISTS(SELECT 1 FROM fixture_rules WHERE revision=1)",
-          values: [],
-        };
-      },
-      async offer() {
-        const o = await db
-          .prepare("SELECT * FROM fixture_offer")
-          .first<{ revision: number; admitted: number; open: number }>();
-        insist(o, "fixture_offer_missing");
-        return {
-          admitted: !!o.admitted,
-          open: !!o.open,
-          inputHash: dh(7),
-          sourceId: dh(8),
-          fence: {
-            sql: "EXISTS(SELECT 1 FROM fixture_offer WHERE revision=?)",
-            values: [o.revision],
-          },
-        };
-      },
-    };
-    const service = new DanceReviewService(db, ports, dh(1));
-    let sequence = 0;
-    async function prepare(
-      options: { offer?: boolean; actor?: string; digest?: string } = {},
-    ) {
-      const actor = options.actor ?? "learner",
-        n = ++sequence;
-      const capture = await service.capture(actor, `capture_${n}`, {
-        songKey: dh(2),
-        offerId: options.offer === false ? null : "offer_1",
-        referenceId: null,
-      });
-      const id = `media_${n}`,
-        digest = options.digest ?? dh(n + 100);
-      await db
-        .prepare("INSERT INTO fixture_media VALUES(?,1,'ready',?,?)")
-        .bind(id, dh(1), digest)
-        .run();
-      const m: DanceReadyMedia = {
-        id,
-        revision: 1,
-        purpose: "private-review",
-        communityId: dh(1),
-        accountId: actor,
-        songKey: dh(2),
-        songRevision: 1,
-        audioSha256: dh(3),
-        mediaPolicyVersion: "pirate.dance-private/1",
-        recordingSha256: digest,
-        startSample: 0,
-        durationSamples: 10 * 48000,
-        uploadedAtMs: optionsRealNow(),
-        expiresAtMs: now + 8 * 86400000,
-        fence: {
-          sql: `EXISTS(SELECT 1 FROM fixture_media WHERE id=? AND revision=1 AND state='ready'
-          AND community_id=? AND digest=?)`,
-          values: [id, dh(1), digest],
+          source: pin,
+          expiresAtMs: store.time + 2 * 86400000,
         },
+        consentPolicy: {
+          ...consent,
+          text: "Proposed review consent, fixture only.",
+          admission: termsAdmitted ? "admitted" : "review_pending",
+        },
+        fence: fence(() => rulesRevision === capturedRule),
       };
-      media.set(id, m);
-      const receipt = await service.submit(
-        actor,
-        `submit_${n}`,
-        capture.captureId,
-        id,
+    },
+    media: {
+      version: "pirate.dance-media-port/1",
+      readyForSubmission: async (id, _b, a) => {
+        const r = await ready(id);
+        insist(a.accountId === r.media.accountId, "media_not_found", 404);
+        return r;
+      },
+      readyForReview: async (id, _b, a) => {
+        const r = await ready(id);
+        insist(a.accountId !== r.media.accountId, "dance_self_review", 403);
+        return r;
+      },
+      prepareMediaSubmission: (_w, _id, _binding, accepted) => {
+        insist(accepted.sql.length > 0, "actual_acceptance_fence_required");
+        return { beforeAcceptance: [], afterAcceptance: [] };
+      },
+      commitFence: (w) =>
+        fence(() => {
+          const m = currentMedia(w.id);
+          return (
+            m.revision === w.revision &&
+            m.recordingSha256 === w.recordingSha256 &&
+            store.time < m.expiresAt
+          );
+        }),
+      projectDanceMedia: (m, w) => {
+        insist(m.revision === w.revision, "media_witness_mismatch");
+        return {
+          ...m,
+          version: "pirate.community-media-dance/1",
+          purpose: "private-review",
+          readyAtMs: m.readyAt,
+          expiresAtMs: m.expiresAt,
+        };
+      },
+      projectDanceSubmission: (m, r) => {
+        insist(
+          m.revision === r.mediaRevision &&
+            m.expiresAtMs === r.reviewDeadlineMs &&
+            r.reviewDeadlineMs === r.trustedSubmittedAtMs + 604800000,
+          "media_dance_submission_mismatch",
+        );
+        return {
+          submissionId: r.submissionId,
+          bindingCommitment: r.bindingCommitment,
+          trustedSubmittedAtMs: r.trustedSubmittedAtMs,
+          reviewDeadlineMs: r.reviewDeadlineMs,
+        };
+      },
+    },
+    async rules() {
+      const revision = rulesRevision;
+      return fence(() => rulesRevision === revision);
+    },
+    async captureCommitment(c) {
+      return hashJson({ fixture: "ABI-not-implemented", c });
+    },
+    async mediaBindingHash(p) {
+      return hashJson({ fixture: "acyclic-ABI-preimage-only", p });
+    },
+    async reviewerRoleEpoch() {
+      return 0;
+    },
+    async offerIdCommitment() {
+      return dh(90);
+    },
+    async reviewerAuthorization(r) {
+      return fence(() => validAuthorizations.has(r.authorizationId));
+    },
+    reviewerConsent: {
+      version: "dance-reviewer-proposed-v5",
+      publicityPolicyHash: dh(25),
+      admission: "admitted",
+    },
+    async authorization(c) {
+      insist(
+        validAuthorizations.has(c.learner.authorizationId),
+        "dance_capture_authorization_changed",
+        403,
       );
-      return { capture, media: m, receipt, reviewId: capture.captureId };
-    }
-    function optionsRealNow() {
-      return options.realClock ? Date.now() : now;
-    }
+      return fence(() => validAuthorizations.has(c.learner.authorizationId));
+    },
+    async canonicalEvidence(i) {
+      return evidence.get(i.commandId) ?? null;
+    },
+  };
+  const service = new DanceReviewService(store, ports, dh(1));
+  async function prepare(
+    options: {
+      actor?: string;
+      offer?: boolean;
+      reference?: boolean;
+      delayMs?: number;
+      digest?: string;
+    } = {},
+  ) {
+    const actor = options.actor ?? "learner",
+      n = ++sequence;
+    const capture = await service.capture(
+      actor,
+      "capture_" + n,
+      {
+        songKey: dh(10),
+        offerId: options.offer === false ? null : "offer_01",
+        referenceId: options.reference ? "reference_1" : null,
+      },
+      consent,
+    );
+    const id = "media_" + n,
+      recordingSha256 = options.digest ?? dh(n + 100);
+    media.set(id, {
+      version: "pirate.community-media/1",
+      id,
+      revision: 1,
+      purpose: "private-review",
+      rendition: {
+        sha256: dh(99),
+        bytes: 1,
+        durationMs: 10000,
+        width: 1,
+        height: 1,
+        videoCodec: "h264",
+        audioCodec: "aac",
+      },
+      communityId: dh(1),
+      accountId: actor,
+      songKey: capture.songKey,
+      songRevision: 1,
+      audioSha256: dh(3),
+      mediaPolicyVersion: DANCE_PRIVATE_MEDIA_POLICY.version,
+      recordingSha256,
+      startSample: 0,
+      durationSamples: 480000,
+      readyAt: store.time,
+      expiresAt: store.time + 2 * 86400000,
+    });
+    store.time += options.delayMs ?? 0;
+    const receipt = await service.submit(
+      actor,
+      "submit_" + n,
+      capture.captureId,
+      id,
+      recordingSha256,
+    );
     return {
-      runtime,
-      db,
-      raw,
-      ports,
-      service,
-      principals,
-      media,
-      prepare,
-      now: () => now,
-      setNow: (n: number) => {
-        now = n;
-      },
-      setWindow: (opens: number, cutoff: number) => {
-        offerOpen = opens;
-        offerCutoff = cutoff;
-      },
-      dispose: () => runtime.dispose(),
+      capture,
+      mediaId: id,
+      recordingSha256,
+      receipt,
+      reviewId: capture.captureId,
     };
-  } catch (error) {
-    await runtime.dispose();
-    throw error;
   }
+  function canonical(
+    i: DanceDecisionIntent,
+    seconds = String(Math.floor(store.time / 1000)),
+  ): DanceCanonicalEvidence {
+    return {
+      version: "pirate.dance-verdict/1",
+      verification: "coordinator-validated/1",
+      commandId: i.commandId,
+      submissionId: i.preimage.submissionId,
+      intentIntegrityHash: i.localIntegrityHash,
+      commandHash: dh(70),
+      submissionHash: dh(71),
+      source: pin,
+      verdict: i.preimage.verdict,
+      committedAtSeconds: seconds,
+      transactionHash: dh(72),
+      transactionIndex: 0,
+      logIndex: 1,
+      blockNumber: "100",
+      blockHash: dh(73),
+      removed: false,
+      finality: "safe",
+      canonical: true,
+      evidenceHash: dh(74),
+    };
+  }
+  return {
+    store,
+    ports,
+    service,
+    principals,
+    validAuthorizations,
+    media,
+    deadMedia,
+    delegates,
+    evidence,
+    prepare,
+    canonical,
+    consent,
+    pin,
+    setOwner: () => {
+      ownerEpoch++;
+    },
+    setRules: () => {
+      rulesRevision++;
+    },
+    holdTerms: () => {
+      termsAdmitted = false;
+    },
+  };
 }

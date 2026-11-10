@@ -1,140 +1,231 @@
-import { createSignal, onCleanup, Show } from "solid-js";
-import type {
-  DanceCapture,
-  DanceReview,
-} from "../../../../packages/dance/contracts.ts";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { isServer } from "@solidjs/web";
+import type { DanceConsentPolicy } from "../../../../packages/dance/contracts.ts";
 import type { DanceClient } from "./client.ts";
-import { danceError, danceStatus } from "./presentation.ts";
-
-/** Shell supplies lane3 recorder/uploader; this feature never captures media. */
+import { assertDanceSurfaces, type DanceMediaUiPort } from "./media-port.ts";
+import {
+  createDanceLearnerController,
+  type DanceLearnerState,
+} from "./learner-controller.ts";
+import { danceError, danceNeedsObservation } from "./presentation.ts";
+import { DanceRecordingStatusSurface } from "./reference-recording-status.tsx";
+import { createDanceReviewObserver } from "./review-observer.ts";
+/** Actual pinned source3 capture/review surfaces, not another recorder. */
 export function DancePanel(props: {
   client: DanceClient;
   accountId: string;
   songKey: string;
   offerId: string | null;
   referenceId?: string | null;
+  consent: DanceConsentPolicy;
+  media: DanceMediaUiPort;
   initialReviewId?: string;
-  recordPrivate: (capture: DanceCapture) => Promise<{ mediaId: string } | null>;
+  onBack: () => void;
 }) {
-  const [review, setReview] = createSignal<DanceReview | null>(null),
-    [busy, setBusy] = createSignal(false),
-    [error, setError] = createSignal(""),
-    [submittedId, setSubmittedId] = createSignal(props.initialReviewId);
+  assertDanceSurfaces(props.media);
   let active = true;
   const account = props.accountId;
+  const [observingNotice, setObservingNotice] = createSignal("");
+  const [previewReady, setPreviewReady] = createSignal(false);
+  function clearPrivate() {
+    setPreviewReady(false);
+    props.media.clearPrivate();
+  }
+  const [state, setState] = createSignal<DanceLearnerState>({
+    phase: "capture",
+    capture: null,
+    take: null,
+    review: null,
+    busy: false,
+    error: "",
+  });
+  let observer: ReturnType<typeof createDanceReviewObserver> | undefined;
+  const controller = createDanceLearnerController({
+    client: props.client,
+    selection: {
+      songKey: props.songKey,
+      offerId: props.offerId,
+      referenceId: props.referenceId ?? null,
+    },
+    consent: props.consent,
+    record: props.media.recordPrivate,
+    clearPrivate,
+    current: () => active && props.accountId === account,
+    changed: (next) => {
+      setState(next);
+      const review = next.review;
+      if (
+        review &&
+        review.state !== "awaiting_review" &&
+        review.state !== "decision_pending"
+      )
+        clearPrivate();
+      observer?.update(
+        review &&
+          !/unknown|journal/.test(next.error) &&
+          danceNeedsObservation(review)
+          ? review.reviewId
+          : null,
+      );
+    },
+  });
+  createEffect(
+    () => props.accountId,
+    (next) => {
+      if (next === account) return;
+      observer?.dispose();
+      controller.clear();
+      setState(controller.state);
+    },
+  );
+  if (!isServer) {
+    observer = createDanceReviewObserver({
+      current: () => active && props.accountId === account,
+      visible: () => document.visibilityState !== "hidden",
+      refresh: (id) => controller.observe(id),
+      schedule: (callback, delay) => setTimeout(callback, delay),
+      cancel: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      rested: () =>
+        setObservingNotice(
+          "You can leave this screen. We’ll check for updates when you return.",
+        ),
+    });
+    const resume = () => {
+      setObservingNotice("");
+      observer?.visibilityChanged();
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    onCleanup(() => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+      observer?.dispose();
+    });
+  }
   onCleanup(() => {
     active = false;
+    controller.clear();
   });
-  const current = () => active && props.accountId === account;
-  // Retain capture/media if submit response is unknown: retry cannot record or
-  // select a different offer accidentally. Clearing them requires a new mount.
-  let capture: DanceCapture | undefined, mediaId: string | undefined;
-  async function refresh() {
-    const id = submittedId();
-    if (!id) return;
-    setBusy(true);
-    setError("");
-    try {
-      const r = await props.client.get(id);
-      if (current()) setReview(r);
-    } catch (e) {
-      if (current()) setError(danceError(e));
-    } finally {
-      if (current()) setBusy(false);
-    }
+  if (!isServer) void controller.load(props.initialReviewId);
+  async function play() {
+    const review = state().review;
+    if (!review || state().busy) return;
+    clearPrivate();
+    await controller.load(review.reviewId);
+    const fresh = controller.state;
+    if (
+      active &&
+      props.accountId === account &&
+      fresh.phase === "submitted" &&
+      !fresh.error &&
+      fresh.review?.reviewId === review.reviewId &&
+      (fresh.review.state === "awaiting_review" ||
+        fresh.review.state === "decision_pending")
+    )
+      setPreviewReady(true);
   }
-  async function start() {
-    setBusy(true);
-    setError("");
-    try {
-      capture ??= await props.client.capture(
-        props.songKey,
-        props.offerId,
-        props.referenceId ?? null,
-      );
-      if (!current()) return;
-      if (!mediaId) {
-        const media = await props.recordPrivate(capture);
-        if (!current() || !media) return;
-        mediaId = media.mediaId;
-      }
-      await props.client.submit(capture.captureId, mediaId);
-      if (!current()) return;
-      setSubmittedId(capture.captureId);
-      const r = await props.client.get(capture.captureId);
-      if (current()) setReview(r);
-    } catch (e) {
-      if (current()) setError(danceError(e));
-    } finally {
-      if (current()) setBusy(false);
-    }
-  }
-  async function withdraw() {
-    const r = review();
-    if (!r) return;
-    setBusy(true);
-    setError("");
-    try {
-      await props.client.withdraw(r.reviewId, r.revision);
-      if (current()) await refresh();
-    } catch (e) {
-      if (current()) setError(danceError(e));
-    } finally {
-      if (current()) setBusy(false);
-    }
-  }
+  const Capture = props.media.CaptureSurface,
+    Review = props.media.RecordingReviewSurface;
   return (
-    <section
-      aria-label="Dance"
-      style={{ padding: "1rem", "max-width": "42rem" }}
+    <Show
+      when={state().phase !== "denied"}
+      fallback={
+        <DanceRecordingStatusSurface
+          unavailable
+          busy={false}
+          onRetry={() => {}}
+          onDone={props.onBack}
+        />
+      }
     >
-      <h2>Dance</h2>
-      <p>
-        Record your performance for private moderator review. A pass and public
-        posting are separate.
-      </p>
-      <Show when={error()}>
-        <p role="alert">{error()}</p>
-      </Show>
       <Show
-        when={review()}
+        when={state().review}
         fallback={
-          <>
-            <p>
-              {props.offerId
-                ? "The selected offer is frozen before recording. A pass must be committed within its window."
-                : "This is a private performance without a reward offer."}
-            </p>
-            <button disabled={busy()} onClick={() => void start()}>
-              {busy()
-                ? "Preparing private submission…"
-                : mediaId
-                  ? "Retry submission"
-                  : "Record Dance"}
-            </button>
-          </>
+          <Show
+            when={state().take}
+            fallback={
+              <Capture
+                {...props.media.camera()}
+                title="Dance"
+                allowUpload={false}
+                recordDisabled={
+                  state().busy || props.consent.admission !== "admitted"
+                }
+                timerClass="rounded-none bg-transparent px-0 py-0 backdrop-blur-none"
+                recordActionLabel={
+                  !state().busy
+                    ? "Record"
+                    : props.media.camera().status === "recording"
+                      ? "Recording in progress"
+                      : "Starting recording"
+                }
+                onRecordToggle={() => void controller.record()}
+                onRetake={() => void controller.reset()}
+                onClose={props.onBack}
+                notice={
+                  <div>
+                    <p>{props.consent.text}</p>
+                    <p>
+                      By choosing Record, I accept these Dance rules, terms and
+                      privacy version.
+                    </p>
+                    <Show when={props.consent.admission !== "admitted"}>
+                      <p role="status">
+                        Dance terms are awaiting community admission.
+                      </p>
+                    </Show>
+                    <Show when={state().error}>
+                      <p role="alert">{danceError(new Error(state().error))}</p>
+                    </Show>
+                  </div>
+                }
+              />
+            }
+          >
+            {(take) => (
+              <Review
+                preview={props.media.takePreview(take())}
+                busy={state().busy}
+                canSubmit={
+                  state().phase === "preview" ||
+                  state().phase === "submission_unknown"
+                }
+                submitLabel={
+                  state().phase === "submission_unknown"
+                    ? "Resume submission"
+                    : "Submit for review"
+                }
+                error={
+                  state().error
+                    ? danceError(new Error(state().error))
+                    : undefined
+                }
+                onSubmit={() => void controller.submit()}
+                onBack={props.onBack}
+              />
+            )}
+          </Show>
         }
       >
         {(r) => (
-          <>
-            <h3>{danceStatus(r()).title}</h3>
-            <p role="status">{danceStatus(r()).detail}</p>
-            <Show when={r().state === "pending"}>
-              <p>
-                Review closes {new Date(r().reviewDeadlineMs).toLocaleString()}.
-              </p>
-              <button disabled={busy()} onClick={() => void withdraw()}>
-                Withdraw submission
-              </button>
-            </Show>
-          </>
+          <DanceRecordingStatusSurface
+            review={r()}
+            busy={state().busy}
+            error={
+              state().error ? danceError(new Error(state().error)) : undefined
+            }
+            onRetry={() => void controller.load(r().reviewId)}
+            onDone={props.onBack}
+            onWithdraw={() => void controller.withdraw()}
+            notice={observingNotice()}
+            previewReady={previewReady()}
+            privatePreview={
+              previewReady() ? props.media.privatePreview(r()) : null
+            }
+            onPreview={() => void play()}
+          />
         )}
       </Show>
-      <Show when={submittedId()}>
-        <button disabled={busy()} onClick={() => void refresh()}>
-          Refresh result
-        </button>
-      </Show>
-    </section>
+    </Show>
   );
 }

@@ -1,69 +1,67 @@
 import type { DanceReview } from "../../../../packages/dance/contracts.ts";
-export function danceStatus(review: DanceReview): {
-  title: string;
-  detail: string;
-} {
-  if (review.state === "withdrawn")
+import { canonicalMilliseconds } from "../../../../packages/dance/categorical-source.ts";
+export function danceNeedsObservation(review: DanceReview): boolean {
+  if (review.localDenied || review.state === "expired") return false;
+  if (review.canonical?.canonical && review.canonical.finality === "safe")
+    return false;
+  return (
+    review.state === "awaiting_review" ||
+    review.state === "decision_pending" ||
+    (!!review.canonical &&
+      (!review.canonical.canonical || review.canonical.finality === "latest"))
+  );
+}
+export function danceStatus(r: DanceReview): { title: string; detail: string } {
+  if (r.canonical?.canonical) {
+    if (r.canonical.verdict === "not_passed")
+      return {
+        title: "Not passed",
+        detail: "The canonical review did not pass.",
+      };
+    const ms = canonicalMilliseconds(r.canonical.committedAtSeconds),
+      o = r.capture.offer;
     return {
-      title: "Withdrawn",
-      detail: "This submission cannot be reviewed.",
+      title: "Passed",
+      detail: !o
+        ? "Approved performance without a reward offer."
+        : ms < o.opensAtMs || ms >= o.cutoffAtMs
+          ? "Approved performance. Its on-chain review was outside the offer window, so there is no eligible reward."
+          : r.canonical.finality === "latest"
+            ? "Review recorded on chain; safe confirmation and reward-source admission are still pending."
+            : "Review safely confirmed. Reward eligibility still requires the exact admitted source and offer.",
     };
-  if (review.state === "expired")
+  }
+  if (r.localDenied)
+    return {
+      title: "Withdrawal pending",
+      detail:
+        "Private access and new dispatch are stopped. Canonical ordering determines any already broadcast review.",
+    };
+  if (r.decision || r.state === "decision_pending")
+    return {
+      title: "Decision pending",
+      detail:
+        "The original decision is being reconciled for canonical publication. No final verdict or reward time has been established.",
+    };
+  if (r.state === "expired")
     return {
       title: "Review expired",
-      detail: "The seven-day review window has ended.",
+      detail: "The seven-day review deadline has passed.",
     };
-  if (!review.verdict)
-    return {
-      title: "Awaiting review",
-      detail:
-        "A community owner or moderator will review your private performance.",
-    };
-  if (review.verdict.verdict === "not_passed")
-    return { title: "Not passed", detail: "This performance did not qualify." };
-  switch (review.verdict.rewardReason) {
-    case "candidate_held":
-      return {
-        title: "Passed",
-        detail:
-          "Approved performance. Reward entry is awaiting the community’s categorical source admission. No payout is available.",
-      };
-    case "outside_window":
-      return {
-        title: "Passed",
-        detail:
-          "Approved after or before the offer window. This performance has no eligible reward.",
-      };
-    case "offer_closed":
-      return {
-        title: "Passed",
-        detail:
-          "The selected offer has closed. This performance has no eligible reward.",
-      };
-    case "source_not_admitted":
-      return {
-        title: "Passed",
-        detail:
-          "Dance is not admitted to the selected reward offer. This performance has no eligible reward.",
-      };
-    default:
-      return {
-        title: "Passed",
-        detail: "Approved private performance. No reward offer was selected.",
-      };
-  }
+  return {
+    title: "Waiting for review",
+    detail: "Your private recording is waiting for an authorized reviewer.",
+  };
 }
-export function danceError(error: unknown): string {
-  if (error instanceof Error && error.message === "dance_response_unknown")
-    return "The response was interrupted. Retry the same action to recover its result.";
-  if (error instanceof Error && error.message === "dance_account_changed")
-    return "Your account changed. Reopen Dance from your current account.";
-  if (
-    error instanceof Error &&
-    /forbidden|self_review|unavailable/.test(error.message)
-  )
-    return "This action is unavailable with your current account or review permission.";
-  if (error instanceof Error && /conflict|changed/.test(error.message))
-    return "This submission changed. Refresh its current result before continuing.";
-  return "Dance could not complete this action. Retry or refresh the current result.";
+export function danceError(e: unknown) {
+  const code = e instanceof Error ? e.message : "";
+  if (/unknown|journal/.test(code))
+    return "We couldn’t confirm the response. Resume the original submission or decision before taking another action.";
+  if (code === "dance_original_command_recovered")
+    return "The original command was recovered. Check its current result before continuing.";
+  if (/account_changed|forbidden|unavailable|revoked/.test(code))
+    return "This recording is unavailable with your current access.";
+  if (/admission_held/.test(code))
+    return "Community Dance admission is still pending.";
+  return "We couldn’t confirm the review status. Check again.";
 }

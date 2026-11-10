@@ -1,270 +1,315 @@
-import { hashJson, insist } from "../packages/community/common.ts";
+import { CommunityError, insist } from "../packages/community/common.ts";
 import {
-  DANCE_SOURCE,
   DANCE_VERSION,
   type DanceQueue,
   type DanceReview,
+  type DanceVerdict,
 } from "../packages/dance/contracts.ts";
-import { DanceStore, DANCE_DB_NOW } from "../packages/dance/store.ts";
+import { DanceStore } from "../packages/dance/store.ts";
+import { decisionIntent } from "../packages/dance/intent.ts";
 import {
   danceId,
-  mediaBinding,
+  sameCapturedPrincipal,
   validateMedia,
 } from "../packages/dance/validation.ts";
+import { validateCanonicalEvidence } from "../packages/dance/categorical-source.ts";
 import { DanceCaptureService } from "./dance-capture.ts";
-
 export class DanceReviewService extends DanceCaptureService {
-  async get(actor: string, reviewId: string): Promise<DanceReview> {
+  async get(actor: string, id: string): Promise<DanceReview> {
     danceId(actor);
-    danceId(reviewId);
-    const r = await this.store.review(reviewId),
-      access = await this.permissions.read(actor, r);
-    await this.store.atomic(access.fences, []);
-    if (r.state === "pending" && (await this.store.now()) >= r.reviewDeadlineMs)
+    danceId(id);
+    const r = await this.store.review(id),
+      a = await this.permissions.read(actor, r);
+    await this.store.assert(a.fences);
+    if (
+      r.state === "awaiting_review" &&
+      (await this.store.now()) >= r.receipt.reviewDeadlineMs
+    )
       return { ...r, state: "expired" };
     return r;
   }
-  /** Called by lane3 on EACH GET/HEAD/range, never a reusable bearer URL. */
-  async inspect(actor: string, reviewId: string) {
-    const r = await this.get(actor, reviewId);
-    const m = await this.ports.media(r.mediaId, mediaBinding(r.capture), actor);
-    validateMedia(r.capture, m, r.recordingSha256);
-    insist(m.revision === r.mediaRevision, "dance_media_changed", 409);
-    const access = await this.permissions.read(actor, r);
+  async inspect(actor: string, id: string) {
+    const r = await this.get(actor, id);
     insist(
-      access.facts.learner.revision === r.capture.accountRevision,
-      "dance_capture_authorization_changed",
-      403,
+      !r.localDenied && (await this.store.now()) < r.receipt.reviewDeadlineMs,
+      "dance_media_unavailable",
+      410,
     );
-    await this.store.atomic(
-      [
-        ...access.fences,
-        m.fence,
-        {
-          sql: `${DANCE_DB_NOW} < ? AND ${DANCE_DB_NOW} < ?
-      AND EXISTS(SELECT 1 FROM dance_reviews WHERE review_id=? AND state IN ('pending','reviewed') AND revision=?)`,
-          values: [m.expiresAtMs, r.reviewDeadlineMs, r.reviewId, r.revision],
-        },
-      ],
-      [],
+    const access = await this.permissions.read(actor, r);
+    const ready =
+      actor === r.capture.learner.accountId
+        ? await this.ports.media.readyForSubmission(
+            r.receipt.mediaId,
+            r.media,
+            { accountId: actor },
+          )
+        : await this.ports.media.readyForReview(r.receipt.mediaId, r.media, {
+            accountId: actor,
+          });
+    validateMedia(r.media, ready.media);
+    this.ports.media.projectDanceSubmission(
+      this.ports.media.projectDanceMedia(ready.media, ready.witness),
+      r.receipt,
     );
-    return { mediaId: r.mediaId, reviewId: r.reviewId };
+    insist(
+      ready.media.revision === r.receipt.mediaRevision,
+      "dance_media_changed",
+      409,
+    );
+    await this.store.assertAccess(r, [
+      ...access.fences,
+      this.ports.media.commitFence(ready.witness),
+    ]);
+    return { reviewId: id, mediaId: r.receipt.mediaId };
   }
   async decide(
     actor: string,
     commandId: string,
-    reviewId: string,
+    id: string,
     revision: number,
-    verdict: "passed" | "not_passed",
+    verdict: DanceVerdict,
+    consentVersion?: string,
   ) {
-    [actor, commandId, reviewId].forEach(danceId);
+    [actor, commandId, id].forEach(danceId);
     insist(
-      verdict === "passed" || verdict === "not_passed",
+      verdict === "pass" || verdict === "not_passed",
       "dance_verdict_invalid",
     );
-    insist(
-      Number.isSafeInteger(revision) && revision > 0,
-      "dance_revision_invalid",
-    );
-    const r = await this.store.review(reviewId);
+    const r = await this.store.review(id);
     insist(r.capture.communityId === this.communityId, "dance_not_found", 404);
-    const f = await this.permissions.facts(actor, r.capture.accountId);
-    const reviewer = await this.permissions.reviewer(f);
-    const hash = DanceStore.request("verdict", { reviewId, revision, verdict });
+    // Current private authorization applies to receipt recovery. New admission
+    // guards never replace an existing immutable decision command/payload.
+    const access = await this.permissions.read(actor, r);
+    const hash = DanceStore.request("decision", {
+      reviewId: id,
+      revision,
+      verdict,
+      consentVersion: consentVersion ?? null,
+    });
     const prior = await this.store.receipt(
       this.communityId,
       actor,
       commandId,
       hash,
     );
-    if (prior) return this.recovery(actor, commandId, hash, reviewId);
+    if (prior) return this.recovery(actor, commandId, hash, id);
     insist(
-      r.state === "pending" && r.revision === revision,
+      this.ports.reviewerConsent.admission === "admitted" &&
+        consentVersion === this.ports.reviewerConsent.version,
+      "dance_reviewer_consent_required",
+      403,
+    );
+    insist(!r.decision, "dance_decision_already_pending", 409);
+    const reviewer = await this.permissions.reviewer(access.facts);
+    insist(
+      r.capture.consent?.publicityPolicyHash === reviewer.publicityPolicyHash,
+      "dance_reviewer_policy_mismatch",
+      409,
+    );
+    sameCapturedPrincipal(access.facts.learner, r.capture.learner);
+    insist(
+      r.state === "awaiting_review" &&
+        !r.localDenied &&
+        r.revision === revision,
       "dance_revision_conflict",
       409,
     );
-    insist(
-      f.learner.revision === r.capture.accountRevision &&
-        f.learner.identityId === r.capture.identityId &&
-        f.learner.wallet === r.capture.wallet,
-      "dance_capture_authorization_changed",
-      403,
+    const now = await this.store.now();
+    insist(now < r.receipt.reviewDeadlineMs, "dance_review_expired", 410);
+    const ready = await this.ports.media.readyForReview(
+      r.receipt.mediaId,
+      r.media,
+      { accountId: actor },
     );
-    const m = await this.ports.media(r.mediaId, mediaBinding(r.capture), actor);
-    validateMedia(r.capture, m, r.recordingSha256);
-    insist(m.revision === r.mediaRevision, "dance_media_changed", 409);
-    const rules = await this.ports.rules(r.capture);
-    const selected = r.capture.offer;
-    const offer = selected ? await this.ports.offer(r.capture) : null;
-    if (selected && offer)
-      insist(
-        offer.inputHash === selected.inputHash &&
-          offer.sourceId === selected.sourceId,
-        "dance_offer_binding_mismatch",
-        409,
-      );
-    const reason =
-      verdict !== "passed"
-        ? "not_passed"
-        : !selected
-          ? "practice"
-          : !offer?.admitted
-            ? "source_not_admitted"
-            : !offer.open
-              ? "offer_closed"
-              : "candidate_held";
-    const window = selected ?? { opensAtMs: 0, cutoffAtMs: 0 };
-    const fences = [
-      f.fence,
-      reviewer.fence,
-      m.fence,
-      rules,
-      ...(offer ? [offer.fence] : []),
-    ];
+    validateMedia(r.media, ready.media);
+    insist(
+      ready.media.revision === r.receipt.mediaRevision,
+      "dance_media_changed",
+      409,
+    );
+    const rules = await this.ports.rules(r.capture),
+      intent = decisionIntent(r, commandId, verdict, reviewer, now);
     try {
-      await this.store.atomic(fences, [
-        this.store.stmt(
-          `UPDATE dance_reviews SET state='reviewed',revision=revision+1,terminal_at_ms=${DANCE_DB_NOW}
-          WHERE review_id=? AND state='pending' AND revision=? AND ${DANCE_DB_NOW}<deadline_ms
-          AND ${DANCE_DB_NOW} < ?`,
-          reviewId,
-          revision,
-          m.expiresAtMs,
-        ),
-        this.store.changed(),
-        this.store.stmt(
-          `INSERT INTO dance_verdicts
-          SELECT review_id,json_object('version',?,'verdict',?,'reviewerAccountId',?,'reviewerIdentityId',?,'authority',?,
-            'committedAtMs',terminal_at_ms,'cue','not_required','score',NULL,'chainAdmission','held',
-            'rewardReason',CASE WHEN ?='candidate_held' AND NOT(terminal_at_ms>=? AND terminal_at_ms<?)
-              THEN 'outside_window' ELSE ? END),terminal_at_ms,?
-          FROM dance_reviews WHERE review_id=?`,
-          DANCE_SOURCE,
-          verdict,
-          actor,
-          f.actor.identityId,
-          reviewer.authority,
-          reason,
-          window.opensAtMs,
-          window.cutoffAtMs,
-          reason,
-          hashJson({
-            version: DANCE_SOURCE,
-            reviewId,
-            capture: r.capture,
-            recordingSha256: r.recordingSha256,
-            verdict,
-          }),
-          reviewId,
-        ),
-        this.store.saveReceipt(
-          this.communityId,
-          actor,
-          commandId,
-          hash,
-          reviewId,
-        ),
-      ]);
-    } catch (error) {
-      const recovered = await this.recovery(
+      return await this.store.stageDecision({
+        review: r,
         actor,
-        commandId,
-        hash,
-        reviewId,
-      ).catch(() => null);
+        requestHash: hash,
+        intent,
+        fences: [
+          ...access.fences,
+          rules,
+          await this.ports.reviewerAuthorization(reviewer, now),
+          this.ports.media.commitFence(ready.witness),
+        ],
+      });
+    } catch (e) {
+      const recovered = await this.recovery(actor, commandId, hash, id).catch(
+        () => null,
+      );
       if (recovered) return recovered;
-      throw error;
+      throw e;
     }
-    return this.recovery(actor, commandId, hash, reviewId);
   }
   async end(
     actor: string,
     commandId: string,
-    reviewId: string,
+    id: string,
     revision: number,
     operation: "withdraw" | "expire",
   ) {
-    [actor, commandId, reviewId].forEach(danceId);
-    insist(
-      operation === "withdraw" || operation === "expire",
-      "dance_invalid_operation",
-    );
-    const r = await this.store.review(reviewId),
+    const r = await this.store.review(id),
       access = await this.permissions.read(actor, r);
-    insist(actor === r.capture.accountId, "dance_withdraw_forbidden", 403);
-    const hash = DanceStore.request(operation, { reviewId, revision });
+    insist(
+      actor === r.capture.learner.accountId,
+      "dance_withdraw_forbidden",
+      403,
+    );
+    if (operation === "expire") {
+      insist(
+        (await this.store.now()) >= r.receipt.reviewDeadlineMs,
+        "dance_review_not_expired",
+        409,
+      );
+      return this.get(actor, id);
+    }
+    const hash = DanceStore.request("withdraw", { reviewId: id, revision });
     const prior = await this.store.receipt(
       this.communityId,
       actor,
       commandId,
       hash,
     );
-    if (prior) return this.recovery(actor, commandId, hash, reviewId);
-    const condition =
-      operation === "expire" ? `${DANCE_DB_NOW}>=deadline_ms` : "1";
+    if (prior) return this.recovery(actor, commandId, hash, id);
+    insist(
+      r.revision === revision && !r.localDenied,
+      "dance_revision_conflict",
+      409,
+    );
     try {
-      await this.store.atomic(access.fences, [
-        this.store.stmt(
-          `UPDATE dance_reviews
-        SET state=?,revision=revision+1,terminal_at_ms=${DANCE_DB_NOW}
-        WHERE review_id=? AND revision=? AND state='pending' AND (${condition})`,
-          operation === "expire" ? "expired" : "withdrawn",
-          reviewId,
-          revision,
-        ),
-        this.store.changed(),
-        this.store.saveReceipt(
-          this.communityId,
-          actor,
-          commandId,
-          hash,
-          reviewId,
-        ),
-      ]);
-    } catch (error) {
-      const recovered = await this.recovery(
+      return await this.store.stageWithdrawal({
+        review: r,
         actor,
         commandId,
-        hash,
-        reviewId,
-      ).catch(() => null);
+        requestHash: hash,
+        fences: access.fences,
+      });
+    } catch (e) {
+      const recovered = await this.recovery(actor, commandId, hash, id).catch(
+        () => null,
+      );
       if (recovered) return recovered;
-      throw error;
+      throw e;
     }
-    return this.recovery(actor, commandId, hash, reviewId);
   }
   async queue(
     actor: string,
     cursor: string | null = null,
+    limit = 25,
   ): Promise<DanceQueue> {
     danceId(actor);
     if (cursor !== null) danceId(cursor);
-    // Queue permission has no selected learner. Its SQL and each item read
-    // enforce distinct account AND identity before returning private details.
-    const f = await this.permissions.facts(actor, actor);
-    const reviewer = await this.permissions.reviewer(f, false);
-    const rows = await this.store
-      .stmt(
-        `SELECT r.review_id FROM dance_reviews r
-      JOIN dance_captures c ON c.capture_id=r.review_id
-      WHERE r.community_id=? AND r.state='pending' AND r.deadline_ms>${DANCE_DB_NOW}
-      AND r.account_id<>? AND json_extract(c.capture_json,'$.identityId')<>?
-      AND (? IS NULL OR r.review_id>?) ORDER BY r.review_id LIMIT 51`,
+    insist(
+      Number.isSafeInteger(limit) && limit >= 1 && limit <= 50,
+      "dance_invalid_limit",
+    );
+    const initial = await this.permissions.facts(actor, actor);
+    await this.permissions.reviewer(initial, false);
+    const items: DanceReview[] = [],
+      reasons: Record<string, number> = {};
+    let skipped = 0,
+      scanned = 0,
+      after = cursor,
+      more = true;
+    while (items.length < limit && scanned < 200 && more) {
+      const page = await this.store.scan(
         this.communityId,
-        actor,
-        f.actor.identityId,
-        cursor,
-        cursor,
-      )
-      .all<{ review_id: string }>();
-    await this.store.atomic([f.fence, reviewer.fence], []);
-    const ids = rows.results.slice(0, 50),
-      items: DanceReview[] = [];
-    for (const id of ids) items.push(await this.get(actor, id.review_id));
+        after,
+        Math.min(50, 200 - scanned),
+      );
+      more = page.hasMore;
+      for (let j = 0; j < page.ids.length; j++) {
+        const id = page.ids[j];
+        after = id;
+        scanned++;
+        try {
+          const r = await this.get(actor, id);
+          insist(
+            r.state === "awaiting_review" && !r.localDenied,
+            "dance_review_unavailable",
+            410,
+          );
+          await this.inspect(actor, id);
+          items.push(r);
+        } catch (e) {
+          if (!(e instanceof CommunityError)) throw e;
+          skipped++;
+          reasons[e.code] = (reasons[e.code] ?? 0) + 1;
+        }
+        if (items.length === limit || scanned === 200) {
+          more = more || j < page.ids.length - 1;
+          break;
+        }
+      }
+      if (page.ids.length === 0) break;
+    }
+    const current = await this.permissions.facts(actor, actor);
+    await this.permissions.reviewer(current, false);
+    await this.store.assert([current.fence]);
     return {
       version: DANCE_VERSION,
       items,
-      cursor: rows.results.length > 50 ? ids.at(-1)!.review_id : null,
+      cursor: more ? after : null,
+      skipped: { count: skipped, reasons },
     };
+  }
+  /** Internal coordinator-verified adapter only; no browser evidence input. */
+  async reconcile(id: string) {
+    const r = await this.store.review(id);
+    insist(
+      r.capture.communityId === this.communityId && r.decision,
+      "dance_intent_missing",
+      409,
+    );
+    const evidence = await this.ports.canonicalEvidence(r.decision);
+    if (!evidence) return r;
+    validateCanonicalEvidence(r, evidence);
+    await this.store.observe(id, r.decision, evidence);
+    return this.store.review(id);
+  }
+  /** Fresh dispatch rechecks cannot promise final chain authority. No send here. */
+  async prepareDispatch(actor: string, id: string) {
+    const r = await this.store.review(id);
+    insist(r.decision, "dance_intent_missing", 409);
+    insist(!r.localDenied, "dance_dispatch_locally_denied", 409);
+    const a = await this.permissions.read(actor, r);
+    await this.permissions.reviewer(a.facts);
+    const original = r.decision.preimage.reviewer,
+      current = await this.permissions.reviewer(a.facts);
+    insist(
+      actor === original.accountId &&
+        current.wallet === original.wallet &&
+        current.identityEpoch === original.identityEpoch &&
+        current.groupId === original.groupId &&
+        current.groupEpoch === original.groupEpoch &&
+        current.ownerEpoch === original.ownerEpoch &&
+        current.roleEpoch === original.roleEpoch &&
+        current.expectedConfigurationRevision ===
+          original.expectedConfigurationRevision &&
+        current.expectedRulesEpoch === original.expectedRulesEpoch &&
+        current.expectedMediaEpoch === original.expectedMediaEpoch,
+      "dance_dispatch_context_changed",
+      409,
+    );
+    await this.inspect(actor, id);
+    await this.store.assert([a.facts.fence, await this.ports.rules(r.capture)]);
+    await this.store.assert([
+      await this.ports.reviewerAuthorization(
+        original,
+        r.decision.preimage.intentAcceptedAtMs,
+      ),
+    ]);
+    const entry = await this.store.outbox(r.decision.commandId);
+    insist(entry.status !== "held", "dance_protocol_admission_held", 409);
+    return entry;
   }
 }

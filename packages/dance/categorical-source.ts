@@ -1,103 +1,170 @@
-import { bytes32, hashJson, insist } from "../community/common.ts";
-import type { QualificationEntry } from "../rewards/contracts.ts";
+import { bytes32, canonical, insist } from "../community/common.ts";
 import {
   DANCE_SOURCE,
-  type DanceCapture,
-  type DanceVerdict,
+  type DanceCanonicalEvidence,
+  type DanceOfferSelection,
+  type DanceReview,
 } from "./contracts.ts";
-import { danceId, danceTime, validateCapture } from "./validation.ts";
-
-/** Versioned proposal for the coordinator-owned categorical contract reader.
- * Only a verified canonical adapter may construct these records. Local review
- * rows are never treated as chain evidence by this reader. No RPC is invented.
- */
-export interface CanonicalDancePass {
-  version: typeof DANCE_SOURCE;
-  capture: DanceCapture;
-  recordingSha256: string;
-  verdict: Omit<DanceVerdict, "chainAdmission"> & {
-    chainAdmission: "held" | "canonical";
-  };
+import { danceTime, reviewDeadline } from "./validation.ts";
+import { decisionIntegrityHash } from "./intent.ts";
+/** Canonical BLOCK timestamp only; convert once, no coercion/fraction/rounding. */
+export function canonicalMilliseconds(seconds: string): number {
+  insist(
+    /^(0|[1-9][0-9]*)$/.test(seconds),
+    "dance_canonical_time_invalid",
+    503,
+  );
+  const value = BigInt(seconds) * 1000n;
+  insist(
+    value > 0n && value <= BigInt(Number.MAX_SAFE_INTEGER),
+    "dance_canonical_time_unsafe",
+    503,
+  );
+  return Number(value);
+}
+export function cutoffIsSafe(
+  safeBlockTimestampSeconds: string,
+  cutoffAtMs: number,
+) {
+  danceTime(cutoffAtMs);
+  return canonicalMilliseconds(safeBlockTimestampSeconds) >= cutoffAtMs;
+}
+/** This validates the consumer contract after the root's actual receipt/log/code
+ * verifier. It is NOT that verifier or final ABI support. Never accept HTTP data. */
+export function validateCanonicalEvidence(
+  r: DanceReview,
+  e: DanceCanonicalEvidence,
+) {
+  const i = r.decision;
+  insist(i, "dance_intent_missing", 503);
+  insist(
+    canonical(i.preimage.capture) === canonical(r.capture) &&
+      canonical(i.preimage.media) === canonical(r.media) &&
+      i.preimage.mediaBindingHash === r.receipt.bindingCommitment &&
+      i.preimage.mediaGeneration === r.receipt.mediaRevision &&
+      i.preimage.trustedSubmittedAtMs === r.receipt.trustedSubmittedAtMs &&
+      i.preimage.reviewDeadlineMs === r.receipt.reviewDeadlineMs,
+    "dance_canonical_preimage_mismatch",
+    503,
+  );
+  insist(
+    e.version === DANCE_SOURCE &&
+      e.verification === "coordinator-validated/1" &&
+      e.removed === false &&
+      e.commandId === i.commandId &&
+      e.submissionId === r.reviewId &&
+      e.intentIntegrityHash === decisionIntegrityHash(i.preimage) &&
+      e.verdict === i.preimage.verdict &&
+      canonical(e.source) === canonical(r.capture.source),
+    "dance_canonical_binding_mismatch",
+    503,
+  );
+  [
+    e.commandHash,
+    e.submissionHash,
+    e.transactionHash,
+    e.blockHash,
+    e.evidenceHash,
+  ].forEach(bytes32);
+  insist(
+    /^(0|[1-9][0-9]*)$/.test(e.blockNumber) &&
+      Number.isSafeInteger(e.transactionIndex) &&
+      e.transactionIndex >= 0 &&
+      Number.isSafeInteger(e.logIndex) &&
+      e.logIndex >= 0 &&
+      (e.finality === "latest" || e.finality === "safe"),
+    "dance_canonical_position_invalid",
+    503,
+  );
+  const ms = canonicalMilliseconds(e.committedAtSeconds);
+  insist(
+    r.capture.consent &&
+      r.capture.reservedAtMs <= r.capture.consent.acceptedAtMs &&
+      r.capture.consent.acceptedAtMs <= r.receipt.trustedSubmittedAtMs &&
+      r.receipt.reviewDeadlineMs ===
+        reviewDeadline(r.receipt.trustedSubmittedAtMs) &&
+      i.preimage.intentAcceptedAtMs >= r.receipt.trustedSubmittedAtMs &&
+      ms >= i.preimage.intentAcceptedAtMs &&
+      ms < r.receipt.reviewDeadlineMs,
+    "dance_canonical_outside_review",
+    503,
+  );
+  return ms;
+}
+export interface DanceCandidate {
+  accountId: string;
+  wallet: string;
+  offerId: string;
   evidenceHash: string;
-  sourceId: string;
-  canonicalBlockHash: string;
-  canonicalBlockNumber: string;
-  /** Authoritative timestamp chosen by the admitted contract specification. */
-  committedAtMs: number;
+  completedAtMs: number;
+  capturedAccountCommitment?: string;
 }
 export function danceQualificationEntries(
-  records: readonly CanonicalDancePass[],
-  offer: {
-    offerId: string;
-    inputHash: string;
+  records: readonly { review: DanceReview; evidence: DanceCanonicalEvidence }[],
+  offer: DanceOfferSelection & {
     songKey: string;
-    sourceId: string;
-    opensAt: number;
-    cutoffAt: number;
+    sourceAdmitted: boolean;
+    safeHeadTimestampSeconds: string;
   },
-): QualificationEntry[] {
-  [offer.inputHash, offer.songKey, offer.sourceId].forEach(bytes32);
-  danceId(offer.offerId);
-  const entries: QualificationEntry[] = [];
-  for (const r of records) {
-    validateCapture(r.capture);
-    bytes32(r.recordingSha256);
-    bytes32(r.evidenceHash);
-    bytes32(r.canonicalBlockHash);
-    danceTime(r.committedAtMs);
+): DanceCandidate[] {
+  insist(
+    cutoffIsSafe(offer.safeHeadTimestampSeconds, offer.cutoffAtMs),
+    "reward_cutoff_not_confirmed",
+    409,
+  );
+  insist(offer.sourceAdmitted, "dance_source_admission_held", 503);
+  const candidates: DanceCandidate[] = [];
+  for (const { review: r, evidence: e } of records) {
+    const ms = validateCanonicalEvidence(r, e),
+      o = r.capture.offer;
+    if (!e.canonical || e.finality !== "safe" || e.verdict !== "pass" || !o)
+      continue;
     insist(
-      r.version === DANCE_SOURCE && /^\d+$/.test(r.canonicalBlockNumber),
-      "dance_source_invalid",
-      503,
-    );
-    // Until coordinator admits the categorical contract there are NO payable
-    // records: local verdicts explicitly carry chainAdmission:'held'.
-    insist(
-      r.verdict.chainAdmission !== "held",
-      "dance_chain_admission_held",
-      503,
-    );
-    const selected = r.capture.offer;
-    insist(
-      selected &&
-        selected.offerId === offer.offerId &&
-        selected.inputHash === offer.inputHash &&
-        selected.sourceId === offer.sourceId &&
-        r.sourceId === offer.sourceId &&
-        selected.opensAtMs === offer.opensAt * 1000 &&
-        selected.cutoffAtMs === offer.cutoffAt * 1000 &&
+      canonical(o) ===
+        canonical({
+          offerId: offer.offerId,
+          offerIdCommitment: offer.offerIdCommitment,
+          inputHash: offer.inputHash,
+          sourceHash: offer.sourceHash,
+          opensAtMs: offer.opensAtMs,
+          cutoffAtMs: offer.cutoffAtMs,
+        }) &&
         r.capture.songKey === offer.songKey &&
-        r.verdict.verdict === "passed" &&
-        r.verdict.version === DANCE_SOURCE &&
-        r.verdict.score === null &&
-        r.verdict.cue === "not_required" &&
-        r.verdict.rewardReason === "candidate_held" &&
-        r.verdict.reviewerAccountId !== r.capture.accountId &&
-        r.verdict.reviewerIdentityId !== r.capture.identityId &&
-        r.verdict.committedAtMs === r.committedAtMs,
-      "dance_source_binding_mismatch",
+        e.source.sourceHash === offer.sourceHash,
+      "dance_offer_binding_mismatch",
       503,
     );
-    insist(
-      r.committedAtMs >= offer.opensAt * 1000 &&
-        r.committedAtMs < offer.cutoffAt * 1000,
-      "dance_source_outside_window",
-      503,
-    );
-    entries.push({
-      accountId: r.capture.accountId,
-      wallet: r.capture.wallet,
-      evidenceHash: r.evidenceHash,
-      completedAt: Math.floor(r.committedAtMs / 1000),
+    if (ms < offer.opensAtMs || ms >= offer.cutoffAtMs) continue;
+    candidates.push({
+      accountId: r.capture.learner.accountId,
+      wallet: r.capture.learner.wallet.toLowerCase(),
+      capturedAccountCommitment: r.capture.learner.accountCommitment,
+      offerId: o.offerId,
+      evidenceHash: e.evidenceHash,
+      completedAtMs: ms,
     });
   }
-  return entries;
+  return candidates;
 }
-/** Stable local evidence preimage. Contains no media URL or reusable capability. */
-export function danceEvidenceHash(
-  capture: DanceCapture,
-  recordingSha256: string,
-  verdict: DanceVerdict,
-) {
-  return hashJson({ version: DANCE_SOURCE, capture, recordingSha256, verdict });
+/** All activities must be combined BEFORE this reducer. Root owns live mount. */
+export function singleOfferShares(entries: readonly DanceCandidate[]) {
+  const map = new Map<string, DanceCandidate>();
+  for (const e of entries) {
+    const key = JSON.stringify([e.accountId, e.offerId]),
+      p = map.get(key);
+    insist(
+      !p || p.wallet.toLowerCase() === e.wallet.toLowerCase(),
+      "reward_qualifier_wallet_changed",
+      409,
+    );
+    if (
+      !p ||
+      e.completedAtMs < p.completedAtMs ||
+      (e.completedAtMs === p.completedAtMs && e.evidenceHash < p.evidenceHash)
+    )
+      map.set(key, e);
+  }
+  return [...map.values()].sort((a, b) =>
+    a.accountId.localeCompare(b.accountId),
+  );
 }
