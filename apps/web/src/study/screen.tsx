@@ -43,11 +43,20 @@ export function StudyScreen(props: {
     lesson()?.current?.attempt?.state === "uncertain" ||
     (lesson()?.current?.takeNumber ?? 0) > STUDY_MAX_TAKES;
   const visibleLine = () => miss()?.line ?? lesson()?.current?.line;
-  function cleanup() {
+  /** Ends one take. The microphone stays open for the next one. */
+  function endTake() {
     clearTimeout(timer);
+  }
+  /** Releases the microphone: on exit, account change or a capture failure. */
+  function cleanup() {
+    endTake();
     stream?.getTracks().forEach((track) => track.stop());
     stream = undefined;
   }
+  const liveStream = () =>
+    stream?.getAudioTracks().some((track) => track.readyState === "live")
+      ? stream
+      : undefined;
   onCleanup(() => {
     active = false;
     generation++;
@@ -146,7 +155,7 @@ export function StudyScreen(props: {
     } catch (e) {
       if (!active || version !== generation || forgetAccount(e)) return;
       try {
-        const restored = await props.client.load();
+        const restored = await props.client.refresh();
         if (!active || version !== generation) return;
         if (attemptId && restored.lastAttempt?.attemptId === attemptId)
           apply({ attempt: restored.lastAttempt, lesson: restored });
@@ -172,21 +181,26 @@ export function StudyScreen(props: {
     const version = ++generation;
     sounds.unlock();
     setError("");
-    setPhase("acquiring");
     try {
       if (
         !navigator.mediaDevices?.getUserMedia ||
         typeof MediaRecorder === "undefined"
       )
         throw new Error("Audio recording is unavailable in this browser.");
-      const captured = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      if (!active || version !== generation) {
-        captured.getTracks().forEach((track) => track.stop());
-        return;
+      // Only the first take of a visit waits for the microphone; later takes
+      // reuse the open stream, so the button goes straight to Stop.
+      let captured = liveStream();
+      if (!captured) {
+        setPhase("acquiring");
+        captured = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        if (!active || version !== generation) {
+          captured.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = captured;
       }
-      stream = captured;
       const type = ["audio/webm", "audio/mp4", "audio/ogg"].find((type) =>
         MediaRecorder.isTypeSupported(type),
       );
@@ -217,7 +231,7 @@ export function StudyScreen(props: {
       };
       capture.onstop = () => {
         const durationMs = Math.round(performance.now() - startedAt);
-        cleanup();
+        endTake();
         if (!active || version !== generation) return;
         if (failed) {
           setPhase("idle");
@@ -239,7 +253,7 @@ export function StudyScreen(props: {
       setPhase("recording");
       timer = setTimeout(() => {
         failed = true;
-        cleanup();
+        endTake();
         if (capture.state === "recording") capture.stop();
         if (active) {
           setPhase("idle");
@@ -338,21 +352,17 @@ export function StudyScreen(props: {
         when={!ended() || miss()}
         fallback={
           <div class="flex min-h-dvh flex-col overflow-y-auto bg-background text-foreground [&>section]:h-auto [&>section]:min-h-0 [&>section]:flex-1">
+            {/* One state, one message: a failed restart replaces the text
+                rather than stacking a second error under it. */}
             <StudyRouteLoadFailureState
-              title={
-                lesson()?.status === "expired"
-                  ? "Lesson expired"
-                  : "Lesson ended"
+              title="Lesson ended"
+              description={
+                error() ||
+                "Your saved answers are kept. Unfinished lines do not count as wrong answers."
               }
-              description="Your saved answers are kept. Unfinished lines do not count as wrong answers."
               onRetry={() => void load(true)}
               onGoHome={props.onExit}
             />
-            <Show when={error()}>
-              <div class="mx-auto w-full max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-                {terminalError()}
-              </div>
-            </Show>
           </div>
         }
       >

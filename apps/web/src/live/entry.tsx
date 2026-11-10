@@ -12,18 +12,10 @@ import {
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
 import { LiveStudy } from "./study.tsx";
+import { StudyLoading } from "../study/screen.tsx";
 import { LiveRewardWallet } from "./rewards.tsx";
 import { LiveRewardOperator } from "./reward-operator.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
-import {
-  stopPublicEnrollment,
-  type LearningEnrollments,
-} from "./learning-revocation.ts";
-import {
-  publicResultsAction,
-  turnOffPublicResults,
-  turnOnPublicResults,
-} from "./public-results.ts";
 import {
   LiveKaraoke,
   type KaraokeWallet,
@@ -92,7 +84,13 @@ function App() {
     } | null>(null),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
-  const practiceOpen = () => singing() !== null || studying() !== null;
+  // A Study link shows the Study loading state from the first paint, not the
+  // home page, until the community has loaded and Study opens or is refused.
+  const [opening, setOpening] = createSignal(
+    new URL(location.href).searchParams.has("study"),
+  );
+  const practiceOpen = () =>
+    singing() !== null || studying() !== null || opening();
   function openStudy(song: { postId: string; title: string }) {
     setLearningActions(null);
     const url = new URL(location.href);
@@ -181,9 +179,7 @@ function App() {
       setBusy(false);
     }
   }
-  async function signIn() {
-    setStatus("Opening MOSS…");
-    const mega = await moss();
+  async function signInOnce(mega: Awaited<ReturnType<typeof moss>>) {
     setStatus("Continue in MOSS to sign in.");
     const account = await mega.connect();
     if (!account?.address) throw new Error("MOSS sign-in was cancelled.");
@@ -202,76 +198,29 @@ function App() {
       signature: signed.signature,
     });
     await refresh();
+  }
+  async function signIn() {
+    setStatus("Opening MOSS…");
+    const mega = await moss();
+    await signInOnce(mega);
+    // Results are always public; there is no setting to turn them off. An
+    // account withdrawn before that rule is restored by signing in: clear the
+    // old withdrawal, then sign the same sign-in text once more.
+    const current = session();
+    if (current?.publicResults === "off") {
+      await post("/api/learning/public-results/on", {}, current.csrf);
+      await signInOnce(mega);
+    }
     setStatus("Signed in. Choose a song to study or sing.");
-  }
-  async function revokeLearning() {
-    const current = session();
-    if (!current) return;
-    setStatus(
-      await stopPublicEnrollment({
-        list: () =>
-          post<LearningEnrollments>(
-            "/api/karaoke/enrollments",
-            {},
-            current.csrf,
-          ),
-        request: (target) =>
-          post<import("./karaoke.tsx").KaraokeConsentRequest>(
-            "/api/karaoke/enrollment/revoke",
-            { target },
-            current.csrf,
-          ),
-        submit: (request, signature) =>
-          post<{ state: string }>(
-            "/api/karaoke/enrollment/revoke",
-            { message: request.message, signature, target: request.target },
-            current.csrf,
-          ),
-        wallet: mossWallet,
-        status: setStatus,
-      }),
-    );
-  }
-  /** V4 settings: the learner's signed withdrawal, relayed by the community. */
-  async function publicResultsOff() {
-    const current = session();
-    if (!current) return;
-    const message = await turnOffPublicResults({
-      request: () =>
-        post<import("./karaoke.tsx").KaraokeConsentRequest>(
-          "/api/learning/public-results/off",
-          {},
-          current.csrf,
-        ),
-      submit: (request, signature) =>
-        post<{ state: string }>(
-          "/api/learning/public-results/off",
-          { message: request.message, signature },
-          current.csrf,
-        ),
-      wallet: mossWallet,
-      status: setStatus,
-    });
-    await refreshSession();
-    setStatus(message);
-  }
-  /** V4 settings: clear the withdrawal, then the normal sign-in is relayed. */
-  async function publicResultsOn() {
-    const current = session();
-    if (!current) return;
-    setStatus(
-      await turnOnPublicResults({
-        enable: () =>
-          post("/api/learning/public-results/on", {}, current.csrf),
-        signIn,
-        status: setStatus,
-      }),
-    );
   }
   // Owner-only publishing has no creator connection step. Preserved creator
   // connection routes stay on the server for the deferred integration.
   void run(async () => {
-    await refresh();
+    try {
+      await refresh();
+    } finally {
+      setOpening(false);
+    }
     setStatus(
       session()
         ? "Your community is ready."
@@ -348,7 +297,12 @@ function App() {
               <span title={current().mossAddress}>
                 {shortened(current().mossAddress)}
               </span>
-              <Show when={capabilities()?.learningServiceMode === "internal"}>
+              <Show
+                when={
+                  capabilities()?.learningServiceMode === "internal" &&
+                  learningActions()
+                }
+              >
                 <DropdownMenu placement="bottom-end">
                   <DropdownMenuTrigger
                     class={buttonVariants({ variant: "ghost" })}
@@ -368,32 +322,6 @@ function App() {
                       >
                         Download private history
                       </DropdownMenuItem>
-                    </Show>
-                    <Show
-                      when={publicResultsAction(current().publicResults)}
-                      keyed
-                    >
-                      {(action) =>
-                        action === "off" ? (
-                          <DropdownMenuItem
-                            onSelect={() => void run(publicResultsOff)}
-                          >
-                            Turn off public results
-                          </DropdownMenuItem>
-                        ) : action === "on" ? (
-                          <DropdownMenuItem
-                            onSelect={() => void run(publicResultsOn)}
-                          >
-                            Turn on public results
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            onSelect={() => void run(revokeLearning)}
-                          >
-                            Stop public enrollment
-                          </DropdownMenuItem>
-                        )
-                      }
                     </Show>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -453,6 +381,11 @@ function App() {
             onExit={() => setSinging(null)}
             onLearningActions={(actions) => setLearningActions(actions)}
           />
+        </div>
+      </Show>
+      <Show when={opening() && !studying()}>
+        <div class="live-study-overlay">
+          <StudyLoading />
         </div>
       </Show>
       {/* Keyed by account: another sign-in remounts Study with no prior state. */}

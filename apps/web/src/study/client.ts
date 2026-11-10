@@ -8,6 +8,8 @@ import {
 
 export interface StudyClient {
   load(): Promise<StudyLesson>;
+  /** The open lesson as stored now, even if it just finished. */
+  refresh(): Promise<StudyLesson>;
   restart(): Promise<StudyLesson>;
   open(
     lesson: StudyLesson,
@@ -69,7 +71,7 @@ export function createStudyClient(
         response.status === 401
           ? "Sign in again to continue Study."
           : body.error === "study_authorization_required"
-            ? "Public results are off. Turn them on in settings to study."
+            ? "Sign out, then sign in again to continue."
           : body.error === "study_recording_too_short"
             ? "Record for at least one second, then try again."
             : "Your answer could not be saved. Try again.",
@@ -117,9 +119,17 @@ export function createStudyClient(
   }
   return {
     async load() {
+      // Opening Study resumes the lesson in progress and otherwise starts a
+      // new one. Refreshing the page (its link names the lesson) still shows a
+      // just-finished result; a lesson that closed unfinished never reappears.
       if (lessonId)
         try {
-          return remember(await call("/" + encodeURIComponent(lessonId)));
+          const linked: StudyLesson = await call(
+            "/" + encodeURIComponent(lessonId),
+          );
+          if (linked.status === "active" || linked.status === "completed")
+            return remember(linked);
+          lessonId = undefined;
         } catch (error) {
           // A link to a lesson this account does not own opens this account's
           // own Study for the song instead of another account's lesson.
@@ -129,7 +139,13 @@ export function createStudyClient(
       const latest: StudyLesson | null = await call(
         "?song=" + encodeURIComponent(JSON.stringify(song)),
       );
-      return latest ? remember(latest) : start();
+      return latest?.status === "active" ? remember(latest) : start();
+    },
+    async refresh() {
+      // After a lost response, read back the same lesson whatever its state,
+      // so a final answer that completed it still shows its result.
+      if (!lessonId) return this.load();
+      return remember(await call("/" + encodeURIComponent(lessonId)));
     },
     async restart() {
       if (lessonId)

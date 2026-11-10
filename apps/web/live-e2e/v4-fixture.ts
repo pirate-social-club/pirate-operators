@@ -63,9 +63,13 @@ export const documents: Record<string, string> = {
   "/learning/v4/privacy": "Fixture V4 learning privacy.",
 };
 
-export async function serveV4(page: Page) {
+export async function serveV4(
+  page: Page,
+  initial: { withdrawn?: boolean } = {},
+) {
   let signedIn = false,
-    withdrawn = false,
+    // An account withdrawn before results became always public.
+    withdrawn = initial.withdrawn ?? false,
     recorded = false;
   const signatures: string[] = [];
   const counts = { enrollment: 0, starts: 0, revocations: 0, turnedOn: 0 };

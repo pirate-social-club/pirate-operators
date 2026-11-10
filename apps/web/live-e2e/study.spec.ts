@@ -346,56 +346,27 @@ test("a rejected restart keeps the completed first-pass result and displays its 
   expect(state.counts.starts).toBe(1);
 });
 for (const status of ["expired", "abandoned"] as const) {
-  test(`${status} Study reconciles publication in the background and preserves unfinished outcomes`, async ({
+  test(`reopening Study after an ${status} lesson starts a new lesson`, async ({
     page,
   }) => {
-    await page.clock.install();
     const state = await serveStudy(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(state.url);
     await expect(page.locator(".study-surface h2")).toBeVisible();
+    const starts = state.counts.starts;
     state.end(status);
-    const pending = publicationResponse(page);
     await page.reload();
-    expect((await (await pending).json()).state).toBe("pending");
-    await expect(
-      page.getByRole("heading", {
-        name: status === "expired" ? "Lesson expired" : "Lesson ended",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "Your saved answers are kept. Unfinished lines do not count as wrong answers.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await expect(page.getByText("Missed", { exact: true })).toHaveCount(0);
-    await expectNoPublicationPanel(page);
-    const confirming = publicationResponse(page);
-    state.publish();
-    await page.clock.runFor(3100);
-    const response = await confirming;
-    expect((await response.json()).receipt.confirmed).toBe(true);
-    await response.finished();
-    await page.evaluate(() => Promise.resolve());
-    const checks = state.counts.publicationChecks;
-    await page.clock.runFor(15000);
-    expect(state.counts.publicationChecks).toBe(checks);
-    expect(state.counts.terminalReads).toBeGreaterThanOrEqual(checks);
-    await expectNoPublicationPanel(page);
-    await expect(
-      page.getByRole("navigation", { name: "Study policies" }),
-    ).toHaveCount(0);
+    // An ended lesson is never shown again; the server recovers its
+    // publication on its own schedule.
+    await expect(page.locator(".study-surface h2")).toBeVisible();
+    for (const name of ["Lesson expired", "Lesson ended"])
+      await expect(page.getByRole("heading", { name })).toHaveCount(0);
+    expect(state.counts.starts).toBe(starts + 1);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: test.info().outputPath(`study-${status}-mobile.png`),
-      fullPage: false,
-    });
   });
 }
 

@@ -102,14 +102,11 @@ test("signing out and back in resumes the same lesson; signing in as another acc
   await page.getByRole("button", { name: "Sign out" }).click();
   state.walletIs("second");
   await signIn(page);
-  await page.getByRole("button", { name: "Learning settings" }).click();
+  // No download is offered for the previous account, and with nothing else
+  // to offer the settings menu is not shown.
   await expect(
-    page.getByRole("menuitem", { name: "Stop public enrollment" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("menuitem", { name: "Download private history" }),
+    page.getByRole("button", { name: "Learning settings" }),
   ).toHaveCount(0);
-  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Study", exact: true }).click();
   await expect(heading(page)).toHaveText("Hold me close");
   const own = state.lessonsOf("second");
@@ -155,28 +152,20 @@ test("a temporary session-check failure keeps the current lesson and its link", 
   expect(state.lessonsOf("second")).toHaveLength(0);
 });
 
-test("an ended lesson's Try Again after another account signed in clears it instead of acting for either account", async ({
+test("a link to an ended lesson opens a new lesson instead", async ({
   page,
 }) => {
   const state = await serveAccounts(page);
   state.expireFirstLesson();
   state.signedInAs("first");
   await page.goto(state.lessonUrl(state.firstLesson.lessonId));
-  await expect(
-    page.getByRole("heading", { name: "Lesson expired" }),
-  ).toBeVisible();
-  state.signedInAs("second");
-  await page.getByRole("button", { name: "Try Again", exact: true }).click();
-  await expect(page.getByText(changed)).toBeVisible();
+  await expect(heading(page)).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Lesson expired" }),
   ).toHaveCount(0);
+  expect(state.counts.starts).toBe(1);
   expect(state.counts.abandons).toBe(0);
-  expect(state.counts.starts).toBe(0);
-  expect(state.lessonsOf("second")).toHaveLength(0);
-  expect(state.lessonsOf("first")[0].status).toBe("expired");
-  await page.reload();
-  await expect(heading(page)).toHaveText("Hold me close");
-  expect(state.lessonsOf("second")).toHaveLength(1);
-  expect(state.counts.abandons).toBe(0);
+  expect(
+    state.lessonsOf("first").some((lesson) => lesson.status === "expired"),
+  ).toBe(true);
 });

@@ -82,54 +82,42 @@ test("Terms and Privacy stay reachable while signed in, in the footer outside th
   expect(state.signatures).toEqual(["SignIn"]);
 });
 
-test("settings turn public results off, then on with a normal sign-in", async ({
-  page,
-}) => {
+test("settings offer no public results switch", async ({ page }) => {
   const state = await serveV4(page);
   await page.goto(state.url);
   await signIn(page);
-  const settings = page.getByRole("button", { name: "Learning settings" });
-  await settings.click();
+  // Nothing to offer yet: no settings menu at all.
   await expect(
-    page.getByRole("menuitem", { name: "Stop public enrollment" }),
+    page.getByRole("button", { name: "Learning settings" }),
   ).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "Turn off public results" }).click();
-  await expect(page.locator(".live-status")).toHaveText(
-    "Public results are off. Earlier results remain public.",
-  );
-  expect(state.signatures).toEqual(["SignIn", "Revocation"]);
-  expect(state.counts.revocations).toBe(1);
-  expect(state.publicResults()).toBe("off");
-  // Off: Study refuses new work with a pointer to settings, no prompt.
+  // After Study, the menu offers only the private history download.
   await page.getByRole("button", { name: "Study", exact: true }).click();
-  await expect(
-    page.getByText(
-      "Public results are off. Turn them on in settings to study.",
-    ),
-  ).toBeVisible();
-  expect(state.counts.starts).toBe(0);
-  expect(state.signatures).toEqual(["SignIn", "Revocation"]);
-  await page.getByRole("button", { name: "Go Home" }).click();
-  await settings.click();
-  await expect(
-    page.getByRole("menuitem", { name: "Turn off public results" }),
-  ).toHaveCount(0);
-  await page.getByRole("menuitem", { name: "Turn on public results" }).click();
-  await expect(page.locator(".live-status")).toHaveText(
-    "Public results are on. Choose a song to study or sing.",
-  );
-  // Turning on is the same normal sign-in, and nothing else.
-  expect(state.signatures).toEqual(["SignIn", "Revocation", "SignIn"]);
-  expect(state.counts.turnedOn).toBe(1);
-  expect(state.publicResults()).toBe("on");
-  await settings.click();
-  await expect(
-    page.getByRole("menuitem", { name: "Turn off public results" }),
-  ).toBeVisible();
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  await page.getByRole("button", { name: "Exit study" }).click();
+  await page.getByRole("button", { name: "Learning settings" }).click();
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "Download private history",
+  ]);
   await page.keyboard.press("Escape");
+  expect(state.signatures).toEqual(["SignIn"]);
+  expect(state.counts.revocations).toBe(0);
+});
+
+test("an account withdrawn earlier is restored by signing in", async ({
+  page,
+}) => {
+  const state = await serveV4(page, { withdrawn: true });
+  await page.goto(state.url);
+  await signIn(page);
+  await expect(page.locator(".live-status")).toHaveText(
+    "Signed in. Choose a song to study or sing.",
+  );
+  // The old withdrawal is cleared, then the same sign-in text is signed once
+  // more; nothing else is asked.
+  expect(state.counts.turnedOn).toBe(1);
+  expect(state.signatures).toEqual(["SignIn", "SignIn"]);
+  expect(state.publicResults()).toBe("on");
   await page.getByRole("button", { name: "Study", exact: true }).click();
   await expect(page.locator(".study-surface h2")).toBeVisible();
   expect(state.counts.starts).toBe(1);
-  expect(state.counts.enrollment).toBe(0);
-  expect(state.signatures).toEqual(["SignIn", "Revocation", "SignIn"]);
 });
