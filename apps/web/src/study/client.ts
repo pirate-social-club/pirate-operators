@@ -148,7 +148,8 @@ export function createStudyClient(
     async refresh() {
       // After a lost response, read back the same lesson whatever its state,
       // so a final answer that completed it still shows its result.
-      if (!lessonId) return this.load();
+      // With no lesson to read back, report it rather than starting one.
+      if (!lessonId) throw new Error("This lesson is unavailable.");
       return remember(await call("/" + encodeURIComponent(lessonId)));
     },
     async restart() {

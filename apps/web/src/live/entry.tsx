@@ -197,7 +197,9 @@ function App() {
       id: challenge.id,
       signature: signed.signature,
     });
-    await refresh();
+    // Only the session here: the page (and any Study link) opens once, after
+    // the permission below is settled.
+    await refreshSession();
   }
   async function signIn() {
     setStatus("Opening MOSS…");
@@ -218,8 +220,10 @@ function App() {
         () => true,
         () => false,
       );
-      if (cleared) await signInOnce(mega);
+      // Declining this second prompt leaves the first sign-in in place.
+      if (cleared) await signInOnce(mega).catch(() => undefined);
     }
+    await refresh();
     setStatus("Signed in. Choose a song to study or sing.");
   }
   // Owner-only publishing has no creator connection step. Preserved creator

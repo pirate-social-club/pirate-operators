@@ -132,3 +132,18 @@ test("an account already on signs in once", async ({ page }) => {
   expect(state.counts.turnedOn).toBe(0);
   expect(state.signatures).toEqual(["SignIn"]);
 });
+
+test("a withdrawn account opening a Study link signs in straight into a lesson", async ({
+  page,
+}) => {
+  const state = await serveV4(page, { withdrawn: true });
+  await page.goto(state.studyUrl);
+  await signIn(page);
+  // Study opens only after the permission is settled, so it starts cleanly.
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  await expect(
+    page.getByText("Sign out, then sign in again to continue."),
+  ).toHaveCount(0);
+  expect(state.signatures).toEqual(["SignIn", "SignIn"]);
+  expect(state.counts.starts).toBe(1);
+});
