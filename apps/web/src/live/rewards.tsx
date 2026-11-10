@@ -1,10 +1,21 @@
 // Independently owned learner presentation adapted from pirate-web-solid c7cb878:
 // wallet-hub.tsx and rewards/winnings-model.ts. One dollar asset; no chain list or creator claims.
-import { createSignal, For, Show, onCleanup, onSettled } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  Show,
+  onCleanup,
+  onSettled,
+} from "solid-js";
 import QRCode from "qrcode";
 import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
 import { rewardsData, type RewardsData } from "./rewards-data.ts";
-import { dollars, openRewardWallet } from "./reward-wallet.ts";
+import { dollars } from "./reward-wallet.ts";
+import { rewardSummary, drawingStatus } from "../wallet/reward-status.ts";
+import { WalletReceivePanel } from "../wallet/receive-panel.tsx";
+import { WalletSendPanel } from "../wallet/send-panel.tsx";
+import type { WalletSendAdapterV1 } from "../wallet/contracts.ts";
 import type {
   RewardCredit,
   RewardWalletView,
@@ -16,6 +27,7 @@ export function LiveRewardWallet(props: {
   onExit: () => void;
   data?: RewardsData;
   send?: (view: RewardWalletView) => Promise<void>;
+  sendAdapter?: WalletSendAdapterV1;
 }) {
   const data = props.data ?? rewardsData(props.csrf);
   const [view, setView] = createSignal<RewardWalletView | null>(null),
@@ -23,15 +35,21 @@ export function LiveRewardWallet(props: {
     [busy, setBusy] = createSignal(false),
     [notice, setNotice] = createSignal("Loading wallet…"),
     [intent, setIntent] = createSignal<VerificationIntent | null>(null),
-    [qr, setQr] = createSignal("");
+    [qr, setQr] = createSignal(""),
+    [panel, setPanel] = createSignal<"send" | "receive" | null>(null),
+    [failedPolls, setFailedPolls] = createSignal(0);
   let stopped = false,
     timer: ReturnType<typeof setTimeout> | undefined;
+  const summary = createMemo(() =>
+    view() ? rewardSummary(view()!, credits()) : null,
+  );
   onCleanup(() => {
     stopped = true;
     clearTimeout(timer);
   });
   async function refresh() {
     const [wallet, rows] = await Promise.all([data.wallet(), data.credits()]);
+    rewardSummary(wallet, rows);
     if (!stopped) {
       setView(wallet);
       setCredits(rows);
@@ -43,10 +61,12 @@ export function LiveRewardWallet(props: {
     setBusy(true);
     try {
       await action();
-    } catch {
+    } catch (error) {
       if (!stopped)
         setNotice(
-          "This step could not complete. Your winnings stay held. Try again.",
+          error instanceof Error
+            ? error.message
+            : "This step could not complete. Refresh to check again.",
         );
     } finally {
       if (!stopped) setBusy(false);
@@ -65,9 +85,11 @@ export function LiveRewardWallet(props: {
     return id && /^[a-zA-Z0-9_-]{8,128}$/.test(id) ? id : null;
   }
   async function poll(id: string, creditId: string) {
+    clearTimeout(timer);
     try {
       const next = await data.poll(id);
       if (stopped) return;
+      setFailedPolls(0);
       setIntent(next);
       if (next.state === "verified") {
         history.replaceState(
@@ -81,10 +103,13 @@ export function LiveRewardWallet(props: {
         return;
       }
       if (next.state === "subject_conflict") {
+        setIntent(null);
+        setQr("");
+        history.replaceState(null, "", "/wallet");
+        await refresh();
         setNotice(
           "This palm scan is linked to another reward account. Your amount stays held; contact support.",
         );
-        await refresh();
         return;
       }
       if (next.state === "expired") {
@@ -97,15 +122,35 @@ export function LiveRewardWallet(props: {
         return;
       }
     } catch {
-      if (!stopped)
+      if (!stopped) {
+        setFailedPolls(failedPolls() + 1);
         setNotice("Verification is still pending. Your winnings stay held.");
+        if (failedPolls() >= 5) {
+          setNotice(
+            "Verification could not be checked. Your winnings stay held. Press Check palm scan to resume this same verification.",
+          );
+          return;
+        }
+      }
     }
     if (!stopped) timer = setTimeout(() => void poll(id, creditId), 3000);
   }
   async function verify(creditId: string) {
+    clearTimeout(timer);
+    setFailedPolls(0);
     const url = new URL(location.href),
+      candidate =
+        url.pathname === "/verify/very" ? url.searchParams.get("intent") : null,
       existing =
-        url.pathname === "/verify/very" ? url.searchParams.get("intent") : null;
+        candidate && /^[a-zA-Z0-9_-]{8,128}$/.test(candidate)
+          ? candidate
+          : null;
+    if (url.pathname === "/verify/very" && !existing) {
+      history.replaceState(null, "", "/wallet");
+      throw Error(
+        "This palm verification link is incomplete. Press Verify to claim to start again.",
+      );
+    }
     const next = existing ? await data.poll(existing) : await data.intent();
     if (stopped) return;
     setIntent(next);
@@ -115,8 +160,14 @@ export function LiveRewardWallet(props: {
       "",
       `/verify/very?purpose=reward_claim&return_to=${encodeURIComponent(returnTo)}&intent=${encodeURIComponent(next.intent_id)}`,
     );
-    if (next.launch_url)
-      setQr(await QRCode.toDataURL(next.launch_url, { width: 256, margin: 2 }));
+    if (next.launch_url) {
+      const image = await QRCode.toDataURL(next.launch_url, {
+        width: 256,
+        margin: 2,
+      });
+      if (stopped) return;
+      setQr(image);
+    }
     await poll(next.intent_id, creditId);
   }
   async function claim(id: string, resumed = false) {
@@ -181,7 +232,7 @@ export function LiveRewardWallet(props: {
       <Card>
         <CardHeader>
           <Type as="p" variant="overline">
-            Total balance
+            Available to send
           </Type>
           <Type as="p" variant="display">
             {view()?.balanceAtomic === null || !view()
@@ -189,19 +240,84 @@ export function LiveRewardWallet(props: {
               : dollars(view()!.balanceAtomic!, view()!.decimals)}
           </Type>
         </CardHeader>
-        <CardContent>
+        <CardContent class="flex flex-wrap gap-3">
           <Button
-            class="w-full"
+            class="flex-1"
             variant="outline"
             disabled={busy() || !view()}
-            onClick={() =>
-              void run(() => (props.send ?? openRewardWallet)(view()!))
-            }
+            onClick={() => setPanel(panel() === "send" ? null : "send")}
           >
             Send
           </Button>
+          <Button
+            class="flex-1"
+            variant="outline"
+            disabled={busy() || !view()}
+            onClick={() => setPanel(panel() === "receive" ? null : "receive")}
+          >
+            Receive
+          </Button>
         </CardContent>
       </Card>
+      <Show when={view()}>
+        {(wallet) => (
+          <>
+            <Show when={panel() === "receive"}>
+              <WalletReceivePanel
+                view={wallet()}
+                onClose={() => setPanel(null)}
+              />
+            </Show>
+            <Show when={panel() === "send"}>
+              <WalletSendPanel
+                view={wallet()}
+                adapter={props.sendAdapter}
+                send={props.send}
+                onClose={() => setPanel(null)}
+              />
+            </Show>
+            <Card>
+              <CardHeader>
+                <Type as="h2" variant="h3">
+                  Your rewards
+                </Type>
+              </CardHeader>
+              <CardContent class="flex flex-col gap-2">
+                <Type as="p">
+                  Earned winnings:{" "}
+                  {dollars(summary()!.earned, wallet().decimals)}
+                </Type>
+                <Type as="p">
+                  Pending rewards:{" "}
+                  {dollars(summary()!.pending, wallet().decimals)}
+                </Type>
+                <Type as="p" variant="caption">
+                  Pending rewards are separate from your available balance. A
+                  drawing may have no prize.
+                </Type>
+                <Show when={summary()!.claimable !== "0"}>
+                  <Type as="p">
+                    Action needed: verify your palm to claim{" "}
+                    {dollars(summary()!.claimable, wallet().decimals)} below.
+                  </Type>
+                </Show>
+                <Show when={summary()!.held !== "0"}>
+                  <Type as="p">
+                    Action needed: contact support about a palm scan linked to
+                    another reward account.
+                  </Type>
+                </Show>
+                <Show when={summary()!.awaiting !== "0"}>
+                  <Type as="p">
+                    Claim accepted. Waiting for payment; no further palm scan is
+                    needed.
+                  </Type>
+                </Show>
+              </CardContent>
+            </Card>
+          </>
+        )}
+      </Show>
       <Show when={view()?.balanceAtomic === null}>
         <Type as="p">Balance unavailable. Refresh to check again.</Type>
       </Show>
@@ -240,6 +356,22 @@ export function LiveRewardWallet(props: {
               <Type as="p" role="status">
                 Waiting for verification…
               </Type>
+              <Show when={failedPolls() >= 5}>
+                <Button
+                  disabled={busy()}
+                  onClick={() =>
+                    void run(async () => {
+                      const id = creditFromUrl();
+                      if (id) {
+                        setFailedPolls(0);
+                        await poll(current().intent_id, id);
+                      }
+                    })
+                  }
+                >
+                  Check palm scan
+                </Button>
+              </Show>
             </CardContent>
           </Card>
         )}
@@ -256,13 +388,7 @@ export function LiveRewardWallet(props: {
               <Type as="p">
                 {new Date(drawing.cutoffAt).toLocaleDateString()}
                 {": "}
-                {drawing.qualified === false
-                  ? "You did not qualify for this drawing."
-                  : drawing.state === "no_prize"
-                    ? "This drawing had no prize."
-                    : drawing.state === "open" || drawing.state === "closed"
-                      ? "Drawing pending."
-                      : "Lottery winnings recorded."}
+                {drawingStatus(drawing)}
               </Type>
             )}
           </For>
@@ -279,7 +405,12 @@ export function LiveRewardWallet(props: {
                     </Type>
                     <Type as="p">{detail(credit)}</Type>
                   </div>
-                  <Show when={credit.claim.status === "unclaimed"}>
+                  <Show
+                    when={
+                      credit.claim.status === "unclaimed" &&
+                      BigInt(credit.amount_atomic) > BigInt(credit.paid_atomic)
+                    }
+                  >
                     <Button
                       disabled={busy() || !!intent()}
                       onClick={() => void run(() => claim(credit.credit_id))}

@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
 import { dollars } from "./reward-wallet.ts";
 import type { RewardOperatorView, RewardsData } from "./rewards-data.ts";
+import { closeAvailability } from "../wallet/close-readiness.ts";
 const field =
   "w-full rounded border border-border-soft bg-transparent p-2 text-foreground";
 const localTime = (ms: number) =>
@@ -185,7 +186,10 @@ export function RewardOfferPanel(props: {
                 <Show when={offer.state === "open"}>
                   <Button
                     variant="outline"
-                    disabled={props.busy || Date.now() < offer.cutoffAt}
+                    disabled={
+                      props.busy ||
+                      !closeAvailability(offer, props.view.closeReadiness).ready
+                    }
                     onClick={() =>
                       void props.run(async () => {
                         await props.data.operation(
@@ -197,6 +201,9 @@ export function RewardOfferPanel(props: {
                   >
                     Close entries
                   </Button>
+                  <Type as="p" variant="caption" role="status">
+                    {closeAvailability(offer, props.view.closeReadiness).reason}
+                  </Type>
                 </Show>
                 <Show when={offer.state === "closed"}>
                   <Show when={offer.evidenceMode !== "simulated"}>

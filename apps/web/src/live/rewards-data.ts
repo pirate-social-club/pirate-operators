@@ -1,4 +1,14 @@
 import { get, post } from "./api.ts";
+import type { RewardCloseReadinessV1 } from "../wallet/contracts.ts";
+import type {
+  WalletSendAdapterV1,
+  WalletSendIntentV1,
+  WalletSendQuoteV1,
+} from "../wallet/contracts.ts";
+import {
+  validateSendIntent,
+  validateSendQuote,
+} from "../wallet/quoted-send.ts";
 import type {
   RewardCredit,
   RewardCreditList,
@@ -49,19 +59,28 @@ export interface RewardOperatorView {
   songs: { songKey: string; title: string }[];
   unmatched: import("../../../../packages/rewards/contracts.ts").ConfirmedTransfer[];
   observedBalanceAtomic: string | null;
+  closeReadiness?: RewardCloseReadinessV1;
 }
 export function rewardsData(csrf: string) {
   return {
     wallet: () => get<RewardWalletView>("/api/rewards/wallet"),
     async credits() {
       const items: RewardCredit[] = [],
-        seen = new Set<string>();
+        seen = new Set<string>(),
+        ids = new Set<string>();
       let cursor: string | null = null;
       for (let page = 0; page < 100; page++) {
         const value: RewardCreditList = await get<RewardCreditList>(
           `/api/rewards/credits?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         );
-        items.push(...value.items);
+        for (const item of value.items) {
+          if (ids.has(item.credit_id))
+            throw Error(
+              "The reward list changed while loading. Refresh to check again.",
+            );
+          ids.add(item.credit_id);
+          items.push(item);
+        }
         cursor = value.next_cursor;
         if (cursor === null) return items;
         if (seen.has(cursor))
@@ -94,3 +113,50 @@ export function rewardsData(csrf: string) {
   };
 }
 export type RewardsData = ReturnType<typeof rewardsData>;
+
+/** Mount only after lane 7's authenticated guarded-send capability is available. */
+export function walletSendData(csrf: string): WalletSendAdapterV1 {
+  const path = (id: string) => `/api/rewards/sends/${encodeURIComponent(id)}`;
+  const write = <T>(route: string, body: unknown, key: string) =>
+    post<T>(route, body, csrf, { "idempotency-key": key });
+  return {
+    schema: "pirate.wallet-send-adapter/1",
+    async current(view) {
+      const next = await get<WalletSendIntentV1 | null>(
+        "/api/rewards/sends/current",
+      );
+      return next ? validateSendIntent(view, next) : null;
+    },
+    async quote(view, request) {
+      return validateSendQuote(
+        view,
+        await post<WalletSendQuoteV1>(
+          "/api/rewards/send-quotes",
+          request,
+          csrf,
+        ),
+      );
+    },
+    prepare: (quote) =>
+      write<WalletSendIntentV1>(
+        "/api/rewards/sends",
+        { quoteId: quote.quoteId },
+        quote.quoteId,
+      ),
+    begin: (id, attemptId, action = "pay") =>
+      write<WalletSendIntentV1>(
+        `${path(id)}/dispatch`,
+        { action, attemptId },
+        attemptId,
+      ),
+    outcome: (id, attemptId, result) =>
+      write<WalletSendIntentV1>(
+        `${path(id)}/outcome`,
+        { attemptId, ...result },
+        attemptId,
+      ),
+    reconcile: (id) =>
+      post<WalletSendIntentV1>(`${path(id)}/reconcile`, {}, csrf),
+    cancel: (id) => write<WalletSendIntentV1>(`${path(id)}/cancel`, {}, id),
+  };
+}
