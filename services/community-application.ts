@@ -111,6 +111,7 @@ import {
   unregisteredOwner,
 } from "../packages/community/owner-policy.ts";
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { confirmedRewardTimestamp } from "./reward-close-clock.ts";
 import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
@@ -351,6 +352,23 @@ export async function communityFetch(
           verification: ports.rewards?.verification ?? rewardVeryProvider(),
           sources,
           now: ports.now,
+          confirmedCutoffTimestamp:
+            ports.rewards?.confirmedCutoffTimestamp ??
+            (ports.rewards
+              ? undefined
+              : () =>
+                  confirmedRewardTimestamp(
+                    {
+                      chainId: () => publicReads.client.getChainId(),
+                      safeTimestampSeconds: async () =>
+                        (
+                          await publicReads.client.getBlock({
+                            blockTag: "safe",
+                          })
+                        ).timestamp,
+                    },
+                    profile.chainId,
+                  )),
           songs:
             ports.rewards?.songs ??
             (async () =>
@@ -718,13 +736,7 @@ export async function communityFetch(
         // withdrawal. If it is ahead of the chain, the operator answers
         // sign_in_not_yet_valid and the relay is retried.
         return reply(
-          await loginChallenge(
-            env.DB,
-            context,
-            body.address,
-            loginAt,
-            v4,
-          ),
+          await loginChallenge(env.DB, context, body.address, loginAt, v4),
         );
       }
       if (url.pathname === "/api/auth/verify") {
@@ -753,11 +765,7 @@ export async function communityFetch(
         // V4 learning records: the sign-in is the permission, so the V3
         // enrollment request and signature are refused. Listing and stopping
         // an earlier V3 enrollment stay available.
-        insist(
-          !v4LearningRecords(env, config),
-          "enrollment_unavailable",
-          409,
-        );
+        insist(!v4LearningRecords(env, config), "enrollment_unavailable", 409);
         return reply(await karaokeEnrollment(karaokePorts, session, body));
       }
       // A withdrawal, in settings or found on chain, closes the account's
@@ -780,9 +788,7 @@ export async function communityFetch(
           ),
         );
       if (url.pathname === "/api/learning/public-results/on")
-        return reply(
-          await turnOnPublicResults(env, env.DB, config, session),
-        );
+        return reply(await turnOnPublicResults(env, env.DB, config, session));
       if (url.pathname === "/api/karaoke/tickets")
         return reply(
           await karaokeTicket(karaokePorts, session, body, endStudyLessons),

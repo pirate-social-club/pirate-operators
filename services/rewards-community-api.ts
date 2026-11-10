@@ -33,6 +33,7 @@ import {
 } from "../packages/rewards/validation.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
 import { rehearsalTerms } from "../packages/rewards/rehearsal.ts";
+import { rewardCloseReadiness } from "../packages/rewards/close-readiness.ts";
 
 export interface RewardsApiPorts {
   db: D1Database;
@@ -42,6 +43,8 @@ export interface RewardsApiPorts {
   sources?: RewardSources;
   now?: () => number;
   songs?: () => Promise<{ songKey: string; title: string; postId?: string }[]>;
+  /** Safe-confirmed timestamp in Unix milliseconds; absence never unlocks closing. */
+  confirmedCutoffTimestamp?: () => Promise<number>;
 }
 /** Uses the pilot's host-only account cookie. No central persona or Privy authentication is accepted. */
 export async function rewardsCommunityApi(
@@ -236,7 +239,28 @@ export async function rewardsCommunityApi(
               : "accepted"
         ] += amount;
       }
+      const checkedAt = (ports.now ?? Date.now)();
+      let confirmedTimestamp: number | null = null;
+      if (
+        ports.confirmedCutoffTimestamp &&
+        offers.results.some(
+          (offer) => offer.state === "open" && offer.cutoff_at <= checkedAt,
+        )
+      ) {
+        try {
+          const timestamp = await ports.confirmedCutoffTimestamp();
+          if (Number.isSafeInteger(timestamp) && timestamp >= 0)
+            confirmedTimestamp = timestamp;
+        } catch {
+          // Keep balances and liabilities available when confirmation cannot be read.
+        }
+      }
       return reply({
+        closeReadiness: rewardCloseReadiness(
+          offers.results.map(offerView),
+          checkedAt,
+          confirmedTimestamp,
+        ),
         offers: offers.results.map(offerView),
         // What a new offer accepts when the operator names no sources.
         resultSources: ports.sources?.resultSources ?? null,

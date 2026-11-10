@@ -28,6 +28,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: npm run test:e2e:live
+      - name: Wallet identity and Send recovery browser regressions
+        run: npm run test:e2e:wallet
       - name: Reproduce the release from two clean builds
         run: node scripts/reproducible.ts "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
