@@ -16,10 +16,11 @@ export async function eraseCommunityMedia(
     // leave retained bytes outside the quota predicate.
     record = await service.ports.repository.get(record.id);
     if (!terminal(record)) return;
-    if (!record.erasePending)
-      record = await service.ports.repository.save(record, {
-        erasePending: true,
-      });
+    // Every sweep owns a fresh CAS revision, including overlapping sweeps
+    // that both observe erasePending=true. Only its own revision may clear.
+    record = await service.ports.repository.save(record, {
+      erasePending: true,
+    });
     let cursor: string | undefined;
     do {
       const page = await service.ports.bucket.list({

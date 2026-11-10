@@ -118,8 +118,7 @@ export function MediaUpload(props: MediaUploadProps) {
       if (!disposed) setBusy(false);
     }
   }
-  async function upload() {
-    const chosen = file();
+  async function upload(chosen: File | null = file()) {
     if (!chosen) return;
     if (!props.capability.allowed)
       throw Error(
@@ -184,7 +183,9 @@ export function MediaUpload(props: MediaUploadProps) {
     (recording) => {
       if (recording && !status()) {
         choose(recording);
-        void run(upload);
+        // Solid 2 defers signal writes; pass the exact captured value in this
+        // call rather than reading file() before its queued update commits.
+        void run(() => upload(recording));
       }
     },
   );
