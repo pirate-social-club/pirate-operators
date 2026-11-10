@@ -2,7 +2,12 @@
 // publication permission. A sign-in is relayed to LearningResultsV4.authorize,
 // and withdrawal is the learner's signed Revocation relayed to revoke, an
 // explicit account-settings action. Both are sponsored as enrollment was.
-import { encodeFunctionData, hashTypedData, type Address, type Hex } from "viem";
+import {
+  encodeFunctionData,
+  hashTypedData,
+  type Address,
+  type Hex,
+} from "viem";
 import {
   resultsV4Abi,
   type SignIn,
@@ -16,7 +21,7 @@ import {
   codeOf,
   nonceOf,
 } from "./accounts.ts";
-import { intentOf, type TxRow } from "./operator-tx.ts";
+import { intentOf, txRow, type TxRow } from "./operator-tx.ts";
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import {
   submitResultTransaction,
@@ -249,13 +254,49 @@ export async function resumeAuthorizations(env: Env, store: ResultStore) {
 }
 
 /** Live permission as the chain records it, for the application. */
-export async function authorizationState(env: Env, learner: Address) {
+export async function authorizationState(
+  env: Env,
+  learner: Address,
+  store?: ResultStore,
+) {
   const target = resultsTarget(env, 4);
-  const [since, revokedAt] = await Promise.all([
-    read<bigint>(env, target, "authorizedSince", [learner]),
-    read<bigint>(env, target, "revokedAt", [learner]),
+  const chain = client(env);
+  const blockNumber = await chain.getBlockNumber({ cacheTime: 0 });
+  const readAt = (
+    functionName: "authorizedSince" | "revokedAt" | "nextNonce",
+  ) =>
+    chain.readContract({
+      address: target.contract,
+      abi: resultsV4Abi,
+      functionName,
+      args: [learner],
+      blockNumber,
+    });
+  const [since, revokedAt, nonce] = await Promise.all([
+    readAt("authorizedSince"),
+    readAt("revokedAt"),
+    readAt("nextNonce"),
   ]);
-  return { since: Number(since), revokedAt: Number(revokedAt) };
+  const pending = store
+    ?.entries(
+      `revocationIntent:4:${target.contract.toLowerCase()}:${learner.toLowerCase()}:`,
+    )
+    .some(({ value }) => {
+      const job = value as RevocationJobV4;
+      if (job.pending) return true;
+      const intent = intentOf(store!, "record_revoke", job.grantId);
+      const row =
+        intent?.nonce == null ? undefined : txRow(store!, intent.nonce);
+      // A revocation may confirm during the pinned reads. Do not report the
+      // older snapshot as ready for turn-on until it includes that receipt.
+      return row?.mined?.status === "success" && nonce <= BigInt(job.nonce);
+    });
+  return {
+    since: Number(since),
+    revokedAt: Number(revokedAt),
+    revocationNonce: String(nonce),
+    ...(pending ? { pendingWithdrawal: true } : {}),
+  };
 }
 
 /** The EIP-712 digest the contract's revocationDigest computes; the withdrawal's id. */
@@ -411,6 +452,8 @@ export async function authorizationRoute(
   }
   const learner = /^\/authorization\/(0x[0-9a-fA-F]{40})$/.exec(path);
   if (learner && request.method === "GET")
-    return Response.json(await authorizationState(env, learner[1] as Address));
+    return Response.json(
+      await authorizationState(env, learner[1] as Address, store),
+    );
   return null;
 }

@@ -370,15 +370,16 @@ export function liveStudy(
    * holds their V4 Revocation or reads a withdrawal on the V4 contract. A
    * binding that lands later finds its lesson closed.
    */
-  async function endForWithdrawal() {
+  async function endForWithdrawal(through = Number.MAX_SAFE_INTEGER) {
     const open = await ports.db
       .prepare(
         `SELECT lesson_id FROM study_lessons
         WHERE account_id=?1 AND community_id=?2 AND history_deleted_at IS NULL
         AND json_extract(state_json,'$.status')='active'
+        AND started_at<=?3
         ORDER BY started_at,lesson_id`,
       )
-      .bind(owner.accountId, owner.communityId)
+      .bind(owner.accountId, owner.communityId, through)
       .all<{ lesson_id: string }>();
     const closed: StudyLesson[] = [];
     for (const { lesson_id } of open.results)

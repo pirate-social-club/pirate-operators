@@ -57,7 +57,7 @@ export async function publicationSignInAtLogin(
   const wallet = address.toLowerCase();
   const account = await db
     .prepare(
-      `SELECT b.account_id,s.public_results_withdrawn_at AS withdrawn,s.last_withdrawn_at AS last
+      `SELECT b.account_id,s.public_results_withdrawn_at AS withdrawn,s.acknowledged_revocation_nonce AS acknowledged
       FROM credential_bindings b LEFT JOIN learning_settings s ON s.account_id=b.account_id
       WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?`,
     )
@@ -65,15 +65,44 @@ export async function publicationSignInAtLogin(
     .first<{
       account_id: string;
       withdrawn: number | null;
-      last: number | null;
+      acknowledged: string | null;
     }>();
   if (account?.withdrawn != null || !env.KARAOKE_OPERATOR) return undefined;
   const observed = await loginWithdrawal(env, wallet, waitMs);
-  if (observed === undefined) return undefined;
-  if (observed === 0 || (account?.last != null && account.last >= observed))
+  if (observed === undefined || observed.pending) return undefined;
+  if (
+    observed.nonce === "0" ||
+    (account?.acknowledged != null &&
+      BigInt(account.acknowledged) >= BigInt(observed.nonce))
+  )
     return v4;
   if (account) {
-    await recordWithdrawal(db, account.account_id, observed);
+    const noted = await db
+      .prepare(
+        `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
+      ON CONFLICT(account_id) DO UPDATE SET public_results_withdrawn_at=excluded.public_results_withdrawn_at,
+        last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)
+      WHERE acknowledged_revocation_nonce IS NULL
+        OR length(acknowledged_revocation_nonce)<length(?3)
+        OR (length(acknowledged_revocation_nonce)=length(?3) AND acknowledged_revocation_nonce<?3)`,
+      )
+      .bind(account.account_id, observed.atMs, observed.nonce)
+      .run();
+    if (!noted.meta.changes) {
+      // Turn-on may have acknowledged this withdrawal while the read was
+      // pending. Never overwrite that newer choice or close its lessons.
+      const current = await db
+        .prepare(
+          "SELECT public_results_withdrawn_at AS withdrawn,acknowledged_revocation_nonce AS acknowledged FROM learning_settings WHERE account_id=?",
+        )
+        .bind(account.account_id)
+        .first<{ withdrawn: number | null; acknowledged: string | null }>();
+      return current?.withdrawn === null &&
+        current.acknowledged != null &&
+        BigInt(current.acknowledged) >= BigInt(observed.nonce)
+        ? v4
+        : undefined;
+    }
     await endLessons({ account_id: account.account_id, wallet });
   }
   return undefined;
@@ -84,7 +113,7 @@ async function loginWithdrawal(
   env: { KARAOKE_OPERATOR?: Fetcher },
   wallet: string,
   waitMs = 2000,
-): Promise<number | undefined> {
+): Promise<{ atMs: number; nonce: string; pending: boolean } | undefined> {
   if (!env.KARAOKE_OPERATOR) return undefined;
   const abort = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -99,6 +128,8 @@ async function loginWithdrawal(
         const live = (await response.json()) as {
           since?: unknown;
           revokedAt?: unknown;
+          revocationNonce?: unknown;
+          pendingWithdrawal?: unknown;
         };
         if (
           typeof live.since !== "number" ||
@@ -107,10 +138,19 @@ async function loginWithdrawal(
           typeof live.revokedAt !== "number" ||
           !Number.isSafeInteger(live.revokedAt) ||
           live.revokedAt < 0 ||
-          !Number.isSafeInteger(live.revokedAt * 1000)
+          !Number.isSafeInteger(live.revokedAt * 1000) ||
+          typeof live.revocationNonce !== "string" ||
+          !/^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce) ||
+          BigInt(live.revocationNonce) > (1n << 64n) - 1n ||
+          (live.pendingWithdrawal !== undefined &&
+            typeof live.pendingWithdrawal !== "boolean")
         )
           return undefined;
-        return live.revokedAt * 1000;
+        return {
+          atMs: live.revokedAt * 1000,
+          nonce: live.revocationNonce,
+          pending: live.pendingWithdrawal === true,
+        };
       })(),
       new Promise<undefined>((resolve) => {
         timer = setTimeout(() => {
@@ -192,17 +232,26 @@ export async function turnOnPublicResults(
 ) {
   operatorFor(env, config);
   // A relayed withdrawal may mine after the application's recorded time.
-  // Explicit turn-on acknowledges its chain time before clearing the flag,
+  // Explicit turn-on acknowledges its exact chain nonce before clearing the flag,
   // so the next login does not mistake that same withdrawal for a new one.
   const observed = await loginWithdrawal(env, learner.wallet);
-  insist(observed !== undefined, "public_results_unavailable", 503);
+  insist(
+    observed !== undefined && !observed.pending,
+    "public_results_unavailable",
+    503,
+  );
   await db
     .prepare(
-      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,NULL,?2)
+      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at,acknowledged_revocation_nonce) VALUES(?1,NULL,?2,?3)
       ON CONFLICT(account_id) DO UPDATE SET public_results_withdrawn_at=NULL,
-        last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)`,
+        last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at),
+        acknowledged_revocation_nonce=CASE WHEN acknowledged_revocation_nonce IS NULL
+          OR length(acknowledged_revocation_nonce)<length(excluded.acknowledged_revocation_nonce)
+          OR (length(acknowledged_revocation_nonce)=length(excluded.acknowledged_revocation_nonce)
+            AND acknowledged_revocation_nonce<excluded.acknowledged_revocation_nonce)
+        THEN excluded.acknowledged_revocation_nonce ELSE acknowledged_revocation_nonce END`,
     )
-    .bind(learner.account_id, observed)
+    .bind(learner.account_id, observed.atMs, observed.nonce)
     .run();
   return { publicResults: await publicResults(db, learner.account_id, true) };
 }

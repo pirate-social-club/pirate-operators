@@ -264,8 +264,8 @@ test(
   async () => {
     const f = await studyCommunityFixture(19982, { v4: true });
     try {
-      f.authorizationDown(true);
       const auth = await f.login();
+      f.authorizationDown(true);
       const [pending] = await recorded(f);
       assert.equal(pending.state, "pending");
       const song = await json<StudySong>(
@@ -642,11 +642,12 @@ test(
         /invalid_study_lesson_binding/,
       );
       await revokeOnChain(f);
-      // The application does not know of this direct withdrawal, so its
-      // sign-in is backdated up to a minute; one made after that minute.
+      // A fresh publication sign-in requires explicit settings turn-on
+      // after this direct withdrawal.
       await f.mineClock();
       f.advance(61_000);
       await f.mineClock();
+      await f.post("/api/learning/public-results/on", {}, f.auth);
       const after = await signInOnChain(f, 5);
       assert.ok(
         after.message.issuedAt >

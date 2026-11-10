@@ -698,6 +698,7 @@ export async function communityFetch(
       requestOrigin(request, context.origin);
       const body = await jsonBody(request);
       if (url.pathname === "/api/auth/challenge") {
+        const loginAt = (ports.now ?? Date.now)();
         const v4 = await publicationSignInAtLogin(
           env,
           env.DB,
@@ -708,7 +709,7 @@ export async function communityFetch(
               await liveStudy(
                 { ...karaokePorts, env },
                 learner,
-              ).endForWithdrawal();
+              ).endForWithdrawal(loginAt);
           },
         );
         // SIWE keeps the wall clock. A V4 sign-in's issuedAt comes from the
@@ -721,7 +722,7 @@ export async function communityFetch(
             env.DB,
             context,
             body.address,
-            v4 ? (ports.now ?? Date.now)() : Date.now(),
+            loginAt,
             v4,
           ),
         );

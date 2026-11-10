@@ -39,6 +39,9 @@ CREATE TABLE learning_settings (
   account_id TEXT PRIMARY KEY REFERENCES community_accounts(account_id),
   public_results_withdrawn_at INTEGER,
   last_withdrawn_at INTEGER,
+  -- Chain revocation identity acknowledged by an explicit settings turn-on.
+  -- It is independent of application/chain clock offsets and same-second revokes.
+  acknowledged_revocation_nonce TEXT,
   CHECK(public_results_withdrawn_at IS NULL OR last_withdrawn_at IS NOT NULL)
 );
 INSERT INTO setup_schema(version) VALUES(13);

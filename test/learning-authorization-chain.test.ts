@@ -364,6 +364,7 @@ test(
       assert.deepEqual(live, {
         since: Number(s.message.issuedAt),
         revokedAt: 0,
+        revocationNonce:"0",
       });
       // A later sign-in by the same learner needs no relay, even to practise.
       f.relayed.length = 0;
@@ -522,6 +523,7 @@ test(
       assert.deepEqual(live, {
         since: Number(after.message.issuedAt),
         revokedAt: Number(revokedAt),
+        revocationNonce:"1",
       });
     } finally {
       await f.stop();

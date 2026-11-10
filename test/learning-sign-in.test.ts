@@ -31,7 +31,7 @@ import {
   requestSignInRelay,
 } from "../services/learning-sign-in.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
-import { publicationSignInAtLogin } from "../services/learning-public-results.ts";
+import { turnOnPublicResults, publicationSignInAtLogin } from "../services/learning-public-results.ts";
 
 const origin = "https://community.example";
 const context = {
@@ -144,7 +144,7 @@ test("login permission checks fail closed without blocking a plain sign-in", asy
     // creates a persistent withdrawal or locks the account out.
     assert.equal(
       await publicationSignInAtLogin(
-        operator(async () => Response.json({ since: 0, revokedAt: 0 })),
+        operator(async () => Response.json({ since: 0, revokedAt: 0, revocationNonce:"0" })),
         f.db,
         subject,
         v4,
@@ -173,6 +173,7 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
       .first<{ account_id: string }>();
     const closed: string[] = [];
     let revokedAt = 1_700_000_000;
+    let revocationNonce = 1;
     const env = {
       KARAOKE_OPERATOR: {
         async fetch(input: RequestInfo | URL) {
@@ -180,7 +181,7 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
             String(input),
             `http://service/authorization/${subject}`,
           );
-          return Response.json({ since: 0, revokedAt });
+          return Response.json({ since: 0, revokedAt, revocationNonce:String(revocationNonce) });
         },
       } as Fetcher,
     };
@@ -192,14 +193,33 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
     assert.deepEqual(closed, [account!.account_id]);
     await f.db
       .prepare(
-        "UPDATE learning_settings SET public_results_withdrawn_at=NULL WHERE account_id=?",
+        "UPDATE learning_settings SET public_results_withdrawn_at=NULL,acknowledged_revocation_nonce='1' WHERE account_id=?",
       )
       .bind(account!.account_id)
       .run();
     assert.equal(await check(), v4);
     revokedAt += 2;
+    revocationNonce++;
+    await f.db.prepare("UPDATE learning_settings SET last_withdrawn_at=? WHERE account_id=?").bind(revokedAt*1000+10_000, account!.account_id).run();
     assert.equal(await check(), undefined);
     assert.deepEqual(closed, [account!.account_id, account!.account_id]);
+    // A turn-on can finish while a login's chain read is outstanding. Its
+    // acknowledgment wins over the login's earlier settings snapshot.
+    await f.db.prepare("UPDATE learning_settings SET public_results_withdrawn_at=NULL,last_withdrawn_at=?,acknowledged_revocation_nonce=? WHERE account_id=?").bind((revokedAt-1)*1000, String(revocationNonce-1), account!.account_id).run();
+    const racing = { KARAOKE_OPERATOR: {async fetch() {
+      await f.db.prepare("UPDATE learning_settings SET public_results_withdrawn_at=NULL,last_withdrawn_at=?,acknowledged_revocation_nonce=? WHERE account_id=?").bind(revokedAt*1000, String(revocationNonce), account!.account_id).run();
+      return Response.json({since:0,revokedAt,revocationNonce:String(revocationNonce)});
+    }} as unknown as Fetcher};
+    assert.equal(await publicationSignInAtLogin(racing, f.db, subject, v4, async learner => {closed.push(learner.account_id);}), v4);
+    assert.deepEqual(closed, [account!.account_id, account!.account_id]);
+    // A distinct revoke in the same second is still a new withdrawal.
+    revocationNonce++;
+    assert.equal(await check(), undefined);
+    const pendingEnv = {...env, KARAOKE_SERVICE_MODE:"internal", KARAOKE_PAYMENT_CHAIN_ID:"6343", STUDY_RESULTS_V4_CONTRACT:v4.contract,
+      KARAOKE_OPERATOR:{async fetch(){return Response.json({since:0,revokedAt,revocationNonce:String(revocationNonce),pendingWithdrawal:true});}} as unknown as Fetcher};
+    await assert.rejects(turnOnPublicResults(pendingEnv as never, f.db, {learningRecords:v4.contract,communityId:context.communityId} as never,
+      {account_id:account!.account_id,wallet:subject}), /public_results_unavailable/);
+    assert.ok((await f.db.prepare("SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?").bind(account!.account_id).first<{withdrawn:number}>())!.withdrawn);
     const other = privateKeyToAccount(`0x${"22".repeat(32)}`);
     const otherChallenge = await loginChallenge(f.db, context, other.address);
     await loginVerify(
@@ -214,6 +234,25 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
     await f.dispose();
   }
 });
+test("an older login observation cannot overwrite a newer uint64 turn-on acknowledgment", async () => {
+  const f = await database();
+  try {
+    const first = await v4Challenge(f.db);
+    await loginVerify(f.db, context, first.id, await signChallenge(first), verifyLoginOffline);
+    const account = (await f.db.prepare("SELECT account_id FROM credential_bindings WHERE subject=?").bind(subject).first<{account_id:string}>())!.account_id;
+    await f.db.prepare("INSERT INTO learning_settings(account_id,last_withdrawn_at,acknowledged_revocation_nonce) VALUES(?,0,'1')").bind(account).run();
+    let closed = false;
+    const env = {KARAOKE_OPERATOR:{async fetch(){
+      await f.db.prepare("UPDATE learning_settings SET acknowledged_revocation_nonce='18446744073709551615' WHERE account_id=?").bind(account).run();
+      return Response.json({since:0,revokedAt:1_700_000_000,revocationNonce:"18446744073709551614"});
+    }} as unknown as Fetcher};
+    assert.equal(await publicationSignInAtLogin(env,f.db,subject,v4,async()=>{closed=true;}),v4);
+    assert.equal(closed,false);
+    assert.deepEqual(await f.db.prepare("SELECT public_results_withdrawn_at AS off,acknowledged_revocation_nonce AS nonce FROM learning_settings WHERE account_id=?").bind(account).first(),
+      {off:null,nonce:"18446744073709551615"});
+  } finally {await f.dispose();}
+});
+
 async function v4Challenge(db: D1Database, time = Date.now()) {
   const c = await loginChallenge(db, context, learner.address, time, v4);
   assert.ok("kind" in c);

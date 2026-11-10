@@ -122,8 +122,10 @@ requested is never relayed on schedule. Contract rules:
   lessons; login then offers only the plain authentication text. An unavailable
   or malformed observation also gives only plain login, without recording
   publication permission. Explicit turn-on acknowledges the observed chain
-  withdrawal time before clearing the account flag, so the same withdrawal
-  cannot undo the learner's deliberate choice.
+  revocation counter before clearing the account flag and waits while an
+  operator revocation is pending. The counter is stored separately from the
+  application timestamp, so clock skew and same-second revocations cannot
+  confuse a new withdrawal with the one the learner acknowledged.
 - The first accepted authorization after any revocation sets
   `authorizedSince[learner] = issuedAt`. Later sign-ins record their digest but
   never move `authorizedSince`, so signing in again cannot end other lessons.
