@@ -1,14 +1,9 @@
-import { createSignal, Show, onSettled, onCleanup } from "solid-js";
+import { createSignal, Show, onCleanup } from "solid-js";
 import { Button, Card, CardContent, CardHeader, Type } from "../ui.ts";
 import { openRewardWallet } from "../live/reward-wallet.ts";
 import type { RewardWalletView } from "../../../../packages/rewards/contracts.ts";
 import type { WalletSendAdapterV1 } from "./contracts.ts";
-import {
-  browserSendLock,
-  readHostedSend,
-  sendHostedReward,
-  type HostedSendRecord,
-} from "./hosted-send.ts";
+import { browserSendLock, sendHostedReward } from "./hosted-send.ts";
 import { QuotedSendPanel } from "./quoted-send-panel.tsx";
 
 export interface WalletSendPanelProps {
@@ -47,29 +42,9 @@ function HostedSend(props: {
   send?: WalletSendPanelProps["send"];
 }) {
   const controller = new AbortController();
-  const [saved, setSaved] = createSignal<HostedSendRecord | null>(null),
-    [busy, setBusy] = createSignal(false),
-    [ready, setReady] = createSignal(false),
+  const [busy, setBusy] = createSignal(false),
     [notice, setNotice] = createSignal("");
-  function load() {
-    try {
-      setSaved(readHostedSend(props.view, localStorage));
-      setReady(true);
-    } catch (error) {
-      setNotice(message(error));
-      setReady(false);
-    }
-  }
-  onSettled(() => {
-    void Promise.resolve().then(load);
-  });
-  // Another tab can dispatch while this panel is visible; read again under the lock at dispatch.
-  const storageChanged = () => load();
-  window.addEventListener("storage", storageChanged);
-  onCleanup(() => {
-    controller.abort();
-    window.removeEventListener("storage", storageChanged);
-  });
+  onCleanup(() => controller.abort());
   async function send() {
     if (busy()) return;
     setBusy(true);
@@ -79,57 +54,34 @@ function HostedSend(props: {
       else {
         const result = await sendHostedReward(
           props.view,
-          localStorage,
           browserSendLock(),
           undefined,
           controller.signal,
         );
         setNotice(
           result.outcome === "cancelled"
-            ? "Send declined. No new transfer was requested."
-            : "Check this Send in MOSS history before sending again. A wallet response alone does not confirm payment.",
+            ? "MOSS was closed. Check its history if you approved a Send."
+            : "Check MOSS history for any Send you approved. This page does not confirm a transfer or retry it.",
         );
       }
     } catch (error) {
-      setNotice(message(error));
+      if (!controller.signal.aborted) setNotice(message(error));
     } finally {
-      load();
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   }
   return (
     <>
       <Type as="p">
-        Choose a recipient and amount in MOSS. Review the exact amount they
-        receive and the fee before approval.
+        Choose a recipient and amount in MOSS. Review the amount they receive
+        and the fee before approval.
       </Type>
       <Type as="p" variant="caption">
         MOSS can pay gas in USDm when you have no ETH. Max reserves a fee
         allowance; unused allowance returns to your wallet. On small balances
         this can leave much less to send than expected.
       </Type>
-      <Show when={saved()}>
-        {(record) => (
-          <>
-            <Type as="p" role="status">
-              Previous Send{" "}
-              {record().outcome === "submitted"
-                ? "submitted"
-                : "needs checking"}
-              . It will not be repeated automatically.
-            </Type>
-            <Show when={record().hash}>
-              <Type as="p" class="break-all">
-                Transaction to check: {record().hash}
-              </Type>
-            </Show>
-          </>
-        )}
-      </Show>
-      <Button
-        disabled={busy() || !ready() || !!saved()}
-        onClick={() => void send()}
-      >
+      <Button disabled={busy()} onClick={() => void send()}>
         Continue in MOSS
       </Button>
       <Button
@@ -139,8 +91,12 @@ function HostedSend(props: {
           if (busy()) return;
           setBusy(true);
           void openRewardWallet(props.view)
-            .catch((error) => setNotice(message(error)))
-            .finally(() => setBusy(false));
+            .catch((error) => {
+              if (!controller.signal.aborted) setNotice(message(error));
+            })
+            .finally(() => {
+              if (!controller.signal.aborted) setBusy(false);
+            });
         }}
       >
         Open MOSS history

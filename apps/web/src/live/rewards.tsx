@@ -15,6 +15,7 @@ import { dollars } from "./reward-wallet.ts";
 import { rewardSummary, drawingStatus } from "../wallet/reward-status.ts";
 import { WalletReceivePanel } from "../wallet/receive-panel.tsx";
 import { WalletSendPanel } from "../wallet/send-panel.tsx";
+import { rewardWalletIdentity } from "../wallet/hosted-send.ts";
 import type { WalletSendAdapterV1 } from "../wallet/contracts.ts";
 import type {
   RewardCredit,
@@ -28,6 +29,8 @@ export function LiveRewardWallet(props: {
   data?: RewardsData;
   send?: (view: RewardWalletView) => Promise<void>;
   sendAdapter?: WalletSendAdapterV1;
+  /** Remount with the current session/CSRF; default reloads the document. */
+  onAccountChanged?: () => void;
 }) {
   const data = props.data ?? rewardsData(props.csrf);
   const [view, setView] = createSignal<RewardWalletView | null>(null),
@@ -38,7 +41,9 @@ export function LiveRewardWallet(props: {
     [qr, setQr] = createSignal(""),
     [panel, setPanel] = createSignal<"send" | "receive" | null>(null),
     [failedPolls, setFailedPolls] = createSignal(0);
-  let stopped = false,
+  let refreshSerial = 0,
+    reloadingAccount = false,
+    stopped = false,
     timer: ReturnType<typeof setTimeout> | undefined;
   const summary = createMemo(() =>
     view() ? rewardSummary(view()!, credits()) : null,
@@ -48,13 +53,30 @@ export function LiveRewardWallet(props: {
     clearTimeout(timer);
   });
   async function refresh() {
+    if (reloadingAccount) return;
+    const serial = ++refreshSerial;
     const [wallet, rows] = await Promise.all([data.wallet(), data.credits()]);
     rewardSummary(wallet, rows);
-    if (!stopped) {
-      setView(wallet);
-      setCredits(rows);
-      setNotice("");
+    if (stopped || serial !== refreshSerial) return;
+    const previous = view();
+    if (
+      previous &&
+      rewardWalletIdentity(previous) !== rewardWalletIdentity(wallet)
+    ) {
+      reloadingAccount = true;
+      clearTimeout(timer);
+      setPanel(null);
+      setIntent(null);
+      setView(null);
+      setCredits([]);
+      setNotice("Account changed. Reloading your wallet…");
+      if (props.onAccountChanged) props.onAccountChanged();
+      else location.replace("/wallet");
+      return;
     }
+    setView(wallet);
+    setCredits(rows);
+    setNotice("");
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;

@@ -1,7 +1,7 @@
 import type { RewardWalletView } from "../../../../packages/rewards/contracts.ts";
 import { guardedRewardCall } from "../../../../packages/rewards/guard-call.ts";
 import type { WalletSendIntentV1, WalletSendQuoteV1 } from "./contracts.ts";
-import { hostedSendKey } from "./hosted-send.ts";
+import { rewardWalletIdentity } from "./hosted-send.ts";
 
 const atomic = (value: string) => {
   if (!/^(0|[1-9][0-9]*)$/.test(value) || BigInt(value) >= 2n ** 256n)
@@ -25,7 +25,7 @@ export function validateSendQuote(
   quote: WalletSendQuoteV1,
   now: number | null = Date.now(),
 ) {
-  hostedSendKey(view);
+  rewardWalletIdentity(view);
   if (
     quote.schema !== "pirate.wallet-send-quote/1" ||
     quote.chainId !== 6343 ||

@@ -92,7 +92,7 @@ test("palm reload resumes the same verification, then claim is accepted without 
   expect(await count(page, "fixture_claims")).toBe(2);
   expect(errors).toEqual([]);
 });
-test("uncertain hosted Send persists across reload and another tab; opening history never repeats it", async ({
+test("hosted Send is repeatable explicit navigation and never replays after reload or opening history", async ({
   page,
   context,
 }) => {
@@ -100,21 +100,92 @@ test("uncertain hosted Send persists across reload and another tab; opening hist
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText(/Max reserves a fee allowance/)).toBeVisible();
   await page.getByRole("button", { name: "Continue in MOSS" }).click();
-  await expect(page.getByText(/Previous Send needs checking/)).toBeVisible();
+  await expect(page.getByText(/Check MOSS history for any Send/)).toBeVisible();
+  expect(await count(page, "fixture_sends")).toBe(1);
   await page.reload();
+  expect(await count(page, "fixture_sends")).toBe(1);
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Continue in MOSS" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   const other = await context.newPage();
   await fixture(other);
   await other.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(
-    other.getByRole("button", { name: "Continue in MOSS" }),
-  ).toBeDisabled();
   await other.getByRole("button", { name: "Open MOSS history" }).click();
   await expect.poll(() => count(page, "fixture_history")).toBe(1);
   expect(await count(page, "fixture_sends")).toBe(1);
+  await other.evaluate(() =>
+    localStorage.setItem("fixture_sdk_status", "approved"),
+  );
+  await other.getByRole("button", { name: "Continue in MOSS" }).click();
+  await expect.poll(() => count(page, "fixture_sends")).toBe(2);
+  await expect(
+    other.getByRole("button", { name: "Continue in MOSS" }),
+  ).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+test("changing the wallet session closes Receive and reloads before rendering the next identity", async ({
+  page,
+}) => {
+  const errors = await fixture(page);
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(page.getByAltText("Your wallet address QR code")).toBeVisible();
+  await page.evaluate(() => {
+    localStorage.setItem("fixture_account", "0x" + "22".repeat(20));
+    history.replaceState(null, "", "/wallet?claim=credit_0001");
+  });
+  const navigated = page.waitForEvent(
+    "framenavigated",
+    (frame) => frame === page.mainFrame(),
+  );
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await navigated;
+  await expect(page).toHaveURL(origin + "/wallet");
+  await expect(
+    page.getByRole("button", { name: "Receive", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByAltText("Your wallet address QR code")).toHaveCount(0);
+  await page.getByRole("button", { name: "Receive", exact: true }).click();
+  await expect(page.getByLabel("Your wallet address")).toHaveValue(
+    "0x" + "22".repeat(20),
+  );
+  await expect(page.getByAltText("Your wallet address QR code")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+test("late QR completion for the prior identity cannot overwrite Receive for a new identity", async ({
+  page,
+}) => {
+  const errors = await fixture(page, "receive-switch");
+  await page.waitForFunction(
+    () =>
+      typeof (window as unknown as { releaseReceiveA?: unknown })
+        .releaseReceiveA === "function",
+  );
+  await page.getByRole("button", { name: "Switch fixture account" }).click();
+  await expect(page.getByLabel("Your wallet address")).toHaveValue(
+    "0x" + "22".repeat(20),
+  );
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("fixture_qr_b")))
+    .not.toBeNull();
+  const expected = await page.evaluate(() =>
+    localStorage.getItem("fixture_qr_b"),
+  );
+  await expect(
+    page.getByAltText("Your wallet address QR code"),
+  ).toHaveAttribute("src", expected!);
+  await page.evaluate(async () => {
+    (window as unknown as { releaseReceiveA(): void }).releaseReceiveA();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => resolve()),
+    );
+  });
+  await expect(
+    page.getByAltText("Your wallet address QR code"),
+  ).toHaveAttribute("src", expected!);
   expect(errors).toEqual([]);
 });
 test("quoted Max reviews recipient amount and fee separately; reload/retry retains the frozen guard", async ({

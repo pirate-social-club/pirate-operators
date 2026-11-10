@@ -2,9 +2,22 @@ import { createSignal, Show, onCleanup, onSettled } from "solid-js";
 import QRCode from "qrcode";
 import { Button, Card, CardHeader, CardContent, Type } from "../ui.ts";
 import type { RewardWalletView } from "../../../../packages/rewards/contracts.ts";
-import { hostedSendKey } from "./hosted-send.ts";
+import { rewardWalletIdentity } from "./hosted-send.ts";
 
 export function WalletReceivePanel(props: {
+  view: RewardWalletView;
+  onClose: () => void;
+}) {
+  return (
+    <Show when={rewardWalletIdentity(props.view)} keyed>
+      {(_identity) => {
+        const snapshot = { ...props.view };
+        return <ReceiveAddress view={snapshot} onClose={props.onClose} />;
+      }}
+    </Show>
+  );
+}
+function ReceiveAddress(props: {
   view: RewardWalletView;
   onClose: () => void;
 }) {
@@ -17,7 +30,7 @@ export function WalletReceivePanel(props: {
   onSettled(() => {
     void Promise.resolve().then(async () => {
       try {
-        hostedSendKey(props.view);
+        rewardWalletIdentity(props.view);
         const image = await QRCode.toDataURL(props.view.address, {
           width: 256,
           margin: 2,

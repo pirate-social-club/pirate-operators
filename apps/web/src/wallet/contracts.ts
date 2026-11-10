@@ -59,19 +59,4 @@ export interface WalletSendAdapterV1 {
   cancel(intentId: string): Promise<WalletSendIntentV1>;
 }
 
-export interface RewardCloseReadinessV1 {
-  schema: "pirate.reward-close-readiness/1";
-  checkedAt: number;
-  offers: Record<
-    string,
-    {
-      cutoffAt: number;
-      state:
-        | "before_cutoff"
-        | "awaiting_confirmation"
-        | "ready"
-        | "unavailable";
-      confirmedTimestamp?: number;
-    }
-  >;
-}
+export type { RewardCloseReadinessV1 } from "../../../../packages/rewards/close-readiness.ts";

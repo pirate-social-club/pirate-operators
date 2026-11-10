@@ -1,6 +1,8 @@
 // Explicit presentation/provider simulation. These facts are not live chain, Very or MOSS evidence.
 import { render } from "@solidjs/web";
 import { createSignal } from "solid-js";
+import QRCode from "qrcode";
+import { WalletReceivePanel } from "../src/wallet/receive-panel.tsx";
 import { LiveRewardWallet } from "../src/live/rewards.tsx";
 import { RewardOfferPanel } from "../src/live/reward-offer-panel.tsx";
 import { WalletSendPanel } from "../src/wallet/send-panel.tsx";
@@ -61,7 +63,10 @@ const verification = (): VerificationIntent => ({
   launch_url: "https://verify.example/fixture",
 });
 const data: RewardsData = {
-  wallet: async () => view,
+  wallet: async () => ({
+    ...view,
+    address: localStorage.getItem("fixture_account") ?? view.address,
+  }),
   credits: async () => [credit()],
   claim: async () => {
     increment("fixture_claims");
@@ -234,10 +239,37 @@ function OperatorFixture() {
     />
   );
 }
+function ReceiveSwitchFixture() {
+  const [wallet, setWallet] = createSignal(view);
+  const next = { ...view, address: "0x" + "22".repeat(20) };
+  const original = QRCode.toDataURL;
+  void original(next.address, { width: 256, margin: 2 }).then((image) =>
+    localStorage.setItem("fixture_qr_b", image),
+  );
+  QRCode.toDataURL = (async (
+    text: string,
+    options?: { width?: number; margin?: number },
+  ) => {
+    const image = await original(text, options);
+    if (text === view.address)
+      await new Promise<void>((resolve) =>
+        Object.assign(window, { releaseReceiveA: resolve }),
+      );
+    return image;
+  }) as typeof QRCode.toDataURL;
+  return (
+    <>
+      <WalletReceivePanel view={wallet()} onClose={() => {}} />
+      <button onClick={() => setWallet(next)}>Switch fixture account</button>
+    </>
+  );
+}
 const mode = new URL(location.href).searchParams.get("fixture");
 render(
   () =>
-    mode === "operator" ? (
+    mode === "receive-switch" ? (
+      <ReceiveSwitchFixture />
+    ) : mode === "operator" ? (
       <OperatorFixture />
     ) : mode === "quoted" ? (
       <WalletSendPanel view={view} adapter={adapter} onClose={() => {}} />

@@ -27,12 +27,19 @@ The existing default remains explicit MOSS approval on testnet, now opening
 its token-specific Send screen. The hosted screen owns its Max calculation.
 `mega.send` has no fee quote or programmable Max parameter in pinned SDK
 1.0.8. The app must never present a guessed balance-minus-fee as exact Max.
-A durable browser journal records dispatch before opening MOSS; uncertainty
-blocks another plain transfer after reload. No automated retry is safe for
-an unguarded send. A separate wallet history check and authoritative recovery
-are needed before releasing an uncertain hold. An SDK hash is a candidate,
-not canonical payment confirmation. Browser metadata contains no key/session
-token and is not authentication or server reward authority.
+The hosted Send control is an explicit navigation handoff, not an app-prepared
+transfer: it supplies a token, but no recipient, amount or guard. In-flight
+openings are coordinated, and no wallet operation is retried automatically.
+After a visit ends, another deliberate visit remains available. An SDK response
+does not confirm a payment. Unknown results direct the learner to MOSS history;
+they do not permanently disable the navigation control. Actual guarded
+payments retain their durable intents, immutable retries, nonce cancellation
+and canonical reconciliation.
+
+Receive binds its address, copy action and QR to one immutable wallet identity.
+Changing account, network or token remounts the Receive view and discards late
+QR work. A changed wallet identity closes wallet sheets and clears pending claim
+context before reloading the account session and its CSRF-bound data.
 
 `apps/web/src/wallet/contracts.ts` defines `WalletSendAdapterV1` for lane 7:
 an immutable quote binds chain, sender, recipient, token, decimals, amount,

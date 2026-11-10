@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { rewardSummary, drawingStatus } from "../src/wallet/reward-status.ts";
 import { closeAvailability } from "../src/wallet/close-readiness.ts";
 import {
-  hostedSendKey,
-  readHostedSend,
+  rewardWalletIdentity,
   sendHostedReward,
   type SendLock,
 } from "../src/wallet/hosted-send.ts";
@@ -171,18 +170,6 @@ test("Close entries waits for safe head at exact cutoff and refuses missing, sta
     false,
   );
 });
-function storage() {
-  const rows = new Map<string, string>();
-  return {
-    getItem: (key: string) => rows.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      rows.set(key, value);
-    },
-    removeItem: (key: string) => {
-      rows.delete(key);
-    },
-  };
-}
 function locking(): SendLock {
   let busy = false;
   return {
@@ -197,9 +184,8 @@ function locking(): SendLock {
     },
   };
 }
-test("hosted Send records before dispatch; reload, retry and another tab cannot duplicate an uncertain plain transfer", async () => {
-  const store = storage(),
-    lock = locking();
+test("hosted navigation excludes an overlapping opening but never automatically repeats an uncertain response", async () => {
+  const lock = locking();
   let calls = 0,
     finish!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -215,63 +201,53 @@ test("hosted Send records before dispatch; reload, retry and another tab cannot 
     send: async (request) => {
       calls++;
       assert.equal(request.token, token);
-      assert.equal(readHostedSend(view, store)?.outcome, "opening");
       await gate;
       throw Error("transport lost");
     },
   };
-  const sending = sendHostedReward(view, store, lock, async () => moss);
+  const pending = sendHostedReward(view, lock, async () => moss);
   await new Promise((resolve) => setImmediate(resolve));
   await assert.rejects(
-    sendHostedReward(view, store, lock, async () => moss),
+    sendHostedReward(view, lock, async () => moss),
     /locked/,
   );
   finish();
-  assert.equal((await sending).outcome, "unknown");
-  assert.equal(readHostedSend(view, store)?.outcome, "unknown");
-  await assert.rejects(
-    sendHostedReward(view, store, locking(), async () => moss),
-    /previous Send/,
-  );
+  assert.equal((await pending).outcome, "unknown");
   assert.equal(calls, 1);
-  assert.equal(readHostedSend({ ...view, address: recipient }, store), null);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  assert.equal(
+    (await sendHostedReward(view, lock, async () => moss)).outcome,
+    "unknown",
+  );
+  assert.equal(calls, 2);
 });
-test("declined hosted approvals allow a deliberate retry; SDK errors and submitted hashes remain held", async () => {
-  for (const result of [
-    { status: "cancelled" },
-    { status: "error" },
-    {
-      status: "approved",
-      receipt: { transactionHash: `0x${"aa".repeat(32)}`, chainId: 6343 },
-    },
-  ]) {
-    const store = storage();
+test("a completed hosted visit allows another explicit visit without claiming canonical payment confirmation", async () => {
+  for (const status of ["approved", "cancelled", "error"]) {
+    let visits = 0;
     const moss: RewardMoss = {
       initialise: async () => {},
       connect: async () => ({ address: sender, network: "testnet" }),
       open: async () => {},
-      callContract: async () => {},
-      send: async () => result,
+      callContract: async () => {
+        throw Error("no app-prepared transfer");
+      },
+      send: async () => {
+        visits++;
+        return { status };
+      },
     };
-    const outcome = await sendHostedReward(
-      view,
-      store,
-      locking(),
-      async () => moss,
-    );
-    assert.equal(outcome.outcome, result.status);
+    const lock = locking();
     assert.equal(
-      readHostedSend(view, store) === null,
-      result.status === "cancelled",
+      (await sendHostedReward(view, lock, async () => moss)).outcome,
+      status === "approved" ? "unknown" : status,
     );
-    if (result.status !== "cancelled")
-      await assert.rejects(
-        sendHostedReward(view, store, locking(), async () => moss),
-        /previous Send/,
-      );
+    assert.equal(visits, 1);
+    await sendHostedReward(view, lock, async () => moss);
+    assert.equal(visits, 2);
   }
 });
-test("wrong network/account, corrupt records and storage failure prevent hosted dispatch", async () => {
+test("hosted navigation still refuses another account or network and preserves contradictory hashes as uncertainty", async () => {
   let calls = 0;
   const moss: RewardMoss = {
     initialise: async () => {},
@@ -280,70 +256,37 @@ test("wrong network/account, corrupt records and storage failure prevent hosted 
     callContract: async () => {},
     send: async () => {
       calls++;
+      return {
+        status: "cancelled",
+        receipt: { chainId: 6343, hash: "0x" + "aa".repeat(32) },
+      };
     },
   };
   await assert.rejects(
-    sendHostedReward(view, storage(), locking(), async () => moss),
+    sendHostedReward(view, locking(), async () => moss),
     /Open the account/,
-  );
-  const store = storage();
-  store.setItem(hostedSendKey(view), "not-json");
-  await assert.rejects(
-    sendHostedReward(view, store, locking(), async () => moss),
-    /cannot be read/,
   );
   moss.connect = async () => ({ address: recipient, network: "testnet" });
   await assert.rejects(
-    sendHostedReward(view, storage(), locking(), async () => moss),
+    sendHostedReward(view, locking(), async () => moss),
     /Open the account/,
-  );
-  moss.connect = async () => ({ address: sender, network: "testnet" });
-  await assert.rejects(
-    sendHostedReward(
-      view,
-      {
-        ...storage(),
-        setItem: () => {
-          throw Error("storage full");
-        },
-      },
-      locking(),
-      async () => moss,
-    ),
-    /storage full/,
   );
   assert.equal(calls, 0);
   assert.throws(() =>
-    hostedSendKey({ ...view, chainId: 4326 } as unknown as RewardWalletView),
+    rewardWalletIdentity({
+      ...view,
+      chainId: 4326,
+    } as unknown as RewardWalletView),
   );
-});
-
-test("a contradictory decline with a transaction hash cannot release a hosted Send hold", async () => {
-  const store = storage();
-  const moss: RewardMoss = {
-    initialise: async () => {},
-    connect: async () => ({ address: sender, network: "testnet" }),
-    open: async () => {},
-    callContract: async () => {},
-    send: async () => ({
-      status: "cancelled",
-      receipt: { chainId: 6343, hash: `0x${"aa".repeat(32)}` },
-    }),
-  };
+  moss.connect = async () => ({ address: sender, network: "testnet" });
   assert.equal(
-    (await sendHostedReward(view, store, locking(), async () => moss)).outcome,
+    (await sendHostedReward(view, locking(), async () => moss)).outcome,
     "unknown",
   );
-  assert.equal(readHostedSend(view, store)?.outcome, "submitted");
-  await assert.rejects(
-    sendHostedReward(view, store, locking(), async () => moss),
-    /previous Send/,
-  );
+  assert.equal(calls, 1);
 });
-
-test("closing Send during wallet connection prevents a later transfer request", async () => {
-  const store = storage(),
-    controller = new AbortController();
+test("closing hosted Send during connection prevents a later wallet Send request", async () => {
+  const controller = new AbortController();
   let finish!: () => void,
     calls = 0;
   const gate = new Promise<void>((resolve) => {
@@ -363,16 +306,14 @@ test("closing Send during wallet connection prevents a later transfer request", 
   };
   const pending = sendHostedReward(
     view,
-    store,
     locking(),
     async () => moss,
     controller.signal,
   );
   controller.abort();
   finish();
-  await assert.rejects(pending, /closed before dispatch/);
+  await assert.rejects(pending, /closed before opening/);
   assert.equal(calls, 0);
-  assert.equal(readHostedSend(view, store), null);
 });
 
 const quote = (): WalletSendQuoteV1 => ({
