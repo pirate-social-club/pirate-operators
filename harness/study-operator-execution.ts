@@ -269,6 +269,9 @@ export function assertOperatorChildEnvironment(
     "LEARNING_SPEECH_DAILY_LIMIT",
     "LEARNING_QUOTE_VALID_FROM",
     "LEARNING_QUOTE_VALID_UNTIL",
+    ...(profile.activationAccount
+      ? ["LEARNING_APPROVED_ACTIVATION_ACCOUNT"]
+      : []),
   ];
   const allowed = new Set([
     ...required,
@@ -301,6 +304,9 @@ export function assertOperatorChildEnvironment(
     LEARNING_SPEECH_DAILY_LIMIT: "0",
     LEARNING_QUOTE_VALID_FROM: String(profile.retained.quoteValidFrom),
     LEARNING_QUOTE_VALID_UNTIL: String(profile.retained.quoteValidUntil),
+    ...(profile.activationAccount
+      ? { LEARNING_APPROVED_ACTIVATION_ACCOUNT: profile.activationAccount.next }
+      : {}),
   };
   insist(
     Object.entries(expected).every(([k, v]) => env[k] === v) &&

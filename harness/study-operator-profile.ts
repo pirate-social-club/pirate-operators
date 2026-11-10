@@ -29,6 +29,8 @@ export interface OperatorProfile {
   schema: "pirate.study-operator-release/1";
   selection: StudyReleaseSelection;
   learningV4?: LearningV4ReleaseSelection;
+  /** One sponsored pilot account, replaced only with a distinct V4 runtime. */
+  activationAccount?: { previous: string; next: string };
   worker: {
     accountId: string;
     stack: string;
@@ -116,6 +118,7 @@ export function operatorProfile(value: unknown): OperatorProfile {
     "window",
     "execution",
     ...(Object.hasOwn(p, "learningV4") ? ["learningV4"] : []),
+    ...(Object.hasOwn(p, "activationAccount") ? ["activationAccount"] : []),
   ]);
   exact(w, [
     "accountId",
@@ -212,6 +215,23 @@ export function operatorProfile(value: unknown): OperatorProfile {
         v4.contract !== selection.resultsV2.contract &&
         v4.contract !== selection.resultsV3.contract,
       "study_operator_v4_selection_changed",
+      409,
+    );
+  }
+  if (p.activationAccount !== undefined) {
+    const selected = object(p.activationAccount);
+    exact(selected, ["previous", "next"]);
+    insist(
+      p.learningV4 &&
+        previous.moduleSha256 !== a.sha256 &&
+        [selected.previous, selected.next].every(
+          (v) =>
+            typeof v === "string" &&
+            /^0x[0-9a-f]{40}$/.test(v) &&
+            BigInt(v) !== 0n,
+        ) &&
+        selected.previous !== selected.next,
+      "study_operator_activation_selection_invalid",
       409,
     );
   }

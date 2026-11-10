@@ -88,6 +88,13 @@ export function operatorEnvironment(
     "study_operator_activation_environment_invalid",
     409,
   );
+  if (profile.activationAccount)
+    insist(
+      activationAccount === profile.activationAccount.previous ||
+        activationAccount === profile.activationAccount.next,
+      "study_operator_activation_predecessor_changed",
+      409,
+    );
   const env = {
     PATH: safe.PATH,
     HOME: safe.HOME,
@@ -116,8 +123,11 @@ export function operatorEnvironment(
     LEARNING_SPEECH_DAILY_LIMIT: "0",
     LEARNING_QUOTE_VALID_FROM: String(profile.retained.quoteValidFrom),
     LEARNING_QUOTE_VALID_UNTIL: String(profile.retained.quoteValidUntil),
-    ...(activationAccount
-      ? { LEARNING_APPROVED_ACTIVATION_ACCOUNT: activationAccount }
+    ...(profile.activationAccount || activationAccount
+      ? {
+          LEARNING_APPROVED_ACTIVATION_ACCOUNT:
+            profile.activationAccount?.next ?? activationAccount,
+        }
       : {}),
   };
   assertOperatorChildEnvironment(profile, env, secrets.password);

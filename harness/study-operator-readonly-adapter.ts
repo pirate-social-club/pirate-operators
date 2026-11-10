@@ -163,9 +163,24 @@ export async function observeOperatorCloud(
             "RESULTS_V4_CONTRACT",
           ].includes(String(x.name)),
       )
-      .map((x) =>
-        x.type === "secret_text" ? { name: x.name, type: x.type } : x,
-      )
+      .map((x) => {
+        if (
+          x.name === "APPROVED_ACTIVATION_ACCOUNT" &&
+          profile.activationAccount
+        ) {
+          insist(
+            x.type === "plain_text" &&
+              x.text ===
+                (moduleSha256 === profile.artifact.sha256
+                  ? profile.activationAccount.next
+                  : profile.activationAccount.previous),
+            "study_operator_activation_binding_changed",
+            409,
+          );
+          return { ...x, text: profile.activationAccount.previous };
+        }
+        return x.type === "secret_text" ? { name: x.name, type: x.type } : x;
+      })
       .sort((a, b) => String(a.name).localeCompare(String(b.name))),
   };
   // Root must qualify which Cloudflare metadata fields are stable before pinning this digest.
@@ -209,7 +224,9 @@ export async function observeOperatorCloud(
   );
   const activation = byName("APPROVED_ACTIVATION_ACCOUNT");
   insist(
-    activation.length <= 1 &&
+    (profile.activationAccount
+      ? activation.length === 1
+      : activation.length <= 1) &&
       (!activation.length ||
         (activation[0]!.type === "plain_text" &&
           typeof activation[0]!.text === "string" &&

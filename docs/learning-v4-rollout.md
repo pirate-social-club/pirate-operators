@@ -34,6 +34,16 @@ results, old offers, private histories, resource identities and nonce journals
 remain retained. The operator journal must be inspected for unresolved result
 transactions before upgrading.
 
+The retained operator currently sponsors activation only for the owner account.
+For the distinct pilot learner, the same V4 release may explicitly name a previous
+and replacement activation address. The profile and custody hash bind both.
+Cloud readback checks each against the exact old or new module before normalizing
+that one field for the retained settings invariant. A binding-only change with
+identical module bytes is refused. The single-account restriction, sponsorship
+ceilings and journals stay in force; no general activation permission or learner
+eligibility approval is added. The account holder's next normal MOSS sign-in
+supplies the activation proof. Earlier refused sign-ins are retained.
+
 After deployment, attach a new rehearsal offer with a future window. Use the
 distinct learner account for a real lesson, verify its public result and private
 history, and qualify only from the offer's rules. Complete Very at Claim, one

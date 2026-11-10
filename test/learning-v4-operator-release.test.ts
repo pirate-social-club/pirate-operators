@@ -58,3 +58,65 @@ test("the retained operator passes exactly the reviewed V4 selection to Alchemy;
     assert.throws(() => operatorProfile(changed));
   }
 });
+
+test("a selected pilot activation successor is hash-bound and cannot become an ambiguous binding-only change", () => {
+  const p = fixture();
+  p.learningV4 = {
+    schema: "pirate.learning-v4-release-selection/1",
+    chainId: 6343,
+    contract: "0x4444444444444444444444444444444444444444",
+    codeHash: `0x${"4".repeat(64)}`,
+    controller: p.selection.controller,
+    publicationPolicy: learningV4PublicityPolicy,
+    policyVersion: 4,
+    communityOrigin: firstSong.origin,
+  };
+  p.activationAccount = {
+    previous: "0x3333333333333333333333333333333333333333",
+    next: "0x5555555555555555555555555555555555555555",
+  };
+  const secrets = {
+    password: "fixture-password",
+    speech: "fixture-speech",
+    operatorKey: `0x${"11".repeat(32)}` as const,
+  };
+  const env = operatorEnvironment(
+    p,
+    { PATH: "/fixture", HOME: "/fixture" },
+    "fixture-token",
+    secrets,
+    p.activationAccount.previous,
+  );
+  assert.equal(
+    env.LEARNING_APPROVED_ACTIVATION_ACCOUNT,
+    p.activationAccount.next,
+  );
+  assert.throws(() =>
+    assertOperatorChildEnvironment(
+      p,
+      {
+        ...env,
+        LEARNING_APPROVED_ACTIVATION_ACCOUNT: p.activationAccount!.previous,
+      },
+      secrets.password,
+    ),
+  );
+  assert.throws(() =>
+    operatorEnvironment(
+      p,
+      { PATH: "/fixture", HOME: "/fixture" },
+      "fixture-token",
+      secrets,
+    ),
+  );
+  const same = structuredClone(p);
+  same.predecessor.moduleSha256 = same.artifact.sha256;
+  same.execution.predecessorFiles[0]!.sha256 = same.artifact.sha256;
+  assert.throws(() => operatorProfile(same), /activation_selection_invalid/);
+  const unselected = structuredClone(p);
+  delete unselected.learningV4;
+  assert.throws(
+    () => operatorProfile(unselected),
+    /activation_selection_invalid/,
+  );
+});
