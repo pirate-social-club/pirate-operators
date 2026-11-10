@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
 
 export class SetupError extends Error {
-  constructor(
-    message: string,
-    readonly status = 400,
-  ) {
+  readonly status: number;
+  constructor(message: string, status = 400) {
     super(message);
+    this.status = status;
   }
 }
 export const secretNames = [

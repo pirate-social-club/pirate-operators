@@ -22,7 +22,13 @@ import {
   nonceOf,
 } from "./accounts.ts";
 import { intentOf, txRow, type TxRow } from "./operator-tx.ts";
-import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  activationLimits,
+  reserveActivationSponsorship,
+  reserveSponsorship,
+  sponsorLimits,
+  type ActivationSponsorEnv,
+} from "./sponsor-budget.ts";
 import {
   submitResultTransaction,
   type ResultStore,
@@ -46,6 +52,7 @@ import { body } from "./service-call.ts";
  * The V4 contract's RELAY_WINDOW, the thirty-day community session: a sign-in
  * is recorded within it or never.
  */
+export const LEARNING_AUTHORITY_INTERFACE = "pirate.learning-authorization/1";
 export const AUTHORIZATION_RELAY_WINDOW_S = 30 * 86400;
 export interface AuthorizationReceipt {
   id: Hex;
@@ -164,11 +171,11 @@ export async function acceptAuthorization(
     });
     check(verified, "invalid_consent");
     if ((await codeOf(env, a.learner)) === "0x") {
-      check(
-        env.APPROVED_ACTIVATION_ACCOUNT?.toLowerCase() ===
-          a.learner.toLowerCase(),
-        "account_activation_not_approved",
-      );
+      const limits = activationLimits(env as Env & ActivationSponsorEnv);
+      const revokedAt = await read<bigint>(env, destination, "revokedAt", [
+        a.learner,
+      ]);
+      check(a.issuedAt > revokedAt, "revoked_sign_in");
       if (!intentOf(store, "record_activate", id))
         check(
           activation.authorization.nonce === (await nonceOf(env, a.learner)),
@@ -176,8 +183,13 @@ export async function acceptAuthorization(
         );
       store.transaction(() => {
         savePending();
-        reserveSponsorship(store, sponsorLimits(env), `record_activate:${id}`);
-        reserveSponsorship(store, sponsorLimits(env), `record_authorize:${id}`);
+        reserveActivationSponsorship(
+          store,
+          sponsorLimits(env),
+          limits,
+          a.learner,
+          id,
+        );
       });
       const activated = await submitResultTransaction(
         env,

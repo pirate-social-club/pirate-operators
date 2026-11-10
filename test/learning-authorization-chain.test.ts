@@ -135,8 +135,10 @@ async function fixture(port: number) {
   const operator = {
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const request = new Request(input, init);
-      if (request.method === "POST") relayed.push(`${request.method} ${new URL(request.url).pathname}`);
-      if (operatorDown && request.method === "POST") throw new Error("fixture operator outage");
+      if (request.method === "POST")
+        relayed.push(`${request.method} ${new URL(request.url).pathname}`);
+      if (operatorDown && request.method === "POST")
+        throw new Error("fixture operator outage");
       return (
         // The operator's own route, as karaokeRoute dispatches it.
         (await authorizationRoute(request, operatorEnv, store)) ??
@@ -175,7 +177,11 @@ async function fixture(port: number) {
   };
   const call = (path: string, init: RequestInit = {}) =>
     communityFetch(new Request(firstSong.origin + path, init), env, ports);
-  const post = (path: string, body: unknown, more: Record<string, string> = {}) =>
+  const post = (
+    path: string,
+    body: unknown,
+    more: Record<string, string> = {},
+  ) =>
     call(path, {
       method: "POST",
       headers: {
@@ -218,7 +224,11 @@ async function fixture(port: number) {
         "SELECT state,tx_hash,policy_version FROM learning_authorizations WHERE authorization_id=?",
       )
       .bind(id)
-      .first<{ state: string; tx_hash: string | null; policy_version: number }>();
+      .first<{
+        state: string;
+        tx_hash: string | null;
+        policy_version: number;
+      }>();
   /** What a Study or Karaoke start does first: choose, or relay, the sign-in. */
   async function practise(s: { message: SignIn }) {
     const { account_id } = (await runtime.db
@@ -304,12 +314,15 @@ test(
         await f.read("authorizationIssuedAt", [s.id]),
         s.message.issuedAt,
       );
-      const sent = f.store.entries("tx:").map(({ value }) => value as {
-        kind: string;
-        ref: string;
-        hash: Hex;
-        mined: { status: string } | null;
-      });
+      const sent = f.store.entries("tx:").map(
+        ({ value }) =>
+          value as {
+            kind: string;
+            ref: string;
+            hash: Hex;
+            mined: { status: string } | null;
+          },
+      );
       assert.deepEqual(
         sent.map((t) => [t.kind, t.ref, t.mined?.status]),
         [["record_authorize", s.id, "success"]],
@@ -364,7 +377,7 @@ test(
       assert.deepEqual(live, {
         since: Number(s.message.issuedAt),
         revokedAt: 0,
-        revocationNonce:"0",
+        revocationNonce: "0",
       });
       // A later sign-in by the same learner needs no relay, even to practise.
       f.relayed.length = 0;
@@ -495,17 +508,31 @@ test(
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
       // A later login notices the chain withdrawal and authenticates only.
       await f.advance(61);
-      const challenge = await (await f.post("/api/auth/challenge", {address:learner.address})).json() as {id:string; message:string; kind?:string};
+      const challenge = (await (
+        await f.post("/api/auth/challenge", { address: learner.address })
+      ).json()) as { id: string; message: string; kind?: string };
       assert.equal(challenge.kind, undefined);
-      const verified = await f.post("/api/auth/verify", {id:challenge.id, signature:await learner.signMessage({message:challenge.message})});
+      const verified = await f.post("/api/auth/verify", {
+        id: challenge.id,
+        signature: await learner.signMessage({ message: challenge.message }),
+      });
       assert.equal(verified.status, 200);
-      const session = await verified.json() as {csrf:string};
+      const session = (await verified.json()) as { csrf: string };
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
       // Only an explicit settings action allows the next login to authorize.
-      assert.equal((await f.post("/api/learning/public-results/on", {}, {
-        cookie:verified.headers.get("set-cookie")!.split(";")[0]!,
-        "x-csrf-token":session.csrf,
-      })).status, 200);
+      assert.equal(
+        (
+          await f.post(
+            "/api/learning/public-results/on",
+            {},
+            {
+              cookie: verified.headers.get("set-cookie")!.split(";")[0]!,
+              "x-csrf-token": session.csrf,
+            },
+          )
+        ).status,
+        200,
+      );
       await f.advance(2);
       const after = await f.signIn(learner);
       await f.practise(after);
@@ -523,7 +550,7 @@ test(
       assert.deepEqual(live, {
         since: Number(after.message.issuedAt),
         revokedAt: Number(revokedAt),
-        revocationNonce:"1",
+        revocationNonce: "1",
       });
     } finally {
       await f.stop();
@@ -539,7 +566,12 @@ test(
     try {
       const learner = privateKeyToAccount(generatePrivateKey()),
         passkey = privateKeyToAccount(generatePrivateKey());
-      f.operatorEnv.APPROVED_ACTIVATION_ACCOUNT = learner.address;
+      // No address allowlist: an unrelated new wallet is admitted by caps.
+      Object.assign(f.operatorEnv, {
+        ACTIVATION_TOTAL_CAP_WEI: "1000000000000000000",
+        ACTIVATION_ACCOUNT_CAP_WEI: "40000000000000000",
+        ACTIVATION_MAX_ACCOUNTS: "2",
+      });
       const message: SignIn = {
         learner: learner.address,
         nonce: `0x${"5a".repeat(32)}`,
@@ -642,7 +674,10 @@ test(
           /^Error: sign_in_not_yet_valid$/,
         );
         assert.equal(f.count("intent:record_authorize:"), index - 4);
-        assert.equal(f.count("sponsor:reservation:record_authorize:"), index - 4);
+        assert.equal(
+          f.count("sponsor:reservation:record_authorize:"),
+          index - 4,
+        );
         await f.scheduled();
         assert.equal((await f.authorization(s.id))!.state, "pending");
         assert.equal((await f.session(s.auth)).publicResults, "pending");
@@ -736,6 +771,53 @@ test(
       assert.equal(f.count("intent:record_authorize:"), 2);
       assert.equal(f.count("sponsor:reservation:record_authorize:"), 2);
       assert.equal(f.count("tx:"), 2);
+    } finally {
+      await f.stop();
+    }
+  },
+);
+
+test(
+  "second-community preflight reads actual V4 context and separate grader permissions",
+  { timeout: 120000 },
+  async () => {
+    const { communityAuthorityReader, verifyCommunityAuthority } = await import(
+      "../packages/community-setup/authority.ts"
+    );
+    const f = await fixture(19977);
+    try {
+      const settings = {
+        chainId: 31337 as const,
+        resultsContract: f.v4.toLowerCase(),
+        communityId: firstSong.directoryProfile.communityId,
+        origin: firstSong.origin,
+        owner: accounts[3].address.toLowerCase(),
+        grader: accounts[2].address.toLowerCase(),
+      };
+      const probe = async () =>
+        verifyCommunityAuthority(
+          settings,
+          learningV4PublicityPolicy,
+          await communityAuthorityReader(f.evm.rpcUrl),
+        );
+      await assert.rejects(probe(), /setup_grader_permission_missing/);
+      for (const activity of [1, 2])
+        await f.evm.write(
+          f.v4,
+          "LearningResultsV4",
+          "setGrader",
+          [accounts[2].address, activity, true],
+          3,
+        );
+      assert.equal((await probe()).communityId, settings.communityId);
+      await assert.rejects(
+        verifyCommunityAuthority(
+          { ...settings, communityId: `0x${"ff".repeat(32)}` },
+          learningV4PublicityPolicy,
+          await communityAuthorityReader(f.evm.rpcUrl),
+        ),
+        /setup_contract_context_mismatch/,
+      );
     } finally {
       await f.stop();
     }

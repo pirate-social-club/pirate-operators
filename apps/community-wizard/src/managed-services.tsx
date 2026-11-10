@@ -4,7 +4,8 @@ export function ManagedServices() {
       <h2>Your services</h2>
       <p class="lede">
         Use Pirate’s moderation service and a sponsored creator-wallet test
-        flow. You do not need AI-provider keys or a creator payment screen.
+        flow. Community learning uses your own ElevenLabs key; configure it in
+        the Learning step.
       </p>
       <div class="card">
         <h3>Moderation · pairing pending</h3>

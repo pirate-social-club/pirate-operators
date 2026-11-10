@@ -158,3 +158,95 @@ export function refundUnsent(
   });
   store.set(key, { ...reservation, state: "released" });
 }
+
+/** Explicit opt-in cohort limits; one durable first-use bundle per account. */
+export interface ActivationSponsorEnv {
+  ACTIVATION_TOTAL_CAP_WEI?: string;
+  ACTIVATION_ACCOUNT_CAP_WEI?: string;
+  ACTIVATION_MAX_ACCOUNTS?: string;
+}
+export interface ActivationLimits {
+  total: bigint;
+  perAccount: bigint;
+  accounts: number;
+}
+export function activationLimits(env: ActivationSponsorEnv): ActivationLimits {
+  const values = [
+    env.ACTIVATION_TOTAL_CAP_WEI,
+    env.ACTIVATION_ACCOUNT_CAP_WEI,
+    env.ACTIVATION_MAX_ACCOUNTS,
+  ];
+  check(
+    values.every((v) => typeof v === "string" && /^[1-9][0-9]{0,77}$/.test(v)),
+    "activation_sponsor_unconfigured",
+  );
+  const [total, perAccount, accounts] = values.map((v) => BigInt(v!));
+  check(
+    accounts <= BigInt(Number.MAX_SAFE_INTEGER) && perAccount <= total,
+    "activation_sponsor_unconfigured",
+  );
+  return { total, perAccount, accounts: Number(accounts) };
+}
+interface ActivationLedger {
+  total: string;
+  perAccount: string;
+  accounts: number;
+  usedAccounts: number;
+  committed: string;
+}
+/**
+ * Called after signature/delegate/nonce verification. Reserve the entire
+ * first-use bundle before signing either transaction. All charges survive
+ * reverts and unknown outcomes. Same digest retries, a new digest cannot
+ * purchase another activation. The journal is community-local, not key-local.
+ */
+export function reserveActivationSponsorship(
+  store: TxStore,
+  sponsor: SponsorLimits,
+  limits: ActivationLimits,
+  learner: string,
+  authorizationId: string,
+) {
+  check(
+    /^0x[0-9a-f]{40}$/i.test(learner) && !/^0x0+$/i.test(learner),
+    "invalid_wallet",
+  );
+  check(/^0x[0-9a-f]{64}$/i.test(authorizationId), "invalid_authorization");
+  return store.transaction(() => {
+    const key = `sponsor:activation:account:${learner.toLowerCase()}`;
+    const previous = store.get<{ id: string; amount: string }>(key);
+    if (previous) {
+      check(previous.id === authorizationId, "account_activation_pending");
+      return previous;
+    }
+    const old = store.get<ActivationLedger>("sponsor:activation:ledger");
+    check(
+      !old ||
+        (limits.total >= BigInt(old.total) &&
+          limits.perAccount >= BigInt(old.perAccount) &&
+          limits.accounts >= old.accounts),
+      "activation_profile_changed",
+    );
+    const amount = transactionMaximum(sponsor) * 2n;
+    check(amount <= limits.perAccount, "activation_account_cap_exceeded");
+    check(
+      (old?.usedAccounts ?? 0) < limits.accounts &&
+        BigInt(old?.committed ?? 0) + amount <= limits.total,
+      "activation_sponsor_exhausted",
+    );
+    // Nested transactions use the existing synchronous TxStore contract.
+    // An outer failure rolls back both the cohort slot and general gas budget.
+    reserveSponsorship(store, sponsor, `record_activate:${authorizationId}`);
+    reserveSponsorship(store, sponsor, `record_authorize:${authorizationId}`);
+    const reservation = { id: authorizationId, amount: String(amount) };
+    store.set(key, reservation);
+    store.set("sponsor:activation:ledger", {
+      total: String(limits.total),
+      perAccount: String(limits.perAccount),
+      accounts: limits.accounts,
+      usedAccounts: (old?.usedAccounts ?? 0) + 1,
+      committed: String(BigInt(old?.committed ?? 0) + amount),
+    } satisfies ActivationLedger);
+    return reservation;
+  });
+}

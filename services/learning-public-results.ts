@@ -12,7 +12,11 @@ import { isAddress, type Address } from "viem";
 import type { SignInV4 } from "../packages/community/accounts.ts";
 import { insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
-import { publicResults, signInV4 } from "./learning-sign-in.ts";
+import {
+  liveAccountAuthorization,
+  publicResults,
+  signInV4,
+} from "./learning-sign-in.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
 
@@ -74,8 +78,16 @@ export async function publicationSignInAtLogin(
     observed.nonce === "0" ||
     (account?.acknowledged != null &&
       BigInt(account.acknowledged) >= BigInt(observed.nonce))
-  )
-    return v4;
+  ) {
+    if (!account) return v4;
+    const current = await db
+      .prepare(
+        "SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?",
+      )
+      .bind(account.account_id)
+      .first<{ withdrawn: number | null }>();
+    return current?.withdrawn == null ? v4 : undefined;
+  }
   if (account) {
     const noted = await db
       .prepare(
@@ -114,56 +126,14 @@ async function loginWithdrawal(
   wallet: string,
   waitMs = 2000,
 ): Promise<{ atMs: number; nonce: string; pending: boolean } | undefined> {
-  if (!env.KARAOKE_OPERATOR) return undefined;
-  const abort = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      (async () => {
-        const response = await env.KARAOKE_OPERATOR!.fetch(
-          `http://service/authorization/${wallet}`,
-          { signal: abort.signal },
-        );
-        if (!response.ok) return undefined;
-        const live = (await response.json()) as {
-          since?: unknown;
-          revokedAt?: unknown;
-          revocationNonce?: unknown;
-          pendingWithdrawal?: unknown;
-        };
-        if (
-          typeof live.since !== "number" ||
-          !Number.isSafeInteger(live.since) ||
-          live.since < 0 ||
-          typeof live.revokedAt !== "number" ||
-          !Number.isSafeInteger(live.revokedAt) ||
-          live.revokedAt < 0 ||
-          !Number.isSafeInteger(live.revokedAt * 1000) ||
-          typeof live.revocationNonce !== "string" ||
-          !/^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce) ||
-          BigInt(live.revocationNonce) > (1n << 64n) - 1n ||
-          (live.pendingWithdrawal !== undefined &&
-            typeof live.pendingWithdrawal !== "boolean")
-        )
-          return undefined;
-        return {
-          atMs: live.revokedAt * 1000,
-          nonce: live.revocationNonce,
-          pending: live.pendingWithdrawal === true,
-        };
-      })(),
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => {
-          abort.abort();
-          resolve(undefined);
-        }, waitMs);
-      }),
-    ]);
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timer);
-  }
+  const live = await liveAccountAuthorization(env, wallet, waitMs);
+  return live
+    ? {
+        atMs: live.revokedAt * 1000,
+        nonce: live.revocationNonce,
+        pending: live.pendingWithdrawal,
+      }
+    : undefined;
 }
 
 function operatorFor(env: StudyEnv, config: CommunityConfig) {

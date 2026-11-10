@@ -13,6 +13,8 @@ import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
 
+import { assertConnectedLearningLink } from "../packages/community-setup/connected-learning.ts";
+
 export const SIGN_IN_RELAY_WINDOW_S = 30 * 86400;
 export type PublicResults = "on" | "pending" | "off" | "unavailable";
 
@@ -97,6 +99,17 @@ export async function recordedAuthorization(
     )
     .bind(accountId, subject.toLowerCase(), atS)
     .first<{ recorded: string | null; pending: number }>();
+  // Explicit withdrawal wins even if a relay completed concurrently.
+  const withdrawn = await db
+    .prepare(
+      "SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?",
+    )
+    .bind(accountId)
+    .first<{ withdrawn: number | null }>();
+  // Keep pending relays observable so practice can mark them requested and
+  // close them without dispatch. Never return a cached recorded permission.
+  if (withdrawn?.withdrawn != null)
+    return { id: null, pending: !!row?.pending };
   if (row?.recorded) return { id: row.recorded as Hex };
   return { id: null, pending: !!row?.pending };
 }
@@ -149,7 +162,12 @@ async function close(
     .run();
 }
 
-async function relay(env: StudyEnv, db: D1Database, row: PendingRow, now: number) {
+async function relay(
+  env: StudyEnv,
+  db: D1Database,
+  row: PendingRow,
+  now: number,
+) {
   // A withdrawal stops relaying, and a sign-in made at or before the last
   // withdrawal is never relayed, even after public results are turned on.
   if (
@@ -169,10 +187,14 @@ async function relay(env: StudyEnv, db: D1Database, row: PendingRow, now: number
   let receipt: OperatorReceipt;
   try {
     if (!env.KARAOKE_OPERATOR) throw new Error("operator_unavailable");
-    receipt = await call<OperatorReceipt>(env.KARAOKE_OPERATOR, "/authorization", {
-      signIn: JSON.parse(row.sign_in_json),
-      signature: row.signature,
-    });
+    receipt = await call<OperatorReceipt>(
+      env.KARAOKE_OPERATOR,
+      "/authorization",
+      {
+        signIn: JSON.parse(row.sign_in_json),
+        signature: row.signature,
+      },
+    );
   } catch (error) {
     const code = error instanceof Error ? error.message : "";
     if (refusals.has(code) || expired)
@@ -277,8 +299,148 @@ export async function practiceAuthorization(
   atS: number,
   now: number,
 ) {
-  const chosen = await recordedAuthorization(db, accountId, subject, atS);
-  if (chosen.id || !chosen.pending) return chosen;
-  await requestSignInRelay(env, db, accountId, now);
-  return recordedAuthorization(db, accountId, subject, atS);
+  let chosen = await recordedAuthorization(db, accountId, subject, atS);
+  if (!chosen.id && chosen.pending) {
+    await requestSignInRelay(env, db, accountId, now);
+    chosen = await recordedAuthorization(db, accountId, subject, atS);
+  }
+  if (!chosen.id) return chosen;
+  const live = await liveAccountAuthorization(env, subject);
+  if (!live) return { id: null, pending: true } as const;
+  if (live.pendingWithdrawal || live.since === 0)
+    return { id: null, pending: false } as const;
+  // Re-read after the network wait. A local withdrawal or replacement while
+  // that read was in flight must not admit the old sign-in.
+  const current = await recordedAuthorization(db, accountId, subject, atS);
+  if (!current.id || current.id !== chosen.id)
+    return { id: null, pending: false } as const;
+  const row = await db
+    .prepare(
+      `SELECT a.issued_at FROM learning_authorizations a
+     WHERE a.authorization_id=?1 AND a.account_id=?2 AND a.subject=?3 AND a.state='recorded'
+       AND EXISTS(SELECT 1 FROM credential_bindings b WHERE b.account_id=a.account_id AND b.namespace='moss' AND b.network=6343 AND b.subject=a.subject)
+       AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=a.account_id
+         AND (s.public_results_withdrawn_at IS NOT NULL OR a.issued_at*1000<=s.last_withdrawn_at))`,
+    )
+    .bind(chosen.id, accountId, subject.toLowerCase())
+    .first<{ issued_at: number }>();
+  if (
+    !row ||
+    row.issued_at < live.since ||
+    row.issued_at <= live.revokedAt ||
+    row.issued_at > atS
+  )
+    return { id: null, pending: false } as const;
+  return chosen;
+}
+
+/** Version 1 authority observation shared by website and linked learning.
+ * Bounded and fail closed; a plain login can proceed while practice retries.
+ */
+export async function liveAccountAuthorization(
+  env: Pick<StudyEnv, "KARAOKE_OPERATOR">,
+  subject: string,
+  waitMs = 2000,
+): Promise<
+  | {
+      since: number;
+      revokedAt: number;
+      revocationNonce: string;
+      pendingWithdrawal: boolean;
+    }
+  | undefined
+> {
+  if (!env.KARAOKE_OPERATOR || !/^0x[0-9a-f]{40}$/i.test(subject))
+    return undefined;
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await env.KARAOKE_OPERATOR!.fetch(
+          `http://service/authorization/${subject.toLowerCase()}`,
+          { signal: abort.signal },
+        );
+        if (!response.ok) return undefined;
+        const value: unknown = await response.json();
+        if (!value || typeof value !== "object" || Array.isArray(value))
+          return undefined;
+        const live = value as Record<string, unknown>;
+        const time = (v: unknown): v is number =>
+          typeof v === "number" &&
+          Number.isSafeInteger(v) &&
+          v >= 0 &&
+          Number.isSafeInteger(v * 1000);
+        if (
+          !time(live.since) ||
+          !time(live.revokedAt) ||
+          typeof live.revocationNonce !== "string" ||
+          !/^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce) ||
+          BigInt(live.revocationNonce) > (1n << 64n) - 1n ||
+          (live.pendingWithdrawal !== undefined &&
+            typeof live.pendingWithdrawal !== "boolean")
+        )
+          return undefined;
+        return {
+          since: live.since,
+          revokedAt: live.revokedAt,
+          revocationNonce: live.revocationNonce,
+          pendingWithdrawal: live.pendingWithdrawal === true,
+        };
+      })(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => {
+          abort.abort();
+          resolve(undefined);
+        }, waitMs);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * The resolver must authenticate Telegram's user and current link; no caller
+ * supplied account ids or trial transcripts become authority. Resolve again
+ * after admission to fence unlink/bot replacement during a slow live read.
+ */
+export async function connectedPracticeAuthorization(
+  env: Pick<StudyEnv, "KARAOKE_OPERATOR">,
+  db: D1Database,
+  context: import("../packages/community-setup/connected-learning.ts").ConnectedLearningContextV1,
+  resolveLink: () => Promise<
+    | import("../packages/community-setup/connected-learning.ts").ConnectedLearningLinkV1
+    | null
+  >,
+  now = Date.now(),
+) {
+  const identity = await db
+    .prepare("SELECT community_id FROM application_identity WHERE id=1")
+    .first<{ community_id: string }>();
+  if (identity?.community_id !== context.communityId)
+    throw new Error("connected_learning_wrong_community");
+  if (context.startedAtMs > now)
+    throw new Error("connected_learning_not_prospective");
+  const link = await resolveLink();
+  assertConnectedLearningLink(link, context);
+  const admitted = await practiceAuthorization(
+    env,
+    db,
+    link.accountId,
+    link.wallet,
+    Math.floor(context.startedAtMs / 1000),
+    now,
+  );
+  const current = await resolveLink();
+  assertConnectedLearningLink(current, context);
+  if (
+    current.accountId !== link.accountId ||
+    current.wallet !== link.wallet ||
+    current.linkedAtMs !== link.linkedAtMs
+  )
+    throw new Error("connected_learning_link_changed");
+  return admitted;
 }
