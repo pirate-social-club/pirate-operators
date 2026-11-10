@@ -1,3 +1,5 @@
+import { createLearningSetup } from "./learning-setup.ts";
+import type { LearningSecretStore } from "./learning-secrets.ts";
 import { HealthPending } from "./health.ts";
 import { DeploymentFailure } from "./diagnostics.ts";
 import {
@@ -28,8 +30,10 @@ export async function createSetup(
   directory: string,
   secrets: SecretStore,
   provisioner: Provisioner,
+  learningSecrets?: LearningSecretStore,
 ) {
   let state = await loadState(directory);
+  const learning = await createLearningSetup(directory, learningSecrets);
   let busy = false;
   let job: Promise<void> | undefined;
   let connected = false;
@@ -72,11 +76,18 @@ export async function createSetup(
         ...state,
         busy,
         readiness: readiness(state),
+        learning: learning.snapshot(),
         infisical: secrets.connection
           ? { ...secrets.connection, connected }
           : undefined,
       });
     },
+    configureLearning: (input: unknown) =>
+      locked(() => learning.configure(input)),
+    connectLearningSecrets: () => locked(() => learning.connect()),
+    saveLearningSecrets: (input: unknown) => locked(() => learning.save(input)),
+    reviewLearning: () =>
+      locked(async () => learning.review(`0x${await provisioner.digest()}`)),
     async configure(input: unknown) {
       return locked(async () => {
         const settings = settingsFrom(input);
@@ -181,6 +192,11 @@ export async function createSetup(
     },
     async deploy(input: unknown) {
       if (busy) throw new SetupError("Another setup step is running.", 409);
+      if (learning.snapshot().settings)
+        throw new SetupError(
+          "Learning setup requires coordinator review and Alchemy integration before deployment. Export the learning plan for review.",
+          409,
+        );
       const { planId } = object(input);
       if (!state.settings || !state.plan || planId !== state.plan.id)
         throw new SetupError("Review the current plan before deploying.", 409);

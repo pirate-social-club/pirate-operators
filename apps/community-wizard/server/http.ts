@@ -82,7 +82,14 @@ export function createWizardServer(
         )
           throw new SetupError("Setup session expired. Reload the page.", 403);
         const input = await body(req);
-        if (path === "/api/settings") await setup.configure(input);
+        if (path === "/api/learning/settings")
+          await setup.configureLearning(input);
+        else if (path === "/api/learning/infisical/connect")
+          await setup.connectLearningSecrets();
+        else if (path === "/api/learning/secrets")
+          await setup.saveLearningSecrets(input);
+        else if (path === "/api/learning/plan") await setup.reviewLearning();
+        else if (path === "/api/settings") await setup.configure(input);
         else if (path === "/api/infisical/connect")
           await setup.connectSecrets();
         else if (path === "/api/secrets") await setup.saveSecrets(input);

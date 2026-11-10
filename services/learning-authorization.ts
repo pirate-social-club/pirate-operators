@@ -21,8 +21,24 @@ import {
   codeOf,
   nonceOf,
 } from "./accounts.ts";
-import { intentOf, txRow, type TxRow } from "./operator-tx.ts";
-import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  dispatch,
+  enqueue,
+  intentOf,
+  txRow,
+  type TxRow,
+  type TxKind,
+} from "./operator-tx.ts";
+import {
+  activationLimits,
+  authorizationRetired,
+  chargeSponsorship,
+  retireUnallocatedAuthorization,
+  reserveActivationSponsorship,
+  reserveSponsorship,
+  sponsorLimits,
+  type ActivationSponsorEnv,
+} from "./sponsor-budget.ts";
 import {
   submitResultTransaction,
   type ResultStore,
@@ -46,6 +62,7 @@ import { body } from "./service-call.ts";
  * The V4 contract's RELAY_WINDOW, the thirty-day community session: a sign-in
  * is recorded within it or never.
  */
+export const LEARNING_AUTHORITY_INTERFACE = "pirate.learning-authorization/1";
 export const AUTHORIZATION_RELAY_WINDOW_S = 30 * 86400;
 export interface AuthorizationReceipt {
   id: Hex;
@@ -59,6 +76,18 @@ interface PendingAuthorizationJob {
 }
 const authorizationKey = (target: ResultsTarget, id: Hex) =>
   `pendingAuthorization:${target.contract.toLowerCase()}:${id}`;
+function retireAuthorizationWork(
+  env: Env,
+  store: ResultStore,
+  learner: Address,
+  id: Hex,
+  key: string,
+) {
+  return store.transaction(() => {
+    retireUnallocatedAuthorization(store, sponsorLimits(env), learner, id);
+    store.delete(key);
+  });
+}
 /** The compact sign-in, as the application stores and sends it. */
 export const restoreSignIn = (a: Record<string, unknown>): SignIn => ({
   learner: String(a.learner) as Address,
@@ -108,7 +137,13 @@ export async function acceptAuthorization(
     const pending = store.get<PendingAuthorizationJob>(key);
     check(!pending || pending.signature === signature, "authorization_pending");
   };
-  checkPending();
+  const expiresAt = Number(a.issuedAt) + AUTHORIZATION_RELAY_WINDOW_S;
+  const expired = () => store.now() > expiresAt;
+  const retire = () => retireAuthorizationWork(env, store, a.learner, id, key);
+  const ensureOpen = () => {
+    if (expired()) retire();
+    check(!authorizationRetired(store, id), "stale_sign_in");
+  };
   const receipt = (row?: TxRow): AuthorizationReceipt => ({
     id,
     // Only withheld result rows are ever cancelled or superseded; never an
@@ -119,15 +154,68 @@ export async function acceptAuthorization(
         : "pending",
     txHash: row?.hash ?? null,
   });
+  if (expired() || authorizationRetired(store, id)) {
+    if (expired()) retire();
+    const prior = intentOf(store, "record_authorize", id);
+    if (prior?.nonce != null) return receipt(txRow(store, prior.nonce));
+    check(false, "stale_sign_in");
+  }
+  checkPending();
+  // The allocation gate rechecks time and tombstones after dispatch's awaited
+  // fee/nonce reads. It never withholds or refunds an allocated transaction.
+  const submit = async (
+    kind: "record_activate" | "record_authorize",
+    data: Hex,
+    to: Address,
+    authorizations?: Parameters<typeof enqueue>[6],
+  ) => {
+    ensureOpen();
+    const limits = sponsorLimits(env),
+      previous = intentOf(store, kind, id);
+    check(
+      !previous ||
+        (previous.to.toLowerCase() === to.toLowerCase() &&
+          previous.data === data),
+      "result_transaction_changed",
+    );
+    store.transaction(() => {
+      check(!authorizationRetired(store, id), "stale_sign_in");
+      reserveSponsorship(store, limits, `${kind}:${id}`);
+      enqueue(store, kind, id, to, data, limits.gas, authorizations);
+      chargeSponsorship(store, limits, `${kind}:${id}`);
+    });
+    const row = await dispatch(
+      env,
+      store,
+      kind,
+      id,
+      { maxFeePerGas: limits.gasPrice, maxTotalFee: limits.cap },
+      {
+        reason: "stale_sign_in",
+        recorded(k: TxKind, ref: string) {
+          if (
+            ref !== id ||
+            (k !== "record_activate" && k !== "record_authorize") ||
+            intentOf(store, k, ref)?.nonce != null
+          )
+            return false;
+          if (expired()) retire();
+          return authorizationRetired(store, id);
+        },
+        withheld: async () => false,
+        limits: () => ({
+          maxFeePerGas: limits.gasPrice,
+          maxTotalFee: limits.cap,
+        }),
+      },
+    );
+    check(row || !authorizationRetired(store, id), "stale_sign_in");
+    return row;
+  };
   if (
     !intentOf(store, "record_authorize", id) &&
     !intentOf(store, "record_activate", id)
   ) {
-    // The relay window is a hard limit: nothing is reserved or signed after it.
-    if (store.now() > Number(a.issuedAt) + AUTHORIZATION_RELAY_WINDOW_S) {
-      store.delete(key);
-      check(false, "stale_sign_in");
-    }
     // The contract requires issuedAt <= block.timestamp. A sign-in issued by
     // an application clock ahead of the chain is not yet valid, which is
     // retryable and never the final stale_sign_in. Nothing is reserved.
@@ -146,6 +234,7 @@ export async function acceptAuthorization(
     }
   }
   const savePending = () => {
+    check(!authorizationRetired(store, id), "stale_sign_in");
     checkPending();
     store.set(key, { target: destination, signIn: storedSignIn(a), signature });
   };
@@ -164,26 +253,29 @@ export async function acceptAuthorization(
     });
     check(verified, "invalid_consent");
     if ((await codeOf(env, a.learner)) === "0x") {
-      check(
-        env.APPROVED_ACTIVATION_ACCOUNT?.toLowerCase() ===
-          a.learner.toLowerCase(),
-        "account_activation_not_approved",
-      );
+      const limits = activationLimits(env as Env & ActivationSponsorEnv);
+      const revokedAt = await read<bigint>(env, destination, "revokedAt", [
+        a.learner,
+      ]);
+      check(a.issuedAt > revokedAt, "revoked_sign_in");
       if (!intentOf(store, "record_activate", id))
         check(
           activation.authorization.nonce === (await nonceOf(env, a.learner)),
           "authorization_nonce_stale",
         );
+      ensureOpen();
       store.transaction(() => {
         savePending();
-        reserveSponsorship(store, sponsorLimits(env), `record_activate:${id}`);
-        reserveSponsorship(store, sponsorLimits(env), `record_authorize:${id}`);
+        reserveActivationSponsorship(
+          store,
+          sponsorLimits(env),
+          limits,
+          a.learner,
+          id,
+        );
       });
-      const activated = await submitResultTransaction(
-        env,
-        store,
+      const activated = await submit(
         "record_activate",
-        id,
         activation.data,
         activation.initializer,
         [activation.authorization],
@@ -204,34 +296,35 @@ export async function acceptAuthorization(
   // Simulation applies every contract rule before anything is reserved or signed.
   if (!intentOf(store, "record_authorize", id))
     await simulateAuthorization(env, destination.contract, data);
+  ensureOpen();
   store.transaction(() => {
     savePending();
     reserveSponsorship(store, sponsorLimits(env), `record_authorize:${id}`);
   });
-  const row = await submitResultTransaction(
-    env,
-    store,
-    "record_authorize",
-    id,
-    data,
-    destination.contract,
-  );
+  const row = await submit("record_authorize", data, destination.contract);
   if (row?.mined) store.delete(key);
   return receipt(row);
 }
 
 /** Alarm recovery: each stored sign-in is retried until mined or out of its window. */
 export async function resumeAuthorizations(env: Env, store: ResultStore) {
-  for (const { value } of store.entries("pendingAuthorization:")) {
+  for (const { key, value } of store.entries("pendingAuthorization:")) {
     const job = value as PendingAuthorizationJob;
     try {
-      await acceptAuthorization(
-        env,
-        store,
-        restoreSignIn(job.signIn),
-        job.signature,
-        retainedTarget(env, job.target),
-      );
+      const target = retainedTarget(env, job.target),
+        signIn = restoreSignIn(job.signIn);
+      const id = key.slice(key.lastIndexOf(":") + 1) as Hex;
+      if (
+        store.now() > Number(signIn.issuedAt) + AUTHORIZATION_RELAY_WINDOW_S &&
+        /^0x[0-9a-f]{64}$/.test(id) &&
+        key === authorizationKey(target, id)
+      ) {
+        // The journal already bound this digest before reserving. Expiry and
+        // the never-allocated proof need no RPC availability to reclaim it.
+        retireAuthorizationWork(env, store, signIn.learner, id, key);
+        continue;
+      }
+      await acceptAuthorization(env, store, signIn, job.signature, target);
     } catch {
       /* Retained until mined or refused; the window bounds new work. */
     }
