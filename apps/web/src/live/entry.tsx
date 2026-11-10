@@ -1,5 +1,5 @@
 import { render } from "@solidjs/web";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -13,6 +13,7 @@ import "./style.css";
 import { SongUpload } from "./upload.tsx";
 import { LiveStudy } from "./study.tsx";
 import { StudyLoading } from "../study/screen.tsx";
+import { KaraokeRouteLoadingState } from "../karaoke/route-states.tsx";
 import { LiveRewardWallet } from "./rewards.tsx";
 import { LiveRewardOperator } from "./reward-operator.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
@@ -30,6 +31,18 @@ import {
 } from "@/components/overlays/dropdown-menu/dropdown-menu";
 import { buttonVariants } from "@/components/actions/button/button";
 import { IconGearSix } from "@/components/media/icons";
+import { CommunityAppShell } from "./app-shell.tsx";
+import {
+  appView,
+  activityRoute,
+  activityUrl,
+  withoutActivity,
+} from "../shell/routing.ts";
+import { SongFeed } from "../shell/song-feed.tsx";
+import type {
+  ShellFeatureContext,
+  ShellIntegrations,
+} from "../shell/interfaces.ts";
 
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
@@ -59,11 +72,14 @@ const mossWallet: KaraokeWallet = {
 };
 const shortened = (address: string) =>
   `${address.slice(0, 8)}…${address.slice(-6)}`;
-function App() {
+export function App(props: { integrations?: ShellIntegrations } = {}) {
   const walletPage = ["/wallet", "/verify/very", "/operator/rewards"].includes(
     location.pathname,
   );
+  const initialPractice = activityRoute(new URL(location.href));
   const [name, setName] = createSignal("Your community"),
+    [view, setView] = createSignal(appView(location.hash)),
+    [routeNotice, setRouteNotice] = createSignal(""),
     [boot, setBoot] = createSignal<CommunityClientConfig | null>(null),
     [session, setSession] = createSignal<CommunitySessionView | null>(null),
     [capabilities, setCapabilities] =
@@ -84,32 +100,128 @@ function App() {
     } | null>(null),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
-  // A Study link shows the Study loading state from the first paint, not the
-  // home page, until the community has loaded and Study opens or is refused.
-  const [opening, setOpening] = createSignal(
-    new URL(location.href).searchParams.has("study"),
-  );
+  // Practice deep links hold their loading state until the community resolves
+  // the song and permission. The requested activity stays in the address.
+  const [opening, setOpening] = createSignal(initialPractice.kind !== "none");
   // True while sign-in is settling its permission. The wallet pages and the
   // practice buttons wait, so nothing mounts with the first of two sessions.
   const [settling, setSettling] = createSignal(false);
   const practiceOpen = () =>
     singing() !== null || studying() !== null || opening();
+  let lastLocation = location.href;
+  const featureContext = (): ShellFeatureContext => ({
+    version: 1,
+    communityId: boot()?.communityId ?? "",
+    session: settling() ? null : session(),
+    songs: feed()?.posts ?? [],
+  });
+  function pauseFeed() {
+    for (const media of document.querySelectorAll<HTMLMediaElement>(
+      "audio, video",
+    ))
+      media.pause();
+  }
   function openStudy(song: { postId: string; title: string }) {
     setLearningActions(null);
-    const url = new URL(location.href);
-    if (url.searchParams.get("study") !== song.postId)
-      url.searchParams.delete("lesson");
-    url.searchParams.set("study", song.postId);
-    history.replaceState(null, "", url);
+    pauseFeed();
+    const url = activityUrl(new URL(location.href), "study", song.postId);
+    if (url.href !== location.href) history.pushState(null, "", url);
+    lastLocation = location.href;
+    setSinging(null);
     setStudying(song);
+  }
+  function openSing(song: { postId: string; title: string }) {
+    setLearningActions(null);
+    pauseFeed();
+    const url = activityUrl(new URL(location.href), "sing", song.postId);
+    if (url.href !== location.href) history.pushState(null, "", url);
+    lastLocation = location.href;
+    setStudying(null);
+    setSinging(song);
   }
   function closeStudy() {
     setStudying(null);
-    const url = new URL(location.href);
-    url.searchParams.delete("study");
-    url.searchParams.delete("lesson");
-    history.replaceState(null, "", url);
+    setSinging(null);
+    setRouteNotice("");
+    history.replaceState(null, "", withoutActivity(new URL(location.href)));
+    lastLocation = location.href;
+    requestAnimationFrame(() =>
+      document.getElementById("app-content")?.focus(),
+    );
   }
+  function syncActivity(posts = feed(), caps = capabilities()) {
+    const requested = activityRoute(new URL(location.href));
+    setRouteNotice("");
+    if (requested.kind === "none") {
+      setStudying(null);
+      setSinging(null);
+      if (location.hash.startsWith("#song-")) {
+        const postId = location.hash.slice(6);
+        if (!posts?.posts.some((song) => song.manifest.postId === postId))
+          setRouteNotice(
+            "This song is unavailable in this community. Choose another song.",
+          );
+        else
+          requestAnimationFrame(() =>
+            document.getElementById(`song-${postId}`)?.scrollIntoView(),
+          );
+      }
+      return;
+    }
+    if (requested.kind === "invalid") {
+      setRouteNotice(
+        "This practice link is invalid. Choose a song to continue.",
+      );
+      return;
+    }
+    const song = posts?.posts.find(
+      (post) => post.manifest.postId === requested.postId,
+    );
+    if (!song) {
+      setRouteNotice(
+        "This song is unavailable in this community. Choose another song.",
+      );
+      return;
+    }
+    if (!session()) {
+      setRouteNotice(
+        "Sign in with MOSS to open this song. Your practice link is saved.",
+      );
+      return;
+    }
+    if (requested.kind === "study" && !caps?.study) {
+      setRouteNotice(
+        "Study is unavailable in this community. You can still play this song.",
+      );
+      return;
+    }
+    const selected = {
+      postId: song.manifest.postId,
+      title: song.manifest.title,
+    };
+    if (requested.kind === "study") openStudy(selected);
+    else openSing(selected);
+  }
+  const syncLocation = () => {
+    // A fragment history traversal emits both events. Reconcile it once so a
+    // resumed capture never mounts twice for one browser action.
+    if (lastLocation === location.href) return;
+    lastLocation = location.href;
+    setView(appView(location.hash));
+    setStudying(null);
+    setSinging(null);
+    if (boot() && feed()) syncActivity();
+    if (!practiceOpen())
+      requestAnimationFrame(() =>
+        document.getElementById("app-content")?.focus(),
+      );
+  };
+  window.addEventListener("hashchange", syncLocation);
+  window.addEventListener("popstate", syncLocation);
+  onCleanup(() => {
+    window.removeEventListener("hashchange", syncLocation);
+    window.removeEventListener("popstate", syncLocation);
+  });
   async function refreshSession() {
     const before = session()?.mossAddress;
     let next: CommunitySessionView | null = null;
@@ -146,10 +258,7 @@ function App() {
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
     setFeed(posts);
-    const requested = new URL(location.href).searchParams.get("study");
-    const song = posts.posts.find((post) => post.manifest.postId === requested);
-    if (session() && caps.study && song)
-      openStudy({ postId: song.manifest.postId, title: song.manifest.title });
+    if (!walletPage) syncActivity(posts, caps);
     // Reward offers are optional. Study must never wait for them.
     if (session() && caps.rewards && !walletPage) void loadRewardOffers();
     else {
@@ -246,30 +355,35 @@ function App() {
       setOpening(false);
     }
     setStatus(
-      session()
-        ? "Your community is ready."
-        : "Sign in to study or sing.",
+      session() ? "Your community is ready." : "Sign in to study or sing.",
     );
   });
   return (
-    <>
-      <header class="live-header" inert={practiceOpen()}>
-        <a href="/" class="live-brand">
-          pirate<span>/ community</span>
-        </a>
-        <span class="live-testnet">
-          Disposable testnet, permanently unlisted · recovery incomplete
-        </span>
+    <CommunityAppShell
+      name={name()}
+      view={view()}
+      walletPage={walletPage}
+      rewards={capabilities()?.rewards === true}
+      publisher={
+        session()?.publisher === true ||
+        (!!session() &&
+          props.integrations?.publicPosting === "allowed" &&
+          !!props.integrations.publicComposer)
+      }
+      practiceOpen={practiceOpen()}
+      account={
         <Show
           when={session()}
           fallback={
             <div>
               <Button
                 variant="outline"
-                disabled={busy() || !boot()}
+                disabled={busy() || !boot() || capabilities()?.signIn !== true}
                 onClick={() => void run(signIn)}
               >
-                Sign in with MOSS
+                {boot() && capabilities()?.signIn === false
+                  ? "Sign-in unavailable"
+                  : "Sign in with MOSS"}
               </Button>
               <p class="live-muted">
                 <a href="/terms" target="_blank" rel="noopener">
@@ -318,9 +432,11 @@ function App() {
               <Show when={capabilities()?.rewards}>
                 <a href="/wallet">Wallet</a>
               </Show>
-              <span title={current().mossAddress}>
-                {shortened(current().mossAddress)}
-              </span>
+              <a href="/#/account">
+                <span title={current().mossAddress}>
+                  {shortened(current().mossAddress)}
+                </span>
+              </a>
               <Show
                 when={
                   capabilities()?.learningServiceMode === "internal" &&
@@ -367,7 +483,8 @@ function App() {
             </div>
           )}
         </Show>
-      </header>
+      }
+    >
       <Show when={walletPage && session() && !settling()}>
         <Show
           when={location.pathname === "/operator/rewards"}
@@ -402,14 +519,19 @@ function App() {
             signInPermission={["on", "pending", "off"].includes(
               session()!.publicResults,
             )}
-            onExit={() => setSinging(null)}
+            onExit={closeStudy}
             onLearningActions={(actions) => setLearningActions(actions)}
           />
         </div>
       </Show>
-      <Show when={opening() && !studying()}>
+      <Show when={opening() && !studying() && !singing()}>
         <div class="live-study-overlay">
-          <StudyLoading />
+          <Show
+            when={initialPractice.kind === "sing"}
+            fallback={<StudyLoading />}
+          >
+            <KaraokeRouteLoadingState label="Loading karaoke" />
+          </Show>
         </div>
       </Show>
       {/* Keyed by account: another sign-in remounts Study with no prior state. */}
@@ -433,12 +555,7 @@ function App() {
         )}
       </Show>
       <Show when={!walletPage}>
-        <main class="live-main" inert={practiceOpen()}>
-          <section class="live-intro">
-            <p class="live-kicker">INDEPENDENT MUSIC</p>
-            <h1>{name()}</h1>
-            <p>A home for songs and the people who make them.</p>
-          </section>
+        <main class="live-main app-main" inert={practiceOpen()}>
           <section
             class={`live-status${error() ? " live-error" : ""}`}
             role="status"
@@ -446,164 +563,218 @@ function App() {
           >
             {status()}
           </section>
-          <Show when={session()?.publisher ? session() : null}>
-            {(current) => (
-              <SongUpload
-                session={current()}
-                policy={capabilities()?.policyVersion ?? ""}
-                enabled={capabilities()?.upload === true}
-                refreshFeed={refresh}
-              />
-            )}
-          </Show>
-          <section class="live-songs">
-            <div class="live-section-heading">
-              <h2>Latest songs</h2>
-              <Button
-                variant="ghost"
-                disabled={busy()}
-                onClick={() => void run(refresh)}
-              >
-                Refresh
-              </Button>
-            </div>
-            <Show
-              when={(feed()?.posts.length ?? 0) > 0}
-              fallback={
-                <div class="live-empty">
-                  <span>♪</span>
-                  <h3>The first release starts here.</h3>
-                  <p>Published songs will appear in this community feed.</p>
-                </div>
+          <Show when={error()}>
+            <Button
+              variant="outline"
+              disabled={busy()}
+              onClick={() =>
+                void run(async () => {
+                  await refresh();
+                  setStatus("Your community is ready.");
+                })
               }
             >
-              <For each={feed()?.posts}>
-                {(song) => (
-                  <article
-                    class="live-song"
-                    id={`song-${song.manifest.postId}`}
+              Try again
+            </Button>
+          </Show>
+          <Show when={routeNotice()}>
+            <p class="app-route-notice" role="status">
+              {routeNotice()}{" "}
+              <a href="/#/songs" onClick={closeStudy}>
+                Browse songs
+              </a>
+            </p>
+          </Show>
+          <Show when={view() === "home" || view() === "songs"}>
+            <section class="app-community-banner">
+              <div class="app-community-avatar" aria-hidden="true">
+                {name().slice(0, 1).toUpperCase()}
+              </div>
+              <div>
+                <p class="live-kicker">MUSIC COMMUNITY</p>
+                <h1>{view() === "songs" ? "Songs" : name()}</h1>
+                <p>Play the songs. Learn the words. Sing along.</p>
+              </div>
+            </section>
+            <div class="app-community-tabs" aria-label="Community views">
+              <a
+                href="/#/"
+                aria-current={view() === "home" ? "page" : undefined}
+              >
+                Feed
+              </a>
+              <a
+                href="/#/songs"
+                aria-current={view() === "songs" ? "page" : undefined}
+              >
+                Songs
+              </a>
+            </div>
+            <div class="app-community-body">
+              <div class="app-feed-column">
+                <Show when={view() === "home" && boot()}>
+                  {props.integrations?.publicFeed?.(featureContext())}
+                </Show>
+                <section class="live-songs" aria-label="Published songs">
+                  <div class="live-section-heading">
+                    <h2>{view() === "songs" ? "All songs" : "Latest songs"}</h2>
+                    <Button
+                      variant="ghost"
+                      disabled={busy()}
+                      onClick={() => void run(refresh)}
+                    >
+                      Refresh
+                    </Button>
+                  </div>
+                  <Show
+                    when={feed()}
+                    fallback={
+                      <p class="live-empty">
+                        {busy()
+                          ? "Loading songs…"
+                          : "Songs could not be loaded. Try again."}
+                      </p>
+                    }
                   >
-                    <p class="live-kicker">
-                      {song.manifest.rating === "adult" ? "EXPLICIT" : "SONG"}
-                    </p>
-                    <h3>
-                      <a href={song.postUrl}>{song.manifest.title}</a>
-                    </h3>
-                    <p class="live-muted">
-                      Creator {song.manifest.authorId.slice(2, 10)}
-                    </p>
+                    {(songs) => (
+                      <SongFeed
+                        feed={songs()}
+                        signedIn={!!session() && !settling()}
+                        study={capabilities()?.study === true}
+                        rewards={capabilities()?.rewards === true}
+                        offers={rewardOffers()}
+                        onStudy={openStudy}
+                        onSing={openSing}
+                      />
+                    )}
+                  </Show>
+                </section>
+              </div>
+              <aside class="app-about" aria-label="About this community">
+                <h2>About this community</h2>
+                <p>
+                  A home for songs and the people who make them. Listen here,
+                  then sign in with your MOSS wallet to study or sing.
+                </p>
+                <p>
+                  Study and Karaoke results are public. Reward offers, when
+                  available, state their own qualification window.
+                </p>
+                <a href="/#/account">Your account and learning history</a>
+                <Show when={session()?.publisher}>
+                  <a href="/#/publish">Release a song</a>
+                </Show>
+              </aside>
+            </div>
+          </Show>
+          <Show when={view() === "account"}>
+            <section class="app-account-page">
+              <p class="live-kicker">YOUR COMMUNITY</p>
+              <h1>Account</h1>
+              <Show
+                when={session()}
+                fallback={
+                  <p>
+                    Sign in with MOSS using the button above to study, sing and
+                    access your wallet.
+                  </p>
+                }
+              >
+                {(current) => (
+                  <>
+                    <p>Your MOSS account</p>
+                    <p class="app-address">{current().mossAddress}</p>
+                    <Show when={capabilities()?.rewards}>
+                      <a class="app-action-link" href="/wallet">
+                        Open wallet and rewards
+                      </a>
+                    </Show>
+                    <h2>Learning history</h2>
                     <Show
-                      when={
-                        song.manifest.declarationSource === "operator_declared"
+                      when={learningActions()}
+                      fallback={
+                        <p>
+                          Open Study or Karaoke for a song to retrieve its
+                          retained private history.
+                        </p>
                       }
                     >
-                      <p class="live-muted">
-                        Rating and language declared by the operator. Automated
-                        content moderation is deferred.
-                      </p>
-                    </Show>
-                    <audio controls preload="metadata" src={song.audioUrl} />
-                    <Show when={session() && capabilities()?.rewards}>
-                      <Show
-                        when={rewardOffers()}
-                        fallback={
-                          <p class="live-muted">
-                            Reward details are unavailable.
-                          </p>
-                        }
-                      >
-                        {(available) => (
-                          <>
-                            <For
-                              each={available().offers.filter(
-                                (o) => o.postId === song.manifest.postId,
-                              )}
-                            >
-                              {(offer) => (
-                                <details>
-                                  <summary>
-                                    Lottery reward · {offer.ticketCount}{" "}
-                                    {offer.ticketCount === 1
-                                      ? "ticket"
-                                      : "tickets"}
-                                  </summary>
-                                  <p>
-                                    Practice rewards have no cash value in this
-                                    pilot. Complete Study with at least 70%
-                                    correct on the first try, or Karaoke with a
-                                    score of at least 70% and at least 90% of
-                                    lines measured. One entry per account.
-                                  </p>
-                                  <p>
-                                    Complete and publish your result between{" "}
-                                    {new Date(offer.opensAt).toLocaleString()}{" "}
-                                    and{" "}
-                                    {new Date(offer.cutoffAt).toLocaleString()}.
-                                    Winnings are shared equally among qualifying
-                                    accounts. There may be no prize. Any
-                                    remainder stays with the operator.
-                                  </p>
-                                  <p>
-                                    Winning shares appear in your wallet. Scan
-                                    your palm to claim; payments are approved
-                                    daily. Unclaimed shares stay available. If
-                                    nobody qualifies, winnings stay with the
-                                    operator.
-                                  </p>
-                                </details>
-                              )}
-                            </For>
-                          </>
-                        )}
-                      </Show>
-                    </Show>
-                    <Show when={session() && !settling()}>
                       <Button
                         variant="outline"
+                        disabled={busy()}
                         onClick={() =>
-                          setSinging({
-                            postId: song.manifest.postId,
-                            title: song.manifest.title,
+                          void run(async () => {
+                            await learningActions()!.download();
+                            setStatus("Private history downloaded.");
                           })
                         }
                       >
-                        Sing
+                        Download private history
                       </Button>
                     </Show>
+                    <p>
+                      Study and Karaoke results are public. Private recordings
+                      and history have their own retention limits.
+                    </p>
+                    <a href="/#/songs">Choose a song</a>
                     <Show
-                      when={session() && !settling() && capabilities()?.study}
+                      when={boot() && !settling() && current().mossAddress}
+                      keyed
                     >
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          openStudy({
-                            postId: song.manifest.postId,
-                            title: song.manifest.title,
-                          })
-                        }
-                      >
-                        Study
-                      </Button>
+                      {(_account) => (
+                        <>
+                          {props.integrations?.privateDance?.(featureContext())}
+                          {props.integrations?.accountSettings?.(
+                            featureContext(),
+                          )}
+                        </>
+                      )}
                     </Show>
-                    <Show when={song.lyricsText}>
-                      <details>
-                        <summary>Lyrics</summary>
-                        <p class="live-lyrics">{song.lyricsText}</p>
-                      </details>
-                    </Show>
-                    <a
-                      class="live-receipt"
-                      href={`/api/public/posts/${song.manifest.postId}/proof`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Publication receipt ↗
-                    </a>
-                  </article>
+                  </>
                 )}
-              </For>
+              </Show>
+            </section>
+          </Show>
+          <Show when={view() === "publish"}>
+            <h1>Create</h1>
+            <Show
+              when={session()?.publisher ? session() : null}
+              fallback={
+                <p>
+                  Song publishing is available to the authorized community
+                  publisher. Sign in with that account to continue.
+                </p>
+              }
+            >
+              {(current) => (
+                <SongUpload
+                  session={current()}
+                  policy={capabilities()?.policyVersion ?? ""}
+                  enabled={capabilities()?.upload === true}
+                  refreshFeed={refresh}
+                />
+              )}
             </Show>
-          </section>
+            <Show
+              when={
+                session() &&
+                !settling() &&
+                boot() &&
+                props.integrations?.publicPosting === "allowed" &&
+                session()!.mossAddress
+              }
+              keyed
+            >
+              {(_account) =>
+                props.integrations?.publicComposer?.(featureContext())
+              }
+            </Show>
+          </Show>
+          <Show when={view() === "missing"}>
+            <h1>Page not found</h1>
+            <p>This community link is unavailable.</p>
+            <a href="/#/">Return to the community</a>
+          </Show>
         </main>
       </Show>
       {/* Normal site navigation: the documents stay reachable while signed
@@ -633,7 +804,7 @@ function App() {
           </Show>
         </nav>
       </footer>
-    </>
+    </CommunityAppShell>
   );
 }
 render(() => <App />, document.getElementById("app")!);

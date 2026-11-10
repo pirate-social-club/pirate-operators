@@ -3,6 +3,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { serveStudy } from "./study-fixture.ts";
 
 const origin = "https://community.example";
 async function serve(
@@ -11,6 +12,7 @@ async function serve(
   directoryOutage = false,
   releasing = false,
   referrerPolicy = "strict-origin",
+  options: { songs?: boolean; rewards?: boolean; feedOutage?: boolean } = {},
 ) {
   let creatorCalls = 0,
     reservations = 0,
@@ -71,8 +73,55 @@ async function serve(
         upload: releasing,
         publication: releasing,
         policyVersion: "pirate-owner-curated/2026-11-08/1",
+        rewards: options.rewards,
       });
-    if (path === "/api/feed") return json({ posts: [] });
+    if (path === "/api/feed" && options.feedOutage)
+      return json({ error: "fixture_feed_unavailable" }, 503);
+    if (path === "/api/rewards/offers") return json({ offers: [] });
+    if (path === "/api/feed")
+      return json({
+        posts: options.songs
+          ? [
+              {
+                manifest: {
+                  schema: "pirate.community-post/3",
+                  postId: "0x" + "3".repeat(64),
+                  authorId: "0x" + "4".repeat(64),
+                  title: "Published fixture song",
+                  language: "en",
+                  rating: "general",
+                },
+                audioUrl: "/fixture-song.wav",
+                postUrl: "/posts/fixture",
+                transactionHash: "0x" + "5".repeat(64),
+                lyricsText: "A fixture lyric line",
+              },
+            ]
+          : [],
+      });
+    if (path === "/fixture-song.wav") {
+      // A decodable local audio fixture; no live song/provider acceptance claim.
+      const samples = 16000,
+        wav = Buffer.alloc(44 + samples * 2);
+      wav.write("RIFF", 0);
+      wav.writeUInt32LE(wav.length - 8, 4);
+      wav.write("WAVEfmt ", 8);
+      wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20);
+      wav.writeUInt16LE(1, 22);
+      wav.writeUInt32LE(16000, 24);
+      wav.writeUInt32LE(32000, 28);
+      wav.writeUInt16LE(2, 32);
+      wav.writeUInt16LE(16, 34);
+      wav.write("data", 36);
+      wav.writeUInt32LE(samples * 2, 40);
+      for (let i = 0; i < samples; i++)
+        wav.writeInt16LE(
+          Math.round(Math.sin((i * 440 * Math.PI * 2) / 16000) * 1000),
+          44 + i * 2,
+        );
+      return route.fulfill({ contentType: "audio/wav", body: wav });
+    }
     if (path === "/api/uploads" && request.method() === "GET")
       return json({ uploads: reserved ? [currentUpload(), ...history] : [] });
     if (releasing && path === "/api/uploads" && request.method() === "POST") {
@@ -239,7 +288,7 @@ test("fresh anonymous browser loads the real client, offers sign-in and preserve
   ).toBeEnabled();
   await expect(page.getByText("The first release starts here.")).toBeVisible();
   await page.screenshot({
-    path: "/tmp/pirate-first-song-community-client.png",
+    path: test.info().outputPath("community-client.png"),
     fullPage: true,
   });
 });
@@ -286,7 +335,7 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   page,
 }) => {
   const state = await serve(page, true, false, true);
-  await page.goto(origin);
+  await page.goto(origin + "/#/publish");
   // The authorized owner publishes with no creator connection step.
   await expect(page.getByText(/creator wallet/i)).toHaveCount(0);
   await expect(page.getByText(/royalt/i)).toHaveCount(0);
@@ -389,9 +438,304 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   await expect(page.getByText(/regist/i)).toHaveCount(0);
   expect(state.creatorCalls()).toBe(0);
   await page.screenshot({
-    path: "/tmp/pirate-first-song-upload-recovery.png",
+    path: test.info().outputPath("upload-recovery.png"),
     fullPage: true,
   });
+});
+
+test("shell routes, keyboard skip, back and refresh expose only available destinations", async ({
+  page,
+}) => {
+  await serve(page, false, false, false, "strict-origin", {
+    songs: true,
+    rewards: true,
+  });
+  await page.goto(origin + "/#/songs");
+  const nav = page.getByRole("navigation", {
+    name: "Main navigation",
+    exact: true,
+  });
+  await expect(
+    nav.getByRole("link", { name: "Songs", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.getByRole("heading", { name: "All songs", exact: true }),
+  ).toBeVisible();
+  await expect(
+    nav.getByRole("link", { name: "Create", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "Skip to content" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#app-content")).toBeFocused();
+  expect(new URL(page.url()).hash).toBe("#/songs");
+  await nav.getByRole("link", { name: "Account", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Account", exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Account", exact: true }),
+  ).toBeVisible();
+  await page.goBack();
+  await expect(
+    page.getByRole("heading", { name: "All songs", exact: true }),
+  ).toBeVisible();
+  await nav.getByRole("link", { name: "Wallet", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to view your wallet" }),
+  ).toBeVisible();
+  await page.goto(origin + "/#/unknown");
+  await expect(
+    page.getByRole("heading", { name: "Page not found" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Return to the community" }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Browser Fixture Community",
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("published song fixture plays native audio, exposes lyrics and survives a song permalink", async ({
+  page,
+}) => {
+  await serve(page, false, false, false, "strict-origin", { songs: true });
+  await page.goto(origin);
+  const player = page.getByLabel("Play Published fixture song", {
+    exact: true,
+  });
+  await expect(player).toHaveAttribute("src", "/fixture-song.wav");
+  await expect
+    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.readyState))
+    .toBeGreaterThan(0);
+  await player.evaluate(async (audio: HTMLAudioElement) => {
+    await audio.play();
+  });
+  await expect
+    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .toBeGreaterThan(0);
+  await page.getByText("Lyrics", { exact: true }).click();
+  await expect(
+    page.getByText("A fixture lyric line", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("link", { name: "Published fixture song", exact: true })
+    .click();
+  await page.reload();
+  await expect(player).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Study", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Sign in with MOSS to study or sing this song."),
+  ).toBeVisible();
+});
+
+test("an audio transport failure offers a working playback retry", async ({
+  page,
+}) => {
+  await serve(page, false, false, false, "strict-origin", { songs: true });
+  await page.route(origin + "/fixture-song.wav", (route) =>
+    route.fulfill({ status: 503, body: "fixture unavailable" }),
+  );
+  await page.goto(origin);
+  await expect(
+    page.getByText(
+      "This recording could not be played. Check your connection and retry.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page.unroute(origin + "/fixture-song.wav");
+  await page.getByRole("button", { name: "Retry playback" }).click();
+  const player = page.getByLabel("Play Published fixture song", {
+    exact: true,
+  });
+  await expect
+    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .toBeGreaterThan(0);
+  await expect(
+    page.getByText(
+      "This recording could not be played. Check your connection and retry.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+});
+
+test("mobile shell fits small screens and keeps account, songs and safe-area navigation reachable", async ({
+  page,
+}) => {
+  await serve(page, true, false, true, "strict-origin", {
+    songs: true,
+    rewards: true,
+  });
+  for (const width of [320, 390, 767]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(origin + "/#/songs");
+    const nav = page.getByRole("navigation", {
+      name: "Primary navigation",
+      exact: true,
+    });
+    await expect(nav).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Main navigation", exact: true }),
+    ).toBeHidden();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    const bottom = await nav.boundingBox();
+    expect(bottom!.y + bottom!.height).toBeLessThanOrEqual(844);
+    await page.evaluate(() => scrollTo(0, 0));
+    await page.screenshot({
+      path: test.info().outputPath(`shell-mobile-songs-${width}.png`),
+      fullPage: true,
+    });
+    await nav.getByRole("link", { name: "Account", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Account", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Open wallet and rewards" }),
+    ).toBeVisible();
+    await nav.getByRole("link", { name: "Create", exact: true }).click();
+    await expect(page.getByLabel("Song title", { exact: true })).toBeVisible();
+  }
+});
+
+test("shell distinguishes feed failure from an empty community and offers retry", async ({
+  page,
+}) => {
+  await serve(page, true, false, false, "strict-origin", { feedOutage: true });
+  await page.goto(origin);
+  await expect(page.locator(".live-status")).toContainText(
+    "temporarily unavailable",
+  );
+  await expect(page.getByText("The first release starts here.")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  await page.route(origin + "/api/feed", (route) =>
+    route.fulfill({ contentType: "application/json", body: '{"posts":[]}' }),
+  );
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(page.getByText("The first release starts here.")).toBeVisible();
+});
+
+test("Study opens from Songs, makes navigation inert, and resumes the same lesson through back, forward and reload", async ({
+  page,
+}) => {
+  const state = await serveStudy(page);
+  const studyOrigin = new URL(state.url).origin;
+  await page.goto(studyOrigin + "/#/songs");
+  await page.getByRole("button", { name: "Study", exact: true }).click();
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  const lessonId = new URL(page.url()).searchParams.get("lesson");
+  expect(lessonId).toBeTruthy();
+  await expect(page.locator(".app-sidebar")).toHaveAttribute("inert", "");
+  await expect(page.locator(".app-mobile-nav")).toHaveAttribute("inert", "");
+  await page.goBack();
+  await expect(page.locator(".live-study-overlay")).toHaveCount(0);
+  await expect(page.locator(".app-sidebar")).not.toHaveAttribute("inert");
+  await page.goForward();
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("lesson")).toBe(lessonId);
+  await page.reload();
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("lesson")).toBe(lessonId);
+  expect(state.counts.starts).toBe(1);
+  await page.getByRole("button", { name: "Exit study" }).click();
+  expect(new URL(page.url()).searchParams.has("study")).toBe(false);
+});
+
+test("Karaoke retains its song route across reload and reads server attempt state without creating a take", async ({
+  page,
+}) => {
+  await serve(page, true, false, false, "strict-origin", { songs: true });
+  let attemptReads = 0;
+  await page.route(origin + "/api/public/posts/*/karaoke", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        lines: [
+          {
+            lineId: "fixture-line",
+            ordinal: 1,
+            text: "A fixture lyric line",
+            startMs: 0,
+            endMs: 1000,
+            words: [],
+          },
+        ],
+        segments: [],
+      }),
+    }),
+  );
+  await page.route(origin + "/api/karaoke/attempt?*", (route) => {
+    attemptReads++;
+    return route.fulfill({
+      contentType: "application/json",
+      body: '{"state":"none"}',
+    });
+  });
+  await page.route(origin + "/api/karaoke/posts/*/instrumental", (route) =>
+    route.fulfill({ status: 302, headers: { location: "/fixture-song.wav" } }),
+  );
+  await page.goto(origin + "/#/songs");
+  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Start karaoke", exact: true }),
+  ).toBeVisible();
+  const postId = new URL(page.url()).searchParams.get("sing");
+  expect(postId).toBe("0x" + "3".repeat(64));
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Start karaoke", exact: true }),
+  ).toBeVisible();
+  expect(new URL(page.url()).searchParams.get("sing")).toBe(postId);
+  expect(attemptReads).toBe(2);
+  await page.goBack();
+  await expect(page.locator(".live-karaoke-overlay")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "All songs", exact: true }),
+  ).toBeVisible();
+});
+
+test("an anonymous Study deep link survives sign-in; malformed and missing song links recover visibly", async ({
+  page,
+}) => {
+  const state = await serveStudy(page, { anonymous: true });
+  await page.goto(state.url);
+  await expect(
+    page.getByText(
+      "Sign in with MOSS to open this song. Your practice link is saved.",
+      { exact: false },
+    ),
+  ).toBeVisible();
+  await expect(page.locator(".live-study-overlay")).toHaveCount(0);
+  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  await page.goto(new URL(state.url).origin + "/?study=missing");
+  await expect(
+    page.getByText("This song is unavailable in this community.", {
+      exact: false,
+    }),
+  ).toBeVisible();
+  await page.goto(new URL(state.url).origin + "/?study=a&sing=b");
+  await expect(
+    page.getByText("This practice link is invalid.", { exact: false }),
+  ).toBeVisible();
+  await page.goto(new URL(state.url).origin + "/#song-missing");
+  await expect(
+    page.getByText("This song is unavailable in this community.", {
+      exact: false,
+    }),
+  ).toBeVisible();
 });
 
 for (const policy of ["same-origin", "strict-origin"]) {
