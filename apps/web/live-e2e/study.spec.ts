@@ -339,7 +339,7 @@ test("a rejected restart keeps the completed first-pass result and displays its 
   });
   await page.getByRole("button", { name: "Study again", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "Your answer could not be saved. Try again.",
+    "A new lesson could not start. Try again.",
   );
   await expect(page.getByText("3/4", { exact: true })).toBeVisible();
   await expectNoPublicationPanel(page);

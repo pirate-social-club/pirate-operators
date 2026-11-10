@@ -155,6 +155,10 @@ export function createStudyClient(
       if (lessonId)
         await call("/" + encodeURIComponent(lessonId) + "/abandon", {
           method: "POST",
+        }).catch((error) => {
+          // A lesson whose history is already gone has nothing to close.
+          if (!(error instanceof StudyLessonNotFoundError)) throw error;
+          lessonId = undefined;
         });
       startRequestId = crypto.randomUUID();
       return start();

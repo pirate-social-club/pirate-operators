@@ -96,9 +96,15 @@ export function StudyScreen(props: {
       }
       if (active && version === generation)
         setError(
-          e instanceof Error
-            ? e.message
-            : "Study is unavailable. Try again later.",
+          // The generic save failure would be misleading when nothing was
+          // being saved: say that the new lesson did not start.
+          restart &&
+            (!(e instanceof Error) ||
+              e.message === "Your answer could not be saved. Try again.")
+            ? "A new lesson could not start. Try again."
+            : e instanceof Error
+              ? e.message
+              : "Study is unavailable. Try again later.",
         );
     } finally {
       if (active && version === generation) setPhase("idle");
@@ -306,7 +312,12 @@ export function StudyScreen(props: {
   }
   function primaryAction() {
     if (miss()) setMiss(null);
-    else if (phase() === "recording") recorder?.stop();
+    else if (phase() === "acquiring") {
+      // Stop pressed while the microphone opens: cancel this take. record()
+      // releases the stream when it sees the generation has moved on.
+      generation++;
+      setPhase("idle");
+    } else if (phase() === "recording") recorder?.stop();
     else if (phase() === "idle" && !blocked()) void record();
   }
   function terminalError() {

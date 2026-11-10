@@ -203,6 +203,23 @@ function App() {
     setStatus("Opening MOSS…");
     const mega = await moss();
     await signInOnce(mega);
+    // Results are always public. A session still reads "off" when an old
+    // withdrawal is on record, or when a slow check meant this sign-in was not
+    // yet recorded as the publication permission. Either way, clear any old
+    // withdrawal and sign the same text once more. If that check is still
+    // unavailable, stay signed in; signing in again later completes it.
+    const current = session();
+    if (current?.publicResults === "off") {
+      const cleared = await post(
+        "/api/learning/public-results/on",
+        {},
+        current.csrf,
+      ).then(
+        () => true,
+        () => false,
+      );
+      if (cleared) await signInOnce(mega);
+    }
     setStatus("Signed in. Choose a song to study or sing.");
   }
   // Owner-only publishing has no creator connection step. Preserved creator
