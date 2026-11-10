@@ -117,7 +117,7 @@ export function StudyScreen(props: {
     props.onLesson?.(result.lesson);
     if (result.attempt.grade?.rerecordReason) {
       setMiss(null);
-      setError("That recording was not counted. Say the same line once more.");
+      setError("That recording could not be graded. Record it again.");
     } else if (result.attempt.state === "assessed" && result.attempt.grade) {
       sounds.play(result.attempt.grade.correct ? "correct" : "incorrect");
       // The queue has already advanced server-side. Hold only the just-spent

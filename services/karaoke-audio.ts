@@ -9,22 +9,14 @@
 // than the audio controls go to the existing handler unchanged.
 // See docs/karaoke-capture-handoff.md.
 import { decodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
-import { ElevenLabsKaraokeSttAdapter } from "../packages/karaoke/elevenlabs-realtime.ts";
+import { admittedKaraokeAdapter } from "./karaoke-speech-adapter.ts";
 import {
   KaraokeAudioRelay,
   SEEK_WORD_TOLERANCE_MS,
   type KaraokeRelaySnapshot,
 } from "../packages/karaoke/audio-relay.ts";
-import {
-  check,
-  digest,
-  type Signed,
-  type Ticket,
-} from "../packages/protocol/index.ts";
-import {
-  reserveCommunitySpeech,
-  type SpeechAdmissionEnv,
-} from "./study-speech-reservation.ts";
+import { check, type Signed, type Ticket } from "../packages/protocol/index.ts";
+import type { SpeechAdmissionEnv } from "./study-speech-reservation.ts";
 import {
   RECONNECT_WINDOW_S,
   type KaraokeManifest,
@@ -211,40 +203,17 @@ export class KaraokeAudioState extends ServiceState {
       })),
       createAdapter:
         live && apiKey
-          ? () => {
-              const adapter = new ElevenLabsKaraokeSttAdapter({ apiKey });
-              if (isLearningProfile(this.env)) {
-                const start = adapter.start.bind(adapter);
-                adapter.start = async (input) => {
-                  const reservation = await reserveCommunitySpeech(
-                    this.env as Env & SpeechAdmissionEnv,
-                    "website-karaoke",
-                    `karaoke:${ticketId}:${attempt.generation}`,
-                    digest({ ticketId, generation: attempt.generation }),
-                  );
-                  try {
-                    await start(input);
-                  } catch (error) {
-                    // A socket failure cannot prove whether the provider
-                    // opened/billed its stream. Keep the conservative charge.
-                    await reservation
-                      .resolve("unknown", {
-                        ticketId,
-                        error: "realtime_start_uncertain",
-                      })
-                      .catch(() => undefined);
-                    throw error;
-                  }
-                  await reservation
-                    .resolve("succeeded", {
-                      ticketId,
-                      generation: attempt.generation,
-                    })
-                    .catch(() => undefined);
-                };
-              }
-              return adapter;
-            }
+          ? () =>
+              admittedKaraokeAdapter({
+                env: this.env as Env & SpeechAdmissionEnv,
+                store: this.store,
+                ticketId,
+                learnerGeneration: attempt.generation,
+                apiKey,
+                admissionRequired:
+                  isLearningProfile(this.env) ||
+                  !!(this.env as SpeechAdmissionEnv).SPEECH_ADMISSION_CONFIG,
+              })
           : null,
       restore: this.store.get<KaraokeRelaySnapshot>(key),
       persist: (snapshot) => {

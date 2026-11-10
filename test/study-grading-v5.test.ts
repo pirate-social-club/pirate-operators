@@ -50,6 +50,27 @@ test("v5 accepts dropped-g and wanna equivalents without rewriting historical v4
   );
 });
 
+test("v5 normalization never lets a meaningful omitted word use the phonetic budget", () => {
+  for (const [reference, heard] of [
+    ["We wanna go home", "We want to home"],
+    ["I wanna know", "I want to"],
+    ["We want to go home", "We wanna home"],
+    ["I wanna see you", "I want to you"],
+    ["I wanna dance", "I want dance"],
+  ]) {
+    const grade = v5(reference, heard);
+    assert.equal(grade.correct, false, `${reference} / ${heard}`);
+    assert.ok(grade.missing.length > 0);
+  }
+  // Deliberate historical acceptance is frozen, not silently hardened.
+  assert.equal(v4("I want to know", "I want to").correct, true);
+  assert.equal(v5("I wanna know", "I want to know").correct, true);
+  assert.equal(
+    v5("I wanna see the light", "I want to see light").correct,
+    true,
+  );
+});
+
 test("centralized rerecord thresholds protect negations and numbers and retain confident language evidence", () => {
   const assess = (
     reference: string,

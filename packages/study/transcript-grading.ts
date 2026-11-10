@@ -459,6 +459,11 @@ export const gradeTranscriptV2 = (
     : phonetic?.available === true &&
         phonetic.distance <= phoneticBudget &&
         !meaningChanged &&
+        // V5 normalization can expose an omission that the short-phone budget
+        // previously absorbed. After article filtering and span alignment,
+        // every remaining missing token is meaningful. Historical revisions
+        // retain their original acceptance behavior.
+        (!v5 || missing.length === 0) &&
         unmatchedPhoneWeight < 3
       ? "phonetic"
       : "none";
