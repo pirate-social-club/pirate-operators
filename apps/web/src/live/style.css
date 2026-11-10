@@ -3,6 +3,8 @@
 @source "./entry.tsx";
 @source "./upload.tsx";
 @source "./karaoke.tsx";
+@source "./study.tsx";
+@source "../study/";
 @source "../karaoke/";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog-presentation.tsx";
@@ -302,7 +304,49 @@ button:disabled {
   background: var(--background, #0e1411);
 }
 .live-karaoke {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.live-study-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--background);
+  color: var(--foreground);
+  color-scheme: dark;
+}
+body:has(.live-study-overlay) {
+  overflow: hidden;
+}
+.live-study {
+  position: relative;
+  min-height: 100dvh;
+}
+.study-policy-links {
+  position: absolute;
+  right: 16px;
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 51;
+}
+
+.learning-policy-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.learning-policy-links a {
+  padding: 2px 0;
+  line-height: 20px;
+}
+.karaoke-policy-links {
+  position: absolute;
+  right: 16px;
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 51;
 }

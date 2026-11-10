@@ -52,9 +52,13 @@ export function publicDocument(
   snapshot: ReferenceSnapshot,
   uri: string,
   hash: Hex,
+  maximum = Number.MAX_SAFE_INTEGER,
 ) {
   const wire = snapshot.documents[uri];
-  requireFact(wire && sha256(wire) === hash, "document_unavailable_or_changed");
+  requireFact(
+    wire && wire.length <= 2 + maximum * 2 && sha256(wire) === hash,
+    "document_unavailable_or_changed",
+  );
   const text = new TextDecoder("utf-8", { fatal: true }).decode(
     hexToBytes(wire),
   );
@@ -83,7 +87,12 @@ export function rawEvent(snapshot: ReferenceSnapshot, log: RawLog) {
   const header = snapshot.blocks[log.blockNumber],
     receipt = snapshot.receipts[log.transactionHash];
   requireFact(
-    header?.hash === log.blockHash &&
+    Number.isSafeInteger(log.transactionIndex) &&
+      log.transactionIndex >= 0 &&
+      Number.isSafeInteger(log.logIndex) &&
+      log.logIndex >= 0 &&
+      header?.number === log.blockNumber &&
+      header.hash === log.blockHash &&
       receipt?.status === "success" &&
       receipt.hash === log.transactionHash &&
       receipt.blockHash === log.blockHash &&
@@ -95,6 +104,11 @@ export function rawEvent(snapshot: ReferenceSnapshot, log: RawLog) {
       (x) =>
         x.address.toLowerCase() === log.address.toLowerCase() &&
         x.logIndex === log.logIndex &&
+        x.transactionIndex === log.transactionIndex &&
+        x.transactionHash === log.transactionHash &&
+        x.blockNumber === log.blockNumber &&
+        x.blockHash === log.blockHash &&
+        !x.removed &&
         x.data === log.data &&
         canonical(x.topics) === canonical(log.topics),
     ),

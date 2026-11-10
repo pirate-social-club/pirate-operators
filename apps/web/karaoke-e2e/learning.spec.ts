@@ -76,15 +76,7 @@ test("one enrollment sponsors repeated terminal publications, history export and
     }[];
   for (let run = 1; run <= 2; run++) {
     await page.getByRole("button", { name: "Start karaoke" }).click();
-    if (run === 1) {
-      const consent = page.getByRole("dialog", {
-        name: "Enable public learning results",
-      });
-      await expect(consent).toBeVisible();
-      await consent
-        .getByRole("button", { name: "Continue", exact: true })
-        .click();
-    }
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
       timeout: 25000,
     });
@@ -193,10 +185,7 @@ test("persistent missing feedback stops after one automatic recovery and can ret
   });
   await page.getByRole("button", { name: "Sing", exact: true }).click();
   await page.getByRole("button", { name: "Start karaoke" }).click();
-  const consent = page.getByRole("dialog", {
-    name: "Enable public learning results",
-  });
-  await consent.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
     .poll(() =>
       page
@@ -306,10 +295,7 @@ test("missing feedback recovers automatically on the same ticket and provider st
   });
   await page.getByRole("button", { name: "Sing", exact: true }).click();
   await page.getByRole("button", { name: "Start karaoke" }).click();
-  await page
-    .getByRole("dialog", { name: "Enable public learning results" })
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => connections, { timeout: 20000 }).toBe(2);
   await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
     timeout: 5000,
@@ -359,10 +345,7 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
   });
   await page.getByRole("button", { name: "Sing", exact: true }).click();
   await page.getByRole("button", { name: "Start karaoke" }).click();
-  await page
-    .getByRole("dialog", { name: "Enable public learning results" })
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveText(
     "The scoring connection stopped. Press Start karaoke to try again.",
     { timeout: 20000 },
@@ -449,10 +432,7 @@ test("reload with delayed audio metadata preserves position and shows fresh late
   await page
     .getByRole("button", { name: "Start karaoke", exact: true })
     .click();
-  await page
-    .getByRole("dialog", { name: "Enable public learning results" })
-    .getByRole("button", { name: "Continue", exact: true })
-    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => feedbackCount, { timeout: 30000 }).toBeGreaterThan(2);
   const priorPosition = await page
     .locator(".live-karaoke audio")

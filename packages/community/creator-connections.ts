@@ -3,7 +3,6 @@ import type { AccountSession } from "./accounts.ts";
 import {
   CommunityError,
   canonical,
-  equalTokens,
   hashJson,
   hashText,
   insist,
@@ -11,6 +10,7 @@ import {
   object,
   token,
 } from "./common.ts";
+import { equalTokens } from "./token-comparison.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
 import { signCreatorRequest, type CreatorAction } from "./creator-service.ts";
 import {

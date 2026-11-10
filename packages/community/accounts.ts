@@ -3,13 +3,13 @@ import { isAddress, type Address, type Hex } from "viem";
 import {
   cookie,
   bytes32,
-  equalTokens,
   hashText,
   insist,
   publicId,
   requestOrigin,
   token,
 } from "./common.ts";
+import { equalTokens } from "./token-comparison.ts";
 
 export interface AccountSession {
   session_hash: string;

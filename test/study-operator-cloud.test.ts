@@ -1,0 +1,140 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { fixture } from "./study-operator-fixture.ts";
+import { operatorProfile } from "../harness/study-operator-profile.ts";
+import { observeOperatorCloud } from "../harness/study-operator-readonly-adapter.ts";
+import { hashJson } from "../packages/community/common.ts";
+import { fileDigest } from "../harness/creator-state.ts";
+
+async function observe(options: {
+  declared?: 2 | 3;
+  liveVersion: 2 | 3;
+  successor?: boolean;
+  missingV3?: boolean;
+  wrongV3?: boolean;
+  unknownModule?: boolean;
+}) {
+  const p = fixture();
+  if (options.declared !== undefined)
+    p.predecessor.resultsVersion = options.declared;
+  const oldModule = "export default {old:true};",
+    newModule = "export default {new:true};";
+  p.predecessor.moduleSha256 = fileDigest(Buffer.from(oldModule));
+  p.execution.predecessorFiles[0]!.sha256 = p.predecessor.moduleSha256;
+  p.artifact.sha256 = fileDigest(Buffer.from(newModule));
+  const bindings = [
+    ...Object.entries(p.objects).map(([name, value]) => ({
+      name,
+      type: "durable_object_namespace",
+      namespace_id: value.namespaceId,
+      class_name: value.className,
+    })),
+    {
+      name: "RESULTS_V2_CONTRACT",
+      type: "plain_text",
+      text: p.selection.resultsV2.contract,
+    },
+  ];
+  p.predecessor.publicSettingsInvariantSha256 = hashJson({
+    bindings: [...bindings].sort((a, b) => a.name.localeCompare(b.name)),
+  });
+  const settings = {
+    bindings: [
+      ...bindings,
+      {
+        name: "OPERATOR_PROFILE",
+        type: "plain_text",
+        text:
+          options.liveVersion === 3
+            ? "pirate-learning-testnet-v3"
+            : "pirate-karaoke-testnet-v2",
+      },
+      ...(options.liveVersion === 3 && !options.missingV3
+        ? [
+            {
+              name: "RESULTS_V3_CONTRACT",
+              type: "plain_text",
+              text: options.wrongV3
+                ? p.selection.resultsV2.contract
+                : p.selection.resultsV3.contract,
+            },
+          ]
+        : []),
+    ],
+  };
+  const original = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    assert.equal(init?.method ?? "GET", "GET");
+    assert.equal(init?.redirect, "manual");
+    const url = new URL(String(input));
+    assert.equal(url.origin, "https://api.cloudflare.com");
+    requests.push(url.pathname);
+    if (url.pathname.endsWith("/settings"))
+      return Response.json({ success: true, result: settings });
+    if (url.pathname.endsWith("/" + p.worker.name))
+      return new Response(
+        options.unknownModule
+          ? "different"
+          : options.successor
+            ? newModule
+            : oldModule,
+      );
+    assert.ok(url.pathname.endsWith("/workers/scripts"));
+    return Response.json({
+      success: true,
+      result: [{ id: p.worker.name, tag: p.worker.tag }],
+    });
+  };
+  try {
+    const observed = await observeOperatorCloud(
+      p,
+      "local-fixture-token",
+      "operator.mjs",
+    );
+    assert.equal(requests.length, 3);
+    assert.equal(
+      observed.moduleSha256,
+      options.successor ? p.artifact.sha256 : p.predecessor.moduleSha256,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
+test("historical V2 boundary is retained and a V3 predecessor requires explicit matching bindings", async () => {
+  await observe({ liveVersion: 2 });
+  await observe({ declared: 2, liveVersion: 2 });
+  await observe({ declared: 3, liveVersion: 3 });
+  for (const options of [
+    { liveVersion: 3 as const },
+    { declared: 3 as const, liveVersion: 2 as const },
+    { declared: 3 as const, liveVersion: 3 as const, missingV3: true },
+    { declared: 3 as const, liveVersion: 3 as const, wrongV3: true },
+  ])
+    await assert.rejects(
+      observe(options),
+      /study_operator_(result_bindings|v3_binding|binding)_changed/,
+    );
+});
+
+test("every exact successor still requires V3 and neither version accepts an unrelated module", async () => {
+  await observe({ liveVersion: 3, successor: true });
+  await observe({ declared: 3, liveVersion: 3, successor: true });
+  await assert.rejects(
+    observe({ liveVersion: 2, successor: true }),
+    /result_bindings_changed/,
+  );
+  await assert.rejects(
+    observe({ declared: 3, liveVersion: 3, unknownModule: true }),
+    /live_module_changed/,
+  );
+});
+
+test("malformed predecessor versions are refused before any cloud access", () => {
+  for (const value of [null, "3", 0, 4, true]) {
+    const p = fixture();
+    (p.predecessor as Record<string, unknown>).resultsVersion = value;
+    assert.throws(() => operatorProfile(p), /predecessor_version_invalid/);
+  }
+});

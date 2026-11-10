@@ -26,6 +26,7 @@ export interface ReferencePolicyDocument {
   maxUnmeasuredBps: number;
 }
 export interface ReferencePolicy {
+  activity?: number;
   contract: string;
   hash: string;
   period: number;
@@ -62,7 +63,7 @@ export function referenceBoards(
       CREATE TABLE policies(contract TEXT,hash TEXT,period INTEGER,activity INTEGER,
         graders TEXT,scorings TEXT,statuses TEXT,min_score INTEGER,max_missing INTEGER,
         resolved INTEGER,
-        PRIMARY KEY(contract,period));
+        PRIMARY KEY(contract,activity,period));
       CREATE TABLE eligibility(community TEXT,learner TEXT,effective INTEGER,
         sequence TEXT,eligible INTEGER);
     `);
@@ -100,7 +101,7 @@ export function referenceBoards(
         p.contract,
         p.hash,
         p.period,
-        d?.activity ?? -1,
+        p.activity ?? d?.activity ?? 1,
         JSON.stringify(d?.graders.map((x) => x.toLowerCase()) ?? []),
         JSON.stringify(d?.scoringPolicies ?? []),
         JSON.stringify(d?.terminalStatuses ?? []),
@@ -122,19 +123,21 @@ export function referenceBoards(
     const qualification = `
       WITH totals AS (
         SELECT k,COUNT(*) AS n,SUM(status=4) AS missing,
+          SUM(status IN(1,2)) AS graded,SUM(status=1) AS correct,
           SUM(CASE WHEN status=1 THEN grade ELSE 0 END) AS points
         FROM outcomes GROUP BY k
       ), qualified AS (
         SELECT s.* FROM sessions s JOIN totals t ON t.k=s.k
         JOIN policies p ON p.contract=s.contract AND p.hash=s.policy
           AND p.period=(SELECT MAX(p2.period) FROM policies p2
-            WHERE p2.contract=s.contract AND p2.period<=s.period)
+            WHERE p2.contract=s.contract AND p2.activity=s.activity AND p2.period<=s.period)
         WHERE s.verified=1 AND p.resolved=1 AND s.period<=? AND s.activity=p.activity
           AND s.grader IN(SELECT value FROM json_each(p.graders))
           AND s.scoring IN(SELECT value FROM json_each(p.scorings))
           AND s.status IN(SELECT value FROM json_each(p.statuses))
-          AND t.n>t.missing AND t.points/(t.n-t.missing)>=p.min_score
-          AND t.missing*10000<=p.max_missing*t.n
+          AND ((s.activity=1 AND t.n>t.missing AND t.points/(t.n-t.missing)>=p.min_score
+          AND t.missing*10000<=p.max_missing*t.n)
+          OR (s.activity=2 AND s.status=1 AND t.graded=t.n AND t.correct*10000>=p.min_score*t.n))
       ), scopes AS (
         SELECT 'community:'||community AS board,community,learner,period FROM qualified
         UNION ALL
@@ -178,7 +181,9 @@ export function referenceBoards(
       .prepare(
         `SELECT s.k AS key,COUNT(o.ordinal) AS lines,
       SUM(CASE WHEN o.status=4 THEN 1 ELSE 0 END) AS unmeasured,
-      CASE WHEN s.verified=1 AND COUNT(o.ordinal)>SUM(CASE WHEN o.status=4 THEN 1 ELSE 0 END)
+      CASE WHEN s.verified=1 AND s.activity=2 AND COUNT(o.ordinal)>0 AND SUM(o.status IN(1,2))=COUNT(o.ordinal)
+        THEN SUM(o.status=1)*10000/COUNT(o.ordinal)
+        WHEN s.verified=1 AND s.activity=1 AND COUNT(o.ordinal)>SUM(CASE WHEN o.status=4 THEN 1 ELSE 0 END)
         THEN SUM(CASE WHEN o.status=1 THEN o.grade ELSE 0 END)/
           (COUNT(o.ordinal)-SUM(CASE WHEN o.status=4 THEN 1 ELSE 0 END)) ELSE NULL END AS scoreBps
       FROM sessions s LEFT JOIN outcomes o ON o.k=s.k GROUP BY s.k ORDER BY s.k`,

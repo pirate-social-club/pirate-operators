@@ -22,6 +22,7 @@ import { directoryHistoryCache } from "../packages/community/configuration-index
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { RequestTiming } from "./request-timing.ts";
+import { publicIpfsCache } from "./public-ipfs-cache.ts";
 import {
   beginCreatorConnection,
   completeCreatorConnection,
@@ -64,6 +65,7 @@ import {
 import {
   karaokeAttempt,
   karaokeEnrollment,
+  karaokeEnrollments,
   karaokeRevokeEnrollment,
   karaokeHistory,
   karaokeConsent,
@@ -71,9 +73,14 @@ import {
   karaokeTicket,
   type KaraokeEnv,
 } from "./karaoke-community.ts";
+import { studyCommunityApi } from "./study-community-api.ts";
+import { studyAvailable, type StudyEnv } from "./study-community.ts";
+import { StudyError } from "../packages/study/contracts.ts";
+import { recoverStudyLessons } from "./study-recovery.ts";
+import { deleteExpiredStudyHistory } from "./study-retention.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 
-export interface CommunityEnv extends FirstSongRuntimeEnv, KaraokeEnv {
+export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ jobId: string }>;
@@ -127,6 +134,7 @@ function dependencies(
       client,
       transport,
       profile: publicPostsProfile(),
+      contentCache: publicIpfsCache(env.MEDIA),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
@@ -397,6 +405,7 @@ export async function communityFetch(
         /* Fail closed while a required peer is unavailable. */
       }
       const capabilities: CommunityCapabilities = {
+        study: studyAvailable(env, config),
         schema: "pirate.community-capabilities/1",
         signIn: true,
         ...(env.KARAOKE_SERVICE_MODE === "internal"
@@ -495,6 +504,13 @@ export async function communityFetch(
         ),
       );
     }
+    const study = await studyCommunityApi(
+      request,
+      { ...karaokePorts, env },
+      context,
+      security,
+    );
+    if (study) return study;
     if (url.pathname.startsWith("/api/")) {
       insist(request.method === "POST", "method_not_allowed", 405);
       requestOrigin(request, context.origin);
@@ -515,6 +531,8 @@ export async function communityFetch(
       const session = await authenticatedWrite(request, env.DB, context);
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/enrollments")
+        return reply(await karaokeEnrollments(karaokePorts, session));
       if (url.pathname === "/api/karaoke/enrollment/revoke")
         return reply(
           await karaokeRevokeEnrollment(karaokePorts, session, body),
@@ -575,14 +593,63 @@ export async function communityFetch(
     return reply(
       {
         error:
-          error instanceof CommunityError
+          error instanceof CommunityError || error instanceof StudyError
             ? error.code
             : "community_service_unavailable",
       },
-      error instanceof CommunityError ? error.status : 503,
+      error instanceof CommunityError || error instanceof StudyError
+        ? error.status
+        : 503,
     );
   }
 }
+export async function communityScheduled(
+  env: CommunityEnv,
+  provided?: CommunityDependencies,
+) {
+  const failures: unknown[] = [];
+  try {
+    await deleteExpiredStudyHistory(
+      env.DB,
+      firstSong.directoryProfile.communityId,
+      provided?.now,
+    );
+  } catch (error) {
+    failures.push(error);
+  }
+  try {
+    await recoverCommunityJobs(env.DB, env.JOBS);
+  } catch (error) {
+    failures.push(error);
+  }
+  if (env.STUDY_RESULTS_V3_CONTRACT) {
+    try {
+      const ports = provided ?? dependencies(env),
+        config = await ports.configuration();
+      insist(
+        config.communityId === firstSong.directoryProfile.communityId &&
+          config.app.origin === firstSong.origin,
+        "community_configuration_changed",
+        503,
+      );
+      await recoverStudyLessons({
+        env,
+        db: env.DB,
+        config,
+        reads: ports.publicReads ?? {
+          client: megaethReadClient(),
+          profile: publicPostsProfile(),
+        },
+        now: ports.now,
+      });
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length)
+    throw new AggregateError(failures, "community_scheduled_failed");
+}
+
 export default {
   fetch(request, env) {
     return communityFetch(request, env);
@@ -607,6 +674,6 @@ export default {
     }
   },
   async scheduled(_event, env) {
-    await recoverCommunityJobs(env.DB, env.JOBS);
+    await communityScheduled(env);
   },
 } satisfies ExportedHandler<CommunityEnv, { jobId: string }>;

@@ -19,6 +19,15 @@ export interface PinIntent {
   mediaType: "audio/mpeg" | "application/json";
 }
 export type IpfsTransport = (request: Request) => Promise<Response>;
+/** Public bytes only. A hit never replaces current chain or schema authority. */
+export interface PublicIpfsCache {
+  read(
+    uri: string,
+    digest: Hex,
+    maximum: number,
+  ): Promise<Uint8Array<ArrayBuffer> | undefined>;
+  write(uri: string, digest: Hex, bytes: Uint8Array): Promise<void>;
+}
 const transport: IpfsTransport = (request) => fetch(request);
 // Both paths returned the pinned configuration's exact public bytes. Gateway
 // availability depends on the caller's network; CID and digest checks apply to
@@ -97,8 +106,27 @@ export async function fetchPublicIpfs(
   expectedSha256: Hex,
   maximum: number,
   send: IpfsTransport = transport,
+  cache?: PublicIpfsCache,
 ) {
   const cid = ipfsUri(uri).slice(7);
+  const verify = async (bytes: Uint8Array) => {
+    insist(bytes.length <= maximum, "ipfs_content_too_large", 503);
+    insist(sha256(bytes) === expectedSha256, "ipfs_digest_mismatch", 503);
+    // A correct file hash is not the root CID for a multi-block file.
+    const root = await preparePin(bytes, "application/json");
+    insist(root.uri === uri, "ipfs_root_mismatch", 503);
+  };
+  if (cache) {
+    try {
+      const bytes = await cache.read(uri, expectedSha256, maximum);
+      if (bytes) {
+        await verify(bytes);
+        return { bytes, gateway: "r2:verified-public-content" };
+      }
+    } catch {
+      // Corrupt, missing or unavailable cached content is never readiness proof.
+    }
+  }
   for (const gateway of publicGateways) {
     try {
       const response = await send(
@@ -109,11 +137,14 @@ export async function fetchPublicIpfs(
         }),
       );
       const bytes = await readBounded(response, maximum);
-      insist(sha256(bytes) === expectedSha256, "ipfs_digest_mismatch", 503);
-      // A correct file hash is not the root CID for a multi-block file.
-      // Recompute the fixed importer root to bind both references.
-      const root = await preparePin(bytes, "application/json");
-      insist(root.uri === uri, "ipfs_root_mismatch", 503);
+      await verify(bytes);
+      if (cache) {
+        try {
+          await cache.write(uri, expectedSha256, bytes);
+        } catch {
+          // Storage is an optimization; the gateway bytes are already verified.
+        }
+      }
       return { bytes, gateway };
     } catch {
       /* An unavailable or mismatching response never becomes valid content. */

@@ -22,6 +22,7 @@ import {
 import { configuration } from "./fixtures/release-admission.ts";
 import { firstSongJobFixture } from "./fixtures/first-song-job.ts";
 import { firstSongPublicReady } from "../services/community-public.ts";
+import { publicIpfsCache } from "../services/public-ipfs-cache.ts";
 
 test("sealed upload resumes across managed admission, pinning, ROOT mint and pending post; public chain reconstruction preserves private separation", async () => {
   const fixture = await firstSongJobFixture({ loseFirstPinResponse: true }),
@@ -235,6 +236,73 @@ test("sealed upload resumes across managed admission, pinning, ROOT mint and pen
         false,
         "missing or changed playback bytes cannot report ready",
       );
+      const cachedReads = {
+        ...reads,
+        contentCache: publicIpfsCache(community.media),
+      };
+      assert.equal(
+        await firstSongPublicReady(community.db, configuration, cachedReads),
+        true,
+      );
+      let gatewayCalls = 0;
+      const offline = {
+        ...cachedReads,
+        transport: async () => {
+          gatewayCalls++;
+          throw new Error("public gateway offline");
+        },
+      };
+      assert.equal(
+        await firstSongPublicReady(community.db, configuration, offline),
+        true,
+      );
+      assert.equal(
+        gatewayCalls,
+        0,
+        "warm public bytes must not fetch gateways",
+      );
+      const getCode = posts.client.getCode;
+      posts.client.getCode = async () => "0x";
+      try {
+        assert.equal(
+          await firstSongPublicReady(community.db, configuration, offline),
+          false,
+          "cached bytes cannot authorize changed post contract code",
+        );
+      } finally {
+        posts.client.getCode = getCode;
+      }
+      const getReceipt = posts.client.getTransactionReceipt;
+      posts.client.getTransactionReceipt = async () => {
+        throw new Error("receipt unavailable");
+      };
+      try {
+        assert.equal(
+          await firstSongPublicReady(community.db, configuration, offline),
+          false,
+          "cached bytes cannot replace canonical publication receipt checks",
+        );
+      } finally {
+        posts.client.getTransactionReceipt = getReceipt;
+      }
+      const getBlock = posts.client.getBlock;
+      posts.client.getBlock = async () => {
+        throw new Error("canonical block unavailable");
+      };
+      try {
+        assert.equal(
+          await firstSongPublicReady(community.db, configuration, offline),
+          false,
+          "cached bytes cannot replace canonical block checks",
+        );
+      } finally {
+        posts.client.getBlock = getBlock;
+      }
+      assert.equal(
+        await firstSongPublicReady(community.db, configuration, offline),
+        true,
+      );
+      assert.equal(gatewayCalls, 0);
     } finally {
       posts.client.getBlockNumber = getHead;
     }

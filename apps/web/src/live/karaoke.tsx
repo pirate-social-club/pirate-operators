@@ -20,27 +20,17 @@ import {
 import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
 import { ScoringResponseWatch } from "../karaoke/scoring-response-watch.ts";
 import { positionPlaybackWhenReady } from "../karaoke/playback-position.ts";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/overlays/dialog/dialog";
 import { get, post } from "./api.ts";
 
-/** Standing enrollment or revocation; sponsored by the community. */
-export interface KaraokeConsentRequest {
-  domain: Record<string, unknown>;
-  types: Record<string, unknown>;
-  primaryType: "Consent" | "Enrollment" | "Revocation";
-  message: Record<string, unknown>;
-}
-export interface KaraokeWallet {
-  /** The learner's own signature; MOSS in the live app. */
-  signConsent(request: KaraokeConsentRequest): Promise<string>;
-}
+import type {
+  KaraokeConsentRequest,
+  KaraokeWallet,
+} from "./learning-consent.ts";
+import { enrollmentDisclosure } from "./learning-consent.ts";
+export type {
+  KaraokeConsentRequest,
+  KaraokeWallet,
+} from "./learning-consent.ts";
 export interface LearningActions {
   download: () => Promise<void>;
 }
@@ -106,7 +96,10 @@ export function LiveKaraoke(props: {
       lineScores: readonly LineFeedback[];
       latestLineId: string | null;
     } | null>(null),
-    [consentOpen, setConsentOpen] = createSignal(false),
+    [consentLinks, setConsentLinks] = createSignal({
+      termsUrl: "/learning/v3/terms",
+      privacyUrl: "/learning/v3/privacy",
+    }),
     [starting, setStarting] = createSignal(false),
     [playingOutro, setPlayingOutro] = createSignal(false),
     [resume, setResume] = createSignal<{
@@ -123,22 +116,20 @@ export function LiveKaraoke(props: {
   let scoringRecoveryUsed = false;
   let finishing: Promise<void> | undefined;
   let cancelPlaybackPosition: (() => void) | undefined;
-  let consentAnswer: ((accepted: boolean) => void) | undefined;
   onCleanup(() => {
     disposed = true;
     cancelPlaybackPosition?.();
-    consentAnswer?.(false);
   });
-  const confirmEnrollment = () =>
-    new Promise<boolean>((resolve) => {
-      consentAnswer = resolve;
-      setConsentOpen(true);
-    });
-  const answerEnrollment = (accepted: boolean) => {
-    const resolve = consentAnswer;
-    consentAnswer = undefined;
-    setConsentOpen(false);
-    resolve?.(accepted);
+  const validateEnrollment = (request: KaraokeConsentRequest) => {
+    setConsentLinks(enrollmentDisclosure(request));
+    const activities = String(request.message.activities);
+    if (
+      !["1", "2", "3"].includes(activities) ||
+      (activities !== "1" && request.target?.version !== 3)
+    )
+      throw new Error(
+        "This enrollment cannot be displayed. Reload and try again.",
+      );
   };
 
   const attemptView = () =>
@@ -371,6 +362,7 @@ export function LiveKaraoke(props: {
     for (let i = 0; i < 150 && !ready(); i++) await sleep(20);
   }
   async function start(fromMs: number) {
+    if (disposed) return;
     setPlayingOutro(false);
     finishing = undefined;
     cancelPlaybackPosition?.();
@@ -381,6 +373,7 @@ export function LiveKaraoke(props: {
       let currentTake = take();
       if (currentTake && capture.state()?.status === "error") {
         const current = await attemptView();
+        if (disposed) return;
         if (current.state === "open") {
           apply(current);
           currentTake = {
@@ -406,32 +399,38 @@ export function LiveKaraoke(props: {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
           >("/api/karaoke/enrollment", {}, props.csrf);
+          if (disposed) return;
           if (enrollment.pending)
             throw new Error(
               "Your enrollment is still being confirmed. Try again shortly.",
             );
           if (!enrollment.active) {
-            if (!(await confirmEnrollment())) {
-              setStarting(false);
-              return;
-            }
+            validateEnrollment(enrollment);
             const signature = await props.wallet.signConsent(enrollment);
+            if (disposed) return;
             const accepted = await post<{ state: string }>(
               "/api/karaoke/enrollment",
-              { enrollment: enrollment.message, signature },
+              {
+                enrollment: enrollment.message,
+                signature,
+                target: enrollment.target,
+              },
               props.csrf,
             );
+            if (disposed) return;
             if (accepted.state !== "success")
               throw new Error(
                 "Your enrollment is pending. Try again once it is confirmed.",
               );
           }
         }
+        if (disposed) return;
         const issued = await post<{
           ticket: { body: { ticketId: string } };
           socketUrl: string;
           proof: string;
         }>("/api/karaoke/tickets", { postId: props.postId }, props.csrf);
+        if (disposed) return;
         bought.clear();
         attemptStart = null;
         setResume(null);
@@ -604,38 +603,18 @@ export function LiveKaraoke(props: {
           )}
         </Show>
       </Show>
-      <Dialog
-        open={consentOpen()}
-        onOpenChange={(open) => {
-          if (!open) answerEnrollment(false);
-        }}
+      <nav
+        class="learning-policy-links karaoke-policy-links"
+        aria-label="Karaoke policies"
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Enable public learning results</DialogTitle>
-            <DialogDescription>
-              Your line grades, song and completion time will be permanently
-              public under your wallet address. Enrollment lasts until expiry or
-              revocation.
-            </DialogDescription>
-          </DialogHeader>
-          <p class="text-sm text-muted-foreground">
-            <a href="/terms" target="_blank" rel="noopener">
-              Terms
-            </a>{" "}
-            ·{" "}
-            <a href="/privacy" target="_blank" rel="noopener">
-              Privacy
-            </a>
-          </p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => answerEnrollment(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => answerEnrollment(true)}>Continue</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <a href={consentLinks().termsUrl} target="_blank" rel="noopener">
+          Terms
+        </a>
+        <span aria-hidden="true">·</span>
+        <a href={consentLinks().privacyUrl} target="_blank" rel="noopener">
+          Privacy
+        </a>
+      </nav>
     </section>
   );
 }

@@ -11,6 +11,11 @@ import {
 } from "./api.ts";
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
+import { LiveStudy } from "./study.tsx";
+import {
+  stopPublicEnrollment,
+  type LearningEnrollments,
+} from "./learning-revocation.ts";
 import {
   LiveKaraoke,
   type KaraokeWallet,
@@ -43,7 +48,8 @@ const mossWallet: KaraokeWallet = {
     const mega = await moss();
     await mega.connect();
     // MOSS validates typed data itself; the SDK README names the payload "value".
-    const { message, ...typed } = request;
+    const { message, domain, types, primaryType } = request;
+    const typed = { domain, types, primaryType };
     let signed = await mega.signData({ data: { ...typed, message } });
     if (signed.status === "error")
       signed = await mega.signData({ data: { ...typed, value: message } });
@@ -68,8 +74,29 @@ function App() {
       postId: string;
       title: string;
     } | null>(null),
+    [studying, setStudying] = createSignal<{
+      postId: string;
+      title: string;
+    } | null>(null),
     [status, setStatus] = createSignal("Loading community…"),
     [error, setError] = createSignal(false);
+  const practiceOpen = () => singing() !== null || studying() !== null;
+  function openStudy(song: { postId: string; title: string }) {
+    setLearningActions(null);
+    const url = new URL(location.href);
+    if (url.searchParams.get("study") !== song.postId)
+      url.searchParams.delete("lesson");
+    url.searchParams.set("study", song.postId);
+    history.replaceState(null, "", url);
+    setStudying(song);
+  }
+  function closeStudy() {
+    setStudying(null);
+    const url = new URL(location.href);
+    url.searchParams.delete("study");
+    url.searchParams.delete("lesson");
+    history.replaceState(null, "", url);
+  }
   let popup: Window | null = null,
     timer: ReturnType<typeof setTimeout> | undefined,
     stopped = false;
@@ -101,6 +128,10 @@ function App() {
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
     setFeed(posts);
+    const requested = new URL(location.href).searchParams.get("study");
+    const song = posts.posts.find((post) => post.manifest.postId === requested);
+    if (session() && caps.study && song)
+      openStudy({ postId: song.manifest.postId, title: song.manifest.title });
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -136,36 +167,35 @@ function App() {
       id: challenge.id,
       signature: signed.signature,
     });
-    await refreshSession();
-    setStatus("Signed in. Connect your creator wallet to begin a release.");
+    await refresh();
+    setStatus("Signed in. Choose a song to study or sing.");
   }
   async function revokeLearning() {
     const current = session();
     if (!current) return;
-    const active = await post<{ active?: boolean }>(
-      "/api/karaoke/enrollment",
-      {},
-      current.csrf,
-    );
-    if (!active.active) {
-      setStatus("Public learning results are not enabled for this wallet.");
-      return;
-    }
-    const request = await post<import("./karaoke.tsx").KaraokeConsentRequest>(
-      "/api/karaoke/enrollment/revoke",
-      {},
-      current.csrf,
-    );
-    const signature = await mossWallet.signConsent(request);
-    const result = await post<{ state: string }>(
-      "/api/karaoke/enrollment/revoke",
-      { message: request.message, signature },
-      current.csrf,
-    );
     setStatus(
-      result.state === "success"
-        ? "Public enrollment stopped. Earlier publications remain public."
-        : "Revocation is pending confirmation. Public enrollment has not stopped yet.",
+      await stopPublicEnrollment({
+        list: () =>
+          post<LearningEnrollments>(
+            "/api/karaoke/enrollments",
+            {},
+            current.csrf,
+          ),
+        request: (target) =>
+          post<import("./karaoke.tsx").KaraokeConsentRequest>(
+            "/api/karaoke/enrollment/revoke",
+            { target },
+            current.csrf,
+          ),
+        submit: (request, signature) =>
+          post<{ state: string }>(
+            "/api/karaoke/enrollment/revoke",
+            { message: request.message, signature, target: request.target },
+            current.csrf,
+          ),
+        wallet: mossWallet,
+        status: setStatus,
+      }),
     );
   }
   async function finishConnection(connectionId: string, state: string) {
@@ -277,7 +307,7 @@ function App() {
   });
   return (
     <>
-      <header class="live-header" inert={singing() !== null}>
+      <header class="live-header" inert={practiceOpen()}>
         <a href="/" class="live-brand">
           pirate<span>/ community</span>
         </a>
@@ -370,7 +400,19 @@ function App() {
           />
         </div>
       </Show>
-      <main class="live-main" inert={singing() !== null}>
+      <Show when={studying() && session()}>
+        <div class="live-study-overlay">
+          <LiveStudy
+            postId={studying()!.postId}
+            title={studying()!.title}
+            csrf={session()!.csrf}
+            wallet={mossWallet}
+            onExit={closeStudy}
+            onLearningActions={(actions) => setLearningActions(actions)}
+          />
+        </div>
+      </Show>
+      <main class="live-main" inert={practiceOpen()}>
         <section class="live-intro">
           <p class="live-kicker">INDEPENDENT MUSIC</p>
           <h1>{name()}</h1>
@@ -482,6 +524,19 @@ function App() {
                       Sing
                     </Button>
                   </Show>
+                  <Show when={session() && capabilities()?.study}>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        openStudy({
+                          postId: song.manifest.postId,
+                          title: song.manifest.title,
+                        })
+                      }
+                    >
+                      Study
+                    </Button>
+                  </Show>
                   <Show when={song.lyricsText}>
                     <details>
                       <summary>Lyrics</summary>
@@ -502,7 +557,7 @@ function App() {
           </Show>
         </section>
       </main>
-      <footer class="live-footer" inert={singing() !== null}>
+      <footer class="live-footer" inert={practiceOpen()}>
         A community of independent creators. Creator ownership stays with your
         wallet.
       </footer>

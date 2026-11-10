@@ -10,6 +10,26 @@ export interface Posted<T = unknown> {
   status: number;
   value: T;
 }
+/** Context for fixture failures, without query proofs, headers or payloads. */
+async function localRequest<T>(
+  role: string,
+  path: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (cause) {
+    const target = ["community", "operator", "very", "elevenlabs"].includes(
+      role,
+    )
+      ? role
+      : "local";
+    const pathname = new URL(path, "http://fixture.invalid").pathname;
+    throw new Error(`local_worker_request_failed:${target}:${pathname}`, {
+      cause,
+    });
+  }
+}
 /** One JSON POST to a local worker; callers decide which statuses they expect. */
 export async function post<T = unknown>(
   mf: Miniflare,
@@ -18,16 +38,18 @@ export async function post<T = unknown>(
   input: unknown,
   session?: string,
 ): Promise<Posted<T>> {
-  const worker = await mf.getWorker(role);
-  const response = await worker.fetch(`http://${role}.localhost${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(session ? { Authorization: `Bearer ${session}` } : {}),
-    },
-    body: JSON.stringify(input),
+  return localRequest(role, path, async () => {
+    const worker = await mf.getWorker(role);
+    const response = await worker.fetch(`http://${role}.localhost${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session ? { Authorization: `Bearer ${session}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    return { status: response.status, value: (await response.json()) as T };
   });
-  return { status: response.status, value: (await response.json()) as T };
 }
 
 export interface Message {
@@ -49,11 +71,13 @@ export async function openAttempt(
     "proof" in sessionKey
       ? sessionKey.proof
       : await sessionKey.signMessage({ message: `connect:${ticketId}` });
-  const worker = await mf.getWorker("operator");
-  const response = await worker.fetch(
-    `http://operator.localhost/attempt?ticketId=${ticketId}&proof=${proof}`,
-    { headers: { Upgrade: "websocket" } },
-  );
+  const response = await localRequest("operator", "/attempt", async () => {
+    const worker = await mf.getWorker("operator");
+    return worker.fetch(
+      `http://operator.localhost/attempt?ticketId=${ticketId}&proof=${proof}`,
+      { headers: { Upgrade: "websocket" } },
+    );
+  });
   if (response.status !== 101)
     return { refused: (await response.json()) as { error: string } };
   const ws = response.webSocket!;

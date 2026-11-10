@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
 import { operator } from "./operator.ts";
+import { studyPublicationAlarm } from "./study-publication-recovery.ts";
 import { onClose, onMessage, tick } from "./karaoke.ts";
 import { communityTick } from "./community-purchases.ts";
 import { D1Store, localControl } from "./storage.ts";
@@ -11,12 +12,15 @@ import { body, signatureChainId } from "./service-call.ts";
 export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
 import type { SpeechBudget } from "./speech-budget.ts";
+import { isLearningProfile, admittedLearningProfile } from "./learning-profile.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<ServiceState>;
   ROLE: string;
   /** Explicit testnet v2 profile; legacy skeleton fixtures remain local only. */
   RESULTS_V2_CONTRACT?: string;
+  /** Successor default; V2 remains configured for historical pending work. */
+  RESULTS_V3_CONTRACT?: string;
   SERVICE_MODE?: "internal";
   SPONSOR_CAP_WEI?: string;
   SPONSOR_GAS_PRICE_WEI?: string;
@@ -115,15 +119,15 @@ export class ServiceState extends DurableObject<Env> {
     this.store = new Store(
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
-      env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2",
+      isLearningProfile(env),
     );
   }
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
-      if (path.startsWith("/__") && this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2")
+      if (path.startsWith("/__") && isLearningProfile(this.env))
         return new Response("not_found", { status: 404 });
-      if (this.env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2") await this.schedule();
+      if (isLearningProfile(this.env)) await this.schedule();
       if (path === "/__clock") {
         const { now } = await body<{ now: number }>(request);
         check(
@@ -193,11 +197,11 @@ export class ServiceState extends DurableObject<Env> {
           this.store.get<{ state: string; confirmed?: boolean }>(`publicationV2:${key.slice(8)}`)));
       const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
       const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
-      const expiries = this.store.entries("history:").map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
+      const expiries = [...this.store.entries("history:"), ...this.store.entries("studySpeech:")].map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
       const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
         .filter((publication) => publication.state === "published" && publication.confirmed)
         .map((publication) => ((publication.checkedAt ?? this.store.now()) + 3600) * 1000);
-      const due = Math.min(...expiries, ...audits, pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
+      const due = Math.min(...expiries, ...audits, ...studyPublicationAlarm(this.store), pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
       if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
     }
   }
@@ -225,10 +229,7 @@ export default {
   fetch(request: Request, env: Env): Promise<Response> {
     check(
       env.LOCAL_ONLY === "pirate-local-skeleton" ||
-        (env.OPERATOR_PROFILE === "pirate-karaoke-testnet-v2" && env.ROLE === "operator" &&
-          env.PAYMENT_CHAIN_ID === "6343" && env.SERVICE_MODE === "internal" &&
-          !!env.RESULTS_V2_CONTRACT && !!env.SPEECH_BUDGET && !!env.SPONSOR_CAP_WEI &&
-          !!env.SPONSOR_GAS_PRICE_WEI && !!env.SPONSOR_GAS_LIMIT && !!env.SPONSOR_DATA_FEE_WEI),
+        admittedLearningProfile(env),
       "local_configuration_required",
     );
     if (env.ROLE === "community") return communityFetch(request, env);

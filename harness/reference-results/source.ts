@@ -8,6 +8,12 @@ import {
   toHex,
   type Hex,
 } from "viem";
+import { fullLyrics } from "./lyrics.ts";
+import { configurationDocument } from "./configuration.ts";
+import { postDocument } from "./post.ts";
+import { documentIpfs } from "./document-rules.ts";
+import { studySource } from "./study.ts";
+import type { ReferenceSession } from "./board.ts";
 import { directoryAbi } from "../../packages/community/directory-reader.ts";
 import { postsAbi } from "../../packages/community/post-chain.ts";
 import type { Header, RawLog, ReferenceSnapshot } from "./facts.ts";
@@ -73,7 +79,13 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
     if (event.args.communityId !== p.communityId) continue;
     rawEvent(snapshot, log);
     const a = event.args;
-    const c = publicDocument(snapshot, a.uri, a.sha256Digest);
+    documentIpfs(a.uri);
+    const c = publicDocument(snapshot, a.uri, a.sha256Digest, 65536);
+    configurationDocument(c);
+    requireFact(
+      configurations.size === 0 || c.tld === configurations.get(1)!.value.tld,
+      "configuration_tld_changed",
+    );
     const revision = integer(a.revision);
     requireFact(
       revision === configurations.size + 1 &&
@@ -202,7 +214,14 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
         ),
         "post_quarantined",
       );
-      value = publicDocument(snapshot, a.manifestURI, a.manifestSha256);
+      documentIpfs(a.manifestURI);
+      value = publicDocument(
+        snapshot,
+        a.manifestURI,
+        a.manifestSha256,
+        1024 * 1024,
+      );
+      postDocument(value, config.value);
       requireFact(
         ["pirate.community-post/1", "pirate.community-post/2"].includes(
           value.schema,
@@ -223,13 +242,68 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
     }
     posts.push({ log, args: a, value, problem });
   }
-  return (r: Header, manifest: Record<string, any>) => {
+  return (
+    r: Header,
+    manifest: Record<string, any>,
+    outcomes: ReferenceSession["outcomes"] = [],
+  ) => {
     requireFact(
       r.song.chainId === BigInt(p.chainId) &&
         r.song.communityId === p.communityId &&
         sameAddress(r.song.posts, p.posts.address),
       "foreign_song",
     );
+    const songHash = keccak256(
+      encodeAbiParameters(
+        [
+          { type: "uint256" },
+          { type: "address" },
+          { type: "bytes32" },
+          { type: "bytes32" },
+        ],
+        [r.song.chainId, r.song.posts, r.song.communityId, r.song.postId],
+      ),
+    );
+    if (r.activity === 2) {
+      studySource(r, manifest, outcomes);
+      let problem = "reference_study_source_not_published";
+      for (const post of posts.filter(
+        (post) => post.args.postId === r.song.postId,
+      )) {
+        try {
+          requireFact(
+            post.value && !post.problem,
+            "study_source_post_unavailable",
+          );
+          requireFact(
+            BigInt(snapshot.blocks[post.log.blockNumber]!.timestamp) <=
+              r.startedAt,
+            "study_source_published_after_start",
+          );
+          const media = post.value.media.filter(
+            (m: any) => m.role === "lyrics" && m.sha256 === r.contentRevision,
+          );
+          requireFact(
+            media.length === 1 && typeof media[0].uri === "string",
+            "study_source_lyrics_missing",
+          );
+          const published = publicDocument(
+            snapshot,
+            media[0].uri,
+            r.contentRevision,
+            media[0].byteLength,
+          );
+          requireFact(
+            canonical(published) === canonical(manifest),
+            "study_source_document_changed",
+          );
+          return songHash;
+        } catch (error) {
+          problem = String(error);
+        }
+      }
+      throw Error(problem);
+    }
     requireFact(
       manifest.manifestVersion === "pirate.karaoke.manifest/1" &&
         manifest.song &&
@@ -242,17 +316,6 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
         Array.isArray(manifest.lines) &&
         manifest.lines.length === r.linesTotal,
       "manifest_binding_changed",
-    );
-    const songHash = keccak256(
-      encodeAbiParameters(
-        [
-          { type: "uint256" },
-          { type: "address" },
-          { type: "bytes32" },
-          { type: "bytes32" },
-        ],
-        [r.song.chainId, r.song.posts, r.song.communityId, r.song.postId],
-      ),
     );
     requireFact(manifest.songHash === songHash, "manifest_song_hash_changed");
     let lastProblem = "reference_source_not_published";
@@ -271,43 +334,18 @@ export function sourceIndex(snapshot: ReferenceSnapshot) {
           media.length === 1 && typeof media[0].uri === "string",
           "source_lyrics_missing",
         );
-        const lyrics = publicDocument(snapshot, media[0].uri, media[0].sha256);
-        requireFact(
-          lyrics.schema === "pirate.song-lyrics/1" &&
-            lyrics.chainId === p.chainId &&
-            sameAddress(lyrics.postsContract, r.song.posts) &&
-            lyrics.communityId === r.song.communityId &&
-            lyrics.postId === r.song.postId &&
-            lyrics.revision === manifest.source.lyricsRevision &&
-            typeof lyrics.sourceText === "string" &&
-            sha256(toHex(lyrics.sourceText)) === lyrics.sourceSha256 &&
-            Array.isArray(lyrics.lines),
-          "lyric_binding_changed",
+        const lyrics = publicDocument(
+          snapshot,
+          media[0].uri,
+          media[0].sha256,
+          media[0].byteLength,
         );
-        const textLines = lyrics.sourceText
-          .split(/\r?\n/)
-          .filter((s: string) => s.trim().length);
+        const lines = fullLyrics(lyrics, r.song, manifest.source.lyricsSha256);
         requireFact(
-          textLines.length === lyrics.lines.length &&
-            lyrics.lines.length <= 2000,
-          "lyric_coverage_changed",
+          lyrics.revision === manifest.source.lyricsRevision,
+          "lyric_revision_changed",
         );
-        const ids = new Set<string>();
-        const expected: any[] = [];
-        for (let i = 0; i < lyrics.lines.length; i++) {
-          const line = lyrics.lines[i];
-          requireFact(
-            line.order === i &&
-              line.text === textLines[i] &&
-              hex32(line.lineId) &&
-              !ids.has(line.lineId) &&
-              Number.isInteger(line.lineVersion) &&
-              line.lineVersion >= 1,
-            "lyric_occurrence_changed",
-          );
-          ids.add(line.lineId);
-          if (!excludedCue(line.text)) expected.push(line);
-        }
+        const expected = lines.filter((line) => !excludedCue(line.text));
         requireFact(
           expected.length === r.linesTotal,
           "shortened_source_manifest",

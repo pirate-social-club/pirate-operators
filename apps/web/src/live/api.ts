@@ -68,6 +68,7 @@ export async function putAudio(path: string, file: File, csrf: string) {
     );
 }
 const messages: Record<string, string> = {
+  study_history_expired: "This private history has expired.",
   sponsor_exhausted: "Sponsored practice is paused because the community allowance is exhausted.",
   gas_price_above_limit: "Sponsored publication is waiting for the network fee to fall within the community limit.",
   speech_budget_exhausted: "Speech practice has reached today's community limit.",

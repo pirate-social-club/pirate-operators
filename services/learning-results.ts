@@ -1,23 +1,10 @@
-import {
-  createPublicClient,
-  encodeFunctionData,
-  http,
-  zeroHash,
-  type Address,
-  type Hex,
-} from "viem";
+import { encodeFunctionData, zeroHash, type Address, type Hex } from "viem";
 import { check, type Signed, type Ticket } from "../packages/protocol/index.ts";
 import {
-  enrollmentIdOf,
-  enrollmentTypes,
   orderedExercisesHash,
   packOutcomes,
   resultPeriod,
   resultCommitment,
-  revocationTypes,
-  resultsAbi,
-  resultsDomain,
-  type Enrollment,
   type TerminalResult,
 } from "../packages/protocol/learning-results.ts";
 import {
@@ -28,200 +15,58 @@ import type {
   KaraokeManifest,
   KaraokeResultBody,
 } from "../packages/protocol/payments.ts";
+import { intentOf, txRow } from "./operator-tx.ts";
 import {
-  dispatch,
-  enqueue,
-  intentOf,
-  txRow,
-  type TxKind,
-  type TxStore,
-} from "./operator-tx.ts";
-import {
-  acceptedByAccount,
-  activationOf,
-  checkActivation,
-  codeOf,
-  nonceOf,
-} from "./accounts.ts";
-import {
-  chargeSponsorship,
   releaseSponsorship,
   reserveSponsorship,
   sponsorLimits,
 } from "./sponsor-budget.ts";
-import type { Env, Store } from "./runtime.ts";
+import type { Env } from "./runtime.ts";
+import {
+  activeEnrollment,
+  checkLearningDisclosure,
+  type BoundEnrollment,
+} from "./learning-enrollment.ts";
+import {
+  submitResultTransaction,
+  type ResultStore,
+} from "./learning-transactions.ts";
+import {
+  resultClient as client,
+  readResultContract as read,
+  contractAbi,
+  retainedTarget,
+  resultsTarget,
+  sameResultsTarget,
+  resultPolicyAt,
+  type ResultsTarget,
+} from "./learning-contract.ts";
+export {
+  learningEnrollments,
+  activeEnrollment,
+  enrollmentRequest,
+  acceptEnrollment,
+  resumeEnrollments,
+  revocationRequest,
+  acceptRevocation,
+  type BoundEnrollment,
+} from "./learning-enrollment.ts";
+export { submitResultTransaction } from "./learning-transactions.ts";
 
-type ResultStore = TxStore & Pick<Store, "now">;
-
-const target = (env: Env) => env.RESULTS_V2_CONTRACT as Address;
-const client = (env: Env) =>
-  createPublicClient({ transport: http(env.RPC_URL) });
-const read = <T>(env: Env, functionName: string, args: unknown[] = []) =>
-  client(env).readContract({
-    address: target(env),
-    abi: resultsAbi,
-    functionName,
-    args,
-  } as never) as Promise<T>;
-export interface BoundEnrollment {
-  id: Hex;
-  issuedAt: number;
-  expiresAt: number;
-}
-export async function activeEnrollment(
-  env: Env,
-  learner: Address,
-): Promise<BoundEnrollment> {
-  const [id, activities, issuedAt, expiresAt] = await read<
-    readonly [Hex, bigint, bigint, bigint]
-  >(env, "enrollments", [learner]);
-  check(
-    id !== zeroHash &&
-      (activities & 1n) !== 0n &&
-      expiresAt > BigInt(Math.floor(Date.now() / 1000)),
-    "enrollment_required",
-  );
-  return { id, issuedAt: Number(issuedAt), expiresAt: Number(expiresAt) };
-}
-export async function enrollmentRequest(
-  env: Env,
-  learner: Address,
-  now: number,
-) {
-  const [nonce, publicityPolicy, communityId] = await Promise.all([
-    read<bigint>(env, "nextNonce", [learner]),
-    read<Hex>(env, "publicityPolicy"),
-    read<Hex>(env, "communityId"),
-  ]);
-  const message = {
-    learner,
-    communityId,
-    activities: "1",
-    publicityPolicy,
-    expiresAt: String(now + 30 * 86400),
-    nonce: String(nonce),
-  };
-  return {
-    domain: resultsDomain(Number(env.PAYMENT_CHAIN_ID), target(env)),
-    types: enrollmentTypes,
-    primaryType: "Enrollment",
-    message,
-  };
-}
-export async function submitResultTransaction(
+function enrollmentTarget(
   env: Env,
   store: ResultStore,
-  kind: TxKind,
-  ref: string,
-  data: Hex,
-  destination: Address = target(env),
-  authorizationList?: Parameters<typeof enqueue>[6],
+  bound: BoundEnrollment,
 ) {
-  const limits = sponsorLimits(env);
-  reserveSponsorship(store, limits, `${kind}:${ref}`);
-  enqueue(store, kind, ref, destination, data, limits.gas, authorizationList);
-  // Keep the full maximum charged across unknown/reverted results and restarts.
-  chargeSponsorship(store, limits, `${kind}:${ref}`);
-  return dispatch(env, store, kind, ref, {
-    maxFeePerGas: limits.gasPrice,
-    maxTotalFee: limits.cap,
-  });
-}
-export async function acceptEnrollment(
-  env: Env,
-  store: ResultStore,
-  e: Enrollment,
-  signature: Hex,
-) {
+  const destination = retainedTarget(env, bound.target);
+  const enrolled = intentOf(store, "record_enroll", bound.id);
   check(
-    e.communityId.toLowerCase() === env.COMMUNITY_ID.toLowerCase(),
-    "wrong_community",
+    !enrolled || enrolled.to.toLowerCase() === destination.contract,
+    "results_target_changed",
   );
-  const id = enrollmentIdOf(Number(env.PAYMENT_CHAIN_ID), target(env), e);
-  const activation = activationOf(signature);
-  if (activation) {
-    await checkActivation(
-      env,
-      e.learner,
-      activation,
-      Number(env.PAYMENT_CHAIN_ID),
-    );
-    const verified = await client(env).verifyTypedData({
-      address: e.learner,
-      domain: resultsDomain(Number(env.PAYMENT_CHAIN_ID), target(env)),
-      types: enrollmentTypes,
-      primaryType: "Enrollment",
-      message: { ...e },
-      signature,
-    });
-    check(verified, "invalid_consent");
-    if ((await codeOf(env, e.learner)) === "0x") {
-      check(
-        env.APPROVED_ACTIVATION_ACCOUNT?.toLowerCase() ===
-          e.learner.toLowerCase(),
-        "account_activation_not_approved",
-      );
-      if (!intentOf(store, "record_activate", id))
-        check(
-          activation.authorization.nonce === (await nonceOf(env, e.learner)),
-          "authorization_nonce_stale",
-        );
-      reserveSponsorship(store, sponsorLimits(env), `record_activate:${id}`);
-      reserveSponsorship(store, sponsorLimits(env), `record_enroll:${id}`);
-      store.set(`pendingEnrollment:${e.learner.toLowerCase()}`, {
-        enrollment: {
-          ...e,
-          activities: String(e.activities),
-          expiresAt: String(e.expiresAt),
-          nonce: String(e.nonce),
-        },
-        signature,
-      });
-      const activated = await submitResultTransaction(
-        env,
-        store,
-        "record_activate",
-        id,
-        activation.data,
-        activation.initializer,
-        [activation.authorization],
-      );
-      if (!activated?.mined) return activated;
-      check(activated.mined.status === "success", "account_activation_failed");
-    }
-    check(
-      await acceptedByAccount(env, e.learner, id, activation.inner),
-      "consent_refused_by_account",
-    );
-  }
-  const data = encodeFunctionData({
-    abi: resultsAbi,
-    functionName: "enroll",
-    args: [e, activation?.inner ?? signature],
-  });
-  // Simulation rejects invalid consent before reserving/signing any transaction.
-  if (!intentOf(store, "record_enroll", id))
-    await client(env).call({ to: target(env), data });
-  reserveSponsorship(store, sponsorLimits(env), `record_revoke:${id}`);
-  store.set(`pendingEnrollment:${e.learner.toLowerCase()}`, {
-    enrollment: {
-      ...e,
-      activities: String(e.activities),
-      expiresAt: String(e.expiresAt),
-      nonce: String(e.nonce),
-    },
-    signature,
-  });
-  const row = await submitResultTransaction(
-    env,
-    store,
-    "record_enroll",
-    id,
-    data,
-  );
-  if (row?.mined) store.delete(`pendingEnrollment:${e.learner.toLowerCase()}`);
-  return row;
+  return destination;
 }
+
 export const publicationV2 = (store: ResultStore, ticketId: string) =>
   store.get<{
     state: "pending" | "published" | "private" | "failed";
@@ -236,17 +81,34 @@ export async function bindEnrollment(
   ticketId: string,
   learner: Address,
 ) {
-  const grant = await activeEnrollment(env, learner);
-  check(store.now() >= grant.issuedAt, "enrollment_not_active_yet");
   const previous = store.get<BoundEnrollment>(`enrollment:${ticketId}`);
+  const destination = previous
+    ? enrollmentTarget(env, store, previous)
+    : resultsTarget(env);
+  await checkLearningDisclosure(env, destination);
+  const grant = await activeEnrollment(env, learner, destination);
+  check(store.now() >= grant.issuedAt, "enrollment_not_active_yet");
   check(!previous || previous.id === grant.id, "enrollment_changed");
   store.transaction(() => {
-    reserveSponsorship(store, sponsorLimits(env), `record_result:${ticketId}:1`);
-    reserveSponsorship(store, sponsorLimits(env), `record_result:${ticketId}:2`);
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:${ticketId}:1`,
+    );
+    reserveSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:${ticketId}:2`,
+    );
     store.set(`enrollment:${ticketId}`, grant);
   });
 }
-type FrozenBundle = { result: TerminalResult; outcomes: Hex; data: Hex };
+type FrozenBundle = {
+  target?: ResultsTarget;
+  result: TerminalResult;
+  outcomes: Hex;
+  data: Hex;
+};
 const restoreHeader = (r: TerminalResult): TerminalResult => ({
   ...r,
   song: { ...r.song, chainId: BigInt(r.song.chainId) },
@@ -266,6 +128,7 @@ export async function publishV2(
   const ticket = store.get<Signed<Ticket>>(`ticket:${ticketId}`)?.body;
   const bound = store.get<BoundEnrollment>(`enrollment:${ticketId}`);
   if (!signed || !ticket || !bound) return;
+  const destination = enrollmentTarget(env, store, bound);
   const result = signed.body,
     revision = result.revision,
     ref = `${ticketId}:${revision}`;
@@ -278,7 +141,18 @@ export async function publishV2(
   )
     return oldState;
   let job = store.get<FrozenBundle>(`workV2:${ref}`);
-  const current = await read<Hex>(env, "commitments", [result.attemptId]);
+  check(
+    !job?.target || sameResultsTarget(job.target, destination),
+    "results_target_changed",
+  );
+  const existingIntent = intentOf(store, "record_result", ref);
+  check(
+    !existingIntent || existingIntent.to.toLowerCase() === destination.contract,
+    "results_target_changed",
+  );
+  const current = await read<Hex>(env, destination, "commitments", [
+    result.attemptId,
+  ]);
   if (oldState?.state === "published" && job) {
     if (current === resultCommitment(restoreHeader(job.result), job.outcomes)) {
       const intent = intentOf(store, "record_result", ref),
@@ -316,10 +190,14 @@ export async function publishV2(
   if (revision === 1 && !intentOf(store, "record_result", ref)) {
     const [id, , , expires] = await read<
       readonly [Hex, bigint, bigint, bigint]
-    >(env, "enrollments", [ticket.participant]);
+    >(env, destination, "enrollments", [ticket.participant]);
     if (id !== bound.id || Number(expires) <= store.now()) {
       releaseSponsorship(store, sponsorLimits(env), `record_result:${ref}`);
-      releaseSponsorship(store, sponsorLimits(env), `record_result:${ticketId}:2`);
+      releaseSponsorship(
+        store,
+        sponsorLimits(env),
+        `record_result:${ticketId}:2`,
+      );
       const next = {
         state: "private" as const,
         revision,
@@ -357,9 +235,12 @@ export async function publishV2(
       qualificationPolicy:
         revision > 1
           ? previous!.result.qualificationPolicy
-          : await read<Hex>(env, "policyFor", [
+          : await resultPolicyAt(
+              env,
+              destination,
+              1,
               resultPeriod(BigInt(result.performanceEndedAt)),
-            ]),
+            ),
       startedAt: BigInt(result.startedAt),
       completedAt: BigInt(result.performanceEndedAt),
       status: COMPLETION_STATUS_CODES[result.status],
@@ -370,12 +251,12 @@ export async function publishV2(
     const data =
       revision === 1
         ? encodeFunctionData({
-            abi: resultsAbi,
+            abi: contractAbi(destination),
             functionName: "publish",
             args: [header, outcomes],
           })
         : encodeFunctionData({
-            abi: resultsAbi,
+            abi: contractAbi(destination),
             functionName: "correct",
             args: [
               restoreHeader(previous!.result),
@@ -384,7 +265,7 @@ export async function publishV2(
               header.status,
             ],
           });
-    job = { result: header, outcomes, data };
+    job = { target: destination, result: header, outcomes, data };
     store.set(`workV2:${ref}`, durableValue(job));
   }
   const row = await submitResultTransaction(
@@ -393,6 +274,7 @@ export async function publishV2(
     "record_result",
     ref,
     job.data,
+    destination.contract,
   );
   if (!row?.mined) return state;
   if (
@@ -416,45 +298,6 @@ export async function publishV2(
     );
   store.set(`publicationV2:${ticketId}`, next);
   return next;
-}
-
-export async function resumeEnrollments(env: Env, store: ResultStore) {
-  for (const { value } of store.entries("pendingEnrollment:")) {
-    const job = value as { enrollment: Record<string, string>; signature: Hex },
-      e = job.enrollment;
-    try {
-      await acceptEnrollment(
-        env,
-        store,
-        {
-          learner: e.learner as Address,
-          communityId: e.communityId as Hex,
-          publicityPolicy: e.publicityPolicy as Hex,
-          activities: BigInt(e.activities),
-          expiresAt: BigInt(e.expiresAt),
-          nonce: BigInt(e.nonce),
-        },
-        job.signature,
-      );
-    } catch {
-      /* Keep authenticated unknown work for bounded recovery. */
-    }
-  }
-  for (const { value } of store.entries("revocationIntent:")) {
-    const job = value as RevocationJob;
-    if (!job.pending) continue;
-    try {
-      await acceptRevocation(
-        env,
-        store,
-        job.learner,
-        BigInt(job.nonce),
-        job.signature,
-      );
-    } catch {
-      /* Retain authenticated work for bounded recovery. */
-    }
-  }
 }
 
 /** Operator-controlled correction; the testnet HTTP profile exposes no unauthenticated control route. */
@@ -515,67 +358,4 @@ export async function correctV2(
     });
   });
   return next;
-}
-
-export async function revocationRequest(env: Env, learner: Address) {
-  return {
-    domain: resultsDomain(Number(env.PAYMENT_CHAIN_ID), target(env)),
-    types: revocationTypes,
-    primaryType: "Revocation",
-    message: {
-      learner,
-      nonce: String(await read<bigint>(env, "nextNonce", [learner])),
-    },
-  };
-}
-export async function acceptRevocation(
-  env: Env,
-  store: ResultStore,
-  learner: Address,
-  nonce: bigint,
-  signature: Hex,
-) {
-  const data = encodeFunctionData({
-    abi: resultsAbi,
-    functionName: "revoke",
-    args: [learner, nonce, activationOf(signature)?.inner ?? signature],
-  });
-  const key = `revocationIntent:${learner.toLowerCase()}:${nonce}`;
-  let job = store.get<RevocationJob>(key);
-  if (!job) {
-    await client(env).call({ to: target(env), data });
-    const [grantId] = await read<readonly [Hex, bigint, bigint, bigint]>(
-      env,
-      "enrollments",
-      [learner],
-    );
-    check(grantId !== zeroHash, "enrollment_required");
-    job = {
-      learner,
-      nonce: String(nonce),
-      signature,
-      data,
-      grantId,
-      pending: true,
-    };
-    store.set(key, job);
-  }
-  check(job.data === data, "revocation_payload_changed");
-  const row = await submitResultTransaction(
-    env,
-    store,
-    "record_revoke",
-    job.grantId,
-    data,
-  );
-  if (row?.mined) store.set(key, { ...job, pending: false });
-  return row;
-}
-interface RevocationJob {
-  learner: Address;
-  nonce: string;
-  signature: Hex;
-  data: Hex;
-  grantId: Hex;
-  pending: boolean;
 }

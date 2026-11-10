@@ -10,9 +10,14 @@ import {
 } from "viem";
 import { directoryAbi } from "../../packages/community/directory-reader.ts";
 import { postsAbi } from "../../packages/community/post-chain.ts";
-import { fetchPublicIpfs } from "../../packages/community/ipfs.ts";
+import {
+  fetchPublicIpfs,
+  type IpfsTransport,
+} from "../../packages/community/ipfs.ts";
 import {
   abi,
+  abiFor,
+  v3Abi,
   resultManifestUri,
   type RawBlock,
   type RawLog,
@@ -62,6 +67,7 @@ export async function captureReference(
   profile: ReferenceProfile,
   requestedHead?: bigint,
   evaluationTimestamp?: number,
+  contentTransport?: IpfsTransport,
 ): Promise<ReferenceSnapshot> {
   requireFact(
     [6343, 31337].includes(profile.chainId) &&
@@ -169,7 +175,7 @@ export async function captureReference(
       requests.set(uri, { hash, maximum });
   };
   const sessions = new Map<string, Set<Hex>>();
-  const periods = new Map<string, Set<number>>();
+  const periods = new Map<string, Set<string>>();
   for (const log of snapshot.logs) {
     if (lower(log.address) === lower(profile.directory.address)) {
       const e = decodeEventLog({
@@ -190,8 +196,12 @@ export async function captureReference(
       }).args;
       if (e.kind === 0) queue(e.manifestURI, e.manifestSha256, 1024 * 1024);
     } else {
+      const contract = profile.results.find(
+        (c) => lower(c.address) === lower(log.address),
+      )!;
+      const version = contract.version ?? 2;
       const e = decodeEventLog({
-        abi,
+        abi: abiFor(version),
         data: log.data,
         topics: log.topics,
         strict: true,
@@ -200,12 +210,20 @@ export async function captureReference(
         queue(e.args.policyURI, e.args.policyHash, 65536);
       if (e.eventName === "ResultPublished") {
         const r = e.args.result;
-        queue(resultManifestUri(r.contentRevision), r.contentRevision, 262144);
+        if (r.activity !== 2)
+          queue(
+            resultManifestUri(r.contentRevision),
+            r.contentRevision,
+            262144,
+          );
         const key = lower(log.address);
         if (!sessions.has(key)) sessions.set(key, new Set());
         if (!periods.has(key)) periods.set(key, new Set());
         sessions.get(key)!.add(r.sessionId);
-        periods.get(key)!.add(learningDay(r.completedAt));
+        const period = learningDay(r.completedAt);
+        periods
+          .get(key)!
+          .add(version === 3 ? `${r.activity}:${period}` : String(period));
       }
     }
   }
@@ -214,7 +232,12 @@ export async function captureReference(
     { hash: Hex; maximum: number },
   ]) => {
     try {
-      const content = await fetchPublicIpfs(uri, hash, maximum);
+      const content = await fetchPublicIpfs(
+        uri,
+        hash,
+        maximum,
+        contentTransport,
+      );
       snapshot.documents[uri] = toHex(content.bytes);
     } catch {
       snapshot.unavailable.push(uri);
@@ -256,6 +279,17 @@ export async function captureReference(
     ),
   );
   snapshot.contractStates = await groups(profile.results, async (c) => {
+    const version = c.version ?? 2;
+    if (version === 3)
+      requireFact(
+        (await client.readContract({
+          address: c.address,
+          abi: v3Abi,
+          functionName: "VERSION",
+          blockNumber: headNumber,
+        })) === 3,
+        "capture_version_changed",
+      );
     const [communityId, publicityPolicy, commitments, policyValues] =
       await Promise.all([
         client.readContract({
@@ -289,17 +323,29 @@ export async function captureReference(
           async (period) =>
             [
               String(period),
-              await client.readContract({
-                address: c.address,
-                abi,
-                functionName: "policyFor",
-                args: [BigInt(period)],
-                blockNumber: headNumber,
-              }),
+              version === 3
+                ? await client.readContract({
+                    address: c.address,
+                    abi: v3Abi,
+                    functionName: "policyFor",
+                    args: [
+                      Number(period.split(":")[0]),
+                      BigInt(period.split(":")[1]),
+                    ],
+                    blockNumber: headNumber,
+                  })
+                : await client.readContract({
+                    address: c.address,
+                    abi,
+                    functionName: "policyFor",
+                    args: [BigInt(period)],
+                    blockNumber: headNumber,
+                  }),
             ] as const,
         ),
       ]);
     return {
+      version,
       address: c.address,
       communityId,
       publicityPolicy,

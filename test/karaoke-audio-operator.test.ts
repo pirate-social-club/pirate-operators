@@ -307,26 +307,50 @@ test("a learner audio gap across reconnect is unmeasured while delivered lines s
 });
 
 test("missing leading learner audio is unmeasured before the first provider frame", async () => {
+  let phase = "create_workers";
   const c = await audioCommunity(evm, "leading-gap", [
     {
       words: sung(manifest, ["line-03", "line-04"], 4500),
     },
-  ]);
+  ]).catch((cause) => {
+    throw new Error(`leading_audio_fixture:${phase}`, { cause });
+  });
+  let failure: Error | undefined;
   try {
+    phase = "open_attempt";
     const a = await c.attempt();
+    phase = "purchase_segments";
     await c.payAll(a);
+    phase = "drop_leading_audio";
     await c.sing(a.socket, a, 0, 4500, { drop: true });
+    phase = "send_remaining_audio";
     await c.sing(a.socket, a, 4500, 22500);
+    phase = "wait_for_provider_delivery";
     await c.waitForProviderChunks(180);
+    phase = "finish_and_read_result";
     const result = await finish(c, a);
+    phase = "assert_outcomes";
     assert.deepEqual(
       result.lines.map((line) => line.status),
       ["unmeasured", "unmeasured", "assessed", "assessed"],
     );
     assert.ok(result.lines.slice(0, 2).every((line) => line.scoreBps === null));
+    phase = "read_provider_count";
     assert.equal((await c.simulator()).minted, 1);
+  } catch (cause) {
+    failure = new Error(`leading_audio_fixture:${phase}`, { cause });
+    throw failure;
   } finally {
-    await c.dispose();
+    try {
+      await c.dispose();
+    } catch (cause) {
+      if (failure)
+        throw new AggregateError(
+          [failure, cause],
+          "leading_audio_fixture:cleanup_after_failure",
+        );
+      throw new Error("leading_audio_fixture:cleanup", { cause });
+    }
   }
 });
 

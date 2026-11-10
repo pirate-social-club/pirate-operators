@@ -2,7 +2,7 @@
 // No production result, source, policy, reward-score or board reduction helpers.
 import { decodeEventLog, hashTypedData, type Hex } from "viem";
 import {
-  abi,
+  abiFor,
   resultManifestUri,
   type Header,
   type ReferenceSnapshot,
@@ -11,7 +11,6 @@ import {
   referenceBoards,
   type ReferenceEligibility,
   type ReferencePolicy,
-  type ReferencePolicyDocument,
   type ReferenceSession,
 } from "./board.ts";
 import {
@@ -26,6 +25,8 @@ import {
   zero,
 } from "./checks.ts";
 import { commitment, decodeOutcomes, immutableContext } from "./outcomes.ts";
+import { policyDocument } from "./policy.ts";
+import { decodeStudy, studyDocument } from "./study.ts";
 import { sourceIndex } from "./source.ts";
 
 export interface ReferenceResult extends ReferenceSession {
@@ -33,63 +34,6 @@ export interface ReferenceResult extends ReferenceSession {
   wire: Hex;
   commitment: Hex;
   problems: string[];
-}
-function policyDocument(
-  snapshot: ReferenceSnapshot,
-  uri: string,
-  hash: Hex,
-): ReferencePolicyDocument | undefined {
-  try {
-    const d = publicDocument(snapshot, uri, hash);
-    const fields = [
-      "schema",
-      "version",
-      "clockVersion",
-      "activity",
-      "graders",
-      "scoringPolicies",
-      "terminalStatuses",
-      "minScoreBps",
-      "maxUnmeasuredBps",
-      "rewards",
-    ];
-    requireFact(
-      Object.keys(d).sort().join(",") === fields.sort().join(","),
-      "unknown_policy_fields",
-    );
-    requireFact(
-      d.schema === "pirate.learning-policy/2" &&
-        d.clockVersion === 1 &&
-        d.activity === 1 &&
-        typeof d.version === "string" &&
-        typeof d.rewards === "boolean" &&
-        Array.isArray(d.graders) &&
-        d.graders.length &&
-        d.graders.every(
-          (g: unknown) => typeof g === "string" && /^0x[0-9a-f]{40}$/.test(g),
-        ) &&
-        Array.isArray(d.scoringPolicies) &&
-        d.scoringPolicies.length &&
-        d.scoringPolicies.every(
-          (h: unknown) => typeof h === "string" && /^0x[0-9a-f]{64}$/.test(h),
-        ) &&
-        Array.isArray(d.terminalStatuses) &&
-        d.terminalStatuses.every(
-          (s: unknown) =>
-            Number.isInteger(s) && Number(s) >= 1 && Number(s) <= 4,
-        ) &&
-        Number.isInteger(d.minScoreBps) &&
-        d.minScoreBps >= 0 &&
-        d.minScoreBps <= 10000 &&
-        Number.isInteger(d.maxUnmeasuredBps) &&
-        d.maxUnmeasuredBps >= 0 &&
-        d.maxUnmeasuredBps <= 10000,
-      "unsupported_policy",
-    );
-    return d as unknown as ReferencePolicyDocument;
-  } catch {
-    return undefined;
-  }
 }
 const enrollmentTypes = {
   Enrollment: [
@@ -108,6 +52,9 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
       [6343, 31337].includes(snapshot.profile.chainId) &&
       snapshot.head.hash === snapshot.checkedHeadHash &&
       snapshot.blocks[snapshot.head.number]?.hash === snapshot.head.hash &&
+      snapshot.blocks[snapshot.head.number]?.number === snapshot.head.number &&
+      snapshot.blocks[snapshot.head.number]?.timestamp ===
+        snapshot.head.timestamp &&
       snapshot.evaluationTimestamp >= integer(snapshot.head.timestamp),
     "snapshot_reorganized_or_invalid",
   );
@@ -116,12 +63,17 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
   const policies: ReferencePolicy[] = [];
   const eligibility: ReferenceEligibility[] = [];
   for (const contract of snapshot.profile.results) {
+    const version = contract.version ?? 2,
+      contractAbi = abiFor(version);
     rawCode(snapshot, contract);
     const state = snapshot.contractStates.find(
       (s) => lower(s.address) === lower(contract.address),
     );
     requireFact(
-      state && state.communityId === snapshot.profile.communityId,
+      state &&
+        state.communityId === snapshot.profile.communityId &&
+        (state.version === version ||
+          (version === 2 && state.version === undefined)),
       "result_contract_context_changed",
     );
     const contractId = `${snapshot.profile.chainId}:${lower(contract.address)}`;
@@ -131,7 +83,7 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
     const nonces = new Map<string, bigint>();
     const grants = new Map<
       string,
-      { id: Hex; issued: bigint; expires: bigint }
+      { id: Hex; issued: bigint; expires: bigint; activities: bigint }
     >();
     const latest = new Map<string, ReferenceResult>();
     const invalidations = new Set<string>();
@@ -144,7 +96,7 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
       );
       const block = rawEvent(snapshot, log);
       const event = decodeEventLog({
-        abi,
+        abi: contractAbi,
         data: log.data,
         topics: log.topics,
         strict: true,
@@ -166,7 +118,7 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
         const id = hashTypedData({
           domain: {
             name: "Pirate Learning Results",
-            version: "2",
+            version: String(version),
             chainId: snapshot.profile.chainId,
             verifyingContract: contract.address,
           },
@@ -180,14 +132,21 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
             learner === lower(e.learner) &&
             e.communityId === state.communityId &&
             e.publicityPolicy === state.publicityPolicy &&
-            e.activities === 1n &&
+            (version === 2
+              ? e.activities === 1n
+              : e.activities >= 1n && e.activities <= 3n) &&
             a.issuedAt === BigInt(block.timestamp) &&
             e.expiresAt > a.issuedAt &&
             e.nonce === (nonces.get(learner) ?? 0n),
           "invalid_enrollment_history",
         );
         nonces.set(learner, e.nonce + 1n);
-        grants.set(learner, { id, issued: a.issuedAt, expires: e.expiresAt });
+        grants.set(learner, {
+          id,
+          issued: a.issuedAt,
+          expires: e.expiresAt,
+          activities: e.activities,
+        });
         continue;
       }
       if (event.eventName === "Revoked") {
@@ -202,21 +161,30 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
         continue;
       }
       if (event.eventName === "PolicyActivated") {
-        const period = integer(a.effectivePeriod);
+        const period = integer(a.effectivePeriod),
+          activity = version === 3 ? integer(a.activity) : 1;
+        const earlier = activated.filter((p) => p.activity === activity);
         requireFact(
-          a.clockVersion === 1 &&
+          (activity === 1 || (version === 3 && activity === 2)) &&
+            a.clockVersion === 1 &&
             period >
               (integer(block.timestamp) < 1793552400
                 ? 0
                 : learningDay(block.timestamp)) &&
-            (!activated.length || period > activated.at(-1)!.period),
+            (!earlier.length || period > earlier.at(-1)!.period),
           "retroactive_policy",
         );
         const p = {
           contract: contractId,
           hash: a.policyHash,
+          activity,
           period,
-          document: policyDocument(snapshot, a.policyURI, a.policyHash),
+          document: policyDocument(
+            snapshot,
+            a.policyURI,
+            a.policyHash,
+            activity,
+          ),
         };
         activated.push(p);
         policies.push(p);
@@ -254,18 +222,29 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
             commitment(r, a.outcomes) === a.commitment,
           "result_commitment_changed",
         );
-        outcomes = decodeOutcomes(r, a.outcomes);
+        requireFact(
+          r.activity === 1 || (version === 3 && r.activity === 2),
+          "unsupported_activity",
+        );
+        outcomes =
+          r.activity === 2
+            ? decodeStudy(r, a.outcomes)
+            : decodeOutcomes(r, a.outcomes);
         period = learningDay(r.completedAt);
-        const policy = activated.filter((p) => p.period <= period).at(-1);
+        const policy = activated
+          .filter((p) => p.activity === r.activity && p.period <= period)
+          .at(-1);
         requireFact(
           r.qualificationPolicy === (policy?.hash ?? zero) &&
-            state.policies[String(period)] === (policy?.hash ?? zero),
+            state.policies[
+              version === 3 ? `${r.activity}:${period}` : String(period)
+            ] === (policy?.hash ?? zero),
           "wrong_completion_policy",
         );
         requireFact(
           r.startedAt <= r.completedAt &&
             r.completedAt <= BigInt(block.timestamp) &&
-            r.activity === 1,
+            (r.activity === 1 || (version === 3 && r.activity === 2)),
           "result_time_or_activity_changed",
         );
         const publisher = lower(a.publisher);
@@ -279,6 +258,7 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
               publisher === lower(r.grader) &&
               graders.has(`${publisher}:${r.activity}`) &&
               grant?.id === r.enrollmentId &&
+              (grant.activities & (1n << BigInt(r.activity - 1))) !== 0n &&
               r.startedAt >= grant.issued &&
               BigInt(block.timestamp) < grant.expires,
             "initial_result_not_authorized",
@@ -304,13 +284,15 @@ export function referenceResults(snapshot: ReferenceSnapshot) {
               "invalid_controller_invalidation",
             );
         }
-        const manifestUri = resultManifestUri(r.contentRevision);
-        const manifest = publicDocument(
-          snapshot,
-          manifestUri,
-          r.contentRevision,
-        );
-        song = membership(r, manifest);
+        const manifest =
+          r.activity === 2
+            ? studyDocument(snapshot, r.contentRevision)
+            : publicDocument(
+                snapshot,
+                resultManifestUri(r.contentRevision),
+                r.contentRevision,
+              );
+        song = membership(r, manifest, outcomes);
       } catch (error) {
         problems.push(String(error));
       }
