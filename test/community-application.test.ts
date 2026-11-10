@@ -6,6 +6,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
 import {
   communityFetch,
+  communityQueue,
+  communityScheduled,
   type CommunityEnv,
   type CommunityDependencies,
 } from "../services/community-application.ts";
@@ -14,6 +16,13 @@ import { validateConfig } from "../packages/community/config-manifest.ts";
 import { authorizeCreatorRequest } from "../packages/community/creator-service.ts";
 import { creatorServiceOrigin } from "../packages/community/creator-receipt.ts";
 import { hashJson } from "../packages/community/common.ts";
+import {
+  CommunityPrivateDance,
+  type CommunityQueueJob,
+  type PrivateMediaJob,
+} from "../services/community-private-dance.ts";
+import { sha256 } from "../packages/community-media/validation.ts";
+import { danceFixture } from "./dance-fixture.ts";
 import { releasePostsFixture } from "./fixtures/release-posts.ts";
 
 // Public local fixture keys. Never fund or deploy them.
@@ -256,6 +265,195 @@ test("application separates bootstrap from directory manifest, serves assets wit
       app: { ...config.app, origin: "https://other.example" },
     });
     assert.equal((await f.call("/api/feed")).status, 503);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("admitted private Dance runtime uses real HTTP session, queue isolation and durable maintenance", async () => {
+  const f = await fixture();
+  try {
+    const migration = await readFile(
+      new URL(
+        "../apps/community-wizard/infra/migrations/0015_community_media.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    await f.db.batch(
+      migration
+        .replace(/^--[^\n]*\n/gm, "")
+        .trim()
+        .split(/;\n+/)
+        .map((sql) => f.db.prepare(sql)),
+    );
+    await f.db
+      .prepare(
+        "CREATE TABLE capture_gate(account_id TEXT PRIMARY KEY, active INTEGER NOT NULL)",
+      )
+      .run();
+    const bytes = new TextEncoder().encode(
+      "sealed local bound renderer fixture",
+    );
+    const recording = await sha256(bytes);
+    const jobs: PrivateMediaJob[] = [];
+    let renders = 0;
+    const dance = danceFixture().ports;
+    const song = {
+      communityId: config.communityId,
+      songKey: "published_private_fixture",
+      songRevision: 1,
+      audioSha256: "a".repeat(64),
+      durationSamples: 48_000 * 15,
+      title: "Fixture song",
+    };
+    const runtime = new CommunityPrivateDance({
+      db: f.db,
+      bucket: f.media,
+      communityId: config.communityId,
+      renderer: {
+        async fetch(url, init) {
+          assert.equal(url, "https://community-media.internal/render");
+          assert.equal(init?.method, "POST");
+          renders++;
+          return new Response(bytes, {
+            headers: {
+              "x-media-facts": JSON.stringify({
+                sha256: recording,
+                bytes: bytes.byteLength,
+                durationMs: 6000,
+                width: 320,
+                height: 240,
+                videoCodec: "h264",
+                audioCodec: "aac",
+              }),
+            },
+          });
+        },
+      },
+      dance,
+      active: async () => true,
+      song: async () => song,
+      reservation: async (actor) => ({
+        sql: "EXISTS(SELECT 1 FROM capture_gate WHERE account_id=? AND active=1)",
+        values: [actor.accountId],
+      }),
+      preview: async () => false,
+      enqueue: async (job) => {
+        jobs.push(job);
+      },
+    });
+    f.ports.privateDance = () => runtime;
+    const intent = {
+      requestId: "private_mount_001",
+      songKey: song.songKey,
+      songRevision: song.songRevision,
+      recordingSha256: recording,
+      bytes: bytes.byteLength,
+      startSample: 0,
+      durationSamples: 6 * 48_000,
+      purpose: "private-review",
+      publicConsent: false,
+    };
+    assert.equal((await f.post("/api/media", intent)).status, 401);
+    const challenge = (await (
+      await f.post("/api/auth/challenge", { address: signer.address })
+    ).json()) as { id: string; message: string };
+    const verified = await f.post("/api/auth/verify", {
+      id: challenge.id,
+      signature: await signer.signMessage({ message: challenge.message }),
+    });
+    const cookie = verified.headers.get("set-cookie")!.split(";")[0];
+    const session = (await (
+      await f.call("/api/session", { headers: { cookie } })
+    ).json()) as { csrf: string };
+    const auth = { cookie, "x-csrf-token": session.csrf };
+    assert.equal((await f.post("/api/media", intent, { cookie })).status, 403);
+    assert.equal((await f.post("/api/media", intent, auth)).status, 403);
+    const account = await f.db
+      .prepare("SELECT account_id FROM credential_bindings WHERE subject=?")
+      .bind(signer.address.toLowerCase())
+      .first<{ account_id: string }>();
+    assert.ok(account);
+    await f.db
+      .prepare("INSERT INTO capture_gate VALUES(?,1)")
+      .bind(account.account_id)
+      .run();
+    const reserve = await f.post("/api/media", intent, auth);
+    assert.equal(reserve.status, 201);
+    const { id } = (await reserve.json()) as { id: string };
+    const blocked = await f.post(
+      "/api/media",
+      {
+        ...intent,
+        requestId: "public_mount_001",
+        durationSamples: 3 * 48_000,
+        purpose: "public-feed",
+        publicConsent: true,
+      },
+      auth,
+    );
+    assert.equal(blocked.status, 403);
+    await f.db.prepare("UPDATE capture_gate SET active=0").run();
+    assert.equal((await f.post("/api/media", intent, auth)).status, 403);
+    await f.db.prepare("UPDATE capture_gate SET active=1").run();
+    assert.equal(
+      (
+        await f.call(`/api/media/${id}/upload`, {
+          method: "PUT",
+          headers: { ...auth, origin: firstSong.origin },
+          body: bytes,
+        })
+      ).status,
+      200,
+    );
+    assert.deepEqual(jobs, [
+      {
+        kind: "community-media/1",
+        communityId: config.communityId,
+        mediaId: id,
+      },
+    ]);
+    const acks: string[] = [],
+      retries: string[] = [];
+    function message(label: string, body: CommunityQueueJob) {
+      return {
+        body,
+        ack: () => acks.push(label),
+        retry: () => retries.push(label),
+      } as unknown as Message<CommunityQueueJob>;
+    }
+    await communityQueue(
+      {
+        messages: [
+          message("foreign", {
+            ...jobs[0],
+            communityId: "different-community",
+          }),
+          message("media", jobs[0]),
+        ],
+      },
+      f.env,
+      f.ports,
+    );
+    assert.deepEqual(retries, ["foreign"]);
+    assert.deepEqual(acks, ["media"]);
+    assert.equal(renders, 1);
+    assert.equal((await runtime.media.ports.repository.get(id)).state, "ready");
+    assert.equal(
+      (await f.call(`/api/media/${id}/playback`, { headers: auth })).status,
+      404,
+    );
+    await communityScheduled(f.env, f.ports);
+    assert.deepEqual(
+      await f.db
+        .prepare(
+          "SELECT after_id,revision FROM community_media_recovery WHERE community_id=?",
+        )
+        .bind(config.communityId)
+        .first(),
+      { after_id: "", revision: 0 },
+    );
   } finally {
     await f.dispose();
   }

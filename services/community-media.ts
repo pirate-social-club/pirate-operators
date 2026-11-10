@@ -103,6 +103,10 @@ export class CommunityMedia {
         "media_public_posting_not_permitted",
         403,
       );
+    const fence =
+      intent.purpose === "private-review"
+        ? await this.ports.privateReservation?.(actor, intent, song)
+        : undefined;
     const now = this.ports.now();
     const record = await this.ports.repository.reserve(
       {
@@ -133,6 +137,7 @@ export class CommunityMedia {
         attempts: 0,
       },
       this.ports.quota,
+      fence,
     );
     requireMedia(
       sameBinding(record, {

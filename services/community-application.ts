@@ -104,6 +104,10 @@ import {
   rewardResultSources,
 } from "./reward-sources.ts";
 import { selectedDanceRewardSource } from "../packages/dance-chain/source-selection.ts";
+import type {
+  CommunityPrivateDance,
+  CommunityQueueJob,
+} from "./community-private-dance.ts";
 import { canonicalDanceRewardSource } from "./dance-reward-source.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
@@ -119,7 +123,7 @@ import { requireCuratedOwner } from "../packages/community/curated-amendment.ts"
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
   MEDIA: R2Bucket;
-  JOBS: Queue<{ jobId: string }>;
+  JOBS: Queue<CommunityQueueJob>;
   ASSETS: Fetcher;
   COMMUNITY_NAME: string;
   PLAN_ID: string;
@@ -147,6 +151,8 @@ export interface CommunityDependencies {
   alignmentTransport?: ProviderTransport;
   now?: () => number;
   rewards?: Omit<RewardsApiPorts, "db" | "profile" | "now">;
+  /** Admitted private Dance runtime. Absent until source, authority and renderer are selected. */
+  privateDance?(config: CommunityConfig): CommunityPrivateDance;
 }
 function dependencies(
   env: CommunityEnv,
@@ -270,6 +276,16 @@ export async function communityFetch(
       );
       return config;
     };
+    if (
+      ports.privateDance &&
+      (url.pathname === "/api/media" ||
+        url.pathname.startsWith("/api/media/") ||
+        url.pathname.startsWith("/api/dance/"))
+    ) {
+      const runtime = ports.privateDance(await configuration());
+      const response = await runtime.fetch(request, context, security);
+      if (response) return response;
+    }
     // Owner-only publishing has no creator connection; its service is never
     // contacted for status or capabilities under that policy.
     const creatorAvailable = async (known?: CommunityConfig) => {
@@ -945,6 +961,26 @@ export async function communityScheduled(
       failures.push(error);
     }
   }
+  if (provided?.privateDance) {
+    try {
+      const config = await provided.configuration();
+      insist(
+        config.communityId === firstSong.directoryProfile.communityId &&
+          config.app.origin === firstSong.origin,
+        "community_configuration_changed",
+        503,
+      );
+      const runtime = provided.privateDance(config);
+      insist(
+        runtime.communityId === config.communityId,
+        "media_wrong_community",
+        403,
+      );
+      await runtime.tick();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   // Read-only payment reconciliation runs last so a slow or failing reward
   // RPC cannot hold Study retention, job recovery or lesson recovery. It never
   // submits or retries a payment.
@@ -964,9 +1000,9 @@ export async function communityScheduled(
     throw new AggregateError(failures, "community_scheduled_failed");
 }
 
-/** The publication queue handler; dependencies are injectable for acceptance. */
+/** Keep existing song envelopes intact and dispatch private media explicitly. */
 export async function communityQueue(
-  batch: Pick<MessageBatch<{ jobId: string }>, "messages">,
+  batch: Pick<MessageBatch<CommunityQueueJob>, "messages">,
   env: CommunityEnv,
   provided?: CommunityDependencies,
 ) {
@@ -978,12 +1014,25 @@ export async function communityQueue(
     "community_configuration_changed",
     503,
   );
-  const runtime =
-    ports.releaseRuntime?.(config) ??
-    firstSongRuntime(env, config, ports.configuration);
+  let publication: FirstSongDriverPorts | undefined;
+  let privateDance: CommunityPrivateDance | undefined;
   for (const message of batch.messages) {
     try {
-      await runCommunityJob(runtime, env.JOBS, message.body.jobId);
+      const job = message.body;
+      if (job.kind === "community-media/1") {
+        privateDance ??= ports.privateDance?.(config);
+        insist(
+          privateDance && privateDance.communityId === config.communityId,
+          "media_processor_unavailable",
+          503,
+        );
+        await privateDance.process(job);
+      } else {
+        publication ??=
+          ports.releaseRuntime?.(config) ??
+          firstSongRuntime(env, config, ports.configuration);
+        await runCommunityJob(publication, env.JOBS, job.jobId);
+      }
       message.ack();
     } catch {
       message.retry({ delaySeconds: 60 });
@@ -995,10 +1044,10 @@ export default {
   fetch(request, env) {
     return communityFetch(request, env);
   },
-  async queue(batch: MessageBatch<{ jobId: string }>, env: CommunityEnv) {
+  async queue(batch: MessageBatch<CommunityQueueJob>, env: CommunityEnv) {
     await communityQueue(batch, env);
   },
   async scheduled(_event, env) {
     await communityScheduled(env);
   },
-} satisfies ExportedHandler<CommunityEnv, { jobId: string }>;
+} satisfies ExportedHandler<CommunityEnv, CommunityQueueJob>;

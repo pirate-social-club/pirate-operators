@@ -31,3 +31,9 @@ CREATE TABLE IF NOT EXISTS community_media_submission_guards (
   id TEXT PRIMARY KEY,
   valid INTEGER NOT NULL CHECK(valid=1)
 );
+-- One page per scheduled invocation. A stale tick cannot rewind the cursor.
+CREATE TABLE community_media_recovery (
+  community_id TEXT PRIMARY KEY,
+  after_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK(revision>=0)
+);

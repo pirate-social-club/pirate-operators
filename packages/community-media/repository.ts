@@ -5,6 +5,11 @@ import type {
 } from "./contracts.ts";
 import { requireMedia } from "./validation.ts";
 
+/** A fixed predicate from the admitted runtime, never from browser input. */
+export interface MediaReservationFence {
+  sql: string;
+  values: (string | number | null)[];
+}
 export class MediaRepository {
   readonly db: D1Database;
   readonly communityId: string;
@@ -27,6 +32,7 @@ export class MediaRepository {
       perCommunity: 100,
       bytesPerCommunity: 1024 * 1024 * 1024,
     },
+    fence?: MediaReservationFence,
   ): Promise<MediaRecord> {
     for (const value of Object.values(quota))
       requireMedia(
@@ -38,6 +44,13 @@ export class MediaRepository {
     // pending-erasure bytes retain capacity until the recovery sweep removes them.
     const active =
       "(state NOT IN ('withdrawn','revoked','expired') OR json_extract(body,'$.erasePending')=1)";
+    const guard = fence ? `AND (${fence.sql})` : "";
+    if (fence)
+      requireMedia(
+        fence.sql.trim(),
+        "media_reservation_fence_unavailable",
+        503,
+      );
     await this.db
       .prepare(
         `INSERT INTO community_media(id,community_id,account_id,request_id,revision,state,purpose,expires_at,body)
@@ -45,7 +58,7 @@ export class MediaRepository {
       (SELECT count(*) FROM community_media WHERE community_id=? AND account_id=? AND ${active}) < ? AND
       (SELECT count(*) FROM community_media WHERE community_id=? AND ${active}) < ? AND
       (SELECT coalesce(sum(json_extract(body,'$.sourceBytes')),0) FROM community_media WHERE community_id=? AND ${active}) + ? <= ?
-      ON CONFLICT(community_id,account_id,request_id) DO NOTHING`,
+      ${guard} ON CONFLICT(community_id,account_id,request_id) DO NOTHING`,
       )
       .bind(
         record.id,
@@ -65,14 +78,31 @@ export class MediaRepository {
         this.communityId,
         record.sourceBytes,
         quota.bytesPerCommunity,
+        ...(fence?.values ?? []),
       )
       .run();
     const row = await this.db
       .prepare(
-        "SELECT body FROM community_media WHERE community_id=? AND account_id=? AND request_id=?",
+        `SELECT body FROM community_media WHERE community_id=? AND account_id=? AND request_id=? ${guard}`,
       )
-      .bind(this.communityId, record.accountId, record.requestId)
+      .bind(
+        this.communityId,
+        record.accountId,
+        record.requestId,
+        ...(fence?.values ?? []),
+      )
       .first<{ body: string }>();
+    if (!row && fence) {
+      const allowed = await this.db
+        .prepare(`SELECT 1 AS allowed WHERE (${fence.sql})`)
+        .bind(...fence.values)
+        .first<{ allowed: number }>();
+      requireMedia(
+        allowed?.allowed === 1,
+        "media_reservation_not_admitted",
+        403,
+      );
+    }
     requireMedia(row, "media_capacity_full", 429);
     return JSON.parse(row.body) as MediaRecord;
   }
