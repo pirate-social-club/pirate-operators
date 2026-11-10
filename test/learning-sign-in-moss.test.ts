@@ -152,7 +152,7 @@ test("the transcription is the hosted bundle's source, when the bundle is suppli
 
 test("the V4 text matches MOSS's strict SIWE pattern and parses field for field", () => {
   assert.equal(Buffer.byteLength(text), 874);
-  assert.equal(hashMessage(text), "0x70de2a412bf605d73c7827f8fceff25eff23f8ab24b0f6346bca3c096b3d6210");
+  assert.equal(hashMessage(text), "0x93eb923b772ca082abbccb8401a72415a011e884fb15757ee2dad68f9faf9416");
   assert.ok(strict.test(text));
   const m = parseSiweMessage(text);
   assert.equal(m.domain, "community.example");

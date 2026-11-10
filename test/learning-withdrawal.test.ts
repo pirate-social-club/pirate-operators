@@ -228,6 +228,12 @@ test(
       await f.recordSignIns();
       assert.equal(f.store.entries("tx:").length, relays);
 
+      // A failed chain observation cannot clear withdrawal during turn-on.
+      f.authorizationDown(true);
+      assert.equal((await f.post("/api/learning/public-results/on", {}, whileOff)).status, 503);
+      assert.equal(await publicResults(f, whileOff), "off");
+      f.authorizationDown(false);
+
       // Turned on: the next sign-in is stored and relayed despite the older
       // recorded row, and permission restarts at it.
       const renewed = await turnOn(f, whileOff);
@@ -242,7 +248,10 @@ test(
       );
       assert.equal(await publicResults(f, renewed), "on");
       assert.equal((await settings(f))!.withdrawn, null);
-      assert.equal((await settings(f))!.last, withdrawn.last);
+      assert.equal(
+        (await settings(f))!.last,
+        Math.max(withdrawn.last!, Number(await read<bigint>(f, "revokedAt", [learner.address])) * 1000),
+      );
 
       // New work binds the new sign-in and publishes under it.
       const fresh = await json<StudyLesson>(await startWith(f, renewed));
@@ -275,12 +284,13 @@ test(
 );
 
 test(
-  "a withdrawal made directly on chain is noticed when Study is refused, shows off, and nothing is relayed until turned on",
+  "login notices a direct withdrawal before offering permission again, closes lessons, and requires explicit turn-on",
   { timeout: 180000 },
   async () => {
     const f = await studyPublicationFixtureV4(19963);
     try {
       const [first] = await rows(f);
+      const open = await f.start();
       await f.mineClock();
       await f.evm.write(
         f.v4,
@@ -289,9 +299,22 @@ test(
         [learner.address, 0n, "0x"],
         5,
       );
-      const revokedAt = Number(await read<bigint>(f, "revokedAt", [learner.address]));
-      // The application still believes permission is on until the operator refuses.
+      const revokedAt = Number(
+        await read<bigint>(f, "revokedAt", [learner.address]),
+      );
+      // The application has not noticed the withdrawal. A login well beyond
+      // the sign-in backdate must not silently authorize publication again.
       assert.equal(await publicResults(f, f.auth), "on");
+      f.advance(120_000);
+      await f.mineClock();
+      const signedIn = await f.login();
+      await f.recordSignIns();
+      assert.deepEqual(
+        (await rows(f)).map((r) => r.authorization_id),
+        [first!.authorization_id],
+      );
+      assert.equal(await publicResults(f, signedIn), "off");
+      assert.equal((await f.get(open.lessonId)).status, "abandoned");
       const refused = await startWith(f, f.auth);
       assert.equal(refused.status, 409);
       assert.deepEqual(await refused.json(), {
@@ -313,11 +336,15 @@ test(
       const relays = f.store.entries("tx:").length;
       const later = await f.login();
       await f.recordSignIns();
-      assert.deepEqual((await rows(f)).map((r) => r.authorization_id), [
-        first!.authorization_id,
-      ]);
+      assert.deepEqual(
+        (await rows(f)).map((r) => r.authorization_id),
+        [first!.authorization_id],
+      );
       assert.equal(f.store.entries("tx:").length, relays);
-      assert.equal(await read<bigint>(f, "authorizedSince", [learner.address]), 0n);
+      assert.equal(
+        await read<bigint>(f, "authorizedSince", [learner.address]),
+        0n,
+      );
       // Settings turn it back on, with a normal sign-in.
       const renewed = await turnOn(f, later);
       assert.equal(await publicResults(f, renewed), "on");

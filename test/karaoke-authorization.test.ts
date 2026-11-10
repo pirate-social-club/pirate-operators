@@ -361,7 +361,8 @@ test("a ticket waits while the sign-in is being recorded, then the same request 
   const real = live.env.KARAOKE_OPERATOR!;
   live.env.KARAOKE_OPERATOR = {
     fetch(input: RequestInfo | URL, init?: RequestInit) {
-      if (new URL(String(input)).pathname.startsWith("/authorization"))
+      const request = new Request(input, init);
+      if (new URL(request.url).pathname === "/authorization" && request.method === "POST")
         return Promise.reject(new Error("fixture authorization outage"));
       return real.fetch(input as never, init as never);
     },

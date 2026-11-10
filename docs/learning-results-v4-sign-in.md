@@ -116,10 +116,14 @@ requested is never relayed on schedule. Contract rules:
   more than the backdate ahead of the latest block, the operator answers
   `sign_in_not_yet_valid`, a retryable refusal distinct from the expired
   `stale_sign_in`. The application keeps the row pending and retries; it never
-  refuses a sign-in for that reason. A withdrawal made directly on chain is
-  not known to the application, so a sign-in within the minute after it is
-  issued before it and refused (`revoked_sign_in`); it never authorizes, and
-  the next sign-in after that minute does.
+  refuses a sign-in for that reason. Before offering the publication text,
+  login reads the operator's current withdrawal state, with a two-second
+  bound. A new direct withdrawal is recorded and closes the account's open
+  lessons; login then offers only the plain authentication text. An unavailable
+  or malformed observation also gives only plain login, without recording
+  publication permission. Explicit turn-on acknowledges the observed chain
+  withdrawal time before clearing the account flag, so the same withdrawal
+  cannot undo the learner's deliberate choice.
 - The first accepted authorization after any revocation sets
   `authorizedSince[learner] = issuedAt`. Later sign-ins record their digest but
   never move `authorizedSince`, so signing in again cannot end other lessons.
@@ -422,11 +426,11 @@ MOSS `signMessage` output, that MOSS shows the Statement rather than signing
 silently, and that the one-minute backdate covers real device clocks. The
 Revocation stays EIP-712, signed with `signData` in account settings.
 
-## Open product decision
+## Recorded product decision
 
-Unfinished lessons close privately and earn no rewards. A completed lesson
-publishes; an unattended one does not. This awaits the workspace_owner's
-decision. The design supports either choice.
+The workspace_owner decided that unfinished lessons close privately and earn
+no rewards. Finished lessons publish and earn only when they satisfy the
+published qualification rules.
 
 ## Release order
 

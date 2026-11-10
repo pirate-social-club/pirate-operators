@@ -80,6 +80,7 @@ import { liveStudy, studyAvailable, type StudyEnv } from "./study-community.ts";
 import {
   turnOffPublicResults,
   turnOnPublicResults,
+  publicationSignInAtLogin,
 } from "./learning-public-results.ts";
 import {
   publicResults,
@@ -697,7 +698,19 @@ export async function communityFetch(
       requestOrigin(request, context.origin);
       const body = await jsonBody(request);
       if (url.pathname === "/api/auth/challenge") {
-        const v4 = signInV4(env, config);
+        const v4 = await publicationSignInAtLogin(
+          env,
+          env.DB,
+          body.address,
+          signInV4(env, config),
+          async (learner) => {
+            if (studyAvailable(env, config))
+              await liveStudy(
+                { ...karaokePorts, env },
+                learner,
+              ).endForWithdrawal();
+          },
+        );
         // SIWE keeps the wall clock. A V4 sign-in's issuedAt comes from the
         // application's own clock, backdated by at most a minute for wallet
         // clocks behind it and never to or before the account's last

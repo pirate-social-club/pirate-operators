@@ -13,6 +13,7 @@ import {
   loginChallenge,
   loginVerify,
   type SignInChallenge,
+  type SiweChallenge,
   type SignInV4,
 } from "../packages/community/accounts.ts";
 import {
@@ -30,6 +31,7 @@ import {
   requestSignInRelay,
 } from "../services/learning-sign-in.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
+import { publicationSignInAtLogin } from "../services/learning-public-results.ts";
 
 const origin = "https://community.example";
 const context = {
@@ -87,9 +89,131 @@ async function database(
       .first<{ n: number }>())!.n;
   return { db, migrate, count, dispose: () => runtime.dispose() };
 }
-const signChallenge = (c: SignInChallenge, account = learner) =>
+const signChallenge = (c: SignInChallenge | SiweChallenge, account = learner) =>
   account.signMessage({ message: c.message });
 const signInOf = (c: SignInChallenge) => readSignInMessageV4(c.message)!.signIn;
+test("login permission checks fail closed without blocking a plain sign-in", async () => {
+  const f = await database();
+  try {
+    const operator = (fetch: () => Promise<Response>) => ({
+      KARAOKE_OPERATOR: { fetch } as unknown as Fetcher,
+    });
+    const cases = [
+      operator(async () => {
+        throw Error("offline");
+      }),
+      operator(async () => new Response("unavailable", { status: 503 })),
+      operator(async () => new Response("not json")),
+      operator(async () => Response.json({ since: 0, revokedAt: "0" })),
+      operator(async () => Response.json({ since: 0, revokedAt: -1 })),
+      operator(async () =>
+        Response.json({ since: 0, revokedAt: Number.MAX_SAFE_INTEGER }),
+      ),
+      operator(() => new Promise<Response>(() => {})),
+      {},
+    ];
+    for (const env of cases) {
+      const permitted = await publicationSignInAtLogin(
+        env,
+        f.db,
+        subject,
+        v4,
+        undefined,
+        10,
+      );
+      assert.equal(permitted, undefined);
+      const challenge = await loginChallenge(
+        f.db,
+        context,
+        subject,
+        Date.now(),
+        permitted,
+      );
+      assert.ok(!("kind" in challenge));
+      await loginVerify(
+        f.db,
+        context,
+        challenge.id,
+        await signChallenge(challenge),
+        verifyLoginOffline,
+      );
+    }
+    assert.equal(await f.count("learning_authorizations"), 0);
+    assert.equal(await f.count("community_accounts"), 1);
+    // A later healthy observation can offer permission; the outage never
+    // creates a persistent withdrawal or locks the account out.
+    assert.equal(
+      await publicationSignInAtLogin(
+        operator(async () => Response.json({ since: 0, revokedAt: 0 })),
+        f.db,
+        subject,
+        v4,
+      ),
+      v4,
+    );
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("login notices each new withdrawal while preserving explicit turn-on and account isolation", async () => {
+  const f = await database();
+  try {
+    const first = await v4Challenge(f.db);
+    await loginVerify(
+      f.db,
+      context,
+      first.id,
+      await signChallenge(first),
+      verifyLoginOffline,
+    );
+    const account = await f.db
+      .prepare("SELECT account_id FROM credential_bindings WHERE subject=?")
+      .bind(subject)
+      .first<{ account_id: string }>();
+    const closed: string[] = [];
+    let revokedAt = 1_700_000_000;
+    const env = {
+      KARAOKE_OPERATOR: {
+        async fetch(input: RequestInfo | URL) {
+          assert.equal(
+            String(input),
+            `http://service/authorization/${subject}`,
+          );
+          return Response.json({ since: 0, revokedAt });
+        },
+      } as Fetcher,
+    };
+    const check = () =>
+      publicationSignInAtLogin(env, f.db, subject, v4, async (learner) => {
+        closed.push(learner.account_id);
+      });
+    assert.equal(await check(), undefined);
+    assert.deepEqual(closed, [account!.account_id]);
+    await f.db
+      .prepare(
+        "UPDATE learning_settings SET public_results_withdrawn_at=NULL WHERE account_id=?",
+      )
+      .bind(account!.account_id)
+      .run();
+    assert.equal(await check(), v4);
+    revokedAt += 2;
+    assert.equal(await check(), undefined);
+    assert.deepEqual(closed, [account!.account_id, account!.account_id]);
+    const other = privateKeyToAccount(`0x${"22".repeat(32)}`);
+    const otherChallenge = await loginChallenge(f.db, context, other.address);
+    await loginVerify(
+      f.db,
+      context,
+      otherChallenge.id,
+      await signChallenge(otherChallenge, other),
+      verifyLoginOffline,
+    );
+    assert.equal(await f.count("learning_settings"), 1);
+  } finally {
+    await f.dispose();
+  }
+});
 async function v4Challenge(db: D1Database, time = Date.now()) {
   const c = await loginChallenge(db, context, learner.address, time, v4);
   assert.ok("kind" in c);

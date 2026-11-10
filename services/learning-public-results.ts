@@ -8,7 +8,8 @@
 // refuses new work; it then closes the account's open Study lessons in the
 // community as turning off does. The operator stops that learner's V3
 // results not yet sent by reading the withdrawal from the V4 contract.
-import type { Address } from "viem";
+import { isAddress, type Address } from "viem";
+import type { SignInV4 } from "../packages/community/accounts.ts";
 import { insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import { publicResults, signInV4 } from "./learning-sign-in.ts";
@@ -21,7 +22,11 @@ interface Learner {
 }
 
 /** Records a withdrawal; the latest withdrawal time is kept after turning on. */
-async function recordWithdrawal(db: D1Database, accountId: string, atMs: number) {
+async function recordWithdrawal(
+  db: D1Database,
+  accountId: string,
+  atMs: number,
+) {
   await db
     .prepare(
       `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
@@ -31,6 +36,94 @@ async function recordWithdrawal(db: D1Database, accountId: string, atMs: number)
     )
     .bind(accountId, atMs)
     .run();
+}
+
+/**
+ * A normal login never restores permission withdrawn directly on chain.
+ * An unavailable or malformed observation allows only the plain login. The
+ * recorded withdrawal survives later logins; only the settings turn-on clears
+ * it. A previously observed withdrawal does not undo an explicit turn-on.
+ */
+export async function publicationSignInAtLogin(
+  env: { KARAOKE_OPERATOR?: Fetcher },
+  db: D1Database,
+  address: unknown,
+  v4: SignInV4 | undefined,
+  endLessons: (learner: Learner) => Promise<unknown> = async () => undefined,
+  waitMs = 2000,
+): Promise<SignInV4 | undefined> {
+  if (!v4) return undefined;
+  insist(typeof address === "string" && isAddress(address), "invalid_wallet");
+  const wallet = address.toLowerCase();
+  const account = await db
+    .prepare(
+      `SELECT b.account_id,s.public_results_withdrawn_at AS withdrawn,s.last_withdrawn_at AS last
+      FROM credential_bindings b LEFT JOIN learning_settings s ON s.account_id=b.account_id
+      WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?`,
+    )
+    .bind(wallet)
+    .first<{
+      account_id: string;
+      withdrawn: number | null;
+      last: number | null;
+    }>();
+  if (account?.withdrawn != null || !env.KARAOKE_OPERATOR) return undefined;
+  const observed = await loginWithdrawal(env, wallet, waitMs);
+  if (observed === undefined) return undefined;
+  if (observed === 0 || (account?.last != null && account.last >= observed))
+    return v4;
+  if (account) {
+    await recordWithdrawal(db, account.account_id, observed);
+    await endLessons({ account_id: account.account_id, wallet });
+  }
+  return undefined;
+}
+
+/** Milliseconds of the latest chain withdrawal, or no usable observation. */
+async function loginWithdrawal(
+  env: { KARAOKE_OPERATOR?: Fetcher },
+  wallet: string,
+  waitMs = 2000,
+): Promise<number | undefined> {
+  if (!env.KARAOKE_OPERATOR) return undefined;
+  const abort = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await env.KARAOKE_OPERATOR!.fetch(
+          `http://service/authorization/${wallet}`,
+          { signal: abort.signal },
+        );
+        if (!response.ok) return undefined;
+        const live = (await response.json()) as {
+          since?: unknown;
+          revokedAt?: unknown;
+        };
+        if (
+          typeof live.since !== "number" ||
+          !Number.isSafeInteger(live.since) ||
+          live.since < 0 ||
+          typeof live.revokedAt !== "number" ||
+          !Number.isSafeInteger(live.revokedAt) ||
+          live.revokedAt < 0 ||
+          !Number.isSafeInteger(live.revokedAt * 1000)
+        )
+          return undefined;
+        return live.revokedAt * 1000;
+      })(),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => {
+          abort.abort();
+          resolve(undefined);
+        }, waitMs);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function operatorFor(env: StudyEnv, config: CommunityConfig) {
@@ -98,11 +191,18 @@ export async function turnOnPublicResults(
   learner: Learner,
 ) {
   operatorFor(env, config);
+  // A relayed withdrawal may mine after the application's recorded time.
+  // Explicit turn-on acknowledges its chain time before clearing the flag,
+  // so the next login does not mistake that same withdrawal for a new one.
+  const observed = await loginWithdrawal(env, learner.wallet);
+  insist(observed !== undefined, "public_results_unavailable", 503);
   await db
     .prepare(
-      "UPDATE learning_settings SET public_results_withdrawn_at=NULL WHERE account_id=?",
+      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,NULL,?2)
+      ON CONFLICT(account_id) DO UPDATE SET public_results_withdrawn_at=NULL,
+        last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)`,
     )
-    .bind(learner.account_id)
+    .bind(learner.account_id, observed)
     .run();
   return { publicResults: await publicResults(db, learner.account_id, true) };
 }
@@ -128,7 +228,10 @@ export async function noteChainWithdrawal(
     `http://service/authorization/${learner.wallet as Address}`,
   );
   if (!response.ok) return false;
-  const live = (await response.json()) as { since?: unknown; revokedAt?: unknown };
+  const live = (await response.json()) as {
+    since?: unknown;
+    revokedAt?: unknown;
+  };
   const revokedAt = Number(live.revokedAt);
   if (live.since !== 0 || !Number.isSafeInteger(revokedAt) || revokedAt <= 0)
     return false;
@@ -142,7 +245,8 @@ export async function noteChainWithdrawal(
     .first<{ later: number; withdrawn: number | null }>();
   if (!later || later.later) return false;
   const recorded = later.withdrawn === null;
-  if (recorded) await recordWithdrawal(db, learner.account_id, revokedAt * 1000);
+  if (recorded)
+    await recordWithdrawal(db, learner.account_id, revokedAt * 1000);
   await endLessons();
   return recorded;
 }

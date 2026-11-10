@@ -135,8 +135,8 @@ async function fixture(port: number) {
   const operator = {
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       const request = new Request(input, init);
-      relayed.push(`${request.method} ${new URL(request.url).pathname}`);
-      if (operatorDown) throw new Error("fixture operator outage");
+      if (request.method === "POST") relayed.push(`${request.method} ${new URL(request.url).pathname}`);
+      if (operatorDown && request.method === "POST") throw new Error("fixture operator outage");
       return (
         // The operator's own route, as karaokeRoute dispatches it.
         (await authorizationRoute(request, operatorEnv, store)) ??
@@ -161,6 +161,7 @@ async function fixture(port: number) {
     CREATOR_PROFILE_HASH: `0x${"b".repeat(64)}`,
     COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"12".repeat(32)}`,
     KARAOKE_OPERATOR: operator,
+    KARAOKE_SERVICE_MODE: "internal",
     KARAOKE_PAYMENT_CHAIN_ID: "31337",
     STUDY_RESULTS_V4_CONTRACT: v4,
   } as unknown as CommunityEnv;
@@ -256,6 +257,7 @@ async function fixture(port: number) {
       skew = seconds;
     },
     read,
+    post,
     signIn,
     practise,
     authorization,
@@ -456,7 +458,7 @@ test(
 );
 
 test(
-  "a sign-in made before a revocation is refused; a later sign-in authorizes",
+  "a sign-in made before revocation is refused; only explicit turn-on lets a later login authorize",
   { timeout: 120000 },
   async () => {
     const f = await fixture(19973);
@@ -490,16 +492,20 @@ test(
         policy_version: 4,
       });
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
-      // The application does not know of a withdrawal made directly on
-      // chain, so a sign-in within the one-minute backdate after it is
-      // issued before it: refused, never authorizing.
-      await f.advance(1);
-      const early = await f.signIn(learner);
-      assert.ok(early.message.issuedAt <= revokedAt);
-      await f.practise(early);
-      assert.equal((await f.authorization(early.id))!.state, "refused");
+      // A later login notices the chain withdrawal and authenticates only.
+      await f.advance(61);
+      const challenge = await (await f.post("/api/auth/challenge", {address:learner.address})).json() as {id:string; message:string; kind?:string};
+      assert.equal(challenge.kind, undefined);
+      const verified = await f.post("/api/auth/verify", {id:challenge.id, signature:await learner.signMessage({message:challenge.message})});
+      assert.equal(verified.status, 200);
+      const session = await verified.json() as {csrf:string};
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
-      await f.advance(60);
+      // Only an explicit settings action allows the next login to authorize.
+      assert.equal((await f.post("/api/learning/public-results/on", {}, {
+        cookie:verified.headers.get("set-cookie")!.split(";")[0]!,
+        "x-csrf-token":session.csrf,
+      })).status, 200);
+      await f.advance(2);
       const after = await f.signIn(learner);
       await f.practise(after);
       await f.scheduled();

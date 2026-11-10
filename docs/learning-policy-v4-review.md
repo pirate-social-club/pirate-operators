@@ -1,6 +1,6 @@
 # Learning publication policy V4: draft for review
 
-Not deployed. The workspace_owner reviews this wording before deployment. Its hash, 0xc55843c130860bc78fab947eecc0022e662ae87cf83d8a2011feedc12bc4492e, becomes the V4 contract's fixed publication policy, so any wording change produces a new hash. Source: services/learning-policy-v4.ts. The V3 text it replaces is unchanged in services/learning-policy-v3.ts.
+Not deployed. The workspace_owner reviews this wording before deployment. Its hash, 0xd6cb3a0720eb7e63bcd1fc2b594aa7e99ff304c9211e196b59c5e9ed8ae96062, becomes the V4 contract's fixed publication policy, so any wording change produces a new hash. Source: services/learning-policy-v4.ts. The V3 text it replaces is unchanged in services/learning-policy-v3.ts.
 
 ## Terms
 
@@ -14,7 +14,7 @@ Study fixes four to ten distinct lyric lines before you record. Under the curren
 
 Publishing results does not itself promise a reward. Rewards apply only when an explicit offer is shown for a song. That offer sets the eligible activities, deadlines, sharing rules and payment terms, and must distinguish money from simulated or practice-only balances. You may practise and build qualifying results without identity verification. If a reward offer applies, identity verification through Very/Palm is required when claiming winnings, rather than before practice. This publication permission does not authorize spending from your wallet.
 
-Published results are permanent. Withdrawing permission stops results that have not yet been published; it cannot erase earlier public records. Authorized corrections or decisions that mark an existing result invalid can still be published after permission is withdrawn. They keep the original learner, source song, selected exercises and completion period, and remain publicly linked to earlier versions. An older favorable result cannot replace a newer invalid or nonqualifying result.
+Published results are permanent. Once the operator observes your withdrawal, it stops further attempts to publish your results. A result already sent to an older results contract, or whose send outcome is uncertain, can still confirm after withdrawal. Withdrawal cannot erase earlier public records. Authorized corrections or decisions that mark an existing result invalid can still be published after permission is withdrawn. They keep the original learner, source song, selected exercises and completion period, and remain publicly linked to earlier versions. An older favorable result cannot replace a newer invalid or nonqualifying result.
 
 ## Privacy
 
