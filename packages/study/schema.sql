@@ -20,7 +20,7 @@ CREATE TABLE study_attempts (
   community_id TEXT NOT NULL,
   request_id TEXT NOT NULL,
   line_json TEXT NOT NULL CHECK(json_valid(line_json)),
-  policy TEXT NOT NULL CHECK(policy = 'script_aware_token_phonetic_v4'),
+  policy TEXT NOT NULL CHECK(policy IN ('script_aware_token_phonetic_v4','script_aware_token_phonetic_v5')),
   started_at INTEGER NOT NULL,
   completed_at INTEGER,
   state TEXT NOT NULL CHECK(state IN ('ready','assessing','assessed','unavailable','uncertain')),

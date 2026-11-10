@@ -187,7 +187,7 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   await request.patch("/__fixture", { data: { failure: "known_failed" } });
   await record(page);
   await expect(page.getByRole("alert")).toHaveText(
-    "Speech is unavailable. Try again later.",
+    "Speech could not assess the recording. Your answer was not counted. Try the same line again.",
   );
   await expect(
     page.getByRole("button", { name: "Continue", exact: true }),
@@ -325,7 +325,9 @@ test("a draft never bound to consent ends after thirty days and the learner star
   await expect(
     page.getByRole("button", { name: "Record", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Lesson ended" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Lesson ended" })).toHaveCount(
+    0,
+  );
   const ended = await (
     await request.get("/api/study/lessons/" + first.lessonId)
   ).json();
@@ -395,7 +397,9 @@ test("a page left open when the session changes account clears its lesson instea
   expect(kept.lessonId).toBe(first.lessonId);
   expect(kept.status).toBe("active");
   expect(kept.progress.presentations).toBe(0);
-  expect((await (await request.get("/__fixture")).json()).attempts).toHaveLength(0);
+  expect(
+    (await (await request.get("/__fixture")).json()).attempts,
+  ).toHaveLength(0);
 });
 test("a start refused while sign-in is being recorded retries the same request in the loading state", async ({
   page,

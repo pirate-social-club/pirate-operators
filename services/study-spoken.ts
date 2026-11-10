@@ -22,6 +22,34 @@ import {
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
 import { gradeTranscriptV2 } from "../packages/study/transcript-grading.ts";
+import type { AdmittedStudyGrader } from "../packages/study/grader-revision.ts";
+import { assessStudySpokenRerecord } from "../packages/study/spoken-rerecord.ts";
+import type { StudyTranscript } from "../packages/study/speech-transcriber.ts";
+
+function gradeStudySpeech(
+  line: StudyLine,
+  transcript: StudyTranscript,
+  policy: AdmittedStudyGrader,
+  takeNumber: number,
+) {
+  const grade = gradeTranscriptV2(
+    line.text,
+    transcript.text,
+    line.language,
+    policy,
+  );
+  if (policy === "script_aware_token_phonetic_v5" && takeNumber === 1) {
+    const assessment = assessStudySpokenRerecord({
+      grade,
+      expectedLanguage: line.language,
+      detectedLanguage: transcript.language,
+      detectedLanguageConfidence: transcript.languageConfidence ?? null,
+    });
+    if (assessment.candidateReason)
+      return { ...grade, rerecordReason: assessment.candidateReason };
+  }
+  return grade;
+}
 
 export async function readStudyAudio(request: Request) {
   const durationMs = Number(request.headers.get("x-study-duration-ms"));
@@ -109,6 +137,7 @@ export function makeStudyService(options: {
       requestId: string,
       input: unknown,
       lesson: StudyAttemptLesson | null = null,
+      policy?: AdmittedStudyGrader,
     ) {
       principal(owner);
       studyCheck(
@@ -125,7 +154,7 @@ export function makeStudyService(options: {
         await options.resolveLine(requested, lesson),
         requested,
       );
-      return store.open(owner, requestId, line, now(), lesson);
+      return store.open(owner, requestId, line, now(), lesson, policy);
     },
     async get(owner: StudyPrincipal, id: string) {
       principal(owner);
@@ -169,11 +198,11 @@ export function makeStudyService(options: {
               id,
               receipt.state,
               receipt.state === "assessed"
-                ? gradeTranscriptV2(
-                    line.text,
-                    receipt.transcript.text,
-                    line.language,
+                ? gradeStudySpeech(
+                    line,
+                    receipt.transcript,
                     row.policy,
+                    row.take_number ?? 1,
                   )
                 : null,
               receipt.state === "unavailable" ? receipt.error : null,
@@ -221,11 +250,11 @@ export function makeStudyService(options: {
                   }
                 : undefined,
             );
-            const grade = gradeTranscriptV2(
-              line.text,
-              transcript.text,
-              line.language,
+            const grade = gradeStudySpeech(
+              line,
+              transcript,
               row.policy,
+              row.take_number ?? 1,
             );
             return await store.finish(
               owner,

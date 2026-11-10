@@ -14,6 +14,27 @@ export const elevenLabsSpeechProviderPolicy = (): Readonly<{
   providerRetention: "not_stored" | "stored";
 }> => ({ enableLogging: true, providerRetention: "stored" });
 const TOKEN_PATH = "/v1/single-use-token/realtime_scribe";
+const CONFIRMED_TOKEN_REFUSALS = new Set([400, 401, 403, 413, 415, 422, 429]);
+
+/** Safe structured evidence: no response body, token or credential retained.
+ * This is created only before the WebSocket upgrade is attempted. */
+export class KaraokeTokenRefusal extends Error {
+  readonly evidence: {
+    schema: "pirate.karaoke-token-refusal/1";
+    phase: "token-mint";
+    httpStatus: number;
+    providerStreamOpened: false;
+  };
+  constructor(status: number) {
+    super(`elevenlabs_stt_token_mint_failed_${status}`);
+    this.evidence = {
+      schema: "pirate.karaoke-token-refusal/1",
+      phase: "token-mint",
+      httpStatus: status,
+      providerStreamOpened: false,
+    };
+  }
+}
 const SAFE_COMMIT_FLOOR_MS = 400;
 const COMMIT_DRAIN_TIMEOUT_MS = 1_500;
 const SEGMENT_RETENTION_MS = 120_000;
@@ -51,8 +72,14 @@ export const makeElevenLabsKaraokeSocketConnect =
       method: "POST",
       headers: { "xi-api-key": input.apiKey },
     });
-    if (!tokenResponse.ok)
-      throw new Error(`elevenlabs_stt_token_mint_failed_${tokenResponse.status}`);
+    if (!tokenResponse.ok) {
+      await tokenResponse.body?.cancel().catch(() => undefined);
+      if (CONFIRMED_TOKEN_REFUSALS.has(tokenResponse.status))
+        throw new KaraokeTokenRefusal(tokenResponse.status);
+      throw new Error(
+        `elevenlabs_stt_token_mint_failed_${tokenResponse.status}`,
+      );
+    }
     const tokenDocument = (await tokenResponse.json()) as { readonly token?: unknown };
     if (typeof tokenDocument.token !== "string" || tokenDocument.token.trim() === "") {
       throw new Error("elevenlabs_stt_token_missing");

@@ -42,7 +42,8 @@ import {
   publicationOf,
   publish,
 } from "./records.ts";
-import { body, signatureChainId, type Env, type Store } from "./runtime.ts";
+import { body, signatureChainId } from "./service-call.ts";
+import type { Env, Store } from "./runtime.ts";
 import { enrollmentForPractice } from "./learning-enrollment.ts";
 import {
   authorizationRoute,
@@ -282,7 +283,8 @@ async function advance(env: Env, store: Store, ticketId: string) {
 export async function tick(env: Env, store: Store) {
   expireLearnerHistory(store);
   expireStudySpeech(store);
-  if (env.RESULTS_V3_CONTRACT) await resumeStudyPublications(env, store);
+  if (env.RESULTS_V3_CONTRACT || env.RESULTS_V4_CONTRACT)
+    await resumeStudyPublications(env, store);
   if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
   if (env.RESULTS_V4_CONTRACT) await resumeAuthorizations(env, store);
   for (const { key } of store.entries("attempt:")) {

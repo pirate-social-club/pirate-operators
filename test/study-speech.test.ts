@@ -33,6 +33,7 @@ test("Scribe transport pins model, retention, server credential and language wit
   assert.deepEqual(await transcriber.transcribe(audio, "audio/webm", "en-US"), {
     text: "Hold me close",
     language: "en",
+    languageConfidence: 0.99,
   });
 });
 test("provider refusals and uncertain outcomes remain distinct, including malformed successful responses", async () => {

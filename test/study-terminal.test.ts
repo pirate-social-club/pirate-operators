@@ -288,17 +288,17 @@ test("closure retries when a provider claim or saved grade wins its database com
   }
 });
 
-test("known failures have three takes per presentation and never invent a wrong answer", async () => {
+test("known failures pause after three dispatches without consuming a take or inventing a wrong answer", async () => {
   const f = await lessonFixture();
   try {
     let lesson = await f.start();
     f.fail("known_failed");
     for (let take = 1; take <= 3; take++)
       lesson = (await f.answer(lesson, true)).lesson;
-    assert.equal(lesson.current?.takeNumber, 4);
+    assert.equal(lesson.current?.takeNumber, 1);
     await assert.rejects(
-      f.lessons.openAttempt(f.owner, lesson.lessonId, 1, 4),
-      /study_retry_limit/,
+      f.lessons.openAttempt(f.owner, lesson.lessonId, 1, 1),
+      /study_speech_retry_later/,
     );
     assert.equal(lesson.progress.firstPassGraded, 0);
     assert.equal(f.calls(), 3);

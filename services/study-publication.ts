@@ -164,6 +164,10 @@ async function freeze(
       "study_enrollment_mismatch",
     );
   check(
+    input.terminal.graderRevision === binding.offer.graderRevision,
+    "study_grader_binding_changed",
+  );
+  check(
     input.terminal.startedAt === binding.offer.startedAt &&
       input.terminal.expiresAt === binding.offer.expiresAt &&
       input.terminal.completedAt <= store.now() * 1000 + 999 &&

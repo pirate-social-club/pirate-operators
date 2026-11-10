@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { StudyAttemptStore } from "../packages/study/attempt-store.ts";
 import {
+  studyGraderAt,
+  type StudyGraderActivation,
+} from "../packages/study/grader-revision.ts";
+import {
   StudyError,
   studyCheck,
   selectionOf,
@@ -48,6 +52,7 @@ export const studyCloseBoundBinds = [
   STUDY_OPEN_LESSON_MAX_MS,
 ] as const;
 export function makeStudyLessonService(options: {
+  graderActivation?: StudyGraderActivation;
   db: D1Database;
   attempts: ReturnType<typeof makeStudyService>;
   // Return all eligible published lines in song order. Selection is per owner.
@@ -90,9 +95,7 @@ export function makeStudyLessonService(options: {
       if (state.status !== "active") return row;
       bound ??= studyCloseBound(
         state,
-        studyLessonHasDeadline(state)
-          ? null
-          : await consentExpiry(owner, id),
+        studyLessonHasDeadline(state) ? null : await consentExpiry(owner, id),
       );
       // A legacy lesson consumes any saved grade; its speech layer refused to
       // save one after the deadline. A new lesson consumes only a grade that
@@ -103,10 +106,7 @@ export function makeStudyLessonService(options: {
         ? await options.attempts.get(owner, state.currentAttemptId)
         : null;
       // Consume a grade durably saved before the close bound, even after restart.
-      if (
-        attempt?.state === "assessed" &&
-        inside(attempt.completedAt!)
-      ) {
+      if (attempt?.state === "assessed" && inside(attempt.completedAt!)) {
         if (
           await store.update(
             owner,
@@ -175,7 +175,11 @@ export function makeStudyLessonService(options: {
           ...state,
           currentAttemptId: null,
           lastAttemptId: attempt.attemptId,
-          takeNumber: state.takeNumber + 1,
+          // Provider/transport failures do not spend a learner take. A new
+          // physical dispatch gets its own id, with a bounded retry cooldown.
+          speechRetrySerial: (state.speechRetrySerial ?? 0) + 1,
+          speechRetryAfter:
+            ((state.speechRetrySerial ?? 0) + 1) % 3 === 0 ? now() + 60000 : 0,
         };
         if (await store.update(owner, row, next)) continue;
       } else return row;
@@ -199,6 +203,8 @@ export function makeStudyLessonService(options: {
               : null,
           };
     return {
+      ...(s.graderRevision ? { graderRevision: s.graderRevision } : {}),
+      ...(s.speechRetryAfter ? { speechRetryAfter: s.speechRetryAfter } : {}),
       schema: STUDY_LESSON_SCHEMA,
       kind: "say-it-back",
       lessonId: row.lesson_id,
@@ -249,6 +255,7 @@ export function makeStudyLessonService(options: {
         );
         return service.get(owner, previous.lesson_id);
       }
+      const startedAt = now();
       const row = await store.create(
         owner,
         requestId,
@@ -259,7 +266,8 @@ export function makeStudyLessonService(options: {
             await options.resolveLines(song),
             await store.practice(owner, song),
           ),
-          now(),
+          startedAt,
+          studyGraderAt(startedAt, options.graderActivation),
         ),
       );
       return service.get(owner, row.lesson_id);
@@ -308,9 +316,7 @@ export function makeStudyLessonService(options: {
         const closedAt = now(),
           bound = studyCloseBound(
             s,
-            studyLessonHasDeadline(s)
-              ? null
-              : await consentExpiry(owner, id),
+            studyLessonHasDeadline(s) ? null : await consentExpiry(owner, id),
           ),
           late = closedAt >= bound.at;
         if (
@@ -371,6 +377,11 @@ export function makeStudyLessonService(options: {
           409,
         );
         studyCheck(s.takeNumber <= STUDY_MAX_TAKES, "study_retry_limit", 409);
+        studyCheck(
+          now() >= (s.speechRetryAfter ?? 0),
+          "study_speech_retry_later",
+          429,
+        );
         if (s.currentAttemptId)
           return {
             attempt: await options.attempts.get(owner, s.currentAttemptId),
@@ -379,9 +390,10 @@ export function makeStudyLessonService(options: {
         const ref = { lessonId: id, presentationNumber, takeNumber };
         const attempt = await options.attempts.open(
           owner,
-          `lesson_${id}_${presentationNumber}_${takeNumber}`,
+          `lesson_${id}_${presentationNumber}_${takeNumber}${s.speechRetrySerial ? `_speech_${s.speechRetrySerial}` : ""}`,
           selectionOf(s.items[s.currentIndex].line),
           ref,
+          s.graderRevision,
         );
         studyCheck(
           JSON.stringify(attempt.line) ===

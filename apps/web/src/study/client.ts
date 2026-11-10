@@ -76,9 +76,11 @@ export function createStudyClient(
           ? "Sign in again to continue Study."
           : body.error === "study_authorization_required"
             ? "Sign out, then sign in again to continue."
-          : body.error === "study_recording_too_short"
-            ? "Record for at least one second, then try again."
-            : "Your answer could not be saved. Try again.",
+            : body.error === "study_speech_retry_later"
+              ? "Speech is busy. Your answer was not counted. Wait a minute, then try again."
+              : body.error === "study_recording_too_short"
+                ? "Record for at least one second, then try again."
+                : "Your answer could not be saved. Try again.",
       );
     }
     return response.json();

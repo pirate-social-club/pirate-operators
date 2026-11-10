@@ -11,6 +11,7 @@ import type {
   AnyStudyLessonOffer,
   StudyLessonOfferV4,
 } from "../packages/study/operator-contract.ts";
+import type { StudyGraderActivation } from "../packages/study/grader-revision.ts";
 import {
   studySong,
   type StudySong,
@@ -47,6 +48,7 @@ import {
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 export interface StudyEnv extends KaraokeEnv {
+  STUDY_GRADER_ACTIVATION?: string;
   STUDY_RESULTS_V3_CONTRACT?: string;
   /** The V4 results contract; must equal the directory's learningRecords. */
   STUDY_RESULTS_V4_CONTRACT?: string;
@@ -221,6 +223,9 @@ export function liveStudy(
       409,
     );
     const offer = {
+      ...(state.graderRevision === "script_aware_token_phonetic_v5"
+        ? { graderRevision: state.graderRevision }
+        : {}),
       lessonId: lesson.lessonId,
       learner: session.wallet as Address,
       sourceDigest: selected.hash as Hex,
@@ -346,6 +351,13 @@ export function liveStudy(
     },
   });
   const lessons = makeStudyLessonService({
+    ...(ports.env.STUDY_GRADER_ACTIVATION
+      ? {
+          graderActivation: JSON.parse(
+            ports.env.STUDY_GRADER_ACTIVATION,
+          ) as StudyGraderActivation,
+        }
+      : {}),
     db: ports.db,
     attempts,
     now,

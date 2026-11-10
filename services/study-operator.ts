@@ -6,9 +6,7 @@ import {
   STUDY_MAX_TAKES,
   studyPresentationCap,
 } from "../packages/study/lesson.ts";
-import {
-  verifyStudyAuthorization,
-} from "../packages/study/operator-auth.ts";
+import { verifyStudyAuthorization } from "../packages/study/operator-auth.ts";
 import {
   validateStudyOffer,
   studyId,
@@ -18,7 +16,6 @@ import {
   type StudySpeechReceipt,
 } from "../packages/study/operator-contract.ts";
 import {
-  StudySpeechError,
   makeStudyTranscriber,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
@@ -46,6 +43,13 @@ export type { StudyAuthorizationBinding };
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import type { Env } from "./runtime.ts";
+import type { SpeechAdmissionEnv } from "./study-speech-reservation.ts";
+import { withSafeStudySpeechRetries } from "../packages/study/speech-retries.ts";
+import {
+  recoverStudySpeech,
+  type StudySpeechJob as SpeechJob,
+} from "./study-speech-receipt.ts";
+import { dispatchStudySpeech } from "./study-speech-dispatch.ts";
 
 /** A V3 lesson binding: the learner's learning enrollment. */
 export interface StudyOperatorBinding {
@@ -57,14 +61,6 @@ export interface StudyOperatorBinding {
   authorization?: never;
 }
 export type StudyBinding = StudyOperatorBinding | StudyAuthorizationBinding;
-interface SpeechJob {
-  bindingHash: Hex;
-  requestHash: Hex;
-  audioDigest: Hex;
-  parameters: StudySpeechParameters;
-  receipt: StudySpeechReceipt;
-  expiresAt: number;
-}
 export const studyBinding = (store: ResultStore, id: string) =>
   store.get<StudyBinding>(`studyBinding:${id}`);
 
@@ -219,7 +215,10 @@ async function speak(
     } satisfies StudySpeechReceipt;
   check(env.SPEECH_BUDGET, "speech_budget_unconfigured");
   const provider =
-    transcriber ?? makeStudyTranscriber(env.ELEVENLABS_API_KEY ?? "");
+    transcriber ??
+    withSafeStudySpeechRetries(
+      makeStudyTranscriber(env.ELEVENLABS_API_KEY ?? ""),
+    );
   const slot = `studySpeechSlot:${parameters.lessonId}:${parameters.presentationNumber}:${parameters.takeNumber}`;
   const inserted = store.transaction(() => {
     check(
@@ -235,7 +234,13 @@ async function speak(
       return false;
     }
     const used = store.get<string>(slot);
-    check(!used || used === parameters.attemptId, "study_speech_slot_spent");
+    check(
+      !used ||
+        used === parameters.attemptId ||
+        store.get<SpeechJob>(`studySpeech:${used}`)?.receipt.state ===
+          "unavailable",
+      "study_speech_slot_spent",
+    );
     check(store.now() * 1000 < binding.offer.expiresAt, "study_lesson_expired");
     store.set(slot, parameters.attemptId);
     store.set(key, {
@@ -249,46 +254,20 @@ async function speak(
     return true;
   });
   if (!inserted) return store.get<SpeechJob>(key)!.receipt;
-  let receipt: StudySpeechReceipt;
-  let dispatched = false;
-  try {
-    // The same object used by Karaoke and alignment, with no separate quota.
-    await env.SPEECH_BUDGET.getByName("elevenlabs-service").claim();
-    check(
-      !closedStudyPublication(store, parameters.lessonId) &&
-        store.now() * 1000 < binding.offer.expiresAt,
-      "study_lesson_expired",
-    );
-    dispatched = true;
-    const transcript = await provider.transcribe(
-      audio.audio,
-      audio.contentType,
-      line.language,
-    );
-    receipt = { state: "assessed", transcript };
-  } catch (error) {
-    receipt = {
-      state:
-        !dispatched ||
-        (error instanceof StudySpeechError && error.outcome === "known_failed")
-          ? "unavailable"
-          : "uncertain",
-      error:
-        error instanceof StudySpeechError ? error.code : "speech_unavailable",
-    };
-  }
-  const job = store.get<SpeechJob>(key);
-  if (
-    !job ||
-    job.expiresAt <= store.now() ||
-    closedStudyPublication(store, parameters.lessonId)
-  )
-    return {
-      state: "unavailable",
-      error: "study_history_expired",
-    } satisfies StudySpeechReceipt;
-  store.set(key, { ...job, receipt });
-  return receipt;
+  return dispatchStudySpeech({
+    env: env as Env & SpeechAdmissionEnv,
+    store,
+    parameters,
+    key,
+    requestHash,
+    bodyHash,
+    expiresAtMs: binding.offer.expiresAt,
+    channel: binding.offer.speechChannel ?? "website-study",
+    audio: audio.audio,
+    contentType: audio.contentType,
+    language: line.language,
+    provider,
+  });
 }
 
 export async function studyOperatorRoute(
@@ -383,12 +362,19 @@ export async function studyOperatorRoute(
       studyId(value.attemptId),
     "invalid_study_status_request",
   );
-  const job = store.get<SpeechJob>(`studySpeech:${value.attemptId}`);
+  let job = store.get<SpeechJob>(`studySpeech:${value.attemptId}`);
   check(
     job &&
       job.parameters.lessonId === value.lessonId &&
       job.expiresAt > store.now(),
     "study_speech_not_found",
+  );
+  job = await recoverStudySpeech(
+    env as Env & SpeechAdmissionEnv,
+    store,
+    `studySpeech:${value.attemptId}`,
+    job,
+    transcriber,
   );
   return reply({
     parameters: job.parameters,

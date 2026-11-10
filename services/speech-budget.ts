@@ -1,11 +1,42 @@
 import { DurableObject } from "cloudflare:workers";
 import { check } from "../packages/protocol/index.ts";
+import {
+  CommunitySpeechAdmission,
+  type SpeechAdmissionPolicy,
+  type SpeechReservationInput,
+} from "./study-speech-admission.ts";
 
-/** One coordination object for the shared provider allowance across communities. */
+/** Legacy count plus versioned admission, scoped by community/key generation. */
 export class SpeechBudget extends DurableObject<{
   SPEECH_DAILY_LIMIT: string;
+  SPEECH_ADMISSION_CONFIG?: string;
 }> {
+  private admissionService?: CommunitySpeechAdmission;
+  private admission() {
+    check(this.env.SPEECH_ADMISSION_CONFIG, "speech_admission_unconfigured");
+    return (this.admissionService ??= new CommunitySpeechAdmission(
+      this.ctx.storage,
+      JSON.parse(this.env.SPEECH_ADMISSION_CONFIG) as SpeechAdmissionPolicy,
+    ));
+  }
+  async reserve(input: SpeechReservationInput) {
+    return this.admission().reserve(input);
+  }
+  async dispatch(requestId: string) {
+    return this.admission().dispatch(requestId);
+  }
+  async reservation(requestId: string) {
+    return this.admission().get(requestId);
+  }
+  async resolve(
+    requestId: string,
+    state: "succeeded" | "refused" | "unknown",
+    evidenceDigest: string,
+  ) {
+    return this.admission().resolve(requestId, state, evidenceDigest);
+  }
   async claim() {
+    check(!this.env.SPEECH_ADMISSION_CONFIG, "speech_admission_required");
     const limit = Number(this.env.SPEECH_DAILY_LIMIT);
     check(
       Number.isSafeInteger(limit) && limit >= 0,
