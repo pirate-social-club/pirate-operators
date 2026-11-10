@@ -1,7 +1,12 @@
 // Conservative lifetime allowance. Unknown and reverted work stays charged.
 // A new key or service restart cannot reset this journal's budget.
 import { check } from "../packages/protocol/index.ts";
-import type { TxStore } from "./operator-tx.ts";
+import {
+  discardUnallocated,
+  intentOf,
+  type TxRow,
+  type TxStore,
+} from "./operator-tx.ts";
 
 export interface SponsorLimits {
   cap: bigint;
@@ -213,6 +218,7 @@ export function reserveActivationSponsorship(
   );
   check(/^0x[0-9a-f]{64}$/i.test(authorizationId), "invalid_authorization");
   return store.transaction(() => {
+    check(!authorizationRetired(store, authorizationId), "stale_sign_in");
     const key = `sponsor:activation:account:${learner.toLowerCase()}`;
     const previous = store.get<{ id: string; amount: string }>(key);
     if (previous) {
@@ -248,5 +254,70 @@ export function reserveActivationSponsorship(
       committed: String(BigInt(old?.committed ?? 0) + amount),
     } satisfies ActivationLedger);
     return reservation;
+  });
+}
+
+const retiredKey = (id: string) => `sponsor:authorization:retired:${id}`;
+export const authorizationRetired = (store: TxStore, id: string) =>
+  store.get(retiredKey(id)) !== undefined;
+
+/** Expiry is checked by the authorization service. An allocation, even without
+ * signed bytes, is uncertain and never refundable here. Orphan rows also veto
+ * refunds. Retire unsent intents and refund their reservations atomically;
+ * release cohort capacity only if the entire first-use bundle was never allocated.
+ */
+export function retireUnallocatedAuthorization(
+  store: TxStore,
+  limits: SponsorLimits,
+  learner: string,
+  id: string,
+) {
+  return store.transaction(() => {
+    const kinds = ["record_activate", "record_authorize"] as const;
+    const rows = store.entries("tx:").map(({ value }) => value as TxRow);
+    const unsent = kinds.map((kind) => {
+      const intent = intentOf(store, kind, id);
+      const reservation = store.get<Reservation>(
+        `sponsor:reservation:${kind}:${id}`,
+      );
+      // A charge without its intent is inconsistent evidence, not proof that
+      // allocation never happened. Retain it just like an orphan signed row.
+      return (
+        intent?.nonce == null &&
+        !rows.some((row) => row.kind === kind && row.ref === id) &&
+        (!reservation ||
+          reservation.state === "reserved" ||
+          reservation.state === "released" ||
+          (reservation.state === "charged" && !!intent))
+      );
+    });
+    // Tombstone also fences callers that were awaiting an RPC before retirement.
+    store.set(retiredKey(id), { reason: "stale_sign_in" });
+    for (const [index, kind] of kinds.entries())
+      if (unsent[index]) {
+        check(
+          discardUnallocated(store, kind, id),
+          "authorization_retirement_changed",
+        );
+        refundUnsent(store, limits, `${kind}:${id}`);
+      }
+    const key = `sponsor:activation:account:${learner.toLowerCase()}`;
+    const slot = store.get<{ id: string; amount: string }>(key);
+    if (slot?.id === id && unsent.every(Boolean)) {
+      const ledger = store.get<ActivationLedger>("sponsor:activation:ledger");
+      check(
+        ledger &&
+          ledger.usedAccounts > 0 &&
+          BigInt(ledger.committed) >= BigInt(slot.amount),
+        "activation_ledger_inconsistent",
+      );
+      store.set("sponsor:activation:ledger", {
+        ...ledger,
+        usedAccounts: ledger.usedAccounts - 1,
+        committed: String(BigInt(ledger.committed) - BigInt(slot.amount)),
+      });
+      store.delete(key);
+    }
+    return unsent.every(Boolean);
   });
 }

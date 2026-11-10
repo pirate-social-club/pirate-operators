@@ -13,6 +13,10 @@ import { learningV4Disclosure } from "./learning-policy-v4.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
 
+import {
+  closeWithdrawnStudyLessons,
+  noteChainWithdrawal,
+} from "./learning-public-results.ts";
 import { assertConnectedLearningLink } from "../packages/community-setup/connected-learning.ts";
 
 export const SIGN_IN_RELAY_WINDOW_S = 30 * 86400;
@@ -299,6 +303,9 @@ export async function practiceAuthorization(
   atS: number,
   now: number,
 ) {
+  // Central cleanup also runs on retries that find the local off flag before
+  // there is any selected authorization. All admission consumers share it.
+  await closeWithdrawnStudyLessons(db, accountId, now);
   let chosen = await recordedAuthorization(db, accountId, subject, atS);
   if (!chosen.id && chosen.pending) {
     await requestSignInRelay(env, db, accountId, now);
@@ -307,13 +314,24 @@ export async function practiceAuthorization(
   if (!chosen.id) return chosen;
   const live = await liveAccountAuthorization(env, subject);
   if (!live) return { id: null, pending: true } as const;
-  if (live.pendingWithdrawal || live.since === 0)
+  if (live.pendingWithdrawal || live.since === 0) {
+    await noteChainWithdrawal(
+      env,
+      db,
+      { account_id: accountId, wallet: subject },
+      undefined,
+      live,
+      now,
+    );
     return { id: null, pending: false } as const;
+  }
   // Re-read after the network wait. A local withdrawal or replacement while
   // that read was in flight must not admit the old sign-in.
   const current = await recordedAuthorization(db, accountId, subject, atS);
-  if (!current.id || current.id !== chosen.id)
+  if (!current.id || current.id !== chosen.id) {
+    await closeWithdrawnStudyLessons(db, accountId, now);
     return { id: null, pending: false } as const;
+  }
   const row = await db
     .prepare(
       `SELECT a.issued_at FROM learning_authorizations a

@@ -9,6 +9,10 @@
 // community as turning off does. The operator stops that learner's V3
 // results not yet sent by reading the withdrawal from the V4 contract.
 import { isAddress, type Address } from "viem";
+import { makeStudyLessonService } from "./study-lessons.ts";
+import { makeStudyService } from "./study-spoken.ts";
+import { StudyLessonStore } from "../packages/study/lesson-store.ts";
+import { freezeStudyOutbox } from "./study-outbox.ts";
 import type { SignInV4 } from "../packages/community/accounts.ts";
 import { insist, object } from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
@@ -71,7 +75,12 @@ export async function publicationSignInAtLogin(
       withdrawn: number | null;
       acknowledged: string | null;
     }>();
-  if (account?.withdrawn != null || !env.KARAOKE_OPERATOR) return undefined;
+  if (account?.withdrawn != null) {
+    await endLessons({ account_id: account.account_id, wallet });
+    await closeWithdrawnStudyLessons(db, account.account_id);
+    return undefined;
+  }
+  if (!env.KARAOKE_OPERATOR) return undefined;
   const observed = await loginWithdrawal(env, wallet, waitMs);
   if (observed === undefined || observed.pending) return undefined;
   if (
@@ -116,6 +125,11 @@ export async function publicationSignInAtLogin(
         : undefined;
     }
     await endLessons({ account_id: account.account_id, wallet });
+    await closeWithdrawnStudyLessons(
+      db,
+      account.account_id,
+      Math.max(Date.now(), observed.atMs),
+    );
   }
   return undefined;
 }
@@ -186,6 +200,7 @@ export async function turnOffPublicResults(
     // As the policy says: an open Study lesson closes at once. A retry of
     // this request repeats it; the closure is idempotent.
     await endLessons();
+    await closeWithdrawnStudyLessons(db, learner.account_id, now);
   }
   return {
     state: relayed.state,
@@ -201,6 +216,8 @@ export async function turnOnPublicResults(
   learner: Learner,
 ) {
   operatorFor(env, config);
+  // Do not reopen local admission while an earlier cleanup is interrupted.
+  await closeWithdrawnStudyLessons(db, learner.account_id);
   // A relayed withdrawal may mine after the application's recorded time.
   // Explicit turn-on acknowledges its exact chain nonce before clearing the flag,
   // so the next login does not mistake that same withdrawal for a new one.
@@ -226,6 +243,77 @@ export async function turnOnPublicResults(
   return { publicResults: await publicResults(db, learner.account_id, true) };
 }
 
+/** Canonical lesson/attempt CAS closure, usable before feature admission has
+ * constructed a Study service. Cleanup cannot resolve sources or call speech.
+ * Terminal facts remain in D1 for the existing publication/retention recovery.
+ */
+export async function closeWithdrawnStudyLessons(
+  db: D1Database,
+  accountId: string,
+  now = Date.now(),
+) {
+  const settings = await db
+    .prepare(
+      "SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?",
+    )
+    .bind(accountId)
+    .first<{ withdrawn: number | null }>();
+  if (settings?.withdrawn == null) return;
+  const enabled = await db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='study_lessons'",
+    )
+    .first();
+  if (!enabled) return; // Login-only communities have no Study schema.
+  const identity = await db
+    .prepare("SELECT community_id FROM application_identity WHERE id=1")
+    .first<{ community_id: string }>();
+  insist(identity, "community_identity_required", 503);
+  const owner = {
+    accountId,
+    communityId: identity.community_id as `0x${string}`,
+  };
+  const forbidden = async (): Promise<never> => {
+    throw new Error("study_authorization_required");
+  };
+  const store = new StudyLessonStore(db);
+  let closureAt = Math.max(now, settings.withdrawn);
+  const lessons = makeStudyLessonService({
+    db,
+    now: () => closureAt,
+    attempts: makeStudyService({
+      db,
+      now: () => now,
+      resolveLine: forbidden,
+      transcriber: { providerRetention: "stored", transcribe: forbidden },
+    }),
+    resolveLines: forbidden,
+    consentExpiry: (o, id) => store.consentExpiry(o, id),
+  });
+  const open = await db
+    .prepare(
+      `SELECT lesson_id FROM study_lessons
+    WHERE account_id=? AND community_id=? AND history_deleted_at IS NULL
+      AND json_extract(state_json,'$.status')='active' ORDER BY started_at,lesson_id`,
+    )
+    .bind(accountId, identity.community_id)
+    .all<{ lesson_id: string }>();
+  for (const { lesson_id } of open.results) {
+    // Recheck the flag after each asynchronous closure; explicit turn-on wins.
+    const current = await db
+      .prepare(
+        "SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?",
+      )
+      .bind(accountId)
+      .first<{ withdrawn: number | null }>();
+    if (current?.withdrawn == null) return;
+    const state = store.state(await store.row(owner, lesson_id));
+    closureAt = Math.max(closureAt, state.startedAt);
+    await lessons.abandon(owner, lesson_id, "consent_ended");
+    await freezeStudyOutbox(db, owner, lesson_id);
+  }
+}
+
 /**
  * After the operator refuses new work because permission is not in force,
  * a withdrawal made outside the application (directly on chain) is recorded,
@@ -241,16 +329,28 @@ export async function noteChainWithdrawal(
   db: D1Database,
   learner: Learner,
   endLessons: () => Promise<unknown> = async () => undefined,
+  observed?: {
+    since: number;
+    revokedAt: number;
+    revocationNonce: string;
+    pendingWithdrawal: boolean;
+  },
+  now = Date.now(),
 ) {
-  if (!env.KARAOKE_OPERATOR) return false;
-  const response = await env.KARAOKE_OPERATOR.fetch(
-    `http://service/authorization/${learner.wallet as Address}`,
-  );
-  if (!response.ok) return false;
-  const live = (await response.json()) as {
-    since?: unknown;
-    revokedAt?: unknown;
-  };
+  if (!env.KARAOKE_OPERATOR && !observed) return false;
+  const response = observed
+    ? undefined
+    : await env.KARAOKE_OPERATOR!.fetch(
+        `http://service/authorization/${learner.wallet as Address}`,
+      );
+  if (response && !response.ok) return false;
+  const live =
+    observed ??
+    ((await response!.json()) as {
+      since?: unknown;
+      revokedAt?: unknown;
+      revocationNonce?: unknown;
+    });
   const revokedAt = Number(live.revokedAt);
   if (live.since !== 0 || !Number.isSafeInteger(revokedAt) || revokedAt <= 0)
     return false;
@@ -263,11 +363,40 @@ export async function noteChainWithdrawal(
     .bind(learner.account_id, revokedAt)
     .first<{ later: number; withdrawn: number | null }>();
   if (!later || later.later) return false;
-  const recorded = later.withdrawn === null;
-  if (recorded)
-    await recordWithdrawal(db, learner.account_id, revokedAt * 1000);
+  // Commit with the same later-sign-in and explicit-turn-on fences checked
+  // again inside SQL. A slow observation must not overwrite a newer choice.
+  const nonce =
+    typeof live.revocationNonce === "string" &&
+    /^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce)
+      ? live.revocationNonce
+      : null;
+  const marked = await db
+    .prepare(
+      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at)
+    SELECT ?1,?2,?2 WHERE NOT EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1
+      AND state IN ('pending','recorded') AND issued_at>?3)
+    ON CONFLICT(account_id) DO UPDATE SET
+      public_results_withdrawn_at=COALESCE(public_results_withdrawn_at,excluded.public_results_withdrawn_at),
+      last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)
+    WHERE NOT EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1
+      AND state IN ('pending','recorded') AND issued_at>?3)
+      AND (?4 IS NULL OR acknowledged_revocation_nonce IS NULL
+        OR length(acknowledged_revocation_nonce)<length(?4)
+        OR (length(acknowledged_revocation_nonce)=length(?4) AND acknowledged_revocation_nonce<?4))`,
+    )
+    .bind(learner.account_id, revokedAt * 1000, revokedAt, nonce)
+    .run();
+  // An already recorded withdrawal retries closure after a prior interruption.
+  const current = await db
+    .prepare(
+      "SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?",
+    )
+    .bind(learner.account_id)
+    .first<{ withdrawn: number | null }>();
+  if (current?.withdrawn == null) return false;
   await endLessons();
-  return recorded;
+  await closeWithdrawnStudyLessons(db, learner.account_id, now);
+  return later.withdrawn === null && marked.meta.changes > 0;
 }
 
 /** Runs `work`; on a known refusal for missing permission, notes a chain withdrawal first. */

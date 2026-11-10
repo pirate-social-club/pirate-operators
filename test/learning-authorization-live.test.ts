@@ -52,8 +52,11 @@ async function fixture() {
 test("practice refuses revoked or restarted authority, unrelated account and uncertain reads", async () => {
   const f = await fixture();
   try {
-    const admission = (value: unknown, account = "a") =>
-      practiceAuthorization(
+    const admission = async (value: unknown, account = "a") => {
+      // These are independent authority scenarios. Revocation now records a
+      // durable local off flag, so reset only the fixture between scenarios.
+      await f.db.prepare("DELETE FROM learning_settings").run();
+      return practiceAuthorization(
         operator(async () => Response.json(value)),
         f.db,
         account,
@@ -61,6 +64,7 @@ test("practice refuses revoked or restarted authority, unrelated account and unc
         110,
         110000,
       );
+    };
     assert.deepEqual(await admission(live), { id });
     assert.deepEqual(
       await admission({
