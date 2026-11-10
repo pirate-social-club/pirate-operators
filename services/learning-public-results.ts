@@ -57,7 +57,10 @@ export async function publicationSignInAtLogin(
   db: D1Database,
   address: unknown,
   v4: SignInV4 | undefined,
-  endLessons: (learner: Learner) => Promise<unknown> = async () => undefined,
+  // Kept for existing callers only. Never run reconciliation on the login
+  // path: the canonical local closure/outbox below is its durable journal.
+  _legacyEndLessons: (learner: Learner) => Promise<unknown> = async () =>
+    undefined,
   waitMs = 2000,
 ): Promise<SignInV4 | undefined> {
   if (!v4) return undefined;
@@ -76,7 +79,6 @@ export async function publicationSignInAtLogin(
       acknowledged: string | null;
     }>();
   if (account?.withdrawn != null) {
-    await endLessons({ account_id: account.account_id, wallet });
     await closeWithdrawnStudyLessons(db, account.account_id);
     return undefined;
   }
@@ -124,7 +126,6 @@ export async function publicationSignInAtLogin(
         ? v4
         : undefined;
     }
-    await endLessons({ account_id: account.account_id, wallet });
     await closeWithdrawnStudyLessons(
       db,
       account.account_id,
@@ -173,8 +174,8 @@ export async function turnOffPublicResults(
   learner: Learner,
   value: Record<string, unknown>,
   now: number,
-  /** Closes the account's open Study lessons once the withdrawal holds. */
-  endLessons: () => Promise<unknown> = async () => undefined,
+  /** Compatibility only; operator reconciliation runs from the durable outbox. */
+  _legacyEndLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const operator = operatorFor(env, config);
   if (value.signature === undefined)
@@ -199,7 +200,6 @@ export async function turnOffPublicResults(
     await recordWithdrawal(db, learner.account_id, now);
     // As the policy says: an open Study lesson closes at once. A retry of
     // this request repeats it; the closure is idempotent.
-    await endLessons();
     await closeWithdrawnStudyLessons(db, learner.account_id, now);
   }
   return {
@@ -246,6 +246,8 @@ export async function turnOnPublicResults(
 /** Canonical lesson/attempt CAS closure, usable before feature admission has
  * constructed a Study service. Cleanup cannot resolve sources or call speech.
  * Terminal facts remain in D1 for the existing publication/retention recovery.
+ * Bound/pending outbox rows stay queued, with all provider/transaction evidence
+ * intact. No remote reconciliation callback is needed to complete withdrawal.
  */
 export async function closeWithdrawnStudyLessons(
   db: D1Database,
@@ -290,15 +292,18 @@ export async function closeWithdrawnStudyLessons(
     resolveLines: forbidden,
     consentExpiry: (o, id) => store.consentExpiry(o, id),
   });
-  const open = await db
+  const unfinished = await db
     .prepare(
-      `SELECT lesson_id FROM study_lessons
-    WHERE account_id=? AND community_id=? AND history_deleted_at IS NULL
-      AND json_extract(state_json,'$.status')='active' ORDER BY started_at,lesson_id`,
+      `SELECT l.lesson_id FROM study_lessons l
+    LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
+    WHERE l.account_id=? AND l.community_id=? AND l.history_deleted_at IS NULL
+      AND (json_extract(l.state_json,'$.status')='active'
+        OR (p.state IN ('bound','pending') AND p.terminal_json IS NULL))
+    ORDER BY l.started_at,l.lesson_id`,
     )
     .bind(accountId, identity.community_id)
     .all<{ lesson_id: string }>();
-  for (const { lesson_id } of open.results) {
+  for (const { lesson_id } of unfinished.results) {
     // Recheck the flag after each asynchronous closure; explicit turn-on wins.
     const current = await db
       .prepare(
@@ -319,16 +324,16 @@ export async function closeWithdrawnStudyLessons(
  * a withdrawal made outside the application (directly on chain) is recorded,
  * so the session shows "off" and settings offers turning it back on. It is
  * recorded only when the chain shows a revocation and no sign-in the account
- * still counts was issued after it. While that holds, `endLessons` closes the
- * account's open Study lessons in this community, V3 and V4, as turning off
- * does; it is idempotent, so a repeated notice repeats it harmlessly.
- * Nothing is relayed here.
+ * still counts was issued after it. Canonical local cleanup closes open Study
+ * lessons in this community, V3 and V4, as turning off does. Repeated notices
+ * retry interrupted cleanup. Reconciliation stays in the durable outbox;
+ * nothing is relayed here.
  */
 export async function noteChainWithdrawal(
   env: { KARAOKE_OPERATOR?: Fetcher },
   db: D1Database,
   learner: Learner,
-  endLessons: () => Promise<unknown> = async () => undefined,
+  _legacyEndLessons: () => Promise<unknown> = async () => undefined,
   observed?: {
     since: number;
     revokedAt: number;
@@ -394,7 +399,6 @@ export async function noteChainWithdrawal(
     .bind(learner.account_id)
     .first<{ withdrawn: number | null }>();
   if (current?.withdrawn == null) return false;
-  await endLessons();
   await closeWithdrawnStudyLessons(db, learner.account_id, now);
   return later.withdrawn === null && marked.meta.changes > 0;
 }
