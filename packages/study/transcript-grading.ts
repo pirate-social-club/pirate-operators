@@ -166,6 +166,10 @@ const expandEnglishContractionsV5 = (value: string): string =>
   expandEnglishContractionsV4(value)
     .replace(/\bwanna\b/giu, "want to")
     .replace(/\b(nothin|somethin|anythin|everythin)\b'?/giu, "$1g")
+    // These short forms are unambiguous English participles, even when STT
+    // omits the apostrophe. A general two-letter stem rule would also turn
+    // ordinary words such as thin, coin, skin and grin into different tokens.
+    .replace(/\b(go|do|be|ly|dy|ty|vy|us|ow)in\b'?/giu, "$1ing")
     .replace(/\b([a-z]{3,})in'(?![a-z])/giu, "$1ing");
 
 const rawTokens = (
