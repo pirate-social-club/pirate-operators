@@ -147,6 +147,15 @@ test("closure stores entries and evidence together, fences payment, and reconcil
     );
     canonical = false;
     await assert.rejects(
+      payments.prepare(payment.paymentId, learner.accountId),
+      /fixture_cutoff_replaced/,
+    );
+    const missing = new RewardPayments(f.store, f.chain, f.now);
+    await assert.rejects(
+      missing.prepare(payment.paymentId, learner.accountId),
+      /reward_closure_unavailable/,
+    );
+    await assert.rejects(
       payments.dispatch(payment.paymentId, "pay", "attempt_closure"),
       /fixture_cutoff_replaced/,
     );
@@ -164,6 +173,10 @@ test("closure stores entries and evidence together, fences payment, and reconcil
     ]);
     const reconciled = await payments.recover(payment.paymentId, paidHash);
     assert.equal(reconciled.state, "confirmed");
+    assert.equal(
+      (await missing.prepare(payment.paymentId, learner.accountId)).state,
+      "confirmed",
+    );
     assert.equal(
       (await f.store.credits(learner.accountId))[0].paid_atomic,
       payment.amountAtomic,

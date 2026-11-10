@@ -203,13 +203,18 @@ export async function readPublicResultsV3(
     runtimeCodeHash: Hex;
     fromBlock: bigint;
     toBlock: bigint;
+    /** The application may pin the exact cutoff shared with other sources. */
+    expectedToBlockHash?: Hex;
     /** V4 keeps V3's Result struct and ResultPublished event; only its
      * permission model differs, so the same verification applies. */
     version?: 3 | 4;
   },
 ) {
   const expectedVersion = input.version ?? 3;
-  check(expectedVersion === 3 || expectedVersion === 4, "unsupported_results_version");
+  check(
+    expectedVersion === 3 || expectedVersion === 4,
+    "unsupported_results_version",
+  );
   check(input.chainId === 31337 || input.chainId === 6343, "unsupported_chain");
   check(
     input.fromBlock >= 0n && input.toBlock >= input.fromBlock,
@@ -218,6 +223,12 @@ export async function readPublicResultsV3(
   const client = createPublicClient({ transport: http(input.rpcUrl) });
   check((await client.getChainId()) === input.chainId, "wrong_result_chain");
   const before = await client.getBlock({ blockNumber: input.toBlock });
+  check(
+    before.number === input.toBlock &&
+      (input.expectedToBlockHash === undefined ||
+        before.hash === input.expectedToBlockHash),
+    "canonical_head_changed_retry",
+  );
   const code = await client.getCode({
     address: input.contract,
     blockNumber: input.toBlock,
@@ -266,7 +277,13 @@ export async function readPublicResultsV3(
   }
   const results = await reducePublicResultsV3(events, input);
   const after = await client.getBlock({ blockNumber: input.toBlock });
-  check(before.hash === after.hash, "canonical_head_changed_retry");
+  check(
+    after.number === input.toBlock &&
+      before.hash === after.hash &&
+      (input.expectedToBlockHash === undefined ||
+        after.hash === input.expectedToBlockHash),
+    "canonical_head_changed_retry",
+  );
   return results;
 }
 
@@ -284,6 +301,7 @@ export const readPublicResults = (
     chainId: 31337 | 6343;
     fromBlock: bigint;
     toBlock: bigint;
+    expectedToBlockHash?: Hex;
   },
 ) =>
   readPublicResultsV3({

@@ -110,6 +110,28 @@ export async function verifyRewardOfferIds(
     await verifyStoredRewardClosure(store, source, row);
 }
 
+export async function verifyPaymentRewardClosures(
+  store: RewardStore,
+  source: RewardSources | undefined,
+  paymentId: string,
+) {
+  const items = await store
+    .statement(
+      `SELECT c.offer_id FROM reward_payment_items i
+     JOIN reward_credits c ON c.credit_id=i.credit_id
+     WHERE i.payment_id=? AND c.program_id=? ORDER BY c.offer_id`,
+      paymentId,
+      store.program,
+    )
+    .all<{ offer_id: string }>();
+  insist(items.results.length > 0, "reward_payment_items_missing", 503);
+  await verifyRewardOfferIds(
+    store,
+    source,
+    items.results.map((item) => item.offer_id),
+  );
+}
+
 /**
  * A new offer fixes the result sources it accepts at attachment, before its
  * window opens: the operator's choice, or every live source when none is

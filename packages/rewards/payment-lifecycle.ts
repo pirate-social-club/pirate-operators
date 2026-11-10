@@ -7,7 +7,7 @@ import type {
 } from "./contracts.ts";
 import { RewardStore, type PaymentRow } from "./store.ts";
 import { rewardAmount, rewardId } from "./validation.ts";
-import { verifyRewardOfferIds } from "./offers.ts";
+import { verifyPaymentRewardClosures } from "./offers.ts";
 import { MOSS_GUARD_IMPLEMENTATION } from "./moss-guard.ts";
 
 const terminal = (row: PaymentRow) =>
@@ -49,25 +49,10 @@ export class RewardPaymentLifecycle {
           attemptId,
         )
         .first<{ payment_id: string; action: string }>();
-      if (action === "pay") {
-        const items = await this.store
-          .statement(
-            `SELECT c.offer_id FROM reward_payment_items i
-           JOIN reward_credits c ON c.credit_id=i.credit_id
-           WHERE i.payment_id=? AND c.program_id=? ORDER BY c.offer_id`,
-            id,
-            this.store.program,
-          )
-          .all<{ offer_id: string }>();
-        insist(items.results.length > 0, "reward_payment_items_missing", 503);
-        // Opening or retrying a signing request is a new opportunity to pay.
-        // A consumed guard is instead reconciled above from its chain receipt.
-        await verifyRewardOfferIds(
-          this.store,
-          this.source,
-          items.results.map((item) => item.offer_id),
-        );
-      }
+      // Opening or retrying a signing request is a new opportunity to pay.
+      // A consumed guard is instead reconciled above from its chain receipt.
+      if (action === "pay")
+        await verifyPaymentRewardClosures(this.store, this.source, id);
       if (prior) {
         insist(
           prior.payment_id === id && prior.action === action,

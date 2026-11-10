@@ -126,6 +126,7 @@ test(
       const read = async (
         expectedCode = runtimeCodeHash,
         duringSource = async () => {},
+        expectedToBlockHash?: Hex,
       ) =>
         readPublicResultsV3({
           rpcUrl: evm.rpcUrl,
@@ -135,6 +136,7 @@ test(
           communityId: f.source.communityId,
           fromBlock: 0n,
           toBlock: await evm.publicClient.getBlockNumber({ cacheTime: 0 }),
+          expectedToBlockHash,
           studyManifest: async (hash) =>
             hash === digest(f.source) ? f.source : undefined,
           // Public-post authentication itself is qualified in the source-reader
@@ -153,6 +155,17 @@ test(
         true,
       );
       await assert.rejects(() => read(zeroHash), /result_code_changed/);
+      const realCutoff = (await evm.publicClient.getBlock()).hash;
+      assert.equal((await read(undefined, undefined, realCutoff)).length, 1);
+      await assert.rejects(
+        () =>
+          read(
+            undefined,
+            undefined,
+            digest("same height, different fork") as Hex,
+          ),
+        /canonical_head_changed_retry/,
+      );
       const corrected = packStudyOutcomes(
         unpackStudyOutcomes(bundle.outcomes, 4).map((x) => ({
           ...x,

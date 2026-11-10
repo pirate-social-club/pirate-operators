@@ -674,6 +674,7 @@ test("a categorical pin shares the scored cutoff and remains explicit and revali
     evidenceHash: rewardHash(9012),
   };
   const verified: bigint[] = [];
+  const scoredCutoffs: (Hex | undefined)[] = [];
   const live = liveRewardSources({
     db: {} as D1Database,
     profile: { ...liveProfile, resultSourceHash: scoredHash },
@@ -706,6 +707,7 @@ test("a categorical pin shares the scored cutoff and remains explicit and revali
     readResults: async (_source, range) => {
       assert.equal(range.fromBlock, 50n);
       assert.equal(range.toBlock, 89n);
+      scoredCutoffs.push(range.expectedToBlockHash);
       return [];
     },
     categorical: new Map([
@@ -754,6 +756,7 @@ test("a categorical pin shares the scored cutoff and remains explicit and revali
   await live.closure.admit!(pinned);
   const closed = await live.closure.scan(pinned, hashJson(pinned));
   assert.deepEqual(closed.entries, [entry]);
+  assert.deepEqual(scoredCutoffs, [undefined, undefined, cutoffHash]);
   assert.deepEqual(closed.captured, new Set([hashJson(entry)]));
   assert.deepEqual(
     closed.evidence.sources.map((pin) => pin.sourceHash),

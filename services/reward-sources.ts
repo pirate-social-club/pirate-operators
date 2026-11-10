@@ -531,6 +531,7 @@ export function liveRewardSources(input: {
           chainId: 6343,
           fromBlock: range.fromBlock,
           toBlock: head.number,
+          ...(inputHash ? { expectedToBlockHash: head.hash } : {}),
           ...(input.sourcePorts ?? {
             authenticateKaraoke: sourceAuthenticator(context),
             studyManifest: studySourceReader(context),
