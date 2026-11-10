@@ -63,13 +63,13 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
     sends = 0;
   const repository = new MediaRepository(runtime.db, song.communityId);
   const processor: MediaProcessor = {
-    async render() {
+    async render(_source, media) {
       return {
         bytes: source,
         facts: {
           sha256: hash,
           bytes: source.byteLength,
-          durationMs: 3000,
+          durationMs: media.durationSamples / 48,
           width: 320,
           height: 240,
           videoCodec: "h264",
@@ -87,7 +87,11 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
       perCommunity: 100,
       bytesPerCommunity: 1024 * 1024 * 1024,
     },
-    privateReviewPolicy: undefined as
+    privateReviewPolicy: {
+      version: "pirate.dance-private/1",
+      minSamples: 6 * SAMPLE_RATE,
+      maxSamples: 30 * SAMPLE_RATE,
+    } as
       | import("../packages/community-media/contracts.ts").MediaDurationPolicy
       | undefined,
     active: async () => enabled,
@@ -111,7 +115,7 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
     recordingSha256: hash,
     bytes: source.byteLength,
     startSample: 0,
-    durationSamples: SAMPLE_RATE * 3,
+    durationSamples: SAMPLE_RATE * 6,
     purpose: "private-review",
     publicConsent: false,
   };

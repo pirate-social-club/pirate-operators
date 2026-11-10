@@ -34,6 +34,12 @@ export function mediaErrorText(code: string) {
       "The video could not be processed. Try again or choose a different clip.",
     media_source_too_short:
       "The recording must cover the entire selected song segment.",
+    media_video_too_short:
+      "The picture must cover the entire selected song segment. A longer audio track does not extend the video.",
+    media_commit_outcome_unknown:
+      "Your request could not be confirmed. Resume it without making a new submission.",
+    media_private_policy_unconfigured:
+      "Recording isn’t available for this dance right now.",
     media_video_invalid:
       "Choose an MP4, MOV or WebM video with a valid picture.",
     media_recording_mismatch:

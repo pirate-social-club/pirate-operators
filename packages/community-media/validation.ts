@@ -9,6 +9,7 @@ import type {
 export const MAX_MEDIA_BYTES = 32 * 1024 * 1024;
 export const SAMPLE_RATE = 48_000;
 export const PRIVATE_RETENTION_MS = 7 * 86_400_000;
+export const UNSUBMITTED_TTL_MS = 2 * 86_400_000;
 export const PUBLIC_RETENTION_MS = 30 * 86_400_000;
 export const MAX_ATTEMPTS = 3;
 export class MediaError extends Error {
@@ -146,6 +147,9 @@ export function readyFacts(record: MediaRecord): ReadyMedia {
     rendition,
     readyAt,
     expiresAt,
+    submissionId,
+    trustedSubmittedAtMs,
+    reviewDeadlineMs,
   } = record;
   return {
     communityId,
@@ -164,6 +168,9 @@ export function readyFacts(record: MediaRecord): ReadyMedia {
     rendition: { ...rendition },
     readyAt,
     expiresAt,
+    submissionId,
+    trustedSubmittedAtMs,
+    reviewDeadlineMs,
   };
 }
 export function terminal(record: MediaRecord) {

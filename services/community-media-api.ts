@@ -64,7 +64,7 @@ export async function communityMediaApi(
         {
           version: MEDIA_VERSION,
           publicPosting,
-          privateReview: { allowed: true, reason: "active_account" },
+          privateReview: service.privateCapability(),
         },
         { headers },
       );

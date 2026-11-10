@@ -70,39 +70,75 @@ FFmpeg is never imported by Worker source. The host and service authentication
 are source-ready interfaces, not provisioned resources. Alchemy/Infisical and
 processor-host selection remain coordinator-owned deployment work.
 
-Lane 4 consumes readyForReview(id, exactBinding, reviewer), then includes
-MEDIA_COMMIT_GUARD and mediaCommitValues(witness, authoritativeCommitMs) in
-its verdict INSERT ... SELECT ... WHERE. Every guard uses positional bindings.
-The verdict write must include current reviewer delegation, identity,
-self-review, current song/rules revision and offer-window predicates in the
-same authoritative operation. The media predicate alone does not confer review
-authority or qualification. A stale revision after withdrawal/expiry inserts
-zero rows. Do not implement read-then-unconditional-insert. The seven-day media
-retention starts at reservation; if Dance needs a later submit deadline it must
-bound its review deadline to media expiry or admit a versioned retention change.
+Repair 1 consumes the proposed pirate.dance-admission-contract/2. Lane 4 first
+uses readyForSubmission(id, exactBinding, uploader), which verifies current
+uploader authority, song, recording binding, private policy version/bounds,
+readiness and unsubmitted expiry without requiring a reviewer role. If a
+prospective capture omits recordingSha256, the adapter may read the owned record
+for that one field; it must never replace expected community/account/song/policy
+or segment fields with stored values to bypass prospective binding checks.
 
-Dance can supply privateReviewPolicy with a frozen version and integer sample
-bounds. The ready facts carry mediaPolicyVersion; lane 4 must freeze and verify
-it along with its selected reference/rules. Public clips always keep song-clip/1
-(3–15 seconds); changing the private policy cannot widen public publication.
+Prepare retention with prepareMediaSubmission(repository, witness, submissionId,
+bindingCommitment, acceptedSubmissionFence). Execute beforeAcceptance, the
+actual Dance acceptance statements, then afterAcceptance in ONE D1 batch with
+the current identity/rules/capture fences. The final trusted SQL fence must
+prove a matching accepted Dance receipt, including media ID, binding commitment,
+trusted time, deadline and media revision. Omit or fail actual acceptance and
+the entire batch rolls back. Do not execute retention separately before submit.
+No browser retain endpoint exists.
 
-Shell mounts MediaFeed with a MediaClient and its existing song-route callback.
-Mount MediaUpload with purpose, server-selected song interval, the relevant
-permission capability, a fresh CSRF getter in mediaClient and optional
-initialMediaId. Persist a private Dance media ID in the Dance draft, so a
-refresh can resume status; do not put account credentials or recordings in
-localStorage. onReady receives immutable ReadyMedia for submission binding.
-Withdraw and erase is available independently of review; lane 4 must handle
-withdrawn media at verdict commit. Public consent is separate and explicit.
-Feature styles are a local CSS module; no shared stylesheet edit is needed.
+The winning insert into community_media_submissions captures database time
+once. Dance inserts its actual receipt by SELECTing submitted_at_ms, deadline_ms
+and media_revision from that row, bound to community/submission ID. deadline_ms
+is submitted_at_ms + 604800000 and is exclusive. Unsubmitted private media has a
+separate 48-hour TTL, independent of the one-hour upload TTL. Identical replay
+retains original time/deadline. A different binding or submission ID cannot
+retarget this recording. Read mediaSubmissionReceipt after an unknown batch
+response before retrying the same identity. Missing/unreadable receipt is
+unknown, not proof of rollback.
 
-Tests: node --test --test-concurrency=1 test/community-media*.test.ts, root
-npm run typecheck and apps/web npm run typecheck. Local synthetic media exercises
-D1, R2, render transport, FFmpeg and range HTTP. A fixture viewport screenshot
-does not establish real member/phone or deployed provider acceptance. Before a
-release the coordinator still needs exact-head independent review and all
-required CI, shell mounting, physical phone playback by another account, an
-admitted real clip, bounded processing-host deployment and erasure readback.
+Retention increments the lifecycle revision once. Freeze the receipt's
+mediaRevision in Dance, not the pre-retention witness revision. readyForReview
+continues to require an authorized non-self reviewer. For a D1 pending decision
+intent, include MEDIA_COMMIT_GUARD and mediaCommitValues(witness, trustedTimeMs)
+in its conditional insert with current reviewer, identity, rules and offer
+fences. Do not implement read-then-unconditional-insert. This fences local
+pending intents only: final canonical on-chain verdict/control ordering remains
+held under the successor Dance contract. Local access denial and byte erasure
+never promise cancellation of a transaction already ordered on chain.
+
+Dance must explicitly inject DANCE_PRIVATE_MEDIA_POLICY (pirate.dance-private/1)
+with 6–30-second integer sample bounds. Missing or different bounds deny private
+reservation/capability. The ready facts freeze mediaPolicyVersion. Public clips
+always keep song-clip/1 (3–15 seconds). Apply the appended lane-local submission
+tables through coordinator-assigned contiguous migration sequencing.
+
+Shell mounts MediaFeed with a MediaClient and the existing song-route callback.
+MediaUpload receives purpose, frozen selection, permission capability, optional
+initialMediaId and a real onClose route callback. Private Dance provides its
+existing capture controller and finished recording via capture/recording props;
+this adapter creates no second recorder or file-picker form. It uploads and
+prepares the finished take, then uses the actual DanceReviewPage pure layout
+(compact Your recording header and full-height private preview). Private Back
+invokes onClose and does not discard/withdraw. The public video frame remains
+only in public review, which ends after Post succeeds. onReady is readiness
+only. onSubmit must call actual trusted Dance acceptance and is the only
+submission action; no submit control appears without that adapter. It must own
+one durable command identity for this exact capture/media and reconcile it when
+re-entered through Resume submission after an unknown response. Never generate
+a new submission or deadline merely because that callback is called again. Persist
+the media ID in the existing Dance draft, not new localStorage authentication.
+
+Public consent is the reference Post action. The centralized Dance public
+posting toggle stays omitted while the owner policy is unresolved. The pinned
+pure Solid design system and independently adopted capture surfaces replace
+the bespoke CSS/form/cards. See [UI reconciliation](v1-video-ui-reference.md).
+
+Repair validation is limited to single-worker media tests and focused backend
+and UI type programs. No full npm check, browser or build sweep was admitted.
+Real clip, physical phone/another member, actual deployed erasure, private host
+authentication, canonical ordering, independent review and required release
+checks remain separate coordinator gates.
 
 Workers binding details were checked against the official R2 Workers API and
 D1 database documentation on 2026-11-10:

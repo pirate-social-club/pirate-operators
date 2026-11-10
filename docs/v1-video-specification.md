@@ -1,7 +1,8 @@
 # Community media v1
 
 Written before implementation on 2026-11-10 for lane 3 at base
-67cbe118ade39790bc1539999ca75d0d7ff10b6d. This specification is version 1.
+67cbe118ade39790bc1539999ca75d0d7ff10b6d. Repair 1 updates this specification
+to version 2 from preserved source 9a58ff463f0e09dd89b5d60ef89e483d60c04a19.
 
 The behavior reference is api-next origin/main
 f017e8014001a31d07b9e2de891e0907ad194b50, particularly
@@ -43,28 +44,41 @@ revision, song audio SHA-256, canonical audio sample count at 48 kHz, selected
 half-open song interval, uploaded recording SHA-256 and byte length, purpose,
 creation and expiry. The server resolves published song facts; client-provided
 durations are never authoritative. Song video intervals are 3–15 seconds,
-inclusive, and cannot exceed canonical song length. Private Dance can supply
-its own versioned duration limits (initial default 3–15 seconds); lane 4 must
-freeze any different reference/segment policy before admitting it.
+inclusive, and cannot exceed canonical song length. Private Dance requires an
+explicit server-injected versioned 6–30-second policy from lane 4. Missing or
+different bounds deny private reservation; there is no public-policy fallback.
 
 The original is bounded at 32 MiB and uploaded through an authenticated binary
 PUT. Actual received length and SHA-256 must match reservation. Processing
 probes the source and exact canonical song bytes, requires a video stream and
 enough source frames, strips source audio and metadata, and overlays the exact
-selected song segment. Output duration and codec facts are probed again. A
+selected song segment. Actual decoded video-frame timestamps and durations must
+cover the interval without gaps; a long audio/container duration cannot extend
+a short picture. Output video timing is checked independently again, and ready
+duration comes from that visual timeline rather than container duration. A
 ready record freezes recording and rendition digests, duration, codecs and
 generation. Original bytes are never a playback fallback.
 
 Lifecycle: uploading → queued → processing → ready; transient failures → failed
 with a safe error and bounded retry; uploading/queued/processing/failed/ready →
 withdrawn or revoked; any live record → expired at its exact expiry boundary.
-An upload expires after one hour unless processed; private review retention is
-seven days from reservation (lane 4 controls its own review deadline); public
+An upload expires after one hour unless processed. Unsubmitted private media
+has a separate 48-hour TTL. Actual accepted Dance submission atomically records
+trusted database submission time and retains media for exactly seven days from
+that time, with an exclusive deadline. The media retention plan must share the
+winning D1 batch with the actual Dance acceptance and its identity/rules fences;
+its mandatory final accepted-submission assertion rolls the batch back if no
+matching acceptance exists. Replay retains original time and cannot extend the
+deadline or retarget this recording into another submission. Public
 delivery retention is 30 days until a reviewed policy replaces it. Worker
 claims use a generation and expiring lease; a lost worker can be retried after
 lease expiry. A maximum of three attempts prevents an endless retry loop.
 Output keys include the worker claim token so a stale worker cannot overwrite
 a later successful rendition. Only the current claim can commit readiness.
+A lost write response is never treated as rollback. Cleanup reconciles the
+canonical source/rendition reference first and must disarm the old conditional
+commit with a newer revision before deleting an unreferenced object. Unknown
+reads or fencing outcomes preserve objects for reconciliation.
 
 The implementation names the upload-in-progress lease state receiving. Atomic
 reservations default to five active records per account, 100 per community and
@@ -77,7 +91,9 @@ community runner, which rechecks the current claim and song before rendering.
 Cancellation/withdrawal invalidates access immediately in D1, increments its
 revision and erases all object keys under the media prefix. A running worker
 rechecks lifecycle before commit and deletes its late output after refusal.
-Scheduled recovery requeues durable queued records, recovers expired leases,
+Every terminal sweep restores/persists erasePending before touching late
+objects, even after a previous successful sweep. Failed cleanup therefore
+retains quota accounting. Scheduled recovery requeues durable queued records, recovers expired leases,
 expires records and retries erasure. Erasure failure remains recorded for
 recovery, with no playback while pending. Minimal tombstones keep binding and
 deduplication facts; they retain no media bytes. Downloaded copies and bytes
@@ -87,25 +103,31 @@ provider copies needs its own acceptance evidence.
 Feed ordering is readyAt descending, then media ID descending, using an opaque
 exclusive cursor. Only ready public-feed items with unexpired media and valid
 current publication authority appear. Private IDs, objects, account IDs and
-processing details are never serialized into the public feed. Cards use
-controls, playsinline, metadata preload and captions explaining source song;
-no autoplay with sound. Empty, waiting, failed, unavailable and revoked states
+processing details are never serialized into the public feed. The established
+pure Solid VerticalFeed, VideoPlayer and MediaMore provide full-height snapping,
+play/pause, muted playback and the soundtrack link, without native feed controls.
+Capture/review uses independently adopted pure centralized surfaces. No
+autoplay with sound. Empty, waiting, failed, unavailable and revoked states
 are explicit. No fake feed rows or counts are generated.
 
-## Dance interface version 1
+## Dance interface successor
 
 packages/community-media/contracts.ts defines private-review purpose,
 MediaBinding, ReadyMedia and MediaReviewWitness. services/community-media.ts
-provides readyForReview(binding, reviewer), rechecking current actor authority,
+provides uploader-authorized readyForSubmission(id, binding, uploader), distinct
+from readyForReview(id, binding, reviewer), rechecking current actor authority,
 owner self-review exclusion, exact binding, song revision, state and expiry.
 It returns a witness containing media ID, community, revision, digest and
-expiry; the witness is not a playback capability. Lane 4 must insert a verdict
-with the exported media commit predicate in the SAME D1 statement/transaction,
-using its authoritative commit clock and rechecked reviewer authority. A
+expiry; the witness is not a playback capability. Lane 4 must insert a pending
+intent with the exported media predicate in the SAME D1 operation, using the
+trusted database clock and rechecked reviewer authority. A
 separate read followed by an unconditional verdict write is unsafe. Withdrawal,
 revocation and lease changes increment revision, so stale witnesses fail.
 The media record never fabricates qualification or score. Lane 4 owns frozen
 rules, seven-day verdict timing, decision uniqueness and economic admission.
+This D1 predicate fences pending intents only. Final verdict/control ordering
+and authoritative verdict commit time belong to the proposed canonical on-chain
+source in dance-admission-contract/2 and remain held.
 
 ## Evidence and integration gates
 

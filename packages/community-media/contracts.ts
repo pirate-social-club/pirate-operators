@@ -80,6 +80,10 @@ export interface MediaRecord extends MediaBinding {
   readyAt?: number;
   error?: string;
   erasePending?: boolean;
+  submissionId?: string;
+  submissionBindingCommitment?: string;
+  trustedSubmittedAtMs?: number;
+  reviewDeadlineMs?: number;
 }
 export interface ReadyMedia extends MediaBinding {
   version: typeof MEDIA_VERSION;
@@ -89,8 +93,11 @@ export interface ReadyMedia extends MediaBinding {
   rendition: Readonly<RenditionFacts>;
   readyAt: number;
   expiresAt: number;
+  submissionId?: string;
+  trustedSubmittedAtMs?: number;
+  reviewDeadlineMs?: number;
 }
-/** Not a bearer capability. Consume in the verdict INSERT's media predicate. */
+/** Not a bearer capability. Fences the D1 pending intent only, never final chain ordering. */
 export interface MediaReviewWitness {
   id: string;
   communityId: string;
@@ -98,6 +105,17 @@ export interface MediaReviewWitness {
   revision: number;
   recordingSha256: string;
   expiresAt: number;
+}
+export type MediaSubmissionWitness = MediaReviewWitness;
+export interface MediaSubmissionReceipt {
+  submissionId: string;
+  communityId: string;
+  accountId: string;
+  mediaId: string;
+  bindingCommitment: string;
+  trustedSubmittedAtMs: number;
+  reviewDeadlineMs: number;
+  mediaRevision: number;
 }
 export interface MediaCapability {
   allowed: boolean;

@@ -135,7 +135,7 @@ test("public policy is denied by default; explicit capability, consent and range
   );
 });
 
-test("expiry and withdrawal invalidate a witness atomically with verdict insertion", async (t) => {
+test("expiry and withdrawal fence a D1 pending intent without claiming canonical ordering", async (t) => {
   const f = await fixture(t),
     record = await f.ready();
   const { witness } = await f.service.readyForReview(
@@ -143,11 +143,13 @@ test("expiry and withdrawal invalidate a witness atomically with verdict inserti
     record,
     reviewer,
   );
-  await f.db.prepare("CREATE TABLE verdict_fixture(id TEXT PRIMARY KEY)").run();
+  await f.db
+    .prepare("CREATE TABLE pending_intent_fixture(id TEXT PRIMARY KEY)")
+    .run();
   const commit = () =>
     f.db
       .prepare(
-        `INSERT INTO verdict_fixture SELECT ? WHERE ${MEDIA_COMMIT_GUARD}`,
+        `INSERT INTO pending_intent_fixture SELECT ? WHERE ${MEDIA_COMMIT_GUARD}`,
       )
       .bind(crypto.randomUUID(), ...mediaCommitValues(witness, f.now()))
       .run();

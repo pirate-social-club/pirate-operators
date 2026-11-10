@@ -1,4 +1,8 @@
 import {
+  readyForMediaReview,
+  readyForMediaSubmission,
+} from "./community-media-access.ts";
+import {
   eraseCommunityMedia,
   recoverCommunityMedia,
 } from "./community-media-maintenance.ts";
@@ -8,16 +12,14 @@ import type {
   MediaFeedPage,
   MediaIntent,
   MediaRecord,
-  MediaReviewWitness,
   MediaStatus,
   PublishedMediaSong,
-  ReadyMedia,
 } from "../packages/community-media/contracts.ts";
 import { MEDIA_VERSION } from "../packages/community-media/contracts.ts";
 import {
   MAX_ATTEMPTS,
   mediaText,
-  PRIVATE_RETENTION_MS,
+  UNSUBMITTED_TTL_MS,
   PUBLIC_RETENTION_MS,
   readyFacts,
   requireMedia,
@@ -34,6 +36,7 @@ import {
   MEDIA_LEASE_MS,
   processCommunityMedia,
 } from "./community-media-jobs.ts";
+import { reconcileMediaArtifact } from "./community-media-reconciliation.ts";
 export class CommunityMedia {
   readonly ports: CommunityMediaPorts;
   constructor(ports: CommunityMediaPorts) {
@@ -61,6 +64,18 @@ export class CommunityMedia {
     await this.actor(actor);
     return this.ports.publicPosting(actor, song);
   }
+  privateCapability() {
+    const policy = this.ports.privateReviewPolicy;
+    const allowed =
+      !!policy &&
+      policy.version.length > 0 &&
+      policy.minSamples === 6 * 48000 &&
+      policy.maxSamples === 30 * 48000;
+    return {
+      allowed,
+      reason: allowed ? "active_account" : "media_private_policy_unconfigured",
+    };
+  }
   async reserve(actor: MediaActor, intent: MediaIntent) {
     await this.actor(actor);
     requireMedia(intent && typeof intent === "object", "invalid_media_intent");
@@ -72,8 +87,15 @@ export class CommunityMedia {
     );
     const policy =
       intent.purpose === "private-review"
-        ? (this.ports.privateReviewPolicy ?? SONG_CLIP_POLICY)
+        ? this.ports.privateReviewPolicy
         : SONG_CLIP_POLICY;
+    requireMedia(policy, "media_private_policy_unconfigured", 503);
+    if (intent.purpose === "private-review")
+      requireMedia(
+        this.privateCapability().allowed,
+        "media_private_policy_unconfigured",
+        503,
+      );
     validateIntent(intent, song, policy);
     if (intent.purpose === "public-feed")
       requireMedia(
@@ -106,7 +128,7 @@ export class CommunityMedia {
         expiresAt:
           now +
           (intent.purpose === "private-review"
-            ? PRIVATE_RETENTION_MS
+            ? UNSUBMITTED_TTL_MS
             : PUBLIC_RETENTION_MS),
         attempts: 0,
       },
@@ -186,14 +208,15 @@ export class CommunityMedia {
       await this.ports.enqueue(id).catch(() => {});
       return this.statusOf(queued);
     } catch (error) {
-      await this.ports.bucket.delete(sourceKey);
-      const current = await this.ports.repository.get(id);
-      if (current.state === "receiving" && current.claim === claim)
-        await this.ports.repository.save(current, {
-          state: "uploading",
-          claim: undefined,
-          leaseUntil: undefined,
-        });
+      const current = await reconcileMediaArtifact(
+        this,
+        receiving,
+        sourceKey,
+        "source",
+        error,
+      );
+      if (current.sourceKey === sourceKey && !terminal(current))
+        return this.statusOf(current);
       throw error;
     }
   }
@@ -304,36 +327,11 @@ export class CommunityMedia {
       );
     return record;
   }
-  async readyForReview(
-    id: string,
-    binding: MediaBinding,
-    reviewer: MediaActor,
-  ): Promise<{ media: ReadyMedia; witness: MediaReviewWitness }> {
-    await this.actor(reviewer);
-    const record = await this.ports.repository.get(id);
-    await this.usable(record);
-    requireMedia(
-      record.purpose === "private-review" &&
-        record.accountId !== reviewer.accountId &&
-        (await this.ports.reviewAuthority(reviewer, record)),
-      "media_review_forbidden",
-      403,
-    );
-    requireMedia(sameBinding(record, binding), "media_binding_mismatch", 409);
-    const media = readyFacts(record);
-    const { communityId, accountId, revision, recordingSha256, expiresAt } =
-      record;
-    return {
-      media,
-      witness: {
-        id,
-        communityId,
-        accountId,
-        revision,
-        recordingSha256,
-        expiresAt,
-      },
-    };
+  readyForReview(id: string, binding: MediaBinding, reviewer: MediaActor) {
+    return readyForMediaReview(this, id, binding, reviewer);
+  }
+  readyForSubmission(id: string, binding: MediaBinding, uploader: MediaActor) {
+    return readyForMediaSubmission(this, id, binding, uploader);
   }
   async feed(limit = 20, cursor?: string): Promise<MediaFeedPage> {
     requireMedia(

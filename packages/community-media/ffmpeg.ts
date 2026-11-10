@@ -9,6 +9,7 @@ import type {
   PublishedMediaSong,
 } from "./contracts.ts";
 import { MAX_MEDIA_BYTES, requireMedia, sha256 } from "./validation.ts";
+import { verifyVideoTiming } from "./video-timing.ts";
 const exec = promisify(execFile);
 interface Probe {
   streams: {
@@ -93,12 +94,17 @@ export class FFmpegMediaProcessor implements MediaProcessor {
         422,
       );
       requireMedia(
-        Number(videoProbe.format.duration) + 0.04 >= duration &&
-          audioProbe.streams.some((s) => s.codec_type === "audio") &&
+        audioProbe.streams.some((s) => s.codec_type === "audio") &&
           Number(audioProbe.format.duration) + 0.04 >=
             (media.startSample + media.durationSamples) / 48_000,
         "media_source_too_short",
         422,
+      );
+      await verifyVideoTiming(
+        original,
+        duration,
+        "source",
+        this.options.ffprobe,
       );
       // Finite duration, protocols and formats, single thread and timeout bound
       // untrusted input. Source audio and all metadata are deliberately omitted.
@@ -171,18 +177,22 @@ export class FFmpegMediaProcessor implements MediaProcessor {
       const rendered = probe.streams.find((s) => s.codec_type === "video"),
         sound = probe.streams.find((s) => s.codec_type === "audio");
       requireMedia(
-        rendered?.codec_name === "h264" &&
-          sound?.codec_name === "aac" &&
-          Math.abs(Number(probe.format.duration) - duration) <= 0.1,
+        rendered?.codec_name === "h264" && sound?.codec_name === "aac",
         "media_rendition_invalid",
         422,
+      );
+      const timing = await verifyVideoTiming(
+        output,
+        duration,
+        "rendition",
+        this.options.ffprobe,
       );
       return {
         bytes,
         facts: {
           sha256: await sha256(bytes),
           bytes: bytes.byteLength,
-          durationMs: Math.round(Number(probe.format.duration) * 1000),
+          durationMs: timing.durationMs,
           width: rendered.width!,
           height: rendered.height!,
           videoCodec: "h264" as const,

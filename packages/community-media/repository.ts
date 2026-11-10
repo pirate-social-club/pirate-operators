@@ -130,9 +130,10 @@ export class MediaRepository {
   }
 }
 
-/** Embed this fixed predicate in the verdict INSERT ... SELECT ... WHERE.
+/** Embed this fixed predicate in the pending-intent INSERT ... SELECT ... WHERE.
  * Bind these values after the verdict values, never interpolate account input.
  * Reviewer delegation/identity and rules/offer gates belong in that SAME write.
+ * This is not the final canonical on-chain ordering fence.
  */
 export const MEDIA_COMMIT_GUARD = `EXISTS (SELECT 1 FROM community_media
   WHERE id=? AND community_id=? AND account_id=? AND revision=?

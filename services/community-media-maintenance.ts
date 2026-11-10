@@ -11,6 +11,15 @@ export async function eraseCommunityMedia(
 ) {
   if (!terminal(record)) return;
   try {
+    // Re-establish accounting even after an earlier sweep succeeded. A worker
+    // may have written a late object after that sweep; failed deletion must not
+    // leave retained bytes outside the quota predicate.
+    record = await service.ports.repository.get(record.id);
+    if (!terminal(record)) return;
+    if (!record.erasePending)
+      record = await service.ports.repository.save(record, {
+        erasePending: true,
+      });
     let cursor: string | undefined;
     do {
       const page = await service.ports.bucket.list({

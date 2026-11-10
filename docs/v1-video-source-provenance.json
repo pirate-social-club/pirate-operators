@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "lane": 3,
-  "implementation": "Independent implementation; no copied runtime code or workspace dependency",
+  "implementation": "Independent community backend plus independently owned pure Solid UI adoption; no centralized service runtime or workspace dependency",
   "base": "67cbe118ade39790bc1539999ca75d0d7ff10b6d",
   "behaviorReferences": [
     {
@@ -22,5 +22,46 @@
     "https://developers.cloudflare.com/d1/worker-api/d1-database/"
   ],
   "checkedOn": "2026-11-10",
-  "independence": "Per-community D1/R2, managed private processing transport, independently owned FFmpeg runner; public rights denied pending owner policy"
+  "independence": "Per-community D1/R2, managed private processing transport, independently owned FFmpeg runner; public rights denied pending owner policy",
+  "repairBase": "9a58ff463f0e09dd89b5d60ef89e483d60c04a19",
+  "uiReferences": {
+    "repository": "pirate-web-solid",
+    "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+    "readOnly": true,
+    "sources": [
+      {
+        "path": "src/features/posts/post-composer/video-original-audio-surface.tsx",
+        "sha256": "a4914e21cbc739b146079645d0ddd072ca6c6e4259d9b92ebeef271bcab71d7b"
+      },
+      {
+        "path": "src/features/posts/video-feed/home-video-feed.tsx",
+        "sha256": "c7e47c46bdbd9385e2625331e858ac88b2bc8730fd1096b0ad2c7e16dc17b00c"
+      },
+      {
+        "path": "src/features/posts/video-feed/home-video-feed.stories.tsx",
+        "sha256": "0a8145e90383dbd7d6af129ad9384bbd0abd57525c80c66b42f9021ff19e39ca"
+      },
+      {
+        "path": "src/features/dance/dance-recorder-panel.tsx",
+        "sha256": "328783aee0d266c165ca59b9ec34975b3d0ffcf3c617f4126d040901721d6fbf"
+      },
+      {
+        "path": "src/features/dance/dance-review-page.tsx",
+        "sha256": "6dcedfdedc5d5a0026bba0f75170052955b4ebcf86dc9a55c09a98b6ec12a4e9"
+      },
+      {
+        "path": "src/features/dance/dance-review-page.stories.tsx",
+        "sha256": "53dce625f33ff8d065681faafdb5aa2d712784ff576c7097e7edd3dc1228cfbd"
+      }
+    ],
+    "adopted": {
+      "apps/web/src/media/reference-capture.tsx": "Pure capture/review source with local design-system imports and documented permission/binding adapters",
+      "apps/web/src/media/MediaFeed.tsx": "Pinned VerticalFeed, VideoPlayer, MediaMore; source MediaPost geometry and HomeVideoFeed copy/continuation",
+      "apps/web/src/media/MediaUpload.tsx": "Recorder processing/review journey and actual submission callback, no second recorder",
+      "apps/web/src/media/dance-review-surface.tsx": "Actual DanceReviewPage pure review branch: compact header, flexible private preview and submit/resume action; private Back preserves recording"
+    },
+    "departures": "docs/v1-video-ui-reference.md",
+    "visualGate": "Not rerun in repair 1; no heavy slot granted. Earlier bespoke UI screenshot does not establish repaired UI acceptance.",
+    "comparisonEvidence": ".local/media-owner-ui-comparison.json"
+  }
 }

@@ -4,6 +4,7 @@ import {
   requireMedia,
   sha256,
 } from "../packages/community-media/validation.ts";
+import { reconcileMediaArtifact } from "./community-media-reconciliation.ts";
 
 export const MEDIA_LEASE_MS = 120_000;
 export async function processCommunityMedia(
@@ -87,19 +88,12 @@ export async function processCommunityMedia(
       leaseUntil: undefined,
     });
   } catch (error) {
-    await service.ports.bucket.delete(outputKey);
-    const current = await service.ports.repository.get(id);
-    if (current.state === "processing" && current.claim === claim) {
-      const known =
-        error instanceof Error && /^media_[a-z_]+$/.test(error.message)
-          ? error.message
-          : "media_processing_failed";
-      await service.ports.repository.save(current, {
-        state: "failed",
-        error: known,
-        claim: undefined,
-        leaseUntil: undefined,
-      });
-    }
+    await reconcileMediaArtifact(
+      service,
+      record,
+      outputKey,
+      "rendition",
+      error,
+    );
   }
 }
