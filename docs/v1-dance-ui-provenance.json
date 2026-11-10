@@ -1,0 +1,97 @@
+{
+  "version": 2,
+  "sourcePins": [
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/dance/dance-owner-page.tsx",
+      "gitBlob": "99eac94ad9bef298d33c3d68b0457c63df6b75a1",
+      "sha256": "5f2710a2906275c347070da2d14efb416e679213dbbb1a503343ced8e3c684db"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/dance/dance-owner-controller.ts",
+      "gitBlob": "e99b0be225d93948e8d554fd691f5485fb957ba4",
+      "sha256": "89558a5efacbb026b5c7a606b4bfd9e4ead19e68a03c526adefe0b088702c431"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/dance/dance-review-journal.ts",
+      "gitBlob": "bc3ebbffc4e5e343b16dca0b7eed8c544a337848",
+      "sha256": "7c840b08684b988bcd03c178ddfa3faab2e399c9d26ab023b9290011272698ac"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/dance/dance-review-page.tsx",
+      "gitBlob": "399827aa202a5bcfe9d7c481f0bac4903e9af1dc",
+      "sha256": "6dcedfdedc5d5a0026bba0f75170052955b4ebcf86dc9a55c09a98b6ec12a4e9"
+    },
+    {
+      "repository": "pirate-web-solid",
+      "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+      "path": "src/features/dance/dance-recorder-panel.tsx",
+      "gitBlob": "8d09423b5a209cf71867b021fd779b60129c4ba5",
+      "sha256": "328783aee0d266c165ca59b9ec34975b3d0ffcf3c617f4126d040901721d6fbf"
+    }
+  ],
+  "producer": [
+    {
+      "commit": "7949d9cf80a63c7e3a4e2c4220c1c1fb2b171ac7",
+      "path": "apps/web/src/media/reference-capture.tsx",
+      "sha256": "c2e675de6efca6eb78f45da137ac9792210d09ed45efb6f6ada78ec34dd6a607"
+    },
+    {
+      "commit": "7949d9cf80a63c7e3a4e2c4220c1c1fb2b171ac7",
+      "path": "apps/web/src/media/dance-review-surface.tsx",
+      "sha256": "80dfa4c1933253ae2fdb553c06fcf0786f82b4a838679cac8f533378b3bb8b27"
+    },
+    {
+      "commit": "7949d9cf80a63c7e3a4e2c4220c1c1fb2b171ac7",
+      "path": "packages/community-media/dance-projection.ts",
+      "sha256": "10ec6556355d9e575f4b38d9080134f4157d692bb552335da3e409c144366d58"
+    },
+    {
+      "commit": "7949d9cf80a63c7e3a4e2c4220c1c1fb2b171ac7",
+      "path": "packages/community-media/submission.ts",
+      "sha256": "a3d87ca61a69f18f6fa9ede256a325e9fc42847e3b1f6b16cfef4b59c273658e"
+    }
+  ],
+  "mapping": [
+    {
+      "owned": "apps/web/src/dance/reference-owner-surface.tsx",
+      "adopted": "DanceOwnerPage pure queue/detail JSX: private recording, selected reference, captured rubric, interval, inspection copy",
+      "changes": "Pure props replace centralized API/session/router; same pinned Button/Type; versioned player port; only no-pose v2; pending canonical replaces local success"
+    },
+    {
+      "owned": "apps/web/src/dance/DancePanel.tsx",
+      "adopted": "Source3 actual OriginalVideoCaptureSurface and DanceRecordingReviewSurface via pirate.dance-surfaces/1",
+      "changes": "Exact stable producer pins; no second recorder; explicit preview and Submit; consent in existing notice; Back navigates without implicit withdrawal"
+    },
+    {
+      "owned": "apps/web/src/dance/journal.ts",
+      "adopted": "Central owner/review controller durable original-command recovery pattern",
+      "changes": "Independent IndexedDB transactional scope; opaque command data; no central auth/persona/API dependency"
+    },
+    {
+      "owned": "apps/web/src/dance/reference-recording-status.tsx",
+      "adopted": "DanceReviewPage pure pending/result/footer and Recording options/cancel confirmation branches",
+      "changes": "Decentralized props, pending canonical copy, local-withdrawal semantics; existing pinned UI primitives, no central runtime"
+    },
+    {
+      "owned": "apps/web/src/dance/review-observer.ts",
+      "adopted": "DanceReviewPage visible-page 3-second/90-attempt observation, resume on return/online",
+      "changes": "Inject current/visible/read/timer ports; no command or media dispatch; pure unit coverage"
+    }
+  ],
+  "departures": [
+    "wire pass|not_passed",
+    "local intent/outbox until actual canonical verifier",
+    "no public posting right inferred",
+    "visual/device/current-authority integration still held"
+  ],
+  "evidence": "Exact source/Storybook interaction comparison in v1-dance-owner-ui-comparison.json; no browser/Storybook execution in this round",
+  "ownerDirectionComparison": "docs/v1-dance-owner-ui-comparison.json"
+}
