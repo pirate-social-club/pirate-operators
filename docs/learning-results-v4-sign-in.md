@@ -398,7 +398,7 @@ Release observation:
   invalid punycode); a contract deployed with one could never sign anyone
   in, and `communityOrigin` is immutable, so the release refuses them.
 
-## Phishing and relay (settled by the SIWE sign-in)
+## Phishing and relay
 
 The former typed `SignIn` had no wallet-side origin check, so a phishing page
 could obtain a valid sign-in and permission, and a crafted future `issuedAt`
@@ -422,11 +422,17 @@ Layers 1 and 2 rest on MOSS's checks, which the hosted wallet can change; the
 on-chain origin and layer 3 do not. test/learning-sign-in-moss.test.ts holds
 the hosted wallet's strict pattern, `checkSiwe` and parser verbatim (bundle
 sha256 `7c258d10...6accaf`, fetched 2026-11-09) and checks the V4 text against
-them. What remains to confirm with a real MOSS account before deployment: that
+them. What remains to confirm with a real MOSS account after the staged testnet
+cutover, before a new rehearsal offer, claim or payment: that
 the account's on-chain `isValidSignature(hashMessage(text), signature)` accepts
 MOSS `signMessage` output, that MOSS shows the Statement rather than signing
 silently, and that the one-minute backdate covers real device clocks. The
-Revocation stays EIP-712, signed with `signData` in account settings.
+Revocation stays EIP-712, signed with `signData` in account settings. Normal V4
+sign-in requires the directory switch, and a counterfactual account activates
+only at its first practice. Before that switch, readiness records the
+exact-source contract, browser, hosted-bundle and withdrawal checks, with real
+MOSS and ERC-1271 acceptance explicitly unqualified. Any bootstrap practice is
+unrewarded. The real checks above remain required for launch acceptance.
 
 ## Recorded product decision
 

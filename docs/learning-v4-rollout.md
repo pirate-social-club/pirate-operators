@@ -27,9 +27,17 @@ publishing, rewards settings, payments and all other manifest values are retaine
 
 The release order is V4 contract and graders/policies, compatible retained speech
 operator, community application with migration 0013 and the reviewed V3/V4 rewards
-selection, then directory activation. Before activation, verify the real MOSS
-signature against the deployed contract and the account's ERC-1271 implementation,
-record the normal wallet presentation, and independently review readiness. Old
+selection, then directory activation. Before activation, independently review
+readiness. For that staged testnet cutover, `singleSignInAndWithdrawalChecked`
+records the exact-source contract, browser, hosted-MOSS-bundle and withdrawal
+checks. The readiness evidence must explicitly mark normal-UI MOSS and real-account
+ERC-1271 acceptance as unqualified. Normal V4 sign-in is available only after the
+directory switch, and the account's first practice triggers its existing lazy
+activation. After the switch, verify the captured normal sign-in against the
+deployed contract and the activated account's ERC-1271 implementation, and record
+the wallet presentation. Any bootstrap practice is unrewarded. These real checks
+must pass before attaching a new rehearsal offer, claiming or paying a learner.
+They remain launch acceptance gates; the staged cutover does not satisfy them. Old
 results, old offers, private histories, resource identities and nonce journals
 remain retained. The operator journal must be inspected for unresolved result
 transactions before upgrading.
