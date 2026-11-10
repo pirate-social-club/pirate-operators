@@ -12,7 +12,10 @@ import {
 } from "../packages/telegram/messages.ts";
 import { TelegramGrants } from "./telegram-grants.ts";
 import type { TelegramStudySession } from "../packages/telegram/work.ts";
-import type { TelegramNoticeGuard } from "./telegram-notifications.ts";
+import {
+  telegramNoticeLocal,
+  type TelegramNoticeGuard,
+} from "./telegram-notifications.ts";
 
 export interface TelegramOutbound {
   effectId: string;
@@ -59,6 +62,15 @@ export class TelegramOutbox {
       notice?: TelegramNoticeGuard;
     },
   ) {
+    if (payload.kind === "document" && payload.lessonId) {
+      telegramCheck(
+        !guard?.sessionId || guard.sessionId === payload.lessonId,
+        "telegram_history_lesson_mismatch",
+      );
+      guard = { ...guard, sessionId: payload.lessonId };
+    }
+    if (payload.kind === "document" && payload.expiresAt <= this.grants.now())
+      payload = { kind: "text", text: "Private history expired." };
     return this.grants.store.transaction(() => {
       const id = digest([actorKey(actor), effectId]),
         indexKey = `outbox-effect:${id}`;
@@ -116,6 +128,20 @@ export class TelegramOutbox {
       const grant = await this.grants.assert(row.actor, row.grantId);
       telegramCheck(
         grant.authorityVersion === row.authorityVersion,
+        "telegram_authority_changed",
+        403,
+      );
+    }
+    this.permittedLocal(row);
+  }
+  private permittedLocal(row: TelegramOutbound) {
+    if (row.payload.kind === "start-required") this.grants.current(row.actor);
+    else this.grants.binding(row.actor);
+    if (row.notice) telegramNoticeLocal(this.grants, row.actor, row.notice);
+    if (row.grantId) {
+      const grant = this.grants.read(row.actor);
+      telegramCheck(
+        grant?.id === row.grantId && grant.revokedAt === null,
         "telegram_authority_changed",
         403,
       );
@@ -179,7 +205,8 @@ export class TelegramOutbox {
             ? Number(error.status)
             : 503;
         if ([403, 409, 410].includes(status)) {
-          this.grants.store.set(item.key, { ...row, state: "cancelled" });
+          const current = this.grants.store.get<TelegramOutbound>(item.key)!;
+          this.grants.store.set(item.key, { ...current, state: "cancelled" });
           continue;
         }
         break;
@@ -201,6 +228,7 @@ export class TelegramOutbox {
       const claimed = this.grants.store.transaction(() => {
         const current = this.grants.store.get<TelegramOutbound>(item.key)!;
         if (current.state !== "pending") return false;
+        this.permittedLocal(current);
         row = { ...current, state: "sending", tries: current.tries + 1 };
         this.grants.store.set(item.key, row);
         return true;
@@ -232,8 +260,9 @@ export class TelegramOutbox {
           error.outcome === "known_failed";
         if (error instanceof TelegramDeliveryError && error.blocked)
           this.grants.block(row.actor);
+        const current = this.grants.store.get<TelegramOutbound>(item.key)!;
         this.grants.store.set(item.key, {
-          ...row,
+          ...current,
           state: known
             ? row.tries < 3 && !(error as TelegramDeliveryError).blocked
               ? "pending"
@@ -261,8 +290,11 @@ export class TelegramOutbox {
       503,
     );
     this.grants.store.transaction(() => {
+      // Retention can scrub a payload while a delivery is in flight. Never
+      // restore a stale captured private body when its receipt returns.
+      const current = this.grants.store.get<TelegramOutbound>(key)!;
       this.grants.store.set(key, {
-        ...row,
+        ...current,
         state: "sent",
         messageId: receipt.messageId,
       });

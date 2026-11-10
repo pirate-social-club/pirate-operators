@@ -29,7 +29,11 @@ export type TelegramAction =
   | { kind: "song"; key: string }
   | { kind: "songs"; page: number }
   | { kind: "resume" }
-  | { kind: "preferences"; key: "reminders" | "rewards" | "dance" };
+  | {
+      kind: "preferences";
+      key: "reminders" | "rewards" | "dance";
+      value?: boolean;
+    };
 interface ActionRecord {
   actor: ChatActor;
   action: TelegramAction;
@@ -189,7 +193,7 @@ export class TelegramBotViews {
         this.button(
           actor,
           `${key[0].toUpperCase() + key.slice(1)}: ${prefs[key] ? "on" : "off"}`,
-          { kind: "preferences", key },
+          { kind: "preferences", key, value: !prefs[key] },
         ),
       ]),
     };
@@ -279,6 +283,7 @@ export class TelegramBotViews {
     const history = this.study.options.trial.history(actor, session.view.id);
     return {
       kind: "document",
+      lessonId: session.view.id,
       filename: "private-lesson-history.json",
       content: JSON.stringify(history, null, 2),
       expiresAt:

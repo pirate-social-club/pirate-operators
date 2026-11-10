@@ -101,12 +101,19 @@ export interface TelegramGrant extends AccountIdentity {
   userId: string;
   linkedAt: number;
   revokedAt: number | null;
+  /** Community-wide bot incarnation; replacement invalidates every old row in O(1). */
+  incarnation?: number;
   capabilities: readonly [
     "study",
     "progress",
     "reward-status",
     "notifications",
   ];
+}
+export interface TelegramLinkFence {
+  incarnation: number;
+  userUnlink: number;
+  accountUnlink: number;
 }
 export interface BotRegistration extends BotScope {
   enabled: boolean;

@@ -32,12 +32,13 @@ export interface TelegramNoticeGuard {
   accountId: string | null;
   eventId: string;
 }
-export async function telegramNoticePermitted(
+/** Synchronous final fence: call after ALL external authority reads. */
+export function telegramNoticeLocal(
   grants: TelegramGrants,
-  notices: TelegramNoticePort,
   actor: ChatActor,
   guard: TelegramNoticeGuard,
 ) {
+  grants.binding(actor);
   const prefs = grants.preferences(actor);
   telegramCheck(
     guard.kind === "reminder"
@@ -48,6 +49,22 @@ export async function telegramNoticePermitted(
     "telegram_notifications_disabled",
     403,
   );
+  if (guard.kind !== "reminder") {
+    const grant = grants.read(actor);
+    telegramCheck(
+      grant?.revokedAt === null && grant.accountId === guard.accountId,
+      "telegram_notice_wrong_account",
+      403,
+    );
+  }
+}
+export async function telegramNoticePermitted(
+  grants: TelegramGrants,
+  notices: TelegramNoticePort,
+  actor: ChatActor,
+  guard: TelegramNoticeGuard,
+) {
+  telegramNoticeLocal(grants, actor, guard);
   if (guard.kind === "reminder") return;
   const grant = await grants.assert(actor);
   telegramCheck(
@@ -70,6 +87,13 @@ export async function telegramNoticePermitted(
     "telegram_notice_stale",
     409,
   );
+  const fresh = await grants.assert(actor, grant.id);
+  telegramCheck(
+    fresh.authorityVersion === grant.authorityVersion,
+    "telegram_authority_changed",
+    403,
+  );
+  telegramNoticeLocal(grants, actor, guard);
 }
 export class TelegramNotifications {
   readonly views: TelegramBotViews;

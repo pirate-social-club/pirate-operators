@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { botFixture } from "./telegram-bot-fixture.ts";
-import { actor, sqlitePath } from "./telegram-fixture.ts";
+import { actor } from "./telegram-fixture.ts";
 import { actorKey } from "../packages/telegram/contracts.ts";
 import { TelegramBot } from "../services/telegram-bot.ts";
 
@@ -188,14 +188,16 @@ test("uncertain speech uses receipt recovery after worker restart without resubm
   assert.equal(f.speechCalls(), 1);
   assert.equal(f.study.session(actor).view.progress.resolved, 1);
 });
-test("partial trial progress survives actual SQLite close/reopen and has no idle reset", async (t) => {
-  const path = sqlitePath("trial"),
-    first = await botFixture({ path });
+test("partial trial progress survives a SQLite snapshot restart and has no idle reset", async (t) => {
+  const first = await botFixture();
   await first.choose();
   await first.answer();
   const id = first.study.session(actor).view.id;
+  const snapshot = first.database
+    .prepare("SELECT key,value FROM telegram_journal")
+    .all() as { key: string; value: string }[];
   first.dispose();
-  const second = await botFixture({ path });
+  const second = await botFixture({ snapshot });
   t.after(second.dispose);
   second.advance(2 * 86400_000);
   const view = await second.study.resume(actor);

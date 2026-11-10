@@ -19,7 +19,13 @@ export type TelegramNativeMessage =
     }
   | { kind: "voice"; audio: TelegramPublicAudio; promptKey?: string }
   | { kind: "song"; audio: TelegramPublicAudio; title: string }
-  | { kind: "document"; filename: string; content: string; expiresAt: number }
+  | {
+      kind: "document";
+      filename: string;
+      content: string;
+      expiresAt: number;
+      lessonId?: string;
+    }
   | { kind: "pin"; targetEffect: string };
 export interface TelegramDelivery {
   messageId: number;

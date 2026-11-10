@@ -1,6 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
 import { TelegramSqlJournal } from "../services/telegram-store.ts";
 import { TelegramGrants } from "../services/telegram-grants.ts";
 import { TelegramLinking } from "../services/telegram-linking.ts";
@@ -64,17 +62,13 @@ export function journalFixture(path = ":memory:") {
     close: () => database.close(),
   };
 }
-export function sqlitePath(label: string) {
-  mkdirSync(join(process.cwd(), ".local/tmp"), { recursive: true });
-  return join(
-    process.cwd(),
-    ".local/tmp",
-    `telegram-${label}-${crypto.randomUUID()}.sqlite`,
-  );
-}
-export async function linkFixture(path = ":memory:") {
+export async function linkFixture(
+  path = ":memory:",
+  snapshot: { key: string; value: string }[] = [],
+) {
   const journal = journalFixture(path),
     brokerJournal = journalFixture();
+  for (const row of snapshot) journal.store.set(row.key, JSON.parse(row.value));
   let clock = 1794355200000,
     enabled = true,
     authorityVersion = account.authorityVersion;

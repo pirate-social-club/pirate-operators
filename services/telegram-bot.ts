@@ -27,6 +27,10 @@ interface UpdateReceipt {
   state: "queued" | "processing" | "complete";
   retryAt: number;
   createdAt: number;
+  preferenceApplied?: {
+    key: "reminders" | "rewards" | "dance";
+    value: boolean;
+  };
 }
 /** Ordinary native fallback; optional widget rendering is supplied through
  * TelegramPresentationPort after the UI lane's review. */
@@ -109,6 +113,7 @@ export class TelegramBot {
   }
   private async commands(
     update: TelegramUpdate,
+    receiptKey: string,
   ): Promise<TelegramNativeMessage[]> {
     const actor = update.actor,
       grants = this.views.linking.grants,
@@ -134,15 +139,31 @@ export class TelegramBot {
       return [];
     }
     if (update.kind === "callback") {
-      const action = this.views.action(actor, update.token, update.messageId);
+      const applied =
+        grants.store.get<UpdateReceipt>(receiptKey)?.preferenceApplied;
+      const action = applied
+        ? { kind: "preferences" as const, ...applied }
+        : this.views.action(actor, update.token, update.messageId);
       if (action.kind === "songs")
         return [await this.views.home(actor, action.page)];
       if (action.kind === "preferences") {
         if (action.key !== "reminders") await grants.assert(actor);
-        const prefs = grants.preferences(actor);
-        grants.setPreferences(actor, {
-          ...prefs,
-          [action.key]: !prefs[action.key],
+        grants.store.transaction(() => {
+          const receipt = grants.store.get<UpdateReceipt>(receiptKey)!;
+          if (receipt.preferenceApplied) return;
+          telegramCheck(
+            grants.store.get<number>(`control:${actorKey(actor)}`) ===
+              update.id,
+            "telegram_control_stale",
+            409,
+          );
+          const prefs = grants.preferences(actor),
+            value = action.value ?? !prefs[action.key];
+          grants.setPreferences(actor, { ...prefs, [action.key]: value });
+          grants.store.set(receiptKey, {
+            ...receipt,
+            preferenceApplied: { key: action.key, value },
+          });
         });
         return [this.views.settings(actor)];
       }
@@ -256,7 +277,7 @@ export class TelegramBot {
     if (!claimed) return;
     let messages: TelegramNativeMessage[];
     try {
-      messages = await this.commands(update);
+      messages = await this.commands(update, key);
     } catch (error) {
       const code =
         error instanceof TelegramError ? error.code : "telegram_unavailable";
@@ -366,7 +387,7 @@ export class TelegramBot {
     const messages = await this.views.outcome(job);
     grants.store.transaction(() => {
       const current = grants.store.get<TelegramStudyWork>(`speech-job:${id}`)!;
-      if (current.rendered) return;
+      if (!current || current.rendered) return;
       const guard = {
         sessionId: job.lessonId,
         ...(job.grant

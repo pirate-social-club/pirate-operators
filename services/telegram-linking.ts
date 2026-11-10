@@ -116,6 +116,7 @@ export class TelegramLinking {
         redemptionId: randomToken(),
         completionHash: null,
         grant: null,
+        fence: this.grants.linkFence(pending.actor, account.accountId),
       };
       this.grants.store.set(key, { ...live, consumedBy: id });
       this.grants.store.set(`link:${id}`, transaction);
@@ -156,6 +157,11 @@ export class TelegramLinking {
       403,
     );
     this.grants.current(transaction.actor);
+    this.grants.checkLinkFence(
+      transaction.actor,
+      transaction.account.accountId,
+      transaction.fence,
+    );
     return transaction;
   }
   async open(id: string, account: WebAccount, browserSecret: string) {
@@ -180,6 +186,12 @@ export class TelegramLinking {
       const current = this.grants.store.get<CommunityLinkTransaction>(
         `link:${id}`,
       )!;
+      this.grants.current(current.actor);
+      this.grants.checkLinkFence(
+        current.actor,
+        current.account.accountId,
+        current.fence,
+      );
       telegramCheck(
         current.phase === "created" || current.phase === "broker_ready",
         "telegram_connection_used",
@@ -239,11 +251,25 @@ export class TelegramLinking {
       const current = this.grants.store.get<CommunityLinkTransaction>(
         `link:${id}`,
       )!;
+      this.grants.current(current.actor);
+      this.grants.checkLinkFence(
+        current.actor,
+        current.account.accountId,
+        current.fence,
+      );
+      telegramCheck(
+        current.phase === "broker_ready" ||
+          current.phase === "redeeming" ||
+          current.phase === "complete",
+        "telegram_connection_not_ready",
+        409,
+      );
       telegramCheck(
         !current.completionHash || current.completionHash === completionHash,
         "telegram_completion_changed",
         409,
       );
+      if (current.phase === "complete") return current;
       const next: CommunityLinkTransaction = {
         ...current,
         completionHash,
@@ -252,6 +278,9 @@ export class TelegramLinking {
       this.grants.store.set(`link:${id}`, next);
       return next;
     });
+    if (transaction.phase === "complete") {
+      return this.grants.assert(transaction.actor, transaction.grant!.id);
+    }
     const receipt = await this.broker.redeem({
       code,
       requestId: id,
@@ -275,6 +304,12 @@ export class TelegramLinking {
       const current = this.grants.store.get<CommunityLinkTransaction>(
         `link:${id}`,
       )!;
+      this.grants.current(current.actor);
+      this.grants.checkLinkFence(
+        current.actor,
+        current.account.accountId,
+        current.fence,
+      );
       telegramCheck(
         current.phase === "redeeming" || current.phase === "complete",
         "telegram_connection_used",
@@ -293,6 +328,7 @@ export class TelegramLinking {
         transaction.actor,
         transaction.account,
         id,
+        current.fence,
       );
       this.grants.store.set(`link:${id}`, {
         ...current,

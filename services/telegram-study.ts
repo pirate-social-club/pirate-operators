@@ -54,6 +54,13 @@ export class TelegramStudyService {
     return session;
   }
   private save(actor: ChatActor, session: TelegramStudySession) {
+    telegramCheck(
+      !this.options.grants.store.get(
+        `linked-history-expired:${actorKey(actor)}:${session.view.id}`,
+      ),
+      "telegram_history_expired",
+      410,
+    );
     this.options.grants.store.set(
       this.sessionKey(actor, session.view.id),
       session,
@@ -248,6 +255,7 @@ export class TelegramStudyService {
     let job = grants.store.get<TelegramStudyWork>(key);
     telegramCheck(job, "telegram_job_not_found", 404);
     if (["applied", "cancelled"].includes(job.state)) return job;
+    const initial = job;
     try {
       await this.permit(job);
       if (job.mode === "trial") await this.options.speech.work(id);
@@ -263,10 +271,12 @@ export class TelegramStudyService {
           job,
         );
       job = grants.store.get<TelegramStudyWork>(key)!;
+      telegramCheck(job, "telegram_history_expired", 410);
       if (!["assessed", "refused"].includes(job.state)) return job;
       await this.permit(job);
       return grants.store.transaction(() => {
-        const current = grants.store.get<TelegramStudyWork>(key)!;
+        const current = grants.store.get<TelegramStudyWork>(key);
+        telegramCheck(current, "telegram_history_expired", 410);
         if (current.state === "applied") return current;
         let view = current.resultView;
         if (current.mode === "trial") {
@@ -314,8 +324,18 @@ export class TelegramStudyService {
               "telegram_prompt_changed",
             ].includes(String(error.code))))
       ) {
+        const existing = grants.store.get<TelegramStudyWork>(key);
+        if (!existing)
+          return {
+            ...initial,
+            state: "cancelled",
+            voice: null,
+            grade: null,
+            resultView: null,
+            failure: "telegram_history_expired",
+          };
         const cancelled: TelegramStudyWork = {
-          ...grants.store.get<TelegramStudyWork>(key)!,
+          ...existing,
           state: "cancelled",
           voice: null,
           failure: "telegram_authority_changed",

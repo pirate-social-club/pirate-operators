@@ -1,4 +1,9 @@
-import type { ChatActor, TelegramGrant, WebAccount } from "./contracts.ts";
+import type {
+  ChatActor,
+  TelegramGrant,
+  WebAccount,
+  TelegramLinkFence,
+} from "./contracts.ts";
 
 export interface PendingConnection {
   actor: ChatActor;
@@ -48,4 +53,5 @@ export interface CommunityLinkTransaction {
   redemptionId: string;
   completionHash: string | null;
   grant: TelegramGrant | null;
+  fence: TelegramLinkFence;
 }

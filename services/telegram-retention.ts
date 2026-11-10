@@ -8,8 +8,12 @@ import type { TelegramTrialRecord } from "../packages/telegram/study-contracts.t
 import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import type { TelegramTrialLessons } from "./telegram-trial.ts";
 import type { TelegramOutbound } from "./telegram-outbox.ts";
+import {
+  telegramCopyRetention,
+  TELEGRAM_VOICE_HANDLE_MS,
+} from "./telegram-copy-retention.ts";
 
-export const TELEGRAM_VOICE_HANDLE_MS = 24 * 3600_000;
+export { TELEGRAM_VOICE_HANDLE_MS } from "./telegram-copy-retention.ts";
 /** No raw audio bytes are persisted. File handles expire after application or
  * 24h; status recovery retains frozen context/digests. Open lessons close at
  * 30d. History is eligible completion/closure +30d, subject to recovery holds.
@@ -150,11 +154,14 @@ export function telegramTrialRetention(
   }
   if (rows.length === limit) store.set(cursorKey, rows.at(-1)!.key);
   else store.delete(cursorKey);
+  const copies = telegramCopyRetention(grants, communityId, limit);
   return {
     scanned: rows.length,
-    erased,
+    erased: erased + copies.linkedErased,
     recoveryHeld,
-    handlesErased,
+    handlesErased: handlesErased + copies.handlesErased,
+    exportsScrubbed: copies.exportsScrubbed,
+    linkedJobsErased: copies.jobsErased,
     openMs: TELEGRAM_OPEN_MS,
     completedHistoryMs: TELEGRAM_HISTORY_MS,
   };

@@ -14,6 +14,7 @@ import {
   type NotificationPreferences,
   type TelegramAccountPort,
   type TelegramGrant,
+  type TelegramLinkFence,
 } from "../packages/telegram/contracts.ts";
 import { randomToken } from "../packages/telegram/security.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
@@ -36,6 +37,19 @@ export class TelegramGrants {
     return this.store.transaction(() => {
       const key = `bot:${next.communityId}`,
         old = this.store.get<BotRegistration>(key);
+      // Unversioned legacy state cannot prove that this bot was never replaced
+      // and restored under the old partial scan. Require migration evidence;
+      // never silently bless an omitted legacy grant as the current lineage.
+      telegramCheck(
+        !old || this.store.get(`bot-lineage:${next.communityId}`),
+        "telegram_lineage_migration_required",
+        503,
+      );
+      if (!old)
+        this.store.set(`bot-lineage:${next.communityId}`, {
+          incarnation: 0,
+          replacedAt: 0,
+        });
       if (old) {
         telegramCheck(
           next.generation >= old.generation,
@@ -48,18 +62,63 @@ export class TelegramGrants {
           409,
         );
         if (old.botId !== next.botId) {
-          for (const row of this.store.entries<TelegramGrant>(
-            `grant:${next.communityId}:${old.botId}:`,
-          ))
-            this.store.set(row.key, { ...row.value, revokedAt: this.now() });
+          const lineage = this.lineage(next.communityId);
+          this.store.set(`bot-lineage:${next.communityId}`, {
+            incarnation: lineage.incarnation + 1,
+            replacedAt: this.now(),
+          });
         }
       }
       this.store.set(key, next);
       return next;
     });
   }
+  private lineage(communityId: string) {
+    return (
+      this.store.get<{ incarnation: number; replacedAt: number }>(
+        `bot-lineage:${communityId}`,
+      ) ?? { incarnation: 0, replacedAt: 0 }
+    );
+  }
+  private effective(grant: TelegramGrant | undefined) {
+    if (!grant) return grant;
+    const lineage = this.lineage(grant.communityId);
+    return (grant.incarnation ?? 0) === lineage.incarnation
+      ? grant
+      : { ...grant, revokedAt: grant.revokedAt ?? lineage.replacedAt };
+  }
+  linkFence(actor: ChatActor, accountId: string): TelegramLinkFence {
+    return {
+      incarnation: this.lineage(actor.communityId).incarnation,
+      userUnlink: this.store.get<number>(`unlink-user:${actorKey(actor)}`) ?? 0,
+      accountUnlink:
+        this.store.get<number>(
+          `unlink-account:${actor.communityId}:${actor.botId}:${accountId}`,
+        ) ?? 0,
+    };
+  }
+  checkLinkFence(
+    actor: ChatActor,
+    accountId: string,
+    expected: TelegramLinkFence,
+  ) {
+    const current = this.linkFence(actor, accountId);
+    telegramCheck(
+      expected &&
+        current.incarnation === expected.incarnation &&
+        current.userUnlink === expected.userUnlink &&
+        current.accountUnlink === expected.accountUnlink,
+      "telegram_link_revoked",
+      403,
+    );
+  }
   current(scope: BotScope) {
     validateScope(scope);
+    telegramCheck(
+      this.store.get(`bot-lineage:${scope.communityId}`),
+      "telegram_lineage_migration_required",
+      503,
+    );
     const current = this.store.get<BotRegistration>(`bot:${scope.communityId}`);
     telegramCheck(
       current?.enabled && sameScope(current, scope),
@@ -97,8 +156,10 @@ export class TelegramGrants {
       this.store.set(key, { ...binding, blocked: true });
   }
   read(actor: ChatActor) {
-    return this.store.get<TelegramGrant>(
-      `grant:${actor.communityId}:${actor.botId}:${actor.userId}`,
+    return this.effective(
+      this.store.get<TelegramGrant>(
+        `grant:${actor.communityId}:${actor.botId}:${actor.userId}`,
+      ),
     );
   }
   async assert(actor: ChatActor, grantId?: string): Promise<TelegramGrant> {
@@ -134,12 +195,14 @@ export class TelegramGrants {
     actor: ChatActor,
     account: AccountIdentity,
     transactionId: string,
+    fence: TelegramLinkFence,
   ): TelegramGrant {
     return this.store.transaction(() => {
       this.current(actor);
+      this.checkLinkFence(actor, account.accountId, fence);
       const key = `grant:${actor.communityId}:${actor.botId}:${actor.userId}`;
       const index = `account-grant:${actor.communityId}:${actor.botId}:${account.accountId}`;
-      const previous = this.store.get<TelegramGrant>(key);
+      const previous = this.effective(this.store.get<TelegramGrant>(key));
       if (previous?.revokedAt === null) {
         telegramCheck(
           previous.accountId === account.accountId &&
@@ -150,7 +213,9 @@ export class TelegramGrants {
         return previous;
       }
       const otherKey = this.store.get<string>(index),
-        other = otherKey ? this.store.get<TelegramGrant>(otherKey) : undefined;
+        other = this.effective(
+          otherKey ? this.store.get<TelegramGrant>(otherKey) : undefined,
+        );
       telegramCheck(
         !other || other.revokedAt !== null || other.userId === actor.userId,
         "telegram_link_conflict",
@@ -164,6 +229,7 @@ export class TelegramGrants {
         userId: actor.userId,
         linkedAt: this.now(),
         revokedAt: null,
+        incarnation: fence.incarnation,
         capabilities: ["study", "progress", "reward-status", "notifications"],
       };
       this.store.set(key, grant);
@@ -173,6 +239,11 @@ export class TelegramGrants {
   }
   forAccount(scope: BotScope, accountId: string) {
     validateScope(scope);
+    telegramCheck(
+      this.store.get(`bot-lineage:${scope.communityId}`),
+      "telegram_lineage_migration_required",
+      503,
+    );
     const registration = this.store.get<BotRegistration>(
       `bot:${scope.communityId}`,
     );
@@ -184,13 +255,22 @@ export class TelegramGrants {
     const key = this.store.get<string>(
       `account-grant:${scope.communityId}:${scope.botId}:${accountId}`,
     );
-    const grant = key ? this.store.get<TelegramGrant>(key) : undefined;
+    const grant = this.effective(
+      key ? this.store.get<TelegramGrant>(key) : undefined,
+    );
     return grant?.revokedAt === null ? grant : null;
   }
   unlink(scope: BotScope, accountId: string) {
     return this.store.transaction(() => {
       const grant = this.forAccount(scope, accountId);
+      const accountFence = `unlink-account:${scope.communityId}:${scope.botId}:${accountId}`;
+      this.store.set(
+        accountFence,
+        (this.store.get<number>(accountFence) ?? 0) + 1,
+      );
       if (!grant) return false;
+      const userFence = `unlink-user:${actorKey({ ...scope, userId: grant.userId, chatId: grant.userId })}`;
+      this.store.set(userFence, (this.store.get<number>(userFence) ?? 0) + 1);
       this.store.set(
         `grant:${grant.communityId}:${grant.botId}:${grant.userId}`,
         { ...grant, revokedAt: this.now() },

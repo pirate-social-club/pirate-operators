@@ -6,6 +6,7 @@ import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import { linkedLessonView } from "./telegram-linked-study.ts";
 import type { TelegramVoiceFiles } from "./telegram-speech.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
+import { telegramWorkClaim } from "./telegram-work-claim.ts";
 
 /** The existing Study service owns attempts, provider admission, policy,
  * publication and economic uniqueness. This layer only journals chat work. */
@@ -20,19 +21,24 @@ export async function workTelegramLinked(
   input: TelegramStudyWork,
 ) {
   let job = input;
+  const ownership = telegramWorkClaim<TelegramStudyWork>(options.store, job.id);
   const read = () =>
     options.store.get<TelegramStudyWork>(`speech-job:${job.id}`)!;
   const save = (value: TelegramStudyWork) => {
-    options.store.set(`speech-job:${job.id}`, value);
-    return value;
+    return ownership.save(job, value) ?? read();
   };
   await options.permit(job);
   telegramCheck(job.grant, "telegram_connection_required", 403);
+  if (
+    ["dispatching", "uncertain"].includes(job.state) &&
+    job.submissionStarted === false
+  )
+    job = ownership.resetUnsent(job) ?? read();
   if (job.state === "dispatching" || job.state === "uncertain") {
     telegramCheck(job.audioDigest, "telegram_audio_missing", 409);
     const result = await options.linked.recover(
       job.actor,
-      job.grant,
+      job.grant!,
       job.lessonId,
       job.expected,
       job.audioDigest,
@@ -61,15 +67,12 @@ export async function workTelegramLinked(
       await options.files.read(job.actor, job.voice),
     ),
     audioDigest = sha256(audio.audio);
-  const claimed = options.store.transaction(() => {
-    const current = read();
-    if (current.state !== "queued") return false;
-    job = save({ ...current, audioDigest, state: "dispatching" });
-    return true;
-  });
+  const claimed = ownership.claim({ ...job, audioDigest });
   if (!claimed) return read();
+  job = claimed;
   try {
     await options.permit(job);
+    if (!ownership.beginSubmission(job.dispatchToken!)) return read();
     const result = await options.linked.answer(
       job.actor,
       job.grant!,

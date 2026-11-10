@@ -21,6 +21,7 @@ import {
   releasedTelegramGrading,
   type TelegramTrialGradingPort,
 } from "../packages/telegram/grading.ts";
+import { telegramWorkClaim } from "./telegram-work-claim.ts";
 
 /** Structural lane5 CommunitySpeechAdmission RPC. No legacy global budget
  * fallback is accepted by this adapter. Configure the same key generation as
@@ -77,6 +78,8 @@ export interface TelegramSpeechJob {
   finishedAt: number | null;
   grade: StudyTranscriptGradeV2 | null;
   failure: string | null;
+  dispatchToken?: string;
+  submissionStarted?: boolean;
 }
 export class TelegramTrialSpeech {
   readonly store: TelegramJournal;
@@ -122,6 +125,9 @@ export class TelegramTrialSpeech {
   }
   async work(id: string): Promise<TelegramSpeechJob> {
     let job = this.get(id);
+    const ownership = telegramWorkClaim<TelegramSpeechJob>(this.store, id);
+    const save = (change: Partial<TelegramSpeechJob>) =>
+      ownership.save(job, change) ?? this.get(id);
     if (
       ["assessed", "refused", "applied", "cancelled"].includes(job.state) ||
       job.nextAt > this.now()
@@ -134,6 +140,18 @@ export class TelegramTrialSpeech {
       403,
     );
     const requestId = `telegram:${job.id}:${job.retry}`;
+    if (job.state === "dispatching" || job.state === "uncertain") {
+      const reservation = (await Promise.resolve(
+        this.admission.get(requestId),
+      ).catch(() => null)) as { state?: string } | null;
+      if (
+        job.submissionStarted === false ||
+        (job.submissionStarted === undefined &&
+          reservation?.state === "reserved")
+      ) {
+        job = ownership.resetUnsent(job) ?? this.get(id);
+      }
+    }
     if (job.state === "dispatching" || job.state === "uncertain") {
       const receipt =
         job.audioDigest && this.transcriber.recover
@@ -151,12 +169,11 @@ export class TelegramTrialSpeech {
               )
               .catch(() => null)
           : null;
-      if (!receipt) return this.save({ ...this.get(id), state: "uncertain" });
+      if (!receipt) return save({ state: "uncertain" });
       const state = receipt.state === "assessed" ? "succeeded" : "refused";
       await this.admission.resolve(requestId, state, digest(receipt));
       await this.permit(job);
-      return this.save({
-        ...this.get(id),
+      return save({
         state: receipt.state === "assessed" ? "assessed" : "refused",
         finishedAt: this.now(),
         grade:
@@ -192,42 +209,36 @@ export class TelegramTrialSpeech {
         units: 1,
       });
     } catch {
-      return this.save({
-        ...this.get(id),
+      return save({
         state: "refused",
         failure: "speech_capacity_unavailable",
         finishedAt: this.now(),
       });
     }
-    const claimed = this.store.transaction(() => {
-      const current = this.get(id);
-      if (current.state !== "queued" && current.state !== "retry_wait")
-        return false;
-      job = this.save({ ...current, audioDigest, state: "dispatching" });
-      return true;
-    });
+    const claimed = ownership.claim({ ...job, audioDigest });
     if (!claimed) return this.get(id);
+    job = claimed;
     let dispatched = false;
     try {
       await this.permit(job);
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
       const permit = await this.admission.dispatch(requestId);
       if (!permit.dispatch) {
         if (
           permit.reservation.state === "cancelled" ||
           permit.reservation.state === "refused"
         )
-          return this.save({
-            ...job,
+          return save({
             state: "refused",
             failure: "speech_capacity_unavailable",
             finishedAt: this.now(),
           });
-        return this.save({
-          ...job,
-          state: "uncertain",
-          failure: "speech_pending",
-        });
+        if (permit.reservation.state !== "dispatched")
+          return save({ state: "uncertain", failure: "speech_pending" });
       }
+      // No await between this CAS and invoking the transcriber. A paused old
+      // owner cannot call it after a proven-unsent restart claims the job.
+      if (!ownership.beginSubmission(job.dispatchToken!)) return this.get(id);
       dispatched = true;
       const transcript = await this.transcriber.transcribe(
         audio.audio,
@@ -244,8 +255,7 @@ export class TelegramTrialSpeech {
       );
       await this.admission.resolve(requestId, "succeeded", digest(transcript));
       await this.permit(job);
-      return this.save({
-        ...this.get(id),
+      return save({
         state: "assessed",
         finishedAt: this.now(),
         grade: this.grading.grade({
@@ -257,6 +267,7 @@ export class TelegramTrialSpeech {
         failure: null,
       });
     } catch (error) {
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
       const known =
         !dispatched ||
         (error instanceof StudySpeechError && error.outcome === "known_failed");
@@ -270,15 +281,13 @@ export class TelegramTrialSpeech {
         ),
       ).catch(() => undefined);
       if (known && failure === "speech_rate_limited" && job.retry < 1)
-        return this.save({
-          ...this.get(id),
+        return save({
           state: "retry_wait",
           retry: job.retry + 1,
           nextAt: this.now() + 1000,
           failure,
         });
-      return this.save({
-        ...this.get(id),
+      return save({
         state: known ? "refused" : "uncertain",
         finishedAt: known ? this.now() : null,
         failure,

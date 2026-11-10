@@ -29,9 +29,10 @@ export async function botFixture(
     path?: string;
     dailySpeech?: number;
     providerReceipts?: Map<string, { text: string; language: string }>;
+    snapshot?: { key: string; value: string }[];
   } = {},
 ) {
-  const f = await linkFixture(options.path),
+  const f = await linkFixture(options.path, options.snapshot),
     { grants } = f;
   const song = {
     chainId: 6343,

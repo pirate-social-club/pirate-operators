@@ -5,7 +5,6 @@ import {
   account,
   journalFixture,
   linkFixture,
-  sqlitePath,
 } from "./telegram-fixture.ts";
 import { randomToken, sha256 } from "../packages/telegram/security.ts";
 import { verifyTelegramIdToken } from "../services/telegram-oidc.ts";
@@ -19,8 +18,7 @@ import {
 import { telegramBrokerClient } from "../services/telegram-broker-client.ts";
 
 test("independent signed Telegram proof creates one durable narrow grant; browser logout is not bot logout", async (t) => {
-  const path = sqlitePath("link"),
-    f = await linkFixture(path);
+  const f = await linkFixture();
   t.after(() => f.brokerJournal.close());
   const flow = await f.begin(),
     returned = await f.verify(flow);
@@ -44,8 +42,13 @@ test("independent signed Telegram proof creates one durable narrow grant; browse
     "notifications",
   ]);
   assert.equal((await f.complete(flow, returned)).id, grant.id);
+  const snapshot = f.database
+    .prepare("SELECT key,value FROM telegram_journal")
+    .all() as { key: string; value: string }[];
   f.close();
-  const reopened = journalFixture(path);
+  const reopened = journalFixture();
+  for (const row of snapshot)
+    reopened.store.set(row.key, JSON.parse(row.value));
   t.after(reopened.close);
   const grants = new TelegramGrants(reopened.store, f.grants.accounts, f.now);
   assert.equal((await grants.assert(actor)).id, grant.id);
@@ -298,7 +301,7 @@ test("unlink blocks old completion replays and concurrent retry cannot resurrect
     returned = await f.verify(flow);
   await Promise.all([f.complete(flow, returned), f.complete(flow, returned)]);
   assert.equal(f.grants.unlink(actor, account.accountId), true);
-  await assert.rejects(f.complete(flow, returned), /connection_required/);
+  await assert.rejects(f.complete(flow, returned), /link_revoked/);
   await assert.rejects(f.grants.assert(actor), /connection_required/);
 });
 test("community HTTP requires existing session and CSRF; signup alone has no link; broker uses confidential backchannel", async (t) => {
