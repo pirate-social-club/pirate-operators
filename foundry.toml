@@ -6,6 +6,15 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
 
+# The Dance contracts fit EIP-170 with the size-oriented IR profile.
+# Existing contracts retain the default optimizer and bytecode settings.
+additional_compiler_profiles = [
+  { name = "dance-ir", via_ir = true, optimizer = true, optimizer_runs = 1 },
+]
+compilation_restrictions = [
+  { paths = "contracts/dance/{DanceVerdictsV1,DanceCapturePolicyV1}.sol", via_ir = true, optimizer_runs = 1 },
+]
+
 [invariant]
 runs = 64
 depth = 64
