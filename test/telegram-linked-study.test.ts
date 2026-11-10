@@ -71,6 +71,52 @@ test("lost linked submit response recovers exact existing attempt/audio, not ano
     /audio_changed/,
   );
 });
+test("repair4 linked grades are redacted before D1 writes and legacy linked grades are scrubbed", async (t) => {
+  const f = await botFixture();
+  t.after(f.dispose);
+  const privateSpeech = "fixture private learner speech";
+  const linked = await linkedStudyFixture(f, privateSpeech);
+  const grant = await connect(f);
+  await f.choose();
+  f.database
+    .exec(`CREATE TRIGGER reject_raw_telegram_grade BEFORE UPDATE OF grade_json ON study_attempts
+    WHEN NEW.grade_json LIKE '%heardTranscript%' OR NEW.grade_json LIKE '%fixture private%'
+    BEGIN SELECT RAISE(ABORT, 'unredacted grade'); END`);
+  linked.loseResponse();
+  await f.answer();
+  await f.bot.tick();
+  const job = f.store.entries<TelegramStudyWork>("speech-job:")[0].value;
+  const read = () =>
+    f.database
+      .prepare(
+        "SELECT grade_json,audio_digest FROM study_attempts WHERE lesson_id=?",
+      )
+      .get(job.lessonId)!;
+  assert.equal(job.state, "applied");
+  assert.equal(linked.calls(), 1);
+  const original = read();
+  const grade = JSON.parse(String(original.grade_json));
+  assert.equal(grade.correct, false);
+  assert.doesNotMatch(
+    String(original.grade_json),
+    /heardTranscript|matched|substituted/,
+  );
+  assert.deepEqual(job.grade, grade);
+  f.database.exec("DROP TRIGGER reject_raw_telegram_grade");
+  f.database
+    .prepare("UPDATE study_attempts SET grade_json=? WHERE lesson_id=?")
+    .run(
+      JSON.stringify({
+        ...grade,
+        heardTranscript: privateSpeech,
+        extra: ["private"],
+      }),
+      job.lessonId,
+    );
+  await linked.adapter.get(actor, grant, job.lessonId);
+  assert.deepEqual(read(), original);
+  assert.equal(linked.calls(), 1);
+});
 test("unlink before queued connected speech prevents grading and publication", async (t) => {
   const f = await botFixture();
   t.after(f.dispose);

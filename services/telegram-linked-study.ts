@@ -15,6 +15,10 @@ import type {
 } from "../packages/telegram/study-contracts.ts";
 import type { liveStudy } from "./study-community.ts";
 import type { TelegramGrants } from "./telegram-grants.ts";
+import {
+  scrubLinkedGrades,
+  telegramLinkedDatabase,
+} from "./telegram-linked-privacy.ts";
 
 /** Exact structural contract from lane6 community-setup/connected-learning.ts.
  * Its implementation is injected at the coordinator mount, never replaced by
@@ -87,6 +91,7 @@ export function telegramLinkedStudy(options: {
     session: { account_id: string; wallet: string },
     channel: "telegram-linked",
     fence: TelegramPublicationFence,
+    db: D1Database,
   ): ReturnType<typeof liveStudy> & { telegramGrantFenceVersion: 1 };
   authorize(
     context: TelegramConnectedContext,
@@ -94,6 +99,7 @@ export function telegramLinkedStudy(options: {
   ): Promise<{ id: string | null; pending?: boolean }>;
   personal: TelegramLinkedStudyPort["personal"];
 }): TelegramLinkedStudyPort {
+  const linkedDb = telegramLinkedDatabase(options.db);
   async function authority(
     actor: ChatActor,
     expected: TelegramGrant,
@@ -175,6 +181,7 @@ export function telegramLinkedStudy(options: {
       { account_id: current.accountId, wallet: current.wallet },
       "telegram-linked",
       fence,
+      linkedDb,
     );
     telegramCheck(
       api.telegramGrantFenceVersion === 1,
@@ -211,6 +218,7 @@ export function telegramLinkedStudy(options: {
     telegramCheck(row, "telegram_lesson_not_found", 404);
     const api = await authority(actor, grant, row.started_at);
     await channel(actor, grant, { lessonId: id } as StudyLesson);
+    await scrubLinkedGrades(options.db, id, grant.accountId, actor.communityId);
     return api;
   }
   return {

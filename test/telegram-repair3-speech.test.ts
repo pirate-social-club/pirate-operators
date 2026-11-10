@@ -16,9 +16,13 @@ import { telegramTrialRetention } from "../services/telegram-retention.ts";
 import {
   TELEGRAM_OPEN_MS,
   TELEGRAM_HISTORY_MS,
+  actorKey,
 } from "../packages/telegram/contracts.ts";
 import { digest } from "../packages/protocol/index.ts";
 import type { TelegramStudyWork } from "../packages/telegram/work.ts";
+import type { TelegramTrialRecord } from "../packages/telegram/study-contracts.ts";
+import type { TelegramOutbound } from "../services/telegram-outbox.ts";
+import { trialDebitKey } from "../services/telegram-trial-quota.ts";
 
 const pinned = new URL(
   "../.local/telegram-repair3-lane5/services/study-speech-admission.ts",
@@ -45,8 +49,15 @@ const withLane5 = {
     : "lane 5 admission source is supplied at integration or through the pinned local fixture",
 };
 
-async function fixture(t: import("node:test").TestContext) {
-  const f = await botFixture(),
+function persisted<T>(f: Awaited<ReturnType<typeof fixture>>, key: string): T {
+  const row = f.database
+    .prepare("SELECT value FROM telegram_journal WHERE key=?")
+    .get(key);
+  return JSON.parse(String(row?.value)) as T;
+}
+
+async function fixture(t: import("node:test").TestContext, dailySpeech = 20) {
+  const f = await botFixture({ dailySpeech }),
     ledger = journalFixture();
   t.after(f.dispose);
   t.after(ledger.close);
@@ -159,6 +170,224 @@ test(
           effect.evidence === expected,
       ),
     );
+  },
+);
+
+test(
+  "repair4 settling and applied trial grades persist no learner transcript",
+  withLane5,
+  async (t) => {
+    const f = await fixture(t);
+    const transcript = {
+      text: "fixture private learner speech",
+      language: "en",
+    };
+    const transcribe = f.speech.transcriber.transcribe;
+    f.speech.transcriber.transcribe = async (...args) => {
+      await transcribe(...args);
+      f.providerReceipts.set(f.job.id, transcript);
+      return transcript;
+    };
+    const resolve = f.ports.resolve;
+    let lost = false;
+    f.ports.resolve = async (...args) => {
+      const result = await resolve(...args);
+      if (!lost) {
+        lost = true;
+        throw new Error("fixture_lost_success_reply");
+      }
+      return result;
+    };
+    await f.bot.tick();
+    const key = `speech-job:${f.job.id}`;
+    const settling = persisted<TelegramStudyWork>(f, key);
+    assert.equal(settling.state, "settling");
+    assert.equal(f.actual().get(f.id)?.evidenceDigest, digest(transcript));
+    assert.deepEqual(settling.grade, {
+      correct: false,
+      matchKind: "none",
+      policyRevision: f.job.policy,
+    });
+    const legacyGrade = {
+      ...settling.grade,
+      heardTranscript: transcript.text,
+      substituted: [{ heard: transcript.text }],
+    };
+    const inject = (key: string, value: unknown) =>
+      f.database
+        .prepare("UPDATE telegram_journal SET value=? WHERE key=?")
+        .run(JSON.stringify(value), key);
+    inject(key, { ...settling, grade: legacyGrade });
+    f.restart();
+    await f.bot.tick();
+    const applied = persisted<TelegramStudyWork>(f, key);
+    assert.equal(applied.state, "applied");
+    assert.deepEqual(applied.grade, settling.grade);
+    assert.deepEqual(applied.resolution, settling.resolution);
+    assert.ok(
+      f.effects.every((effect) => effect.evidence === digest(transcript)),
+    );
+    const outbox = f.store.entries<TelegramOutbound>("outbox:");
+    assert.doesNotMatch(JSON.stringify(outbox), /fixture private|You said:/);
+    const verdict = outbox.find(
+      (row) => row.value.effectId === `outcome:${f.job.id}:0`,
+    )!;
+    assert.equal(verdict.value.payload.kind, "text");
+    inject(key, { ...applied, grade: legacyGrade });
+    inject(verdict.key, {
+      ...verdict.value,
+      payload: {
+        kind: "text",
+        text: `Incorrect\nYou said: “${transcript.text}”`,
+      },
+    });
+    telegramTrialRetention(f.trial, actor.communityId);
+    assert.deepEqual(persisted<TelegramStudyWork>(f, key), applied);
+    assert.deepEqual(
+      persisted<TelegramOutbound>(f, verdict.key),
+      verdict.value,
+    );
+    assert.equal(f.speechCalls(), 1);
+  },
+);
+
+test(
+  "repair4 unsent rotated cancellation refunds its original persisted guest debit once",
+  withLane5,
+  async (t) => {
+    const f = await fixture(t, 1);
+    const original = `trial-quota:${actorKey(actor)}:${f.job.reservedDay}`;
+    const otherDay = `trial-quota:${actorKey(actor)}:${f.job.reservedDay + 1}`;
+    f.store.set(otherDay, 4);
+    f.reserve();
+    await f.actual().dispatch(f.id);
+    f.store.set(`speech-job:${f.job.id}`, {
+      ...f.job,
+      state: "dispatching",
+      submissionStarted: false,
+      audioDigest: f.payloadDigest,
+      reservation: { ...f.job.reservation!, started: true },
+    });
+    const resolve = f.ports.resolve;
+    let lost = false;
+    f.ports.resolve = async (...args) => {
+      const result = await resolve(...args);
+      if (!lost) {
+        lost = true;
+        throw new Error("fixture_lost_release_reply");
+      }
+      return result;
+    };
+    f.advance(86400_000);
+    f.rotate();
+    await f.study.work(f.job.id);
+    assert.equal(f.current()?.state, "releasing");
+    assert.equal(persisted<number>(f, original), 0);
+    f.restart();
+    await f.study.work(f.job.id);
+    await f.study.work(f.job.id);
+    assert.equal(f.current()?.state, "cancelled");
+    assert.equal(f.actual().get(f.id)?.state, "refused");
+    assert.equal(persisted<number>(f, original), 0);
+    assert.equal(persisted<number>(f, otherDay), 4);
+    assert.equal(f.speechCalls(), 0);
+  },
+);
+
+test(
+  "repair4 guest debit and unsent cancellation roll back together before provider compensation",
+  withLane5,
+  async (t) => {
+    const f = await fixture(t, 1);
+    const original = `trial-quota:${actorKey(actor)}:${f.job.reservedDay}`;
+    f.reserve();
+    await f.actual().dispatch(f.id);
+    f.store.set(`speech-job:${f.job.id}`, {
+      ...f.job,
+      state: "dispatching",
+      submissionStarted: false,
+      audioDigest: f.payloadDigest,
+      reservation: { ...f.job.reservation!, started: true },
+    });
+    f.rotate();
+    f.database
+      .exec(`CREATE TRIGGER fail_guest_cancellation BEFORE UPDATE ON telegram_journal
+    WHEN NEW.key LIKE 'speech-job:%' AND json_extract(NEW.value,'$.state')='releasing'
+    BEGIN SELECT RAISE(ABORT, 'fixture_atomic_cancel'); END`);
+    await assert.rejects(() => f.study.work(f.job.id), /fixture_atomic_cancel/);
+    assert.equal(f.current()?.state, "dispatching");
+    assert.equal(persisted<number>(f, original), 1);
+    assert.equal(f.actual().get(f.id)?.state, "dispatched");
+    assert.equal(f.effects.length, 0);
+    assert.ok(f.store.get(trialDebitKey(f.job.id)));
+    f.database.exec("DROP TRIGGER fail_guest_cancellation");
+    f.restart();
+    await f.study.work(f.job.id);
+    await f.study.work(f.job.id);
+    assert.equal(f.current()?.state, "cancelled");
+    assert.equal(persisted<number>(f, original), 0);
+    assert.equal(f.store.get(trialDebitKey(f.job.id)), undefined);
+    assert.equal(f.actual().get(f.id)?.state, "refused");
+    assert.equal(f.speechCalls(), 0);
+    const currentActor = { ...actor, generation: 2 };
+    f.grants.start(currentActor);
+    await f.study.resume(currentActor);
+    const prompt = f.sent.find(
+      (item) =>
+        (item.message.kind === "text" || item.message.kind === "voice") &&
+        item.message.promptKey === f.job.promptKey,
+    )!;
+    const replacement = await f.study.accept(
+      currentActor,
+      f.job.voice!,
+      prompt.messageId,
+      98765,
+    );
+    assert.notEqual(replacement.id, f.job.id);
+    await f.study.work(f.job.id);
+    assert.equal(persisted<number>(f, original), 1);
+  },
+);
+
+test(
+  "repair4 retention cannot apply an old-generation assessment after delayed authorization",
+  withLane5,
+  async (t) => {
+    const f = await fixture(t);
+    f.fail("unknown");
+    f.recoverReady(false);
+    await f.study.options.speech.work(f.job.id);
+    assert.equal(f.current()?.state, "uncertain");
+    f.recoverReady(true);
+    const gate = barrier();
+    const permit = f.study.permit.bind(f.study);
+    f.study.permit = async (job) => {
+      await permit(job);
+      if (job.state === "assessed") await gate.pause();
+    };
+    const applying = f.study.work(f.job.id);
+    await gate.waiting;
+    try {
+      f.rotate();
+      telegramTrialRetention(f.trial, actor.communityId);
+    } finally {
+      gate.release();
+    }
+    await applying;
+    const record = persisted<TelegramTrialRecord>(
+      f,
+      `trial:${actorKey(actor)}:${f.job.lessonId}`,
+    );
+    assert.equal(record.state.items.filter((item) => item.resolved).length, 0);
+    assert.equal(f.current()?.state, "cancelled");
+    assert.equal(
+      persisted<number>(
+        f,
+        `trial-quota:${actorKey(actor)}:${f.job.reservedDay}`,
+      ),
+      1,
+    );
+    assert.equal(f.speechCalls(), 1);
   },
 );
 

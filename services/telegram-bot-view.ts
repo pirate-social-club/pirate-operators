@@ -219,9 +219,7 @@ export class TelegramBotViews {
         },
         ...(await this.prompt(view)),
       ];
-    const messages = [
-      this.presentation.verdict(job.grade.correct, job.grade.heardTranscript),
-    ];
+    const messages = [this.presentation.verdict(job.grade.correct)];
     if (view.status === "active")
       return [...messages, ...(await this.prompt(view))];
     let facts: {

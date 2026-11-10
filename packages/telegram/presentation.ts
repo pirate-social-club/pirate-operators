@@ -20,7 +20,7 @@ export interface TelegramPresentationPort {
     buttons: TelegramButton[][],
   ): TelegramNativeMessage;
   prompt(view: TelegramLessonView): TelegramNativeMessage;
-  verdict(correct: boolean, heard: string): TelegramNativeMessage;
+  verdict(correct: boolean): TelegramNativeMessage;
   result(
     view: TelegramLessonView,
     facts: {
@@ -93,12 +93,10 @@ export const nativeTelegramPresentation: TelegramPresentationPort = {
       promptKey: view.prompt!.key,
     };
   },
-  verdict(correct, heard) {
+  verdict(correct) {
     return {
       kind: "text",
-      text: correct
-        ? "Correct"
-        : `Incorrect\nYou said: “${safeText(heard, 512)}”`,
+      text: correct ? "Correct" : "Incorrect",
     };
   },
   result(view, facts, buttons) {

@@ -9,7 +9,7 @@ import {
   newLesson,
 } from "../packages/study/lesson.ts";
 import { selectStudyLessonLines } from "../packages/study/line-selection.ts";
-import type { StudyTranscriptGradeV2 } from "../packages/study/transcript-grading.ts";
+import type { TelegramSpeechJob } from "./telegram-speech.ts";
 import {
   TELEGRAM_HISTORY_MS,
   TELEGRAM_OPEN_MS,
@@ -25,8 +25,14 @@ import type {
 import { TelegramGrants } from "./telegram-grants.ts";
 import {
   releasedTelegramGrading,
+  type TelegramGrade,
   type TelegramTrialGradingPort,
 } from "../packages/telegram/grading.ts";
+import {
+  refundTrialDebit,
+  trialDebitKey,
+  trialQuotaKey,
+} from "./telegram-trial-quota.ts";
 
 /** Guest lessons have their own table namespace and never call an account,
  * publication, qualification or reward writer. The established queue and
@@ -125,34 +131,14 @@ export class TelegramTrialLessons {
       const actor = record.actor,
         id = record.id;
       if (record.state.currentAttemptId) {
-        const pending = this.grants.store.get<{
-          id: string;
-          state: string;
-          grade: StudyTranscriptGradeV2 | null;
-          durationMs: number;
-          finishedAt: number | null;
-        }>(`speech-job:${record.state.currentAttemptId}`);
+        const pending = this.grants.store.get<TelegramSpeechJob>(
+          `speech-job:${record.state.currentAttemptId}`,
+        );
         if (pending?.state === "cancelled") {
           record = {
             ...record,
             state: { ...record.state, currentAttemptId: null },
           };
-          this.grants.store.set(this.key(actor, id), record);
-        }
-        if (
-          pending?.state === "assessed" &&
-          pending.grade &&
-          pending.finishedAt !== null &&
-          pending.finishedAt < record.state.startedAt + TELEGRAM_OPEN_MS &&
-          record.state.status === "active"
-        ) {
-          record = this.consume(
-            record,
-            pending.id,
-            pending.grade,
-            pending.durationMs,
-            pending.finishedAt,
-          );
           this.grants.store.set(this.key(actor, id), record);
         }
       }
@@ -263,14 +249,12 @@ export class TelegramTrialLessons {
         409,
       );
       telegramCheck(
-        !record.state.currentAttemptId ||
-          record.state.currentAttemptId === attemptId,
+        record.state.currentAttemptId === null,
         "telegram_answer_pending",
         409,
       );
-      if (record.state.currentAttemptId === attemptId) return record;
       const day = Math.floor(this.grants.now() / 86400_000),
-        quotaKey = `trial-quota:${actorKey(actor)}:${day}`;
+        quotaKey = trialQuotaKey(actor, day);
       const used = this.grants.store.get<number>(quotaKey) ?? 0;
       telegramCheck(
         used < this.limits.perUserDailySpeech,
@@ -278,24 +262,27 @@ export class TelegramTrialLessons {
         429,
       );
       this.grants.store.set(quotaKey, used + 1);
+      this.grants.store.set(trialDebitKey(attemptId), {
+        actor,
+        lessonId: id,
+        day,
+      });
       const next = {
         ...record,
         state: { ...record.state, currentAttemptId: attemptId },
       };
       this.grants.store.set(this.key(actor, id), next);
-      return next;
+      return day;
     });
   }
-  refuse(actor: ChatActor, id: string, attemptId: string, reservedDay: number) {
+  refuse(job: TelegramSpeechJob) {
+    const { actor, lessonId: id, id: attemptId } = job;
     return this.grants.store.transaction(() => {
       const record = this.record(actor, id);
       if (record.state.currentAttemptId !== attemptId)
         return this.get(actor, id);
-      const key = `trial-quota:${actorKey(actor)}:${reservedDay}`;
-      this.grants.store.set(
-        key,
-        Math.max(0, (this.grants.store.get<number>(key) ?? 0) - 1),
-      );
+      if (job.resolution?.state === "refused")
+        refundTrialDebit(this.grants.store, job);
       this.grants.store.set(this.key(actor, id), {
         ...record,
         state: { ...record.state, currentAttemptId: null },
@@ -303,24 +290,28 @@ export class TelegramTrialLessons {
       return this.get(actor, id);
     });
   }
-  apply(
-    actor: ChatActor,
-    id: string,
-    attemptId: string,
-    grade: StudyTranscriptGradeV2,
-    durationMs: number,
-    finishedAt: number,
-  ) {
+  apply(job: TelegramSpeechJob) {
+    const {
+      actor,
+      lessonId: id,
+      id: attemptId,
+      grade,
+      durationMs,
+      finishedAt,
+    } = job;
     return this.grants.store.transaction(() => {
-      const view = this.get(actor, id),
-        record = this.record(actor, id);
+      const record = this.record(actor, id),
+        view = this.view(record);
       if (record.state.lastAttemptId === attemptId) return view;
       telegramCheck(
         view.status === "active" &&
+          view.prompt?.key === job.promptKey &&
           record.state.currentAttemptId === attemptId &&
+          grade &&
+          finishedAt !== null &&
           finishedAt < record.state.startedAt + TELEGRAM_OPEN_MS,
         "telegram_lesson_closed",
-        409,
+        410,
       );
       const next = this.consume(
         record,
@@ -330,7 +321,7 @@ export class TelegramTrialLessons {
         finishedAt,
       );
       this.grants.store.set(this.key(actor, id), next);
-      return this.view(next);
+      return this.view(this.reconcile(next));
     });
   }
   history(actor: ChatActor, id: string) {
@@ -358,7 +349,7 @@ export class TelegramTrialLessons {
   private consume(
     record: TelegramTrialRecord,
     attemptId: string,
-    grade: StudyTranscriptGradeV2,
+    grade: TelegramGrade,
     durationMs: number,
     finishedAt: number,
   ) {
@@ -378,7 +369,15 @@ export class TelegramTrialLessons {
       startedAt: finishedAt,
       completedAt: finishedAt,
       state: "assessed",
-      grade,
+      // The shared queue consumes the verdict and policy only.
+      grade: {
+        ...grade,
+        heardTranscript: "",
+        matched: [],
+        missing: [],
+        extra: [],
+        substituted: [],
+      },
       failure: null,
       lesson: {
         lessonId: record.id,

@@ -7,6 +7,7 @@ import { linkedLessonView } from "./telegram-linked-study.ts";
 import type { TelegramVoiceFiles } from "./telegram-speech.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
 import { telegramWorkClaim } from "./telegram-work-claim.ts";
+import { telegramGrade } from "../packages/telegram/grading.ts";
 
 /** The existing Study service owns attempts, provider admission, policy,
  * publication and economic uniqueness. This layer only journals chat work. */
@@ -54,7 +55,7 @@ export async function workTelegramLinked(
       ...read(),
       state: result.attempt.state === "assessed" ? "assessed" : "refused",
       finishedAt: result.attempt.completedAt ?? options.now(),
-      grade: result.attempt.grade,
+      grade: telegramGrade(result.attempt.grade),
       failure: result.attempt.failure,
       resultView: linkedLessonView(result.lesson, job.songKey),
     });
@@ -102,7 +103,7 @@ export async function workTelegramLinked(
           : result.attempt.state === "unavailable"
             ? "refused"
             : "uncertain",
-      grade: result.attempt.grade,
+      grade: telegramGrade(result.attempt.grade),
       failure: result.attempt.failure,
       finishedAt: result.attempt.completedAt,
       resultView: linkedLessonView(result.lesson, job.songKey),

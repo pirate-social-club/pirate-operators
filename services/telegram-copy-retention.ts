@@ -8,7 +8,11 @@ import type {
   TelegramStudySession,
   TelegramStudyWork,
 } from "../packages/telegram/work.ts";
-import type { TelegramOutbound } from "./telegram-outbox.ts";
+import {
+  scrubTelegramVerdict,
+  type TelegramOutbound,
+} from "./telegram-outbox.ts";
+import { readTelegramSpeechJob } from "./telegram-job-privacy.ts";
 import { telegramScan } from "./telegram-store.ts";
 import { digest } from "../packages/protocol/index.ts";
 
@@ -69,9 +73,9 @@ export function telegramCopyRetention(
     "speech-job:",
     limit,
   )) {
-    const job = row.value;
-    if (job.mode !== "linked" || job.actor.communityId !== communityId)
-      continue;
+    if (row.value.actor.communityId !== communityId) continue;
+    const job = readTelegramSpeechJob<TelegramStudyWork>(store, row.key)!;
+    if (job.mode !== "linked") continue;
     const key = actorKey(job.actor),
       session = store.get<TelegramStudySession>(
         `session:${key}:${job.lessonId}`,
@@ -130,8 +134,9 @@ export function telegramCopyRetention(
   // This scan also scrubs exports written before lesson guards existed. It does
   // not depend on the trial/session row, or on an arbitrary per-lesson page cap.
   for (const row of telegramScan<TelegramOutbound>(store, "outbox:", limit)) {
-    const delivery = row.value;
-    if (delivery.actor.communityId !== communityId) continue;
+    if (row.value.actor.communityId !== communityId) continue;
+    const delivery = scrubTelegramVerdict(row.value);
+    if (delivery !== row.value) store.set(row.key, delivery);
     const expiredExport =
       delivery.payload.kind === "document" && delivery.payload.expiresAt <= now;
     const expiredLinked =

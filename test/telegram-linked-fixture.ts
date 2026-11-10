@@ -61,6 +61,7 @@ export function d1Sqlite(database: DatabaseSync) {
 }
 export async function linkedStudyFixture(
   f: Awaited<ReturnType<typeof botFixture>>,
+  heard?: string,
 ) {
   f.database.exec(
     readFileSync(
@@ -86,44 +87,50 @@ export async function linkedStudyFixture(
     accountId: account.accountId,
     communityId: actor.communityId,
   };
-  const attempts = makeStudyService({
-    db,
-    now: f.now,
-    resolveLine: async (selection) =>
-      lines.find((line) => line.lineId === selection.lineId)!,
-    transcriber: {
-      providerRetention: "stored",
-      async transcribe(_audio, _type, _language, context) {
-        calls++;
-        const transcript = {
-          text: lines.find((line) => line.lineId === context!.lineId)!.text,
-          language: "en",
-        };
-        receipts.set(context!.attemptId, transcript);
-        return transcript;
+  const makeAttempts = (db: D1Database) =>
+    makeStudyService({
+      db,
+      now: f.now,
+      resolveLine: async (selection) =>
+        lines.find((line) => line.lineId === selection.lineId)!,
+      transcriber: {
+        providerRetention: "stored",
+        async transcribe(_audio, _type, _language, context) {
+          calls++;
+          const transcript = {
+            text:
+              heard ??
+              lines.find((line) => line.lineId === context!.lineId)!.text,
+            language: "en",
+          };
+          receipts.set(context!.attemptId, transcript);
+          return transcript;
+        },
+        recover: async (context) =>
+          receipts.has(context.attemptId)
+            ? {
+                state: "assessed",
+                transcript: receipts.get(context.attemptId)!,
+              }
+            : null,
       },
-      recover: async (context) =>
-        receipts.has(context.attemptId)
-          ? { state: "assessed", transcript: receipts.get(context.attemptId)! }
-          : null,
-    },
-  });
-  const lessons = makeStudyLessonService({
-    db,
-    attempts,
-    resolveLines: async () => lines,
-    now: f.now,
-  });
+    });
   const adapter = telegramLinkedStudy({
     grants: f.grants,
     db,
-    createStudy(session, channel, fence) {
+    createStudy(session, channel, fence, db) {
       if (
         session.account_id !== principal.accountId ||
         session.wallet !== account.wallet ||
         channel !== "telegram-linked"
       )
         throw new Error("fixture_wrong_account_channel");
+      const lessons = makeStudyLessonService({
+        db,
+        attempts: makeAttempts(db),
+        resolveLines: async () => lines,
+        now: f.now,
+      });
       return {
         telegramGrantFenceVersion: fenceVersion,
         latest: (song) => lessons.latest(principal, song),
@@ -181,8 +188,6 @@ export async function linkedStudyFixture(
   Object.assign(f.linked, adapter);
   return {
     db,
-    lessons,
-    attempts,
     adapter,
     principal,
     calls: () => calls,

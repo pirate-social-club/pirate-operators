@@ -6,10 +6,7 @@ import {
   type StudyTranscript,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
-import {
-  type StudyTranscriptGradeV2,
-  type StudyTranscriptGraderPolicyRevision,
-} from "../packages/study/transcript-grading.ts";
+import type { StudyTranscriptGraderPolicyRevision } from "../packages/study/transcript-grading.ts";
 import type { StudyLine } from "../packages/study/contracts.ts";
 import {
   telegramCheck,
@@ -19,12 +16,16 @@ import type { TelegramVoiceInput } from "../packages/telegram/study-contracts.ts
 import type { TelegramJournal } from "./telegram-store.ts";
 import {
   releasedTelegramGrading,
+  telegramGrade,
+  type TelegramGrade,
   type TelegramTrialGradingPort,
 } from "../packages/telegram/grading.ts";
 import {
   telegramWorkAuthorityLost,
   telegramWorkClaim,
 } from "./telegram-work-claim.ts";
+import { readTelegramSpeechJob } from "./telegram-job-privacy.ts";
+import { refundUnsentTrialDebit } from "./telegram-trial-quota.ts";
 
 /** Structural lane5 CommunitySpeechAdmission RPC. No legacy global budget
  * fallback is accepted by this adapter. Configure the same key generation as
@@ -81,7 +82,7 @@ export interface TelegramSpeechJob {
   retry: number;
   nextAt: number;
   finishedAt: number | null;
-  grade: StudyTranscriptGradeV2 | null;
+  grade: TelegramGrade | null;
   failure: string | null;
   dispatchToken?: string;
   submissionStarted?: boolean;
@@ -144,11 +145,15 @@ export class TelegramTrialSpeech {
     );
   }
   get(id: string) {
-    const job = this.store.get<TelegramSpeechJob>(`speech-job:${id}`);
+    const job = readTelegramSpeechJob(this.store, `speech-job:${id}`);
     telegramCheck(job, "telegram_job_not_found", 404);
     return job;
   }
-  private advance(job: TelegramSpeechJob, change: Partial<TelegramSpeechJob>) {
+  private advance(
+    job: TelegramSpeechJob,
+    change: Partial<TelegramSpeechJob>,
+    stopUnsent = false,
+  ) {
     return this.store.transaction(() => {
       const current = this.get(job.id);
       if (
@@ -160,6 +165,7 @@ export class TelegramTrialSpeech {
         current.resolution?.evidenceDigest !== job.resolution?.evidenceDigest
       )
         return current;
+      if (stopUnsent) refundUnsentTrialDebit(this.store, current);
       const next = { ...current, ...change };
       this.store.set("speech-job:" + job.id, next);
       return next;
@@ -263,6 +269,7 @@ export class TelegramTrialSpeech {
             failure,
             finishedAt: this.now(),
           },
+      true,
     );
     return next.state === "releasing" ? this.release(next) : next;
   }
@@ -346,12 +353,14 @@ export class TelegramTrialSpeech {
       },
       finishedAt: this.now(),
       grade: assessed
-        ? this.grading.grade({
-            line: job.line,
-            transcript: receipt.transcript,
-            policy: job.policy,
-            take: job.take,
-          })
+        ? telegramGrade(
+            this.grading.grade({
+              line: job.line,
+              transcript: receipt.transcript,
+              policy: job.policy,
+              take: job.take,
+            }),
+          )
         : null,
       failure: assessed ? null : receipt.error,
       retryOnRefusal,
@@ -501,15 +510,19 @@ export class TelegramTrialSpeech {
             return current;
           // A definitive rejection of the first reserve proves this attempt
           // created no row, even if cancellation started while it was pending.
-          return this.advance(current, {
-            state:
-              current.state === "releasing"
-                ? (current.releaseTo ?? "cancelled")
-                : "refused",
-            reservation: { ...job.reservation!, started: false },
-            finishedAt: this.now(),
-            failure: current.failure ?? "speech_capacity_unavailable",
-          });
+          return this.advance(
+            current,
+            {
+              state:
+                current.state === "releasing"
+                  ? (current.releaseTo ?? "cancelled")
+                  : "refused",
+              reservation: { ...job.reservation!, started: false },
+              finishedAt: this.now(),
+              failure: current.failure ?? "speech_capacity_unavailable",
+            },
+            true,
+          );
         }
         if (!ownership.owns(job.dispatchToken)) return this.get(id);
         if (!(await this.reservationStatus(job)))
@@ -529,11 +542,15 @@ export class TelegramTrialSpeech {
           permit.reservation.state === "cancelled" ||
           permit.reservation.state === "refused"
         )
-          return this.advance(job, {
-            state: "refused",
-            finishedAt: this.now(),
-            failure: "speech_capacity_unavailable",
-          });
+          return this.advance(
+            job,
+            {
+              state: "refused",
+              finishedAt: this.now(),
+              failure: "speech_capacity_unavailable",
+            },
+            true,
+          );
         if (permit.reservation.state !== "dispatched")
           return this.advance(job, {
             state: "uncertain",

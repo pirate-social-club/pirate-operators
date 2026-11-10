@@ -9,6 +9,11 @@ import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import type { TelegramTrialLessons } from "./telegram-trial.ts";
 import type { TelegramOutbound } from "./telegram-outbox.ts";
 import { hasTelegramReservationIntent } from "./telegram-speech.ts";
+import { readTelegramSpeechJob } from "./telegram-job-privacy.ts";
+import {
+  refundUnsentTrialDebit,
+  trialDebitKey,
+} from "./telegram-trial-quota.ts";
 import {
   telegramCopyRetention,
   TELEGRAM_VOICE_HANDLE_MS,
@@ -51,7 +56,10 @@ export function telegramTrialRetention(
       continue;
     }
     const jobs = indexedJobs.flatMap((index) => {
-      const value = store.get<TelegramStudyWork>(`speech-job:${index.value}`);
+      const value = readTelegramSpeechJob<TelegramStudyWork>(
+        store,
+        `speech-job:${index.value}`,
+      );
       return value ? [{ key: `speech-job:${index.value}`, value }] : [];
     });
     for (const job of jobs)
@@ -66,19 +74,16 @@ export function telegramTrialRetention(
             job.value.submissionStarted === false);
         const release = undispatched && hasTelegramReservationIntent(job.value);
         store.transaction(() => {
+          if (undispatched) refundUnsentTrialDebit(store, job.value);
+          const current = store.get<TelegramTrialRecord>(row.key)!;
           if (
             undispatched &&
-            record.state.status === "active" &&
-            record.state.currentAttemptId === job.value.id
+            current.state.status === "active" &&
+            current.state.currentAttemptId === job.value.id
           ) {
-            const quotaKey = `trial-quota:${actorKey(record.actor)}:${job.value.reservedDay}`;
-            store.set(
-              quotaKey,
-              Math.max(0, (store.get<number>(quotaKey) ?? 0) - 1),
-            );
             store.set(row.key, {
-              ...record,
-              state: { ...record.state, currentAttemptId: null },
+              ...current,
+              state: { ...current.state, currentAttemptId: null },
             });
           }
           store.set(job.key, {
@@ -150,6 +155,7 @@ export function telegramTrialRetention(
           resolution: job.value.resolution ?? null,
         });
         store.delete(job.key);
+        store.delete(trialDebitKey(job.value.id));
         store.delete(`job-ready:${job.value.id}`);
       }
       for (const index of indexedJobs) store.delete(index.key);

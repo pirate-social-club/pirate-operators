@@ -2,6 +2,7 @@ import { digest } from "../packages/protocol/index.ts";
 import {
   TELEGRAM_OPEN_MS,
   actorKey,
+  sameActor,
   telegramCheck,
   type ChatActor,
 } from "../packages/telegram/contracts.ts";
@@ -25,6 +26,7 @@ import { linkedLessonView } from "./telegram-linked-study.ts";
 import { workTelegramLinked } from "./telegram-linked-jobs.ts";
 import { STUDY_POLICY } from "../packages/study/contracts.ts";
 import { telegramWorkAuthorityLost } from "./telegram-work-claim.ts";
+import { readTelegramSpeechJob } from "./telegram-job-privacy.ts";
 
 export interface TelegramStudyOptions {
   grants: TelegramGrants;
@@ -181,6 +183,7 @@ export class TelegramStudyService {
         "telegram_answer_pending",
         409,
       );
+      let reservedDay = Math.floor(grants.now() / 86400_000);
       if (grant)
         telegramCheck(
           grants.read(actor)?.id === grant.id &&
@@ -194,7 +197,12 @@ export class TelegramStudyService {
           "telegram_use_connected_study",
           409,
         );
-        this.options.trial.reserve(actor, view.id, view.prompt!.key, id);
+        reservedDay = this.options.trial.reserve(
+          actor,
+          view.id,
+          view.prompt!.key,
+          id,
+        );
       }
       const trialPolicy = grant
         ? null
@@ -214,7 +222,7 @@ export class TelegramStudyService {
         take: view.prompt!.take,
         voice,
         audioDigest: null,
-        reservedDay: Math.floor(grants.now() / 86400_000),
+        reservedDay,
         acceptedAt: grants.now(),
         durationMs: voice.durationMs,
         state: "queued",
@@ -259,9 +267,8 @@ export class TelegramStudyService {
       409,
     );
   }
-  /** Runs synchronously with the submission claim after async admission and
-   * account checks. This is the local boundary, not the shared publication fence. */
-  beforeSubmission(job: TelegramStudyWork) {
+  /** Used synchronously at the submission and application commit boundaries. */
+  private currentWorkSession(job: TelegramStudyWork) {
     const grants = this.options.grants;
     grants.binding(job.actor);
     const active = grants.store.get<string>(
@@ -271,13 +278,14 @@ export class TelegramStudyService {
       this.sessionKey(job.actor, job.lessonId),
     );
     telegramCheck(
-      active === job.lessonId && session?.mode === job.mode,
+      active === job.lessonId &&
+        session?.mode === job.mode &&
+        sameActor(session.actor, job.actor),
       "telegram_lesson_changed",
       409,
     );
     telegramCheck(
-      session.view.status === "active" &&
-        grants.now() < session.view.startedAt + TELEGRAM_OPEN_MS,
+      session.view.status === "active",
       "telegram_lesson_closed",
       410,
     );
@@ -286,23 +294,38 @@ export class TelegramStudyService {
       "telegram_prompt_changed",
       409,
     );
+    const current = grants.read(job.actor);
     if (job.grant) {
-      const current = grants.read(job.actor);
       telegramCheck(
         current?.revokedAt === null &&
           current.id === job.grant.id &&
           current.accountId === job.grant.accountId &&
           current.wallet === job.grant.wallet &&
+          current.authorityVersion === job.grant.authorityVersion &&
           session.grant?.id === job.grant.id,
         "telegram_authority_changed",
         403,
       );
-    }
+    } else
+      telegramCheck(
+        session.grant === null && current?.revokedAt !== null,
+        "telegram_authority_changed",
+        403,
+      );
+    return session;
+  }
+  beforeSubmission(job: TelegramStudyWork) {
+    const session = this.currentWorkSession(job);
+    telegramCheck(
+      this.options.grants.now() < session.view.startedAt + TELEGRAM_OPEN_MS,
+      "telegram_lesson_closed",
+      410,
+    );
   }
   async work(id: string): Promise<TelegramStudyWork> {
     const grants = this.options.grants,
       key = `speech-job:${id}`;
-    let job = grants.store.get<TelegramStudyWork>(key);
+    let job = readTelegramSpeechJob<TelegramStudyWork>(grants.store, key);
     telegramCheck(job, "telegram_job_not_found", 404);
     if (["applied", "cancelled"].includes(job.state)) return job;
     const initial = job;
@@ -322,32 +345,30 @@ export class TelegramStudyService {
           job,
         );
       }
-      job = grants.store.get<TelegramStudyWork>(key)!;
+      job = readTelegramSpeechJob<TelegramStudyWork>(grants.store, key)!;
       telegramCheck(job, "telegram_history_expired", 410);
       if (!["assessed", "refused"].includes(job.state)) return job;
-      await this.permit(job);
+      const authorized = job;
+      await this.permit(authorized);
       return grants.store.transaction(() => {
-        const current = grants.store.get<TelegramStudyWork>(key);
+        const current = readTelegramSpeechJob<TelegramStudyWork>(
+          grants.store,
+          key,
+        );
         telegramCheck(current, "telegram_history_expired", 410);
-        if (current.state === "applied") return current;
+        if (
+          current.state !== authorized.state ||
+          current.dispatchToken !== authorized.dispatchToken ||
+          current.retry !== authorized.retry
+        )
+          return current;
+        const session = this.currentWorkSession(current);
         let view = current.resultView;
         if (current.mode === "trial") {
           view =
             current.state === "assessed"
-              ? this.options.trial.apply(
-                  current.actor,
-                  current.lessonId,
-                  current.id,
-                  current.grade!,
-                  current.durationMs,
-                  current.finishedAt!,
-                )
-              : this.options.trial.refuse(
-                  current.actor,
-                  current.lessonId,
-                  current.id,
-                  current.reservedDay,
-                );
+              ? this.options.trial.apply(current)
+              : this.options.trial.refuse(current);
         }
         telegramCheck(view, "telegram_result_pending", 409);
         const next: TelegramStudyWork = {
@@ -357,7 +378,7 @@ export class TelegramStudyService {
           voice: null,
         };
         this.save(current.actor, {
-          ...this.session(current.actor, current.lessonId),
+          ...session,
           view,
         });
         grants.store.set(key, next);

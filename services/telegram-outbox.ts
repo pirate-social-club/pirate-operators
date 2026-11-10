@@ -32,6 +32,18 @@ export interface TelegramOutbound {
   nextAt: number;
   messageId: number | null;
 }
+
+/** Retire the former native verdict copy while preserving delivery identity. */
+export function scrubTelegramVerdict(row: TelegramOutbound): TelegramOutbound {
+  if (
+    !row.effectId.startsWith("outcome:") ||
+    row.payload.kind !== "text" ||
+    !row.payload.text.startsWith("Incorrect\nYou said:")
+  )
+    return row;
+  return { ...row, payload: { ...row.payload, text: "Incorrect" } };
+}
+
 export class TelegramOutbox {
   readonly grants: TelegramGrants;
   readonly delivery: TelegramDeliveryPort;
@@ -185,11 +197,13 @@ export class TelegramOutbox {
       const headKey = `outbox-head:${actorKey(actor)}`,
         head = this.grants.store.get<number>(headKey) ?? 1;
       const key = `outbox:${actorKey(actor)}:${String(head).padStart(16, "0")}`,
-        value = this.grants.store.get<TelegramOutbound>(key);
-      if (!value) {
+        stored = this.grants.store.get<TelegramOutbound>(key);
+      if (!stored) {
         this.grants.store.delete(`outbox-ready:${actorKey(actor)}`);
         break;
       }
+      const value = scrubTelegramVerdict(stored);
+      if (value !== stored) this.grants.store.set(key, value);
       if (value.state === "sent" || value.state === "cancelled") {
         this.grants.store.set(headKey, head + 1);
         continue;

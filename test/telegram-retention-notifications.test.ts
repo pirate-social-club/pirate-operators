@@ -71,7 +71,7 @@ test("uncertain provider recovery holds private-history erasure but file handles
   assert.equal(later.erased, 0);
   assert.equal(later.recoveryHeld, 1);
 });
-test("saved assessment is reconciled before the open-bound close after interruption", async (t) => {
+test("saved assessment is applied by the authorized worker before it closes the lesson at the deadline", async (t) => {
   const f = await botFixture();
   t.after(f.dispose);
   await f.choose();
@@ -81,10 +81,14 @@ test("saved assessment is reconciled before the open-bound close after interrupt
     await f.bot.processUpdate(row.value);
   const job = f.store.entries<TelegramStudyWork>("speech-job:")[0].value;
   await f.speech.work(job.id);
+  telegramTrialRetention(f.trial, actor.communityId);
+  assert.equal(f.trial.get(actor, job.lessonId).progress.resolved, 0);
   f.advance(TELEGRAM_OPEN_MS);
+  await f.study.work(job.id);
   const view = f.trial.get(actor, job.lessonId);
   assert.equal(view.progress.resolved, 1);
   assert.equal(view.status, "abandoned");
+  assert.equal(f.speechCalls(), 1);
 });
 test("reminders are opt-in and can work for a trial sender without creating an account", async (t) => {
   const f = await botFixture();
