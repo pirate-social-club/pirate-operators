@@ -97,7 +97,12 @@ export async function studyDeploymentMain(
   const profile: StudyDeploymentProfile = JSON.parse(
     readFileSync(values.profile, "utf8"),
   );
-  const artifact = ports.artifact ?? compileStudyDeployment();
+  const artifact =
+    ports.artifact ??
+    compileStudyDeployment(
+      undefined,
+      profile.schema === "pirate.study-deployment/2" ? 4 : 3,
+    );
   const plan = studyDeploymentPlan(profile, artifact);
   if (!values.execute && !values.status && !values.observe) {
     insist(

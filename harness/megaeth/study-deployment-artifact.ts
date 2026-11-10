@@ -40,9 +40,12 @@ export function studyDeploymentExecutorHash() {
   );
 }
 export function compileStudyDeployment(
-  source = readFileSync("contracts/LearningResultsV3.sol", "utf8"),
+  source?: string,
+  version: 3 | 4 = 3,
 ): StudyDeploymentArtifact {
-  const path = "contracts/LearningResultsV3.sol";
+  const name = `LearningResultsV${version}`;
+  const path = `contracts/${name}.sol`;
+  source ??= readFileSync(path, "utf8");
   const settings = {
     optimizer: { enabled: true, runs: 200 },
     evmVersion: "cancun",
@@ -89,7 +92,7 @@ export function compileStudyDeployment(
     !output.errors?.some((error) => error.severity === "error"),
     "study_deployment_compile_failed",
   );
-  const value = output.contracts[path]?.LearningResultsV3;
+  const value = output.contracts[path]?.[name];
   insist(
     value?.evm.bytecode.object && value.evm.deployedBytecode.object,
     "study_deployment_artifact_missing",

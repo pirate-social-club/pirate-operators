@@ -106,7 +106,12 @@ export async function studyActivationMain(
   const raw = readFileSync(values.profile);
   insist(raw.length <= 65536, "study_activation_profile_too_large");
   const profile = JSON.parse(raw.toString()) as StudyActivationProfile;
-  const artifact = ports.artifact ?? compileStudyDeployment(),
+  const artifact =
+      ports.artifact ??
+      compileStudyDeployment(
+        undefined,
+        profile.schema === "pirate.study-activation/2" ? 4 : 3,
+      ),
     sourceHash = studyActivationSourceHash();
   const plan = await studyActivationPlan(profile, artifact, sourceHash),
     now = ports.now ?? Date.now;

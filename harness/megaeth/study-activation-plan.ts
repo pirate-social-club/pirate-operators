@@ -22,10 +22,12 @@ import { studyDeploymentPolicies } from "./study-deployment-plan.ts";
 import type { StudyDeploymentArtifact } from "./study-deployment-artifact.ts";
 import type { ControllerScope } from "./controller-inventory.ts";
 export interface StudyActivationProfile extends ControllerScope {
-  schema: "pirate.study-activation/1";
+  schema: "pirate.study-activation/1" | "pirate.study-activation/2";
   chainId: 6343;
   history: CommunityConfig[];
   historyHashes: Hex[];
+  predecessor?: { contract: Hex; codeHash: Hex };
+  communityOrigin?: string;
   manifestSha256: Hex;
   pin: PinIntent;
   contract: Hex;
@@ -80,6 +82,7 @@ export async function studyActivationPlan(
   artifact: StudyDeploymentArtifact,
   sourceHash: Hex,
 ) {
+  const v4 = p.schema === "pirate.study-activation/2";
   exact(object(p), [
     "schema",
     "chainId",
@@ -105,18 +108,19 @@ export async function studyActivationPlan(
     "maximumTotalWei",
     "notBefore",
     "deadline",
+    ...(v4 ? ["predecessor", "communityOrigin"] : []),
   ]);
   insist(
-    p.schema === "pirate.study-activation/1" &&
+    (v4 || p.schema === "pirate.study-activation/1") &&
       p.chainId === 6343 &&
       p.communityId === firstSong.directoryProfile.communityId,
     "study_activation_wrong_community",
   );
   insist(
     Array.isArray(p.history) &&
-      p.history.length === 3 &&
+      p.history.length === (v4 ? 5 : 3) &&
       Array.isArray(p.historyHashes) &&
-      p.historyHashes.length === 3,
+      p.historyHashes.length === p.history.length,
     "study_activation_history_required",
   );
   const history: CommunityConfig[] = [];
@@ -129,9 +133,19 @@ export async function studyActivationPlan(
     );
     history.push(config);
   }
-  const before = history[2]!;
+  const before = history.at(-1)!;
+  if (v4) {
+    exact(object(p.predecessor), ["contract", "codeHash"]);
+    insist(
+      /^0x[0-9a-f]{40}$/.test(p.predecessor!.contract) &&
+        BigInt(p.predecessor!.contract) !== 0n &&
+        activationHash(p.predecessor!.codeHash) &&
+        p.communityOrigin === firstSong.origin,
+      "study_activation_v4_identity_invalid",
+    );
+  }
   insist(
-    before.configurationRevision === 3 &&
+    before.configurationRevision === (v4 ? 5 : 3) &&
       before.chainId === 6343 &&
       before.directory === firstSong.directoryProfile.directory &&
       before.registry === firstSong.directoryProfile.registry &&
@@ -139,14 +153,22 @@ export async function studyActivationPlan(
       before.postsContract === firstSong.posts.address &&
       before.app.origin === firstSong.origin &&
       before.controller.toLowerCase() === p.controller.toLowerCase() &&
-      before.learningRecords === retainedResultsV2.contract,
+      before.learningRecords ===
+        (v4 ? p.predecessor!.contract : retainedResultsV2.contract),
     "study_activation_wrong_predecessor",
   );
   insist(
     /^0x[0-9a-f]{40}$/i.test(p.contract) &&
       BigInt(p.contract) !== 0n &&
-      p.contract.toLowerCase() !== retainedResultsV2.contract,
+      p.contract.toLowerCase() !== retainedResultsV2.contract &&
+      p.contract.toLowerCase() !== before.learningRecords,
     "study_activation_wrong_v3",
+  );
+  insist(
+    artifact.abi.some(
+      (item) => item.type === "function" && item.name === "communityOrigin",
+    ) === v4,
+    "study_activation_artifact_version_changed",
   );
   insist(
     activationHash(p.codeHash) &&
@@ -158,7 +180,7 @@ export async function studyActivationPlan(
   const manifest = validateConfig(
     {
       ...before,
-      configurationRevision: 4,
+      configurationRevision: before.configurationRevision + 1,
       learningRecords: p.contract.toLowerCase(),
     },
     history,
@@ -271,7 +293,9 @@ export async function studyActivationPlan(
     insist(
       selected.sha256 === policies[name].sha256 &&
         selected.uri === policies[name].uri &&
-        selected.effectivePeriod === studyActivationPeriod &&
+        (v4
+          ? decimal(selected.effectivePeriod)
+          : selected.effectivePeriod === studyActivationPeriod) &&
         BigInt(selected.effectivePeriod) <= 0xffffffffffffffffn,
       "study_activation_policy_changed",
     );
@@ -298,7 +322,7 @@ export async function studyActivationPlan(
         functionName: "configure",
         args: [
           p.communityId,
-          3n,
+          BigInt(before.configurationRevision),
           {
             controller: manifest.controller,
             publisher: manifest.publisher,

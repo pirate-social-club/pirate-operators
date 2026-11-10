@@ -12,15 +12,44 @@ test("a revocation confirming during pinned reads cannot make its older snapshot
   const learner = "0x00000000000000000000000000000000000000a1" as Address;
   const contract = "0x00000000000000000000000000000000000000c4" as Address;
   const grantId = `0x${"11".repeat(32)}`;
-  const key = revocationKey({ chainId: 31337, version: 4, contract }, learner, 0n);
-  const rows = new Map<string, unknown>([[key, { pending: true, nonce: "0", grantId }]]);
+  const key = revocationKey(
+    { chainId: 31337, version: 4, contract },
+    learner,
+    0n,
+  );
+  const rows = new Map<string, unknown>([
+    [key, { pending: true, nonce: "0", grantId }],
+  ]);
+  rows.set(
+    key.replace(
+      learner.toLowerCase(),
+      "0x00000000000000000000000000000000000000a2",
+    ),
+    { pending: true },
+  );
+  rows.set(
+    key.replace(
+      contract.toLowerCase(),
+      "0x00000000000000000000000000000000000000c5",
+    ),
+    { pending: true },
+  );
   const store = {
     get: <T>(key: string) => rows.get(key) as T | undefined,
-    entries: (prefix: string) => [...rows].filter(([key]) => key.startsWith(prefix)).map(([key,value]) => ({key,value})),
+    entries: (prefix: string) => {
+      assert.ok(
+        prefix.length < 50,
+        "Durable Object SQLite limits LIKE patterns",
+      );
+      return [...rows]
+        .filter(([key]) => key.startsWith(prefix))
+        .map(([key, value]) => ({ key, value }));
+    },
   } as unknown as ResultStore;
   let head = 10;
-  const selector = (functionName: "authorizedSince" | "revokedAt" | "nextNonce") =>
-    encodeFunctionData({ abi: resultsV4Abi, functionName, args: [learner] });
+  const selector = (
+    functionName: "authorizedSince" | "revokedAt" | "nextNonce",
+  ) => encodeFunctionData({ abi: resultsV4Abi, functionName, args: [learner] });
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const part of req) body += part;
@@ -31,9 +60,18 @@ test("a revocation confirming during pinned reads cannot make its older snapshot
       assert.equal(input.method, "eth_call");
       const [call, block] = input.params;
       const later = block === "0xb";
-      const value = call.data === selector("nextNonce") ? (later ? 1n : 0n)
-        : call.data === selector("revokedAt") ? (later ? 1700000001n : 0n)
-        : (later ? 0n : 1699999990n);
+      const value =
+        call.data === selector("nextNonce")
+          ? later
+            ? 1n
+            : 0n
+          : call.data === selector("revokedAt")
+            ? later
+              ? 1700000001n
+              : 0n
+            : later
+              ? 0n
+              : 1699999990n;
       result = `0x${value.toString(16).padStart(64, "0")}`;
       // The operator records confirmation in block 11 while the reads are
       // still observing block 10. pending=false alone is insufficient.
@@ -45,17 +83,28 @@ test("a revocation confirming during pinned reads cannot make its older snapshot
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, result }));
   });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const { port } = server.address() as { port: number };
-    const env = { RPC_URL: `http://127.0.0.1:${port}`, PAYMENT_CHAIN_ID: "31337", RESULTS_V4_CONTRACT: contract } as Env;
+    const env = {
+      RPC_URL: `http://127.0.0.1:${port}`,
+      PAYMENT_CHAIN_ID: "31337",
+      RESULTS_V4_CONTRACT: contract,
+    } as Env;
     assert.deepEqual(await authorizationState(env, learner, store), {
-      since: 1699999990, revokedAt: 0, revocationNonce: "0", pendingWithdrawal: true,
+      since: 1699999990,
+      revokedAt: 0,
+      revocationNonce: "0",
+      pendingWithdrawal: true,
     });
     assert.deepEqual(await authorizationState(env, learner, store), {
-      since: 0, revokedAt: 1700000001, revocationNonce: "1",
+      since: 0,
+      revokedAt: 1700000001,
+      revocationNonce: "1",
     });
   } finally {
-    await new Promise<void>((resolve,reject) => server.close(error => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
   }
 });

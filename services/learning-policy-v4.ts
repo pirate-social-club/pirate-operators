@@ -1,5 +1,5 @@
-// Draft publication policy for the LearningResultsV4 successor, for the
-// workspace_owner's review before deployment. Its hash becomes the V4
+// Testnet publication policy approved by the workspace_owner on 2026-11-10.
+// Its hash becomes the V4
 // contract's immutable publicationPolicy, so any wording change changes it.
 import { keccak256, stringToHex } from "viem";
 

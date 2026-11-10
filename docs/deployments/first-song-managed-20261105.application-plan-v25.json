@@ -1,0 +1,600 @@
+{
+  "profileHash": "0x3eaed23915de38c84990a3e28526aa4742ad8d6a04e3889cc5504da81a9b8d7b",
+  "profile": {
+    "schema": "pirate.community-application-plan/1",
+    "accountId": "08a4c22cf52e2ecae883e36f80a33f4a",
+    "prefix": "pirate-first-song-20261105",
+    "origin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+    "planId": "9643bdc3b56af2064f61e19d2031a544d99e6bd2aa3994f1714be61ee5c7c721",
+    "stage": "setup",
+    "resources": [
+      {
+        "logical": "App",
+        "type": "Cloudflare.Worker",
+        "id": "a29dd318429e42eda7846ea4997ad999",
+        "attributes": {
+          "workerId": "a29dd318429e42eda7846ea4997ad999",
+          "workerName": "pirate-first-song-20261105"
+        }
+      },
+      {
+        "logical": "Database",
+        "type": "Cloudflare.D1Database",
+        "id": "307cd8f0-cdc3-49de-884a-aeebffe75fd7",
+        "attributes": {
+          "databaseId": "307cd8f0-cdc3-49de-884a-aeebffe75fd7"
+        }
+      },
+      {
+        "logical": "Media",
+        "type": "Cloudflare.R2.Bucket",
+        "id": "pirate-first-song-20261105-media",
+        "attributes": {
+          "bucketName": "pirate-first-song-20261105-media"
+        }
+      },
+      {
+        "logical": "Jobs",
+        "type": "Cloudflare.Queues.Queue",
+        "id": "fe031cd96fbb47579585eb10154f785d",
+        "attributes": {
+          "queueId": "fe031cd96fbb47579585eb10154f785d"
+        }
+      }
+    ],
+    "predecessorState": {
+      "pirate-first-song-20261105/setup/App.json": "0x0ccbeb432c0540ff0e3cdc3c4533640caeaf11706bda8198055674067c993d5d",
+      "pirate-first-song-20261105/setup/Database.json": "0xd79b4414bac86a60e785d72d12bfc451de8693e43abf8261eed750e0c066b8be",
+      "pirate-first-song-20261105/setup/Media.json": "0x7fd264126cd5e0080f09b7c01b6892ccd14bbfce849d39519cd9f6041f5339a6",
+      "pirate-first-song-20261105/setup/Jobs.json": "0x828fc3e16558a794d15ba89a87b40eb21269b81542c77fa8fee4d338caa1134c",
+      "pirate-first-song-20261105/setup/__stack_output__.json": "0x4f279d39e434b111a76f316b6c9f108d52ccc675bdf082dc336bd0a304569aa0"
+    },
+    "predecessorWorkerSha256": "0x0455cb37f0c1f86eacd2eba2a070ef3befa9881d83fe9d90c0e5aae529000aee",
+    "sourceHashes": {
+      "apps/community-wizard/infra/application-alchemy.run.ts": "0x67993ce75c281278d12f2f13c41e9ef59d47faa8b9ef575aeb0f95c9bea6faf8",
+      "apps/community-wizard/infra/encrypted-state.ts": "0x4a36806a68e63ffc4ec8585c75551cd59f922e8e0e15a8033174cbbc20d64fe3",
+      "apps/community-wizard/infra/learning-bindings.ts": "0x707223fe9846feecab6b930dc95328da9b1c72acb65741f8ea7ce8be234d17ca",
+      "apps/community-wizard/infra/migrations/0001_setup.sql": "0x7c316355896c3df6df63cc21f2bd591c7c55bba7797bd5304aa36c8ae6f0a198",
+      "apps/community-wizard/infra/migrations/0002_first_song.sql": "0xd88276395d3bf52dfbaaa3eee87c5c37b189f71b1cc111ab8de7558fb3ee30f4",
+      "apps/community-wizard/infra/migrations/0003_publication_journal.sql": "0xd237b45579b4bfc08f9c661766cc9b19526c4fd6477ad8eaadf0e4bdb9ef6653",
+      "apps/community-wizard/infra/migrations/0004_creator_connection.sql": "0x8f255b6011ecadb867a5de3ed39591b7a4cf4e551239e3e75f1046e7656c5094",
+      "apps/community-wizard/infra/migrations/0005_input_capabilities.sql": "0xaec7a48315d12c6ae057b8a8c65995884fad81de790b08dd30aac2d86e2ada44",
+      "apps/community-wizard/infra/migrations/0006_song_stems.sql": "0x40ea7ecdaaae016ecb06bf9627e5d7a6b4cdfdc00b8a1c59643691cd8a495702",
+      "apps/community-wizard/infra/migrations/0007_owner_curated.sql": "0x0c7d454e2b93f8d5d22bc30cc09df8b02e518c533aa22784cc8784d5e718d4cb",
+      "apps/community-wizard/infra/migrations/0008_karaoke.sql": "0x38935e04bc135a2f8dd6e0e62e16ca6dac4a20046ef749c022bedf0f5bf95859",
+      "apps/community-wizard/infra/migrations/0009_study.sql": "0x8a947b32133b576fcb09d1736e2e09d2071b1cbf2680a0856c9306e6cfb1630f",
+      "apps/community-wizard/infra/migrations/0010_study_retention.sql": "0x7150d8a5b37da0122dd205445e3754445269ea2c4365e371418f649b66cc19cb",
+      "apps/community-wizard/infra/migrations/0011_manual_rewards.sql": "0x7de556f8d9619f17eef00f982e5bc483bc15b46afb51967972b1815b2acef7eb",
+      "apps/community-wizard/infra/migrations/0012_owner_budget_windows.sql": "0xdd3d49971ebd1834a9a071f02f8388cd945d2593124fc3782be9c91cd9610e7f",
+      "apps/community-wizard/infra/protected-data.ts": "0x12378aa5ea4c60b5e1f78e454a74f3d9cc4b4d6b0beefd160004c9fb26319a4f",
+      "apps/community-wizard/infra/publishing-bindings.ts": "0x0b50c4af75e71325372a7eae43171379c2dda48d2f5c7509960329f05c6212c8",
+      "apps/community-wizard/infra/rewards-bindings.ts": "0x701deffae0cb3cb0e2fa1697174fece989cdddba07467c6514d23d2a9e644c01",
+      "apps/community-wizard/package-lock.json": "0xb15ea36636a432c2b7a6652e9443e496518a9073e81775c2cb10e3ed065fef72",
+      "apps/community-wizard/package.json": "0xeaf678494ff26f78379a93e3a9bbfe64e3e2ccaa8fecfb21d9e7d354f9818386",
+      "apps/community-wizard/server/diagnostics.ts": "0xd97c6fc9bc5fa87b52dd84991d9c892c49f0028a1250ea5c9573d991004493cf",
+      "apps/community-wizard/server/infisical-auth.ts": "0x56ab6a345cb5ae08409845c6e4d6eb34e1b3d4a80ebba52843aa9c9a70c5d532",
+      "apps/community-wizard/server/model.ts": "0x231f553b3b736dc4dca416d3121275ce6c108fe1047d2b489b6dda35ea51e0db",
+      "apps/community-wizard/server/operator.ts": "0xc7f81772d0c8eae76ced6279eb716ab0d73e3c45774d5e0b4bdeb1d014f9fa02",
+      "apps/community-wizard/server/state-inspection.ts": "0x608538f901cca6bcda5e1d52ef13181f88a1d6a9fb89cd74a8de50313a6f4ae7",
+      "apps/community-wizard/server/state.ts": "0x4af1b6dc95930c7ab4ba659c5aa8c9c5a765bda8ac3f80ef800a482f22fda1ff",
+      "apps/creator-spike/infra/protected-data.ts": "0xb4bad897e7deb8041263517c3ad22e015cf4ab8e8089449cce33bdf596619909",
+      "apps/web/package-lock.json": "0x542b453b438a5a863fc3bbd2e08d7a35c703404c242be16f235643f4db46c1b7",
+      "apps/web/package.json": "0xac3551b6190b5179b42d4faa6b444a45d9516ae7f49ee8795f289ac5d1555a67",
+      "apps/web/src/api-contract.ts": "0x7010f57849aa9c442a20e876702811a6f8599cebe366f79efa2e398fa7772eae",
+      "apps/web/src/karaoke/activity-progress-header.tsx": "0xef7b50fbbb79abd7b32c27799ffcde14525f068e902cfb2a5d2530e879a19f2e",
+      "apps/web/src/karaoke/activity-results.tsx": "0xb350854d4ce5a7cb8884da3b9daa7a9aae52c799dca5b160c477fb6e3f87e28e",
+      "apps/web/src/karaoke/capture-processor.ts": "0x8e0e7e98108b9f03bcd4c4d812d3f8f888e4f4ba64b041c2716d126120ecb534",
+      "apps/web/src/karaoke/entry.tsx": "0x6a110a7def752495f541938cca3d0702075062afb49d1c48c7abb1a73bc86fc9",
+      "apps/web/src/karaoke/index.html": "0xc0699950243048ed45e82126222ff46aab365586236023270e8304d7940cffb8",
+      "apps/web/src/karaoke/karaoke.css": "0xb666449a911a37ed97fb01dcb34f84511381a701964e2c41a6ff571619945464",
+      "apps/web/src/karaoke/lyric-stage.tsx": "0x7ec9e04de526d1da35611b32cfe219f538541e2fe149bc0c14e9a193b7e08fe6",
+      "apps/web/src/karaoke/mic-capture-browser.ts": "0xb0e34bc33c5e21cbd60087a016ba75cd85c23c9a468e0ea2bb10584b24f828a5",
+      "apps/web/src/karaoke/playback-graph.ts": "0xc431b7bc988a01ee6ba1a1d66a14c0221430810cf4a1b7a98ad8746de29ad46e",
+      "apps/web/src/karaoke/playback-position.ts": "0x35207dd898a218f3413bedc5b0752521c6eff37a117caa0047b2440ebaf059a9",
+      "apps/web/src/karaoke/playback-renewal.ts": "0x7968895e9d426871cdd7034f117819b2e0ab219c638493416705699fe79aff06",
+      "apps/web/src/karaoke/practice-surface.tsx": "0x6d58ec0ee749c627d4921da96630c5fa396236ade6201efa6b4299f93952c568",
+      "apps/web/src/karaoke/results-model.ts": "0x7e359aba7292563678ea6d81335a1b636b75c4ccb41806e3b4ee1297537ac16e",
+      "apps/web/src/karaoke/route-states.tsx": "0xcb1212ae576e7c98f424817795c7dd0494365fd635229d29f255f51b27c41400",
+      "apps/web/src/karaoke/scoring-feedback.ts": "0x82c16b4e19fcb8252817988760cbde15f20d52ab1b2a13c2d9ef9ca3724b9a72",
+      "apps/web/src/karaoke/scoring-response-watch.ts": "0xe0f708d0936a7841a58b8be7137303d5a2965d6272673366cf56f3322e30d07b",
+      "apps/web/src/karaoke/style.css": "0xfa8fbe483697172ef66275fbcc4e3c6dd0e701c1e6e3cadac112612757252cf9",
+      "apps/web/src/karaoke/ui.ts": "0xb3428ca5805e7849a504e2a013e6d6372291f9422d29882c5faaccb655fd0102",
+      "apps/web/src/karaoke/use-karaoke-capture.ts": "0x73422f7a502978b3c2827f4e7e19ded1363f9eb2811f0e57983b990ba129b74f",
+      "apps/web/src/live/api.ts": "0xca98dc925302b233e5afc74c341e82da90649f12f3ecd6e04c1acc8f8dfa1cc5",
+      "apps/web/src/live/draft.ts": "0xacaa78c922e8d2b9c67b09b1680695c41a1672eead15f7e68ab6f066b9cf4a2c",
+      "apps/web/src/live/entry.tsx": "0xe5822f54bebe356a6649d46bac1ab464f4bb80506ef45da09c6fa157fba6eef0",
+      "apps/web/src/live/index.html": "0x976211feec6f8fd3bc80db3f34fd5bdc60250a14c6271a60fecd62128f52edf3",
+      "apps/web/src/live/karaoke.tsx": "0x251361ccc9b747175f26ec29b51e32e35ae3732d874a118ae473317290f77a06",
+      "apps/web/src/live/learning-consent.ts": "0xf42263f9e9a94754bf1d4cf68150cccead4acda20db636f043059ecf675a1fdc",
+      "apps/web/src/live/learning-revocation.ts": "0x0d831c22bea77261ccab1bd2f7484ee6262efeaf7fe418331dd1121f18813593",
+      "apps/web/src/live/public/images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
+      "apps/web/src/live/reward-offer-panel.tsx": "0x0cbd71f0f0e99c80dbda5027e9b8410c55c1bb2bd546976d8d831d17819867aa",
+      "apps/web/src/live/reward-operator.tsx": "0x08d0bddb3d133c3d20a6c8364c876af1637151d7bb2a00b334067f2a5d896ee1",
+      "apps/web/src/live/reward-payment-panel.tsx": "0x926e04c554c7b3db3a8b4a6facf83ce8ac820ecf32582778532599c516369f6a",
+      "apps/web/src/live/reward-wallet.ts": "0xfb0a634067892fd60cbf9131b4961ca21da9688644748cd0ce1fa606522da2c6",
+      "apps/web/src/live/rewards-data.ts": "0xbf863d77e33caba1f9908e66fcc5824c083e292fb4bcad922e96026b778f3b83",
+      "apps/web/src/live/rewards.tsx": "0xbd09e4bd942e10d553cc5b90a8772641affcb557bed80a02682f4fa2d04a2a4d",
+      "apps/web/src/live/stem-upload.tsx": "0xfe4bbc5901d6ff0c5fb23d2ae7786b8f793c6259c717079d1ece57fbed17ed27",
+      "apps/web/src/live/study-enrollment.ts": "0x1d0f56d25c046fd239589adf90b700e8531af56a5ff6aefccd53abf19acc039a",
+      "apps/web/src/live/study.tsx": "0x33b0a7bd91a8d2253d03e84e863cb7548549b094fa09b10214a588d04430f425",
+      "apps/web/src/live/style.css": "0x16fcd95b0e79393b457119e1959c311d8ee6ad961cc965a1da89176ffb852aa6",
+      "apps/web/src/live/upload.tsx": "0x55418b2eecf7169380024c173e699b4087b91780e3ac250564388731e43b0ee9",
+      "apps/web/src/model.ts": "0xea04473fea519ed852de4d8c64b92aa3556fd4b21bc74ae4e2fd788de3bf4976",
+      "apps/web/src/study/client.ts": "0x6cdd47ed9889e29bf8487c7f09ad87073a3378f8be2ba4036579893917661b51",
+      "apps/web/src/study/entry.tsx": "0xd4f2ac24b9f9a8eed9e9bdb287341348035181b4288509020bfa384dc41e6aac",
+      "apps/web/src/study/feedback-audio.ts": "0x418bfd40884c98939c2576044298ec8d54477f8eb9ce2fd3b732eaa8e83b928a",
+      "apps/web/src/study/index.html": "0x4c5e6e5c0665cef419132c697c534a0d85b5ebea5185671863b7be72c024cdcb",
+      "apps/web/src/study/presentation/studying-model.ts": "0x87d8f436e13ffc400dabc80134f4b1b81e9e315bf5716f19e5c7916959c29cc2",
+      "apps/web/src/study/presentation/studying-route-states.tsx": "0xdfd3efb49dce5476459ca47b14bed45a7ddc2de1ee76805d9dc095b65207aa5a",
+      "apps/web/src/study/presentation/studying-surface.tsx": "0xae86dcc579d6454aff47923eee62275513cbe863cf160fe32f6c44f231bd41e2",
+      "apps/web/src/study/screen.tsx": "0x7cf845ffbc77be407dcab731d7253324d7ad2200a89727ec35bc608a0ebc0c4a",
+      "apps/web/src/study/sounds/correct.mp3": "0xe0d4d9e900efabbe47f3b8c48812a9466b3dce39cf9030d65463a74e8f3c1855",
+      "apps/web/src/study/sounds/incorrect.mp3": "0x3587e70c9f9ba54b2e00a9b69d7d3206c45c75d610579546f0d47902136b61c1",
+      "apps/web/src/study/style.css": "0xd21db90442c7d769adce7f7f4cbc8cb83ebd601bd657d7b2ec60b48e537a34fe",
+      "apps/web/src/study/ui.ts": "0x29d3c01fa3a7f40d3261385f45793218843c4a27fb0bbb789f93d6aa7c2e8753",
+      "apps/web/src/ui.ts": "0xd541b05537a20cf7f489dd710b0aab4d1dd86f086f111a167687783c8b2e4013",
+      "apps/web/tsconfig.json": "0xb622d643e3332915abb7089734b35be67945f8dd105dcde0d86777787b177380",
+      "apps/web/vite.live.config.ts": "0x0691e639a53bb769fd8b9a381618beb7f7632a3b0e223041e58aea2e8e4b59f5",
+      "apps/web/vite.shared.ts": "0x9820900854435cb76e6979fcb87bd73f7a68e9bd4a32e1bdbd0931c35257f4a6",
+      "docs/deployments/first-song-managed-20261105.application-plan-v24.json": "0x7b8360acb5468b4129d8f375e88a8c217771c10ead5018b6e1eeadd927345fff",
+      "docs/deployments/first-song-managed-20261105.creator-update-plan-v5.json": "0x9452dfa15e2c3596b92ae23e808e0c8dd50dcfb042b860b9f64d059ebfa12543",
+      "docs/deployments/first-song-managed-20261105.moderation-plan.json": "0x66ce8a30d02d9847ad139296434e3ab295d3216322d8dccea5248162e921adea",
+      "docs/deployments/first-song-managed-20261105.owner-curated-grant.json": "0x3542b4222025e3a5d07ec0541dc275c892c8c9bde9c4f77357189c8cd9256f39",
+      "docs/deployments/first-song-managed-20261105.published-state.json": "0xa25728e283703dd7f68488c5a27a035033549099056626f24092f55e70697559",
+      "docs/deployments/learning-results-testnet-20261106.contract.json": "0x7632d49b565018f86dc072e8e1a1adcb4dc7d002880c3eb09e81583a0c3cb3d7",
+      "harness/community-consumer.ts": "0x7dfc675174182fd9e24c79c99c9800b1cfc913d1bf2c4ffa754109232cf5c811",
+      "harness/community-credentials.ts": "0x0c395025cb5c8a772f92105759f48e3f7c5d5f6d0b60f6f578b35e82e6816440",
+      "harness/community-dependencies.ts": "0xa93dd63aa41df73bfc55f3e6465fcaff76a44f634515354584bfbde2986bdb29",
+      "harness/community-infrastructure.ts": "0x810ae49cce1dfd805e8cdb0cd283353651f2ba893b654171c4884cd1b40a6203",
+      "harness/community-inventory.ts": "0xdd6dfaa70e882bb456f23ca2ddb0d2e092f54fb9e8a601d4c420c9d3e32f975e",
+      "harness/community-package.ts": "0xeb6b733e1e1b9998ff57399e9b9ce643dfcc1139f094cec746071c6d1a81ab99",
+      "harness/community-release.ts": "0x8b08a4e5f89b54995bb9668803981942d4ed06bf2e0c5619a8a9798e0c0fbebc",
+      "harness/community-result.ts": "0x66735f1a3ea4b771b61bc024ae1608bbb6b92054116dab195ffd1e78229af921",
+      "harness/community-state.ts": "0xc4a0edc9f858dc2ac682f1451a19c40b7ec5dc0af19f6ceda48af8ab220965b3",
+      "harness/creator-state.ts": "0xd5f83f3c938e7f87cb41f5bcdb9a7996939b0f45c4b91a2d68cb68f82f1ca01c",
+      "harness/curated-release-plan.ts": "0x2e921c716029f79edd97785d4a61e4d532553891cf96ac1915d58385e4dff188",
+      "harness/curated-state.ts": "0x82b41a052abd36fcc4560f98bc77743fec76b3da66b3b08171e9634b9095a5e7",
+      "harness/curated-upgrade.ts": "0xba5b348e8375651e9b085acb717c662433cfd9447e58446511d1047eaa541a2e",
+      "harness/first-song-peers.ts": "0x05af7cf87c55486aa642f4ea0637f54ebc4635f146c55cf8abec8ec8d18f1781",
+      "harness/first-song-upgrade.ts": "0xbe8cf0b82863ccb7784d0b15cbc6af3fe3e5b81812015c91b4c322a9083e2dc9",
+      "harness/learning-community-profile.ts": "0x339c0c88a677ed2b3b73114f0ca4e015622be0a73a308db6b2dc49957fb1a47e",
+      "harness/managed-inventory.ts": "0xd2bffd03ae47eb58813b0626708d194d6f11266f29ac94b0c2506c6c3d114aa3",
+      "harness/megaeth/configuration-plan.ts": "0x5c468e01baf2ccc6475c448cc8f7ec82113a476002f02f9aaa35844d63bf0769",
+      "harness/megaeth/curated-configuration-plan.ts": "0x9cd984abca8f01ecac682cdb7fc520eae45fa5ab371ce3c6ba31240f3f6a940e",
+      "harness/megaeth/deployment-journal.ts": "0x9a72ebb5c9594bc8468e0278c1f7774389c3401111b284e857bc30f4020294d7",
+      "harness/owned-module-graph.ts": "0x4044b731fa65d81befb564c6afc8ca28137add3e417871869ed9b3f7cba04f0d",
+      "harness/package-migrations.ts": "0xceddf00f42776fb218764975c75eba7d8bdeed93b8bf5a6009bd972eeaa25c48",
+      "harness/private-json.ts": "0x3ceea3863a8de45255befda8e85852bb422b7e54eee3661130420e19dde42b59",
+      "harness/published-registration.ts": "0x1ecc72571da38531a055fc47c41c7e43218442c34432f01930e325befa726d0f",
+      "harness/published-replay.ts": "0x97f88208529cda9bc84897363a70b5923ea86b0947023b7c2700fe12f6823631",
+      "harness/published-state.ts": "0x958ed676324fff58f3e70d996fad2fa9d0a98ed2c6ac702353071ae8d95590d5",
+      "harness/publishing-release-profile.ts": "0xd3bbfc58190c4f193759d9ba81727407dd71a0930d8e003d9d92a0c5ce602b4f",
+      "harness/reviewed-update.ts": "0x2341ab6028b584012092c42525096991987a024fc7b26fb9a8d25c720fc7a898",
+      "harness/rewards-release-profile.ts": "0xe41483ce8057582a59c78143e1e893515399107c9d6ffa724e2a9ce6d8abc04d",
+      "harness/study-application-upgrade.ts": "0x1f5f829f9ce334e3edb06633a18d71e8aac5dd8452b2c05c50289c1f1aed72fa",
+      "harness/study-release-input.ts": "0xb64a7565f8dc7d7feee2508f66172c443ec140d7258d0ef39191b96a3c60f92b",
+      "harness/study-release-observation.ts": "0x0f0901db561dc7d49fad5164b28a83f4004ff0eac7b041c8515a2df643d18958",
+      "harness/study-release-profile.ts": "0xf9412c41af86026b3e3df018c4eb55dde12df0c3128ed3954fe8153a856d33c9",
+      "harness/worker-modules.ts": "0x0d0eb637a6197e58201f25e07167ba43656f3a10cd7fd728784bb75ae89626c1",
+      "package-lock.json": "0x802b9a9878b0f5299463d2efb271c7d29fda4544e72ee9ed089c417a854aaf2d",
+      "package.json": "0x37adb68464b8e20157cea2b8c68379fe0a73c24ec3b559678ba79b43fd3797a5",
+      "packages/alignment/elevenlabs-response.ts": "0xb256d79da48b14db0b4d42a0e5d59253e37379ba6c71bd53fec0549f77a2ae56",
+      "packages/alignment/elevenlabs.ts": "0xea68d67f390e728e87908d0b7790c4d883501602da6a473c0cc8e51eaece8101",
+      "packages/alignment/limits.ts": "0xb6780eaa2e625d81b10fd7864f07e806d7fcc5af641c243eceb47aa3cc016951",
+      "packages/alignment/operation.ts": "0x0a304029c3c0e57a08351ea33a64f639d51772a8698ed3683b260fe58fcc61c1",
+      "packages/community/accounts.ts": "0xec3780ec94710e5e2f47a798859bfc3a8662aad0f5a43a8dde2bfa662ba6d147",
+      "packages/community/adopt-curated.ts": "0x3d674d35d898b99a935e8ef150dd652b9296988ec7634f7c3f075ce5fd61523b",
+      "packages/community/application-api.ts": "0xa7b412214f2eeb7812aa1df711a91f2296d7f0b185e855d279448d773eecc0ad",
+      "packages/community/budgets.ts": "0x6fa235a92c219383dc41a81241deb7a85f24db46cfbdba0aacf635ecbac36df2",
+      "packages/community/chain.ts": "0x54ee774539c7d80858c21e7ee8792c47ca30ebea20c660d4538fdb5b1d094c63",
+      "packages/community/common.ts": "0xdfac914e9123d909e6744a04b304aad7732f7cadd77eae69c2154c7370dfefc2",
+      "packages/community/config-manifest.ts": "0xe8a903ada60585fddc6474387969e49a9b74ff8af38c6aaa8c8708020e2badfd",
+      "packages/community/configuration-index.ts": "0x863a32d11638163984c4b5bacaf969f09e7d7b2bea7989fff2f3beeb5aa86337",
+      "packages/community/creator-connections.ts": "0x477e8ba4bf57767c1ed3604a6967443da9a1eed57219b4d2758ea1592cdb8628",
+      "packages/community/creator-receipt.ts": "0x288ebb38eac5f0d6706302f9ef437feec180131e7274e7bd9ee6de8af6d53318",
+      "packages/community/creator-service.ts": "0xc34dfa09f6a7be0674f8968948ae4d05eabb13f611ec9c3b2b145dbcafe061e0",
+      "packages/community/curated-amendment.ts": "0xa88cc84c26b5219291bcfce99e687b58fc61713a794f65212ab6735ab577c85b",
+      "packages/community/directory-reader.ts": "0x27031fe55a1e41a669f2040057c554ba3592dda7f6186d48a6bb38fde9e12649",
+      "packages/community/input-capabilities.ts": "0x4cbd52f51cd4f663f688312b5cacca3ddfd74a08b6a8e66ebde1ca8b1ea7eed7",
+      "packages/community/ipfs.ts": "0x0e1b06e08ba6efe5c6673c725938be070e594986733f3fea2aca27d7946cde1b",
+      "packages/community/lyric-manifest.ts": "0x2ad233d75e1baf69e51d62c77b1852eddcd8677d942b7f5bf2b8b4167b3cdce9",
+      "packages/community/managed-client.ts": "0x2aaf09c7ad18d04026d965c6f76b5562df384c64b98c1c15b9ab0afc33ac7308",
+      "packages/community/manifest-core.ts": "0x4e159a15bcfc133b6d50064c3549ffb27f1d69310340c388d260d84563c699aa",
+      "packages/community/owner-authorization.ts": "0x5addc786d6e74ae810550fda6e6587785389e3c9446830005f840f397178ca5c",
+      "packages/community/owner-policy.ts": "0x319a304460bb12f60c99b2b9aac16cc534973a76f206239e09c628633f3fac51",
+      "packages/community/post-chain.ts": "0x9cf9e6ba749d0d4f7750b6d32c66083fccef1530ed95005103127a70756879b1",
+      "packages/community/post-index.ts": "0x353a1eadd544bbd14ff802715ccea4d05f8506ad65a97cd28a165d2cc2ab691a",
+      "packages/community/post-manifest.ts": "0x9b5ad712c63557706fce37cdf56dfd991cc39aa5939b93220bc9eb5bb1af1031",
+      "packages/community/publication-admission.ts": "0x8efa3831396e78884574980e96cc01556ff55970ec806315e826101080c4b8a0",
+      "packages/community/publication-input.ts": "0x584a0c788f0b682d5265e446b2398cb0bd12da6b2022c55d06862c5c7f1fcd81",
+      "packages/community/publication-posting.ts": "0xb5b26bf1a777b5b6b165aae0b578116bb3ee586d30648d57bc6e416d398af1dc",
+      "packages/community/publication-profile.ts": "0x73b4f8663909dde533ef515bf53f6eb033ac5bae9040b5fb32d3c9878605bed6",
+      "packages/community/publication-release.ts": "0x222ccac537aefc737bf36bd17696a96344122471432aaeaa0e80cc1b578fecbe",
+      "packages/community/publication-store.ts": "0x61f10b565cff48fc7dda87cdc28bda8311a0c0bea928d597e32e05dea8c8b452",
+      "packages/community/publication.ts": "0x009478261d49a7001ffcb39e3542edcea06e74939d5be5270acab3a55a6e2f19",
+      "packages/community/registration-chain.ts": "0xecc45aabffecb9317ca93aaea2e5706a947ce4ca8f6fc210bb11b4a3e00df354",
+      "packages/community/stems.ts": "0x849fc49d2b4ba0c96ec7983da09d6062735085747169f74b1fb4ac9aaa357ba9",
+      "packages/community/submissions.ts": "0x48964d78f32c417313b2ef525984e29aa798ccd6767b042a542571b42f98dbcf",
+      "packages/community/token-comparison.ts": "0xca95db68cb8aba8e62a074d245e4ae790174c19ee1d49a35a1951c75920d75a4",
+      "packages/community/uploads.ts": "0x9ef47ac4dc48a3251a3e5e2b58ffedeaf2e01ce9bf0058cee2b817cf1bdeac93",
+      "packages/karaoke/published-manifest.ts": "0xafcd3bc98e5fcf309105cbadb08535b627aa7ed7201fad67e1beb4eecbb161b1",
+      "packages/moderation/acrcloud.ts": "0x30c06bbb7ae2f58dda1bf8949291e344a4cacff69c65ab86dd443048173b6700",
+      "packages/moderation/admission-store.ts": "0x1420e7df4a781ba03adbc4c79a8d8a30719182addf93da433ced0b7daa00897f",
+      "packages/moderation/admission.ts": "0x0f2f2ab16c497fda72283e06e9d6ae2954f40701495cf763ff4562440e4b113d",
+      "packages/moderation/capabilities.ts": "0xeb416f6f35cf14df1e4e5a13861f0de1a0a1bbe623058d3c55fe79e440690e98",
+      "packages/moderation/curated-admission.ts": "0xc21141d866f671b6480e86e81716378ada0fa740cd429fdf2773dfc3afe114d6",
+      "packages/moderation/evidence.ts": "0x1f07ec4ecec912f31b52200fb1ce6e8a176033c3a23ce94bc5189beb942b7cc2",
+      "packages/moderation/mp3-frames.ts": "0x8712e19179ab02f7fa92dd6877bd575cb4786e21342635efd8ce4d0d6215d771",
+      "packages/moderation/mp3-windows.ts": "0x62052fa6973db9412579fc89f04d42afe4a39059ee4a0f398aa3970fac27df14",
+      "packages/moderation/pairing.ts": "0x6cb00be855dd778b4192a5c037d1df8a98bcbe620963b59b3afeb6107f6659ff",
+      "packages/moderation/provider-http.ts": "0xcc3108927aa1bc589126d5346cfdaa5db2a7e0540d2f7d79c25e1a388a989905",
+      "packages/protocol/index.ts": "0xb9262ea5cbdcc03950a0c0aa08d27bdde2ee1c7a09e56b9875c1328f39ddba29",
+      "packages/protocol/learning-results-v3.ts": "0xf404dba1cc40f45d20cce95c43a614a10c371b6ff1c6dfd05db095757562e4fc",
+      "packages/protocol/learning-results.ts": "0x3f994ced4af16a478990d97d4d1996ee2a71d6846dc0286094fb0ae8fb0aac0c",
+      "packages/protocol/payments.ts": "0x3424f35c5a0a8bc156c68975048a5aafc366f9f1246a11b9bb6f3936311c1be3",
+      "packages/protocol/records.ts": "0xf7bcbac794e8804b459fee72322dcb84a0fb9267f685758de6b867e92ac24961",
+      "packages/records/result-manifest.ts": "0x87823d55caf2717f3e307eb83b17adb64eece9b5f1d41aff70d2cd32eb244eb9",
+      "packages/records/results-v3.ts": "0xe6f1bc87a3e8b6deff38e68ecccadfa53eb21cb232bdab29cc5ad122245cf928",
+      "packages/records/source-authentication.ts": "0x86357a0445691363b154839c4fa0e178ae930f5879602ade3e4b3e5c541d29b3",
+      "packages/records/study-source-authentication.ts": "0xaf72f5bdf1f05b6a2b772878692b46a8c478b97e901308e27ab032fc5ddcc773",
+      "packages/release/artifacts.ts": "0x4ac5bde4b25b3d8b5199241877caed77972d5a684e35fc2388f14aeaa106116f",
+      "packages/release/grant.ts": "0x03dc1aa75177bcecbd4c05458d6a58894f8298874581f6e062200fad051241f1",
+      "packages/release/owner-grant.ts": "0x0196ff28a530f2c9320e822f8c209118df9c371b8b1a66e0481f20420fdba59e",
+      "packages/release/owner-release.ts": "0x1e24447ba1173a6cd2852b52d81a5f863c9bf9cc0c2b8d8f95b83def4db68359",
+      "packages/release/pin-operations.ts": "0xd3ce73d33f854c0f700f330754278ba2ebb95984c4ae9a6f4cfb914966cf4101",
+      "packages/rewards/chain.ts": "0xfcfb3dff16f227579868c33b2148df05e4fb62d6d87cea856a4e8afc0797546e",
+      "packages/rewards/claims.ts": "0xb4cf3bf8d43a0dc00c81df7080c626c4e30e3e4183568fa03b901d828fe90f01",
+      "packages/rewards/guard-chain.ts": "0x8a98f10a1712ff042c0fcbf87ef16c937a86bc9b3f13140b9d11e4d1e0b95a62",
+      "packages/rewards/megapot.ts": "0x8414795689f49d3a38e59138b513b3acd3a5127f73a42a20c219ae36a2ccfe65",
+      "packages/rewards/moss-guard.ts": "0x7d7847d026ac028a5c6cac03cdc166db92f20e1654d0302e1977923070b84f68",
+      "packages/rewards/offers.ts": "0xc1c2702a5e6f365c74b55e54ddd243b0242bb9a60263e937159b92df770edb78",
+      "packages/rewards/payment-lifecycle.ts": "0x28ecb9fbe73c40595e418edcdad756a11aace9b2c6d7e7779528a3fa9da925a4",
+      "packages/rewards/payments.ts": "0x64c87a28fa35b5e6da80c2309dfe5cc03f8c734029bf672698baa78fd4dce8fe",
+      "packages/rewards/rehearsal.ts": "0x810d061718c3e4b0828358f879f8f3f648f110ddeac37c0ddfdc50cba181a50f",
+      "packages/rewards/store.ts": "0xd682f05f15104307e9ffdaab4e18f55a2c7be199a5ddb1dea56bff2c584d08df",
+      "packages/rewards/treasury.ts": "0x8b0bfcc0d28fb04b38c12fc22886ebecbd1d9b6e85eaa024f350f7c94d13e186",
+      "packages/rewards/validation.ts": "0x216c99ccacf551e74b122aa7a85f54e6aa4258c55d6049353904d9525757fddc",
+      "packages/rewards/very-proof.ts": "0x71979f4a1320d5d738671ce99952950c4f9cae495065c8644eb1836e156dfe42",
+      "packages/rewards/very-provider.ts": "0xb05d0bd65ccb9749dcd1ab72d74e1bfb1f5ef61e25554c9bdadd64302cd89194",
+      "packages/rewards/very-transport.ts": "0xfe3e6a61e544e04f9a37e5cb915120e0b40bf314ba9e50d5c6126e9101f2627a",
+      "packages/scoring/english-phonetics.ts": "0xd844bb7065dfa9c6d6e0055d45e33afc25d4480a3fe4e15b89d8304bba382f9d",
+      "packages/study/attempt-store.ts": "0xcae08392fa5aec4122ce2b5e4b12263533edb71b020511065dcfd805f2d94dda",
+      "packages/study/contracts.ts": "0x7699ee6f41d5aa23f43daa5ac8e1ec064bfe1eddfea43217e4d371aaff39f340",
+      "packages/study/lesson-store.ts": "0x24cc6b38b417b7a3e92a1b85f7ce8ac17a7a639278c0db98939b158ba6c9d45d",
+      "packages/study/lesson.ts": "0x32a0d36e8c356ae251d6e669db2a667259f16751d64868d560c7c261cde84108",
+      "packages/study/line-selection.ts": "0xa3c0ba3d85e2b660ebedf8a0ea6ec343ccfa34081cef66297bedb7ff6e32071d",
+      "packages/study/operator-auth.ts": "0xbd45c51177636b36cbe8276da96ec9ae02b0bdc5c2300ac66aca32d741e218ad",
+      "packages/study/operator-contract.ts": "0x68e204337b66c5a22a260f42260a5cee4f5de5f59d739a5003351b5d456ce771",
+      "packages/study/public-source.ts": "0xbdf09dce5224dd2e7cde6be95a8d9cdd5dcf03b8e8374a48c0d3d52f7f9d0fd9",
+      "packages/study/publication-view.ts": "0x1e71fc219a2ec5f9cbad89d15d0f91653c4fc1859ce118ebeb9f5d5233edef19",
+      "packages/study/result-adapter.ts": "0xc0974bb24dd15fbfefc0ff9711031d7718b202abe36619d30a663dde59a8ac8f",
+      "packages/study/speech-transcriber.ts": "0xe0d76fbe78c18c797b5a8e935d92d1d74a41050e7e1e3ef7376aae48d5bea14f",
+      "packages/study/terminal-facts.ts": "0x77332da64f1ad96c3e0c232aa2b79d5db55c3c7afeca5f2035f773b8bab8e09a",
+      "packages/study/transcript-grading.ts": "0xbc582ccba1c561ce27f9c5a990e26829132d19c0c77846aacb30135582a4b415",
+      "services/chain.ts": "0x9c4d71e9cf9c256b1f079acbd4cadc06f38cbafd7947127e0bde56ce27a7c631",
+      "services/community-application.ts": "0xbfa86e02d10e1af4f44df6a2839278cb3456ff48fe7cc4ad8cb9baa7c8f4b6f7",
+      "services/community-jobs.ts": "0x25e4580a5db4ebf0cc0bb090b1d284d3488597de5d4e1d09c52241f02925cf02",
+      "services/community-public.ts": "0x5717217f7795a067128e4f8c3a8f99ac5ce3c9a0ce39267bde59e1827cbde0e7",
+      "services/community-purchases.ts": "0xb67d8d81ca73978dafde120de79ef371d9bd168ccd5682e4324eb96ae764ec76",
+      "services/community-release-api.ts": "0xa95c59cbd85be32a0aba9a54f639930bb22207434c6ceb40d367f464245327e2",
+      "services/configuration-health.ts": "0x0cdfc5564c0cec1cd7d335d2c60c26cc0b4a048bc46fd92db568835c3d7fbe94",
+      "services/first-song-driver.ts": "0x2d3838d3f2ffe6bb44a08ff1e2544b42bff994090a6036fb5df226df151aa3b4",
+      "services/first-song-profile.ts": "0x0d69f6121fedb29f20939b8dd9aa50b7fe99600027b1eeda8b45309c980ccb82",
+      "services/first-song-runtime.ts": "0x6b22dbf4c8e54dc2e04219c10201af6237b2f4102aad9cc30b0394b898da0749",
+      "services/karaoke-community.ts": "0x2ab0c52facb4c40b41fa53d88122368ce0e2319b769d33596ccfcfeb1f78d5fe",
+      "services/karaoke-song.ts": "0x27da95e78ba2cb9b7d9b318da144136e6c70d12f3ace0d89e837d7d13ab73abf",
+      "services/learning-policy-pages.ts": "0x47075d48e6b1e6442063206d87484673e217182da04cdf20b88a14467abcfcc9",
+      "services/learning-policy-v3.ts": "0x86234a6b1b263c173166a4dc782128690ac4ac5a27e6aa0afa4b0ab3424e13f7",
+      "services/public-ipfs-cache.ts": "0x44bcb1ec6383d7c70e37b7bf0386163d70177d35a27968f1bc65e0981494b1a9",
+      "services/request-timing.ts": "0x9630ee6b765ee28a2e254eaa22f60867d2eb58f25a6190f8d45ab0572a176eb1",
+      "services/reward-payment-recovery.ts": "0x00fcd6d5a8713e4f104d8564eed4eb28435c48209ceaf2dfa6f8dd2df74d3fda",
+      "services/reward-sources.ts": "0xa8a27091faeee967e969ad8a7738516bc1510b549a43676773b999fb5c78d437",
+      "services/rewards-community-api.ts": "0x237295e8f0d5891234ed91a061075fb9489c75ff75d466ba96c3536f034b3344",
+      "services/service-call.ts": "0xf7300d46a2b584d271e431a91d324bda038f9350bf08e19f05688b0e8ca2edf7",
+      "services/storage.ts": "0x4b9ac339d3534bf26d8d27adcc0168bf6ee76232c70edfde23ed37575dc2bcb8",
+      "services/study-community-api.ts": "0x9f33f6b4bd35035f96ad1ea22133e140d7fe432fee0c451ae4f332df2fd1c6db",
+      "services/study-community.ts": "0xf78f4a2971e898227e90339af463598835026c682aae440572926834437f1818",
+      "services/study-history.ts": "0x7bdcf68cc64d99ecfc79b3a4c41b116284a674abe1e38662bfb1b0c3b3ffee45",
+      "services/study-lessons.ts": "0x8f7871fe8d0042a5e6060071929de818a771e02d8b757b33d07ad7ea641c4825",
+      "services/study-operator-client.ts": "0x78751f7df2abe7b58a90c602231bfdcae8998bb90a3cd7ef3b3aca96406bd8f2",
+      "services/study-outbox.ts": "0xbd8f57ef81f035cc51801f58ce3ea59cb0b6f695e2979e5bf4818b498ee77f24",
+      "services/study-private-history.ts": "0xdcd17d7ea7bc09e2d995bd8003087a267afcef14f172a95b6b04573587f5da88",
+      "services/study-publication-queue.ts": "0x7516d045277158615da4475fa633a7a21d84ab50f4d0c179bf66e6f63cd3be15",
+      "services/study-recovery.ts": "0x5ec200a8f0215d58686918e91e821f2e8fcfd0c4911bb6055c967351907be365",
+      "services/study-retention.ts": "0x3a7dd56525d469709f935325b4d94726b6c00b14c7a8102634f66b189346ec39",
+      "services/study-spoken.ts": "0x6998832c9a3cd5d8540d2044b771ed434a4e53e6e00d3925477849e54b3322bd"
+    },
+    "bundleSha256": "0x8c87026d1d080b2f878229a42559a8eb1cf4e07a3649d93fdebfa08ac42cfd70",
+    "bundleBytes": 1035215,
+    "assets": {
+      ".vite/manifest.json": "0x683d8a83b3f0d6127ba8d6fc4680655463d4a380ec18ef62a7a33a375b9ac135",
+      "app/assets/capture-processor-Di3k79aW.js": "0x97fc42534dd5a5e20c9bf241a30a39aa1652fe0cf1d7fc4857b0d0f57c782975",
+      "app/assets/correct-_VIPT3_I.mp3": "0xe0d4d9e900efabbe47f3b8c48812a9466b3dce39cf9030d65463a74e8f3c1855",
+      "app/assets/dist-BqyuyypQ.js": "0x44cb6d328fe80bfa25778d4f25f5abd546afd36409ca3b8627b6f2f97177e1d2",
+      "app/assets/incorrect-BRWjqDaa.mp3": "0x3587e70c9f9ba54b2e00a9b69d7d3206c45c75d610579546f0d47902136b61c1",
+      "app/assets/index-Bb2Oos9u.css": "0x3568b5ba6a9563859df3a19a2158c25a4d076d432c819d64f2498d4cfe77fbdb",
+      "app/assets/index-DhJVvO_N.js": "0xe6c27c993b94f52cc3afa525f4c0d89043e2102751e302fe6ab1d55bb4b8ff9c",
+      "images/error-ghost.svg": "0x2bde768490e38a41b481edb4abb3737b2b122e8e493530d6a628c3c81fc8d1ee",
+      "index.html": "0xc11435af0d7c49ebe8a1d7e053e134afd744cfdb7d83f090a1f29209dc9bb978"
+    },
+    "migrations": [
+      "0001_setup.sql",
+      "0002_first_song.sql",
+      "0003_publication_journal.sql",
+      "0004_creator_connection.sql",
+      "0005_input_capabilities.sql",
+      "0006_song_stems.sql",
+      "0007_owner_curated.sql",
+      "0008_karaoke.sql",
+      "0009_study.sql",
+      "0010_study_retention.sql",
+      "0011_manual_rewards.sql",
+      "0012_owner_budget_windows.sql"
+    ],
+    "curatedState": {
+      "schema": "pirate.published-first-song-state/1",
+      "observedAt": "2026-11-05T20:26:16.469Z",
+      "originalHeldStateSha256": "0x307f252c567cb182c85c5aaa2fb0c0b86271f8366567ebc97054b4726927d52c",
+      "application": {
+        "community_accounts": {
+          "count": 1,
+          "sha256": "0x1152813534dfaf1425f55aca44c655261a10ebc77fd6d5d67f6a4de5de1b507a"
+        },
+        "credential_bindings": {
+          "count": 1,
+          "sha256": "0x28759de97c767b4378f44eded9ee4f48edf4500bab117099a28cdf94ae879931"
+        },
+        "creator_bindings": {
+          "count": 1,
+          "sha256": "0x42c8378c328ed0844fe8dccb12dbd58ee6917464528f7c7470b57565fba0a4a7"
+        },
+        "media_submissions": {
+          "count": 1,
+          "sha256": "0x2cc1478f76d44390390eba484c229d0d200efcf9609026b344efa92497bbbca1"
+        },
+        "publication_jobs": {
+          "count": 1,
+          "sha256": "0xa73931e6f2b1b2d1d671cfb52d088aae55c321d056b48f49f10b97590654c9c2"
+        },
+        "external_operations": {
+          "count": 7,
+          "sha256": "0x9ea74b801d582d2568633ff78bad3f6382b2e1991d76319a1a669123dfdbedc1"
+        },
+        "media_stems": {
+          "count": 2,
+          "sha256": "0x00f8574fbf33d7b0f61d265a375752f2349320235f38c68764d88caac9a7e3cb"
+        },
+        "publication_amendments": {
+          "count": 1,
+          "sha256": "0xf704f7cfc3c2be94d9e510dfaa705210b64bbd978ddc3ea4e18b1501472ccda0"
+        },
+        "external_operation_reconciliations": {
+          "count": 1,
+          "sha256": "0x1aeba6d0739d78a2ade976da384d2348efa028a3c178b9d2f2da033540802625"
+        },
+        "moderation_input_capabilities": {
+          "count": 3,
+          "sha256": "0x18e4b8c4063a5d2c81822cba0e85df704918e64c1b771ddfe761c1e258f3bddf"
+        },
+        "spending_budgets": {
+          "count": 2,
+          "sha256": "0x0c115fda05a3814acdb901c4ce7d41f597871e98f2a77710d1b73b6894a55cd1"
+        },
+        "spending_reservations": {
+          "count": 2,
+          "sha256": "0x3546c0bb7e6127a7ce14c4f9ee7c52581f39de8c601039779022fe5d91c23c01"
+        }
+      },
+      "managed": {
+        "managed_admissions": {
+          "count": 1,
+          "sha256": "0xc85c0b97b7d4f8193f6b31415bc3efba552bdbfd48167d8ccfc86a5249fe6168"
+        },
+        "moderation_provider_calls": {
+          "count": 3,
+          "sha256": "0x05296e82b529693ce9ef288cd42203bac7d567242202ae7db83e4d7852d69d3a"
+        },
+        "spending_budgets": {
+          "count": 6,
+          "sha256": "0x9d2816779f075f7f4c3007276411e6ac614f7aa68cbe236465b3fbb0914dbd52"
+        },
+        "spending_reservations": {
+          "count": 14,
+          "sha256": "0x2dadf3552064a08d7b2eadc11f6f4a4029af4015d4998e2ea006af32a70970d3"
+        },
+        "managed_releases": {
+          "count": 1,
+          "sha256": "0xb85fab505aeaa449846c108ebf308ad9d0c36e8d432884f4ce4f6f43210f5201"
+        },
+        "funded_pins": {
+          "count": 5,
+          "sha256": "0xc148a7dc6876aa69359e3611ce5c0583d73dea3a462502bb18b7b501f3bd97b8"
+        },
+        "funded_registrations": {
+          "count": 1,
+          "sha256": "0x1f27c94de938bff9fc507ff108aff36ea7c233a7e0e9b3c12160df54a412e3ec"
+        },
+        "curated_admissions": {
+          "count": 1,
+          "sha256": "0xad364a6ab27bfe7a4d4ee9fe7cdaa3ce4eb5a99beb74c62311cfab0bdb35aaff"
+        },
+        "moderation_request_nonces": {
+          "count": 15,
+          "sha256": "0x489a07654386c1941069c7c02920b2513c6da5409ffd249988139ca513526c22"
+        }
+      },
+      "registration": {
+        "input": {
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadata": {
+            "uri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+            "sha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0"
+          },
+          "nftMetadata": {
+            "uri": "ipfs://bafkreiayekujyl55oopvsg3ul2gldhydegrdjsmogydjme4lqaiedlezqa",
+            "sha256": "0x1822a89c2fbd739f591b745e8cb19f0321a234c98e360696138b801041ac9980"
+          }
+        },
+        "receipt": {
+          "assetId": "0x2e5f4be36d644f6afdbcd3ffa89bb4e1b34cd256",
+          "blockHash": "0xb5b3ea093fb1d301ab97648ef274c1959f6804a58ab8bb176c7e74f9fa64e3b5",
+          "blockNumber": "25922296",
+          "chainId": 1315,
+          "contentSha256": "0xc1cd8f562c7aad2c37b815ce74f2a83335143ccca1f7ac5bc49563fcaf73b179",
+          "metadataSha256": "0x8db1a7791b5f612e3a61f10f5cf5ede81047c4df907c38e7a92d566782484ce0",
+          "metadataUri": "ipfs://bafkreienwgtxsg27mexduyprb5opl3picbd4jx4qpq4opkjnkztyescm4a",
+          "network": "aeneid",
+          "nftContract": "0xc32a8a0ff3beddda58393d022af433e78739fabc",
+          "protocol": "story",
+          "recipient": "0x3245599b2d2c2d6d9123790b77f218959e81aa40",
+          "status": "confirmed",
+          "tokenId": "4619",
+          "transactionHash": "0x5945d76b02eefb4a38351c75f86d4c45ffa981439d58e14cc7c194a1180059a0"
+        },
+        "operatorNonceAfter": 1
+      }
+    },
+    "managedProfileHash": "0x36ade674c8f6cf75925c3cdfa07b32ff7ff3e09ba7450a46b7b91f2a5789c1bd",
+    "queueConsumer": {
+      "logical": "Consumer",
+      "queueId": "fe031cd96fbb47579585eb10154f785d",
+      "scriptName": "pirate-first-song-20261105",
+      "batchSize": 1,
+      "maxConcurrency": 1,
+      "maxRetries": 3,
+      "retryDelay": 60
+    },
+    "reviewedUpdate": {
+      "previousPlanPath": "docs/deployments/first-song-managed-20261105.application-plan-v24.json",
+      "previousProfileHash": "0xa6638bf8488911cfd125e1da171a49c7056c959a5fce1747d0e5dc39e8ba6cb9",
+      "expectedExecutionSha256": "0xcb21cc2fa03bddd29f0f29ad7327830cc15bd29c4e7a6ef294f111973e0bf648",
+      "expectedResultSha256": "0xccf106af5af4513696b0f3124ef10f66e5b1ebb6021dc2cf07a32b2223679b13"
+    },
+    "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+    "credentialBinding": {
+      "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+      "environment": "staging",
+      "path": "/services/pirate-first-song-20261105",
+      "name": "COMMUNITY_PUBLISHER_PRIVATE_KEY"
+    },
+    "stateProtection": {
+      "projectId": "43d2261a-f739-428f-92f2-5f907db24c07",
+      "environment": "staging",
+      "path": "/communities/first-song-20261105-runner"
+    },
+    "bounds": {
+      "executionSeconds": 900,
+      "newResources": 1,
+      "nativeTransactions": 0,
+      "providerRequests": 24,
+      "publicationTransactions": 1,
+      "publicPins": 5,
+      "maximumPublicationFee": "30000000000000"
+    },
+    "acceptance": "Karaoke and say-it-back Study with fresh V3 consent, retained V2 recovery, shared speech accounting and independently reconstructed testnet results",
+    "learning": {
+      "chainId": 6343,
+      "contract": "0xc26d3b5df9e191148424323bb61ee019e432dc74",
+      "operator": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+      "issuer": "0xbf85a150114d3df8b90a7793c0ea4b2f4bb8c319",
+      "operatorWorker": "pirate-learning-testnet-v2",
+      "operatorOrigin": "https://pirate-learning-testnet-v2.piratesocialclub.workers.dev",
+      "accounting": "internal",
+      "speechDailyCalls": 0,
+      "historyRetentionDays": 30,
+      "providerCredential": {
+        "projectId": "fac45f92-9450-42fb-8c2f-f20d043fdfab",
+        "environment": "staging",
+        "path": "/services/api-next",
+        "key": "ELEVENLABS_API_KEY"
+      },
+      "acceptance": "Karaoke and say-it-back Study with fresh V3 consent, retained V2 recovery, shared speech accounting and independently reconstructed testnet results",
+      "operatorProfile": "pirate-learning-testnet-v3",
+      "studyContract": "0x070c8ab23a4e35b74084045d2e39ffcec2427ccd",
+      "studyCodeHash": "0x963ef0ab168fc75dfd9fce209cf8ea641275016ee0171216cc17fe608ca9d385",
+      "publicityPolicy": "0x2ca79bc25c9e5527ca456535c46af0b9c10a9cf31d4c504013a9ce0a3a606b96"
+    },
+    "rewards": {
+      "schema": "pirate.rewards-release-selection/1",
+      "profile": {
+        "schema": "pirate.manual-rewards/1",
+        "programId": "0x6db5d2401da962be2ef02f03e5186e40f232abb1e5aaa0e5429b04dff1319282",
+        "chainId": 6343,
+        "mode": "live-testnet",
+        "decimals": 18,
+        "veryAppId": "fa6bb1db-51dd-4673-915a-b945e7a895a0",
+        "rpcUrl": "https://carrot.megaeth.com/rpc",
+        "token": "0x15e9f2b0a747ac05c7446559306687085d161e5c",
+        "operatorWallet": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+        "payoutWallet": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+        "ticketWallet": "0x8c2aa8cbd3b49135c8cf3f065d2f33cd98543e96",
+        "resultSourceHash": "0x018d3d31d7978f2c8929526f71572aa7ee385c120ec4d2111bae193bfb053277",
+        "rehearsal": {
+          "schema": "pirate.reward-rehearsal/1",
+          "offerId": "rehearsal_20261109_001",
+          "prizeUsdcAtomic": "30000"
+        },
+        "rehearsalHistory": [
+          {
+            "schema": "pirate.reward-rehearsal/1",
+            "offerId": "rehearsal_20261108_001",
+            "prizeUsdcAtomic": "30000"
+          }
+        ]
+      },
+      "source": {
+        "schema": "pirate.reward-result-source/1",
+        "contract": "0x070c8ab23a4e35b74084045d2e39ffcec2427ccd",
+        "codeHash": "0x963ef0ab168fc75dfd9fce209cf8ea641275016ee0171216cc17fe608ca9d385",
+        "fromBlock": "34335279",
+        "grader": "0x14b90a55657d9695a727254eaec5e0e32d20d602",
+        "karaokePolicy": "0x1666cd182f8fed52dd49b575f4fb5081e6c8af40fbe855cc38d7c19bce06438c",
+        "studyPolicy": "0xc5c4a83b87b25eff023ac610e9de8ea4e94fa8eee01c8c4a8413112e34e4e8e3"
+      }
+    },
+    "recovery": "Keep original encrypted wizard state unchanged. Reconcile the same owned resource IDs and encrypted application successor after interruption. Never reapply the obsolete setup Worker.",
+    "ownerPublishing": {
+      "schema": "pirate.owner-publishing-release-selection/1",
+      "ownerGrant": {
+        "schema": "pirate.owner-publishing-grant/1",
+        "sha256": "0x2edd0506eee96e1fe9756bba28b1b8ba74e0124cdcb9db18f0c6a30130918237",
+        "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+        "communityOrigin": "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
+        "ownerWallet": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+        "policy": {
+          "version": "pirate-owner-curated/2026-11-08/1",
+          "sha256": "0xf5031f548749edfd332eec686923681ded1247a69703788a4f0fb0b25d8532d8"
+        },
+        "destination": {
+          "chainId": 6343,
+          "postsContract": "0xa5c155058dd8c6befae7dcb6562277dad77f6045",
+          "publisher": "0x14b90a55657d9695a727254eaec5e0e32d20d602"
+        },
+        "validFrom": 1794209732,
+        "expiresAt": 1794814532,
+        "limits": {
+          "songs": 2,
+          "pinAdds": 6,
+          "pinBytes": "54525952",
+          "recognitionRequests": 4,
+          "postFeeWei": "2000000000000"
+        }
+      },
+      "ownerAuthorization": {
+        "authorization": {
+          "schema": "pirate.owner-publishing-authorization/1",
+          "communityId": "0xd3f69af98a60cbebb54e77b4306115cfcd8f33d122da9d02e782972a6debea0f",
+          "ownerWallet": "0xa1ffb1ae235aa526188f6facdc34eef1ab4fdae3",
+          "policy": {
+            "version": "pirate-owner-curated/2026-11-08/1",
+            "sha256": "0xf5031f548749edfd332eec686923681ded1247a69703788a4f0fb0b25d8532d8"
+          },
+          "validFrom": 1794209732,
+          "expiresAt": 1794814532
+        },
+        "signature": "0x22599dbda6416f0bce74b7a75a7f25714323a8af728c5270302a25e37ebf322f38f56e37e2c629593a7a5ef4630ee2727606e0d17406664b5efe93b5c04ab1da1b"
+      }
+    }
+  }
+}

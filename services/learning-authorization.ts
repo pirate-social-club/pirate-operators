@@ -277,11 +277,13 @@ export async function authorizationState(
     readAt("revokedAt"),
     readAt("nextNonce"),
   ]);
+  const revocations = `revocationIntent:4:${target.contract.toLowerCase()}:${learner.toLowerCase()}:`;
   const pending = store
-    ?.entries(
-      `revocationIntent:4:${target.contract.toLowerCase()}:${learner.toLowerCase()}:`,
-    )
-    .some(({ value }) => {
+    // Durable Object SQLite limits LIKE patterns to 50 bytes. The full
+    // contract/account prefix is longer; apply its exact match in memory.
+    ?.entries("revocationIntent:4:")
+    .some(({ key, value }) => {
+      if (!key.startsWith(revocations)) return false;
       const job = value as RevocationJobV4;
       if (job.pending) return true;
       const intent = intentOf(store!, "record_revoke", job.grantId);

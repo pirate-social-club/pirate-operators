@@ -117,12 +117,17 @@ export async function observeStudyDeployment(
       read("policyFor", [2, BigInt(profile.policies.study.effectivePeriod)]),
     ]);
     insist(
-      version === 3 &&
+      version === (profile.schema === "pirate.study-deployment/2" ? 4 : 3) &&
         String(controller).toLowerCase() === profile.controller.toLowerCase() &&
         community === profile.communityId &&
         publicity === profile.publicityPolicy,
       "study_deployment_contract_identity_changed",
     );
+    if (profile.schema === "pirate.study-deployment/2")
+      insist(
+        (await read("communityOrigin")) === profile.communityOrigin,
+        "study_deployment_contract_origin_changed",
+      );
     insist(
       karaoke === index > 1 &&
         study === index > 2 &&

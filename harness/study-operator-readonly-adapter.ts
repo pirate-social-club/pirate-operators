@@ -143,12 +143,25 @@ export async function observeOperatorCloud(
     "study_operator_v3_binding_changed",
     409,
   );
+  const v4Bindings =
+    moduleSha256 === profile.artifact.sha256 && profile.learningV4;
+  insist(
+    v4Bindings
+      ? value("RESULTS_V4_CONTRACT") === v4Bindings.contract
+      : byName("RESULTS_V4_CONTRACT").length === 0,
+    "study_operator_v4_binding_changed",
+    409,
+  );
   const invariant = {
     ...settings,
     bindings: bindings
       .filter(
         (x) =>
-          !["OPERATOR_PROFILE", "RESULTS_V3_CONTRACT"].includes(String(x.name)),
+          ![
+            "OPERATOR_PROFILE",
+            "RESULTS_V3_CONTRACT",
+            "RESULTS_V4_CONTRACT",
+          ].includes(String(x.name)),
       )
       .map((x) =>
         x.type === "secret_text" ? { name: x.name, type: x.type } : x,

@@ -18,6 +18,9 @@ import { digest } from "../../packages/protocol/index.ts";
 import { resultManifestUri } from "../../packages/records/result-manifest.ts";
 import { studyQualificationPolicy } from "../../packages/records/study-qualification.ts";
 import { learningV3PublicityPolicy } from "../../services/learning-policy-v3.ts";
+import { learningV4PublicityPolicy } from "../../services/learning-policy-v4.ts";
+import { canonicalOriginV4 } from "../../packages/protocol/learning-results-v4.ts";
+import { firstSong } from "../../services/first-song-profile.ts";
 import { textKey } from "../../packages/protocol/records.ts";
 import type { ControllerScope } from "./controller-inventory.ts";
 import type { ControllerOperation } from "./controller-dispatch-catalog.ts";
@@ -32,13 +35,16 @@ export const studyDeploymentSteps = [
 ] as const;
 export type StudyDeploymentStep = (typeof studyDeploymentSteps)[number];
 export interface StudyDeploymentProfile extends ControllerScope {
-  schema: "pirate.study-deployment/1";
+  schema: "pirate.study-deployment/1" | "pirate.study-deployment/2";
   chainId: 6343;
   directory: Address;
   directoryCodeHash: Hex;
   registry: Address;
   configurationRevision: string;
+  /** Retained predecessor. The /2 successor uses V3 here; the field is kept
+   * to reuse the reviewed inventory and recovery runner without migration. */
   resultsV2: { contract: Address; codeHash: Hex };
+  communityOrigin?: string;
   contract: Address;
   grader: Address;
   publicityPolicy: Hex;
@@ -102,6 +108,7 @@ export function studyDeploymentPlan(
   profile: StudyDeploymentProfile,
   artifact: StudyDeploymentArtifact,
 ) {
+  const v4 = profile.schema === "pirate.study-deployment/2";
   exact(object(profile), [
     "schema",
     "chainId",
@@ -127,9 +134,11 @@ export function studyDeploymentPlan(
     "deadline",
     "inventory",
     "custody",
+    ...(v4 ? ["communityOrigin"] : []),
   ]);
   insist(
-    profile.schema === "pirate.study-deployment/1" && profile.chainId === 6343,
+    (v4 || profile.schema === "pirate.study-deployment/1") &&
+      profile.chainId === 6343,
     "study_deployment_wrong_profile",
   );
   insist(
@@ -154,6 +163,7 @@ export function studyDeploymentPlan(
   insist(
     profile.contract.toLowerCase() !==
       profile.resultsV2.contract.toLowerCase() &&
+      (!v4 || profile.configurationRevision === "5") &&
       positive(profile.configurationRevision) &&
       BigInt(profile.configurationRevision) <= 0xffffffffffffffffn,
     "study_deployment_wrong_predecessor",
@@ -161,8 +171,22 @@ export function studyDeploymentPlan(
   insist(
     profile.sourceHash === artifact.sourceHash &&
       profile.artifactHash === hashJson(artifact) &&
-      profile.publicityPolicy === learningV3PublicityPolicy,
+      profile.publicityPolicy ===
+        (v4 ? learningV4PublicityPolicy : learningV3PublicityPolicy),
     "study_deployment_source_or_publicity_changed",
+  );
+  insist(
+    !v4 ||
+      (typeof profile.communityOrigin === "string" &&
+        profile.communityOrigin === firstSong.origin &&
+        canonicalOriginV4(profile.communityOrigin)),
+    "study_deployment_origin_changed",
+  );
+  insist(
+    artifact.abi.some(
+      (item) => item.type === "function" && item.name === "communityOrigin",
+    ) === v4,
+    "study_deployment_artifact_version_changed",
   );
   insist(
     Number.isSafeInteger(profile.nonce) &&
@@ -261,7 +285,12 @@ export function studyDeploymentPlan(
     encodeDeployData({
       abi: artifact.abi,
       bytecode: artifact.bytecode,
-      args: [profile.controller, profile.communityId, profile.publicityPolicy],
+      args: [
+        profile.controller,
+        profile.communityId,
+        profile.publicityPolicy,
+        ...(v4 ? [profile.communityOrigin!] : []),
+      ],
     }),
     ...([1, 2] as const).map((activity) =>
       encodeFunctionData({

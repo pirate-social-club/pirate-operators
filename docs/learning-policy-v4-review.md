@@ -1,6 +1,6 @@
-# Learning publication policy V4: draft for review
+# Learning publication policy V4: approved for testnet
 
-Not deployed. The workspace_owner reviews this wording before deployment. Its hash, 0xd6cb3a0720eb7e63bcd1fc2b594aa7e99ff304c9211e196b59c5e9ed8ae96062, becomes the V4 contract's fixed publication policy, so any wording change produces a new hash. Source: services/learning-policy-v4.ts. The V3 text it replaces is unchanged in services/learning-policy-v3.ts.
+The workspace_owner approved this wording and the single sign-in statement on 2026-11-10 for testnet. Not deployed. Its hash, 0xd6cb3a0720eb7e63bcd1fc2b594aa7e99ff304c9211e196b59c5e9ed8ae96062, becomes the V4 contract's fixed publication policy, so any wording change produces a new hash. Source: services/learning-policy-v4.ts. The V3 text it replaces is unchanged in services/learning-policy-v3.ts.
 
 ## Terms
 
