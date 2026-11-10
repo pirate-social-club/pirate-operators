@@ -89,6 +89,9 @@ function App() {
   const [opening, setOpening] = createSignal(
     new URL(location.href).searchParams.has("study"),
   );
+  // True while sign-in is settling its permission. The wallet pages and the
+  // practice buttons wait, so nothing mounts with the first of two sessions.
+  const [settling, setSettling] = createSignal(false);
   const practiceOpen = () =>
     singing() !== null || studying() !== null || opening();
   function openStudy(song: { postId: string; title: string }) {
@@ -202,6 +205,14 @@ function App() {
     await refreshSession();
   }
   async function signIn() {
+    setSettling(true);
+    try {
+      await settleSignIn();
+    } finally {
+      setSettling(false);
+    }
+  }
+  async function settleSignIn() {
     setStatus("Opening MOSS…");
     const mega = await moss();
     await signInOnce(mega);
@@ -357,7 +368,7 @@ function App() {
           )}
         </Show>
       </header>
-      <Show when={walletPage && session()}>
+      <Show when={walletPage && session() && !settling()}>
         <Show
           when={location.pathname === "/operator/rewards"}
           fallback={
@@ -373,7 +384,7 @@ function App() {
           />
         </Show>
       </Show>
-      <Show when={walletPage && !session()}>
+      <Show when={walletPage && (!session() || settling())}>
         <main class="live-main">
           <h1>Sign in to view your wallet</h1>
           <p role="status">{status()}</p>
@@ -546,7 +557,7 @@ function App() {
                         )}
                       </Show>
                     </Show>
-                    <Show when={session()}>
+                    <Show when={session() && !settling()}>
                       <Button
                         variant="outline"
                         onClick={() =>
@@ -559,7 +570,9 @@ function App() {
                         Sing
                       </Button>
                     </Show>
-                    <Show when={session() && capabilities()?.study}>
+                    <Show
+                      when={session() && !settling() && capabilities()?.study}
+                    >
                       <Button
                         variant="outline"
                         onClick={() =>
