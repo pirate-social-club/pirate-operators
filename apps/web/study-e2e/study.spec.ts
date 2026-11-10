@@ -269,7 +269,7 @@ test("a lesson has no time limit, and a paused lesson keeps its history when Stu
   expect((await (await request.get("/__fixture")).json()).calls).toBe(1);
 });
 
-test("a legacy one-hour lesson still expires at its deadline and Try Again opens a new lesson", async ({
+test("a legacy one-hour lesson still expires at its deadline and reopening Study starts a new lesson", async ({
   page,
   request,
 }) => {
@@ -282,19 +282,19 @@ test("a legacy one-hour lesson still expires at its deadline and Try Again opens
   ).toBeVisible();
   await request.patch("/__fixture", { data: { advanceMs: 3600000 } });
   await page.reload();
+  // The closed lesson is never shown again: a new lesson opens directly.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Lesson expired" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   const expired = await (
     await request.get("/api/study/lessons/" + lessonId)
   ).json();
   expect(expired.status).toBe("expired");
   expect(expired.completionReason).toBe("deadline");
   expect(expired.completedAt).toBe(expired.expiresAt);
-  await page.getByRole("button", { name: "Try Again" }).click();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
   const next = (await (await request.get("/__fixture")).json()).lesson;
   expect(next.lessonId).not.toBe(lessonId);
   expect(next.status).toBe("active");
@@ -321,17 +321,17 @@ test("a draft never bound to consent ends after thirty days and the learner star
   ).toBeVisible();
   await request.patch("/__fixture", { data: { advanceMs: 1000 } });
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Lesson ended" })).toBeVisible();
+  // The closed draft is never shown again: a new lesson opens directly.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Lesson ended" })).toHaveCount(0);
   const ended = await (
     await request.get("/api/study/lessons/" + first.lessonId)
   ).json();
   expect(ended.status).toBe("abandoned");
   expect(ended.completionReason).toBe("never_bound");
   expect(ended.completedAt).toBe(first.startedAt + 30 * 86400000);
-  await page.getByRole("button", { name: "Try Again" }).click();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
   expect(
     (await (await request.get("/__fixture")).json()).lesson.lessonId,
   ).not.toBe(first.lessonId);
