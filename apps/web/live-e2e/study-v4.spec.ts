@@ -102,22 +102,3 @@ test("settings offer no public results switch", async ({ page }) => {
   expect(state.signatures).toEqual(["SignIn"]);
   expect(state.counts.revocations).toBe(0);
 });
-
-test("an account withdrawn earlier is restored by signing in", async ({
-  page,
-}) => {
-  const state = await serveV4(page, { withdrawn: true });
-  await page.goto(state.url);
-  await signIn(page);
-  await expect(page.locator(".live-status")).toHaveText(
-    "Signed in. Choose a song to study or sing.",
-  );
-  // The old withdrawal is cleared, then the same sign-in text is signed once
-  // more; nothing else is asked.
-  expect(state.counts.turnedOn).toBe(1);
-  expect(state.signatures).toEqual(["SignIn", "SignIn"]);
-  expect(state.publicResults()).toBe("on");
-  await page.getByRole("button", { name: "Study", exact: true }).click();
-  await expect(page.locator(".study-surface h2")).toBeVisible();
-  expect(state.counts.starts).toBe(1);
-});

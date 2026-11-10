@@ -203,14 +203,6 @@ function App() {
     setStatus("Opening MOSS…");
     const mega = await moss();
     await signInOnce(mega);
-    // Results are always public; there is no setting to turn them off. An
-    // account withdrawn before that rule is restored by signing in: clear the
-    // old withdrawal, then sign the same sign-in text once more.
-    const current = session();
-    if (current?.publicResults === "off") {
-      await post("/api/learning/public-results/on", {}, current.csrf);
-      await signInOnce(mega);
-    }
     setStatus("Signed in. Choose a song to study or sing.");
   }
   // Owner-only publishing has no creator connection step. Preserved creator

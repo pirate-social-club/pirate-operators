@@ -43,20 +43,11 @@ export function StudyScreen(props: {
     lesson()?.current?.attempt?.state === "uncertain" ||
     (lesson()?.current?.takeNumber ?? 0) > STUDY_MAX_TAKES;
   const visibleLine = () => miss()?.line ?? lesson()?.current?.line;
-  /** Ends one take. The microphone stays open for the next one. */
-  function endTake() {
-    clearTimeout(timer);
-  }
-  /** Releases the microphone: on exit, account change or a capture failure. */
   function cleanup() {
-    endTake();
+    clearTimeout(timer);
     stream?.getTracks().forEach((track) => track.stop());
     stream = undefined;
   }
-  const liveStream = () =>
-    stream?.getAudioTracks().some((track) => track.readyState === "live")
-      ? stream
-      : undefined;
   onCleanup(() => {
     active = false;
     generation++;
@@ -95,7 +86,8 @@ export function StudyScreen(props: {
       if (restart && active && version === generation) {
         // Abandon may have succeeded before enrollment or the next start failed.
         let changed = false;
-        const saved = await props.client.load().catch((error) => {
+        // Read the same lesson back; never start a second lesson here.
+        const saved = await props.client.refresh().catch((error) => {
           changed = forgetAccount(error);
           return null;
         });
@@ -181,26 +173,21 @@ export function StudyScreen(props: {
     const version = ++generation;
     sounds.unlock();
     setError("");
+    setPhase("acquiring");
     try {
       if (
         !navigator.mediaDevices?.getUserMedia ||
         typeof MediaRecorder === "undefined"
       )
         throw new Error("Audio recording is unavailable in this browser.");
-      // Only the first take of a visit waits for the microphone; later takes
-      // reuse the open stream, so the button goes straight to Stop.
-      let captured = liveStream();
-      if (!captured) {
-        setPhase("acquiring");
-        captured = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-        if (!active || version !== generation) {
-          captured.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        stream = captured;
+      const captured = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      if (!active || version !== generation) {
+        captured.getTracks().forEach((track) => track.stop());
+        return;
       }
+      stream = captured;
       const type = ["audio/webm", "audio/mp4", "audio/ogg"].find((type) =>
         MediaRecorder.isTypeSupported(type),
       );
@@ -231,7 +218,7 @@ export function StudyScreen(props: {
       };
       capture.onstop = () => {
         const durationMs = Math.round(performance.now() - startedAt);
-        endTake();
+        cleanup();
         if (!active || version !== generation) return;
         if (failed) {
           setPhase("idle");
@@ -253,7 +240,7 @@ export function StudyScreen(props: {
       setPhase("recording");
       timer = setTimeout(() => {
         failed = true;
-        endTake();
+        cleanup();
         if (capture.state === "recording") capture.stop();
         if (active) {
           setPhase("idle");
@@ -302,9 +289,9 @@ export function StudyScreen(props: {
         ? "wrong"
         : blocked()
           ? "blocked"
-          : phase() === "acquiring"
-            ? "acquiring"
-            : phase() === "recording"
+          : // Opening the microphone takes a moment. Show Stop at once
+            // rather than flashing a separate "Starting microphone" state.
+            phase() === "acquiring" || phase() === "recording"
               ? "listening"
               : phase() === "saving"
                 ? "checking"

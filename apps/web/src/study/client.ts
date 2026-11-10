@@ -61,7 +61,11 @@ export function createStudyClient(
         .catch(() => ({ error: "study_unavailable" }));
       if (body.error === "study_account_changed")
         throw new StudyAccountChangedError();
-      if (body.error === "study_lesson_not_found")
+      // A lesson whose private history expired is gone for this account too.
+      if (
+        body.error === "study_lesson_not_found" ||
+        body.error === "study_history_expired"
+      )
         throw new StudyLessonNotFoundError("This lesson is unavailable.");
       if (body.error === "study_authorization_pending")
         throw new StudyAuthorizationPendingError(
