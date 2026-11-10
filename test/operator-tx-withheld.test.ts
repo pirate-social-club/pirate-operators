@@ -73,6 +73,7 @@ function node() {
     lagging: new Map<string, number>(),
     mineSends: true,
     gasPrice: 10n ** 9n,
+    dataFee: 0n,
   };
   const mine = (raw: Hex) => {
     const hash = keccak256(raw);
@@ -113,11 +114,11 @@ function node() {
           !lagged(method) && state.known.has(params[0]) ? { hash: params[0] } : null,
         );
       case "eth_call": {
-        // GasPriceOracle.getL1Fee(bytes): record what was priced, answer 0.
+        // GasPriceOracle.getL1Fee(bytes): record the bytes and return the current fixture price.
         const data = params[0].data as Hex;
         const [priced] = (await import("viem")).decodeAbiParameters([{ type: "bytes" }], `0x${data.slice(10)}`);
         state.priced.push(priced as Hex);
-        return reply(encodeAbiParameters([{ type: "uint256" }], [0n]));
+        return reply(encodeAbiParameters([{ type: "uint256" }], [state.dataFee]));
       }
       case "eth_getTransactionReceipt":
         return reply(lagged(method) ? null : (state.receipts.get(params[0]) ?? null));
@@ -194,6 +195,32 @@ test("a row still none is priced unsigned; its signed bytes reach the RPC only i
     assert.equal(carries(n.state.bodies.slice(0, sendIndex), row.raw!), false);
     assert.equal(sent?.broadcast, "attempted");
     assert.equal(sent?.mined?.status, "success");
+  } finally {
+    n.restore();
+  }
+});
+
+test("a V4-only community prices an unsent result and refuses an excessive data fee", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    const v4 = { ...env, RESULTS_V2_CONTRACT: undefined, RESULTS_V4_CONTRACT: results };
+    enqueue(store, "record_result", "v4:1", results, "0x1234", 200_000n);
+    n.state.dataFee = 1001n;
+    const send = () => dispatch(v4, store, "record_result", "v4:1", limits, gate({ value: false }));
+    await assert.rejects(send, /data_fee_above_limit/);
+    const row = txRow(store, intentOf(store, "record_result", "v4:1")!.nonce!)!;
+    assert.equal(row.broadcast, "none");
+    assert.deepEqual(n.state.priced, [unsigned(row)]);
+    assert.deepEqual(n.state.sent, []);
+    assert.equal(carries(n.state.bodies, row.raw!), false);
+
+    n.state.dataFee = 1000n;
+    assert.equal((await send())?.mined?.status, "success");
+    assert.deepEqual(n.state.priced, [unsigned(row), unsigned(row)]);
+    assert.deepEqual(n.state.sent, [row.raw]);
+    assert.equal((await send())?.nonce, row.nonce);
+    assert.equal(n.state.sent.length, 1);
   } finally {
     n.restore();
   }

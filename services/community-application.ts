@@ -722,13 +722,6 @@ export async function communityFetch(
           env.DB,
           body.address,
           signInV4(env, config),
-          async (learner) => {
-            if (studyAvailable(env, config))
-              await liveStudy(
-                { ...karaokePorts, env },
-                learner,
-              ).endForWithdrawal(loginAt);
-          },
         );
         // SIWE keeps the wall clock. A V4 sign-in's issuedAt comes from the
         // application's own clock, backdated by at most a minute for wallet
@@ -784,7 +777,6 @@ export async function communityFetch(
             session,
             body,
             (ports.now ?? Date.now)(),
-            endStudyLessons,
           ),
         );
       if (url.pathname === "/api/learning/public-results/on")

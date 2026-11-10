@@ -190,7 +190,10 @@ const dataFeeAbi = parseAbi(["function getL1Fee(bytes data) view returns (uint25
  * oracle accepts, so those signed bytes never reach an RPC before their send.
  */
 async function checkDataFee(env: Env, chainId: number, priced: () => Hex) {
-  if (!env.RESULTS_V2_CONTRACT || chainId === 31337) return;
+  if (
+    chainId === 31337 ||
+    !(env.RESULTS_V2_CONTRACT || env.RESULTS_V3_CONTRACT || env.RESULTS_V4_CONTRACT)
+  ) return;
   check(env.SPONSOR_DATA_FEE_WEI && /^\d+$/.test(env.SPONSOR_DATA_FEE_WEI), "data_fee_limit_unconfigured");
   const data = encodeFunctionData({ abi: dataFeeAbi, functionName: "getL1Fee", args: [priced()] });
   const response = await rpc<Hex>(env.RPC_URL, "eth_call", [{ to: "0x420000000000000000000000000000000000000F", data }, "latest"]);

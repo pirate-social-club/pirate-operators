@@ -190,7 +190,8 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
         closed.push(learner.account_id);
       });
     assert.equal(await check(), undefined);
-    assert.deepEqual(closed, [account!.account_id]);
+    assert.equal(closed.length, 0, "remote callback is deferred; owned local cleanup is canonical");
+    assert.ok((await f.db.prepare("SELECT public_results_withdrawn_at AS withdrawn FROM learning_settings WHERE account_id=?").bind(account!.account_id).first<{withdrawn:number}>())!.withdrawn);
     await f.db
       .prepare(
         "UPDATE learning_settings SET public_results_withdrawn_at=NULL,acknowledged_revocation_nonce='1' WHERE account_id=?",
@@ -202,7 +203,7 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
     revocationNonce++;
     await f.db.prepare("UPDATE learning_settings SET last_withdrawn_at=? WHERE account_id=?").bind(revokedAt*1000+10_000, account!.account_id).run();
     assert.equal(await check(), undefined);
-    assert.deepEqual(closed, [account!.account_id, account!.account_id]);
+    assert.equal(closed.length, 0, "login never invokes the legacy reconciliation callback");
     // A turn-on can finish while a login's chain read is outstanding. Its
     // acknowledgment wins over the login's earlier settings snapshot.
     await f.db.prepare("UPDATE learning_settings SET public_results_withdrawn_at=NULL,last_withdrawn_at=?,acknowledged_revocation_nonce=? WHERE account_id=?").bind((revokedAt-1)*1000, String(revocationNonce-1), account!.account_id).run();
@@ -211,7 +212,7 @@ test("login notices each new withdrawal while preserving explicit turn-on and ac
       return Response.json({since:0,revokedAt,revocationNonce:String(revocationNonce)});
     }} as unknown as Fetcher};
     assert.equal(await publicationSignInAtLogin(racing, f.db, subject, v4, async learner => {closed.push(learner.account_id);}), v4);
-    assert.deepEqual(closed, [account!.account_id, account!.account_id]);
+    assert.equal(closed.length, 0, "login never invokes the legacy reconciliation callback");
     // A distinct revoke in the same second is still a new withdrawal.
     revocationNonce++;
     assert.equal(await check(), undefined);
