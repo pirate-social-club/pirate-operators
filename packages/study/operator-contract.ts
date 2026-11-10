@@ -8,6 +8,10 @@ import {
 
 /** A V3 lesson offer, bound to the learner's learning enrollment. */
 export interface StudyLessonOffer {
+  /** Trusted issuer freezes connected Telegram provenance in the binding.
+   * Trial history never uses this public-result lesson contract. */
+  speechChannel?: "telegram-linked";
+  graderRevision?: "script_aware_token_phonetic_v5";
   lessonId: string;
   learner: Address;
   sourceDigest: Hex;
@@ -33,6 +37,19 @@ export function validateStudyOffer(
   nowS: number,
   version: 3 | 4 = 3,
 ) {
+  check(
+    value &&
+      (value.speechChannel === undefined ||
+        (version === 4 && value.speechChannel === "telegram-linked")),
+    "invalid_study_speech_channel",
+  );
+  check(
+    value &&
+      (value.graderRevision === undefined ||
+        (version === 4 &&
+          value.graderRevision === "script_aware_token_phonetic_v5")),
+    "invalid_study_grader_revision",
+  );
   check(
     version === 4
       ? value &&
@@ -94,7 +111,11 @@ export type StudySpeechReceipt =
   | { state: "unavailable"; error: string }
   | {
       state: "assessed";
-      transcript: { text: string; language: string | null };
+      transcript: {
+        text: string;
+        language: string | null;
+        languageConfidence?: number | null;
+      };
     };
 export interface StudySpeechStatus {
   parameters: StudySpeechParameters;

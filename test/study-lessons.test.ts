@@ -169,7 +169,7 @@ test("provider refusal permits an ungraded retake; uncertainty blocks without sp
       );
       assert.equal(f.calls(), 1);
       if (failure === "known_failed") {
-        assert.equal(lesson.current?.takeNumber, 2);
+        assert.equal(lesson.current?.takeNumber, 1);
         f.fail(null);
         lesson = (await f.answer(lesson, true)).lesson;
         assert.equal(lesson.progress.firstPassCorrect, 1);
@@ -218,7 +218,7 @@ test("too-short input never dispatches; expired unsubmitted audio can be rerecor
     );
     f.advanceClock(300001);
     lesson = await f.lessons.get(f.owner, lesson.lessonId);
-    assert.equal(lesson.current?.takeNumber, 2);
+    assert.equal(lesson.current?.takeNumber, 1);
     assert.equal(lesson.lastAttempt?.state, "unavailable");
     assert.equal(lesson.lastAttempt?.grade, null);
     lesson = (await f.answer(lesson, true)).lesson;

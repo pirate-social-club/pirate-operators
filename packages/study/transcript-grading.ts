@@ -12,12 +12,15 @@ export const STUDY_TRANSCRIPT_GRADER_POLICY_V3 =
   "script_aware_token_phonetic_v3" as const;
 export const STUDY_TRANSCRIPT_GRADER_POLICY_V4 =
   "script_aware_token_phonetic_v4" as const;
+export const STUDY_TRANSCRIPT_GRADER_POLICY_V5 =
+  "script_aware_token_phonetic_v5" as const;
 
 export type StudyTranscriptGraderPolicyRevision =
   | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V1
   | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V2
   | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V3
-  | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V4;
+  | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V4
+  | typeof STUDY_TRANSCRIPT_GRADER_POLICY_V5;
 export type StudyTranscriptMatchKind = "exact" | "phonetic" | "none";
 
 export const studyTranscriptReviewGrade = (
@@ -48,6 +51,10 @@ export type StudyTranscriptGradeV2 = Readonly<{
   extra: readonly string[];
   substituted: readonly StudyTokenSubstitutionV2[];
   policyRevision: StudyTranscriptGraderPolicyRevision;
+  rerecordReason?:
+    | "language_mismatch"
+    | "low_voice_overlap"
+    | "single_insertion";
 }>;
 
 const normalizeText = (value: string): string =>
@@ -152,6 +159,15 @@ const normalizeEnglishRecallToken = (token: string): string => {
     : compact;
 };
 
+// V5 only. Canonicalizing before the diff keeps the negative meaning of
+// nothin' protected. Do not strip arbitrary final n/g or rewrite ordinary
+// words such as "within", "thin" or "wan".
+const expandEnglishContractionsV5 = (value: string): string =>
+  expandEnglishContractionsV4(value)
+    .replace(/\bwanna\b/giu, "want to")
+    .replace(/\b(nothin|somethin|anythin|everythin)\b'?/giu, "$1g")
+    .replace(/\b([a-z]{3,})in'(?![a-z])/giu, "$1ing");
+
 const rawTokens = (
   value: string,
   dominantLanguage: string | null,
@@ -230,10 +246,15 @@ export const gradeTranscriptV2 = (
   policyRevision: StudyTranscriptGraderPolicyRevision,
 ): StudyTranscriptGradeV2 => {
   const v3 = policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V3;
-  const v4 = policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V4;
+  const v5 = policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V5;
+  const v4 = policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V4 || v5;
   const english = dominantLanguage?.split("-", 1)[0] === "en";
   let alignWordBoundaries = v4 && english;
-  const expand = v4 ? expandEnglishContractionsV4 : expandEnglishContractions;
+  const expand = v5
+    ? expandEnglishContractionsV5
+    : v4
+      ? expandEnglishContractionsV4
+      : expandEnglishContractions;
   let expected = tokens(reference, dominantLanguage, expand);
   let actual = tokens(heardTranscript, dominantLanguage, expand);
   const expectedForms = alignWordBoundaries
@@ -412,7 +433,8 @@ export const gradeTranscriptV2 = (
     english &&
     (policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V2 ||
       policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V3 ||
-      policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V4)
+      policyRevision === STUDY_TRANSCRIPT_GRADER_POLICY_V4 ||
+      v5)
       ? phoneticStreamSimilarity(expected, actual)
       : null;
   // Ported calibration: the floor accepts short inflection/fragmentation errors,
@@ -442,7 +464,7 @@ export const gradeTranscriptV2 = (
       : "none";
   // Revision v2 cleared the diff on phonetic acceptance; v3 keeps it so the
   // learner sees what changed even on an accepted near-match.
-  const clearDiff = matchKind === "phonetic" && !v3;
+  const clearDiff = matchKind === "phonetic" && !v3 && !v5;
   return {
     correct: matchKind !== "none",
     matchKind,
@@ -486,4 +508,15 @@ export const gradeEnglishTranscriptV4 = (
     heardTranscript,
     "en",
     STUDY_TRANSCRIPT_GRADER_POLICY_V4,
+  );
+
+export const gradeEnglishTranscriptV5 = (
+  reference: string,
+  heardTranscript: string,
+) =>
+  gradeTranscriptV2(
+    reference,
+    heardTranscript,
+    "en",
+    STUDY_TRANSCRIPT_GRADER_POLICY_V5,
   );

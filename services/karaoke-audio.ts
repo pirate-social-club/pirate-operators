@@ -15,7 +15,16 @@ import {
   SEEK_WORD_TOLERANCE_MS,
   type KaraokeRelaySnapshot,
 } from "../packages/karaoke/audio-relay.ts";
-import { check, type Signed, type Ticket } from "../packages/protocol/index.ts";
+import {
+  check,
+  digest,
+  type Signed,
+  type Ticket,
+} from "../packages/protocol/index.ts";
+import {
+  reserveCommunitySpeech,
+  type SpeechAdmissionEnv,
+} from "./study-speech-reservation.ts";
 import {
   RECONNECT_WINDOW_S,
   type KaraokeManifest,
@@ -207,11 +216,31 @@ export class KaraokeAudioState extends ServiceState {
               if (isLearningProfile(this.env)) {
                 const start = adapter.start.bind(adapter);
                 adapter.start = async (input) => {
-                  check(this.env.SPEECH_BUDGET, "speech_budget_unconfigured");
-                  await this.env.SPEECH_BUDGET.getByName(
-                    "elevenlabs-service",
-                  ).claim();
-                  await start(input);
+                  const reservation = await reserveCommunitySpeech(
+                    this.env as Env & SpeechAdmissionEnv,
+                    "website-karaoke",
+                    `karaoke:${ticketId}:${attempt.generation}`,
+                    digest({ ticketId, generation: attempt.generation }),
+                  );
+                  try {
+                    await start(input);
+                  } catch (error) {
+                    // A socket failure cannot prove whether the provider
+                    // opened/billed its stream. Keep the conservative charge.
+                    await reservation
+                      .resolve("unknown", {
+                        ticketId,
+                        error: "realtime_start_uncertain",
+                      })
+                      .catch(() => undefined);
+                    throw error;
+                  }
+                  await reservation
+                    .resolve("succeeded", {
+                      ticketId,
+                      generation: attempt.generation,
+                    })
+                    .catch(() => undefined);
                 };
               }
               return adapter;

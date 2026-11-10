@@ -5,14 +5,15 @@ import { check, digest } from "../protocol/index.ts";
 import {
   unpackStudyOutcomes,
   studyExercisesHash,
-  STUDY_SCORING_POLICY_HASH,
   type TerminalResult,
 } from "../protocol/learning-results-v3.ts";
 import { studySourceSelection } from "./public-source.ts";
 import type { StudyPublicationGrant } from "./result-adapter.ts";
+import { studyScoringPolicyHash } from "./grader-revision.ts";
 
 export interface StudyTerminalFacts {
-  schema: "pirate.study-terminal-facts/1";
+  schema: "pirate.study-terminal-facts/1" | "pirate.study-terminal-facts/2";
+  graderRevision?: "script_aware_token_phonetic_v5";
   startedAt: number;
   completedAt: number;
   expiresAt: number;
@@ -45,7 +46,9 @@ export function studyFactsBundle(
   const grant = input.authorization ?? input.enrollment;
   check(
     facts &&
-      facts.schema === "pirate.study-terminal-facts/1" &&
+      (facts.schema === "pirate.study-terminal-facts/1" ||
+        (facts.schema === "pirate.study-terminal-facts/2" &&
+          facts.graderRevision === "script_aware_token_phonetic_v5")) &&
       Object.keys(facts).sort().join() ===
         [
           "schema",
@@ -54,6 +57,9 @@ export function studyFactsBundle(
           "expiresAt",
           "status",
           "outcomes",
+          ...(facts.schema === "pirate.study-terminal-facts/2"
+            ? ["graderRevision"]
+            : []),
         ]
           .sort()
           .join() &&
@@ -136,7 +142,7 @@ export function studyFactsBundle(
       linesTotal: count,
       activity: 2,
       grader: input.grader,
-      scoringPolicy: STUDY_SCORING_POLICY_HASH,
+      scoringPolicy: studyScoringPolicyHash(facts.graderRevision),
       qualificationPolicy: input.qualificationPolicy,
       startedAt: BigInt(startedAt),
       completedAt: BigInt(completedAt),

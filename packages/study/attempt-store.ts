@@ -9,6 +9,7 @@ import {
   type StudySelection,
   type StudyAttemptLesson,
 } from "./contracts.ts";
+import type { AdmittedStudyGrader } from "./grader-revision.ts";
 
 interface Row {
   attempt_id: string;
@@ -19,7 +20,7 @@ interface Row {
   audio_digest: string | null;
   grade_json: string | null;
   failure: string | null;
-  policy: typeof STUDY_POLICY;
+  policy: AdmittedStudyGrader;
   lesson_id: string | null;
   presentation_number: number | null;
   take_number: number | null;
@@ -90,6 +91,7 @@ export class StudyAttemptStore {
     line: StudyLine,
     now: number,
     lesson: StudyAttemptLesson | null = null,
+    policy: AdmittedStudyGrader = STUDY_POLICY,
   ) {
     // The owner-operated MVP has no application speech quota. The lesson
     // service bounds presentations/retries; conflicting requests reuse a row.
@@ -106,7 +108,7 @@ export class StudyAttemptStore {
         requestId,
         JSON.stringify(line),
         now,
-        STUDY_POLICY,
+        policy,
         lesson?.lessonId ?? null,
         lesson?.presentationNumber ?? null,
         lesson?.takeNumber ?? null,
@@ -120,7 +122,8 @@ export class StudyAttemptStore {
       .first<Row>();
     studyCheck(row, "study_attempt_unavailable", 503);
     studyCheck(
-      row.line_json === JSON.stringify(line) &&
+      row.policy === policy &&
+        row.line_json === JSON.stringify(line) &&
         row.lesson_id === (lesson?.lessonId ?? null) &&
         row.presentation_number === (lesson?.presentationNumber ?? null) &&
         row.take_number === (lesson?.takeNumber ?? null),

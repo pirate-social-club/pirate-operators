@@ -4,6 +4,7 @@ export const STUDY_SPEECH_ENDPOINT =
 export interface StudyTranscript {
   text: string;
   language: string | null;
+  languageConfidence?: number | null;
 }
 export interface StudySpeechContext {
   lessonId: string;
@@ -128,7 +129,13 @@ export function makeStudyTranscriber(
               body.language_probability > 1))
         )
           throw new StudySpeechError("speech_invalid_response");
-        return { text: body.text, language: body.language_code ?? null };
+        return {
+          text: body.text,
+          language: body.language_code ?? null,
+          ...(body.language_probability != null
+            ? { languageConfidence: body.language_probability }
+            : {}),
+        };
       } catch (error) {
         if (controller.signal.aborted)
           throw new StudySpeechError("speech_timeout");

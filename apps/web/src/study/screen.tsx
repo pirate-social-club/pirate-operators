@@ -115,7 +115,10 @@ export function StudyScreen(props: {
     if (!active) return;
     setLesson(result.lesson);
     props.onLesson?.(result.lesson);
-    if (result.attempt.state === "assessed" && result.attempt.grade) {
+    if (result.attempt.grade?.rerecordReason) {
+      setMiss(null);
+      setError("That recording was not counted. Say the same line once more.");
+    } else if (result.attempt.state === "assessed" && result.attempt.grade) {
       sounds.play(result.attempt.grade.correct ? "correct" : "incorrect");
       // The queue has already advanced server-side. Hold only the just-spent
       // miss until Continue; reload resumes the authoritative next card.
@@ -127,7 +130,11 @@ export function StudyScreen(props: {
       );
       setError("");
     } else if (result.attempt.state === "unavailable")
-      setError("Speech is unavailable. Try again later.");
+      setError(
+        result.lesson.speechRetryAfter
+          ? "Speech is busy. Your answer was not counted. Wait a minute, then try again."
+          : "Speech could not assess the recording. Your answer was not counted. Try the same line again.",
+      );
     else if (
       result.attempt.state === "uncertain" ||
       result.attempt.state === "assessing"
@@ -298,10 +305,10 @@ export function StudyScreen(props: {
           : // Opening the microphone takes a moment. Show Stop at once
             // rather than flashing a separate "Starting microphone" state.
             phase() === "acquiring" || phase() === "recording"
-              ? "listening"
-              : phase() === "saving"
-                ? "checking"
-                : "idle",
+            ? "listening"
+            : phase() === "saving"
+              ? "checking"
+              : "idle",
       revealReference: Boolean(miss()),
       heardTranscript: miss()?.grade?.heardTranscript,
       submitError: error() || undefined,
