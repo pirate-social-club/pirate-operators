@@ -9,6 +9,10 @@ import {
 } from "../../packages/community/common.ts";
 import { privateExistingFile, sha256File } from "./controller-inventory.ts";
 import {
+  OWNER_PUBLISHING_MIGRATION,
+  LEARNING_AUTHORIZATION_MIGRATION,
+} from "../package-migrations.ts";
+import {
   activationPath,
   activationReadinessScope,
   activationWindow,
@@ -31,6 +35,27 @@ export const activationChecks = [
   "speechQuotaZero",
   "noRewardsActivation",
 ] as const;
+export const learningV4ActivationMigrations = [
+  ...activationMigrations,
+  "0011_manual_rewards.sql",
+  OWNER_PUBLISHING_MIGRATION,
+  LEARNING_AUTHORIZATION_MIGRATION,
+] as const;
+export const learningV4ActivationChecks = [
+  "compatibleApplicationDeployed",
+  "compatibleOperatorDeployed",
+  "migrationsApplied",
+  "historyAwareReadersDeployed",
+  "existingKaraokeV2ReadsPassed",
+  "v2RecoveryPreserved",
+  "existingV3ReadsAndRecoveryPreserved",
+  "privateHistoryPreserved",
+  "singleSignInAndWithdrawalChecked",
+  "sameDurableObjectsAndNativeLedger",
+  "speechQuotaZero",
+  "policyWordingApproved",
+  "noAutomaticPaymentOrOfferActivation",
+] as const;
 export const activationEvidenceKinds = [
   "application",
   "operator",
@@ -43,6 +68,11 @@ export function readActivationReadiness(
   p: StudyActivationProfile,
   now: number,
 ) {
+  const v4 = p.schema === "pirate.study-activation/2";
+  const requiredMigrations = v4
+    ? learningV4ActivationMigrations
+    : activationMigrations;
+  const requiredChecks = v4 ? learningV4ActivationChecks : activationChecks;
   activationWindow(p, now);
   privateExistingFile(p.readiness.record);
   insist(
@@ -68,7 +98,7 @@ export function readActivationReadiness(
       report.decision === "accept-activation" &&
       report.reviewedBy === "independent_reviewer" &&
       canonical(report.release) === canonical(p.release) &&
-      canonical(report.migrations) === canonical(activationMigrations),
+      canonical(report.migrations) === canonical(requiredMigrations),
     "study_activation_readiness_not_accepted",
   );
   insist(
@@ -78,9 +108,9 @@ export function readActivationReadiness(
     "study_activation_readiness_stale",
   );
   const checks = object(report.checks);
-  exact(checks, [...activationChecks]);
+  exact(checks, [...requiredChecks]);
   insist(
-    activationChecks.every((k) => checks[k] === true),
+    requiredChecks.every((k) => checks[k] === true),
     "study_activation_release_gate_missing",
   );
   const evidence = object(report.evidence);

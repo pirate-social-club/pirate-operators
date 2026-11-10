@@ -20,6 +20,7 @@
     "@megaeth-labs/wallet-sdk": "1.0.8",
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
     "@solidjs/web": "2.0.0-rc.0",
+    "qrcode": "1.5.4",
     "solid-js": "2.0.0-rc.0"
   },
   "devDependencies": {
@@ -28,6 +29,7 @@
     "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.3.0",
+    "@types/qrcode": "1.5.6",
     "ipfs-unixfs-importer": "17.1.1",
     "multiformats": "14.0.5",
     "tailwindcss": "4.3.3",

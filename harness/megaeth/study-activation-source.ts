@@ -20,6 +20,7 @@ export function studyActivationSourceHash() {
         ...new Set([
           ...Object.keys(graph.metafile!.inputs),
           "contracts/LearningResultsV3.sol",
+          "contracts/LearningResultsV4.sol",
           "package.json",
           "package-lock.json",
         ]),

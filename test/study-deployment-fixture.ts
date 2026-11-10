@@ -13,6 +13,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { digest } from "../packages/protocol/index.ts";
 import { hashJson } from "../packages/community/common.ts";
 import { learningV3PublicityPolicy } from "../services/learning-policy-v3.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 import { compileStudyDeployment } from "../harness/megaeth/study-deployment-artifact.ts";
 import {
   studyDeploymentPlan,
@@ -30,8 +32,10 @@ import {
   markControllerOperationPrepared,
 } from "../harness/megaeth/controller-dispatch-catalog.ts";
 import { runStudyDeploymentOperation } from "../harness/megaeth/study-deployment-runner.ts";
-const artifact = compileStudyDeployment();
-export async function studyDeploymentFixture() {
+const artifactV3 = compileStudyDeployment();
+const artifactV4 = compileStudyDeployment(undefined, 4);
+export async function studyDeploymentFixture(version: 3 | 4 = 3) {
+  const artifact = version === 4 ? artifactV4 : artifactV3;
   const directory = mkdtempSync(join(tmpdir(), "study-deployment-"));
   chmodSync(directory, 0o700);
   const key = `0x${"b".padStart(64, "0")}` as Hex;
@@ -63,12 +67,14 @@ export async function studyDeploymentFixture() {
   );
   const policyDocuments = studyDeploymentPolicies(`0x${"d".repeat(40)}`);
   const profile: StudyDeploymentProfile = {
-    schema: "pirate.study-deployment/1",
+    schema:
+      version === 4 ? "pirate.study-deployment/2" : "pirate.study-deployment/1",
+    ...(version === 4 ? { communityOrigin: firstSong.origin } : {}),
     chainId: 6343,
     directory: `0x${"a".repeat(40)}`,
     directoryCodeHash: keccak256("0x6000"),
     registry: `0x${"b".repeat(40)}`,
-    configurationRevision: "3",
+    configurationRevision: version === 4 ? "5" : "3",
     resultsV2: {
       contract: `0x${"c".repeat(40)}`,
       codeHash: keccak256("0x6000"),
@@ -80,7 +86,8 @@ export async function studyDeploymentFixture() {
       nonce: BigInt(nonce),
     }),
     grader: `0x${"d".repeat(40)}`,
-    publicityPolicy: learningV3PublicityPolicy,
+    publicityPolicy:
+      version === 4 ? learningV4PublicityPolicy : learningV3PublicityPolicy,
     sourceHash: artifact.sourceHash,
     artifactHash: hashJson(artifact),
     nonce,
@@ -154,7 +161,7 @@ export async function studyDeploymentFixture() {
     receiptStatus: "success" as "success" | "reverted",
     predecessorCode: "0x6000" as Hex,
     v3Code: artifact.runtime,
-    directoryRevision: 3n,
+    directoryRevision: version === 4 ? 5n : 3n,
     canonical: true,
     gas: 100000n,
     price: 2n,
@@ -218,7 +225,8 @@ export async function studyDeploymentFixture() {
             : `0x${"0".repeat(64)}`;
       return (
         {
-          VERSION: 3,
+          VERSION: version,
+          communityOrigin: profile.communityOrigin,
           controller: state.identity ? account.address : profile.grader,
           communityId: profile.communityId,
           publicityPolicy: profile.publicityPolicy,

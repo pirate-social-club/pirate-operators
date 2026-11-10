@@ -9,11 +9,16 @@ import {
   type StudyAttempt,
 } from "../packages/study/contracts.ts";
 import {
+  STUDY_LESSON_NO_DEADLINE,
   STUDY_LESSON_SCHEMA,
   STUDY_MAX_TAKES,
+  STUDY_OPEN_LESSON_MAX_MS,
   closeStudyLesson,
   consumeLessonGrade,
   newLesson,
+  studyCloseBound,
+  studyLessonHasDeadline,
+  type StudyCloseBound,
   studyPresentationCap,
   studySong,
   type StudyLesson,
@@ -27,16 +32,38 @@ import {
 import type { makeStudyService } from "./study-spoken.ts";
 import { selectStudyLessonLines } from "../packages/study/line-selection.ts";
 
+/**
+ * SQL for an open lesson's close bound, matching `studyCloseBound`. It needs
+ * `l` for study_lessons and `p` for a LEFT JOIN of study_publications, and
+ * takes `studyCloseBoundBinds` in order.
+ */
+export const STUDY_CLOSE_BOUND_SQL = `(CASE WHEN json_extract(l.state_json,'$.expiresAt')=? THEN
+  MIN(json_extract(l.state_json,'$.startedAt')+?,
+    COALESCE(MAX(json_extract(l.state_json,'$.startedAt'),json_extract(p.binding_json,'$.enrollment.expiresAt')*1000-1),
+      json_extract(l.state_json,'$.startedAt')+?))
+  ELSE json_extract(l.state_json,'$.expiresAt') END)`;
+export const studyCloseBoundBinds = [
+  STUDY_LESSON_NO_DEADLINE,
+  STUDY_OPEN_LESSON_MAX_MS,
+  STUDY_OPEN_LESSON_MAX_MS,
+] as const;
 export function makeStudyLessonService(options: {
   db: D1Database;
   attempts: ReturnType<typeof makeStudyService>;
   // Return all eligible published lines in song order. Selection is per owner.
   resolveLines: (song: StudySong) => Promise<StudyLine[]>;
   now?: () => number;
+  /**
+   * The bound consent's end in seconds, or null for a draft never bound. The
+   * community layer reads study_publications; a lesson-only database has no
+   * bindings, so every lesson there is a draft.
+   */
+  consentExpiry?: (owner: StudyPrincipal, id: string) => Promise<number | null>;
 }) {
   const store = new StudyLessonStore(options.db),
     attempts = new StudyAttemptStore(options.db),
-    now = options.now ?? Date.now;
+    now = options.now ?? Date.now,
+    consentExpiry = options.consentExpiry ?? (async () => null);
   function ownerFor(owner: StudyPrincipal, song?: StudySong) {
     studyCheck(
       typeof owner.accountId === "string" &&
@@ -56,16 +83,30 @@ export function makeStudyLessonService(options: {
     owner: StudyPrincipal,
     id: string,
   ): Promise<LessonRow> {
+    let bound: StudyCloseBound | undefined;
     for (let retry = 0; retry < 12; retry++) {
       const row = await store.row(owner, id),
         state = store.state(row);
       if (state.status !== "active") return row;
+      bound ??= studyCloseBound(
+        state,
+        studyLessonHasDeadline(state)
+          ? null
+          : await consentExpiry(owner, id),
+      );
+      // A legacy lesson consumes any saved grade; its speech layer refused to
+      // save one after the deadline. A new lesson consumes only a grade that
+      // finished inside its bound consent, so a late response stays unmeasured.
+      const inside = (at: number) =>
+        studyLessonHasDeadline(state) || at < bound!.at;
       let attempt = state.currentAttemptId
         ? await options.attempts.get(owner, state.currentAttemptId)
         : null;
-      // Consume a grade durably saved before the deadline, even after restart.
-      // A provider response after the deadline cannot save a new grade.
-      if (attempt?.state === "assessed") {
+      // Consume a grade durably saved before the close bound, even after restart.
+      if (
+        attempt?.state === "assessed" &&
+        inside(attempt.completedAt!)
+      ) {
         if (
           await store.update(
             owner,
@@ -76,15 +117,17 @@ export function makeStudyLessonService(options: {
           continue;
         continue;
       }
-      if (now() >= state.expiresAt) {
+      // A late grade above has completedAt >= bound, so the bound has passed.
+      if (now() >= bound.at || attempt?.state === "assessed") {
         await store.close(
           owner,
           row,
           closeStudyLesson(
             state,
-            "expired",
-            state.expiresAt,
+            bound.status,
+            bound.at,
             await store.submittedLines(owner, id),
+            bound.reason === "deadline" ? "left" : bound.reason,
           ),
           attempt,
         );
@@ -97,14 +140,37 @@ export function makeStudyLessonService(options: {
       }
       if (attempt.state === "assessed") {
         if (
-          await store.update(
+          inside(attempt.completedAt ?? now()) &&
+          (await store.update(
             owner,
             row,
             consumeLessonGrade(state, attempt, attempt.completedAt ?? now()),
-          )
+          ))
         )
           continue;
+        continue;
       } else if (attempt.state === "unavailable") {
+        // The operator refused because the bound consent is no longer live:
+        // revoked, replaced or ended. The lesson cannot continue, so it closes
+        // privately now, inside the consent's window, as consent ended.
+        if (
+          !studyLessonHasDeadline(state) &&
+          attempt.failure === "enrollment_required"
+        ) {
+          await store.close(
+            owner,
+            row,
+            closeStudyLesson(
+              state,
+              "abandoned",
+              Math.max(state.startedAt, Math.min(now(), bound.at)),
+              await store.submittedLines(owner, id),
+              "consent_ended",
+            ),
+            attempt,
+          );
+          continue;
+        }
         const next = {
           ...state,
           currentAttemptId: null,
@@ -218,7 +284,16 @@ export function makeStudyLessonService(options: {
       const row = await store.latest(owner, song);
       return row ? service.get(owner, row.lesson_id) : null;
     },
-    async abandon(owner: StudyPrincipal, id: string) {
+    /**
+     * Leaving, or `consent_ended` when the learner turns public results off
+     * in settings: the open lesson closes now, privately, through the same
+     * closure, so the bounded retention and erasure apply.
+     */
+    async abandon(
+      owner: StudyPrincipal,
+      id: string,
+      reason: "left" | "consent_ended" = "left",
+    ) {
       ownerFor(owner);
       for (let retry = 0; retry < 12; retry++) {
         const row = await reconcile(owner, id),
@@ -228,17 +303,26 @@ export function makeStudyLessonService(options: {
           ? await options.attempts.get(owner, s.currentAttemptId)
           : null;
         if (current?.state === "assessed") continue;
+        // Leaving after the close bound records the bound, never a time
+        // outside the deadline or the bound consent.
         const closedAt = now(),
-          expired = closedAt >= s.expiresAt;
+          bound = studyCloseBound(
+            s,
+            studyLessonHasDeadline(s)
+              ? null
+              : await consentExpiry(owner, id),
+          ),
+          late = closedAt >= bound.at;
         if (
           await store.close(
             owner,
             row,
             closeStudyLesson(
               s,
-              expired ? "expired" : "abandoned",
-              expired ? s.expiresAt : closedAt,
+              late ? bound.status : "abandoned",
+              late ? bound.at : closedAt,
               await store.submittedLines(owner, id),
+              late && bound.reason !== "deadline" ? bound.reason : reason,
             ),
             current,
           )
@@ -247,6 +331,7 @@ export function makeStudyLessonService(options: {
       }
       throw new StudyError("study_lesson_busy", 409);
     },
+    /** Legacy deadlines only. New lessons close through recovery/retention. */
     async expirePending(limit = 50) {
       studyCheck(
         Number.isInteger(limit) && limit > 0 && limit <= 100,

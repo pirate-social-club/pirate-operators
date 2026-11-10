@@ -10,6 +10,11 @@ import {
   type StudyReleaseSelection,
   retainedLearningOperator,
 } from "./study-release-profile.ts";
+import {
+  learningV4ReleaseSelection,
+  type LearningV4ReleaseSelection,
+} from "./learning-v4-release-profile.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 export const operatorAccount = "08a4c22cf52e2ecae883e36f80a33f4a";
 export const retainedLimits = {
   serviceMode: "internal",
@@ -23,6 +28,9 @@ export const retainedLimits = {
 export interface OperatorProfile {
   schema: "pirate.study-operator-release/1";
   selection: StudyReleaseSelection;
+  learningV4?: LearningV4ReleaseSelection;
+  /** One sponsored pilot account, replaced only with a distinct V4 runtime. */
+  activationAccount?: { previous: string; next: string };
   worker: {
     accountId: string;
     stack: string;
@@ -109,6 +117,8 @@ export function operatorProfile(value: unknown): OperatorProfile {
     "custody",
     "window",
     "execution",
+    ...(Object.hasOwn(p, "learningV4") ? ["learningV4"] : []),
+    ...(Object.hasOwn(p, "activationAccount") ? ["activationAccount"] : []),
   ]);
   exact(w, [
     "accountId",
@@ -196,6 +206,35 @@ export function operatorProfile(value: unknown): OperatorProfile {
   }
   insist(modules === 1, "study_operator_predecessor_module_missing", 409);
   studyReleaseSelection(p.selection);
+  if (p.learningV4 !== undefined) {
+    const v4 = learningV4ReleaseSelection(p.learningV4);
+    const selection = studyReleaseSelection(p.selection);
+    insist(
+      v4.controller === selection.controller &&
+        v4.communityOrigin === firstSong.origin &&
+        v4.contract !== selection.resultsV2.contract &&
+        v4.contract !== selection.resultsV3.contract,
+      "study_operator_v4_selection_changed",
+      409,
+    );
+  }
+  if (p.activationAccount !== undefined) {
+    const selected = object(p.activationAccount);
+    exact(selected, ["previous", "next"]);
+    insist(
+      p.learningV4 &&
+        previous.moduleSha256 !== a.sha256 &&
+        [selected.previous, selected.next].every(
+          (v) =>
+            typeof v === "string" &&
+            /^0x[0-9a-f]{40}$/.test(v) &&
+            BigInt(v) !== 0n,
+        ) &&
+        selected.previous !== selected.next,
+      "study_operator_activation_selection_invalid",
+      409,
+    );
+  }
   insist(
     p.schema === "pirate.study-operator-release/1" &&
       w.accountId === operatorAccount &&
@@ -340,6 +379,7 @@ export function operatorPlan(value: unknown) {
       operatorProfile: "pirate-learning-testnet-v3",
       resultsV2: profile.selection.resultsV2.contract,
       resultsV3: profile.selection.resultsV3.contract,
+      ...(profile.learningV4 ? { resultsV4: profile.learningV4.contract } : {}),
     },
     preserved: {
       worker: profile.worker,

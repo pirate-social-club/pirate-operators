@@ -227,7 +227,7 @@ test("short capture and provider failures do not grade or advance; mobile and mi
   await context.close();
 });
 
-test("expired and paused lessons retain their history when Study again opens a new lesson", async ({
+test("a lesson has no time limit, and a paused lesson keeps its history when Study again opens a new one", async ({
   page,
   request,
 }) => {
@@ -236,27 +236,22 @@ test("expired and paused lessons retain their history when Study again opens a n
     page.getByRole("button", { name: "Record", exact: true }),
   ).toBeVisible();
   const first = (await (await request.get("/__fixture")).json()).lesson;
-  await request.patch("/__fixture", { data: { advanceMs: 3600001 } });
+  // Days later the same lesson resumes; nothing expires it.
+  await request.patch("/__fixture", { data: { advanceMs: 3 * 86400000 } });
   await page.reload();
   await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByRole("heading", { name: "Lesson expired" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Unfinished lines do not count as wrong answers/),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
   ).not.toBeVisible();
-  await page.getByRole("button", { name: "Try Again" }).click();
-  await expect(
-    page.getByRole("button", { name: "Record", exact: true }),
-  ).toBeVisible();
-  const second = (await (await request.get("/__fixture")).json()).lesson;
-  expect(second.lessonId).not.toBe(first.lessonId);
+  const resumed = (await (await request.get("/__fixture")).json()).lesson;
+  expect(resumed.lessonId).toBe(first.lessonId);
   expect(
     (await (await request.get("/api/study/lessons/" + first.lessonId)).json())
       .status,
-  ).toBe("expired");
+  ).toBe("active");
+  const second = resumed;
   await request.patch("/__fixture", { data: { failure: "unknown" } });
   await record(page);
   await expect(
@@ -272,4 +267,161 @@ test("expired and paused lessons retain their history when Study again opens a n
   expect(ended.status).toBe("abandoned");
   expect(ended.progress.firstPassGraded).toBe(0);
   expect((await (await request.get("/__fixture")).json()).calls).toBe(1);
+});
+
+test("a legacy one-hour lesson still expires at its deadline and reopening Study starts a new lesson", async ({
+  page,
+  request,
+}) => {
+  const { lessonId } = await (
+    await request.patch("/__fixture", { data: { legacyLesson: true } })
+  ).json();
+  await page.goto("/?lesson=" + lessonId);
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await request.patch("/__fixture", { data: { advanceMs: 3600000 } });
+  await page.reload();
+  // The closed lesson is never shown again: a new lesson opens directly.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Lesson expired" }),
+  ).toHaveCount(0);
+  const expired = await (
+    await request.get("/api/study/lessons/" + lessonId)
+  ).json();
+  expect(expired.status).toBe("expired");
+  expect(expired.completionReason).toBe("deadline");
+  expect(expired.completedAt).toBe(expired.expiresAt);
+  const next = (await (await request.get("/__fixture")).json()).lesson;
+  expect(next.lessonId).not.toBe(lessonId);
+  expect(next.status).toBe("active");
+  expect(next.expiresAt).toBe(Number.MAX_SAFE_INTEGER);
+});
+
+test("a draft never bound to consent ends after thirty days and the learner starts a new lesson", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  const first = (await (await request.get("/__fixture")).json()).lesson;
+  // The loopback host never binds consent, so its lessons are drafts. A bound
+  // lesson instead closes when its consent ends; Node tests cover that.
+  await request.patch("/__fixture", {
+    data: { advanceMs: 30 * 86400000 - 1000 },
+  });
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await request.patch("/__fixture", { data: { advanceMs: 1000 } });
+  await page.reload();
+  // The closed draft is never shown again: a new lesson opens directly.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Lesson ended" })).toHaveCount(0);
+  const ended = await (
+    await request.get("/api/study/lessons/" + first.lessonId)
+  ).json();
+  expect(ended.status).toBe("abandoned");
+  expect(ended.completionReason).toBe("never_bound");
+  expect(ended.completedAt).toBe(first.startedAt + 30 * 86400000);
+  expect(
+    (await (await request.get("/__fixture")).json()).lesson.lessonId,
+  ).not.toBe(first.lessonId);
+});
+
+test("another account opening a lesson link gets its own lesson, never the first account's", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await setHeard(request, lineTexts[0]);
+  await record(page);
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[1]);
+  const first = (await (await request.get("/__fixture")).json()).lesson;
+  expect(new URL(page.url()).searchParams.get("lesson")).toBe(first.lessonId);
+  // The cookie now belongs to the second account; the old link is reopened.
+  await request.patch("/__fixture", { data: { account: "second" } });
+  await page.reload();
+  await expect(page.locator(".study-surface h2")).toHaveText(lineTexts[0]);
+  const second = await (await request.get("/__fixture")).json();
+  expect(second.account).toBe("0x" + "b8".repeat(20));
+  expect(second.lesson.lessonId).not.toBe(first.lessonId);
+  expect(second.lesson.progress.presentations).toBe(0);
+  expect(second.attempts).toHaveLength(0);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("lesson"))
+    .toBe(second.lesson.lessonId);
+  // The first account's lesson is untouched and still its own.
+  await request.patch("/__fixture", { data: { account: "first" } });
+  const kept = (await (await request.get("/__fixture")).json()).lesson;
+  expect(kept.lessonId).toBe(first.lessonId);
+  expect(kept.status).toBe("active");
+  expect(kept.progress.presentations).toBe(1);
+});
+
+test("a page left open when the session changes account clears its lesson instead of acting on it", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeVisible();
+  const first = (await (await request.get("/__fixture")).json()).lesson;
+  await request.patch("/__fixture", { data: { account: "second" } });
+  await record(page);
+  await expect(
+    page.getByText(
+      "You are signed in with a different account. Reload to continue.",
+    ),
+  ).toBeVisible();
+  await expect(page.locator(".study-surface")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toHaveCount(0);
+  const state = await (await request.get("/__fixture")).json();
+  expect(state.calls).toBe(0);
+  expect(state.lesson).toBeNull();
+  await request.patch("/__fixture", { data: { account: "first" } });
+  const kept = (await (await request.get("/__fixture")).json()).lesson;
+  expect(kept.lessonId).toBe(first.lessonId);
+  expect(kept.status).toBe("active");
+  expect(kept.progress.presentations).toBe(0);
+  expect((await (await request.get("/__fixture")).json()).attempts).toHaveLength(0);
+});
+test("a start refused while sign-in is being recorded retries the same request in the loading state", async ({
+  page,
+  request,
+}) => {
+  await request.patch("/__fixture", { data: { authorizationPending: 2 } });
+  await page.goto("/");
+  // Two refusals, two seconds apart, then the same request starts the lesson.
+  await expect(
+    page.getByRole("button", { name: "Record", exact: true }),
+  ).toBeEnabled({ timeout: 15000 });
+  await expect(page.getByText("Study is unavailable")).toHaveCount(0);
+  const state = await (await request.get("/__fixture")).json();
+  expect(state.starts).toBe(3);
+  expect(state.lesson.status).toBe("active");
+});
+test("the pending-sign-in retry is bounded and then shows the existing failure", async ({
+  page,
+  request,
+}) => {
+  await request.patch("/__fixture", { data: { authorizationPending: 99 } });
+  await page.goto("/");
+  await expect(page.getByText("Study is unavailable")).toBeVisible({
+    timeout: 20000,
+  });
+  const state = await (await request.get("/__fixture")).json();
+  expect(state.starts).toBe(5);
+  expect(state.lesson).toBeNull();
 });

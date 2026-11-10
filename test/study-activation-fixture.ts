@@ -15,6 +15,8 @@ import { canonical, hashJson, hashText } from "../packages/community/common.ts";
 import { preparePin } from "../packages/community/ipfs.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { learningV3PublicityPolicy } from "../services/learning-policy-v3.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { ownerPolicySuccessor } from "../harness/megaeth/owner-policy-activation-plan.ts";
 import {
   retainedLearningOperator,
   retainedResultsV2,
@@ -35,6 +37,8 @@ import {
   activationChecks,
   activationMigrations,
   activationEvidenceKinds,
+  learningV4ActivationChecks,
+  learningV4ActivationMigrations,
 } from "../harness/megaeth/study-activation-readiness.ts";
 import {
   studyActivationMain,
@@ -45,9 +49,12 @@ import {
   activationDirectoryCode,
   activationV2Code,
 } from "./study-activation-contract-fixture.ts";
-const artifact = compileStudyDeployment();
+const artifactV3 = compileStudyDeployment();
+const artifactV4 = compileStudyDeployment(undefined, 4);
 const read = (path: string) => JSON.parse(readFileSync(path, "utf8"));
-export async function activationFixture() {
+export async function activationFixture(version: 3 | 4 = 3) {
+  const v4 = version === 4;
+  const artifact = v4 ? artifactV4 : artifactV3;
   const directory = mkdtempSync(join(tmpdir(), "study-activation-")),
     stateDirectory = join(directory, "controller"),
     pinDirectory = join(directory, "pins");
@@ -104,10 +111,19 @@ export async function activationFixture() {
       "docs/deployments/learning-results-testnet-20261106.configuration.json",
     ).manifest,
   ].map((x) => ({ ...x, controller }));
-  const contract = `0x${"1".repeat(40)}` as Hex,
-    manifest = {
+  if (v4) {
+    history.push({
       ...history[2],
       configurationRevision: 4,
+      learningRecords: `0x${"2".repeat(40)}`,
+    });
+    history.push(ownerPolicySuccessor(history[3]));
+  }
+  const before = history.at(-1)!;
+  const contract = `0x${"1".repeat(40)}` as Hex,
+    manifest = {
+      ...before,
+      configurationRevision: before.configurationRevision + 1,
       learningRecords: contract,
     };
   const manifestBytes = new TextEncoder().encode(canonical(manifest)),
@@ -123,7 +139,16 @@ export async function activationFixture() {
     { mode: 0o600 },
   );
   const p: StudyActivationProfile = {
-    schema: "pirate.study-activation/1",
+    schema: v4 ? "pirate.study-activation/2" : "pirate.study-activation/1",
+    ...(v4
+      ? {
+          predecessor: {
+            contract: before.learningRecords,
+            codeHash: keccak256(artifactV3.runtime),
+          },
+          communityOrigin: firstSong.origin,
+        }
+      : {}),
     chainId: 6343,
     communityId: firstSong.directoryProfile.communityId,
     controller,
@@ -139,7 +164,7 @@ export async function activationFixture() {
     policies: Object.fromEntries(
       Object.entries(policies).map(([n, x]) => [
         n,
-        { sha256: x.sha256, uri: x.uri, effectivePeriod: "6" },
+        { sha256: x.sha256, uri: x.uri, effectivePeriod: v4 ? "7" : "6" },
       ]),
     ) as StudyActivationProfile["policies"],
     release: {
@@ -198,8 +223,13 @@ export async function activationFixture() {
         observedAt: new Date(state.now).toISOString(),
         validUntil: p.deadline,
         release: p.release,
-        migrations: activationMigrations,
-        checks: Object.fromEntries(activationChecks.map((k) => [k, true])),
+        migrations: v4 ? learningV4ActivationMigrations : activationMigrations,
+        checks: Object.fromEntries(
+          (v4 ? learningV4ActivationChecks : activationChecks).map((k) => [
+            k,
+            true,
+          ]),
+        ),
         evidence,
       }),
       { mode: 0o600 },
@@ -269,37 +299,43 @@ export async function activationFixture() {
         ? state.code
           ? artifact.runtime
           : "0x"
-        : address.toLowerCase() === retainedResultsV2.contract
-          ? activationV2Code
-          : activationDirectoryCode,
+        : v4 && address.toLowerCase() === p.predecessor!.contract
+          ? artifactV3.runtime
+          : address.toLowerCase() === retainedResultsV2.contract
+            ? activationV2Code
+            : activationDirectoryCode,
     getLogs: async ({ fromBlock, toBlock }: any) =>
       logs.filter(
         (x) =>
           x.blockNumber >= fromBlock &&
           x.blockNumber <= toBlock &&
-          (state.active || x.args.revision <= 3n),
+          (state.active || x.args.revision <= BigInt(history.length)),
       ),
     readContract: async ({ functionName, args }: any) => {
       if (functionName === "getCommunity") {
-        const log = logs[state.active ? 3 : 2];
+        const log = logs[state.active ? history.length : history.length - 1];
         return {
           registry: history[2].registry,
           tldHash: hashText(history[2].tld),
-          configurationRevision: state.active ? 4n : 3n,
+          configurationRevision: BigInt(history.length + Number(state.active)),
           configuration: { ...log.args },
         };
       }
       if (functionName === "graders") return state.grader;
       if (functionName === "policyFor")
-        return state.policy && BigInt(args[1]) >= 6n
+        return state.policy &&
+          BigInt(args[1]) >= BigInt(p.policies.karaoke.effectivePeriod)
           ? p.policies[Number(args[0]) === 1 ? "karaoke" : "study"].sha256
           : `0x${"0".repeat(64)}`;
       return (
         {
-          VERSION: 3,
+          VERSION: version,
+          communityOrigin: p.communityOrigin,
           controller,
           communityId: p.communityId,
-          publicityPolicy: learningV3PublicityPolicy,
+          publicityPolicy: v4
+            ? learningV4PublicityPolicy
+            : learningV3PublicityPolicy,
         } as any
       )[functionName];
     },

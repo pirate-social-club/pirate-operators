@@ -10,7 +10,14 @@ import {
   type TransactionSerializedLegacy,
 } from "viem";
 import type { PrivateKeyAccount } from "viem/accounts";
-import { amount, bytes32, canonical, insist, object } from "./common.ts";
+import {
+  amount,
+  bytes32,
+  canonical,
+  CommunityError,
+  insist,
+  object,
+} from "./common.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
 import {
   publicationData,
@@ -22,6 +29,11 @@ import {
 } from "./post-chain.ts";
 import { syncPublicPosts, indexedPublicPosts } from "./post-index.ts";
 import { configureBudget, reserveBudget, settleBudget } from "./budgets.ts";
+import {
+  reserveOwnerBudget,
+  settleOwnerBudget,
+  type OwnerBudgetGrant,
+} from "../release/owner-grant.ts";
 import type { ExternalOperation } from "./publication-store.ts";
 import {
   preparedOperation,
@@ -45,6 +57,8 @@ export interface PostingPorts {
   config: CommunityConfig;
   currentConfiguration(): Promise<CommunityConfig>;
   bounds: PostingBounds;
+  /** Owner jobs spend post fees from the bounded owner grant. */
+  ownerGrant?: OwnerBudgetGrant;
 }
 function intent(operation: ExternalOperation): FirstPublication {
   const request = object(JSON.parse(operation.request_json)),
@@ -256,20 +270,54 @@ async function observed(
       "publication_actual_fee_exceeds_cap",
       503,
     );
-    await settleBudget(
-      ports.db,
-      operation.operation_id + ":count",
-      budgetKeys(ports, "post_transactions"),
-      "1",
-    );
-    await settleBudget(
-      ports.db,
-      operation.operation_id + ":fee",
-      budgetKeys(ports, "native_wei"),
-      cost.toString(),
-    );
+    if (ports.ownerGrant)
+      // Needs only the reservation, so it also settles after the window ends.
+      await settleOwnerBudget(
+        ports.db,
+        ports.ownerGrant,
+        "post_fee_wei",
+        operation.operation_id + ":fee",
+        cost.toString(),
+      );
+    else {
+      await settleBudget(
+        ports.db,
+        operation.operation_id + ":count",
+        budgetKeys(ports, "post_transactions"),
+        "1",
+      );
+      await settleBudget(
+        ports.db,
+        operation.operation_id + ":fee",
+        budgetKeys(ports, "native_wei"),
+        cost.toString(),
+      );
+    }
   }
   return { kind: "confirmed", providerId: hash, value };
+}
+const ownerPostingRefusals = new Set([
+  "funding_cap_exhausted",
+  "owner_budget_window_not_current",
+  "owner_budget_window_overlap",
+  "owner_budget_window_superseded",
+  "owner_budget_limits_changed",
+  "budget_profile_changed",
+  "owner_grant_outside_window",
+]);
+const ownerPostingRefusal = (error: unknown): error is CommunityError =>
+  error instanceof CommunityError &&
+  (error.status === 403 || error.status === 409) &&
+  ownerPostingRefusals.has(error.code);
+async function feeReserved(operation: ExternalOperation, ports: PostingPorts) {
+  return Boolean(
+    await ports.db
+      .prepare(
+        "SELECT 1 AS present FROM spending_reservations WHERE reservation_id=?",
+      )
+      .bind(operation.operation_id + ":fee")
+      .first(),
+  );
 }
 export async function executePosting(
   operation: ExternalOperation,
@@ -282,30 +330,55 @@ export async function executePosting(
     return result;
   }
   const tx = await signed(operation, ports);
-  await configureBudget(
-    ports.db,
-    budgetKeys(ports, "post_transactions")[0]!,
-    "1",
-  );
-  await configureBudget(
-    ports.db,
-    budgetKeys(ports, "native_wei")[0]!,
-    ports.bounds.maximumTotalFee,
-  );
-  await reserveBudget(
-    ports.db,
-    operation.operation_id + ":count",
-    operation.request_hash,
-    budgetKeys(ports, "post_transactions"),
-    "1",
-  );
-  await reserveBudget(
-    ports.db,
-    operation.operation_id + ":fee",
-    operation.request_hash,
-    budgetKeys(ports, "native_wei"),
-    tx.maximumFee,
-  );
+  if (ports.ownerGrant) {
+    // A replayed reservation returns before any grant check, so an operation
+    // that may have broadcast keeps its reconciliation path. A refusal means
+    // no reservation exists for this operation, and none is ever made before
+    // broadcast: the transaction was never sent, so the job holds.
+    try {
+      await reserveOwnerBudget(
+        ports.db,
+        ports.ownerGrant,
+        "post_fee_wei",
+        operation.operation_id + ":fee",
+        operation.request_hash,
+        tx.maximumFee,
+      );
+    } catch (error) {
+      if (!ownerPostingRefusal(error)) throw error;
+      return {
+        kind: "held",
+        providerId: operation.operation_id + ":fee",
+        code: error.code,
+        value: { serviceState: "refused", errorCode: error.code },
+      };
+    }
+  } else {
+    await configureBudget(
+      ports.db,
+      budgetKeys(ports, "post_transactions")[0]!,
+      "1",
+    );
+    await configureBudget(
+      ports.db,
+      budgetKeys(ports, "native_wei")[0]!,
+      ports.bounds.maximumTotalFee,
+    );
+    await reserveBudget(
+      ports.db,
+      operation.operation_id + ":count",
+      operation.request_hash,
+      budgetKeys(ports, "post_transactions"),
+      "1",
+    );
+    await reserveBudget(
+      ports.db,
+      operation.operation_id + ":fee",
+      operation.request_hash,
+      budgetKeys(ports, "native_wei"),
+      tx.maximumFee,
+    );
+  }
   const already = await observed(operation, ports);
   if (already) return already;
   await authorize(ports);
@@ -364,6 +437,18 @@ export async function validatePosting(
   ports: PostingPorts,
   result: OperationResult,
 ) {
+  // A held owner refusal is proven only while no fee reservation exists for
+  // the operation: nothing is broadcast without one.
+  if (result.kind === "held") {
+    insist(
+      ports.ownerGrant &&
+        ownerPostingRefusals.has(result.code) &&
+        !(await feeReserved(operation, ports)),
+      "publication_result_mismatch",
+      503,
+    );
+    return;
+  }
   const actual = await observed(operation, ports);
   insist(
     actual && canonical(actual) === canonical(result),

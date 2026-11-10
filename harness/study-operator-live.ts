@@ -12,6 +12,7 @@ import {
 } from "../packages/community/common.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
+import { observeLearningV4Release } from "./learning-v4-release-observation.ts";
 import { privateJson, digest, durableJson } from "./private-json.ts";
 import { retainedLearningOperator } from "./study-release-profile.ts";
 import {
@@ -87,6 +88,13 @@ export function operatorEnvironment(
     "study_operator_activation_environment_invalid",
     409,
   );
+  if (profile.activationAccount)
+    insist(
+      activationAccount === profile.activationAccount.previous ||
+        activationAccount === profile.activationAccount.next,
+      "study_operator_activation_predecessor_changed",
+      409,
+    );
   const env = {
     PATH: safe.PATH,
     HOME: safe.HOME,
@@ -101,6 +109,9 @@ export function operatorEnvironment(
     LEARNING_PROFILE: "pirate-learning-testnet-v3",
     LEARNING_RESULTS_CONTRACT: profile.selection.resultsV2.contract,
     LEARNING_RESULTS_V3_CONTRACT: profile.selection.resultsV3.contract,
+    ...(profile.learningV4
+      ? { LEARNING_RESULTS_V4_CONTRACT: profile.learningV4.contract }
+      : {}),
     LEARNING_GRADER_ADDRESS: retainedLearningOperator.publisher,
     LEARNING_ISSUER_ADDRESS: getAddress(retainedLearningOperator.issuer),
     LEARNING_OPERATOR_PRIVATE_KEY: secrets.operatorKey,
@@ -112,8 +123,11 @@ export function operatorEnvironment(
     LEARNING_SPEECH_DAILY_LIMIT: "0",
     LEARNING_QUOTE_VALID_FROM: String(profile.retained.quoteValidFrom),
     LEARNING_QUOTE_VALID_UNTIL: String(profile.retained.quoteValidUntil),
-    ...(activationAccount
-      ? { LEARNING_APPROVED_ACTIVATION_ACCOUNT: activationAccount }
+    ...(profile.activationAccount || activationAccount
+      ? {
+          LEARNING_APPROVED_ACTIVATION_ACCOUNT:
+            profile.activationAccount?.next ?? activationAccount,
+        }
       : {}),
   };
   assertOperatorChildEnvironment(profile, env, secrets.password);
@@ -170,6 +184,8 @@ export function makeLiveOperatorPorts(
     },
     async observeContracts(profile) {
       await observeStudyRelease(client(), profile.selection);
+      if (profile.learningV4)
+        await observeLearningV4Release(client(), profile.learningV4);
     },
     acquireLock: acquireOperatorLock,
     async loadCloudCredential(profile) {

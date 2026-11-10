@@ -2,7 +2,8 @@
 // Authentication is actual SIWE/cookie/CSRF; providers/chains are fixture-only.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sha256, verifyMessage } from "viem";
+import { sha256 } from "viem";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { loginChallenge, loginVerify } from "../packages/community/accounts.ts";
 import { CommunityError, hashJson } from "../packages/community/common.ts";
@@ -58,8 +59,7 @@ test("an account can attach both private stems before owner adoption without pub
           context,
           challenge.id,
           await account.signMessage({ message: challenge.message }),
-          (address, message, signature) =>
-            verifyMessage({ address, message, signature }),
+          verifyLoginOffline,
         );
       return {
         cookie: login.cookie.split(";")[0]!,

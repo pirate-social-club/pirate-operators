@@ -102,25 +102,20 @@ test("leaving while the wallet signs never submits enrollment or starts Karaoke"
     await page.setViewportSize({ width: 390, height: 844 });
     await signIn(page, 7);
     await openSong(page);
-    const policies = page.getByRole("navigation", { name: "Karaoke policies" });
+    // No policy links on the exercise surface; the documents stay in the
+    // header's sign-in area.
+    const surface = page.locator(".live-karaoke-overlay");
     await expect(
-      policies.getByRole("link", { name: "Terms", exact: true }),
-    ).toBeVisible();
-    const box = await policies.boundingBox();
-    const start = await page
-      .getByRole("button", { name: "Start karaoke" })
-      .boundingBox();
-    expect(box!.y).toBeGreaterThanOrEqual(start!.y + start!.height);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(844);
+      page.getByRole("navigation", { name: "Karaoke policies" }),
+    ).toHaveCount(0);
+    await expect(surface.getByRole("link")).toHaveCount(0);
     await page.screenshot({
       path: test.info().outputPath("direct-enrollment-mobile.png"),
     });
     await page.getByRole("button", { name: "Start karaoke" }).click();
     await expect.poll(() => signing).toBe(true);
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(
-      policies.getByRole("link", { name: "Terms", exact: true }),
-    ).toHaveAttribute("href", "/terms");
+    await expect(surface.getByRole("link")).toHaveCount(0);
     await page.getByRole("button", { name: "Exit karaoke" }).click();
     const response = page.waitForResponse((r) =>
       r.url().endsWith("/__fixture/sign"),

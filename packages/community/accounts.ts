@@ -1,5 +1,5 @@
 import { createSiweMessage } from "viem/siwe";
-import { isAddress, type Address, type Hex } from "viem";
+import { getAddress, hashMessage, isAddress, type Address, type Hex } from "viem";
 import {
   cookie,
   bytes32,
@@ -10,6 +10,11 @@ import {
   token,
 } from "./common.ts";
 import { equalTokens } from "./token-comparison.ts";
+import {
+  readSignInMessageV4,
+  signInIssuedAtV4,
+  signInMessageV4,
+} from "../protocol/learning-results-v4.ts";
 
 export interface AccountSession {
   session_hash: string;
@@ -52,23 +57,116 @@ export async function ensureCommunityIdentity(
     503,
   );
 }
+/** The V4 results contract a sign-in authorizes, when the community uses it. */
+export interface SignInV4 {
+  chainId: number;
+  contract: Address;
+  communityId: Hex;
+  publicationPolicy: Hex;
+  policyVersion: number;
+}
+/** What a verifier checks: the exact personal-sign text, SIWE or V4. */
+export type LoginProof = string;
 export type VerifyLogin = (
   address: Address,
-  message: string,
+  proof: LoginProof,
   signature: Hex,
 ) => Promise<boolean>;
 
+export interface SiweChallenge {
+  id: string;
+  message: string;
+}
+/** The V4 sign-in: a SIWE text that also carries publication permission. */
+export interface SignInChallenge {
+  id: string;
+  kind: "sign-in-v4";
+  message: string;
+}
+/** A V4 session ends no later than its sign-in can still be relayed. */
+const SIGN_IN_SESSION_S = 30 * 86400;
+/**
+ * Without a V4 configuration the challenge is exactly the SIWE message. With
+ * one, an account whose public results are off is also given only that
+ * message: a V4 sign-in after a withdrawal exists only once the learner has
+ * turned public results back on.
+ */
+export async function loginChallenge(
+  db: D1Database,
+  context: AuthContext,
+  address: unknown,
+  time?: number,
+): Promise<SiweChallenge>;
+export async function loginChallenge(
+  db: D1Database,
+  context: AuthContext,
+  address: unknown,
+  time: number,
+  signInV4: SignInV4 | undefined,
+): Promise<SiweChallenge | SignInChallenge>;
 export async function loginChallenge(
   db: D1Database,
   context: AuthContext,
   address: unknown,
   time = Date.now(),
-) {
+  signInV4?: SignInV4,
+): Promise<SiweChallenge | SignInChallenge> {
   await ensureCommunityIdentity(db, context);
   const origin = context.origin;
   insist(typeof address === "string" && isAddress(address), "invalid_wallet");
   const subject = address.toLowerCase();
   const id = token();
+  if (signInV4) {
+    insist(
+      signInV4.communityId === context.communityId &&
+        isAddress(signInV4.contract) &&
+        bytes32(signInV4.publicationPolicy) &&
+        (signInV4.chainId === 6343 || signInV4.chainId === 31337) &&
+        Number.isSafeInteger(signInV4.policyVersion) &&
+        signInV4.policyVersion > 0,
+      "sign_in_unavailable",
+      503,
+    );
+    const settings = await db
+      .prepare(
+        `SELECT s.public_results_withdrawn_at AS withdrawn,s.last_withdrawn_at AS last FROM credential_bindings b
+        JOIN learning_settings s ON s.account_id=b.account_id
+        WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?`,
+      )
+      .bind(subject)
+      .first<{ withdrawn: number | null; last: number | null }>();
+    if (settings?.withdrawn == null) {
+      const message = signInMessageV4(
+        {
+          origin,
+          chainId: signInV4.chainId,
+          contract: signInV4.contract.toLowerCase() as Address,
+          communityId: context.communityId,
+          publicationPolicy: signInV4.publicationPolicy,
+        },
+        {
+          learner: getAddress(address),
+          nonce: publicId(),
+          issuedAt: BigInt(signInIssuedAtV4(time, settings?.last)),
+        },
+      );
+      await db
+        .prepare(
+          "INSERT INTO login_challenges(challenge_id,community_id,community_origin,subject,message,expires_at,kind,policy_version) VALUES(?,?,?,?,?,?,'sign-in-v4',?)",
+        )
+        .bind(
+          id,
+          context.communityId,
+          origin,
+          subject,
+          message,
+          time + 300_000,
+          signInV4.policyVersion,
+        )
+        .run();
+      return { id, kind: "sign-in-v4" as const, message };
+    }
+  }
   const message = createSiweMessage({
     address: address as Address,
     chainId: 6343,
@@ -90,6 +188,19 @@ export async function loginChallenge(
   return { id, message };
 }
 
+/** The stored V4 challenge, checked against this community before any verifier sees it. */
+function signInChallenge(context: AuthContext, subject: string, text: string) {
+  const read = readSignInMessageV4(text);
+  insist(
+    read &&
+      read.signIn.learner.toLowerCase() === subject &&
+      read.context.communityId === context.communityId &&
+      read.context.origin === context.origin,
+    "invalid_login",
+  );
+  return { ...read, id: hashMessage(text) };
+}
+
 export async function loginVerify(
   db: D1Database,
   context: AuthContext,
@@ -104,9 +215,11 @@ export async function loginVerify(
       signature.length <= 32768,
     "invalid_login",
   );
-  const c = await db
+  // Every column: a community without the V4 migration has no kind or
+  // policy_version, and each of its challenges is SIWE.
+  const row = await db
     .prepare(
-      "SELECT subject,message,expires_at,consumed FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
+      "SELECT * FROM login_challenges WHERE challenge_id=? AND community_id=? AND community_origin=?",
     )
     .bind(id, context.communityId, context.origin)
     .first<{
@@ -114,12 +227,21 @@ export async function loginVerify(
       message: string;
       expires_at: number;
       consumed: number;
+      kind?: "siwe" | "sign-in-v4";
+      policy_version?: number | null;
     }>();
   insist(
-    c && !c.consumed && c.expires_at > time,
+    row && !row.consumed && row.expires_at > time,
     "expired_or_replayed_challenge",
     401,
   );
+  const c = { ...row, kind: row.kind ?? "siwe" };
+  insist(c.kind === "siwe" || c.kind === "sign-in-v4", "invalid_login");
+  // A SIWE challenge never carries an authorization; only a V4 sign-in does.
+  const signIn =
+    c.kind === "sign-in-v4"
+      ? signInChallenge(context, c.subject, c.message)
+      : undefined;
   insist(
     await verify(c.subject, c.message, signature as Hex),
     "invalid_login_signature",
@@ -133,7 +255,7 @@ export async function loginVerify(
     csrf = token();
   const open =
     "EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=? AND consumed=0 AND expires_at>?)";
-  const result = await db.batch([
+  const statements = [
     db
       .prepare(
         `INSERT INTO community_accounts(account_id,author_id,created_at)
@@ -159,23 +281,90 @@ export async function loginVerify(
         context.communityId,
         context.origin,
         csrf,
-        time + 30 * 86400_000,
+        signIn
+          ? Math.min(
+              time + SIGN_IN_SESSION_S * 1000,
+              (Number(signIn.signIn.issuedAt) + SIGN_IN_SESSION_S) * 1000,
+            )
+          : time + SIGN_IN_SESSION_S * 1000,
         c.subject,
         id,
         time,
       ),
+  ];
+  // The account's sign-ins that count: issued after its last withdrawal
+  // (issued_at is seconds, withdrawal times milliseconds).
+  const counted = (alias: string) =>
+    `${alias}.issued_at*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)`;
+  const issuedAt = signIn ? Number(signIn.signIn.issuedAt) : 0;
+  if (signIn)
+    // Pending sign-in, in the same batch as the session; it is relayed only
+    // when the learner first practises. A withdrawn account stores nothing,
+    // nor does one with a sign-in recorded on chain since its last
+    // withdrawal, nor one whose pending relay was already requested. A
+    // sign-in issued at or before the last withdrawal is never stored, and
+    // an older challenge completed late never displaces a newer pending one.
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,message,signature,policy_hash,policy_version,issued_at,state,tx_hash,created_at,updated_at)
+      SELECT ?1,b.account_id,b.subject,?2,?10,?3,?4,?5,?6,'pending',NULL,?7,?7 FROM credential_bindings b
+      WHERE b.namespace='moss' AND b.network=6343 AND b.subject=?8
+      AND EXISTS(SELECT 1 FROM login_challenges WHERE challenge_id=?9 AND consumed=0 AND expires_at>?7 AND kind='sign-in-v4')
+      AND ?6*1000>COALESCE((SELECT s.last_withdrawn_at FROM learning_settings s WHERE s.account_id=b.account_id),-1)
+      AND NOT EXISTS(SELECT 1 FROM learning_settings s WHERE s.account_id=b.account_id AND s.public_results_withdrawn_at IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='recorded' AND ${counted("r")})
+      AND NOT EXISTS(SELECT 1 FROM learning_authorizations r WHERE r.account_id=b.account_id AND r.state='pending'
+        AND (r.relay_requested_at IS NOT NULL OR r.issued_at>?6) AND ${counted("r")})`,
+        )
+        .bind(
+          signIn.id,
+          // The compact authorize arguments the operator relays.
+          JSON.stringify({
+            learner: signIn.signIn.learner,
+            nonce: signIn.signIn.nonce,
+            issuedAt: String(signIn.signIn.issuedAt),
+          }),
+          signature.toLowerCase(),
+          signIn.context.publicationPolicy,
+          c.policy_version ?? null,
+          issuedAt,
+          time,
+          c.subject,
+          id,
+          c.message,
+        ),
+      // At most one pending sign-in per account: the new one replaces any
+      // older one whose relay was never requested. It runs only when the new
+      // row was stored, so a refused older sign-in removes nothing.
+      db
+        .prepare(
+          `DELETE FROM learning_authorizations WHERE state='pending' AND relay_requested_at IS NULL
+      AND authorization_id<>?1 AND issued_at<=?2
+      AND account_id=(SELECT account_id FROM learning_authorizations WHERE authorization_id=?1 AND state='pending')`,
+        )
+        .bind(signIn.id, issuedAt),
+    );
+  statements.push(
     db
       .prepare(
         "UPDATE login_challenges SET consumed=1 WHERE challenge_id=? AND consumed=0 AND expires_at>?",
       )
       .bind(id, time),
-  ]);
+  );
+  const result = await db.batch(statements);
   insist(
-    result[2]!.meta.changes === 1 && result[3]!.meta.changes === 1,
+    result[2]!.meta.changes === 1 && result.at(-1)!.meta.changes === 1,
     "expired_or_replayed_challenge",
     401,
   );
-  return { cookie: cookie(sessionToken), csrf };
+  return {
+    cookie: cookie(sessionToken),
+    csrf,
+    ...(signIn && result[3]!.meta.changes === 1
+      ? { authorizationId: signIn.id }
+      : {}),
+  };
 }
 
 export async function accountSession(

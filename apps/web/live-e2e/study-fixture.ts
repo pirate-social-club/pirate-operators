@@ -61,6 +61,7 @@ export async function serveStudy(
     rejectSignatureOnce?: boolean;
     disclosureMismatch?: boolean;
     delayEnrollment?: boolean;
+    rewardOffers?: "hang" | "reject";
   } = {},
 ) {
   let authenticated = !options.anonymous,
@@ -86,6 +87,7 @@ export async function serveStudy(
     enrollmentSubmissions: 0,
     signatures: 0,
     abandons: 0,
+    rewardOfferRequests: 0,
   };
   let releaseSignature: (() => void) | undefined;
   const signatureWait = options.delaySignature
@@ -145,9 +147,22 @@ export async function serveStudy(
         upload: false,
         publication: false,
         learningServiceMode: "internal",
+        // A V3 community's learning documents, for the site footer.
+        learningPolicy: {
+          version: 3,
+          termsUrl: "/learning/v3/terms",
+          privacyUrl: "/learning/v3/privacy",
+        },
         study: options.available !== false,
+        ...(options.rewardOffers ? { rewards: true } : {}),
         policyVersion: "fixture",
       });
+    if (path === "/api/rewards/offers") {
+      counts.rewardOfferRequests++;
+      // A hung optional request is never fulfilled; Study must not wait for it.
+      if (options.rewardOffers === "hang") return new Promise<void>(() => {});
+      return json({ error: "reward_offers_unavailable" }, 503);
+    }
     if (path === "/api/session")
       return authenticated
         ? json({

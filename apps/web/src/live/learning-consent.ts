@@ -1,6 +1,6 @@
 /** Standing enrollment or revocation; sponsored by the community. */
 export interface KaraokeConsentRequest {
-  target?: { chainId: number; version: 2 | 3; contract: string };
+  target?: { chainId: number; version: 2 | 3 | 4; contract: string };
   disclosure?: {
     version: 3;
     termsUrl: string;

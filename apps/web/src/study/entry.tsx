@@ -12,7 +12,8 @@ if (!response.ok)
   document.getElementById("app")!.textContent =
     "Study is unavailable. Sign in and try again.";
 else {
-  const config: { song: StudySong; csrf: string } = await response.json();
+  const config: { song: StudySong; csrf: string; account: string } =
+    await response.json();
   const initial =
     new URL(location.href).searchParams.get("lesson") ?? undefined;
   const client = createStudyClient(
@@ -24,6 +25,9 @@ else {
       url.searchParams.set("lesson", id);
       history.replaceState(null, "", url);
     },
+    undefined,
+    undefined,
+    config.account,
   );
   render(
     () => <StudyScreen client={client} />,

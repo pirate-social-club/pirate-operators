@@ -1,5 +1,6 @@
 import {
   canonical,
+  CommunityError,
   hashJson,
   insist,
   object,
@@ -27,6 +28,8 @@ export interface AdmissionLease {
   token: string;
 }
 export interface ProviderCall {
+  /** Extra condition checked atomically with the budget reservation. */
+  condition?: import("../community/budgets.ts").ReservationCondition;
   kind:
     | "acr_primary"
     | "acr_alternate"
@@ -35,6 +38,12 @@ export interface ProviderCall {
   request: Record<string, unknown>;
   budgets: BudgetKey[];
   authorize(): Promise<void>;
+  /**
+   * Checked after the reservation and before the call is claimed for sending.
+   * A refusal releases the reservation and leaves the call planned; a released
+   * call is never sent.
+   */
+  dispatch?(): Promise<void>;
   // Receipt persistence must finish before parsing or returning the response.
   send(
     received: (response: ProviderResponse) => Promise<void>,
@@ -90,7 +99,40 @@ export async function journaledProviderCall(
   }
   if (row.state === "planned") {
     await call.authorize();
-    await reserveBudget(db, id, requestHash, call.budgets, "1");
+    await reserveBudget(db, id, requestHash, call.budgets, "1", call.condition);
+    // A reservation released by an earlier dispatch refusal never sends.
+    const reservation = await db
+      .prepare(
+        "SELECT status FROM spending_reservations WHERE reservation_id=? LIMIT 1",
+      )
+      .bind(id)
+      .first<{ status: string }>();
+    insist(reservation?.status === "reserved", "provider_call_released", 409);
+    try {
+      await call.dispatch?.();
+    } catch (error) {
+      // Nothing was sent: release the units rather than hold them in a window
+      // that is ending. The call stays planned and can never be sent. Only
+      // the executor holding the admission lease releases: the lease is the
+      // invariant that keeps one executor per planned call, and the running
+      // claim below requires the same lease. Without it, keep the reservation.
+      // The lease condition commits with the release itself.
+      try {
+        await settleBudget(db, id, call.budgets, "0", {
+          clause:
+            "EXISTS(SELECT 1 FROM managed_admissions WHERE admission_id=? AND lease_token=? AND lease_until>?)",
+          binds: [lease.admissionId, lease.token, now()],
+          code: "admission_lease_lost",
+        });
+      } catch (release) {
+        if (
+          !(release instanceof CommunityError) ||
+          release.code !== "admission_lease_lost"
+        )
+          throw release;
+      }
+      throw error;
+    }
     const execution = token();
     const claimed = await db
       .prepare(

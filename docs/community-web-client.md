@@ -29,8 +29,23 @@ separately. OperatorPayments purchases replace the original payment fields;
 the current payment specification owns them. Browser session and handshake
 rules here remain.
 
+Launch applicability, November 8: under the adopted launch ruling the
+workspace owner is the only song publisher. The active release flow is
+[owner-only MegaETH song publication](megaeth-song-publication.md). The owner
+signs in with the ordinary MOSS session described here and uploads, seals and
+publishes with no creator passkey, creator wallet connection, Palm prompt,
+registration progress or Royalties step. The session view carries a display-only
+publisher flag; the release routes enforce the controller-signed owner
+authorization before any reservation or seal, so a learner or another wallet is
+refused even when it calls the routes directly. Published is the normal success
+state. Learner sign-in, Study, Karaoke, rewards and cash-out rules in this
+document are unchanged. The creator-wallet and funding paragraphs below describe
+the completed registered first-song journey and deferred integration work; they
+are not launch requirements. Palm-verified publishing by other users is a
+separate later release.
+
 The [creator-wallet contract](creator-wallet.md) owns the additional first-song
-release flow. It is an operator-submitted, testnet-only Ika exception to the
+release flow of the registered journey. It is an operator-submitted, testnet-only Ika exception to the
 earlier MOSS plan's blanket exclusion. It requires a separate creator passkey,
 persisted passkey-backed access, verified cap ownership before acceptance signing and
 confirmed on-chain activation before upload or registration. Ordinary sign-in,

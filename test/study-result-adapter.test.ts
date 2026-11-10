@@ -7,7 +7,12 @@ import {
   terminalStudyFacts,
 } from "../packages/study/result-adapter.ts";
 import { studyFactsBundle } from "../packages/study/terminal-facts.ts";
-import { closeStudyLesson, newLesson } from "../packages/study/lesson.ts";
+import {
+  closeStudyLesson,
+  newLesson,
+  studyCloseBound,
+  STUDY_LESSON_LIFETIME_MS,
+} from "../packages/study/lesson.ts";
 import { studySourceSelection } from "../packages/study/public-source.ts";
 import {
   packStudyOutcomes,
@@ -224,13 +229,58 @@ test("abandoned and expired bundles preserve the full frozen selection and absen
   };
   state.presentationCount = 1;
   state.currentIndex = 1;
-  for (const status of ["abandoned", "expired"] as const) {
-    const closed = closeStudyLesson(
-      state,
-      status,
-      status === "expired" ? state.expiresAt : state.startedAt + 5000,
-      new Set([state.items[0].line.lineId, state.items[1].line.lineId]),
-    );
+  // A new lesson closes as abandoned when the learner leaves or at its bound
+  // consent's last millisecond. Only a legacy one-hour lesson can expire.
+  const submitted = new Set([
+    state.items[0].line.lineId,
+    state.items[1].line.lineId,
+  ]);
+  const legacy = {
+    ...state,
+    expiresAt: state.startedAt + STUDY_LESSON_LIFETIME_MS,
+  };
+  const bound = studyCloseBound(state, f.input.enrollment.expiresAt);
+  assert.equal(bound.at, f.input.enrollment.expiresAt * 1000 - 1);
+  assert.equal(bound.reason, "consent_ended");
+  const cases = [
+    [
+      "abandoned",
+      closeStudyLesson(state, "abandoned", state.startedAt + 5000, submitted),
+    ],
+    [
+      "abandoned",
+      closeStudyLesson(
+        state,
+        "abandoned",
+        bound.at,
+        submitted,
+        "consent_ended",
+      ),
+    ],
+    [
+      "expired",
+      closeStudyLesson(legacy, "expired", legacy.expiresAt, submitted),
+    ],
+  ] as const;
+  assert.equal(cases[1][1].completionReason, "consent_ended");
+  assert.equal(cases[2][1].completionReason, "deadline");
+  // A new lesson cannot expire, and a legacy lesson cannot claim consent end.
+  assert.throws(
+    () => closeStudyLesson(state, "expired", state.expiresAt, submitted),
+    /invalid_study_close_time/,
+  );
+  assert.throws(
+    () =>
+      closeStudyLesson(
+        legacy,
+        "abandoned",
+        legacy.startedAt + 5000,
+        submitted,
+        "consent_ended",
+      ),
+    /invalid_study_close_time/,
+  );
+  for (const [status, closed] of cases) {
     const input = { ...f.input, state: closed },
       bundle = terminalStudyBundle(input);
     assert.equal(bundle.result.status, status === "abandoned" ? 2 : 3);

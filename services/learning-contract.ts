@@ -11,22 +11,38 @@ import {
   resultsV3Domain,
   enrollmentV3Id,
 } from "../packages/protocol/learning-results-v3.ts";
+import {
+  resultsV4Abi,
+  resultsV4Domain,
+} from "../packages/protocol/learning-results-v4.ts";
 import type { Env } from "./runtime.ts";
 
 export interface ResultsTarget {
   chainId: 31337 | 6343;
-  version: 2 | 3;
+  version: 2 | 3 | 4;
   contract: Address;
 }
-/** The V2 setting remains the historical destination when V3 becomes default. */
+/** Earlier settings remain the historical destinations when a successor
+ * becomes the default; V4 is the default for new work when configured. */
 export function resultsTarget(
   env: Env,
-  version: 2 | 3 = env.RESULTS_V3_CONTRACT ? 3 : 2,
+  version: 2 | 3 | 4 = env.RESULTS_V4_CONTRACT
+    ? 4
+    : env.RESULTS_V3_CONTRACT
+      ? 3
+      : 2,
 ): ResultsTarget {
-  check(version === 2 || version === 3, "unsupported_results_version");
+  check(
+    version === 2 || version === 3 || version === 4,
+    "unsupported_results_version",
+  );
   const chainId = Number(env.PAYMENT_CHAIN_ID),
     contract =
-      version === 2 ? env.RESULTS_V2_CONTRACT : env.RESULTS_V3_CONTRACT;
+      version === 2
+        ? env.RESULTS_V2_CONTRACT
+        : version === 3
+          ? env.RESULTS_V3_CONTRACT
+          : env.RESULTS_V4_CONTRACT;
   check(chainId === 31337 || chainId === 6343, "unsupported_results_chain");
   check(
     typeof contract === "string" &&
@@ -36,6 +52,13 @@ export function resultsTarget(
   );
   return { chainId, version, contract: contract.toLowerCase() as Address };
 }
+/**
+ * The newest target that has learning enrollments, for V2 and V3 work. V4 has
+ * none, since its permission is the learner's sign-in, so configuring V4 never
+ * moves enrollment requests, grants or revocations onto it.
+ */
+export const enrollmentResultsTarget = (env: Env) =>
+  resultsTarget(env, env.RESULTS_V3_CONTRACT ? 3 : 2);
 /** No absent legacy field may inherit the successor's default contract. */
 export function retainedTarget(env: Env, saved?: ResultsTarget): ResultsTarget {
   const expected = resultsTarget(env, saved?.version ?? 2);
@@ -56,21 +79,29 @@ export const sameResultsTarget = (a: ResultsTarget, b: ResultsTarget) =>
 export const resultClient = (env: Env) =>
   createPublicClient({ transport: http(env.RPC_URL) });
 export const contractAbi = (target: ResultsTarget) =>
-  target.version === 2 ? resultsAbi : resultsV3Abi;
+  target.version === 2
+    ? resultsAbi
+    : target.version === 3
+      ? resultsV3Abi
+      : resultsV4Abi;
 export const contractDomain = (target: ResultsTarget) =>
-  (target.version === 2 ? resultsDomain : resultsV3Domain)(
-    target.chainId,
-    target.contract,
-  );
+  (target.version === 2
+    ? resultsDomain
+    : target.version === 3
+      ? resultsV3Domain
+      : resultsV4Domain)(target.chainId, target.contract);
+/** V2/V3 only: V4 has no separate enrollment; see signInIdV4. */
 export const contractEnrollmentId = (
   target: ResultsTarget,
   enrollment: Enrollment,
-) =>
-  (target.version === 2 ? enrollmentIdOf : enrollmentV3Id)(
+) => {
+  check(target.version !== 4, "unsupported_results_version");
+  return (target.version === 2 ? enrollmentIdOf : enrollmentV3Id)(
     target.chainId,
     target.contract,
     enrollment,
   );
+};
 export const readResultContract = <T>(
   env: Env,
   target: ResultsTarget,
@@ -89,7 +120,7 @@ export const resultPolicyAt = (
   activity: 1 | 2,
   period: bigint,
 ) => {
-  check(target.version === 3 || activity === 1, "unsupported_activity");
+  check(target.version !== 2 || activity === 1, "unsupported_activity");
   return readResultContract<Hex>(
     env,
     target,
@@ -99,6 +130,59 @@ export const resultPolicyAt = (
 };
 export const pendingEnrollmentKey = (target: ResultsTarget, learner: Address) =>
   `pendingEnrollment:${target.version === 2 ? "" : `${target.version}:${target.contract.toLowerCase()}:`}${learner.toLowerCase()}`;
+/**
+ * Set when this operator accepts the learner's signed V4 Revocation. From
+ * then on, that learner's results bound to an earlier version (a V2 or V3
+ * enrollment) that are not yet sent stay private: V4 is the community's
+ * records, and turning public results back on never resumes them. It needs
+ * no V3 revoke, which only the learner can sign.
+ */
+export const legacyResultsWithheldKey = (learner: string) =>
+  `legacyResultsWithheld:${learner.toLowerCase()}`;
+export const legacyResultsWithheld = (
+  store: { get<T>(key: string): T | undefined },
+  learner: string,
+) => store.get(legacyResultsWithheldKey(learner)) !== undefined;
+/**
+ * Whether the learner's earlier-version results not yet sent stay private:
+ * the marker above, or a withdrawal on this operator's V4 contract by any
+ * path, including the learner's own direct `revoke` call, which never reaches
+ * this operator. Only `revoke` writes `revokedAt`, and a later sign-in
+ * (`authorize`) never resets it, so it is nonzero from the learner's first
+ * withdrawal on, even after they sign in again. A withdrawal found on chain
+ * is recorded as the marker, so it holds from then on without another read.
+ * Without a configured V4 contract nothing is read. A failed read throws, so
+ * the caller keeps the result pending and never sends it on an error.
+ */
+export async function legacyResultsWithdrawn(
+  env: Env,
+  store: {
+    get<T>(key: string): T | undefined;
+    set(key: string, value: unknown): void;
+    now(): number;
+  },
+  learner: Address,
+  blockNumber?: bigint,
+) {
+  if (legacyResultsWithheld(store, learner)) return true;
+  if (!env.RESULTS_V4_CONTRACT) return false;
+  const target = resultsTarget(env, 4);
+  const revokedAt = (await resultClient(env).readContract({
+    address: target.contract,
+    abi: resultsV4Abi,
+    functionName: "revokedAt",
+    args: [learner],
+    ...(blockNumber === undefined ? {} : { blockNumber }),
+  })) as bigint;
+  if (revokedAt === 0n) return false;
+  if (!legacyResultsWithheld(store, learner))
+    store.set(legacyResultsWithheldKey(learner), {
+      at: store.now(),
+      revokedAt: String(revokedAt),
+      source: "chain",
+    });
+  return true;
+}
 export const revocationKey = (
   target: ResultsTarget,
   learner: Address,

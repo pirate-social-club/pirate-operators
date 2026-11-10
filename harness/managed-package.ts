@@ -1,14 +1,6 @@
 import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import { ownedModuleGraph } from "./owned-module-graph.ts";
-import {
-  readFile,
-  copyFile,
-  writeFile,
-  symlink,
-  lstat,
-  realpath,
-  unlink,
-} from "node:fs/promises";
+import { readFile, copyFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,9 +10,30 @@ import { hashJson, hashText, insist } from "../packages/community/common.ts";
 
 export const managedPrefix = "pirate-managed-firstsong-20261105";
 export const managedOrigin = `https://${managedPrefix}.piratesocialclub.workers.dev`;
-export async function managedPackage() {
+import { MANAGED_MIGRATIONS, managedMigrations } from "./package-migrations.ts";
+import { managedUpdate } from "./managed-update-pin.ts";
+import { publishedStateRepairPath } from "./published-state.ts";
+import {
+  linkRetainedDependencies,
+  managedDependencyModules,
+  verifyManagedDependencies,
+} from "./community-dependencies.ts";
+import {
+  managedPublishingProfile,
+  publishingReleaseSelection,
+  type PublishingReleaseSelection,
+} from "./publishing-release-profile.ts";
+/** Default builds are the deployed registered profile; owner publishing adds 0004. */
+export async function managedPackage(
+  options: { publishing?: PublishingReleaseSelection } = {},
+) {
+  const publishing = options.publishing
+    ? publishingReleaseSelection(options.publishing)
+    : undefined;
+  const migrations = managedMigrations(!!publishing);
+  // The retained binary is the one the managed deployment runs.
   const cli = await promisify(execFile)(
-    resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
+    join(managedDependencyModules, ".bin/alchemy"),
     ["--version"],
     {
       cwd: resolve("apps/managed-moderation"),
@@ -75,10 +88,9 @@ export async function managedPackage() {
     "apps/managed-moderation/alchemy.run.ts",
     "apps/managed-moderation/encrypted-state.ts",
     "apps/managed-moderation/protected-data.ts",
-    "apps/managed-moderation/migrations/0001_managed.sql",
-    "apps/managed-moderation/migrations/0002_release_operations.sql",
-    "apps/managed-moderation/migrations/0003_owner_curated.sql",
+    ...migrations.map((name) => `apps/managed-moderation/migrations/${name}`),
     "docs/deployments/first-song-managed-20261105.published-state.json",
+    publishedStateRepairPath,
     releaseGrantPath,
     "docs/deployments/first-song-managed-20261105.dedicated-signer-readiness.json",
     "apps/community-wizard/infra/encrypted-state.ts",
@@ -91,14 +103,15 @@ export async function managedPackage() {
     "apps/community-wizard/server/diagnostics.ts",
     "apps/community-wizard/package-lock.json",
     "harness/managed-package.ts",
+    "harness/managed-update-pin.ts",
     "harness/managed-service.ts",
     "harness/managed-inventory.ts",
     "harness/managed-update.ts",
     "harness/worker-modules.ts",
     "docs/deployments/first-song-managed-20261105.moderation-plan-v1.json",
     "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-    "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
-    "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
+    "docs/deployments/first-song-managed-20261105.moderation-plan-v9.json",
+    "docs/deployments/first-song-managed-20261105.owner-publishing-rollout.json",
   ];
   const hashes = Object.fromEntries(
     await Promise.all(
@@ -137,24 +150,12 @@ export async function managedPackage() {
     },
   ];
   const releaseGrant = await firstSongGrant();
-  const profile = {
+  const base = {
     schema: "pirate.managed-service-plan/1",
     accountId: "08a4c22cf52e2ecae883e36f80a33f4a",
     prefix: managedPrefix,
     origin: managedOrigin,
-    update: {
-      previousProfileHash:
-        "0x7e5c29fe883ef7cdb07afdfda5040004f5031aad1108f1c7a5dc78b404956705",
-      previousPlanPath:
-        "docs/deployments/first-song-managed-20261105.moderation-plan-v7.json",
-      startupEvidencePath:
-        "docs/deployments/first-song-managed-20261105.moderation-setup.json",
-      previousEvidencePath:
-        "docs/deployments/first-song-managed-20261105.owner-curated-rollout.json",
-      requireIdle: false,
-      expectedResultSha256:
-        "0x8863d3f0c558237839ddc1e02d720da4ce7f0eb6c8edc95dedf068471e682f7f",
-    },
+    update: managedUpdate,
     resources: {
       worker: managedPrefix,
       database: `${managedPrefix}-db`,
@@ -170,6 +171,10 @@ export async function managedPackage() {
         "utf8",
       ),
     ),
+    // The reviewed managed-state successor; the published state stays as is.
+    curatedStateRepair: JSON.parse(
+      await readFile(publishedStateRepairPath, "utf8"),
+    ),
     registrationCredential: {
       ...JSON.parse(
         await readFile(
@@ -179,11 +184,7 @@ export async function managedPackage() {
       ).source,
       targetChain: 1315,
     },
-    migrations: [
-      "0001_managed.sql",
-      "0002_release_operations.sql",
-      "0003_owner_curated.sql",
-    ],
+    migrations,
     bundleSha256: hashText(bundle.outputFiles![0]!.text),
     bundleBytes: bytes.length,
     pairings,
@@ -223,11 +224,25 @@ export async function managedPackage() {
     recovery:
       "Keep the same encrypted Alchemy state and D1 provider journals. Reconcile task-owned resources after an interrupted apply. Unknown paid provider sends cannot be replayed.",
   };
+  // Owner publishing replaces the registered grant and registration signer
+  // requirements with the owner grant; the rest of the profile is unchanged.
+  const profile = (
+    publishing ? managedPublishingProfile(base, publishing) : base
+  ) as typeof base & {
+    ownerGrant?: PublishingReleaseSelection["ownerGrant"];
+    signerSource?: Record<string, unknown>;
+  };
   return { profile, profileHash: hashJson(profile), bytes };
 }
 export async function writeManagedPackage(
   directory: string,
   bytes: Uint8Array,
+  migrations: readonly string[] = MANAGED_MIGRATIONS,
+  // The retained dependency tree the preservation record names for this runner.
+  dependencies: { modules: string; verify(): Promise<void> } = {
+    modules: managedDependencyModules,
+    verify: verifyManagedDependencies,
+  },
 ) {
   const cwd = join(directory, "deployment");
   for (const path of [
@@ -248,32 +263,13 @@ export async function writeManagedPackage(
   );
   await writeFile(join(cwd, "alchemy.run.ts"), source, { mode: 0o600 });
   await writeFile(join(cwd, "worker/worker.mjs"), bytes, { mode: 0o600 });
-  for (const name of [
-    "0001_managed.sql",
-    "0002_release_operations.sql",
-    "0003_owner_curated.sql",
-  ])
+  for (const name of migrations)
     await copyFile(
       `apps/managed-moderation/migrations/${name}`,
       join(cwd, "migrations", name),
     );
   for (const file of ["encrypted-state.ts", "protected-data.ts"])
     await copyFile(`apps/managed-moderation/${file}`, join(cwd, file));
-  const modules = join(cwd, "node_modules"),
-    expected = resolve("apps/managed-moderation/node_modules");
-  try {
-    insist(
-      (await lstat(modules)).isSymbolicLink(),
-      "unexpected_managed_dependencies",
-    );
-    await unlink(modules);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  await symlink(expected, modules, "dir");
-  insist(
-    (await realpath(modules)) === (await realpath(expected)),
-    "unexpected_managed_dependencies",
-  );
+  await linkRetainedDependencies(join(cwd, "node_modules"), dependencies);
   return cwd;
 }

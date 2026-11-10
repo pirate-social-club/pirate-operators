@@ -19,6 +19,7 @@ import {
 import { resultsTarget } from "../services/learning-contract.ts";
 import { revocationTypes } from "../packages/protocol/learning-results-v3.ts";
 import { StudySpeechError } from "../packages/study/speech-transcriber.ts";
+import { closeBoundOf, lessonState } from "./study-close-bound-fixture.ts";
 
 test(
   "a pre-broadcast crash, altered retry and lost terminal response retain one signed Study intent",
@@ -89,17 +90,18 @@ test(
 );
 
 test(
-  "scheduled recovery closes an unattended Study at its original deadline and publishes unmeasured absence",
+  "scheduled recovery closes an unattended legacy Study at its original deadline and publishes unmeasured absence",
   { timeout: 60000 },
   async () => {
     const f = await studyPublicationFixture(19873);
     try {
-      const lesson = await f.start();
+      const lesson = await f.startLegacy();
+      assert.equal(lesson.expiresAt, lesson.startedAt + 3600000);
       f.behavior(async () => {
         throw new StudySpeechError("speech_timeout", "unknown");
       });
       await f.answer(lesson, true);
-      f.advance(3600001);
+      f.advance(lesson.expiresAt - f.clock() + 1);
       await f.mineClock();
       await communityScheduled(f.env, f.ports);
       const closed = await f.get(lesson.lessonId);
@@ -191,15 +193,28 @@ test(
         ).status,
         503,
       );
-      f.advance(3600001);
+      // The unbound draft closes thirty days after it started, as abandoned.
+      const pending = (await f.db
+        .prepare(
+          "SELECT l.lesson_id FROM study_lessons l LEFT JOIN study_publications p USING(lesson_id) WHERE p.lesson_id IS NULL",
+        )
+        .first<{ lesson_id: string }>())!;
+      const bound = await closeBoundOf(f.db, pending.lesson_id);
+      assert.equal(bound.reason, "never_bound");
+      f.advance(bound.at - f.clock() - 1);
       await f.mineClock();
       await communityScheduled(f.env, f.ports);
-      const draft = await f.db
-        .prepare(
-          "SELECT l.state_json FROM study_lessons l LEFT JOIN study_publications p USING(lesson_id) WHERE p.lesson_id IS NULL",
-        )
-        .first<{ state_json: string }>();
-      assert.equal(JSON.parse(draft!.state_json).status, "expired");
+      assert.equal(
+        (await lessonState(f.db, pending.lesson_id)).status,
+        "active",
+      );
+      f.advance(2);
+      await f.mineClock();
+      await communityScheduled(f.env, f.ports);
+      const draft = await lessonState(f.db, pending.lesson_id);
+      assert.equal(draft.status, "abandoned");
+      assert.equal(draft.completionReason, "never_bound");
+      assert.equal(draft.completedAt, bound.at);
       assert.equal(f.store.entries("tx:").length, count);
       assert.deepEqual(f.counts(), { calls: 0, observations: 0 });
     } finally {

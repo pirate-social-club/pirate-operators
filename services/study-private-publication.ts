@@ -9,6 +9,7 @@ import {
   type ResultsTarget,
 } from "./learning-contract.ts";
 import type { ResultStore } from "./learning-transactions.ts";
+import { provenUnsent, type TxRow } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { PublicationJob } from "./study-publication.ts";
 import type { Env } from "./runtime.ts";
@@ -22,19 +23,40 @@ const closedKey = (id: string) => "studyPublicationClosed:" + id;
 export const closedStudyPublication = (store: ResultStore, id: string) =>
   store.get<ClosedStudyPublication>(closedKey(id));
 
-/** Any queued work, orphan transaction or charged allowance is retained. */
+/**
+ * Any queued work, orphan transaction or charged allowance is retained. The
+ * one exception is the first revision's own transaction once it was withheld,
+ * proven never sent, and its nonce is consumed on chain by its cancellation
+ * or another transaction: that intent, row and charge prove the result can
+ * never be published. A cancellation not yet mined is not enough.
+ */
 export function studyNativeEvidence(store: ResultStore, id: string) {
-  const ref = "study:" + id + ":";
+  const ref = "study:" + id + ":",
+    first = ref + "1";
+  const nonce = store.get<{ nonce: number | null }>(
+    "intent:record_result:" + first,
+  )?.nonce;
+  const own =
+    nonce == null ? undefined : store.get<TxRow>(`tx:${String(nonce).padStart(10, "0")}`);
+  const cancelled =
+    own?.ref === first &&
+    own.kind === "record_result" &&
+    provenUnsent(own) &&
+    !!own.withheld &&
+    (own.mined?.status === "cancelled" || own.mined?.status === "superseded");
   return (
-    store.entries("intent:record_result:" + ref).length > 0 ||
+    store
+      .entries("intent:record_result:" + ref)
+      .some(({ key }) => !(cancelled && key === "intent:record_result:" + first)) ||
     store.entries("tx:").some(({ value }) => {
-      const row = value as { kind?: string; ref?: string };
-      return row.ref?.startsWith(ref);
+      const row = value as TxRow;
+      return row.ref?.startsWith(ref) && !(cancelled && row.nonce === nonce);
     }) ||
     store
       .entries("sponsor:reservation:record_result:" + ref)
       .some(
-        ({ value }) =>
+        ({ key, value }) =>
+          !(cancelled && key === "sponsor:reservation:record_result:" + first) &&
           !["reserved", "released"].includes(
             (value as { state: string }).state,
           ),

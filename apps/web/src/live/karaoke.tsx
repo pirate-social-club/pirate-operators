@@ -1,5 +1,6 @@
 // Live transport adapter for the centralized Karaoke presentation. Internal
-// accounting uses standing enrollment and one automatic terminal publication.
+// accounting uses one automatic terminal publication per take, permitted by
+// standing enrollment or, in a V4 community, by the learner's sign-in alone.
 // A reload resumes an open take or shows its canonical completion screen.
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import {
@@ -73,6 +74,9 @@ type AttemptView =
 
 /** The operator opens a line's purchase 15 s before it starts; buy inside that. */
 export const PURCHASE_LEAD_MS = 12000;
+/** A short, bounded wait for a just-made sign-in to be recorded. */
+const AUTHORIZATION_RETRIES = 5,
+  AUTHORIZATION_RETRY_MS = 2000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function LiveKaraoke(props: {
@@ -81,6 +85,8 @@ export function LiveKaraoke(props: {
   csrf: string;
   wallet: KaraokeWallet;
   serviceMode?: "internal";
+  /** V4: signing in is the publication permission; no enrollment step. */
+  signInPermission?: boolean;
   onExit: () => void;
   onLearningActions?: (actions: LearningActions) => void;
 }) {
@@ -96,10 +102,6 @@ export function LiveKaraoke(props: {
       lineScores: readonly LineFeedback[];
       latestLineId: string | null;
     } | null>(null),
-    [consentLinks, setConsentLinks] = createSignal({
-      termsUrl: "/learning/v3/terms",
-      privacyUrl: "/learning/v3/privacy",
-    }),
     [starting, setStarting] = createSignal(false),
     [playingOutro, setPlayingOutro] = createSignal(false),
     [resume, setResume] = createSignal<{
@@ -121,7 +123,8 @@ export function LiveKaraoke(props: {
     cancelPlaybackPosition?.();
   });
   const validateEnrollment = (request: KaraokeConsentRequest) => {
-    setConsentLinks(enrollmentDisclosure(request));
+    // The disclosure bound by the signature must be the expected one.
+    enrollmentDisclosure(request);
     const activities = String(request.message.activities);
     if (
       !["1", "2", "3"].includes(activities) ||
@@ -358,6 +361,29 @@ export function LiveKaraoke(props: {
     }
   }
 
+  /**
+   * The take's ticket. A just-made sign-in may still be being recorded; the
+   * same request is retried briefly while the screen keeps its starting state.
+   */
+  async function ticket() {
+    for (let retry = 0; ; retry++) {
+      try {
+        return await post<{
+          ticket: { body: { ticketId: string } };
+          socketUrl: string;
+          proof: string;
+        }>("/api/karaoke/tickets", { postId: props.postId }, props.csrf);
+      } catch (error) {
+        if (
+          (error as { code?: string }).code !== "karaoke_authorization_pending" ||
+          retry + 1 >= AUTHORIZATION_RETRIES
+        )
+          throw error;
+        await sleep(AUTHORIZATION_RETRY_MS);
+        if (disposed) return null;
+      }
+    }
+  }
   async function until(ready: () => boolean) {
     for (let i = 0; i < 150 && !ready(); i++) await sleep(20);
   }
@@ -395,7 +421,7 @@ export function LiveKaraoke(props: {
       }
       setNotice(null);
       if (!currentTake) {
-        if (props.serviceMode === "internal") {
+        if (props.serviceMode === "internal" && !props.signInPermission) {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
           >("/api/karaoke/enrollment", {}, props.csrf);
@@ -425,12 +451,8 @@ export function LiveKaraoke(props: {
           }
         }
         if (disposed) return;
-        const issued = await post<{
-          ticket: { body: { ticketId: string } };
-          socketUrl: string;
-          proof: string;
-        }>("/api/karaoke/tickets", { postId: props.postId }, props.csrf);
-        if (disposed) return;
+        const issued = await ticket();
+        if (disposed || !issued) return;
         bought.clear();
         attemptStart = null;
         setResume(null);
@@ -603,18 +625,6 @@ export function LiveKaraoke(props: {
           )}
         </Show>
       </Show>
-      <nav
-        class="learning-policy-links karaoke-policy-links"
-        aria-label="Karaoke policies"
-      >
-        <a href={consentLinks().termsUrl} target="_blank" rel="noopener">
-          Terms
-        </a>
-        <span aria-hidden="true">·</span>
-        <a href={consentLinks().privacyUrl} target="_blank" rel="noopener">
-          Privacy
-        </a>
-      </nav>
     </section>
   );
 }

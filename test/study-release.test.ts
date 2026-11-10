@@ -133,6 +133,52 @@ test("explicit V3 environment binds both targets while default V2 and app stay u
   }
 });
 
+test("an explicit V4 contract adds only the V4 bindings; without it every binding is unchanged", () => {
+  const p = selectionFixture(),
+    v4 = `0x${"c4".repeat(20)}`,
+    old = { LEARNING_RESULTS_CONTRACT: p.resultsV2.contract },
+    v3 = {
+      ...old,
+      LEARNING_PROFILE: "pirate-learning-testnet-v3",
+      LEARNING_RESULTS_V3_CONTRACT: p.resultsV3.contract,
+    };
+  // Absent: the exact current bindings, with no V4 key at all.
+  for (const env of [old, v3]) {
+    const operator = learningContractBindings(env),
+      application = applicationLearningBindings(env);
+    assert.equal("RESULTS_V4_CONTRACT" in operator, false);
+    assert.equal("STUDY_RESULTS_V4_CONTRACT" in application, false);
+    assert.equal(
+      JSON.stringify(learningContractBindings({ ...env })),
+      JSON.stringify(operator),
+    );
+  }
+  assert.deepEqual(applicationLearningBindings({}), {});
+  const env = { ...v3, LEARNING_RESULTS_V4_CONTRACT: v4 };
+  assert.deepEqual(learningContractBindings(env), {
+    OPERATOR_PROFILE: "pirate-learning-testnet-v3",
+    RESULTS_V2_CONTRACT: p.resultsV2.contract,
+    RESULTS_V3_CONTRACT: p.resultsV3.contract,
+    RESULTS_V4_CONTRACT: v4,
+  });
+  assert.deepEqual(applicationLearningBindings(env), {
+    STUDY_RESULTS_V3_CONTRACT: p.resultsV3.contract,
+    STUDY_RESULTS_V4_CONTRACT: v4,
+  });
+  for (const broken of [
+    { ...old, LEARNING_RESULTS_V4_CONTRACT: v4 },
+    { LEARNING_RESULTS_V4_CONTRACT: v4 },
+    { ...env, LEARNING_RESULTS_V4_CONTRACT: "" },
+    { ...env, LEARNING_RESULTS_V4_CONTRACT: `0x${"0".repeat(40)}` },
+    { ...env, LEARNING_RESULTS_V4_CONTRACT: v4.toUpperCase().replace("0X", "0x") },
+    { ...env, LEARNING_RESULTS_V4_CONTRACT: p.resultsV2.contract },
+    { ...env, LEARNING_RESULTS_V4_CONTRACT: p.resultsV3.contract },
+  ]) {
+    assert.throws(() => learningContractBindings(broken), /binding_invalid/);
+    assert.throws(() => applicationLearningBindings(broken), /binding_invalid/);
+  }
+});
+
 test("packaged Alchemy app resolves its copied bindings outside the source checkout", async () => {
   const directory = await mkdtemp(
     join(tmpdir(), "pirate-study-infrastructure-"),
@@ -149,12 +195,23 @@ test("packaged Alchemy app resolves its copied bindings outside the source check
       logLevel: "silent",
     });
     const inputs = Object.keys(result.metafile!.inputs).map((p) => resolve(p));
-    assert.equal(inputs.length, 4);
+    // Includes the owner publishing bindings beside learning and rewards.
+    assert.equal(inputs.length, 6);
     assert.ok(inputs.every((p) => p.startsWith(directory + "/")));
     assert.ok(inputs.includes(join(directory, "learning-bindings.ts")));
     assert.deepEqual(
       await readFile(join(directory, "learning-bindings.ts")),
       await readFile("apps/community-wizard/infra/learning-bindings.ts"),
+    );
+    assert.ok(inputs.includes(join(directory, "rewards-bindings.ts")));
+    assert.deepEqual(
+      await readFile(join(directory, "rewards-bindings.ts")),
+      await readFile("apps/community-wizard/infra/rewards-bindings.ts"),
+    );
+    assert.ok(inputs.includes(join(directory, "publishing-bindings.ts")));
+    assert.deepEqual(
+      await readFile(join(directory, "publishing-bindings.ts")),
+      await readFile("apps/community-wizard/infra/publishing-bindings.ts"),
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -143,16 +143,44 @@ export async function observeOperatorCloud(
     "study_operator_v3_binding_changed",
     409,
   );
+  const v4Bindings =
+    moduleSha256 === profile.artifact.sha256 && profile.learningV4;
+  insist(
+    v4Bindings
+      ? value("RESULTS_V4_CONTRACT") === v4Bindings.contract
+      : byName("RESULTS_V4_CONTRACT").length === 0,
+    "study_operator_v4_binding_changed",
+    409,
+  );
   const invariant = {
     ...settings,
     bindings: bindings
       .filter(
         (x) =>
-          !["OPERATOR_PROFILE", "RESULTS_V3_CONTRACT"].includes(String(x.name)),
+          ![
+            "OPERATOR_PROFILE",
+            "RESULTS_V3_CONTRACT",
+            "RESULTS_V4_CONTRACT",
+          ].includes(String(x.name)),
       )
-      .map((x) =>
-        x.type === "secret_text" ? { name: x.name, type: x.type } : x,
-      )
+      .map((x) => {
+        if (
+          x.name === "APPROVED_ACTIVATION_ACCOUNT" &&
+          profile.activationAccount
+        ) {
+          insist(
+            x.type === "plain_text" &&
+              x.text ===
+                (moduleSha256 === profile.artifact.sha256
+                  ? profile.activationAccount.next
+                  : profile.activationAccount.previous),
+            "study_operator_activation_binding_changed",
+            409,
+          );
+          return { ...x, text: profile.activationAccount.previous };
+        }
+        return x.type === "secret_text" ? { name: x.name, type: x.type } : x;
+      })
       .sort((a, b) => String(a.name).localeCompare(String(b.name))),
   };
   // Root must qualify which Cloudflare metadata fields are stable before pinning this digest.
@@ -196,7 +224,9 @@ export async function observeOperatorCloud(
   );
   const activation = byName("APPROVED_ACTIVATION_ACCOUNT");
   insist(
-    activation.length <= 1 &&
+    (profile.activationAccount
+      ? activation.length === 1
+      : activation.length <= 1) &&
       (!activation.length ||
         (activation[0]!.type === "plain_text" &&
           typeof activation[0]!.text === "string" &&
@@ -448,7 +478,8 @@ export async function inspectExistingJournalReadOnly(
     for (const row of parsed.filter((x) => x.key.startsWith("tx:")))
       insist(
         object(row.value).mined &&
-          ["success", "reverted"].includes(
+          // A cancelled or superseded nonce is consumed, never a success.
+          ["success", "reverted", "cancelled", "superseded"].includes(
             String(object(object(row.value).mined).status),
           ),
         "study_operator_journal_pending_transaction",

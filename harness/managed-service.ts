@@ -1,13 +1,20 @@
+import "./node-network.ts";
+import {
+  managedDependencyModules,
+  verifyManagedDependencies,
+} from "./community-dependencies.ts";
+import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
 import { qualifyRegistrationFunding } from "./first-song-peers.ts";
 import {
   bindManagedCredentials,
   readManagedCredentials,
 } from "./managed-credentials.ts";
 // Manual bounded staging workflow. Default is a source-bound plan; execution
-// requires its reviewed hash. Never prints provider values or child output.
+// requires its reviewed hash. Never prints provider values or child output;
+// a failed dependency verification prints only package names and digests.
 import { readFile, writeFile, open, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { infisicalAuth } from "../apps/community-wizard/server/infisical-auth.ts";
 import {
@@ -49,9 +56,13 @@ async function main() {
       preflight: { type: "boolean" },
       "expected-profile": { type: "string" },
       "write-plan": { type: "boolean" },
+      "publishing-profile": { type: "string" },
     },
   });
-  const packaged = await managedPackage(),
+  const publishing = values["publishing-profile"]
+    ? await readPublishingReleaseSelection(values["publishing-profile"])
+    : undefined;
+  const packaged = await managedPackage({ publishing }),
     { profile, profileHash } = packaged;
   if (values["write-plan"])
     await writeFile(
@@ -137,9 +148,14 @@ async function main() {
       profile.stateProtection.path,
       "PIRATE_WIZARD_STATE_PASSWORD",
     );
+    // The retained dependency tree and every recorded runner link, read only.
+    await verifyManagedDependencies();
     await qualifyManagedUpdate(directory, profile, before, password, cloudEnv);
     await readManagedCredentials(profile, get);
-    const registrationReadiness = await qualifyRegistrationFunding(profile);
+    // Owner publishing has no registration operator, grant or chain reads.
+    const registrationReadiness = profile.ownerGrant
+      ? { registration: "absent", reason: "owner_publishing_policy" }
+      : await qualifyRegistrationFunding(profile);
     if (!values.execute) {
       console.log(
         JSON.stringify({
@@ -194,7 +210,11 @@ async function main() {
     }
     const secrets = await bindManagedCredentials(sdk, profile, get);
     await preserveManagedDeployment(directory, profileHash);
-    const cwd = await writeManagedPackage(directory, packaged.bytes);
+    const cwd = await writeManagedPackage(
+      directory,
+      packaged.bytes,
+      profile.migrations,
+    );
     const env = {
       ...cloudEnv,
       PIRATE_WIZARD_STATE_PASSWORD: password,
@@ -206,7 +226,11 @@ async function main() {
       SERVICE_BUDGET_PERIOD: profile.serviceBudgetPeriod,
       SERVICE_REQUEST_CAP: String(profile.serviceRequestCap),
       ACRCLOUD_HOST: profile.acrHost,
-      RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant),
+      // Owner publishing binds only the owner grant; a registered profile
+      // binds only the registered release grant.
+      ...(profile.ownerGrant
+        ? { OWNER_GRANT_JSON: JSON.stringify(profile.ownerGrant) }
+        : { RELEASE_GRANT_JSON: JSON.stringify(profile.releaseGrant) }),
     };
     const secretValues = [password, cloudflare, ...Object.values(secrets)];
     const logs: string[] = [];
@@ -221,7 +245,7 @@ async function main() {
             "--signal=TERM",
             "--kill-after=15s",
             `${remaining}s`,
-            resolve("apps/managed-moderation/node_modules/.bin/alchemy"),
+            join(managedDependencyModules, ".bin/alchemy"),
             command,
             "--stage",
             "managed",

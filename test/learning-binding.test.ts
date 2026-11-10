@@ -292,9 +292,18 @@ test(
         () =>
           retainedTarget({ ...f.env, RESULTS_V3_CONTRACT: f.v3 }, {
             ...e.target,
-            version: 4,
+            version: 5,
           } as never),
         /unsupported_results_version/,
+      );
+      // V4 is a known version but needs its own contract; no fallback to V3.
+      assert.throws(
+        () =>
+          retainedTarget({ ...f.env, RESULTS_V3_CONTRACT: f.v3 }, {
+            ...e.target,
+            version: 4,
+          }),
+        /results_unconfigured/,
       );
       assert.throws(
         () => retainedTarget(f.env, { ...e.target, chainId: 6343 }),

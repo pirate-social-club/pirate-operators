@@ -5,10 +5,16 @@ import { operatorProfile } from "../harness/study-operator-profile.ts";
 import { observeOperatorCloud } from "../harness/study-operator-readonly-adapter.ts";
 import { hashJson } from "../packages/community/common.ts";
 import { fileDigest } from "../harness/creator-state.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 
 async function observe(options: {
   declared?: 2 | 3;
-  liveVersion: 2 | 3;
+  liveVersion: 2 | 3 | 4;
+  v4Selection?: boolean;
+  wrongV4?: boolean;
+  activationReplacement?: boolean;
+  wrongActivation?: boolean;
   successor?: boolean;
   missingV3?: boolean;
   wrongV3?: boolean;
@@ -17,12 +23,34 @@ async function observe(options: {
   const p = fixture();
   if (options.declared !== undefined)
     p.predecessor.resultsVersion = options.declared;
+  if (options.v4Selection)
+    p.learningV4 = {
+      schema: "pirate.learning-v4-release-selection/1",
+      chainId: 6343,
+      contract: "0x4444444444444444444444444444444444444444",
+      codeHash: `0x${"4".repeat(64)}`,
+      controller: p.selection.controller,
+      publicationPolicy: learningV4PublicityPolicy,
+      policyVersion: 4,
+      communityOrigin: firstSong.origin,
+    };
+  if (options.activationReplacement)
+    p.activationAccount = {
+      previous: "0x3333333333333333333333333333333333333333",
+      next: "0x5555555555555555555555555555555555555555",
+    };
   const oldModule = "export default {old:true};",
     newModule = "export default {new:true};";
   p.predecessor.moduleSha256 = fileDigest(Buffer.from(oldModule));
   p.execution.predecessorFiles[0]!.sha256 = p.predecessor.moduleSha256;
   p.artifact.sha256 = fileDigest(Buffer.from(newModule));
-  const bindings = [
+  const bindings: {
+    name: string;
+    type: string;
+    text?: string;
+    namespace_id?: string;
+    class_name?: string;
+  }[] = [
     ...Object.entries(p.objects).map(([name, value]) => ({
       name,
       type: "durable_object_namespace",
@@ -35,21 +63,37 @@ async function observe(options: {
       text: p.selection.resultsV2.contract,
     },
   ];
+  if (p.activationAccount)
+    bindings.push({
+      name: "APPROVED_ACTIVATION_ACCOUNT",
+      type: "plain_text",
+      text: p.activationAccount.previous,
+    });
   p.predecessor.publicSettingsInvariantSha256 = hashJson({
     bindings: [...bindings].sort((a, b) => a.name.localeCompare(b.name)),
   });
   const settings = {
     bindings: [
-      ...bindings,
+      ...bindings.map((b) =>
+        b.name === "APPROVED_ACTIVATION_ACCOUNT" && p.activationAccount
+          ? {
+              ...b,
+              text:
+                !!options.successor !== !!options.wrongActivation
+                  ? p.activationAccount.next
+                  : p.activationAccount.previous,
+            }
+          : b,
+      ),
       {
         name: "OPERATOR_PROFILE",
         type: "plain_text",
         text:
-          options.liveVersion === 3
+          options.liveVersion >= 3
             ? "pirate-learning-testnet-v3"
             : "pirate-karaoke-testnet-v2",
       },
-      ...(options.liveVersion === 3 && !options.missingV3
+      ...(options.liveVersion >= 3 && !options.missingV3
         ? [
             {
               name: "RESULTS_V3_CONTRACT",
@@ -57,6 +101,17 @@ async function observe(options: {
               text: options.wrongV3
                 ? p.selection.resultsV2.contract
                 : p.selection.resultsV3.contract,
+            },
+          ]
+        : []),
+      ...(options.liveVersion === 4
+        ? [
+            {
+              name: "RESULTS_V4_CONTRACT",
+              type: "plain_text",
+              text: options.wrongV4
+                ? p.selection.resultsV2.contract
+                : "0x4444444444444444444444444444444444444444",
             },
           ]
         : []),
@@ -137,4 +192,72 @@ test("malformed predecessor versions are refused before any cloud access", () =>
     (p.predecessor as Record<string, unknown>).resultsVersion = value;
     assert.throws(() => operatorProfile(p), /predecessor_version_invalid/);
   }
+});
+
+test("V4 binding is admitted only on the exact selected successor, retaining V3 before deployment", async () => {
+  await observe({ declared: 3, liveVersion: 3, v4Selection: true });
+  await observe({
+    declared: 3,
+    liveVersion: 4,
+    v4Selection: true,
+    successor: true,
+  });
+  for (const options of [
+    { declared: 3 as const, liveVersion: 4 as const, v4Selection: true },
+    {
+      declared: 3 as const,
+      liveVersion: 3 as const,
+      v4Selection: true,
+      successor: true,
+    },
+    { declared: 3 as const, liveVersion: 4 as const, successor: true },
+    {
+      declared: 3 as const,
+      liveVersion: 4 as const,
+      v4Selection: true,
+      successor: true,
+      wrongV4: true,
+    },
+  ])
+    await assert.rejects(
+      observe(options),
+      /study_operator_(v4_binding|binding)_changed/,
+    );
+});
+
+test("the selected pilot activation account changes only with the exact V4 module", async () => {
+  await observe({
+    declared: 3,
+    liveVersion: 3,
+    v4Selection: true,
+    activationReplacement: true,
+  });
+  await observe({
+    declared: 3,
+    liveVersion: 4,
+    v4Selection: true,
+    activationReplacement: true,
+    successor: true,
+  });
+  await assert.rejects(
+    observe({
+      declared: 3,
+      liveVersion: 3,
+      v4Selection: true,
+      activationReplacement: true,
+      wrongActivation: true,
+    }),
+    /activation_binding_changed/,
+  );
+  await assert.rejects(
+    observe({
+      declared: 3,
+      liveVersion: 4,
+      v4Selection: true,
+      activationReplacement: true,
+      successor: true,
+      wrongActivation: true,
+    }),
+    /activation_binding_changed/,
+  );
 });

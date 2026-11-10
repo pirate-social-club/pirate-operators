@@ -12,6 +12,7 @@ import {
 } from "../../packages/community/ipfs.ts";
 import { firstSong } from "../../services/first-song-profile.ts";
 import { learningV3PublicityPolicy } from "../../services/learning-policy-v3.ts";
+import { learningV4PublicityPolicy } from "../../services/learning-policy-v4.ts";
 import {
   retainedResultsV2,
   retainedLearningOperator,
@@ -32,6 +33,7 @@ export async function observeStudyActivation(
   successor = false,
   requirePin = false,
 ) {
+  const v4 = p.schema === "pirate.study-activation/2";
   insist(plan.profileHash === hashJson(p), "study_activation_profile_changed");
   insist((await client.getChainId()) === 6343, "study_activation_wrong_chain");
   const history = await readConfigurationHistory(
@@ -66,6 +68,16 @@ export async function observeStudyActivation(
       runtimeMatches(v3, artifact),
     "study_activation_contract_code_changed",
   );
+  if (v4) {
+    const previous = await client.getCode({
+      address: p.predecessor!.contract,
+      blockNumber,
+    });
+    insist(
+      previous && keccak256(previous) === p.predecessor!.codeHash,
+      "study_activation_predecessor_code_changed",
+    );
+  }
   const read = (functionName: string, args: readonly unknown[] = []) =>
     client.readContract({
       address: p.contract,
@@ -84,14 +96,20 @@ export async function observeStudyActivation(
       read("graders", [retainedLearningOperator.publisher, 2]),
     ]);
   insist(
-    version === 3 &&
+    version === (v4 ? 4 : 3) &&
       String(controller).toLowerCase() === p.controller.toLowerCase() &&
       community === p.communityId &&
-      publicity === learningV3PublicityPolicy &&
+      publicity ===
+        (v4 ? learningV4PublicityPolicy : learningV3PublicityPolicy) &&
       karaoke === true &&
       study === true,
     "study_activation_contract_state_changed",
   );
+  if (v4)
+    insist(
+      (await read("communityOrigin")) === p.communityOrigin,
+      "study_activation_contract_origin_changed",
+    );
   const currentPeriod = resultPeriod(block.timestamp);
   for (const [i, name] of (["karaoke", "study"] as const).entries()) {
     const policy = p.policies[name],

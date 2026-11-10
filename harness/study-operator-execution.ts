@@ -257,6 +257,7 @@ export function assertOperatorChildEnvironment(
     "LEARNING_PROFILE",
     "LEARNING_RESULTS_CONTRACT",
     "LEARNING_RESULTS_V3_CONTRACT",
+    ...(profile.learningV4 ? ["LEARNING_RESULTS_V4_CONTRACT"] : []),
     "LEARNING_GRADER_ADDRESS",
     "LEARNING_ISSUER_ADDRESS",
     "LEARNING_OPERATOR_PRIVATE_KEY",
@@ -268,6 +269,9 @@ export function assertOperatorChildEnvironment(
     "LEARNING_SPEECH_DAILY_LIMIT",
     "LEARNING_QUOTE_VALID_FROM",
     "LEARNING_QUOTE_VALID_UNTIL",
+    ...(profile.activationAccount
+      ? ["LEARNING_APPROVED_ACTIVATION_ACCOUNT"]
+      : []),
   ];
   const allowed = new Set([
     ...required,
@@ -290,6 +294,9 @@ export function assertOperatorChildEnvironment(
     LEARNING_PROFILE: "pirate-learning-testnet-v3",
     LEARNING_RESULTS_CONTRACT: profile.selection.resultsV2.contract,
     LEARNING_RESULTS_V3_CONTRACT: profile.selection.resultsV3.contract,
+    ...(profile.learningV4
+      ? { LEARNING_RESULTS_V4_CONTRACT: profile.learningV4.contract }
+      : {}),
     LEARNING_SPONSOR_CAP_WEI: profile.retained.limits.sponsorCapWei,
     LEARNING_GAS_PRICE_WEI: profile.retained.limits.gasPriceWei,
     LEARNING_GAS_LIMIT: profile.retained.limits.gasLimit,
@@ -297,6 +304,9 @@ export function assertOperatorChildEnvironment(
     LEARNING_SPEECH_DAILY_LIMIT: "0",
     LEARNING_QUOTE_VALID_FROM: String(profile.retained.quoteValidFrom),
     LEARNING_QUOTE_VALID_UNTIL: String(profile.retained.quoteValidUntil),
+    ...(profile.activationAccount
+      ? { LEARNING_APPROVED_ACTIVATION_ACCOUNT: profile.activationAccount.next }
+      : {}),
   };
   insist(
     Object.entries(expected).every(([k, v]) => env[k] === v) &&

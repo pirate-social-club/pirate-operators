@@ -5,7 +5,12 @@
 // service binding; the learner's socket goes to the operator's public origin.
 import type { Address, Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-import { bytes32, insist, object } from "../packages/community/common.ts";
+import {
+  bytes32,
+  CommunityError,
+  insist,
+  object,
+} from "../packages/community/common.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import {
   check,
@@ -37,6 +42,8 @@ import { consentTypes } from "../packages/protocol/records.ts";
 import { D1Store } from "./storage.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { publishedKaraoke } from "./karaoke-song.ts";
+import { practiceAuthorization, signInV4 } from "./learning-sign-in.ts";
+import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
 export interface KaraokeEnv {
@@ -54,9 +61,16 @@ export interface KaraokeEnv {
   KARAOKE_PAYMENT_TOKEN?: string;
   KARAOKE_RPC_URL?: string;
   KARAOKE_SIGNATURE_CHAIN_ID?: string;
+  /**
+   * The V4 results contract. When it is the directory's learning records, a
+   * new run is published under the learner's sign-in, with no enrollment.
+   */
+  STUDY_RESULTS_V4_CONTRACT?: string;
 }
 export interface KaraokeLearner {
   wallet: string;
+  /** The signed-in account; a V4 run binds its recorded sign-in. */
+  account_id?: string;
 }
 
 const configured = (env: KaraokeEnv, config: CommunityConfig) =>
@@ -72,6 +86,39 @@ const configured = (env: KaraokeEnv, config: CommunityConfig) =>
     (env.KARAOKE_SERVICE_MODE === "internal" || config.operatorPayments !== "0x0000000000000000000000000000000000000000")
   );
 export const karaokeAvailable = configured;
+
+/** New runs use V4 sign-in permission: internal results and V4 as the learning records. */
+export const karaokeResultsV4 = (env: KaraokeEnv, config: CommunityConfig) =>
+  env.KARAOKE_SERVICE_MODE === "internal" && !!signInV4(env, config);
+/** The operator's answers about a V4 run's sign-in permission. */
+const authorizationRefusals = new Set([
+  "karaoke_authorization_pending",
+  "karaoke_authorization_required",
+  "karaoke_authorization_mismatch",
+]);
+/**
+ * V4: the sign-in authorization a new run binds, chosen as for a Study
+ * lesson; the learner's first start relays a pending sign-in inline. A
+ * sign-in still being recorded is a retryable refusal.
+ */
+async function authorizationFor(
+  ports: KaraokePorts,
+  learner: KaraokeLearner,
+  atS: number,
+) {
+  insist(learner.account_id, "karaoke_authorization_required", 409);
+  const chosen = await practiceAuthorization(
+    ports.env,
+    ports.db,
+    learner.account_id!,
+    learner.wallet,
+    atS,
+    (ports.now ?? Date.now)(),
+  );
+  if (chosen.id) return chosen.id;
+  insist(!chosen.pending, "karaoke_authorization_pending", 409);
+  throw new CommunityError("karaoke_authorization_required", 409);
+}
 
 /** The shape the existing community purchase code reads. */
 function runtimeEnv(env: KaraokeEnv, config: CommunityConfig): Env {
@@ -166,11 +213,16 @@ async function connectionProof(
   });
 }
 
-/** One open ticket per learner; a retry for the same song returns it. */
+/**
+ * One open ticket per learner; a retry for the same song returns it.
+ * `endLessons` closes the account's open Study lessons in the community when
+ * a refusal reveals a withdrawal made directly on chain.
+ */
 export async function karaokeTicket(
   ports: KaraokePorts,
   learner: KaraokeLearner,
   value: Record<string, unknown>,
+  endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const postId = bytes32(value.postId);
   const { env, store, manifest, manifestSha256, quote } = await prepared(
@@ -178,12 +230,16 @@ export async function karaokeTicket(
       postId,
     ),
     wallet = learner.wallet as Address,
-    sessionKey = await sessionKeyFor(
-      store,
-      await store.get<WalletState>(`wallet:${wallet}`),
-      manifest.songHash,
-    ),
+    current = await store.get<WalletState>(`wallet:${wallet}`),
     now = await store.now(),
+    // A new V4 run binds the learner's sign-in, refused before any ticket or
+    // session key while it is being recorded. An open ticket keeps its own.
+    authorizationId =
+      karaokeResultsV4(ports.env, ports.config) &&
+      current?.open?.songHash !== manifest.songHash
+        ? await authorizationFor(ports, learner, now)
+        : undefined,
+    sessionKey = await sessionKeyFor(store, current, manifest.songHash),
     lastEndMs = manifest.segments.at(-1)!.endMs,
     open = await openTicket(
       store,
@@ -200,6 +256,7 @@ export async function karaokeTicket(
         maxDurationMs: lastEndMs + 5000,
         issuedAt: now,
         expiresAt: now + Math.ceil(lastEndMs / 1000) + 120,
+        ...(authorizationId ? { authorizationId } : {}),
       },
       (sequence) =>
         digest({
@@ -214,7 +271,26 @@ export async function karaokeTicket(
       throw error;
     });
   return {
-    ticket: await ensureTicket(env, store, wallet, open),
+    ticket: await ensureTicket(env, store, wallet, open).catch(
+      async (error: Error) => {
+        // The operator's sign-in permission answers reach the learner. A
+        // withdrawal made outside the application is noted first.
+        if (
+          error.message === "karaoke_authorization_required" &&
+          karaokeResultsV4(ports.env, ports.config) &&
+          learner.account_id
+        )
+          await noteChainWithdrawal(
+            ports.env,
+            ports.db,
+            { account_id: learner.account_id, wallet: learner.wallet },
+            endLessons,
+          ).catch(() => false);
+        if (authorizationRefusals.has(error.message))
+          insist(false, error.message, 409);
+        throw error;
+      },
+    ),
     socketUrl: socketUrl(ports.env),
     proof: await connectionProof(store, open.sessionKey, open.ticketId),
   };

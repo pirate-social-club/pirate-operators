@@ -13,7 +13,7 @@ import { terminalStudyFacts } from "../packages/study/result-adapter.ts";
 import type { StudyTerminalFacts } from "../packages/study/terminal-facts.ts";
 import type { StudyPublicationReceipt } from "../packages/study/publication.ts";
 import type { LyricManifest } from "../packages/community/lyric-manifest.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type { StudyBinding } from "./study-operator.ts";
 import { erasedStudyReceipt } from "./study-private-history.ts";
 
 export interface StudyOutboxRow {
@@ -60,14 +60,26 @@ export async function freezeStudyOutbox(
     state,
     source,
   });
-  const binding = JSON.parse(row.binding_json) as StudyOperatorBinding;
+  const binding = JSON.parse(row.binding_json) as StudyBinding;
   const ordinals = unpackStudyOutcomes(
     terminal.outcomes,
     state.items.length,
   ).map((item) => item.sourceOrdinal);
-  studyCheck(
-    binding.target.version === 3 &&
+  // V3 lessons stay inside their enrollment. A V4 lesson's sign-in has a
+  // start and no end; withdrawal is re-read on chain before dispatch.
+  const granted = binding.authorization
+    ? binding.target.version === 4 &&
+      binding.authorization.target.version === 4 &&
+      binding.authorization.target.chainId === binding.target.chainId &&
+      binding.authorization.target.contract.toLowerCase() ===
+        binding.target.contract.toLowerCase() &&
+      Math.floor(terminal.startedAt / 1000) >= binding.authorization.issuedAt
+    : binding.target.version === 3 &&
       !!(binding.enrollment.activities! & 2) &&
+      Math.floor(terminal.startedAt / 1000) >= binding.enrollment.issuedAt &&
+      Math.floor(terminal.completedAt / 1000) < binding.enrollment.expiresAt;
+  studyCheck(
+    granted &&
       binding.offerHash === digest(binding.offer) &&
       binding.exercisesHash === studyExercisesHash(ordinals) &&
       canonical(
@@ -87,9 +99,7 @@ export async function freezeStudyOutbox(
       digest(source) === binding.offer.sourceDigest &&
       source.communityId === owner.communityId &&
       terminal.startedAt === binding.offer.startedAt &&
-      terminal.expiresAt === binding.offer.expiresAt &&
-      Math.floor(terminal.startedAt / 1000) >= binding.enrollment.issuedAt &&
-      Math.floor(terminal.completedAt / 1000) < binding.enrollment.expiresAt,
+      terminal.expiresAt === binding.offer.expiresAt,
     "study_terminal_binding_changed",
     409,
   );

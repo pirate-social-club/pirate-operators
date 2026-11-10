@@ -14,20 +14,32 @@ import type {
   StudyPublicationReceipt,
 } from "../packages/study/publication.ts";
 import { studyId } from "../packages/study/operator-contract.ts";
-import type { StudyOperatorBinding } from "./study-operator.ts";
+import type { StudyBinding } from "./study-operator.ts";
+import { studyAuthorizationState } from "./study-authorization.ts";
 import {
   contractAbi,
+  legacyResultsWithdrawn,
   resultClient,
   readResultContract,
   resultPolicyAt,
   retainedTarget,
+  sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
 import {
+  resultUnsent,
   submitResultTransaction,
+  withdrawUnsentResult,
   type ResultStore,
 } from "./learning-transactions.ts";
-import { intentOf, txRow } from "./operator-tx.ts";
+import {
+  intentOf,
+  provenUnsent,
+  recheckSuperseded,
+  txRow,
+  withheldUnpublished,
+  type TxRow,
+} from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
 import type { Env } from "./runtime.ts";
 import {
@@ -137,15 +149,20 @@ async function freeze(
     check(old.requestHash === hash, "study_terminal_changed");
     return;
   }
-  const binding = store.get<StudyOperatorBinding>(
-    "studyBinding:" + input.lessonId,
-  );
+  const binding = store.get<StudyBinding>("studyBinding:" + input.lessonId);
   check(binding, "study_lesson_not_bound");
   const target = retainedTarget(env, binding.target);
-  check(
-    target.version === 3 && binding.enrollment.activities! & 2,
-    "study_enrollment_mismatch",
-  );
+  if (binding.authorization)
+    check(
+      target.version === 4 &&
+        sameResultsTarget(binding.authorization.target, target),
+      "study_authorization_mismatch",
+    );
+  else
+    check(
+      target.version === 3 && binding.enrollment.activities! & 2,
+      "study_enrollment_mismatch",
+    );
   check(
     input.terminal.startedAt === binding.offer.startedAt &&
       input.terminal.expiresAt === binding.offer.expiresAt &&
@@ -154,13 +171,22 @@ async function freeze(
       input.source.communityId === env.COMMUNITY_ID,
     "study_terminal_binding_changed",
   );
-  const bundle = studyFactsBundle({
+  const facts = {
     ...input,
-    enrollment: binding.enrollment,
     learner: binding.offer.learner,
     grader: env.OPERATOR_ADDRESS,
     qualificationPolicy: zeroHash,
-  });
+  };
+  // V4: the authorization id is the result's enrollmentId and its session's.
+  const bundle = binding.authorization
+    ? studyFactsBundle({
+        ...facts,
+        authorization: {
+          id: binding.authorization.id,
+          issuedAt: binding.authorization.issuedAt,
+        },
+      })
+    : studyFactsBundle({ ...facts, enrollment: binding.enrollment });
   check(
     bundle.result.exercisesHash === binding.exercisesHash &&
       canonical(
@@ -252,6 +278,8 @@ async function observe(
   const clean = { ...job.receipt };
   delete clean.reason;
   delete clean.canonicalRevision;
+  // A result once held private and found on chain is not "never submitted".
+  delete clean.neverSubmitted;
   if (
     job.receipt.canonicalHead &&
     BigInt(job.receipt.canonicalHead.number) > head.number &&
@@ -348,6 +376,7 @@ async function observe(
   return {
     row,
     current,
+    blockNumber: head.number,
     timestamp: head.timestamp,
     revision,
     receipt:
@@ -399,14 +428,62 @@ export async function resumeStudyPublication(
   );
   job = { ...job, lastTriedAt: store.now() };
   store.set(key(id), job);
+  // A private result whose transaction was allocated and then withheld is
+  // observed again: it is never reported private while its commitment is on
+  // chain. Erasure, below, also requires that commitment to be absent.
+  const withheldPrivate =
+    job.receipt.state === "private" &&
+    !!(intent?.nonce != null && txRow(store, intent.nonce)?.withheld);
   if (
-    job.receipt.state === "private" ||
+    (job.receipt.state === "private" && !withheldPrivate) ||
     (job.receipt.state === "failed" && !studyRevisionRecovery(job.receipt))
   )
     return (await eraseNeverSubmittedStudy(env, store, id, job)) ?? job.receipt;
   const observed = await observe(env, store, id, job);
-  if (observed.receipt)
+  if (observed.receipt) {
+    if (observed.row?.mined?.status === "superseded")
+      await recheckSuperseded(env, store, observed.row.nonce, true);
     return saveReceipt(store, id, job, observed.receipt, observed.revision);
+  }
+  // Withheld after its nonce was allocated and proven never sent, or whose
+  // nonce went to another transaction: it can never publish. A row that may
+  // have been sent is never sent again; its commitment, read above, decides.
+  if (withheldUnpublished(observed.row))
+    return keepCancelled(env, store, id, job, observed.row!);
+  // V4: an unfinished lesson earns nothing and is never sent. A finished one
+  // is sent only while its sign-in permission is unbroken; withdrawal keeps it
+  // private. Both keep the bounded private-history erasure.
+  if (job.target.version === 4 && intent?.nonce == null) {
+    if (Number(job.result.status) !== 1)
+      return keepPrivate(env, store, id, job, "unfinished");
+    // The contract's publish rule, re-read just before dispatch.
+    const permission = await studyAuthorizationState(
+      env,
+      job.target,
+      job.result.learner,
+      job.result.enrollmentId,
+    );
+    if (
+      !permission.ownedBy ||
+      !permission.unbroken ||
+      BigInt(permission.issuedAt) > BigInt(job.result.startedAt)
+    )
+      return keepPrivate(env, store, id, job, "authorization_withdrawn");
+  }
+  // V3: after the learner's V4 withdrawal in this community, by settings or
+  // directly on the V4 contract, a result not yet sent stays private,
+  // whatever its enrollment says. Not yet sent means no nonce allocated: a
+  // dispatch that failed before allocating leaves a queued intent, which the
+  // closure withdraws. The chain is read at the observed block; a failed read
+  // throws and leaves the result pending for the next retry.
+  const legacy = job.target.version !== 4,
+    learner = job.result.learner;
+  const withheld = async (blockNumber?: bigint) =>
+    legacy &&
+    resultUnsent(store, "record_result", ref) &&
+    (await legacyResultsWithdrawn(env, store, learner, blockNumber));
+  if (await withheld(observed.blockNumber))
+    return keepPrivate(env, store, id, job, "authorization_withdrawn");
   // Wait for chain time without charging a transaction that would revert.
   if (BigInt(job.result.completedAt) > observed.timestamp)
     return saveReceipt(store, id, job, {
@@ -431,7 +508,7 @@ export async function resumeStudyPublication(
       mined: null,
     });
   }
-  if (intent?.nonce == null) {
+  if (intent?.nonce == null && job.target.version !== 4) {
     const [grant, activities, , expires] = await readResultContract<
       readonly [Hex, bigint, bigint, bigint]
     >(env, job.target, "enrollments", [job.result.learner]);
@@ -439,33 +516,8 @@ export async function resumeStudyPublication(
       grant !== job.result.enrollmentId ||
       !(activities & 2n) ||
       Number(expires) <= store.now()
-    ) {
-      // Re-check after asynchronous grant reads. A competing queued native
-      // operation is recovery evidence, even before it receives a nonce.
-      if (
-        !(await proveNeverSubmittedStudy(env, store, id, job)) ||
-        studyNativeEvidence(store, id)
-      )
-        return job.receipt;
-      releaseSponsorship(store, sponsorLimits(env), "record_result:" + ref);
-      releaseSponsorship(
-        store,
-        sponsorLimits(env),
-        "record_result:study:" + id + ":2",
-      );
-      const receipt = saveReceipt(store, id, job, {
-        ...job.receipt,
-        state: "private",
-        confirmed: false,
-        reason: "enrollment_inactive",
-        neverSubmitted: true,
-        checkedAt: store.now(),
-      });
-      return (
-        (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
-        receipt
-      );
-    }
+    )
+      return keepPrivate(env, store, id, job, "enrollment_inactive");
   }
   const latest = store.get<PublicationJob>(key(id));
   const final = closedStudyPublication(store, id);
@@ -476,6 +528,11 @@ export async function resumeStudyPublication(
       !studyRevisionRecovery(latest.receipt))
   )
     return latest.receipt;
+  // A withdrawal accepted or mined during the reads above still stops it.
+  if (await withheld())
+    return keepPrivate(env, store, id, job, "authorization_withdrawn");
+  // The transaction path checks again where the nonce is allocated and
+  // before every send, including recovery's (legacyResultGate).
   await submitResultTransaction(
     env,
     store,
@@ -488,6 +545,10 @@ export async function resumeStudyPublication(
   // already have recorded the same canonical commitment.
   job = store.get<PublicationJob>(key(id))!;
   const after = await observe(env, store, id, job);
+  // Withheld during that dispatch: private only if the commitment, read
+  // after it, is still absent.
+  if (!after.receipt && withheldUnpublished(after.row))
+    return keepCancelled(env, store, id, job, after.row!);
   return saveReceipt(
     store,
     id,
@@ -503,6 +564,79 @@ export async function resumeStudyPublication(
         : {}),
     },
     after.revision,
+  );
+}
+/**
+ * A result whose withheld transaction can never publish: private. It is
+ * never submitted only when the transaction was proven never sent; erasure
+ * waits until its nonce is consumed on chain (studyNativeEvidence).
+ */
+async function keepCancelled(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+  row: TxRow,
+) {
+  const unsent = provenUnsent(row);
+  const receipt = saveReceipt(store, id, job, {
+    ...job.receipt,
+    state: "private",
+    confirmed: false,
+    reason: row.withheld!.reason as "authorization_withdrawn",
+    neverSubmitted: unsent,
+    transactionHash: unsent ? null : (row.hash ?? null),
+    checkedAt: store.now(),
+  });
+  return (
+    (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
+    receipt
+  );
+}
+/**
+ * Records a never-submitted result as private, releases its sponsorship and
+ * runs the bounded private-history erasure once that is due.
+ */
+async function keepPrivate(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+  reason: "enrollment_inactive" | "unfinished" | "authorization_withdrawn",
+) {
+  // Every caller decided before a nonce was allocated. Withdraw the result's
+  // own transaction if it is queued without one, so nothing can send it
+  // later; if a nonce was allocated meanwhile, it may be on its way.
+  if (!withdrawUnsentResult(env, store, "record_result", reference(id)))
+    return job.receipt;
+  // Re-check after asynchronous grant reads. A competing queued native
+  // operation is recovery evidence, even before it receives a nonce.
+  if (
+    !(await proveNeverSubmittedStudy(env, store, id, job)) ||
+    studyNativeEvidence(store, id)
+  )
+    return job.receipt;
+  releaseSponsorship(
+    store,
+    sponsorLimits(env),
+    "record_result:" + reference(id),
+  );
+  releaseSponsorship(
+    store,
+    sponsorLimits(env),
+    "record_result:study:" + id + ":2",
+  );
+  const receipt = saveReceipt(store, id, job, {
+    ...job.receipt,
+    state: "private",
+    confirmed: false,
+    reason,
+    neverSubmitted: true,
+    checkedAt: store.now(),
+  });
+  return (
+    (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??
+    receipt
   );
 }
 export async function publishStudyTerminal(

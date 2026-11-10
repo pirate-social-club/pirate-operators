@@ -5,9 +5,18 @@ import {
   type StudyCommunityPorts,
 } from "./study-community.ts";
 import { makeStudyService } from "./study-spoken.ts";
-import { makeStudyLessonService } from "./study-lessons.ts";
+import { StudyLessonStore } from "../packages/study/lesson-store.ts";
+import {
+  makeStudyLessonService,
+  STUDY_CLOSE_BOUND_SQL,
+  studyCloseBoundBinds,
+} from "./study-lessons.ts";
 
-/** Bounded, account-scoped recovery, independent of browser or session cookies. */
+/**
+ * Bounded, account-scoped recovery, independent of browser or session cookies.
+ * An open lesson is due once its close bound passes: the deadline of a legacy
+ * lesson, or the end of the consent a new lesson was bound to.
+ */
 export async function recoverStudyLessons(
   ports: StudyCommunityPorts,
   limit = 20,
@@ -24,7 +33,7 @@ export async function recoverStudyLessons(
     SELECT l.lesson_id,l.account_id,l.community_id,l.history_deleted_at,p.learner
     FROM study_lessons l LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
     WHERE l.community_id=? AND (
-      (json_extract(l.state_json,'$.status')='active' AND json_extract(l.state_json,'$.expiresAt')<=?) OR
+      (json_extract(l.state_json,'$.status')='active' AND ${STUDY_CLOSE_BOUND_SQL}<=?) OR
       ((l.history_deleted_at IS NOT NULL OR json_extract(l.state_json,'$.status')!='active') AND
         (p.state IN ('bound','pending') OR (p.state='published' AND
           (json_extract(p.receipt_json,'$.confirmed')=0 OR p.updated_at<=?)) OR
@@ -35,6 +44,7 @@ export async function recoverStudyLessons(
     )
     .bind(
       ports.config.communityId,
+      ...studyCloseBoundBinds,
       now(),
       now() - 3600000,
       now() - 3600000,
@@ -72,6 +82,9 @@ export async function recoverStudyLessons(
         await makeStudyLessonService({
           db: ports.db,
           now,
+          // This draft has no binding row; the lookup confirms that.
+          consentExpiry: (owner, id) =>
+            new StudyLessonStore(ports.db).consentExpiry(owner, id),
           attempts,
           resolveLines: unavailable,
         }).get(

@@ -9,6 +9,9 @@ import {
 } from "./learning-community-profile.ts";
 import { assertCuratedUpgrade, curatedBaselines } from "./curated-upgrade.ts";
 import { assertStudyApplicationUpgrade } from "./study-application-upgrade.ts";
+import { assertRewardsApplicationUpgrade } from "./rewards-release-profile.ts";
+import { assertPublishingApplicationUpgrade } from "./publishing-release-profile.ts";
+import { assertLearningV4ApplicationUpgrade } from "./learning-v4-release-profile.ts";
 // Bounded update of a previously applied, independently reviewed package.
 // Ownership and fresh live module checks are supplied by each owning runner.
 import {
@@ -88,7 +91,28 @@ export async function reviewedPredecessor(
     object(packaged.profile.learning ?? {}).studyContract ||
     object(object(previous.profile).learning ?? {}).studyContract
   );
-  if (study)
+  const rewards = !!(
+    packaged.profile.rewards || object(previous.profile).rewards
+  );
+  const publishing = !!(
+    packaged.profile.ownerPublishing || object(previous.profile).ownerPublishing
+  );
+  const learningV4 = !!(
+    packaged.profile.learningV4 || object(previous.profile).learningV4
+  );
+  if (learningV4)
+    assertLearningV4ApplicationUpgrade(
+      object(previous.profile),
+      packaged.profile,
+    );
+  else if (publishing)
+    assertPublishingApplicationUpgrade(
+      object(previous.profile),
+      packaged.profile,
+    );
+  else if (rewards)
+    assertRewardsApplicationUpgrade(object(previous.profile), packaged.profile);
+  else if (study)
     assertStudyApplicationUpgrade(object(previous.profile), packaged.profile);
   if (
     previous.profileHash === publishedBaselines.application &&

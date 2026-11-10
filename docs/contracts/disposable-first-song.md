@@ -1,5 +1,10 @@
 # Disposable first-song deployment
 
+Successor, November 8: the completed registered journey below is unchanged,
+including policy pirate-owner-curated/2026-11-05/1, its hashes and its
+acceptance evidence. The owner-only unregistered successor for launch is
+[owner-only MegaETH song publication](../megaeth-song-publication.md).
+
 Owner approval, November 4, following the independent review: the ordinary-HTTPS
 first-song test does not wait for real governance accounts or the automated HNS
 verifier. Use a disposable

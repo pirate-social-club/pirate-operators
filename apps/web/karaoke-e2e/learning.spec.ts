@@ -18,7 +18,7 @@ test.afterEach(async ({ page }, info) => {
   }
 });
 
-test("one enrollment sponsors repeated terminal publications, history export and revocation", async ({
+test("one enrollment sponsors repeated terminal publications and history export", async ({
   page,
 }) => {
   let approvals = 0;
@@ -133,13 +133,12 @@ test("one enrollment sponsors repeated terminal publications, history export and
       expect((await records()).length).toBe(1);
     }
   }
+  // Results are always public: settings offer no way to stop publication.
   await page.getByRole("button", { name: "Learning settings" }).click();
-  await page.getByRole("menuitem", { name: "Stop public enrollment" }).click();
-  await expect(
-    page.getByText(
-      "Public enrollment stopped. Earlier publications remain public.",
-    ),
-  ).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole("menuitem")).toHaveText([
+    "Download private history",
+  ]);
+  await page.keyboard.press("Escape");
   expect((await records()).length).toBe(2);
 });
 

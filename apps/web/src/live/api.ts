@@ -15,18 +15,30 @@ export type {
   CommunityJobView,
 };
 
-export async function get<T>(path: string): Promise<T> {
+export async function get<T>(
+  path: string,
+  options: { timeoutMs?: number; headers?: Record<string, string> } = {},
+): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
-    headers: { accept: "application/json" },
+    headers: { accept: "application/json", ...options.headers },
     cache: "no-store",
+    ...(options.timeoutMs
+      ? { signal: AbortSignal.timeout(options.timeoutMs) }
+      : {}),
   });
-  if (!response.ok)
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
     throw new Error(
       response.status === 401
         ? "Sign in to continue."
-        : "The community is temporarily unavailable. Please try again.",
+        : error.error === "study_account_changed"
+          ? messages.study_account_changed
+          : "The community is temporarily unavailable. Please try again.",
     );
+  }
   return response.json() as Promise<T>;
 }
 export async function post<T>(
@@ -47,9 +59,13 @@ export async function post<T>(
   });
   const value = (await response.json()) as T & { error?: string };
   if (!response.ok)
-    throw new Error(
-      messages[value.error ?? ""] ??
-        "This step could not complete. Retry the same step.",
+    // The server's code stays available to callers that retry on it.
+    throw Object.assign(
+      new Error(
+        messages[value.error ?? ""] ??
+          "This step could not complete. Retry the same step.",
+      ),
+      { code: value.error },
     );
   return value;
 }
@@ -68,17 +84,50 @@ export async function putAudio(path: string, file: File, csrf: string) {
     );
 }
 const messages: Record<string, string> = {
+  study_account_changed:
+    "You are signed in with a different account. Reload to continue.",
+  karaoke_authorization_pending:
+    "Your sign-in is still being confirmed. Try again in a moment.",
+  karaoke_authorization_required:
+    "Sign out, then sign in again to continue.",
+  public_results_unavailable: "Public results settings are unavailable here.",
+  reward_unmatched_outgoing:
+    "Review the unmatched outgoing transfer before preparing another payment.",
+  reward_audit_catching_up:
+    "Wallet history is still being checked. Refresh the audit, then continue.",
+  reward_payout_account_busy:
+    "The payout account has an unresolved payment. Check that payment first.",
+  reward_reserve_not_funded:
+    "The verified payout reserve does not cover this payment yet.",
+  reward_cost_matches_payment:
+    "This transfer belongs to a payment. Reconcile the payment instead of recording a cost.",
+  megapot_drawing_pending: "The drawing has not settled. Keep it pending.",
+  megapot_collection_receipt_required:
+    "Record the actual winnings collection transaction before crediting this win.",
+  reward_sources_not_qualified:
+    "The reward source configuration has not been qualified.",
   study_history_expired: "This private history has expired.",
-  sponsor_exhausted: "Sponsored practice is paused because the community allowance is exhausted.",
-  gas_price_above_limit: "Sponsored publication is waiting for the network fee to fall within the community limit.",
-  speech_budget_exhausted: "Speech practice has reached today's community limit.",
-  public_result_manifest_unavailable: "This song's public learning material is still being prepared.",
-  account_activation_not_approved: "This testnet wallet needs operator activation approval before enrollment.",
-  enrollment_not_active_yet: "Your enrollment is confirming. Try again in a moment.",
+  sponsor_exhausted:
+    "Sponsored practice is paused because the community allowance is exhausted.",
+  gas_price_above_limit:
+    "Sponsored publication is waiting for the network fee to fall within the community limit.",
+  speech_budget_exhausted:
+    "Speech practice has reached today's community limit.",
+  public_result_manifest_unavailable:
+    "This song's public learning material is still being prepared.",
+  account_activation_not_approved:
+    "This testnet wallet needs operator activation approval before enrollment.",
+  enrollment_not_active_yet:
+    "Your enrollment is confirming. Try again in a moment.",
   creator_service_unavailable:
     "The creator wallet service is unavailable. Your progress is saved.",
   release_processing_unavailable:
-    "Release processing is temporarily unavailable. Your wallet connection is saved.",
+    "Release processing is temporarily unavailable. Your saved release stays saved.",
+  owner_publication_only: "Only the community owner can release songs here.",
+  owner_authorization_outside_window:
+    "Releasing is paused until the operator renews publishing. Your saved release stays saved.",
+  owner_authorization_unavailable:
+    "Release processing is temporarily unavailable. Your saved release stays saved.",
   invalid_login_signature:
     "MOSS could not verify the sign-in. Please try again.",
   expired_or_replayed_challenge:

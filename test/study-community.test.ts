@@ -1,4 +1,8 @@
 import test from "node:test";
+import {
+  closeBoundOf,
+  startLegacyThroughRoutes,
+} from "./study-close-bound-fixture.ts";
 import assert from "node:assert/strict";
 import { studyCommunityFixture } from "./study-community-fixture.ts";
 import { firstSongFixture } from "../harness/karaoke-live.ts";
@@ -246,11 +250,27 @@ test(
       assert.equal(pending.lesson.progress.firstPassGraded, 1);
       await f.call(path(lesson.lessonId), { headers: auth });
       assert.deepEqual(f.counts(), { calls: 2, observations: 2 });
-      f.advance(3600001);
+      // No learner deadline: the lesson closes only at its bound consent's
+      // last second. Legacy one-hour expiry is covered in the recovery and
+      // retention suites.
+      const bound = await closeBoundOf(f.db, lesson.lessonId);
+      assert.equal(bound.reason, "consent_ended");
+      f.advance(bound.at - f.clock() - 1);
+      assert.equal(
+        (
+          await json<StudyLesson>(
+            await f.call(path(lesson.lessonId), { headers: auth }),
+          )
+        ).status,
+        "active",
+      );
+      f.advance(1);
       const expired = await json<StudyLesson>(
         await f.call(path(lesson.lessonId), { headers: auth }),
       );
-      assert.equal(expired.status, "expired");
+      assert.equal(expired.status, "abandoned");
+      assert.equal(expired.completionReason, "consent_ended");
+      assert.equal(expired.completedAt, bound.at);
       assert.equal(expired.progress.firstPassGraded, 1);
       const terminal = await f.db
         .prepare("SELECT state_json FROM study_lessons WHERE lesson_id=?")
@@ -273,8 +293,15 @@ test(
     try {
       const auth = await f.login();
       await f.enroll();
-      for (const mode of ["abandoned", "expired"] as const) {
-        const { lesson } = await start(f, auth);
+      for (const mode of ["abandoned", "expired", "consent_ended"] as const) {
+        const lesson =
+          mode === "expired"
+            ? await startLegacyThroughRoutes(
+                f,
+                auth,
+                (await start(f, auth)).song,
+              )
+            : (await start(f, auth)).lesson;
         const opened = await open(f, auth, lesson);
         f.heard(opened.attempt.line.text);
         f.lose("/study/speech");
@@ -288,7 +315,11 @@ test(
             recording(auth),
           ),
         );
-        if (mode === "expired") f.advance(3600001);
+        // Legacy: one-hour deadline. New: the bound consent's last second.
+        if (mode !== "abandoned")
+          f.advance(
+            (await closeBoundOf(f.db, lesson.lessonId)).at - f.clock() + 1,
+          );
         const closed = await json<StudyLesson>(
           mode === "abandoned"
             ? await f.post(path(lesson.lessonId) + "/abandon", {}, auth)
@@ -298,11 +329,22 @@ test(
         const again = await json<StudyLesson>(
           await f.call(path(lesson.lessonId), { headers: auth }),
         );
-        assert.equal(again.status, mode);
+        assert.equal(
+          again.status,
+          mode === "consent_ended" ? "abandoned" : mode,
+        );
+        assert.equal(
+          again.completionReason,
+          {
+            abandoned: "left",
+            expired: "deadline",
+            consent_ended: "consent_ended",
+          }[mode],
+        );
         assert.equal(again.progress.firstPassGraded, 0);
         assert.deepEqual(again, closed);
       }
-      assert.deepEqual(f.counts(), { calls: 2, observations: 2 });
+      assert.deepEqual(f.counts(), { calls: 3, observations: 3 });
     } finally {
       await f.dispose();
     }

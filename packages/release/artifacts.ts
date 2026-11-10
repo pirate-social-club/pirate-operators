@@ -1,8 +1,10 @@
 import { canonical, insist, hashJson } from "../community/common.ts";
 import { preparePin, type PinIntent } from "../community/ipfs.ts";
 import {
+  ABSENT_REGISTRATION,
   validatePost,
   validateRegistration,
+  type AbsentRegistration,
   type RegistrationReceipt,
 } from "../community/post-manifest.ts";
 import {
@@ -55,6 +57,8 @@ export async function releaseArtifact(
     insist(object, "retained_release_audio_missing", 503);
     bytes = new Uint8Array(await object.arrayBuffer());
   } else if (role === "lyrics") bytes = encode(context.lyrics);
+  else if (release.unregistered && role !== "post_manifest")
+    insist(false, "registration_artifact_not_applicable", 409);
   else {
     const audio = await retainedArtifact(db, grant.sha256, "audio");
     const identity = {
@@ -98,27 +102,32 @@ export async function releaseArtifact(
       });
     else {
       const lyrics = await retainedArtifact(db, grant.sha256, "lyrics");
-      const row = await db
-        .prepare(
-          "SELECT result_json FROM funded_registrations WHERE grant_hash=? AND state='confirmed'",
-        )
-        .bind(grant.sha256)
-        .first<{ result_json: string }>();
-      insist(row, "release_registration_not_ready", 409);
-      const registration: RegistrationReceipt = validateRegistration(
-        JSON.parse(row.result_json),
-      );
-      insist(
-        registration.recipient === context.recipient &&
-          registration.contentSha256 === grant.contentSha256,
-        "release_registration_mismatch",
-        503,
-      );
+      let registration: RegistrationReceipt | AbsentRegistration;
+      if (release.unregistered) registration = { ...ABSENT_REGISTRATION };
+      else {
+        const row = await db
+          .prepare(
+            "SELECT result_json FROM funded_registrations WHERE grant_hash=? AND state='confirmed'",
+          )
+          .bind(grant.sha256)
+          .first<{ result_json: string }>();
+        insist(row, "release_registration_not_ready", 409);
+        const receipt = validateRegistration(JSON.parse(row.result_json));
+        insist(
+          receipt.recipient === context.recipient &&
+            receipt.contentSha256 === grant.contentSha256,
+          "release_registration_mismatch",
+          503,
+        );
+        registration = receipt;
+      }
       bytes = encode(
         validatePost({
-          schema: ownerCurated(config.policies.admission)
-            ? "pirate.community-post/2"
-            : "pirate.community-post/1",
+          schema: release.unregistered
+            ? "pirate.community-post/3"
+            : ownerCurated(config.policies.admission)
+              ? "pirate.community-post/2"
+              : "pirate.community-post/1",
           ...identity,
           kind: "song",
           revision: 1,
@@ -145,7 +154,7 @@ export async function releaseArtifact(
               release.decision.rating === "adult_18" ? "adult" : "general",
             coverDisplayed: false,
             evidenceSha256: release.evidenceSha256,
-            ...(ownerCurated(config.policies.admission)
+            ...(release.unregistered || ownerCurated(config.policies.admission)
               ? {
                   automatedContent: "deferred",
                   declarationSource: "operator_declared",

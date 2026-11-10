@@ -66,19 +66,41 @@ test("an inconsistent disclosure cannot prompt a signature or start a Study less
   expect(state.counts.starts).toBe(0);
 });
 
+test("a V3 community's footer links the V3 learning documents while the Study surface links none", async ({
+  page,
+}) => {
+  const state = await serveStudy(page);
+  await page.goto(state.url);
+  await expect(page.locator(".study-surface h2")).toBeVisible();
+  await expect(page.locator(".live-study-overlay").getByRole("link")).toHaveCount(0);
+  await page.getByRole("button", { name: "Exit study" }).click();
+  const footer = page.getByRole("navigation", { name: "Community documents" });
+  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
+  for (const [name, href] of [
+    ["Terms", "/terms"],
+    ["Privacy", "/privacy"],
+    ["Learning terms", "/learning/v3/terms"],
+    ["Learning privacy", "/learning/v3/privacy"],
+  ] as const)
+    await expect(footer.getByRole("link", { name, exact: true })).toHaveAttribute(
+      "href",
+      href,
+    );
+  // Only the community's own version is linked.
+  await expect(page.locator('a[href^="/learning/v4/"]')).toHaveCount(0);
+});
+
 test("the account menu downloads saved Study history after exit and reports expiry without another lesson", async ({
   page,
 }) => {
   const state = await serveStudy(page);
   await page.goto(state.url);
-  const disclosure = page.getByRole("navigation", { name: "Study policies" });
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The exercise surface carries no policy links; the documents stay in
+  // normal site navigation.
   await expect(
-    disclosure.getByRole("link", { name: "Terms", exact: true }),
-  ).toHaveAttribute("href", "/learning/v3/terms");
-  await expect(
-    disclosure.getByRole("link", { name: "Privacy", exact: true }),
-  ).toHaveAttribute("href", "/learning/v3/privacy");
+    page.getByRole("navigation", { name: "Study policies" }),
+  ).toHaveCount(0);
   await expect(page.locator(".study-surface h2")).toBeVisible();
   const lessonId = new URL(page.url()).searchParams.get("lesson");
   await page.getByRole("button", { name: "Exit study" }).click();
@@ -210,6 +232,28 @@ test("a Study link opens the wallet directly, wallet rejection starts nothing, a
   expect(state.counts.abandons).toBe(0);
 });
 
+for (const mode of ["hang", "reject"] as const) {
+  test(`Study opens and resumes while optional reward offers ${mode === "hang" ? "never answer" : "fail"}`, async ({
+    page,
+  }) => {
+    const state = await serveStudy(page, { rewardOffers: mode });
+    await page.goto(state.url);
+    await expect(page.locator(".study-surface h2")).toHaveText("Hold me close");
+    await expect(
+      page.getByRole("button", { name: "Record", exact: true }),
+    ).toBeEnabled();
+    expect(state.counts.rewardOfferRequests).toBe(1);
+    expect(state.counts.starts).toBe(1);
+    const lessonUrl = page.url();
+    expect(new URL(lessonUrl).searchParams.get("lesson")).toBeTruthy();
+    await page.reload();
+    await expect(page.locator(".study-surface h2")).toHaveText("Hold me close");
+    await expect(page).toHaveURL(lessonUrl);
+    await expect.poll(() => state.counts.rewardOfferRequests).toBe(2);
+    expect(state.counts.starts).toBe(1);
+  });
+}
+
 test("a lost lesson-start response resumes the saved lesson without a second enrollment or start", async ({
   page,
 }) => {
@@ -295,63 +339,34 @@ test("a rejected restart keeps the completed first-pass result and displays its 
   });
   await page.getByRole("button", { name: "Study again", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveText(
-    "Your answer could not be saved. Try again.",
+    "A new lesson could not start. Try again.",
   );
   await expect(page.getByText("3/4", { exact: true })).toBeVisible();
   await expectNoPublicationPanel(page);
   expect(state.counts.starts).toBe(1);
 });
 for (const status of ["expired", "abandoned"] as const) {
-  test(`${status} Study reconciles publication in the background and preserves unfinished outcomes`, async ({
+  test(`reopening Study after an ${status} lesson starts a new lesson`, async ({
     page,
   }) => {
-    await page.clock.install();
     const state = await serveStudy(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(state.url);
     await expect(page.locator(".study-surface h2")).toBeVisible();
+    const starts = state.counts.starts;
     state.end(status);
-    const pending = publicationResponse(page);
     await page.reload();
-    expect((await (await pending).json()).state).toBe("pending");
-    await expect(
-      page.getByRole("heading", {
-        name: status === "expired" ? "Lesson expired" : "Lesson ended",
-        exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "Your saved answers are kept. Unfinished lines do not count as wrong answers.",
-        { exact: true },
-      ),
-    ).toBeVisible();
-    await expect(page.getByText("Missed", { exact: true })).toHaveCount(0);
-    await expectNoPublicationPanel(page);
-    const confirming = publicationResponse(page);
-    state.publish();
-    await page.clock.runFor(3100);
-    const response = await confirming;
-    expect((await response.json()).receipt.confirmed).toBe(true);
-    await response.finished();
-    await page.evaluate(() => Promise.resolve());
-    const checks = state.counts.publicationChecks;
-    await page.clock.runFor(15000);
-    expect(state.counts.publicationChecks).toBe(checks);
-    expect(state.counts.terminalReads).toBeGreaterThanOrEqual(checks);
-    await expectNoPublicationPanel(page);
-    await expect(
-      page.getByRole("navigation", { name: "Study policies" }),
-    ).toBeInViewport();
+    // An ended lesson is never shown again; the server recovers its
+    // publication on its own schedule.
+    await expect(page.locator(".study-surface h2")).toBeVisible();
+    for (const name of ["Lesson expired", "Lesson ended"])
+      await expect(page.getByRole("heading", { name })).toHaveCount(0);
+    expect(state.counts.starts).toBe(starts + 1);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await page.screenshot({
-      path: test.info().outputPath(`study-${status}-mobile.png`),
-      fullPage: false,
-    });
   });
 }
 
@@ -395,14 +410,10 @@ for (const width of [1366, 390]) {
       surface.getByRole("button", { name: "Exit study", exact: true }),
     ).toBeInViewport();
     const record = surface.getByRole("button", { name: "Record", exact: true });
-    const policies = page.getByRole("navigation", { name: "Study policies" });
     await expect(record).toBeInViewport();
-    await expect(policies).toBeInViewport();
-    const [buttonBox, policyBox] = await Promise.all([
-      record.boundingBox(),
-      policies.boundingBox(),
-    ]);
-    expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(policyBox!.y);
+    await expect(
+      page.getByRole("navigation", { name: "Study policies" }),
+    ).toHaveCount(0);
     const header = await surface.locator("[data-study-header]").boundingBox();
     expect(header!.width).toBeLessThanOrEqual(Math.min(width, 640));
     expect(

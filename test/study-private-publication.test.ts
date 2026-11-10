@@ -1,4 +1,5 @@
 import test from "node:test";
+import { closeBoundOf } from "./study-close-bound-fixture.ts";
 import assert from "node:assert/strict";
 import { zeroHash } from "viem";
 import { studyPublicationFixture } from "./study-publication-fixture.ts";
@@ -197,7 +198,14 @@ test(
         job = f.store.get<PublicationJob>(key)!;
       assert.equal(job.receipt.state, "private");
       assert.equal(job.receipt.neverSubmitted, true);
-      f.advance(job.privateHistoryExpiresAt - f.clock() - 1);
+      // The operator clock has whole seconds. A lesson closed at its bound
+      // consent's last millisecond becomes erasable at the next whole second.
+      assert.equal(
+        job.privateHistoryExpiresAt,
+        enrollment.expiresAt * 1000 - 1 + STUDY_HISTORY_EXPORT_WINDOW_MS,
+      );
+      const due = Math.ceil(job.privateHistoryExpiresAt / 1000) * 1000;
+      f.advance(due - f.clock() - 1);
       assert.equal(
         await eraseNeverSubmittedStudy(
           f.operatorEnv,
@@ -282,7 +290,12 @@ test(
         (error) => ({ error }),
       );
       await started.promise;
-      f.advance(lesson.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+      // Due at the bound consent's end plus the export window.
+      f.advance(
+        (await closeBoundOf(f.db, lesson.lessonId)).at +
+          STUDY_HISTORY_EXPORT_WINDOW_MS -
+          f.clock(),
+      );
       assert.equal(
         await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
         1,

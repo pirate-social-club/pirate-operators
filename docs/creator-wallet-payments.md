@@ -1,5 +1,13 @@
 # Creator wallet funding and wizard setup, version 2
 
+Launch applicability, November 8: deferred integration material. Under the
+adopted launch ruling the workspace owner is the only song publisher and
+publishes through [owner-only MegaETH song publication](megaeth-song-publication.md)
+with no creator wallet, funding, registration or Royalties step. This document
+keeps the registered first-song journey and the preserved wallet and connection
+code accurate; it is not a launch requirement and implies no further wallet,
+funding or sponsorship work.
+
 Status: owner-confirmed first-song test scope, 2026-11-04. The operator covers
 creator-wallet test fees from a finite budget. Creators see no payment screen.
 Creator payments are deferred; no permanent commercial pricing model is selected.

@@ -135,3 +135,26 @@ export function releaseSponsorship(
     store.set(key, { ...reservation, state: "released" });
   });
 }
+/**
+ * Returns a reservation, reserved or charged, to the budget. Only for work
+ * that provably never received a nonce, so nothing was signed or sent; call
+ * it inside the transaction that discards that work's intent.
+ */
+export function refundUnsent(
+  store: TxStore,
+  limits: SponsorLimits,
+  reference: string,
+) {
+  const current = ledger(store, limits),
+    key = `sponsor:reservation:${reference}`;
+  const reservation = store.get<Reservation>(key);
+  if (!reservation || reservation.state === "released") return;
+  const amount = BigInt(reservation.amount);
+  store.set("sponsor:ledger", {
+    ...current,
+    ...(reservation.state === "charged"
+      ? { spent: String(BigInt(current.spent) - amount) }
+      : { reserved: String(BigInt(current.reserved) - amount) }),
+  });
+  store.set(key, { ...reservation, state: "released" });
+}

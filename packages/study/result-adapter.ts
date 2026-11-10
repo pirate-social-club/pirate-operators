@@ -58,8 +58,12 @@ export function terminalStudyFacts(
         ? (state.completionReason === "all_resolved" ||
             state.completionReason === "presentation_budget") &&
           state.terminalAbsences === null
-        : state.completionReason ===
-            (state.status === "expired" ? "deadline" : "left") &&
+        : (state.status === "expired"
+            ? state.completionReason === "deadline"
+            : state.completionReason === "left" ||
+              state.completionReason === "consent_ended" ||
+              state.completionReason === "never_bound" ||
+              state.completionReason === "open_limit") &&
           Array.isArray(state.terminalAbsences) &&
           state.terminalAbsences.length === state.items.length),
     "study_not_terminal",

@@ -10,6 +10,7 @@ import { STUDY_HISTORY_EXPORT_WINDOW_MS } from "../services/study-history.ts";
 import { intentOf, txRow } from "../services/operator-tx.ts";
 import { expireStudySpeech } from "../services/study-operator.ts";
 import { StudySpeechError } from "../packages/study/speech-transcriber.ts";
+import { closeBoundOf } from "./study-close-bound-fixture.ts";
 
 test(
   "a malformed old queue is reported without starving another due lesson",
@@ -26,7 +27,9 @@ test(
         .run();
       f.advance(1);
       const valid = await f.start();
-      f.advance(valid.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+      const bound = await closeBoundOf(f.db, valid.lessonId);
+      assert.equal(bound.reason, "consent_ended");
+      f.advance(bound.at + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
       await assert.rejects(
         deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock, 2),
         /study_lesson_policy_unavailable/,
@@ -230,37 +233,51 @@ test(
   },
 );
 
-test(
-  "retention closes an unattended uncertain dispatch without inventing a wrong answer or sending speech again",
-  { timeout: 90000 },
-  async () => {
-    const f = await studyPublicationFixture(19885);
-    try {
-      let lesson = await f.start();
-      f.behavior(async () => {
-        throw new StudySpeechError("fixture_unknown", "unknown");
-      });
-      lesson = (await f.answer(lesson, false)).lesson;
-      const counts = f.counts();
-      f.advance(lesson.expiresAt + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
-      assert.equal(
-        await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
-        1,
+for (const mode of ["legacy", "new"] as const)
+  test(
+    `retention closes an unattended uncertain ${mode} dispatch without inventing a wrong answer or sending speech again`,
+    { timeout: 90000 },
+    async () => {
+      const f = await studyPublicationFixture(
+        mode === "legacy" ? 19885 : 19953,
       );
-      const row = await f.db
-        .prepare(
-          "SELECT terminal_json FROM study_publications WHERE lesson_id=?",
-        )
-        .bind(lesson.lessonId)
-        .first<{ terminal_json: string }>();
-      const terminal = JSON.parse(row!.terminal_json);
-      assert.equal(terminal.status, "expired");
-      assert.equal(terminal.completedAt, lesson.expiresAt);
-      assert.equal(terminal.outcomes.slice(6, 8), "04"); // Submitted but unmeasured.
-      assert.equal(terminal.outcomes.slice(12, 14), "05"); // Never attempted.
-      assert.deepEqual(f.counts(), counts);
-    } finally {
-      await f.dispose();
-    }
-  },
-);
+      try {
+        let lesson =
+          mode === "legacy" ? await f.startLegacy() : await f.start();
+        f.behavior(async () => {
+          throw new StudySpeechError("fixture_unknown", "unknown");
+        });
+        lesson = (await f.answer(lesson, false)).lesson;
+        const counts = f.counts();
+        // Legacy: the one-hour deadline. New: the bound consent's last second.
+        const bound = await closeBoundOf(f.db, lesson.lessonId);
+        assert.equal(
+          bound.reason,
+          mode === "legacy" ? "deadline" : "consent_ended",
+        );
+        if (mode === "legacy") assert.equal(bound.at, lesson.expiresAt);
+        f.advance(bound.at + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock());
+        assert.equal(
+          await deleteExpiredStudyHistory(f.db, f.config.communityId, f.clock),
+          1,
+        );
+        const row = await f.db
+          .prepare(
+            "SELECT terminal_json FROM study_publications WHERE lesson_id=?",
+          )
+          .bind(lesson.lessonId)
+          .first<{ terminal_json: string }>();
+        const terminal = JSON.parse(row!.terminal_json);
+        assert.equal(
+          terminal.status,
+          mode === "legacy" ? "expired" : "abandoned",
+        );
+        assert.equal(terminal.completedAt, bound.at);
+        assert.equal(terminal.outcomes.slice(6, 8), "04"); // Submitted but unmeasured.
+        assert.equal(terminal.outcomes.slice(12, 14), "05"); // Never attempted.
+        assert.deepEqual(f.counts(), counts);
+      } finally {
+        await f.dispose();
+      }
+    },
+  );

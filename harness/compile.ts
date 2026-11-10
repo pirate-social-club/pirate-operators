@@ -8,10 +8,12 @@ export function compile() {
     "contracts/test/Providers.sol",
     "contracts/test/PaymentToken.sol",
     "contracts/test/MockAccount.sol",
+    "contracts/test/ReplaySafeAccount.sol",
     "contracts/OperatorPayments.sol",
     "contracts/LearningRecords.sol",
     "contracts/LearningResultsV2.sol",
     "contracts/LearningResultsV3.sol",
+    "contracts/LearningResultsV4.sol",
     "contracts/interfaces/IMegapot.sol",
   ];
   const sources = Object.fromEntries(

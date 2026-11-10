@@ -11,7 +11,7 @@ import type {
   StudyLessonSubmission,
 } from "../../../../packages/study/lesson.ts";
 import { STUDY_MAX_TAKES } from "../../../../packages/study/lesson.ts";
-import type { StudyClient } from "./client.ts";
+import { StudyAccountChangedError, type StudyClient } from "./client.ts";
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 import { StudyingSurface } from "./presentation/studying-surface.tsx";
 import type { StudyingSurfaceState } from "./presentation/studying-model.ts";
@@ -60,6 +60,17 @@ export function StudyScreen(props: {
     props.onLesson?.(value);
     setMiss(null);
   }
+  /** Never keep showing a lesson that belongs to the previous account. */
+  function forgetAccount(e: unknown) {
+    if (!(e instanceof StudyAccountChangedError)) return false;
+    generation++;
+    cleanup();
+    setLesson(null);
+    setMiss(null);
+    setError(e.message);
+    setPhase("idle");
+    return true;
+  }
   async function load(restart = false) {
     const version = ++generation;
     setPhase("loading");
@@ -71,16 +82,29 @@ export function StudyScreen(props: {
         : props.client.load());
       if (active && version === generation) install(value);
     } catch (e) {
+      if (forgetAccount(e)) return;
       if (restart && active && version === generation) {
         // Abandon may have succeeded before enrollment or the next start failed.
-        const saved = await props.client.load().catch(() => null);
+        let changed = false;
+        // Read the same lesson back; never start a second lesson here.
+        const saved = await props.client.refresh().catch((error) => {
+          changed = forgetAccount(error);
+          return null;
+        });
+        if (changed) return;
         if (saved && active && version === generation) install(saved);
       }
       if (active && version === generation)
         setError(
-          e instanceof Error
-            ? e.message
-            : "Study is unavailable. Try again later.",
+          // The generic save failure would be misleading when nothing was
+          // being saved: say that the new lesson did not start.
+          restart &&
+            (!(e instanceof Error) ||
+              e.message === "Your answer could not be saved. Try again.")
+            ? "A new lesson could not start. Try again."
+            : e instanceof Error
+              ? e.message
+              : "Study is unavailable. Try again later.",
         );
     } finally {
       if (active && version === generation) setPhase("idle");
@@ -127,9 +151,9 @@ export function StudyScreen(props: {
       );
       if (active && version === generation) apply(response);
     } catch (e) {
-      if (!active || version !== generation) return;
+      if (!active || version !== generation || forgetAccount(e)) return;
       try {
-        const restored = await props.client.load();
+        const restored = await props.client.refresh();
         if (!active || version !== generation) return;
         if (attemptId && restored.lastAttempt?.attemptId === attemptId)
           apply({ attempt: restored.lastAttempt, lesson: restored });
@@ -144,7 +168,8 @@ export function StudyScreen(props: {
           );
           setPhase("idle");
         }
-      } catch {
+      } catch (restoreError) {
+        if (forgetAccount(restoreError)) return;
         setError("Your answer could not be saved. Try again.");
         setPhase("idle");
       }
@@ -270,9 +295,9 @@ export function StudyScreen(props: {
         ? "wrong"
         : blocked()
           ? "blocked"
-          : phase() === "acquiring"
-            ? "acquiring"
-            : phase() === "recording"
+          : // Opening the microphone takes a moment. Show Stop at once
+            // rather than flashing a separate "Starting microphone" state.
+            phase() === "acquiring" || phase() === "recording"
               ? "listening"
               : phase() === "saving"
                 ? "checking"
@@ -287,7 +312,12 @@ export function StudyScreen(props: {
   }
   function primaryAction() {
     if (miss()) setMiss(null);
-    else if (phase() === "recording") recorder?.stop();
+    else if (phase() === "acquiring") {
+      // Stop pressed while the microphone opens: cancel this take. record()
+      // releases the stream when it sees the generation has moved on.
+      generation++;
+      setPhase("idle");
+    } else if (phase() === "recording") recorder?.stop();
     else if (phase() === "idle" && !blocked()) void record();
   }
   function terminalError() {
@@ -320,21 +350,17 @@ export function StudyScreen(props: {
         when={!ended() || miss()}
         fallback={
           <div class="flex min-h-dvh flex-col overflow-y-auto bg-background text-foreground [&>section]:h-auto [&>section]:min-h-0 [&>section]:flex-1">
+            {/* One state, one message: a failed restart replaces the text
+                rather than stacking a second error under it. */}
             <StudyRouteLoadFailureState
-              title={
-                lesson()?.status === "expired"
-                  ? "Lesson expired"
-                  : "Lesson ended"
+              title="Lesson ended"
+              description={
+                error() ||
+                "Your saved answers are kept. Unfinished lines do not count as wrong answers."
               }
-              description="Your saved answers are kept. Unfinished lines do not count as wrong answers."
               onRetry={() => void load(true)}
               onGoHome={props.onExit}
             />
-            <Show when={error()}>
-              <div class="mx-auto w-full max-w-md px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-                {terminalError()}
-              </div>
-            </Show>
           </div>
         }
       >

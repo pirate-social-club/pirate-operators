@@ -1,8 +1,12 @@
 import type { Address, Hex } from "viem";
 import { check } from "../protocol/index.ts";
 import { studyExercisesHash } from "../protocol/learning-results-v3.ts";
-import { STUDY_LESSON_LIFETIME_MS } from "./lesson.ts";
+import {
+  STUDY_LESSON_LIFETIME_MS,
+  STUDY_LESSON_NO_DEADLINE,
+} from "./lesson.ts";
 
+/** A V3 lesson offer, bound to the learner's learning enrollment. */
 export interface StudyLessonOffer {
   lessonId: string;
   learner: Address;
@@ -10,10 +14,37 @@ export interface StudyLessonOffer {
   startedAt: number;
   expiresAt: number;
   exercises: { ordinal: number; lineId: Hex; language: string }[];
+  authorizationId?: never;
 }
+/**
+ * A V4 lesson offer: the V3 fields plus the sign-in authorization the lesson
+ * started under. A V3 offer never carries this field, so its bytes and hash
+ * are unchanged.
+ */
+export interface StudyLessonOfferV4
+  extends Omit<StudyLessonOffer, "authorizationId"> {
+  authorizationId: Hex;
+}
+export type AnyStudyLessonOffer = StudyLessonOffer | StudyLessonOfferV4;
 export const studyId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-zA-Z0-9_-]{16,128}$/.test(value);
-export function validateStudyOffer(value: StudyLessonOffer, nowS: number) {
+export function validateStudyOffer(
+  value: AnyStudyLessonOffer,
+  nowS: number,
+  version: 3 | 4 = 3,
+) {
+  check(
+    version === 4
+      ? value &&
+          typeof value === "object" &&
+          typeof value.authorizationId === "string" &&
+          /^0x[0-9a-f]{64}$/.test(value.authorizationId) &&
+          !/^0x0+$/.test(value.authorizationId) &&
+          // A V4 lesson is always a new lesson, with no learner time limit.
+          value.expiresAt === STUDY_LESSON_NO_DEADLINE
+      : value && typeof value === "object" && !("authorizationId" in value),
+    "invalid_study_lesson_binding",
+  );
   check(
     value &&
       typeof value === "object" &&
@@ -26,7 +57,10 @@ export function validateStudyOffer(value: StudyLessonOffer, nowS: number) {
       value.startedAt >= 0 &&
       value.startedAt <= nowS * 1000 + 5000 &&
       value.expiresAt > nowS * 1000 &&
-      value.expiresAt === value.startedAt + STUDY_LESSON_LIFETIME_MS &&
+      // Lessons have no time limit. A lesson started before that change keeps
+      // its original one-hour bound until it is closed.
+      (value.expiresAt === STUDY_LESSON_NO_DEADLINE ||
+        value.expiresAt === value.startedAt + STUDY_LESSON_LIFETIME_MS) &&
       Array.isArray(value.exercises),
     "invalid_study_lesson_binding",
   );

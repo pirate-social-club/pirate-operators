@@ -6,7 +6,11 @@ import {
 } from "../packages/study/contracts.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import { STUDY_HISTORY_EXPORT_WINDOW_MS } from "./study-history.ts";
-import { makeStudyLessonService } from "./study-lessons.ts";
+import {
+  makeStudyLessonService,
+  STUDY_CLOSE_BOUND_SQL,
+  studyCloseBoundBinds,
+} from "./study-lessons.ts";
 import { makeStudyService } from "./study-spoken.ts";
 import { freezeStudyOutbox } from "./study-outbox.ts";
 import { erasePrivateStudyOutbox } from "./study-private-history.ts";
@@ -35,28 +39,36 @@ export async function deleteExpiredStudyHistory(
     resolveLine: unavailable,
     transcriber: { providerRetention: "stored", transcribe: unavailable },
   });
+  const store = new StudyLessonStore(db);
   const lessons = makeStudyLessonService({
     db,
     now: () => at,
     attempts,
+    consentExpiry: (owner, id) => store.consentExpiry(owner, id),
     resolveLines: unavailable,
   });
-  const store = new StudyLessonStore(db);
   const rows = await db
     .prepare(
-      `SELECT lesson_id,account_id,community_id FROM study_lessons
-    WHERE community_id=? AND history_deleted_at IS NULL
-      AND COALESCE(json_extract(state_json,'$.completedAt'),json_extract(state_json,'$.expiresAt'))<=?
-    ORDER BY history_cleanup_attempts,COALESCE(json_extract(state_json,'$.completedAt'),json_extract(state_json,'$.expiresAt')),lesson_id LIMIT ?`,
+      `SELECT l.lesson_id,l.account_id,l.community_id,
+      COALESCE(json_extract(l.state_json,'$.completedAt'),${STUDY_CLOSE_BOUND_SQL}) AS due
+    FROM study_lessons l LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
+    WHERE l.community_id=? AND l.history_deleted_at IS NULL AND due<=?
+    ORDER BY l.history_cleanup_attempts,due,l.lesson_id LIMIT ?`,
     )
-    .bind(communityId, at - STUDY_HISTORY_EXPORT_WINDOW_MS, limit)
+    .bind(
+      ...studyCloseBoundBinds,
+      communityId,
+      at - STUDY_HISTORY_EXPORT_WINDOW_MS,
+      limit,
+    )
     .all<{ lesson_id: string; account_id: string; community_id: string }>();
   const erase = async (row: (typeof rows.results)[number]) => {
     const owner: StudyPrincipal = {
       accountId: row.account_id,
       communityId: row.community_id,
     };
-    // Consume an already saved grade before closing an old unattended lesson.
+    // Consume an already saved grade before closing an old unattended lesson
+    // at its close bound: a legacy deadline or a new lesson's consent end.
     // No recover/transcribe port is supplied, so uncertain dispatch stays so.
     await lessons.get(owner, row.lesson_id);
     await freezeStudyOutbox(db, owner, row.lesson_id);

@@ -1,7 +1,10 @@
 // Actual community routes, D1 migrations, signatures and V3 contract. The posts
 // RPC, IPFS transport and speech provider below are explicit local simulations.
+// With `v4`, a LearningResultsV4 contract is also deployed and is the
+// directory's learning records; V3 stays configured for historical lessons.
 import { readFile } from "node:fs/promises";
-import { encodeFunctionData, verifyMessage } from "viem";
+import { encodeFunctionData } from "viem";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
 import { learningBindingFixture } from "./learning-binding-fixture.ts";
@@ -18,16 +21,38 @@ import {
 } from "../services/community-application.ts";
 import { studyOperatorRoute } from "../services/study-operator.ts";
 import { acceptEnrollment } from "../services/learning-enrollment.ts";
+import { authorizationRoute } from "../services/learning-authorization.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import {
+  relayPendingSignIns,
+  requestSignInRelay,
+} from "../services/learning-sign-in.ts";
+import type {
+  SiweChallenge,
+  SignInChallenge,
+} from "../packages/community/accounts.ts";
+import type { Address } from "viem";
 import type {
   StudyTranscriber,
   StudyTranscript,
 } from "../packages/study/speech-transcriber.ts";
 
-export async function studyCommunityFixture(port: number) {
+export async function studyCommunityFixture(
+  port: number,
+  options: { v4?: boolean } = {},
+) {
   const f = await learningBindingFixture(port, firstSongFixture.communityId);
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
   try {
-    runtime = await communityRuntime();
+    runtime = await communityRuntime({ v4: options.v4 });
+    const v4: Address | undefined = options.v4
+      ? await f.evm.deploy("LearningResultsV4", [
+          accounts[3].address,
+          firstSongFixture.communityId,
+          learningV4PublicityPolicy,
+          firstSong.origin,
+        ])
+      : undefined;
     const publisher = privateKeyToAccount(`0x${"12".repeat(32)}`);
     const deployment = async (file: string) =>
       JSON.parse(
@@ -46,7 +71,7 @@ export async function studyCommunityFixture(port: number) {
           "first-song-managed-20261105.curated-configuration.json",
         )),
         publisher: publisher.address.toLowerCase(),
-        learningRecords: f.v3.toLowerCase(),
+        learningRecords: (v4 ?? f.v3).toLowerCase(),
       },
       [original],
     );
@@ -103,6 +128,17 @@ export async function studyCommunityFixture(port: number) {
       [accounts[2].address, 2, true],
       3,
     );
+    if (v4) {
+      f.env.RESULTS_V4_CONTRACT = v4;
+      await f.evm.write(
+        v4,
+        "LearningResultsV4",
+        "setGrader",
+        [accounts[2].address, 2, true],
+        3,
+      );
+    }
+    let authorizationDown = false;
     f.env.ISSUER = accounts[1].address;
     f.env.SPEECH_BUDGET = {
       getByName(name: string) {
@@ -122,12 +158,12 @@ export async function studyCommunityFixture(port: number) {
         const path = new URL(request.url).pathname;
         if (statusDown && path === "/study/speech/status")
           throw Error("fixture status outage");
-        const response = await studyOperatorRoute(
-          request,
-          f.env,
-          store,
-          provider,
-        );
+        if (authorizationDown && path.startsWith("/authorization"))
+          throw Error("fixture authorization outage");
+        // The operator's Study route, then its sign-in relay route.
+        const response =
+          (await studyOperatorRoute(request, f.env, store, provider)) ??
+          (await authorizationRoute(request, f.env, store));
         if (path === loss) {
           loss = null;
           throw Error("fixture response lost");
@@ -151,11 +187,11 @@ export async function studyCommunityFixture(port: number) {
       KARAOKE_SIGNER_PRIVATE_KEY: keys[1],
       KARAOKE_PAYMENT_CHAIN_ID: "31337",
       STUDY_RESULTS_V3_CONTRACT: f.v3,
+      ...(v4 ? { STUDY_RESULTS_V4_CONTRACT: v4 } : {}),
     } as unknown as CommunityEnv;
     const ports: CommunityDependencies = {
       configuration: async () => config,
-      verifyLogin: (address, message, signature) =>
-        verifyMessage({ address, message, signature }),
+      verifyLogin: verifyLoginOffline,
       creatorHealth: async () => false,
       now: () => now,
       publicReads: {
@@ -194,6 +230,7 @@ export async function studyCommunityFixture(port: number) {
       });
     return {
       ...f,
+      v4: v4!,
       operatorEnv: f.env,
       db: runtime.db,
       env,
@@ -207,7 +244,9 @@ export async function studyCommunityFixture(port: number) {
           await post("/api/auth/challenge", {
             address: accounts[index].address,
           })
-        ).json()) as { id: string; message: string };
+        ).json()) as SiweChallenge | SignInChallenge;
+        // Plain SIWE, or a V4 community's SIWE text that is also the
+        // permission: either is signed as text.
         const response = await post("/api/auth/verify", {
           id: challenge.id,
           signature: await accounts[index].signMessage({
@@ -229,6 +268,25 @@ export async function studyCommunityFixture(port: number) {
           enrollment.signature,
         );
         now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
+      },
+      /** The release step that selects V4: its sign-in schema, migration 0013. */
+      applyV4Migration: () => runtime!.applyV4(),
+      /**
+       * V4: each pending sign-in is relayed as a learner's first Study or
+       * Karaoke start requests it, and the scheduled relay settles the rest.
+       */
+      async recordSignIns() {
+        const pending = await runtime!.db
+          .prepare(
+            "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
+          )
+          .all<{ account_id: string }>();
+        for (const { account_id } of pending.results)
+          await requestSignInRelay(env, runtime!.db, account_id, now);
+        await relayPendingSignIns(env, runtime!.db, now);
+      },
+      authorizationDown: (value: boolean) => {
+        authorizationDown = value;
       },
       counts: () => ({ calls, observations }),
       heard: (text: string) => {

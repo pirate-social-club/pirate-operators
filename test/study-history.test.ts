@@ -1,4 +1,5 @@
 import test from "node:test";
+import { closeBoundOf } from "./study-close-bound-fixture.ts";
 import assert from "node:assert/strict";
 import { studyCommunityFixture } from "./study-community-fixture.ts";
 import { firstSongFixture } from "../harness/karaoke-live.ts";
@@ -114,7 +115,20 @@ test(
         history.exportAvailableUntil >=
           lesson.startedAt + STUDY_HISTORY_EXPORT_WINDOW_MS,
       );
-      f.advance(history.exportAvailableUntil - f.clock());
+      // The lesson is still open. Its reported window is a lower bound (leaving
+      // later can only extend it); the export ends at the close bound (the
+      // bound consent's last second) plus the window, whether or not any
+      // reader has closed the lesson.
+      assert.equal(
+        history.exportAvailableUntil,
+        (history as unknown as { exportedAt: number }).exportedAt +
+          STUDY_HISTORY_EXPORT_WINDOW_MS,
+      );
+      const bound = await closeBoundOf(f.db, lesson.lessonId);
+      assert.equal(bound.reason, "consent_ended");
+      f.advance(bound.at + STUDY_HISTORY_EXPORT_WINDOW_MS - f.clock() - 1);
+      assert.equal((await f.post(endpoint, {}, auth)).status, 200);
+      f.advance(1);
       const expired = await f.post(endpoint, {}, auth);
       assert.equal(expired.status, 410);
       assert.equal(

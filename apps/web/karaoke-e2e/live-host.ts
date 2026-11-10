@@ -6,7 +6,10 @@
 // (dist/live) through the application, as the deployed Worker does, with two
 // test-only substitutions: the MOSS wallet module signs with local fixture
 // keys, and the client configuration names this host as the canonical origin.
-// The operator's clock follows real time. Never packaged.
+// The operator's clock follows real time. With KARAOKE_RESULTS_V4=1 the
+// learning records are LearningResultsV4 and signing in is the publication
+// permission; LIVE_HOST_PORT and LIVE_CHAIN_PORT let it run beside the V2
+// host. Never packaged.
 import { createServer, type IncomingMessage } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
@@ -24,13 +27,17 @@ import { firstSong } from "../../../services/first-song-profile.ts";
 import { digest } from "../../../packages/protocol/index.ts";
 import type { KaraokeManifest } from "../../../packages/protocol/payments.ts";
 import { readPublicResults } from "../../../packages/records/results-v2.ts";
+import { readPublicResults as readPublicResultsV4 } from "../../../packages/records/results-v3.ts";
+import { keccak256 } from "viem";
 import { readLearner } from "../../../packages/records/reader.ts";
 import { LIVE_ALIGNMENT, LIVE_STEM_MS, LIVE_PORT } from "./live-fixture.ts";
 
 const webRoot = process.cwd();
 // The chain and contract helpers read repository-relative paths.
 process.chdir(fileURLToPath(new URL("../../../", import.meta.url)));
-const evm = await chain(19146);
+const resultsV4 = process.env.KARAOKE_RESULTS_V4 === "1",
+  port = Number(process.env.LIVE_HOST_PORT ?? LIVE_PORT);
+const evm = await chain(Number(process.env.LIVE_CHAIN_PORT ?? 19146));
 const stop = () => evm.child.kill();
 process.on("exit", stop);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
@@ -89,6 +96,7 @@ const manifest = await expectedKaraoke(LIVE_ALIGNMENT, LIVE_STEM_MS);
 const live = await karaokeLive({
   evm,
   internalResults: process.env.KARAOKE_RESULTS_V2 === "1",
+  resultsV4,
   now: Number((await evm.publicClient.getBlock()).timestamp) + 1,
   alignment: LIVE_ALIGNMENT,
   stemMs: LIVE_STEM_MS,
@@ -106,24 +114,28 @@ const aligned = await live.align();
 if (aligned.value.state !== "complete")
   throw new Error(`alignment failed: ${JSON.stringify(aligned.value)}`);
 
-// The operator's and the application's clocks follow real time.
+// The operator's and the application's clocks follow real time. With V4,
+// the application's scheduled relay retries requested sign-ins as the Worker
+// cron does; a sign-in is first relayed by the learner's first take.
 const t0 = Date.now(),
   base = live.now();
 let ticking = false;
 setInterval(() => {
   if (ticking) return;
   const target = base + Math.floor((Date.now() - t0) / 1000);
-  if (target <= live.now()) return;
+  if (target <= live.now() && !resultsV4) return;
   ticking = true;
-  void live
-    .at(target)
+  void (async () => {
+    if (target > live.now()) await live.at(target);
+    if (resultsV4) await live.scheduledSignInRelay();
+  })()
     .catch((error) => console.error("clock", error))
     .finally(() => {
       ticking = false;
     });
 }, 250);
 
-const origin = `http://localhost:${LIVE_PORT}`;
+const origin = `http://localhost:${port}`;
 async function body(request: IncomingMessage) {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(chunk as Buffer);
@@ -202,6 +214,38 @@ createServer(async (request, response) => {
           ),
         )
       ).value;
+      if (live.resultsV4) {
+        const contract = live.resultsV4;
+        const results = await readPublicResultsV4(
+          {
+            contract,
+            codeHash: keccak256((await evm.publicClient.getCode({ address: contract }))!),
+            version: 4,
+          },
+          {
+            rpcUrl: evm.rpcUrl,
+            chainId: 31337,
+            communityId: live.config.communityId,
+            fromBlock: 0n,
+            toBlock: await evm.publicClient.getBlockNumber({ cacheTime: 0 }),
+            karaokeManifest: async (revision) => (digest(timed) === revision ? timed : undefined),
+            authenticateKaraoke: async (candidate) =>
+              candidate.source?.lyricsSha256 === timed.source?.lyricsSha256 && candidate.lines.length === 23,
+          },
+        );
+        return send(
+          response,
+          200,
+          results
+            .filter((r) => r.result.learner.toLowerCase() === learner.address.toLowerCase())
+            .map((r) => ({
+              verified: r.verified,
+              problems: r.problems,
+              enrollmentId: r.result.enrollmentId,
+              lines: r.assessment?.activity === 1 ? r.assessment.lines : [],
+            })),
+        );
+      }
       if (live.resultsV2) {
         const results = await readPublicResults({ rpcUrl: evm.rpcUrl, contract: live.resultsV2, fromBlock: 0n,
           toBlock: await evm.publicClient.getBlockNumber({ cacheTime: 0 }), manifest: async (revision) => digest(timed) === revision ? timed : undefined,
@@ -221,6 +265,16 @@ createServer(async (request, response) => {
           learner.address,
         ),
       );
+    }
+    if (url.pathname === "/__fixture/authorizations") {
+      const learner = learnerOf(url.searchParams.get("learner"));
+      const rows = await live.db
+        .prepare(
+          "SELECT authorization_id,issued_at,state FROM learning_authorizations WHERE subject=? ORDER BY issued_at",
+        )
+        .bind(learner.address.toLowerCase())
+        .all();
+      return send(response, 200, rows.results);
     }
     // Everything else goes through the community application, at its own origin.
     const headers = new Headers();
@@ -256,7 +310,7 @@ createServer(async (request, response) => {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-}).listen(LIVE_PORT, "localhost");
+}).listen(port, "localhost");
 console.log(
   `live karaoke host on ${origin}, wallet chunk ${walletChunk}, ${privateKeyToAccount(`0x${"13".repeat(32)}`).address}`,
 );

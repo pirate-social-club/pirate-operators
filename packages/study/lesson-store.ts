@@ -6,6 +6,7 @@ import {
 } from "./contracts.ts";
 import {
   STUDY_QUEUE_POLICY,
+  studyConsentExpiry,
   type LessonState,
   type StudySong,
 } from "./lesson.ts";
@@ -125,6 +126,24 @@ export class StudyLessonStore {
       )
       .run();
     return result.meta.changes === 1;
+  }
+  /**
+   * The bound consent's end in seconds, or null for a draft never bound. A V4
+   * binding's sign-in permission has no end, so it is +Infinity.
+   */
+  async consentExpiry(owner: StudyPrincipal, id: string) {
+    const row = await this.db
+      .prepare(
+        "SELECT json_extract(binding_json,'$.enrollment.expiresAt') AS expires_at,json_extract(binding_json,'$.target.version') AS version,json_extract(binding_json,'$.authorization.id') AS authorization_id FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
+      )
+      .bind(id, owner.accountId, owner.communityId)
+      .first<{
+        expires_at: number | null;
+        version: number | null;
+        authorization_id: string | null;
+      }>();
+    if (!row) return null;
+    return studyConsentExpiry(row);
   }
   async submittedLines(owner: StudyPrincipal, id: string) {
     const rows = await this.db

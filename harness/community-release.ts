@@ -1,6 +1,10 @@
+import "./node-network.ts";
 import { communityDependencyModules } from "./community-dependencies.ts";
 import { readStudyReleaseSelection } from "./study-release-input.ts";
+import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
+import { observeLearningV4Release } from "./learning-v4-release-observation.ts";
+import { observeRewardSuccessors } from "./rewards-successor-observation.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { qualifyApplicationPeers } from "./first-song-peers.ts";
 import { qualifyRetainedState } from "./published-state.ts";
@@ -36,6 +40,8 @@ import {
   insist,
   object,
 } from "../packages/community/common.ts";
+import { readPublishingReleaseSelection } from "./publishing-release-profile.ts";
+import { readLearningV4ReleaseSelection } from "./learning-v4-release-profile.ts";
 import {
   communityInventory,
   communityRemoteModules,
@@ -66,12 +72,29 @@ async function main() {
         "expected-profile": { type: "string" },
         "reviewed-update": { type: "boolean" },
         "study-profile": { type: "string" },
+        "rewards-profile": { type: "string" },
+        "publishing-profile": { type: "string" },
+        "learning-v4-profile": { type: "string" },
       },
     }),
     study = values["study-profile"]
       ? await readStudyReleaseSelection(values["study-profile"])
       : undefined,
-    { profile, profileHash, bytes } = await communityPackage(study);
+    rewards = values["rewards-profile"]
+      ? await readRewardsReleaseSelection(values["rewards-profile"])
+      : undefined,
+    publishing = values["publishing-profile"]
+      ? await readPublishingReleaseSelection(values["publishing-profile"])
+      : undefined,
+    learningV4 = values["learning-v4-profile"]
+      ? await readLearningV4ReleaseSelection(values["learning-v4-profile"])
+      : undefined,
+    { profile, profileHash, bytes } = await communityPackage(
+      study,
+      rewards,
+      publishing,
+      learningV4,
+    );
   if (values["write-plan"])
     await writeFile(
       "docs/deployments/first-song-managed-20261105.application-plan.json",
@@ -88,6 +111,11 @@ async function main() {
       409,
     );
   if (study) await observeStudyRelease(megaethReadClient(), study);
+  // The reviewed V4 deployment is observed before LEARNING_RESULTS_V4_CONTRACT
+  // is bound: runtime code hash, version, community, policy, controller and
+  // the publisher's grader roles, at a pinned block.
+  if (learningV4)
+    await observeLearningV4Release(megaethReadClient(), learningV4);
   const safe = operatorEnvironment(process.env),
     state = profile.stateProtection,
     options: OperatorOptions = {
@@ -122,6 +150,16 @@ async function main() {
     "community_previous_plan_changed",
     409,
   );
+  // Each rewards source this release appends is observed live: code, version,
+  // community, the grader's roles and the policies it pins. Sources the
+  // deployed predecessor already carries are not re-judged.
+  if (rewards?.successors)
+    await observeRewardSuccessors(
+      megaethReadClient(),
+      rewards,
+      undefined,
+      (object(previousProfile.rewards ?? {}).successors as unknown[]) ?? [],
+    );
   const modules = await communityRemoteModules(token);
   insist(
     Object.keys(modules).length === 1 &&
@@ -174,6 +212,9 @@ async function main() {
     communityAccount,
     profile.curatedState,
     "application",
+    undefined,
+    (profile as { ownerPublishing?: { ownerGrant?: unknown } }).ownerPublishing
+      ?.ownerGrant,
   );
   await qualifyCommunityConsumer(directory, password, cloudEnv);
   await qualifyApplicationPeers(profile, values["reviewed-update"] === true);
@@ -317,23 +358,54 @@ async function main() {
         PIRATE_WIZARD_STATE_PASSWORD: password,
         COMMUNITY_PUBLISHER_PRIVATE_KEY: publisherKey,
         APPLICATION_PROFILE_HASH: profileHash,
-        CREATOR_PROFILE_HASH: profile.creatorProfileHash,
         MANAGED_PROFILE_HASH: profile.managedProfileHash,
-        RELEASE_GRANT_HASH: profile.releaseGrant.sha256,
-        REGISTRATION_OPERATOR_ADDRESS:
-          profile.releaseGrant.registration.operator,
-        POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+        // Owner publishing binds only the owner values; a registered profile
+        // binds only the registered release values.
+        ...(profile.ownerPublishing
+          ? {
+              OWNER_GRANT_JSON: JSON.stringify(
+                profile.ownerPublishing.ownerGrant,
+              ),
+              OWNER_AUTHORIZATION_JSON: JSON.stringify(
+                profile.ownerPublishing.ownerAuthorization,
+              ),
+            }
+          : {
+              CREATOR_PROFILE_HASH: profile.creatorProfileHash,
+              RELEASE_GRANT_HASH: profile.releaseGrant.sha256,
+              REGISTRATION_OPERATOR_ADDRESS:
+                profile.releaseGrant.registration.operator,
+              POSTING_EXPIRES_AT: String(profile.releaseGrant.expiresAt),
+            }),
         LEARNING_ELEVENLABS_API_KEY: speech,
         LEARNING_OPERATOR_ADDRESS: profile.learning.operator,
         LEARNING_OPERATOR_ORIGIN: profile.learning.operatorOrigin,
         LEARNING_ISSUER_ADDRESS: profile.learning.issuer,
         LEARNING_ISSUER_PRIVATE_KEY: issuerKey,
+        ...(rewards
+          ? {
+              REWARDS_PROFILE_JSON: JSON.stringify(rewards.profile),
+              REWARDS_RESULT_SOURCE_JSON: JSON.stringify(rewards.source),
+              // Absent until a successor is appended, so no binding changes.
+              ...(rewards.successors
+                ? {
+                    REWARDS_RESULT_SUCCESSORS_JSON: JSON.stringify(
+                      rewards.successors,
+                    ),
+                  }
+                : {}),
+            }
+          : {}),
         ...(study
           ? {
               LEARNING_PROFILE: "pirate-learning-testnet-v3",
               LEARNING_RESULTS_CONTRACT: study.resultsV2.contract,
               LEARNING_RESULTS_V3_CONTRACT: study.resultsV3.contract,
             }
+          : {}),
+        // Only a profile that selected V4 binds it; every other is unchanged.
+        ...(profile.learningV4
+          ? { LEARNING_RESULTS_V4_CONTRACT: profile.learningV4.contract }
           : {}),
       },
       secrets = [password, publisherKey, token, issuerKey, speech],
@@ -371,7 +443,9 @@ async function main() {
         status.profileHash === profileHash &&
         status.planId === profile.planId &&
         status.signIn === "available" &&
-        status.creatorConnection === "available",
+        // Owner publishing has no creator service dependency.
+        (profile.ownerPublishing != null ||
+          status.creatorConnection === "available"),
       "community_application_health_unqualified",
       503,
     );
