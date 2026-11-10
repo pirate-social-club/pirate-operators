@@ -121,7 +121,7 @@ export async function botFixture(
   >();
   const admission: TelegramSpeechAdmission = {
     reserve(input) {
-      if (!admissionAvailable) throw new Error("simulated_capacity_refusal");
+      if (!admissionAvailable) throw new Error("speech_trial_budget_exhausted");
       const previous = reservations.get(input.requestId);
       if (previous && previous.payloadDigest !== input.payloadDigest)
         throw new Error("admission_changed");

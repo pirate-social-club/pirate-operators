@@ -3,6 +3,21 @@ import { telegramCheck } from "../packages/telegram/contracts.ts";
 import type { TelegramSpeechJob } from "./telegram-speech.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
 
+export function telegramWorkAuthorityLost(error: unknown) {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    "status" in error &&
+    ([403, 410].includes(Number(error.status)) ||
+      ("code" in error &&
+        [
+          "telegram_bot_changed",
+          "telegram_lesson_changed",
+          "telegram_prompt_changed",
+        ].includes(String(error.code))))
+  );
+}
+
 /** A durable token fences paused workers. submissionStarted is written in the
  * SAME synchronous turn immediately before crossing the paid service boundary.
  * Missing legacy evidence is unknown, never a proof that a call was unsent. */
@@ -51,6 +66,7 @@ export function telegramWorkClaim<T extends TelegramSpeechJob>(
         const next = {
           ...current,
           audioDigest: snapshot.audioDigest,
+          reservation: snapshot.reservation,
           state: "dispatching" as const,
           dispatchToken: randomToken(),
           submissionStarted: false,

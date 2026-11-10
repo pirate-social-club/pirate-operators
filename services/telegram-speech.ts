@@ -3,10 +3,10 @@ import { digest } from "../packages/protocol/index.ts";
 import { readStudyAudio } from "./study-spoken.ts";
 import {
   StudySpeechError,
+  type StudyTranscript,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
 import {
-  gradeTranscriptV2,
   type StudyTranscriptGradeV2,
   type StudyTranscriptGraderPolicyRevision,
 } from "../packages/study/transcript-grading.ts";
@@ -21,7 +21,10 @@ import {
   releasedTelegramGrading,
   type TelegramTrialGradingPort,
 } from "../packages/telegram/grading.ts";
-import { telegramWorkClaim } from "./telegram-work-claim.ts";
+import {
+  telegramWorkAuthorityLost,
+  telegramWorkClaim,
+} from "./telegram-work-claim.ts";
 
 /** Structural lane5 CommunitySpeechAdmission RPC. No legacy global budget
  * fallback is accepted by this adapter. Configure the same key generation as
@@ -68,6 +71,8 @@ export interface TelegramSpeechJob {
     | "queued"
     | "dispatching"
     | "uncertain"
+    | "releasing"
+    | "settling"
     | "retry_wait"
     | "assessed"
     | "refused"
@@ -80,7 +85,28 @@ export interface TelegramSpeechJob {
   failure: string | null;
   dispatchToken?: string;
   submissionStarted?: boolean;
+  reservation?: { keyGeneration: string; started: boolean };
+  resolution?: { state: "succeeded" | "refused"; evidenceDigest: string };
+  releaseTo?: "cancelled" | "refused";
+  retryOnRefusal?: boolean;
 }
+type SpeechReceipt =
+  | { state: "assessed"; transcript: StudyTranscript }
+  | { state: "unavailable"; error: string };
+
+const activeSubmission = (job: TelegramSpeechJob) =>
+  job.state === "dispatching" || job.state === "uncertain";
+export const hasTelegramReservationIntent = (job: TelegramSpeechJob) =>
+  job.reservation?.started ??
+  (job.state !== "retry_wait" &&
+    (job.state === "queued" || job.audioDigest !== null));
+const capacityRefused = (error: unknown) =>
+  error instanceof Error &&
+  [
+    "speech_trial_budget_exhausted",
+    "speech_budget_exhausted",
+    "speech_website_capacity_reserved",
+  ].includes(error.message);
 export class TelegramTrialSpeech {
   readonly store: TelegramJournal;
   readonly config: { communityId: string; keyGeneration: string };
@@ -122,80 +148,311 @@ export class TelegramTrialSpeech {
     telegramCheck(job, "telegram_job_not_found", 404);
     return job;
   }
-  private save(job: TelegramSpeechJob) {
-    this.store.set(`speech-job:${job.id}`, job);
-    return job;
+  private advance(job: TelegramSpeechJob, change: Partial<TelegramSpeechJob>) {
+    return this.store.transaction(() => {
+      const current = this.get(job.id);
+      if (
+        current.state !== job.state ||
+        current.retry !== job.retry ||
+        current.dispatchToken !== job.dispatchToken ||
+        current.submissionStarted !== job.submissionStarted ||
+        current.reservation?.started !== job.reservation?.started ||
+        current.resolution?.evidenceDigest !== job.resolution?.evidenceDigest
+      )
+        return current;
+      const next = { ...current, ...change };
+      this.store.set("speech-job:" + job.id, next);
+      return next;
+    });
+  }
+  private requestId(job: TelegramSpeechJob) {
+    return "telegram:" + job.id + ":" + job.retry;
+  }
+  private sameAdmissionScope(job: TelegramSpeechJob) {
+    return (
+      job.actor.communityId === this.config.communityId &&
+      (!job.reservation ||
+        job.reservation.keyGeneration === this.config.keyGeneration)
+    );
+  }
+  private async reservationStatus(job: TelegramSpeechJob) {
+    if (!this.sameAdmissionScope(job)) return null;
+    try {
+      const row = (await this.admission.get(this.requestId(job))) as {
+        state?: string;
+        evidenceDigest?: string | null;
+        payloadDigest?: string;
+        communityId?: string;
+        keyGeneration?: string;
+      } | null;
+      if (
+        !row ||
+        (job.audioDigest &&
+          row.payloadDigest !== undefined &&
+          row.payloadDigest !== job.audioDigest) ||
+        (row.communityId !== undefined &&
+          row.communityId !== this.config.communityId) ||
+        (row.keyGeneration !== undefined &&
+          row.keyGeneration !== this.config.keyGeneration)
+      )
+        return null;
+      return row;
+    } catch {
+      return null;
+    }
+  }
+  private context(job: TelegramSpeechJob) {
+    return {
+      lessonId: job.lessonId,
+      attemptId: job.id,
+      lineId: job.line.lineId,
+      presentationNumber: job.presentation,
+      takeNumber: job.take,
+      durationMs: job.durationMs,
+    };
+  }
+  private async release(job: TelegramSpeechJob) {
+    const row = await this.reservationStatus(job);
+    if (!row) {
+      // Absence is inconclusive while a reserve RPC may still commit.
+      return this.get(job.id);
+    }
+    let evidenceDigest = row.evidenceDigest ?? undefined;
+    if (row.state === "reserved" || row.state === "dispatched") {
+      const requestId = this.requestId(job);
+      evidenceDigest = digest({
+        requestId,
+        reason: "telegram_submission_not_started",
+      });
+      try {
+        await this.admission.resolve(requestId, "refused", evidenceDigest);
+      } catch {
+        return this.get(job.id);
+      }
+    } else if (row.state !== "refused" && row.state !== "cancelled") {
+      // A charged attempted outcome conflicts with unsent evidence. Keep it
+      // for reconciliation without issuing a refund or another submission.
+      return this.get(job.id);
+    }
+    return this.advance(job, {
+      state: job.releaseTo ?? "cancelled",
+      finishedAt: this.now(),
+      voice: null,
+      resolution: evidenceDigest
+        ? { state: "refused", evidenceDigest }
+        : undefined,
+    });
+  }
+  private stopUnsent(
+    job: TelegramSpeechJob,
+    state: "refused" | "cancelled",
+    failure: string,
+  ) {
+    const next = this.advance(
+      job,
+      hasTelegramReservationIntent(job)
+        ? {
+            state: "releasing",
+            releaseTo: state,
+            voice: null,
+            failure,
+          }
+        : {
+            state,
+            voice: null,
+            failure,
+            finishedAt: this.now(),
+          },
+    );
+    return next.state === "releasing" ? this.release(next) : next;
+  }
+  cancel(id: string) {
+    const job = this.get(id);
+    if (
+      ["applied", "cancelled", "settling", "releasing"].includes(job.state) ||
+      (activeSubmission(job) && job.submissionStarted !== false)
+    )
+      return job;
+    if (job.state === "assessed" || job.state === "refused")
+      return this.advance(job, {
+        state: "cancelled",
+        grade: null,
+        voice: null,
+        failure: "telegram_authority_changed",
+      });
+    return this.stopUnsent(job, "cancelled", "telegram_authority_changed");
+  }
+  private async settle(job: TelegramSpeechJob) {
+    const resolution = job.resolution!;
+    try {
+      await this.admission.resolve(
+        this.requestId(job),
+        resolution.state,
+        resolution.evidenceDigest,
+      );
+    } catch {
+      // The receiver may have committed. Replay the same outcome and digest.
+      return this.get(job.id);
+    }
+    try {
+      await this.permit(job);
+      this.beforeSubmission(job);
+    } catch (error) {
+      if (!telegramWorkAuthorityLost(error)) throw error;
+      return this.advance(job, {
+        state: "cancelled",
+        grade: null,
+        voice: null,
+        failure: "telegram_authority_changed",
+      });
+    }
+    if (job.retryOnRefusal)
+      return this.advance(job, {
+        state: "retry_wait",
+        retry: job.retry + 1,
+        nextAt: this.now() + 1000,
+        submissionStarted: false,
+        reservation: undefined,
+        resolution: undefined,
+        retryOnRefusal: undefined,
+        finishedAt: null,
+      });
+    return this.advance(job, {
+      state: resolution.state === "succeeded" ? "assessed" : "refused",
+    });
+  }
+  private async recordOutcome(
+    job: TelegramSpeechJob,
+    receipt: SpeechReceipt,
+    retryOnRefusal = false,
+  ) {
+    const current = this.get(job.id);
+    if (
+      current.retry !== job.retry ||
+      current.dispatchToken !== job.dispatchToken
+    )
+      return current;
+    if (current.state === "settling") return this.settle(current);
+    if (!activeSubmission(current) || current.submissionStarted === false)
+      return current;
+    const assessed = receipt.state === "assessed";
+    const next = this.advance(current, {
+      state: "settling",
+      resolution: {
+        state: assessed ? "succeeded" : "refused",
+        evidenceDigest: digest(
+          assessed ? receipt.transcript : { failure: receipt.error },
+        ),
+      },
+      finishedAt: this.now(),
+      grade: assessed
+        ? this.grading.grade({
+            line: job.line,
+            transcript: receipt.transcript,
+            policy: job.policy,
+            take: job.take,
+          })
+        : null,
+      failure: assessed ? null : receipt.error,
+      retryOnRefusal,
+    });
+    return next.state === "settling" ? this.settle(next) : next;
+  }
+  private async recover(job: TelegramSpeechJob) {
+    let receipt: SpeechReceipt | null = null;
+    if (job.audioDigest && this.transcriber.recover) {
+      try {
+        receipt = await this.transcriber.recover(
+          this.context(job),
+          job.audioDigest,
+        );
+      } catch {
+        // The status port can fail independently of the original submission.
+      }
+    }
+    if (receipt) return this.recordOutcome(job, receipt);
+    return this.advance(job, { state: "uncertain" });
+  }
+  private async submit(
+    job: TelegramSpeechJob,
+    audio: Awaited<ReturnType<typeof readStudyAudio>>,
+  ) {
+    let transcript: StudyTranscript;
+    try {
+      transcript = await this.transcriber.transcribe(
+        audio.audio,
+        audio.contentType,
+        job.line.language,
+        this.context(job),
+      );
+    } catch (error) {
+      if (
+        error instanceof StudySpeechError &&
+        error.outcome === "known_failed"
+      ) {
+        return this.recordOutcome(
+          job,
+          { state: "unavailable", error: error.code },
+          error.code === "speech_rate_limited" && job.retry < 1,
+        );
+      }
+      const failure =
+        error instanceof StudySpeechError ? error.code : "speech_unavailable";
+      const pending = this.advance(job, { state: "uncertain", failure });
+      if (
+        pending.state === "uncertain" &&
+        pending.dispatchToken === job.dispatchToken
+      ) {
+        try {
+          await this.admission.resolve(
+            this.requestId(job),
+            "unknown",
+            digest({ failure }),
+          );
+        } catch {
+          // Dispatched and unknown both retain the charge. The job stays
+          // available for status recovery even if this acknowledgement is lost.
+        }
+      }
+      return this.get(job.id);
+    }
+    return this.recordOutcome(job, { state: "assessed", transcript });
   }
   async work(id: string): Promise<TelegramSpeechJob> {
     let job = this.get(id);
-    const ownership = telegramWorkClaim<TelegramSpeechJob>(this.store, id);
-    const save = (change: Partial<TelegramSpeechJob>) =>
-      ownership.save(job, change) ?? this.get(id);
     if (
       ["assessed", "refused", "applied", "cancelled"].includes(job.state) ||
-      job.nextAt > this.now()
+      job.nextAt > this.now() ||
+      !this.sameAdmissionScope(job)
     )
       return job;
-    await this.permit(job);
-    telegramCheck(
-      job.actor.communityId === this.config.communityId,
-      "telegram_speech_wrong_community",
-      403,
-    );
-    const requestId = `telegram:${job.id}:${job.retry}`;
-    if (job.state === "dispatching" || job.state === "uncertain") {
-      const reservation = (await Promise.resolve(
-        this.admission.get(requestId),
-      ).catch(() => null)) as { state?: string } | null;
+    if (job.state === "releasing") return this.release(job);
+    if (job.state === "settling") return this.settle(job);
+    if (activeSubmission(job) && job.submissionStarted !== false) {
       if (
-        job.submissionStarted === false ||
-        (job.submissionStarted === undefined &&
-          reservation?.state === "reserved")
-      ) {
-        job = ownership.resetUnsent(job) ?? this.get(id);
-      }
+        job.submissionStarted !== undefined ||
+        (await this.reservationStatus(job))?.state !== "reserved"
+      )
+        return this.recover(job);
+      job = this.advance(job, { submissionStarted: false });
+      if (!activeSubmission(job) || job.submissionStarted !== false) return job;
     }
-    if (job.state === "dispatching" || job.state === "uncertain") {
-      const receipt =
-        job.audioDigest && this.transcriber.recover
-          ? await this.transcriber
-              .recover(
-                {
-                  lessonId: job.lessonId,
-                  attemptId: job.id,
-                  lineId: job.line.lineId,
-                  presentationNumber: job.presentation,
-                  takeNumber: job.take,
-                  durationMs: job.durationMs,
-                },
-                job.audioDigest,
-              )
-              .catch(() => null)
-          : null;
-      if (!receipt) return save({ state: "uncertain" });
-      const state = receipt.state === "assessed" ? "succeeded" : "refused";
-      await this.admission.resolve(requestId, state, digest(receipt));
+    try {
       await this.permit(job);
-      return save({
-        state: receipt.state === "assessed" ? "assessed" : "refused",
-        finishedAt: this.now(),
-        grade:
-          receipt.state === "assessed"
-            ? this.grading.grade({
-                line: job.line,
-                transcript: receipt.transcript,
-                policy: job.policy,
-                take: job.take,
-              })
-            : null,
-        failure: receipt.state === "unavailable" ? receipt.error : null,
-      });
+      this.beforeSubmission(job);
+    } catch (error) {
+      if (!telegramWorkAuthorityLost(error)) throw error;
+      return this.stopUnsent(job, "cancelled", "telegram_authority_changed");
     }
-    telegramCheck(job.voice, "telegram_audio_erased", 410);
-    // A refused or crashed file download has no paid side effect. It can be
-    // fetched again while bounded; raw bytes never enter the durable journal.
+    if (!job.voice)
+      return this.stopUnsent(job, "cancelled", "telegram_recording_expired");
+    const ownership = telegramWorkClaim<TelegramSpeechJob>(this.store, id);
+    if (activeSubmission(job)) {
+      job = ownership.resetUnsent(job) ?? this.get(id);
+      if (job.state !== "queued") return job;
+    }
     const audio = await readStudyAudio(
-      await this.files.read(job.actor, job.voice),
+      await this.files.read(job.actor, job.voice!),
     );
     const audioDigest = sha256(audio.audio);
     telegramCheck(
@@ -203,107 +460,105 @@ export class TelegramTrialSpeech {
       "telegram_audio_changed",
       409,
     );
-    try {
-      await this.admission.reserve({
-        ...this.config,
-        channel: "telegram-trial",
-        requestId,
-        payloadDigest: audioDigest,
-        units: 1,
-      });
-    } catch {
-      return save({
-        state: "refused",
-        failure: "speech_capacity_unavailable",
-        finishedAt: this.now(),
-      });
-    }
-    const claimed = ownership.claim({ ...job, audioDigest });
+    const hadReservation = hasTelegramReservationIntent(job);
+    const claimed = ownership.claim({
+      ...job,
+      audioDigest,
+      reservation: {
+        keyGeneration: this.config.keyGeneration,
+        started: hadReservation,
+      },
+    });
     if (!claimed) return this.get(id);
     job = claimed;
-    let dispatched = false;
+    const requestId = this.requestId(job);
     try {
       await this.permit(job);
       if (!ownership.owns(job.dispatchToken)) return this.get(id);
+      this.beforeSubmission(job);
+      // Persist before calling reserve. A lost reply cannot erase the work
+      // needed to observe and release a row that may still commit.
+      job = this.advance(job, {
+        reservation: { ...job.reservation!, started: true },
+      });
+      try {
+        await this.admission.reserve({
+          ...this.config,
+          channel: "telegram-trial",
+          requestId,
+          payloadDigest: audioDigest,
+          units: 1,
+        });
+      } catch (error) {
+        if (!hadReservation && capacityRefused(error)) {
+          const current = this.get(id);
+          if (
+            current.dispatchToken !== job.dispatchToken ||
+            current.retry !== job.retry ||
+            current.submissionStarted !== false ||
+            (current.state !== "dispatching" && current.state !== "releasing")
+          )
+            return current;
+          // A definitive rejection of the first reserve proves this attempt
+          // created no row, even if cancellation started while it was pending.
+          return this.advance(current, {
+            state:
+              current.state === "releasing"
+                ? (current.releaseTo ?? "cancelled")
+                : "refused",
+            reservation: { ...job.reservation!, started: false },
+            finishedAt: this.now(),
+            failure: current.failure ?? "speech_capacity_unavailable",
+          });
+        }
+        if (!ownership.owns(job.dispatchToken)) return this.get(id);
+        if (!(await this.reservationStatus(job)))
+          return this.advance(job, {
+            state: "uncertain",
+            failure: "speech_pending",
+          });
+      }
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
+      await this.permit(job);
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
+      this.beforeSubmission(job);
       const permit = await this.admission.dispatch(requestId);
+      if (!ownership.owns(job.dispatchToken)) return this.get(id);
       if (!permit.dispatch) {
         if (
           permit.reservation.state === "cancelled" ||
           permit.reservation.state === "refused"
         )
-          return save({
+          return this.advance(job, {
             state: "refused",
-            failure: "speech_capacity_unavailable",
             finishedAt: this.now(),
+            failure: "speech_capacity_unavailable",
           });
         if (permit.reservation.state !== "dispatched")
-          return save({ state: "uncertain", failure: "speech_pending" });
+          return this.advance(job, {
+            state: "uncertain",
+            submissionStarted: undefined,
+            failure: "speech_pending",
+          });
       }
-      // Admission is awaited; authority may have changed while its reply was
-      // in flight. Do this for both a new permit and a proven-unsent reclaim.
-      if (!ownership.owns(job.dispatchToken)) return this.get(id);
       await this.permit(job);
-      // No await between this CAS and invoking the transcriber. A paused old
-      // owner cannot call it after a reclaim or local authority change.
       if (
         !ownership.beginSubmission(job.dispatchToken!, () =>
           this.beforeSubmission(job),
         )
       )
         return this.get(id);
-      dispatched = true;
-      const transcript = await this.transcriber.transcribe(
-        audio.audio,
-        audio.contentType,
-        job.line.language,
-        {
-          lessonId: job.lessonId,
-          attemptId: job.id,
-          lineId: job.line.lineId,
-          presentationNumber: job.presentation,
-          takeNumber: job.take,
-          durationMs: audio.durationMs,
-        },
-      );
-      await this.admission.resolve(requestId, "succeeded", digest(transcript));
-      await this.permit(job);
-      return save({
-        state: "assessed",
-        finishedAt: this.now(),
-        grade: this.grading.grade({
-          line: job.line,
-          transcript,
-          policy: job.policy,
-          take: job.take,
-        }),
-        failure: null,
-      });
     } catch (error) {
       if (!ownership.owns(job.dispatchToken)) return this.get(id);
-      const known =
-        !dispatched ||
-        (error instanceof StudySpeechError && error.outcome === "known_failed");
-      const failure =
-        error instanceof StudySpeechError ? error.code : "speech_unavailable";
-      await Promise.resolve(
-        this.admission.resolve(
-          requestId,
-          known ? "refused" : "unknown",
-          digest({ failure }),
-        ),
-      ).catch(() => undefined);
-      if (known && failure === "speech_rate_limited" && job.retry < 1)
-        return save({
-          state: "retry_wait",
-          retry: job.retry + 1,
-          nextAt: this.now() + 1000,
-          failure,
-        });
-      return save({
-        state: known ? "refused" : "uncertain",
-        finishedAt: known ? this.now() : null,
-        failure,
-      });
+      const revoked = telegramWorkAuthorityLost(error);
+      return this.stopUnsent(
+        job,
+        revoked ? "cancelled" : "refused",
+        revoked ? "telegram_authority_changed" : "speech_unavailable",
+      );
     }
+    // The provider call and accounting have separate error paths. Once this
+    // marker is true, no failure can turn the job back into unsent work.
+    return this.submit(this.get(id), audio);
   }
 }

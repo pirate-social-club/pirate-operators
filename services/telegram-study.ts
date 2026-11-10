@@ -24,6 +24,7 @@ import type {
 import { linkedLessonView } from "./telegram-linked-study.ts";
 import { workTelegramLinked } from "./telegram-linked-jobs.ts";
 import { STUDY_POLICY } from "../packages/study/contracts.ts";
+import { telegramWorkAuthorityLost } from "./telegram-work-claim.ts";
 
 export interface TelegramStudyOptions {
   grants: TelegramGrants;
@@ -225,6 +226,14 @@ export class TelegramStudyService {
         resultView: null,
         rendered: false,
         voiceFingerprint: digest(voice),
+        ...(view.mode === "trial"
+          ? {
+              reservation: {
+                keyGeneration: this.options.speech.config.keyGeneration,
+                started: false,
+              },
+            }
+          : {}),
       };
       grants.store.set(key, job);
       grants.store.set(pendingKey, id);
@@ -298,9 +307,9 @@ export class TelegramStudyService {
     if (["applied", "cancelled"].includes(job.state)) return job;
     const initial = job;
     try {
-      await this.permit(job);
       if (job.mode === "trial") await this.options.speech.work(id);
-      else if (!["assessed", "refused"].includes(job.state))
+      else if (!["assessed", "refused"].includes(job.state)) {
+        await this.permit(job);
         await workTelegramLinked(
           {
             store: grants.store,
@@ -312,6 +321,7 @@ export class TelegramStudyService {
           },
           job,
         );
+      }
       job = grants.store.get<TelegramStudyWork>(key)!;
       telegramCheck(job, "telegram_history_expired", 410);
       if (!["assessed", "refused"].includes(job.state)) return job;
@@ -354,18 +364,7 @@ export class TelegramStudyService {
         return next;
       });
     } catch (error) {
-      if (
-        error &&
-        typeof error === "object" &&
-        "status" in error &&
-        ([403, 410].includes(Number(error.status)) ||
-          ("code" in error &&
-            [
-              "telegram_bot_changed",
-              "telegram_lesson_changed",
-              "telegram_prompt_changed",
-            ].includes(String(error.code))))
-      ) {
+      if (telegramWorkAuthorityLost(error)) {
         const existing = grants.store.get<TelegramStudyWork>(key);
         if (!existing)
           return {
@@ -376,6 +375,21 @@ export class TelegramStudyService {
             resultView: null,
             failure: "telegram_history_expired",
           };
+        if (existing.mode === "trial") {
+          return (await this.options.speech.cancel(id)) as TelegramStudyWork;
+        }
+        if (
+          ["dispatching", "uncertain"].includes(existing.state) &&
+          existing.submissionStarted !== false
+        ) {
+          const pending = {
+            ...existing,
+            state: "uncertain" as const,
+            voice: null,
+          };
+          grants.store.set(key, pending);
+          return pending;
+        }
         const cancelled: TelegramStudyWork = {
           ...existing,
           state: "cancelled",

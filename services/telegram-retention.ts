@@ -8,6 +8,7 @@ import type { TelegramTrialRecord } from "../packages/telegram/study-contracts.t
 import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import type { TelegramTrialLessons } from "./telegram-trial.ts";
 import type { TelegramOutbound } from "./telegram-outbox.ts";
+import { hasTelegramReservationIntent } from "./telegram-speech.ts";
 import {
   telegramCopyRetention,
   TELEGRAM_VOICE_HANDLE_MS,
@@ -59,28 +60,39 @@ export function telegramTrialRetention(
         (job.value.state === "applied" ||
           now >= job.value.acceptedAt + TELEGRAM_VOICE_HANDLE_MS)
       ) {
-        const undispatched = ["queued", "retry_wait"].includes(job.value.state);
-        if (
-          undispatched &&
-          record.state.status === "active" &&
-          record.state.currentAttemptId === job.value.id
-        ) {
-          const quotaKey = `trial-quota:${actorKey(record.actor)}:${job.value.reservedDay}`;
-          store.set(
-            quotaKey,
-            Math.max(0, (store.get<number>(quotaKey) ?? 0) - 1),
-          );
-          store.set(row.key, {
-            ...record,
-            state: { ...record.state, currentAttemptId: null },
+        const undispatched =
+          ["queued", "retry_wait"].includes(job.value.state) ||
+          (["dispatching", "uncertain"].includes(job.value.state) &&
+            job.value.submissionStarted === false);
+        const release = undispatched && hasTelegramReservationIntent(job.value);
+        store.transaction(() => {
+          if (
+            undispatched &&
+            record.state.status === "active" &&
+            record.state.currentAttemptId === job.value.id
+          ) {
+            const quotaKey = `trial-quota:${actorKey(record.actor)}:${job.value.reservedDay}`;
+            store.set(
+              quotaKey,
+              Math.max(0, (store.get<number>(quotaKey) ?? 0) - 1),
+            );
+            store.set(row.key, {
+              ...record,
+              state: { ...record.state, currentAttemptId: null },
+            });
+          }
+          store.set(job.key, {
+            ...job.value,
+            voice: null,
+            ...(undispatched
+              ? {
+                  state: release ? "releasing" : "cancelled",
+                  releaseTo: "cancelled",
+                  failure: "telegram_recording_expired",
+                }
+              : {}),
           });
-        }
-        store.set(job.key, {
-          ...job.value,
-          voice: null,
-          ...(undispatched
-            ? { state: "cancelled", failure: "telegram_recording_expired" }
-            : {}),
+          if (release) store.set(`job-ready:${job.value.id}`, job.value.id);
         });
         handlesErased++;
       }
@@ -134,6 +146,8 @@ export function telegramTrialRetention(
           voiceFingerprint: job.value.voiceFingerprint,
           audioDigest: job.value.audioDigest,
           state: job.value.state,
+          reservation: job.value.reservation ?? null,
+          resolution: job.value.resolution ?? null,
         });
         store.delete(job.key);
         store.delete(`job-ready:${job.value.id}`);
