@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   decodeFunctionData,
   encodeAbiParameters,
@@ -41,6 +42,9 @@ import {
 import { songKeyOf } from "../packages/protocol/records.ts";
 import type { RewardOfferInput } from "../packages/rewards/contracts.ts";
 import { offerInput } from "../packages/rewards/offers.ts";
+import { selectedDanceRewardSource } from "../packages/dance-chain/source-selection.ts";
+import { retainedDanceAccount } from "../services/dance-reward-source.ts";
+import { MemorySqliteD1 } from "./dance-sqlite-fixture.ts";
 
 const word = (i: number): Hex => `0x${i.toString(16).padStart(64, "0")}`;
 const address = (i: number): Address => `0x${i.toString(16).padStart(40, "0")}`;
@@ -444,4 +448,126 @@ test("registration calldata carries the exact 54 static words hashed by the comm
   if (decoded.functionName !== "registerSubmission")
     assert.fail("wrong selector");
   assert.deepEqual(decoded.args, [command.id, command.hash, command.encoded]);
+});
+
+test("historical D1 identity uses the exact immutable consent and capture, independent of current identity", async () => {
+  const f = fixture();
+  const db = new MemorySqliteD1();
+  try {
+    db.sqlite.exec(
+      readFileSync(
+        new URL("../packages/dance/schema.sql", import.meta.url),
+        "utf8",
+      ),
+    );
+    const captureId = f.capture.captureId.slice(2);
+    const capture = {
+      captureId,
+      captureHash: f.submission.captureHash,
+      communityId: f.source.domain.communityId,
+      source: { sourceHash: f.source.sourceHash },
+      learner: {
+        accountId: f.accountId,
+        wallet: f.learner,
+        active: true,
+        accountCommitment: f.accountCommitment,
+        identityEpoch: Number(f.capture.identityEpoch),
+      },
+    };
+    const consent = {
+      accepted: true,
+      accountId: f.accountId,
+      captureId,
+      captureHash: capture.captureHash,
+      termsHash: f.source.pin.termsSha256,
+      publicityPolicyHash: f.source.pin.publicityPolicyHash,
+    };
+    db.sqlite
+      .prepare("INSERT INTO dance_captures VALUES(?,?,?,?,?,?)")
+      .run(
+        captureId,
+        capture.communityId,
+        f.accountId,
+        "command_1",
+        word(1),
+        JSON.stringify(capture),
+      );
+    db.sqlite
+      .prepare("INSERT INTO dance_consents VALUES(?,?)")
+      .run(captureId, JSON.stringify(consent));
+    const lookup = retainedDanceAccount(db.asD1(), f.source);
+    const args = [
+      f.source.sourceHash,
+      f.accountCommitment,
+      f.capture.identityEpoch,
+      f.capture.captureId,
+      capture.captureHash,
+    ] as const;
+    assert.equal(await lookup(...args), null);
+    db.sqlite
+      .prepare(
+        "INSERT INTO dance_reviews(review_id,community_id,account_id,media_id,recording_digest,media_json,receipt_json,state,local_denied) VALUES(?,?,?,?,?,'{}','{}','withdrawal_pending',1)",
+      )
+      .run(
+        captureId,
+        capture.communityId,
+        f.accountId,
+        "erased_media",
+        word(2),
+      );
+    assert.deepEqual(await lookup(...args), {
+      accountId: f.accountId,
+      wallet: f.learner,
+      accountCommitment: f.accountCommitment,
+      identityEpoch: f.capture.identityEpoch,
+    });
+    await assert.rejects(
+      lookup(args[0], args[1], args[2] + 1n, args[3], args[4]),
+      /dance_historical_account_unverified/,
+    );
+    await assert.rejects(
+      lookup(args[0], args[1], args[2], args[3], word(99)),
+      /dance_historical_account_unverified/,
+    );
+    assert.equal(
+      await lookup(word(99), args[1], args[2], args[3], args[4]),
+      null,
+    );
+    assert.throws(
+      () => db.sqlite.exec("UPDATE dance_consents SET consent_json='{}'"),
+      /dance_consent_immutable/,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("categorical release config is exact and identifies the real wire source", () => {
+  const { source } = fixture();
+  const json = {
+    ...source,
+    domain: { ...source.domain, chainId: 6343 },
+    pin: {
+      ...source.pin,
+      deploymentBlock: source.pin.deploymentBlock.toString(),
+    },
+  };
+  assert.deepEqual(
+    selectedDanceRewardSource(JSON.stringify(json), hashJson(json)),
+    source,
+  );
+  const wrong = { ...json, pin: { ...json.pin, termsSha256: word(999) } };
+  assert.throws(
+    () => selectedDanceRewardSource(JSON.stringify(wrong), hashJson(json)),
+    /dance_reward_source_selection_changed/,
+  );
+  assert.throws(
+    () => selectedDanceRewardSource(JSON.stringify(wrong), hashJson(wrong)),
+    /dance_source_pin_changed/,
+  );
+  const main = { ...json, domain: { ...json.domain, chainId: 4326 } };
+  assert.throws(
+    () => selectedDanceRewardSource(JSON.stringify(main), hashJson(main)),
+    /dance_wrong_chain/,
+  );
 });

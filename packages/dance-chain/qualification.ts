@@ -26,6 +26,8 @@ export interface DanceQualificationProofs {
     sourceHash: Hex,
     commitment: Hex,
     identityEpoch: bigint,
+    captureId: Hex,
+    captureHash: Hex,
   ): Promise<CapturedDanceAccount | null>;
   /** Authenticate the exact historical song and audio bytes at the verdict position. */
   authenticateSong(
@@ -74,6 +76,8 @@ export async function qualifyDanceVerdict(
       source.sourceHash,
       verdict.learnerAccountCommitment,
       verdict.capture.identityEpoch,
+      verdict.capture.captureId,
+      verdict.submission.captureHash,
     ),
     proofs.authenticateSong(
       song,

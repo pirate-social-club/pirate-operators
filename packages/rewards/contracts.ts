@@ -185,7 +185,12 @@ export interface RewardSources {
    * publishes to. A new offer must pin a subset that includes the current one.
    * Absent for sources that read no public results.
    */
-  readonly resultSources?: { accepted: readonly string[]; current: string };
+  readonly resultSources?: {
+    accepted: readonly string[];
+    current: string;
+    /** Categorical admissions can require an explicit pin on the new offer. */
+    defaults?: readonly string[];
+  };
   purchase(
     offer: RewardOfferInput,
     profile: RewardsProfile,
@@ -194,6 +199,7 @@ export interface RewardSources {
   /** Opted in at attachment. Closed entries and this evidence share a transaction. */
   closure?: {
     requires(offer: RewardOfferInput): boolean;
+    admit?(offer: RewardOfferInput): Promise<void>;
     scan(
       offer: RewardOfferInput,
       inputHash: string,

@@ -103,6 +103,8 @@ import {
   resultSource,
   rewardResultSources,
 } from "./reward-sources.ts";
+import { selectedDanceRewardSource } from "../packages/dance-chain/source-selection.ts";
+import { canonicalDanceRewardSource } from "./dance-reward-source.ts";
 import { songKeyOf } from "../packages/protocol/records.ts";
 import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
@@ -131,6 +133,9 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   REWARDS_RESULT_SOURCE_JSON?: string;
   /** Result sources appended after the original, in order; absent before V4. */
   REWARDS_RESULT_SUCCESSORS_JSON?: string;
+  /** Set only by an admitted categorical release; the base rewards release has neither. */
+  DANCE_REWARD_SOURCE_JSON?: string;
+  DANCE_REWARD_SOURCE_SELECTION_HASH?: string;
 }
 export interface CommunityDependencies {
   configuration(): Promise<CommunityConfig>;
@@ -329,6 +334,33 @@ export async function communityFetch(
       insist(env.REWARDS_PROFILE_JSON, "rewards_not_configured", 503);
       const profile = rewardProfile(env.REWARDS_PROFILE_JSON);
       const config = await configuration();
+      const danceRaw = env.DANCE_REWARD_SOURCE_JSON;
+      const danceHash = env.DANCE_REWARD_SOURCE_SELECTION_HASH;
+      insist(
+        !!danceRaw === !!danceHash &&
+          (!danceRaw ||
+            (profile.mode === "live-testnet" &&
+              env.REWARDS_RESULT_SOURCE_JSON)),
+        "dance_reward_source_unavailable",
+        503,
+      );
+      const categorical =
+        danceRaw && danceHash
+          ? (() => {
+              const source = selectedDanceRewardSource(danceRaw, danceHash);
+              return new Map([
+                [
+                  source.sourceHash,
+                  canonicalDanceRewardSource({
+                    db: env.DB,
+                    source,
+                    reads: publicReads,
+                    configuration: config,
+                  }),
+                ],
+              ]);
+            })()
+          : undefined;
       const sources =
         ports.rewards?.sources ??
         (profile.mode === "live-testnet" && env.REWARDS_RESULT_SOURCE_JSON
@@ -341,6 +373,7 @@ export async function communityFetch(
               ),
               config,
               reads: publicReads,
+              categorical,
             })
           : undefined);
       const result = await rewardsCommunityApi(

@@ -123,7 +123,7 @@ function offerSources(
     insist(pinned === undefined, "reward_offer_sources_unavailable", 409);
     return undefined;
   }
-  const chosen = pinned ?? [...sources.accepted];
+  const chosen = pinned ?? [...(sources.defaults ?? sources.accepted)];
   insist(
     Array.isArray(chosen) &&
       chosen.length > 0 &&
@@ -177,7 +177,10 @@ export class RewardOffers {
           (input.resultSources === undefined &&
             !!live &&
             prior.input_hash ===
-              hashJson({ ...input, resultSources: [...live.accepted] })),
+              hashJson({
+                ...input,
+                resultSources: [...(live.defaults ?? live.accepted)],
+              })),
         "reward_offer_conflict",
         409,
       );
@@ -206,6 +209,7 @@ export class RewardOffers {
     );
     for (const id of input.ticketIds) rewardAmount(id);
     const closureVersion = this.source.closure?.requires(input) ? 1 : undefined;
+    if (closureVersion === 1) await this.source.closure?.admit?.(input);
     const evidence = await this.source.purchase(input, this.store.profile);
     bytes32(evidence.receiptHash);
     const expectedMode =
