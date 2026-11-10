@@ -1,5 +1,6 @@
 name: Community wizard
 on:
+  workflow_dispatch:
   push:
     paths:
       ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
