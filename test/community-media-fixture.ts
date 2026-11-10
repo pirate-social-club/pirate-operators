@@ -24,6 +24,7 @@ import {
 } from "../packages/community-media/processor-transport.ts";
 import type {
   MediaIntent,
+  MediaRecord,
   MediaProcessor,
   PublishedMediaSong,
 } from "../packages/community-media/contracts.ts";
@@ -31,7 +32,10 @@ import type {
 export const exec = promisify(execFile),
   actor = { accountId: "learner-a" },
   reviewer = { accountId: "reviewer-a" };
-export async function fixture(t: { after(fn: () => Promise<void>): void }) {
+export async function fixture(
+  t: { after(fn: () => Promise<void>): void },
+  songOverrides: Partial<PublishedMediaSong> = {},
+) {
   const runtime = await communityRuntime();
   t.after(() => runtime.dispose());
   const schema = await readFile(
@@ -54,12 +58,13 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
     audioSha256: "a".repeat(64),
     durationSamples: SAMPLE_RATE * 30,
     title: "Fixture song",
+    ...songOverrides,
   };
   let now = 1_800_000_000_000,
     publicAllowed = false,
     reviewAllowed = true,
     enabled = true,
-    currentRevision = 2,
+    currentRevision = song.songRevision,
     sends = 0;
   const repository = new MediaRepository(runtime.db, song.communityId);
   const processor: MediaProcessor = {
@@ -102,6 +107,12 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
     }),
     reviewAuthority: async (who: { accountId: string }) =>
       reviewAllowed && who.accountId === reviewer.accountId,
+    privatePlaybackAuthority: async (
+      who: { accountId: string },
+      _media: MediaRecord,
+    ) =>
+      who.accountId === actor.accountId ||
+      (reviewAllowed && who.accountId === reviewer.accountId),
     processor: processor as MediaProcessor | undefined,
     enqueue: async () => {
       sends++;
@@ -111,7 +122,7 @@ export async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const intent: MediaIntent = {
     requestId: "request_0001",
     songKey: song.songKey,
-    songRevision: 2,
+    songRevision: song.songRevision,
     recordingSha256: hash,
     bytes: source.byteLength,
     startSample: 0,

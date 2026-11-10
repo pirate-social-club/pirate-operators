@@ -34,7 +34,13 @@ export function prepareMediaSubmission(
   accepted: AcceptedDanceSubmissionFence,
 ): MediaSubmissionPlan {
   mediaText(submissionId, 128);
-  digest(bindingCommitment);
+  // The on-chain commitment has an explicit 0x prefix. Preserve its exact
+  // representation for the consumer's atomic accepted-receipt predicate.
+  digest(
+    bindingCommitment.startsWith("0x")
+      ? bindingCommitment.slice(2)
+      : bindingCommitment,
+  );
   requireMedia(
     witness.communityId === repository.communityId && accepted.sql.length > 0,
     "media_submission_invalid",

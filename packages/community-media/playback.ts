@@ -59,6 +59,16 @@ export async function mediaPlayback(
     headers.set("content-range", `bytes ${start}-${end}/${size}`);
   }
   headers.set("content-length", String(end - start + 1));
+  const revalidate = async () => {
+    if (record.purpose !== "private-review") return;
+    const fresh = await service.playbackRecord(id, actor);
+    requireMedia(
+      fresh.revision === record.revision &&
+        fresh.renditionKey === record.renditionKey,
+      "media_not_found",
+      404,
+    );
+  };
   // HEAD also verifies object existence; original bytes never substitute.
   if (request.method === "HEAD") {
     requireMedia(
@@ -66,11 +76,18 @@ export async function mediaPlayback(
       "media_rendition_missing",
       503,
     );
+    await revalidate();
     return new Response(null, { status: partial ? 206 : 200, headers });
   }
   const object = await service.ports.bucket.get(record.renditionKey, {
     range: { offset: start, length: end - start + 1 },
   });
   requireMedia(object, "media_rendition_missing", 503);
+  try {
+    await revalidate();
+  } catch (error) {
+    await object.body.cancel().catch(() => {});
+    throw error;
+  }
   return new Response(object.body, { status: partial ? 206 : 200, headers });
 }

@@ -314,8 +314,8 @@ export class CommunityMedia {
       requireMedia(actor, "media_authentication_required", 401);
       await this.actor(actor);
       requireMedia(
-        actor.accountId === record.accountId ||
-          (await this.ports.reviewAuthority(actor, record)),
+        this.ports.privatePlaybackAuthority &&
+          (await this.ports.privatePlaybackAuthority(actor, record)),
         "media_not_found",
         404,
       );

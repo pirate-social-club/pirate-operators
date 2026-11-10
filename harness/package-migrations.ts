@@ -2,6 +2,8 @@
 // build imports so tests can load it directly.
 import { insist } from "../packages/community/common.ts";
 
+export const COMMUNITY_MEDIA_MIGRATION = "0015_community_media.sql";
+export const DANCE_MIGRATION = "0016_dance.sql";
 export const REWARD_CLOSURE_MIGRATION = "0014_reward_closure_snapshots.sql";
 export const OWNER_PUBLISHING_MIGRATION = "0012_owner_budget_windows.sql";
 export const LEARNING_AUTHORIZATION_MIGRATION =
@@ -18,6 +20,8 @@ export function communityMigrations(
     ownerPublishing: boolean;
     v4: boolean;
     rewardClosure?: boolean;
+    media?: boolean;
+    dance?: boolean;
   },
 ) {
   insist(
@@ -35,12 +39,24 @@ export function communityMigrations(
     "reward_closure_v4_selection_required",
     409,
   );
+  insist(
+    !selected.media || selected.v4,
+    "community_media_v4_selection_required",
+    409,
+  );
+  insist(
+    !selected.dance || (selected.media && selected.rewardClosure),
+    "dance_media_reward_selection_required",
+    409,
+  );
   return names
     .filter((p) => /^\d{4}_.+\.sql$/.test(p))
     .filter((p) => p !== "0011_manual_rewards.sql" || selected.rewards)
     .filter((p) => p !== OWNER_PUBLISHING_MIGRATION || selected.ownerPublishing)
     .filter((p) => p !== LEARNING_AUTHORIZATION_MIGRATION || selected.v4)
     .filter((p) => p !== REWARD_CLOSURE_MIGRATION || selected.rewardClosure)
+    .filter((p) => p !== COMMUNITY_MEDIA_MIGRATION || selected.media)
+    .filter((p) => p !== DANCE_MIGRATION || selected.dance)
     .sort();
 }
 export const MANAGED_MIGRATIONS = [

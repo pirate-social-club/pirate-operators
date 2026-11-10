@@ -21,6 +21,11 @@ export interface CommunityMediaPorts {
     song: PublishedMediaSong,
   ): Promise<MediaCapability>;
   reviewAuthority(actor: MediaActor, media: MediaRecord): Promise<boolean>;
+  /** All private byte reads, including an uploader's. Never infer from ownership. */
+  privatePlaybackAuthority?(
+    actor: MediaActor,
+    media: MediaRecord,
+  ): Promise<boolean>;
   processor?: MediaProcessor;
   quota?: MediaQuota;
   /** Frozen by community/Dance admission, never selected by the browser. */
