@@ -52,7 +52,18 @@ export function telegramAccountPort(options: {
             binding_id: string;
             subject: string;
             last_withdrawn_at: number | null;
-          }>();
+          }>()
+          // SQLite adapters may return null-prototype rows. Canonical hashes
+          // bind the selected fields, independent of adapter object prototype.
+          .then((row) =>
+            row
+              ? {
+                  binding_id: row.binding_id,
+                  subject: row.subject,
+                  last_withdrawn_at: row.last_withdrawn_at,
+                }
+              : null,
+          );
       const row = await read();
       telegramCheck(row, "telegram_account_mismatch", 403);
       await options.assertAccountEnabled(accountId);
