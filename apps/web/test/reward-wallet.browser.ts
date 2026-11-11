@@ -152,6 +152,15 @@ test("hosted Send is explicit navigation; reload/history never replays a transfe
   await expect(
     dialog.getByText(/Check MOSS history for any Send/),
   ).toBeVisible();
+  // The status surface is conservative while the SDK chunk is still loading.
+  // Observe this explicit dispatch before testing reload/replay behavior.
+  await expect.poll(() => count(page, "fixture_sends")).toBe(1);
+  expect(await count(page, "fixture_guard_calls")).toBe(0);
+  expect(
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("fixture_send_request")!),
+    ),
+  ).toEqual({ token: "0x" + "33".repeat(20) });
   await page.reload();
   expect(await count(page, "fixture_sends")).toBe(1);
   const other = await context.newPage();
