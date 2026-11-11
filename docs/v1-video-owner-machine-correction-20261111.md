@@ -119,3 +119,7 @@ run. No manifest, lock, dependency installation or shared mount was changed.
 No provider, resource, credential, deployment, financial, public-chain or production
 effects were performed. The final handback seals source, evidence and proposals;
 it does not grant public posting, release acceptance or a new execution slot.
+
+## Coordinator source closure, November 11
+
+The first exact web typecheck reported the zero-parameter keyed Show callback, an optional spread for a required song-picker source, and a missing original capture/review surface. The coordinator supplies the keyed identity parameter, passes the already-required song source directly, and copies video-original-audio-surface.tsx from the exact c7 source blob 2b1fc38d138b002a75d2d72cd299c531d8cf6a20. Its only semantic seam is the owned design-system import; markup and interactions stay from the source. Earlier sealed manifests remain unchanged. Eleven real machine/HTTP-adapter cases passed before these typing/composition repairs; subsequent type/build/render qualification remains required.

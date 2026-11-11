@@ -648,7 +648,7 @@ export function SongExcerptComposer(props: {
           preview={async (postId, signal) =>
             (await reader({ kind: "post", postId }, signal)).audioUrl
           }
-          {...(props.songs === undefined ? {} : { source: props.songs })}
+          source={props.songs}
         />
       </Show>
 

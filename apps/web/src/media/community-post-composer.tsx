@@ -87,7 +87,7 @@ export function CommunityPostComposer(props: CommunityPostComposerProps) {
       }
       keyed
     >
-      {() => <ComposerSession {...props} />}
+      {(_identity: string) => <ComposerSession {...props} />}
     </Show>
   );
 }
