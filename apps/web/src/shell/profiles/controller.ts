@@ -123,21 +123,17 @@ export function createProfileController(options: {
     if (!identity) return;
     const task = start();
     emit({ ...state, mutation: "saving" });
-    try {
-      // Always reconcile an ambiguous command before replaying its exact bytes.
-      const known = await options.client.receipt(body.mutationId, task.signal);
-      if (!task.current()) return;
-      const result =
-        known ?? (await options.client.save(body, identity.csrf, task.signal));
-      if (task.current()) apply(result);
-    } catch (error) {
+    const recover = (error: unknown, writeRefusal = false) => {
       if (!task.current()) return;
       const definite =
+        writeRefusal &&
         error instanceof ProfileRequestError &&
         error.status >= 400 &&
         error.status < 500 &&
         error.status !== 401 &&
-        error.status !== 403;
+        error.status !== 403 &&
+        error.status !== 408 &&
+        error.status !== 429;
       if (definite) pending = null;
       const authorityLost =
         error instanceof ProfileRequestError &&
@@ -147,6 +143,32 @@ export function createProfileController(options: {
         ...(authorityLost ? { view: { kind: "unavailable" as const } } : {}),
         mutation: definite ? "conflict" : "unknown",
       });
+    };
+    try {
+      // A failed lookup says nothing about the original write. Keep its exact
+      // body/id/revision and issue no PUT until a successful lookup resolves it.
+      const known = await options.client.receipt(body.mutationId, task.signal);
+      if (!task.current()) return;
+      if (known !== null) {
+        apply(known);
+        return;
+      }
+    } catch (error) {
+      recover(error);
+      return;
+    }
+    let result: ProfileMutationReceipt;
+    try {
+      result = await options.client.save(body, identity.csrf, task.signal);
+    } catch (error) {
+      recover(error, true);
+      return;
+    }
+    if (!task.current()) return;
+    try {
+      apply(result);
+    } catch (error) {
+      recover(error);
     }
   };
   return {

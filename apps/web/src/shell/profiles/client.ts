@@ -129,13 +129,27 @@ export function createProfileClient(
       if (signal.aborted) throw error;
       throw new ProfileRequestError(0, "profile_outcome_unknown");
     }
-    const value = await response.json().catch(() => fail());
-    if (!response.ok)
+    // Authentication is a response-status verdict, independent of an error
+    // body's format (or whether that body ever finishes). Drop private owner
+    // authority without waiting to decode an empty/HTML/malformed response.
+    if (response.status === 401 || response.status === 403)
       throw new ProfileRequestError(
         response.status,
-        typeof value?.error === "string" ? value.error : "profile_unavailable",
+        "profile_authentication_lost",
       );
-    return value as unknown;
+    if (!response.ok) {
+      const value: unknown = await response.json().catch(() => undefined);
+      throw new ProfileRequestError(
+        response.status,
+        value !== null &&
+        typeof value === "object" &&
+        "error" in value &&
+        typeof value.error === "string"
+          ? value.error
+          : "profile_unavailable",
+      );
+    }
+    return (await response.json().catch(() => fail())) as unknown;
   };
   const receipt = (value: unknown): ProfileMutationReceipt => {
     const row = record(value);

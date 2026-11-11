@@ -142,3 +142,182 @@ export async function assertRenewalAndUnmount(
   ).toBeNull();
   await retained.dispose();
 }
+
+/** Mount fresh ShellPlayerReaderInput with distinct readers and real WAVs. */
+export async function assertSamePostReaderIsolation(
+  page: Page,
+  mode: "replace" | "remount",
+) {
+  const old = await page
+    .locator("[data-song-player] audio")
+    .evaluateHandle((element) => element as HTMLAudioElement);
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  if (mode === "remount") {
+    await page
+      .getByRole("button", { name: "Fixture hide player", exact: true })
+      .click();
+    await expect(page.locator("[data-song-player]")).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Fixture show reader B", exact: true })
+      .click();
+  } else {
+    await page
+      .getByRole("button", { name: "Fixture replace reader B", exact: true })
+      .click();
+  }
+  const audio = page.locator("[data-song-player] audio");
+  await expect(audio).not.toHaveAttribute("src");
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  await expect(audio).toHaveAttribute("src", /fixture-b\.wav$/);
+  await expect(
+    page.getByRole("button", { name: "Pause Fixture same post", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Fixture resolve reader A", exact: true })
+    .click();
+  await old.evaluate((element) => {
+    for (const type of [
+      "play",
+      "playing",
+      "waiting",
+      "stalled",
+      "error",
+      "pause",
+      "emptied",
+      "loadedmetadata",
+      "timeupdate",
+      "seeked",
+    ])
+      element.dispatchEvent(new Event(type));
+  });
+  await expect(audio).toHaveAttribute("src", /fixture-b\.wav$/);
+  await expect
+    .poll(() => audio.evaluate((element: HTMLAudioElement) => element.paused))
+    .toBe(false);
+  await expect(
+    page.getByRole("button", { name: "Pause Fixture same post", exact: true }),
+  ).toBeVisible();
+  expect(
+    await old.evaluate((element) => element.getAttribute("src")),
+  ).toBeNull();
+  expect(await old.evaluate((element) => element.paused)).toBe(true);
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-b-calls",
+    "1",
+  );
+  // Late A is reusable only by A. Returning to A does not issue another read.
+  await page
+    .getByRole("button", { name: "Fixture hide player", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Fixture show reader A", exact: true })
+    .click();
+  await expect(audio).toHaveAttribute("src", /fixture-a\.wav$/);
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-a-calls",
+    "1",
+  );
+  await old.dispose();
+}
+
+/** bRefuses=true; aImmediate=cachedA. Run both mount modes on fresh fixtures. */
+export async function assertSamePostRefusingReader(
+  page: Page,
+  mode: "replace" | "remount",
+  cachedA: boolean,
+) {
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  if (cachedA)
+    await expect(
+      page.getByRole("button", {
+        name: "Pause Fixture same post",
+        exact: true,
+      }),
+    ).toBeVisible();
+  if (mode === "remount") {
+    await page
+      .getByRole("button", { name: "Fixture hide player", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Fixture show reader B", exact: true })
+      .click();
+  } else {
+    await page
+      .getByRole("button", { name: "Fixture replace reader B", exact: true })
+      .click();
+  }
+  const audio = page.locator("[data-song-player] audio");
+  await expect(audio).not.toHaveAttribute("src");
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  await expect(
+    page.getByText("This song could not be played. Try again.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  if (!cachedA)
+    await page
+      .getByRole("button", { name: "Fixture resolve reader A", exact: true })
+      .click();
+  await page
+    .getByRole("button", { name: "Retry playback", exact: true })
+    .click();
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-b-calls",
+    "2",
+  );
+  await expect(audio).not.toHaveAttribute("src");
+  await expect(
+    page.getByRole("button", { name: "Pause Fixture same post", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Fixture hide player", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Fixture show reader A", exact: true })
+    .click();
+  await expect(audio).toHaveAttribute("src", /fixture-a\.wav$/);
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-a-calls",
+    "1",
+  );
+}
+
+/** sameReader=true: a genuine same-context remount still receives late access. */
+export async function assertSameReaderLateRemount(page: Page) {
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Fixture hide player", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Fixture show reader B", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Fixture resolve reader A", exact: true })
+    .click();
+  const audio = page.locator("[data-song-player] audio");
+  await expect(audio).toHaveAttribute("src", /fixture-a\.wav$/);
+  await page
+    .getByRole("button", { name: "Play Fixture same post", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Pause Fixture same post", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-a-calls",
+    "1",
+  );
+  await expect(page.locator("[data-reader-fixture]")).toHaveAttribute(
+    "data-b-calls",
+    "0",
+  );
+}

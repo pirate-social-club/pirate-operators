@@ -5,6 +5,7 @@ import { Show, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import { Button, Type } from "../design-system.ts";
 import { SongPlaybackControls } from "../player/playback-controls.tsx";
 import { mediaFacts, seekMedia } from "../player/media-state.ts";
+import { createPlaybackAccessCache } from "../player/access-cache.ts";
 import type { SongPlaybackGrant } from "../playback-access.ts";
 
 type PlayerGrant = Omit<SongPlaybackGrant, "expires_at" | "renew_after"> & {
@@ -13,61 +14,17 @@ type PlayerGrant = Omit<SongPlaybackGrant, "expires_at" | "renew_after"> & {
 };
 
 /**
- * Playback grants are reusable bearer URLs valid for fifteen minutes, and a
- * community feed can replace its post components while a grant request is in
- * flight. Cache the latest grant per post so a remounted player resumes from
- * it instead of discarding access and refetching.
+ * A community feed can replace its post components while a grant request is in
+ * flight. Retain the grant's actual validity, and reuse it only within the same
+ * captured reader and post. A late result may reach that reader's remount,
+ * never another access context.
  */
-const playbackGrants = new Map<string, PlayerGrant>();
-const playbackGrantListeners = new Map<
-  string,
-  Set<(grant: PlayerGrant) => void>
->();
-const PLAYBACK_GRANT_CACHE_LIMIT = 32;
-
-function cachePlaybackGrant(postId: string, grant: PlayerGrant): void {
-  playbackGrants.delete(postId);
-  playbackGrants.set(postId, grant);
-  while (playbackGrants.size > PLAYBACK_GRANT_CACHE_LIMIT) {
-    const oldest = playbackGrants.keys().next().value;
-    if (oldest === undefined) break;
-    playbackGrants.delete(oldest);
-  }
-  // A request started by a component that has since been replaced still has
-  // to reach its successor, which subscribed before the grant resolved.
-  for (const listener of playbackGrantListeners.get(postId) ?? [])
-    listener(grant);
-}
-
-function subscribePlaybackGrant(
-  postId: string,
-  listener: (grant: PlayerGrant) => void,
-): () => void {
-  const listeners =
-    playbackGrantListeners.get(postId) ??
-    new Set<(grant: PlayerGrant) => void>();
-  listeners.add(listener);
-  playbackGrantListeners.set(postId, listeners);
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) playbackGrantListeners.delete(postId);
-  };
-}
-
-function cachedPlaybackGrant(
-  postId: string,
-  nowSeconds: number,
-): PlayerGrant | undefined {
-  const cached = playbackGrants.get(postId);
-  return cached !== undefined &&
-    (cached.renew_after === undefined || cached.renew_after > nowSeconds)
-    ? cached
-    : undefined;
-}
+const playbackAccess = createPlaybackAccessCache();
 
 export interface SongPlayerProps {
   readonly postId: string;
   readonly title: string;
+  /** Stable immutable access context; replace the reader when authority changes. */
   readonly readAccess: (postId: string) => Promise<SongPlaybackGrant>;
   readonly now?: () => number;
   /**
@@ -122,7 +79,9 @@ function SongPlayerInstance(props: SongPlayerProps) {
   const now = () => Math.floor((props.now?.() ?? Date.now()) / 1000);
   const [grant, setGrant] = createSignal<PlayerGrant | undefined>(
     untrack(() =>
-      cacheAccess === false ? undefined : cachedPlaybackGrant(postId, now()),
+      cacheAccess === false
+        ? undefined
+        : playbackAccess.read(reader, postId, now()),
     ),
   );
   const clearTimer = () => {
@@ -137,7 +96,7 @@ function SongPlayerInstance(props: SongPlayerProps) {
     audio?.load();
   });
   onCleanup(
-    subscribePlaybackGrant(postId, (next) => {
+    playbackAccess.subscribe(reader, postId, (next) => {
       if (!disposed && cacheAccess !== false) setGrant(next);
     }),
   );
@@ -147,7 +106,9 @@ function SongPlayerInstance(props: SongPlayerProps) {
     const retrying = issue() !== undefined;
     setIssue(undefined);
     const cached =
-      cacheAccess === false ? undefined : cachedPlaybackGrant(postId, now());
+      cacheAccess === false
+        ? undefined
+        : playbackAccess.read(reader, postId, now());
     if (cached !== undefined) {
       // A still-valid grant must not pause playback on a retry. Reuse the
       // element, or let the freshly rendered one resume on metadata.
@@ -202,9 +163,9 @@ function SongPlayerInstance(props: SongPlayerProps) {
             next.expires_at! <= next.renew_after!))
       )
         throw new Error("Invalid playback grant");
-      // Cache before the disposal check so a replaced component still leaves
-      // reusable access for the one that follows it.
-      if (cacheAccess !== false) cachePlaybackGrant(postId, next);
+      // A late result can populate only the captured reader/post cache. A new
+      // reader for the same post must independently obtain (or refuse) access.
+      if (cacheAccess !== false) playbackAccess.publish(reader, postId, next);
       if (disposed) return;
       setGrant(next);
       // A public community endpoint has no rotating grant URL. Retrying a
