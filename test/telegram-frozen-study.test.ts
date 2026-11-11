@@ -132,6 +132,33 @@ test("a linked draft freezes its original grant before a lost operator response;
     );
     assert.equal(f.counts().calls, 0);
     assert.equal("telegramGrantFenceVersion" in api(), false);
+    const raceAt = f.clock();
+    f.advance(1);
+    const requestRace = "fixture_linked_concurrent_0001";
+    const raced = await Promise.all(
+      [raceAt, raceAt + 1].map((startedAt) =>
+        frozenTelegramStudy(
+          ports,
+          session,
+          "telegram-linked",
+          {
+            ...context,
+            grantId: "fixture_race_grant",
+            startedAt,
+          },
+          f.db,
+        ).start(requestRace, f.song),
+      ),
+    );
+    assert.equal(raced[0].lessonId, raced[1].lessonId);
+    assert.equal(raced[0].startedAt, raced[1].startedAt);
+    const raceRow = await store.byRequest(owner, requestRace);
+    assert.ok(raceRow);
+    assert.equal(
+      studyBinding(f.store, raceRow.lesson_id)?.offer.startedAt,
+      raced[0].startedAt,
+    );
+    assert.equal(f.counts().calls, 0);
     allowed = false;
     await assert.rejects(
       api().get(resumed.lessonId),
