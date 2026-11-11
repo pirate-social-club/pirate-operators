@@ -86,16 +86,40 @@ export function mediaClient(
       headers,
       credentials: "same-origin",
     });
-    // Authentication status is authoritative even when an intermediary returns
-    // an empty/HTML body or the body stream never completes. Preserve the
-    // controller's pending command while it holds for explicit reconnection.
-    if (response.status === 401 || response.status === 403)
-      throw new MediaHttpError(response.status, "media_authentication_required");
-    const body = (await response.json()) as { error?: string };
+    // Retain the HTTP authentication status independently of body decoding.
+    // Structured policy refusals keep their original code. Intermediary HTML,
+    // empty bodies and rejected/malformed JSON must still produce an auth hold.
+    const authenticationStatus =
+      response.status === 401 || response.status === 403;
+    if (
+      authenticationStatus &&
+      !response.headers
+        .get("content-type")
+        ?.toLowerCase()
+        .includes("application/json")
+    )
+      throw new MediaHttpError(
+        response.status,
+        "media_authentication_required",
+      );
+    let body: { error?: string } | null;
+    try {
+      body = await response.json();
+    } catch (error) {
+      if (authenticationStatus)
+        throw new MediaHttpError(
+          response.status,
+          "media_authentication_required",
+        );
+      throw error;
+    }
     if (!response.ok)
       throw new MediaHttpError(
         response.status,
-        body.error ?? "media_service_unavailable",
+        body?.error ??
+          (authenticationStatus
+            ? "media_authentication_required"
+            : "media_service_unavailable"),
       );
     return body as T;
   }
