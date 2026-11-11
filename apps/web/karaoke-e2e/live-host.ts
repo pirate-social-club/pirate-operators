@@ -27,6 +27,7 @@ import { firstSong } from "../../../services/first-song-profile.ts";
 import { digest } from "../../../packages/protocol/index.ts";
 import type { KaraokeManifest } from "../../../packages/protocol/payments.ts";
 import { readPublicResults } from "../../../packages/records/results-v2.ts";
+import { resultsAbi, resultCommitment } from "../../../packages/protocol/learning-results.ts";
 import { readPublicResults as readPublicResultsV4 } from "../../../packages/records/results-v3.ts";
 import { keccak256 } from "viem";
 import { readLearner } from "../../../packages/records/reader.ts";
@@ -205,6 +206,47 @@ createServer(async (request, response) => {
         transactions: (await live.operatorState("tx:")).map(({value}) => { const {raw, ...row} = value as Record<string, unknown>; return row; }),
         simulator: await live.simulatorLog(),
       });
+    if (url.pathname === "/__fixture/result-events") {
+      if (!live.resultsV2) throw Error("fixture V2 result source required");
+      const learner = learnerOf(url.searchParams.get("learner"));
+      const head = await evm.publicClient.getBlock({ blockTag: "latest" });
+      const logs = await evm.publicClient.getContractEvents({
+        address: live.resultsV2, abi: resultsAbi, eventName: "ResultPublished",
+        args: { learner: learner.address },
+        fromBlock: 0n, toBlock: head.number, strict: true,
+      });
+      // Preserve every raw event, including all revisions. Reduction to one
+      // current result per session would hide duplicate-publication evidence.
+      const events = await Promise.all(logs.map(async (log) => {
+        const [block, receipt] = await Promise.all([
+          evm.publicClient.getBlock({ blockNumber: log.blockNumber }),
+          evm.publicClient.getTransactionReceipt({ hash: log.transactionHash }),
+        ]);
+        const owned = receipt.logs.filter((entry) => entry.logIndex === log.logIndex);
+        return {
+          sessionId: log.args.result.sessionId,
+          learner: log.args.result.learner,
+          revision: log.args.result.revision,
+          commitment: log.args.commitment,
+          transactionHash: log.transactionHash,
+          blockNumber: log.blockNumber,
+          logIndex: log.logIndex,
+          verified:
+            !log.removed && block.hash === log.blockHash &&
+            receipt.status === "success" && receipt.blockHash === log.blockHash &&
+            log.args.sessionId === log.args.result.sessionId &&
+            log.args.revision === log.args.result.revision &&
+            log.args.learner.toLowerCase() === log.args.result.learner.toLowerCase() &&
+            resultCommitment(log.args.result, log.args.outcomes) === log.args.commitment &&
+            owned.length === 1 && owned[0]!.address.toLowerCase() === log.address.toLowerCase() &&
+            owned[0]!.data === log.data &&
+            owned[0]!.topics.join(":") === log.topics.join(":"),
+        };
+      }));
+      if ((await evm.publicClient.getBlock({ blockNumber: head.number })).hash !== head.hash)
+        throw Error("fixture result head changed");
+      return send(response, 200, events);
+    }
     if (url.pathname === "/__fixture/records") {
       const learner = learnerOf(url.searchParams.get("learner"));
       const timed = (

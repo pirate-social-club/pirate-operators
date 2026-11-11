@@ -53,6 +53,15 @@ test("Karaoke refresh restores the song and reuses the server take without a new
           .length,
     )
     .toBe(1);
+  const events = (await (
+    await page.request.get("/__fixture/result-events?learner=10")
+  ).json()) as { sessionId: string; revision: number; verified: boolean }[];
+  expect(events).toHaveLength(1);
+  expect(events[0]).toMatchObject({
+    sessionId: originalId,
+    revision: 1,
+    verified: true,
+  });
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(page).not.toHaveURL(/[?&]sing=/);
 });
