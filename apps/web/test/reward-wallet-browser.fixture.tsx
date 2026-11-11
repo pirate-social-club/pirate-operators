@@ -8,6 +8,7 @@ import { RewardOfferPanel } from "../src/live/reward-offer-panel.tsx";
 import { WalletSendPanel } from "../src/wallet/send-panel.tsx";
 import { Show } from "solid-js";
 import { WalletSponsoredSendSheet } from "../src/wallet/established/wallet-sponsored-send-sheet.tsx";
+import { RewardWalletVerificationFixture } from "./reward-wallet-verification.fixture.tsx";
 import {
   sourceSendFixture,
   sourceSender,
@@ -338,7 +339,9 @@ function SourceFlowFixture() {
 const mode = new URL(location.href).searchParams.get("fixture");
 render(
   () =>
-    mode === "source-flow" ? (
+    mode === "verification-race" ? (
+      <RewardWalletVerificationFixture />
+    ) : mode === "source-flow" ? (
       <SourceFlowFixture />
     ) : mode === "receive-switch" ? (
       <ReceiveSwitchFixture />
