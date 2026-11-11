@@ -58,8 +58,9 @@ test(
         "https://fixture.example/alarm",
         deadlines ? { method: "POST", body: JSON.stringify(deadlines) } : {},
       );
-      assert.equal(response.status, 200);
-      return (await response.json()) as { alarm: number; receipt: string };
+      const body = await response.text();
+      assert.equal(response.status, 200, body);
+      return JSON.parse(body) as { alarm: number; receipt: string };
     };
     try {
       const earliest = Date.now() + 300000;

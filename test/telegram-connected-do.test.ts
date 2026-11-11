@@ -72,7 +72,7 @@ test(
         format: "esm",
         platform: "browser",
         target: "es2024",
-        external: ["cloudflare:workers"],
+        external: ["cloudflare:workers", "node:*"],
         logLevel: "silent",
       });
       // Keep automatic fixture deadlines in the future. Manual forwarding below
@@ -85,6 +85,7 @@ test(
           modules: true,
           script: compiled.outputFiles[0].text,
           compatibilityDate: "2026-08-06",
+          compatibilityFlags: ["nodejs_compat"],
           durableObjects: { STATE: { className: "State", useSQLite: true } },
           durableObjectsPersist: join(directory, "objects"),
           d1Databases: ["DB"],
