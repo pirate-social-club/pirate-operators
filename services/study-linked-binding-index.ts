@@ -14,7 +14,7 @@ const linked = "json_extract(value,'$.offer.speechChannel')='telegram-linked'";
 const addressSql = (path: string, size: number) =>
   `(json_type(value,'${path}')='text' AND length(json_extract(value,'${path}'))=${size + 2} AND lower(substr(json_extract(value,'${path}'),1,2))='0x' AND lower(substr(json_extract(value,'${path}'),3)) NOT GLOB '*[^0-9a-f]*' AND lower(substr(json_extract(value,'${path}'),3))!=printf('%0${size}d',0))`;
 const hint =
-  "(json_extract(value,'$.offer.speechChannel') IS NOT NULL OR json_extract(value,'$.offer.telegramFence') IS NOT NULL OR json_extract(value,'$.offer.privateSpeechSource') IS NOT NULL)";
+  "(json_type(value,'$.offer.speechChannel') IS NOT NULL OR json_type(value,'$.offer.telegramFence') IS NOT NULL OR json_type(value,'$.offer.privateSpeechSource') IS NOT NULL)";
 /** Only lookup classification. The caller must still validate the complete
  * original binding, hashes and authorization before recording any denial. */
 const classified = `(key>'studyBinding:' AND ${linked} AND ${addressSql("$.offer.telegramFence.facts.actor.communityId", 64)} AND ${addressSql("$.offer.learner", 40)} AND ${addressSql("$.target.contract", 40)} AND json_type(value,'$.target.chainId')='integer' AND ${scope.chain} IN (6343,31337) AND json_type(value,'$.target.version')='integer' AND ${scope.version}=4)`;
@@ -28,14 +28,14 @@ export function linkedStudyBindingIndex(sql: SqlStorage) {
   sql.exec(`CREATE INDEX IF NOT EXISTS records_linked_study_discovery
     ON records(${scope.community},${scope.learner},${scope.chain},${scope.version},${scope.contract},key)
     WHERE ${range} AND ${linked}`);
-  sql.exec(`CREATE INDEX IF NOT EXISTS records_unclassified_linked_study_binding
+  sql.exec(`CREATE INDEX IF NOT EXISTS records_unclassified_linked_study_binding_v2
     ON records(key) WHERE ${unclassified}`);
   return {
     hasUnclassified() {
       return (
         sql
           .exec(
-            `SELECT 1 FROM records INDEXED BY records_unclassified_linked_study_binding WHERE ${unclassified} LIMIT 1`,
+            `SELECT 1 FROM records INDEXED BY records_unclassified_linked_study_binding_v2 WHERE ${unclassified} LIMIT 1`,
           )
           .toArray().length > 0
       );

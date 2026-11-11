@@ -91,7 +91,7 @@ async function fixture() {
         blockHash: block.hash,
         transactionHash: hash,
         transactionIndex: 0,
-        logIndex: 2,
+        logIndex: 0,
         removed: false,
         topics: encodeEventTopics({
           abi: resultsV4Abi,
@@ -244,6 +244,9 @@ for (const fault of [
   "unsafe",
   "event_bytes",
   "event_topic",
+  "event_position",
+  "foreign_extra_log",
+  "malformed_extra_log",
   "revert_log",
   "anchor",
   "nonce_range",
@@ -262,6 +265,14 @@ for (const fault of [
       f.receipt.logs[0].data = (f.receipt.logs[0].data + "00") as Hex;
     if (fault === "event_topic")
       f.receipt.logs[0].topics.push(h("extra-topic"));
+    if (fault === "event_position") f.receipt.logs[0].logIndex = 2;
+    if (fault === "foreign_extra_log" || fault === "malformed_extra_log")
+      f.receipt.logs.push({
+        ...f.receipt.logs[0],
+        address: accounts[0].address,
+        topics: fault === "malformed_extra_log" ? [] : f.receipt.logs[0].topics,
+        logIndex: fault === "malformed_extra_log" ? -1 : 1,
+      });
     if (fault === "revert_log") f.receipt.status = "reverted";
     if (fault === "anchor") {
       const get = f.methods.getBlock;

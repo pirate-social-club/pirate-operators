@@ -235,7 +235,10 @@ export async function observeStudyWithdrawal(input: {
               same(log.topics[0], topics[0]!),
           );
           check(
-            matched.length === 1 &&
+            // This pinned revoke emits exactly one event and makes no external
+            // calls. The first transaction's first log must start at zero.
+            receipt.logs.length === 1 &&
+              matched.length === 1 &&
               matched.every(
                 (log) =>
                   log.removed === false &&
@@ -244,6 +247,7 @@ export async function observeStudyWithdrawal(input: {
                   same(log.transactionHash, expected.hash) &&
                   log.transactionIndex === receipt.transactionIndex &&
                   position(log.logIndex) &&
+                  (receipt.transactionIndex !== 0 || log.logIndex === 0) &&
                   log.topics.length === topics.length &&
                   log.topics.every((t, i) => same(t, topics[i]!)) &&
                   same(log.data, expectedData),

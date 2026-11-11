@@ -147,6 +147,16 @@ test("indexed keyset pages include preexisting accepted bindings without any D1 
 
 test("unclassifiable linked hints cannot vanish behind an indexed learner or target filter", () => {
   const variants = [
+    {
+      offer: {
+        speechChannel: null,
+        telegramFence: null,
+        privateSpeechSource: null,
+      },
+    },
+    { offer: { speechChannel: null } },
+    { offer: { telegramFence: null } },
+    { offer: { privateSpeechSource: null } },
     { ...metadata("bad"), offer: { ...metadata("bad").offer, learner: null } },
     { ...metadata("bad"), target: null },
     { ...metadata("bad"), target: { ...target, chainId: 1 } },
@@ -200,5 +210,35 @@ test("unclassifiable linked hints cannot vanish behind an indexed learner or tar
     } finally {
       f.db.close();
     }
+  }
+});
+
+test("the corrected null-hint index is built beside a retained older index", () => {
+  const f = fixture();
+  try {
+    f.db
+      .exec(`CREATE INDEX records_unclassified_linked_study_binding ON records(key)
+      WHERE json_extract(value,'$.offer.telegramFence') IS NOT NULL`);
+    f.db
+      .prepare("INSERT INTO records VALUES(?,?)")
+      .run(
+        "studyBinding:preexisting-null",
+        JSON.stringify({ offer: { telegramFence: null } }),
+      );
+    const store = f.store();
+    assert.equal(store.linkedStudyBindings.hasUnclassified(), true);
+    assert.equal(
+      f.db
+        .prepare(
+          "SELECT count(*) n FROM sqlite_master WHERE type='index' AND name IN (?,?)",
+        )
+        .get(
+          "records_unclassified_linked_study_binding",
+          "records_unclassified_linked_study_binding_v2",
+        )!.n,
+      2,
+    );
+  } finally {
+    f.db.close();
   }
 });
