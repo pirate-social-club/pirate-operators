@@ -237,8 +237,8 @@ for (const width of [1440, 390])
           .setInputFiles(file);
         await page.locator("#song-stem-instrumental").setInputFiles(file);
         await page.locator("#song-stem-vocals").setInputFiles(file);
-        await page.getByLabel("Song title", { exact: true }).fill("Fixture");
-        await page.getByLabel("Lyrics", { exact: true }).fill("Fixture line.");
+        await page.locator("#song-track-title").fill("Fixture");
+        await page.locator("#song-lyrics").fill("Fixture line.");
         await page.getByRole("button", { name: "Next", exact: true }).click();
         await page.locator('input[type="checkbox"]').check();
         await page.locator('input[type="radio"][value="general"]').check();
@@ -250,6 +250,10 @@ for (const width of [1440, 390])
         expect(
           before.files.every((file) => file.nativeFile && file.size > 0),
         ).toBe(true);
+        await page.screenshot({
+          path: test.info().outputPath("member-retained-release.png"),
+          fullPage: true,
+        });
         await expect(retry).toBeEnabled();
         await page.evaluate((status) => {
           window.__ownerSessionCase.denial = status;
@@ -268,6 +272,10 @@ for (const width of [1440, 390])
         expect(await retained(page, accountId)).toEqual(before);
         expect(reservations).toHaveLength(1);
         expect(errors).toEqual([]);
+        await page.screenshot({
+          path: test.info().outputPath("session-denied-before-body.png"),
+          fullPage: true,
+        });
       } finally {
         await page
           .evaluate(() => window.__ownerSessionCase.release())

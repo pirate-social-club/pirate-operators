@@ -31,14 +31,24 @@ import {
 import { closeWithdrawnStudyLessons } from "../services/learning-public-results.ts";
 import { releasePostsFixture } from "./fixtures/release-posts.ts";
 import { communityRuntime } from "./community-runtime.ts";
+import { authorityD1Fixture } from "./learning-authority-d1-fixture.ts";
 import type { PublicReadPorts } from "../services/community-public.ts";
 import type { OperatorQuote } from "../packages/protocol/payments.ts";
 
 const id = `0x${"ab".repeat(32)}` as Hex,
   wallet = accounts[5].address.toLowerCase();
-async function fixture() {
+async function fixture(currentAuthority = false) {
   const f = await communityRuntime({ v4: true });
+  let authority: Awaited<ReturnType<typeof authorityD1Fixture>> | undefined;
   try {
+    if (currentAuthority) {
+      // Connected admission requires the current authority schema. Use the
+      // installed Alchemy parser/engine over real workerd D1, preserving its
+      // triggers and guards rather than inventing an always-ready authority.
+      authority = await authorityD1Fixture();
+      await authority.apply();
+      f.db = authority.db;
+    }
     const communityId = firstSongFixture.communityId;
     await f.db
       .prepare(
@@ -243,6 +253,10 @@ async function fixture() {
     );
     return {
       ...f,
+      dispose: async () => {
+        await authority?.dispose();
+        await f.dispose();
+      },
       env,
       config,
       reads,
@@ -257,6 +271,7 @@ async function fixture() {
       ports: { env, config, reads, db: f.db, now: () => 110000 },
     };
   } catch (e) {
+    await authority?.dispose();
     await f.dispose();
     throw e;
   }
@@ -267,7 +282,7 @@ for (const path of [
   "connected learning",
 ] as const)
   test(`${path} records early revocation and closes existing lessons before refusing`, async () => {
-    const f = await fixture();
+    const f = await fixture(path === "connected learning");
     try {
       assert.equal(await publicResults(f.db, "a", true), "on");
       if (path === "Study start")
