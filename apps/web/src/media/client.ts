@@ -102,7 +102,7 @@ export function mediaClient(
         response.status,
         "media_authentication_required",
       );
-    let body: { error?: string } | null;
+    let body: { error?: unknown } | null;
     try {
       body = await response.json();
     } catch (error) {
@@ -116,10 +116,11 @@ export function mediaClient(
     if (!response.ok)
       throw new MediaHttpError(
         response.status,
-        body?.error ??
-          (authenticationStatus
+        typeof body?.error === "string"
+          ? body.error
+          : authenticationStatus
             ? "media_authentication_required"
-            : "media_service_unavailable"),
+            : "media_service_unavailable",
       );
     return body as T;
   }

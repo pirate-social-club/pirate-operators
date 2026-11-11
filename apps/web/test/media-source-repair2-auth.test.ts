@@ -36,8 +36,13 @@ const authBodies = [
   "html",
   "malformed",
   "body-error",
+  "object-error",
+  "null-error",
 ] as const;
 function authResponse(status: number, kind: (typeof authBodies)[number]) {
+  if (kind === "object-error")
+    return Response.json({ error: { toString: null } }, { status });
+  if (kind === "null-error") return Response.json({ error: null }, { status });
   if (kind === "json")
     return Response.json(
       { error: "media_authentication_required" },
