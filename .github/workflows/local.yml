@@ -30,6 +30,14 @@ jobs:
           forge build
       - name: Validate Worker packaging
         run: npm run build
+      - name: Install media test tools
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
       - name: Run with external networking unavailable
         run: |
           sudo --preserve-env=PATH,HOME unshare --net bash -c '
