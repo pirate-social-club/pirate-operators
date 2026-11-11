@@ -1,3 +1,4 @@
+import { frozenLifecycleFixture } from "./telegram-frozen-lifecycle-fixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Hex } from "viem";
@@ -18,6 +19,7 @@ import { studyPublicationFixtureV4 } from "./study-publication-fixture.ts";
 
 test("a linked draft freezes its original grant before a lost operator response; website and different-grant retries cannot acquire it", async () => {
   const f = await studyPublicationFixtureV4(20171);
+  const lifecycles: Awaited<ReturnType<typeof frozenLifecycleFixture>>[] = [];
   try {
     const wallet = accounts[5].address.toLowerCase();
     const row = await f.db
@@ -52,7 +54,7 @@ test("a linked draft freezes its original grant before a lost operator response;
       db: f.db,
     };
     const session = { account_id: row.account_id, wallet };
-    const context = {
+    const seed = {
       version: 1 as const,
       grantId: "fixture_grant_1",
       accountId: row.account_id,
@@ -70,8 +72,26 @@ test("a linked draft freezes its original grant before a lost operator response;
         assert.ok(allowed, "fixture_link_unavailable");
       },
     };
+    const first = await frozenLifecycleFixture(ports, session, seed);
+    const different = await frozenLifecycleFixture(ports, session, {
+      ...seed,
+      grantId: "fixture_grant_2",
+    });
+    const race = await frozenLifecycleFixture(ports, session, {
+      ...seed,
+      grantId: "fixture_race_grant",
+    });
+    lifecycles.push(first, different, race);
+    const context = first.context;
     const api = () =>
-      frozenTelegramStudy(ports, session, "telegram-linked", context, f.db);
+      frozenTelegramStudy(
+        ports,
+        session,
+        "telegram-linked",
+        context,
+        f.db,
+        first.publication,
+      );
     const requestId = "fixture_linked_start_0001";
     f.lose("/study/bind");
     await assert.rejects(api().start(requestId, f.song));
@@ -112,8 +132,9 @@ test("a linked draft freezes its original grant before a lost operator response;
         ports,
         session,
         "telegram-linked",
-        { ...context, grantId: "fixture_grant_2" },
+        different.context,
         f.db,
+        different.publication,
       ).start(requestId, f.song),
       /study_lesson_channel_changed/,
     );
@@ -142,11 +163,11 @@ test("a linked draft freezes its original grant before a lost operator response;
           session,
           "telegram-linked",
           {
-            ...context,
-            grantId: "fixture_race_grant",
+            ...race.context,
             startedAt,
           },
           f.db,
+          race.publication,
         ).start(requestRace, f.song),
       ),
     );
@@ -173,6 +194,7 @@ test("a linked draft freezes its original grant before a lost operator response;
       /study_lesson_channel_changed/,
     );
   } finally {
+    for (const lifecycle of lifecycles) lifecycle.close();
     await f.dispose();
   }
 });

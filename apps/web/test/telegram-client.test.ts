@@ -6,6 +6,7 @@ test("Telegram settings use existing same-origin session, CSRF and explicit acco
   const calls: RequestInit[] = [];
   const client = telegramConnectionClient({
     account: () => "account-one",
+    generation: () => 0,
     csrf: () => "session-csrf",
     fetch: (async (_url, init) => {
       calls.push(init!);
@@ -27,6 +28,7 @@ test("account switching fences old responses; completion removes callback only a
   let account = "first";
   const switching = telegramConnectionClient({
     account: () => account,
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async () => {
       account = "second";
@@ -37,6 +39,7 @@ test("account switching fences old responses; completion removes callback only a
   const paths: string[] = [];
   const client = telegramConnectionClient({
     account: () => "first",
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async (path) => {
       paths.push(String(path));
@@ -59,6 +62,7 @@ test("account switching fences old responses; completion removes callback only a
 test("uncertain completion retains the callback for a same-transaction retry and rejects parameter pollution", async () => {
   const client = telegramConnectionClient({
     account: () => "first",
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async () =>
       Response.json(

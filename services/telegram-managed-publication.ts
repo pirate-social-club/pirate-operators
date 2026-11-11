@@ -108,6 +108,13 @@ export class TelegramManagedPublication {
       503,
     );
   }
+  assertAuthority(authority: StudyOperatorPorts["authority"]) {
+    telegramCheck(
+      digest(authority) === digest(this.ports.authority),
+      "telegram_transition_target_changed",
+      503,
+    );
+  }
   private needsInitialization() {
     const actual = this.grants.store.get<BotRegistration>(
       `bot:${this.registration.communityId}`,

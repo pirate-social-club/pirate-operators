@@ -49,6 +49,12 @@ export function telegramCommunity(options: {
   accounts: TelegramAccountPort;
   /** Existing signed operator target. Required even while activation is held. */
   publication: StudyOperatorPorts;
+  /** Required actual-D1 delivery validation, derived by the concrete factory. */
+  authorityValidation: NonNullable<
+    Parameters<
+      typeof TelegramManagedPublication.create
+    >[0]["authorityValidation"]
+  >;
   web: Omit<TelegramWebPorts, "scope" | "origin">;
   origin: string;
   broker: TelegramBrokerPort;
@@ -81,6 +87,7 @@ export function telegramCommunity(options: {
     grants,
     registration: scope,
     ports: options.publication,
+    authorityValidation: options.authorityValidation,
     scheduleWork: options.scheduleWork,
   });
   const linking = new TelegramLinking(

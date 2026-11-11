@@ -17,6 +17,7 @@ test("a definite stale predecessor releases the cached operation for a later exp
   let statuses = 0;
   const client = telegramConnectionClient({
     account: () => "account-one",
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async (_url, init) => {
       if (init?.method === "GET" && statuses++ === 0) {
@@ -81,6 +82,7 @@ for (const [status, code] of [
       fail = true;
     const client = telegramConnectionClient({
       account: () => "account-one",
+      generation: () => 0,
       csrf: () => "csrf",
       fetch: (async (_url, init) => {
         if (init?.method === "GET") {
@@ -117,6 +119,7 @@ for (const body of [null, "unavailable", { error: 17 }])
     let fail = true;
     const client = telegramConnectionClient({
       account: () => "account-one",
+      generation: () => 0,
       csrf: () => "csrf",
       fetch: (async (_url, init) => {
         if (init?.method === "GET")
@@ -149,6 +152,7 @@ test("unlink retries retain the original operation after a lost response and rep
   let fail = true;
   const client = telegramConnectionClient({
     account: () => "account-one",
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async (_url, init) => {
       calls.push({
@@ -187,6 +191,7 @@ test("reload resumes server-persisted unlink while no current grant exists", asy
   let body: unknown;
   const client = telegramConnectionClient({
     account: () => "account-one",
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async (_url, init) => {
       if (init?.method === "GET")
@@ -212,6 +217,7 @@ test("account change during unlink status body delivery sends no mutation", asyn
     mutations = 0;
   const client = telegramConnectionClient({
     account: () => account,
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async (_url, init) => {
       if (init?.method !== "GET") mutations++;
