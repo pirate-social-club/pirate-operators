@@ -3,7 +3,8 @@
 // With `v4`, a LearningResultsV4 contract is also deployed and is the
 // directory's learning records; V3 stays configured for historical lessons.
 import { readFile } from "node:fs/promises";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, keccak256 } from "viem";
+import { telegramAuthorityStoreFixture } from "./telegram-authority-store-fixture.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
@@ -39,10 +40,13 @@ import type {
 
 export async function studyCommunityFixture(
   port: number,
-  options: { v4?: boolean } = {},
+  options: { v4?: boolean; linkedOperator?: boolean } = {},
 ) {
   const f = await learningBindingFixture(port, firstSongFixture.communityId);
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
+  let linkedOperator:
+    | ReturnType<typeof telegramAuthorityStoreFixture>
+    | undefined;
   try {
     runtime = await communityRuntime({ v4: options.v4 });
     const v4: Address | undefined = options.v4
@@ -151,7 +155,33 @@ export async function studyCommunityFixture(
         };
       },
     } as never;
-    const store = {
+    if (options.linkedOperator) {
+      if (!v4) throw Error("fixture_linked_v4_required");
+      const code = await f.evm.publicClient.getCode({ address: v4 });
+      if (!code || code === "0x") throw Error("fixture_linked_runtime_missing");
+      linkedOperator = telegramAuthorityStoreFixture({
+        now: () => Math.floor(now / 1000),
+        rpcUrl: f.evm.rpcUrl,
+        sources: [
+          {
+            communityId: config.communityId,
+            target: {
+              chainId: 31337,
+              version: 4,
+              contract: v4.toLowerCase() as Address,
+            },
+            runtimeCodeHash: keccak256(code),
+          },
+        ],
+      });
+      // Preserve any existing original rows before actual indexed discovery.
+      linkedOperator.store.transaction(() => {
+        for (const { key, value } of f.store.entries(""))
+          linkedOperator!.store.set(key, value);
+      });
+      await linkedOperator.initialize();
+    }
+    const store = linkedOperator?.store ?? {
       ...f.store,
       now: () => Math.floor(now / 1000),
       durableStudyWrite: async <T>(operation: () => T) =>
@@ -244,6 +274,7 @@ export async function studyCommunityFixture(
       call,
       post,
       store,
+      linkedOperator,
       async login(index = 5) {
         const challenge = (await (
           await post("/api/auth/challenge", {
@@ -322,11 +353,13 @@ export async function studyCommunityFixture(
       },
       async dispose() {
         await runtime!.dispose();
+        linkedOperator?.close();
         await f.stop();
       },
     };
   } catch (error) {
     await runtime?.dispose();
+    linkedOperator?.close();
     await f.stop();
     throw error;
   }

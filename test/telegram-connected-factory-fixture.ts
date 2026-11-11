@@ -33,7 +33,10 @@ export const connectedVoice = new Uint8Array([
  * emulator here is NOT native-DO evidence; the separate Worker test supplies it.
  * Requires the exact held shared core and protected proposals before running. */
 export async function connectedFactoryFixture(port: number) {
-  const shared = await studyCommunityFixture(port, { v4: true });
+  const shared = await studyCommunityFixture(port, {
+    v4: true,
+    linkedOperator: true,
+  });
   const journal = journalFixture(),
     admissionJournal = journalFixture();
   try {
@@ -91,7 +94,7 @@ export async function connectedFactoryFixture(port: number) {
         "private transcript reached a persistence boundary",
       );
     };
-    const operatorSet = shared.store.set;
+    const operatorSet = shared.store.set.bind(shared.store);
     shared.store.set = (key, value) => {
       assertPrivateBoundary(value);
       operatorSet(key, value);
