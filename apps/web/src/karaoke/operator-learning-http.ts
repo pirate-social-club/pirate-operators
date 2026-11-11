@@ -1,11 +1,11 @@
 /** Owned same-origin operator transport. No central API, auth or persona port. */
 export class LearningServiceError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-  ) {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string, message: string) {
     super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 export async function learningRequest<T>(
