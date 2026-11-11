@@ -24,6 +24,16 @@ export interface MediaClient {
   retry(id: string): Promise<MediaStatus>;
   withdraw(id: string): Promise<MediaStatus>;
 }
+/** A parsed HTTP refusal is distinct from a lost or malformed acknowledgement. */
+export class MediaHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+  ) {
+    super(mediaErrorText(code));
+    this.name = "MediaHttpError";
+  }
+}
 export function mediaErrorText(code: string) {
   const messages: Record<string, string> = {
     media_public_posting_not_permitted:
@@ -77,8 +87,9 @@ export function mediaClient(
     });
     const body = (await response.json()) as { error?: string };
     if (!response.ok)
-      throw new Error(
-        mediaErrorText(body.error ?? "media_service_unavailable"),
+      throw new MediaHttpError(
+        response.status,
+        body.error ?? "media_service_unavailable",
       );
     return body as T;
   }
