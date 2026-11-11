@@ -34,7 +34,7 @@ export function sourceQuote(
     schema: "pirate.wallet-send-quote/1",
     quoteId: "quote_source_001",
     sender: sourceSender,
-    recipient,
+    recipient: recipient.toLowerCase(),
     token: sourceToken,
     chainId: 6343,
     decimals: 18,
@@ -158,7 +158,11 @@ export function sourceSendFixture(
       calls.reserve++;
       current = sendRecord(
         sourceWalletView,
-        sourceIntent({ ...quote, recipient, amountAtomic: amount }),
+        sourceIntent({
+          ...quote,
+          recipient: recipient.toLowerCase(),
+          amountAtomic: amount,
+        }),
       );
       if (options.wrongChain)
         current = {
