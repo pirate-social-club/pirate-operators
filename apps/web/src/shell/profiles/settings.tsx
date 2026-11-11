@@ -40,8 +40,14 @@ export function CommunityAccountSettings(
     setError("");
     try {
       await operation();
-    } catch {
-      if (active && current === generation) setError(failure);
+    } catch (error) {
+      if (active && current === generation)
+        setError(
+          action === "private-history" &&
+            (error as { code?: string })?.code === "study_history_expired"
+            ? "This private history has expired."
+            : failure,
+        );
     } finally {
       if (active && current === generation) {
         setPending(false);
@@ -165,6 +171,7 @@ export function CommunityAccountSettings(
                       void run(
                         props.services!.privateHistory!,
                         "Private history could not be downloaded. Try again.",
+                        "private-history",
                       )
                     }
                   >

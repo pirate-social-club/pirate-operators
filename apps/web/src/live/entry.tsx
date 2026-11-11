@@ -1,3 +1,4 @@
+import { createSavedStudyHistory } from "../study/saved-history.ts";
 import { createCommunityProfileIntegration } from "../shell/profiles/integration.ts";
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
@@ -412,7 +413,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       if (cleared) await signInOnce(mega).catch(() => undefined);
     }
     await refresh();
-    setStatus("");
+    setStatus(session() ? "Signed in. Choose a song to study or sing." : "");
   }
   // Owner-only publishing has no creator connection step. Preserved creator
   // connection routes stay on the server for the deferred integration.
@@ -435,6 +436,28 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           }
         : null,
     ready: () => !walletPage && !!boot() && !settling(),
+  });
+  const historySession = () => {
+    const current = settling() ? null : session(),
+      config = boot();
+    return current && config
+      ? {
+          communityId: config.communityId,
+          wallet: current.mossAddress,
+          authorId: current.authorId,
+          csrf: current.csrf,
+        }
+      : null;
+  };
+  const savedStudyHistory = createSavedStudyHistory(historySession, () => {
+    const auth = historySession(),
+      state = profileIntegration.state().view;
+    return auth &&
+      state.kind === "ready" &&
+      state.owner.communityId === auth.communityId &&
+      state.owner.profile.authorId === auth.authorId
+      ? { ...auth, accountId: state.owner.accountId }
+      : null;
   });
   let composerScope = "",
     composerGeneration = "";
@@ -569,7 +592,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         onConnect={() => void run(signIn)}
         onLessonOpened={(lessonId) => {
           const current = studying();
-          if (!current || studyLesson() === lessonId) return;
+          if (!current) return;
+          savedStudyHistory.remember(lessonId, current.postId);
+          if (studyLesson() === lessonId) return;
           const url = activityUrl(
             new URL(location.href),
             "study",
@@ -638,7 +663,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           canSignOut={!!session() && !settling()}
           walletAvailable={capabilities()?.rewards === true}
           services={{
-            privateHistory: learningActions()?.download,
+            privateHistory: savedStudyHistory.available()
+              ? savedStudyHistory.download
+              : undefined,
             publicResults: props.integrations?.accountSettings
               ? () => props.integrations!.accountSettings!(featureContext())
               : undefined,
@@ -721,35 +748,33 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       </Show>
       {/* Normal site navigation: the documents stay reachable while signed
           in, outside the Study and Karaoke overlays. */}
-      <Show when={!practiceOpen()}>
-        <footer
-          class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
-          inert={practiceOpen()}
-        >
-          <nav class="live-footer-links" aria-label="Community documents">
-            <a href="/terms" target="_blank" rel="noopener">
-              Terms
-            </a>
-            <a href="/privacy" target="_blank" rel="noopener">
-              Privacy
-            </a>
-            {/* The learning documents of the community's own version, V3 or
+      <footer
+        class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
+        inert={practiceOpen()}
+      >
+        <nav class="live-footer-links" aria-label="Community documents">
+          <a href="/terms" target="_blank" rel="noopener">
+            Terms
+          </a>
+          <a href="/privacy" target="_blank" rel="noopener">
+            Privacy
+          </a>
+          {/* The learning documents of the community's own version, V3 or
               V4; exercise surfaces carry no links in any mode. */}
-            <Show when={capabilities()?.learningPolicy}>
-              {(policy) => (
-                <>
-                  <a href={policy().termsUrl} target="_blank" rel="noopener">
-                    Learning terms
-                  </a>
-                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
-                    Learning privacy
-                  </a>
-                </>
-              )}
-            </Show>
-          </nav>
-        </footer>
-      </Show>
+          <Show when={capabilities()?.learningPolicy}>
+            {(policy) => (
+              <>
+                <a href={policy().termsUrl} target="_blank" rel="noopener">
+                  Learning terms
+                </a>
+                <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                  Learning privacy
+                </a>
+              </>
+            )}
+          </Show>
+        </nav>
+      </footer>
     </CommunityAppShell>
   );
 }

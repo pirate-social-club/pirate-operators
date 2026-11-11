@@ -10,10 +10,7 @@ import {
   StudyAuthRequiredState,
   StudyRouteLoadFailureState,
 } from "./presentation/studying-route-states.tsx";
-import {
-  StudyPublicationStatus,
-  type LearningPublicationView,
-} from "./publication-status.tsx";
+import type { LearningPublicationView } from "./publication-status.tsx";
 import type { StudyCompletionCapability } from "./completion-flow.tsx";
 import { learningRequest } from "../karaoke/operator-learning-http.ts";
 import type { KaraokeWallet } from "../live/learning-consent.ts";
@@ -275,16 +272,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
             onLessonCleared={clearActions}
             onExit={props.onExit}
             onConnect={props.onConnect}
-            rewardSlot={
-              <>
-                <StudyPublicationStatus
-                  value={publication()}
-                  checking={checking()}
-                  onCheck={() => void checkPublication()}
-                />
-                {props.rewardSlot}
-              </>
-            }
+            rewardSlot={props.rewardSlot}
           />
         )}
       </Show>

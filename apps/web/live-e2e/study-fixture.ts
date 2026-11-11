@@ -1,3 +1,8 @@
+import {
+  fixtureOwner,
+  fixtureProfile,
+  historyExport,
+} from "./account-fixture.ts";
 // Built live app against explicit HTTP and wallet simulations. Server-side
 // cryptography, D1, provider and contract qualification have separate tests.
 import { expect, type Page } from "@playwright/test";
@@ -101,6 +106,8 @@ export async function serveStudy(
         releaseEnrollment = resolve;
       })
     : Promise.resolve();
+  const privateId = crypto.randomUUID();
+  const authorId = `0x${"8".repeat(64)}`;
   const manifest = JSON.parse(
     await readFile("dist/live/.vite/manifest.json", "utf8"),
   ) as Record<string, { file: string }>;
@@ -137,11 +144,18 @@ export async function serveStudy(
       return json({
         schema: "pirate.community-client-config/1",
         canonicalOrigin: origin,
+        communityId: song.communityId,
+        apiBase: "/api",
+        protocolVersions: [1],
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        mirrors: [],
       });
     if (path === "/api/public/community")
       return json({ name: "Study browser fixture" });
     if (path === "/api/capabilities")
       return json({
+        schema: "pirate.community-capabilities/1",
         signIn: true,
         creatorConnection: false,
         upload: false,
@@ -172,17 +186,41 @@ export async function serveStudy(
             csrf: "fixture-csrf",
             creator: null,
             pendingConnection: null,
+            publicResults: "unavailable",
+            publisher: false,
           })
         : json({ error: "session_required" }, 401);
+    if (path === "/api/profile/owner")
+      return authenticated
+        ? json(fixtureOwner(song.communityId, privateId, authorId))
+        : json({ error: "session_required" }, 401);
+    if (path === "/api/public/authors")
+      return json({
+        schema: "pirate.community-profile-list/1",
+        communityId: song.communityId,
+        profiles: (
+          new URL(request.url()).searchParams.get("ids")?.split(",") ?? []
+        ).includes(authorId)
+          ? [fixtureProfile(song.communityId, authorId)]
+          : [],
+      });
+    if (/^\/api\/public\/authors\/[^/]+\/activity$/.test(path))
+      return json({ error: "profile_activity_unavailable" }, 503);
+    if (path.startsWith("/api/public/authors/"))
+      return path.split("/").at(-1) === authorId
+        ? json(fixtureProfile(song.communityId, authorId))
+        : json({ error: "profile_not_found" }, 404);
     if (path === "/api/auth/challenge")
       return json({ id: "fixture-challenge", message: "Fixture sign-in" });
     if (path === "/api/auth/verify") {
       authenticated = true;
-      return json({ authenticated: true });
+      return json({ authenticated: true, csrf: "fixture-csrf" });
     }
     if (path === "/api/uploads") return json({ uploads: [] });
     if (path === "/api/feed")
       return json({
+        schema: "pirate.community-feed/1",
+        communityId: song.communityId,
         posts: [
           {
             manifest: {
@@ -200,6 +238,8 @@ export async function serveStudy(
         ],
       });
     if (path === "/api/karaoke/enrollment") {
+      expect(authenticated).toBe(true);
+      expect(request.headers()["x-study-account"]).toBe(`0x${"7".repeat(40)}`);
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       const body = request.postDataJSON();
       if (body.signature) {
@@ -236,6 +276,10 @@ export async function serveStudy(
             },
       );
     }
+    if (path.startsWith("/api/study/") || path === "/api/karaoke/enrollment") {
+      expect(authenticated).toBe(true);
+      expect(request.headers()["x-study-account"]).toBe(`0x${"7".repeat(40)}`);
+    }
     if (path === "/api/study/song") return json(song);
     if (path === "/api/study/lessons") {
       if (request.method() === "GET") return json(lesson);
@@ -254,11 +298,11 @@ export async function serveStudy(
       expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       return historyExpired
         ? json({ error: "study_history_expired" }, 410)
-        : json({
-            schema: "pirate.study-private-history/1",
-            lessonId: lesson?.lessonId,
-            attempts: [{ heardTranscript: "private fixture words" }],
-          });
+        : json(
+            historyExport(lesson!, [
+              { heardTranscript: "private fixture words" },
+            ]),
+          );
     }
     if (path.endsWith("/publication")) {
       counts.publicationChecks++;
@@ -298,6 +342,9 @@ export async function serveStudy(
       return json(lesson);
     }
     if (path === "/api/logout") {
+      expect(request.method()).toBe("POST");
+      if (!authenticated) return json({ error: "session_required" }, 401);
+      expect(request.headers()["x-csrf-token"]).toBe("fixture-csrf");
       authenticated = false;
       return json({ signedOut: true });
     }
@@ -324,6 +371,8 @@ export async function serveStudy(
   });
   return {
     counts,
+    privateId,
+    communityId: song.communityId,
     publicationResponses,
     releaseSignature: () => releaseSignature?.(),
     releaseEnrollment: () => releaseEnrollment?.(),
