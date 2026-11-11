@@ -7,6 +7,7 @@ import {
 import {
   AUTHORITY_ORIGINAL_PAGE_QUERY,
   INVALID_AUTHORITY_ORIGINAL_QUERY,
+  validateAuthorityOriginalAccount,
 } from "../packages/community-setup/authority-originals.ts";
 import { loginChallenge, loginVerify } from "../packages/community/accounts.ts";
 import { signInV4 } from "../services/learning-sign-in.ts";
@@ -19,6 +20,7 @@ import { AUTHORITY_LEDGER_SCHEMA } from "../packages/community-setup/authority-s
 import { authorityDenialTransition } from "../packages/community-setup/authority-denials.ts";
 import {
   beginAuthorityAction,
+  freezeAuthorityPage,
   captureAuthority,
   compareAuthority,
   readAuthorityState,
@@ -30,13 +32,17 @@ import {
   progressAuthorityAction,
   type AuthorityRecoveryPorts,
 } from "../packages/community-setup/authority-recovery.ts";
-import { closeWithdrawnStudyLessons } from "../services/learning-public-results.ts";
+import {
+  noteChainWithdrawal,
+  closeWithdrawnStudyLessons,
+} from "../services/learning-public-results.ts";
 import {
   practiceAuthorization,
   connectedPracticeAuthorization,
 } from "../services/learning-sign-in.ts";
 import {
   withdrawalFixture,
+  MemoryD1,
   wallet,
 } from "./learning-public-results-memory-fixture.ts";
 
@@ -54,16 +60,17 @@ async function fixture() {
     index: number,
     issuedAt = 100,
     overrides: Partial<SignInV4Context> = {},
+    signer = accounts[5],
   ) => {
     const ctx = { ...context, ...overrides },
       args = {
-        learner: accounts[5].address,
+        learner: signer.address,
         nonce: digest("original-" + index),
         issuedAt: BigInt(issuedAt),
       };
     const message = signInMessageV4(ctx, args),
       id = signInIdV4(ctx, args),
-      signature = await accounts[5].signMessage({ message });
+      signature = await signer.signMessage({ message });
     return {
       id,
       message,
@@ -907,3 +914,260 @@ for (const syntax of [true, false])
       f.close();
     }
   });
+
+// Repair2 cases: prepared, UNRUN by this source actor.
+for (const olderSeconds of [0, 10])
+  test(
+    `fresh observed nonce fences delayed On when timestamp advance=${-olderSeconds}`,
+    { timeout: 10000 },
+    async () => {
+      const f = await fixture(),
+        entered = Promise.withResolvers<void>(),
+        release = Promise.withResolvers<{
+          revocationNonce: string;
+          pendingWithdrawal: boolean;
+        }>();
+      try {
+        await f.db.prepare("DELETE FROM learning_authorizations").run();
+        await f.add(1, 100);
+        const off = await beginAuthorityAction(f.db, f.action(), f.ports);
+        await progressAuthorityAction(f.db, off.operation_id, f.ports);
+        const on = await beginAuthorityAction(
+          f.db,
+          f.action("on", "2", "nonce-race-on"),
+          f.ports,
+        );
+        const settings = () =>
+          f.memory.sqlite
+            .prepare("SELECT * FROM learning_settings WHERE account_id='a'")
+            .get()!;
+        const before = settings();
+        const version = () =>
+          Number(
+            f.memory.sqlite
+              .prepare(
+                "SELECT version FROM learning_authority_dirty WHERE account_id='a'",
+              )
+              .get()!.version,
+          );
+        const captured = version();
+        const waiting = progressAuthorityAction(f.db, on.operation_id, {
+          ...f.ports,
+          observeTurnOn: async () => {
+            entered.resolve();
+            return release.promise;
+          },
+        });
+        await entered.promise;
+        const observation = {
+          since: 0,
+          revokedAt: f.now / 1000 - olderSeconds,
+          revocationNonce: "2",
+          pendingWithdrawal: false,
+        };
+        await noteChainWithdrawal(
+          {},
+          f.db,
+          { account_id: "a", wallet },
+          undefined,
+          observation,
+          f.now,
+        );
+        assert.deepEqual(settings(), before); // No timestamp moved, but a new identity DID.
+        assert.equal(version(), captured + 1);
+        const accepted = f.memory.sqlite
+          .prepare(
+            "SELECT * FROM learning_authority_withdrawals WHERE account_id='a' AND kind='observed' AND nonce='2'",
+          )
+          .get()!;
+        assert.equal(accepted.cutoff_ms, observation.revokedAt * 1000);
+        await noteChainWithdrawal(
+          {},
+          f.db,
+          { account_id: "a", wallet },
+          undefined,
+          observation,
+          f.now,
+        );
+        assert.equal(version(), captured + 1); // Exact signal retry is idempotent.
+        release.resolve({ revocationNonce: "2", pendingWithdrawal: false });
+        await assert.rejects(waiting, CommunityAuthorityPending);
+        assert.deepEqual(settings(), before);
+        const retained = f.memory.sqlite
+          .prepare(
+            "SELECT complete,request_json FROM learning_authority_operations WHERE operation_id=?",
+          )
+          .get(on.operation_id)!;
+        assert.equal(retained.complete, 0);
+        assert.equal(
+          JSON.parse(String(retained.request_json)).revocationNonce,
+          "1",
+        );
+        assert.equal(
+          f.memory.sqlite
+            .prepare(
+              "SELECT pending_operation FROM learning_authority_heads WHERE account_id='a'",
+            )
+            .get()!.pending_operation,
+          on.operation_id,
+        );
+        assert.equal((await readAuthorityState(f.db, "a")).pending, true);
+      } finally {
+        release.resolve({ revocationNonce: "2", pendingWithdrawal: false });
+        f.close();
+      }
+    },
+  );
+for (const binding of ["other-account", "missing"])
+  test(`fully consistent signed other-wallet original with ${binding} binding cannot select or acknowledge a permanent denial`, async () => {
+    const f = await fixture();
+    try {
+      await f.db.prepare("DELETE FROM learning_authorizations").run();
+      const id = await f.add(1);
+      const other = await f.original(9, 100, {}, accounts[4]);
+      if (binding === "other-account")
+        await f.db
+          .prepare(
+            "INSERT INTO credential_bindings VALUES('other-binding','b','moss',6343,?,0)",
+          )
+          .bind(accounts[4].address.toLowerCase())
+          .run();
+      await f.db
+        .prepare(
+          "UPDATE learning_authorizations SET authorization_id=?,subject=?,message=?,sign_in_json=?,signature=? WHERE authorization_id=?",
+        )
+        .bind(
+          other.id,
+          accounts[4].address.toLowerCase(),
+          other.message,
+          other.compact,
+          other.signature,
+          id,
+        )
+        .run();
+      const op = await beginAuthorityAction(
+        f.db,
+        f.action("observed"),
+        f.ports,
+      );
+      await assert.rejects(
+        progressAuthorityAction(f.db, op.operation_id, f.ports),
+        CommunityAuthorityPending,
+      );
+      for (const table of [
+        "denials",
+        "learning_authority_members",
+        "learning_authority_pages",
+      ])
+        assert.equal(
+          f.memory.sqlite.prepare("SELECT count(*) n FROM " + table).get()!.n,
+          0,
+        );
+      assert.equal((await readAuthorityState(f.db, "a")).pending, true);
+    } finally {
+      f.close();
+    }
+  });
+
+test("ambiguous imported credential bindings fail the bounded account lookup instead of selecting either owner", async () => {
+  const memory = new MemoryD1();
+  try {
+    // Corrupt/imported-row fixture: no product uniqueness/check guard is changed.
+    // The current canonical schema prevents duplicate subjects; this verifies
+    // the required reader also rejects a legacy table containing both owners.
+    memory.sqlite
+      .exec(`CREATE TABLE credential_bindings(account_id TEXT,namespace TEXT,network INTEGER,subject TEXT);
+   CREATE INDEX learning_authority_credential_subject ON credential_bindings(namespace,network,subject COLLATE NOCASE);`);
+    memory.sqlite
+      .prepare(
+        "INSERT INTO credential_bindings VALUES('a','moss',6343,?),('b','moss',6343,?)",
+      )
+      .run(wallet, wallet);
+    await assert.rejects(
+      validateAuthorityOriginalAccount(memory.db, {
+        account_id: "a",
+        subject: wallet,
+      }),
+      /authority_original_account_mismatch/,
+    );
+  } finally {
+    memory.close();
+  }
+});
+
+test("a cached original page rechecks a missing account binding before retrying any permanent denial", async () => {
+  const f = await fixture();
+  try {
+    await f.db.prepare("DELETE FROM learning_authorizations").run();
+    await f.add(1, 100);
+    const op = await beginAuthorityAction(f.db, f.action("observed"), f.ports);
+    await freezeAuthorityPage(f.db, op);
+    await f.db
+      .prepare("DELETE FROM credential_bindings WHERE account_id='a'")
+      .run();
+    await assert.rejects(
+      progressAuthorityAction(f.db, op.operation_id, f.ports),
+      CommunityAuthorityPending,
+    );
+    assert.equal(
+      f.memory.sqlite.prepare("SELECT count(*) n FROM denials").get()!.n,
+      0,
+    );
+    assert.equal(
+      f.memory.sqlite
+        .prepare(
+          "SELECT count(*) n FROM learning_authority_members WHERE acknowledgment IS NOT NULL",
+        )
+        .get()!.n,
+      0,
+    );
+    assert.equal((await readAuthorityState(f.db, "a")).pending, true);
+  } finally {
+    f.close();
+  }
+});
+
+test("accepted-identity journal failure rolls back settings and dirty version in the same actual SQL batch", async () => {
+  const f = await fixture();
+  try {
+    const settings = () =>
+      f.memory.sqlite
+        .prepare("SELECT * FROM learning_settings WHERE account_id='a'")
+        .get();
+    const before = settings();
+    f.memory.sqlite.exec(
+      "CREATE TRIGGER injected_identity_failure BEFORE INSERT ON learning_authority_withdrawals BEGIN SELECT RAISE(ABORT,'injected_identity_failure'); END;",
+    );
+    await assert.rejects(
+      noteChainWithdrawal(
+        {},
+        f.db,
+        { account_id: "a", wallet },
+        undefined,
+        {
+          since: 0,
+          revokedAt: f.now / 1000,
+          revocationNonce: "2",
+          pendingWithdrawal: false,
+        },
+        f.now,
+      ),
+      /injected_identity_failure/,
+    );
+    assert.deepEqual(settings(), before);
+    assert.equal(
+      f.memory.sqlite
+        .prepare("SELECT count(*) n FROM learning_authority_dirty")
+        .get()!.n,
+      0,
+    );
+    assert.equal(
+      f.memory.sqlite
+        .prepare("SELECT count(*) n FROM learning_authority_withdrawals")
+        .get()!.n,
+      0,
+    );
+  } finally {
+    f.close();
+  }
+});

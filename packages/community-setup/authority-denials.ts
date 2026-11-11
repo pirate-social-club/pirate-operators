@@ -1,3 +1,4 @@
+import { validateAuthorityOriginalAccount } from "./authority-originals.ts";
 import { check, digest } from "../protocol/index.ts";
 import {
   telegramStudyDenial,
@@ -87,6 +88,18 @@ export function authorityDenialTransition(options: {
         }
         await options.wake();
         await assertAuthorityOriginalsUnchanged(db, op);
+        const original = await db
+          .prepare(
+            "SELECT account_id,subject FROM learning_authorizations WHERE authorization_id=? AND account_id=?",
+          )
+          .bind(authorizationId, op.account_id)
+          .first<{ account_id: string; subject: string }>();
+        authorityReady(original);
+        try {
+          await validateAuthorityOriginalAccount(db, original);
+        } catch {
+          authorityReady(false);
+        }
         const receipt = await options.deny(denial);
         check(
           receipt.recorded === true && receipt.denialHash === hash,

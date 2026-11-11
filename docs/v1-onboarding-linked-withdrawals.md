@@ -1,3 +1,59 @@
+# Linked withdrawal repair2 — four finding successor
+
+This delta starts at coordinator candidate
+`59908a5469702266e48a147c73fb68cf2de09f22`. The coordinator applied the former
+protected proposals and numbered migration18 locally, preserved dependency and
+narrow type/import/fixture repairs, and recorded root/web types plus41 focused
+passes before this delta. Those dated receipts do not qualify these repairs.
+All earlier sealed `.local` artifacts remain unchanged. The new handback lives
+in `.local/onboarding-linked-withdrawals-repair2`.
+
+The Study successor proposal rechecks linked pending after the later permission
+read. Private closure preserves the exact unallocated intent and its reserved
+or charged sponsorship while the cleanup proof awaits. Only that still-unallocated
+first intent/reservation is excluded from the absence observation; any allocated,
+signed, orphan or other charged work remains evidence. After the proof, linked
+pending is checked again before one synchronous transaction retires that intent,
+refunds/releases sponsorship and writes the private receipt. Private receipt and
+history-erasure boundaries also guard after their cleanup awaits. Existing
+canonical commitment and attempted transaction reconciliation remain intact.
+
+Accepted withdrawal identities are persisted independently of timestamp changes.
+The owned settings writers batch settings acceptance and an insert-only journal
+of the existing submitted revoke nonce or observed consumed nextNonce. A new
+identity atomically increments the dirty version; retries of the same identity
+retain the original evidence. Thus a delayed On cannot clear a same-second or
+lower-chain-time fresh Off. Neither a new transaction nor an application action
+identity is invented. Existing explicit action/predecessor identities remain.
+The ordinary website schema keeps its existing path; once the authority schema
+exists the journal is required, and a partial migration holds. This schema
+selection changes no proof/source authority and chooses no mutable default.
+
+Full original validation now also requires exactly one MOSS credential binding
+for the retained subject in the community account namespace/network, belonging
+to that original's account. A bounded indexed lookup checks this before page
+freeze and immediately before selective permanent denial. Consistent signed
+other-wallet originals crosswired under another account, missing bindings and
+ambiguous imported bindings hold instead of selecting an authorization. No
+EOA-only replacement of admitted MOSS signature verification is introduced.
+
+The Telegram HTTP successor proposal authenticates the existing community
+session first, then preserves temporary authority503 errors. Invalid sessions
+and account refusals remain closed; pending is never changed to allowed or a
+permanent denial. An actual public-route/session-SQL regression is prepared.
+
+Protected proposals are NEW deltas against exact59908a file objects, including
+a delta and full resulting text for existing migration18. They do not replay
+former hybrid-base replacement patches. Migration18 is not executed here, and
+the coordinator must decide the actual schema application/upgrade sequence.
+All tests/types for this repair are UNRUN. Only the isolation probe, pinned
+formatter and git diff --check are admitted. Authenticated action production,
+original-target issuer bridge, managed runtime/alarm/source pins and connected
+capability remain unassembled; provider/device, fresh-account and second-community
+acceptance remain held. Hosted/release evidence supplies no candidate admission.
+
+---
+
 # Linked withdrawal repair1 — source-only successor
 
 This repair starts at preserved `8cc15b31d48f704389df90105c3ff77fc76d85df`

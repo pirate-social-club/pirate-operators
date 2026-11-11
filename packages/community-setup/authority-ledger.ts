@@ -6,6 +6,7 @@ import {
   INVALID_AUTHORITY_ORIGINAL_QUERY,
   AUTHORITY_ORIGINAL_PAGE_QUERY,
   validateAuthorityOriginal,
+  validateAuthorityOriginalAccount,
   type RetainedAuthorityOriginal,
 } from "./authority-originals.ts";
 
@@ -320,8 +321,24 @@ export async function freezeAuthorityPage(
       .bind(op.operation_id, pageId)
       .first<{ page_json: string }>();
   if (prior) {
+    const page = JSON.parse(prior.page_json) as AuthorityPage;
+    authorityReady(page.authorizationIds.length <= 50);
+    try {
+      for (const id of page.authorizationIds) {
+        const row = await db
+          .prepare(
+            "SELECT account_id,subject FROM learning_authorizations WHERE authorization_id=? AND account_id=?",
+          )
+          .bind(id, op.account_id)
+          .first<{ account_id: string; subject: string }>();
+        authorityReady(row);
+        await validateAuthorityOriginalAccount(db, row);
+      }
+    } catch {
+      throw new CommunityAuthorityPending();
+    }
     await assertAuthorityOriginalsUnchanged(db, op);
-    return JSON.parse(prior.page_json) as AuthorityPage;
+    return page;
   }
   const action = JSON.parse(op.request_json) as AuthorityAction;
   const rows = await db
@@ -335,8 +352,10 @@ export async function freezeAuthorityPage(
     .first<{ community_id: string; community_origin: string }>();
   authorityReady(identity);
   try {
-    for (const row of rows.results)
+    for (const row of rows.results) {
       validateAuthorityOriginal(row, action, identity);
+      await validateAuthorityOriginalAccount(db, row);
+    }
   } catch {
     throw new CommunityAuthorityPending();
   }

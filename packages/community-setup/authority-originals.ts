@@ -80,3 +80,24 @@ export function validateAuthorityOriginal(
     "authority_original_mismatch",
   );
 }
+
+/** Bounded lookup uses the credential namespace/network of admitted community
+ * MOSS accounts. Case variants must not hide a second conflicting binding. */
+export async function validateAuthorityOriginalAccount(
+  db: D1Database,
+  row: Pick<RetainedAuthorityOriginal, "account_id" | "subject">,
+) {
+  const bindings = await db
+    .prepare(
+      `SELECT account_id FROM credential_bindings
+    INDEXED BY learning_authority_credential_subject
+    WHERE namespace='moss' AND network=6343 AND subject=? COLLATE NOCASE LIMIT 2`,
+    )
+    .bind(row.subject)
+    .all<{ account_id: string }>();
+  check(
+    bindings.results.length === 1 &&
+      bindings.results[0].account_id === row.account_id,
+    "authority_original_account_mismatch",
+  );
+}
