@@ -1,3 +1,4 @@
+import type { AuthorityDeliveryRequest } from "../packages/community-setup/authority-validation.ts";
 import type { Hex } from "viem";
 import { digest } from "../packages/protocol/index.ts";
 import { type TelegramStudyDenial } from "../packages/study/telegram-publication.ts";
@@ -48,22 +49,29 @@ export class TelegramManagedPublication {
   private readonly registration: BotRegistration;
   private readonly ports: StudyOperatorPorts;
   private readonly schedule: (at: number) => Promise<void>;
+  private readonly authorityValidation?: (
+    request: AuthorityDeliveryRequest,
+  ) => Promise<void>;
   private constructor(
     grants: TelegramGrants,
     registration: BotRegistration,
     ports: StudyOperatorPorts,
     schedule: (at: number) => Promise<void>,
+    authorityValidation?: (request: AuthorityDeliveryRequest) => Promise<void>,
   ) {
     this.grants = grants;
     this.registration = registration;
     this.ports = { ...ports, authority: { ...ports.authority } };
     this.schedule = schedule;
+    this.authorityValidation = authorityValidation;
   }
   static create(input: {
     grants: TelegramGrants;
     registration: BotRegistration;
     ports: StudyOperatorPorts;
     scheduleWork(at: number): Promise<void>;
+    /** REQUIRED for authority transitions, including retained legacy work. */
+    authorityValidation?: (request: AuthorityDeliveryRequest) => Promise<void>;
   }) {
     telegramCheck(
       input.ports?.authority?.communityId === input.registration.communityId &&
@@ -86,6 +94,7 @@ export class TelegramManagedPublication {
       { ...input.registration },
       input.ports,
       input.scheduleWork,
+      input.authorityValidation,
     );
   }
   async arm() {
@@ -503,6 +512,25 @@ export class TelegramManagedPublication {
     }
     if (this.pending()) await this.arm();
   }
+  private async guardAuthority(
+    op: TelegramTransition,
+    denial?: TelegramStudyDenial,
+  ) {
+    if (op.kind !== "authority") return;
+    telegramCheck(
+      this.authorityValidation,
+      "telegram_publication_pending",
+      503,
+    );
+    await this.authorityValidation({
+      transitionId: op.id,
+      requestHash: op.requestHash,
+      scope: op.scope,
+      accountId: op.accountId,
+      target: op.target,
+      ...(denial ? { denial } : {}),
+    });
+  }
   private async progress(id: string, budget: number) {
     const store = this.grants.store;
     let op = validateTransition(
@@ -523,6 +551,28 @@ export class TelegramManagedPublication {
         const receipt = await denyManagedStudyPublication(
           this.ports,
           child.denial,
+          async () => {
+            // Runs after issuer signing, immediately before the irreversible
+            // operator fetch. Independent recover/alarm uses this same path.
+            await this.guardAuthority(op, child.denial);
+            const current = validateTransition(
+              store.get<TelegramTransition>(transitionKey(id))!,
+            );
+            const retained = validateDenialChild(
+              store.get<TelegramDenialChild>(key),
+            );
+            telegramCheck(
+              !current.complete &&
+                current.revision === op.revision &&
+                current.requestHash === op.requestHash &&
+                current.children === op.children &&
+                current.acknowledged === index &&
+                retained.hash === child.hash &&
+                !retained.acknowledged,
+              "telegram_publication_pending",
+              503,
+            );
+          },
         );
         store.transaction(() => {
           const current = validateTransition(
@@ -551,6 +601,7 @@ export class TelegramManagedPublication {
           store.get<TelegramTransition>(transitionKey(id))!,
         );
       }
+      await this.guardAuthority(op);
       store.transaction(() => {
         const current = validateTransition(
           store.get<TelegramTransition>(transitionKey(id))!,
