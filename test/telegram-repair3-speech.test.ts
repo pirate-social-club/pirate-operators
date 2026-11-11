@@ -23,6 +23,7 @@ import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import type { TelegramTrialRecord } from "../packages/telegram/study-contracts.ts";
 import type { TelegramOutbound } from "../services/telegram-outbox.ts";
 import { trialDebitKey } from "../services/telegram-trial-quota.ts";
+import { makeStudyTranscriber } from "../packages/study/speech-transcriber.ts";
 
 const pinned = new URL(
   "../.local/telegram-repair3-lane5/services/study-speech-admission.ts",
@@ -172,6 +173,65 @@ test(
     );
   },
 );
+
+for (const outcome of ["HTTP 422", "unknown then unavailable"] as const)
+  test(
+    `repair5 attempted ${outcome} retains its original guest debit`,
+    withLane5,
+    async (t) => {
+      const f = await fixture(t, 1);
+      const original = `trial-quota:${actorKey(actor)}:${f.job.reservedDay}`;
+      const nextDay = `trial-quota:${actorKey(actor)}:${f.job.reservedDay + 1}`;
+      let requests = 0,
+        ready = false,
+        statusReads = 0;
+      const failure =
+        outcome === "HTTP 422"
+          ? "speech_unavailable"
+          : "speech_receipt_unavailable";
+      f.speech.transcriber.transcribe = makeStudyTranscriber(
+        "local-fixture",
+        async () => {
+          requests++;
+          if (outcome === "HTTP 422")
+            return new Response(null, { status: 422 });
+          throw new Error("fixture_transport_interrupted");
+        },
+      ).transcribe;
+      f.speech.transcriber.recover = async () => {
+        statusReads++;
+        return ready ? { state: "unavailable", error: failure } : null;
+      };
+      await f.study.work(f.job.id);
+      if (outcome === "unknown then unavailable") {
+        assert.equal(f.current()?.state, "uncertain");
+        assert.equal(f.current()?.submissionStarted, true);
+        assert.equal(f.actual().get(f.id)?.state, "unknown");
+        assert.throws(
+          () => f.reserve("another-trial"),
+          /speech_trial_budget_exhausted/,
+        );
+        assert.equal(persisted<number>(f, original), 1);
+        f.advance(86400_000);
+        f.store.set(nextDay, 1);
+        ready = true;
+        f.restart();
+      }
+      await f.study.work(f.job.id);
+      await f.study.work(f.job.id);
+      assert.equal(requests, 1);
+      assert.equal(statusReads, outcome === "HTTP 422" ? 0 : 1);
+      assert.equal(f.current()?.state, "applied");
+      assert.equal(f.current()?.submissionStarted, true);
+      assert.equal(f.current()?.reservedDay, f.job.reservedDay);
+      assert.equal(f.study.session(actor).view.progress.resolved, 0);
+      assert.equal(f.actual().get(f.id)?.state, "refused");
+      assert.equal(f.actual().get(f.id)?.evidenceDigest, digest({ failure }));
+      assert.doesNotThrow(() => f.reserve("another-trial"));
+      assert.equal(persisted<number>(f, original), 1);
+      if (ready) assert.equal(persisted<number>(f, nextDay), 1);
+    },
+  );
 
 test(
   "repair4 settling and applied trial grades persist no learner transcript",

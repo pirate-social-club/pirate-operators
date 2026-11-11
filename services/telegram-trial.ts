@@ -28,11 +28,7 @@ import {
   type TelegramGrade,
   type TelegramTrialGradingPort,
 } from "../packages/telegram/grading.ts";
-import {
-  refundTrialDebit,
-  trialDebitKey,
-  trialQuotaKey,
-} from "./telegram-trial-quota.ts";
+import { trialDebitKey, trialQuotaKey } from "./telegram-trial-quota.ts";
 
 /** Guest lessons have their own table namespace and never call an account,
  * publication, qualification or reward writer. The established queue and
@@ -281,8 +277,6 @@ export class TelegramTrialLessons {
       const record = this.record(actor, id);
       if (record.state.currentAttemptId !== attemptId)
         return this.get(actor, id);
-      if (job.resolution?.state === "refused")
-        refundTrialDebit(this.grants.store, job);
       this.grants.store.set(this.key(actor, id), {
         ...record,
         state: { ...record.state, currentAttemptId: null },

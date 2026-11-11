@@ -16,10 +16,18 @@ export const trialQuotaKey = (actor: ChatActor, day: number) =>
 export const trialDebitKey = (jobId: string) => `trial-quota-debit:${jobId}`;
 
 /** Call in the same transaction as the associated job/lesson transition. */
-export function refundTrialDebit(
+export function refundUnsentTrialDebit(
   store: TelegramJournal,
   job: TelegramSpeechJob,
 ) {
+  const neverSubmitted =
+    job.retry === 0 &&
+    job.submissionStarted !== true &&
+    (job.state === "queued" ||
+      (["dispatching", "uncertain"].includes(job.state) &&
+        job.submissionStarted === false));
+  if (!neverSubmitted) return;
+
   const key = trialDebitKey(job.id),
     debit = store.get<TelegramTrialDebit>(key);
   if (
@@ -32,18 +40,4 @@ export function refundTrialDebit(
   const used = store.get<number>(bucket) ?? 0;
   if (used > 0) store.set(bucket, used - 1);
   store.delete(key);
-}
-
-export function refundUnsentTrialDebit(
-  store: TelegramJournal,
-  job: TelegramSpeechJob,
-) {
-  if (
-    job.retry === 0 &&
-    job.submissionStarted !== true &&
-    (job.state === "queued" ||
-      (["dispatching", "uncertain"].includes(job.state) &&
-        job.submissionStarted === false))
-  )
-    refundTrialDebit(store, job);
 }

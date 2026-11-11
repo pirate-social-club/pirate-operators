@@ -5,11 +5,112 @@ import { linkedStudyFixture } from "./telegram-linked-fixture.ts";
 import { actor, account } from "./telegram-fixture.ts";
 import { actorKey } from "../packages/telegram/contracts.ts";
 import type { TelegramStudyWork } from "../packages/telegram/work.ts";
+import { barrier, queuedVoice } from "./telegram-repair1-fixture.ts";
 
 async function connect(f: Awaited<ReturnType<typeof botFixture>>) {
   const flow = await f.begin();
   return f.complete(flow, await f.verify(flow));
 }
+
+for (const entry of ["new lesson", "resumed lesson", "active lesson"] as const)
+  test(`repair5 fresh linked work after authority rotation on a ${entry}`, async (t) => {
+    const f = await botFixture();
+    t.after(f.dispose);
+    const linked = await linkedStudyFixture(f);
+    const original = await connect(f);
+    if (entry !== "new lesson") await f.choose();
+    f.authority("authority-2");
+    if (entry === "new lesson") await f.choose();
+    if (entry === "resumed lesson") await f.command("/resume");
+    const job = await queuedVoice(f);
+    assert.deepEqual(job.grant, {
+      ...original,
+      authorityVersion: "authority-2",
+    });
+    const result = await f.study.work(job.id);
+    assert.equal(result.state, "applied");
+    assert.equal(linked.calls(), 1);
+    assert.equal(f.study.session(actor).view.progress.resolved, 1);
+    assert.deepEqual(f.study.session(actor).grant, job.grant);
+    assert.deepEqual(f.grants.read(actor), original);
+    const row = f.database
+      .prepare(
+        "SELECT account_id,state,grade_json FROM study_attempts WHERE lesson_id=?",
+      )
+      .get(job.lessonId)!;
+    assert.equal(row.account_id, account.accountId);
+    assert.equal(row.state, "assessed");
+    assert.doesNotMatch(String(row.grade_json), /heardTranscript/);
+  });
+
+test("repair5 old linked submission stays unresolved after authority rotation", async (t) => {
+  const f = await botFixture();
+  t.after(f.dispose);
+  const linked = await linkedStudyFixture(f);
+  const original = await connect(f);
+  await f.choose();
+  const job = await queuedVoice(f);
+  linked.loseResponse();
+  await assert.rejects(
+    () => f.study.work(job.id),
+    /simulated_linked_response_lost/,
+  );
+  const key = `speech-job:${job.id}`;
+  const attempted = f.store.get<TelegramStudyWork>(key)!;
+  assert.equal(attempted.state, "uncertain");
+  assert.equal(attempted.submissionStarted, true);
+  const readAttempts = () =>
+    f.database
+      .prepare(
+        "SELECT attempt_id,state,audio_digest,grade_json FROM study_attempts WHERE lesson_id=?",
+      )
+      .all(job.lessonId);
+  const attempts = readAttempts();
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].audio_digest, attempted.audioDigest);
+  f.authority("authority-2");
+  await f.study.work(job.id);
+  await f.study.work(job.id);
+  const held = f.store.get<TelegramStudyWork>(key)!;
+  assert.equal(held.state, "uncertain");
+  assert.equal(held.voice, null);
+  assert.deepEqual(held.grant, original);
+  assert.equal(held.audioDigest, attempted.audioDigest);
+  assert.equal(held.dispatchToken, attempted.dispatchToken);
+  assert.equal(linked.calls(), 1);
+  assert.equal(f.study.session(actor).view.progress.resolved, 0);
+  assert.deepEqual(readAttempts(), attempts);
+});
+
+test("repair5 linked application checks trusted authority again after the D1 result", async (t) => {
+  const f = await botFixture();
+  t.after(f.dispose);
+  const linked = await linkedStudyFixture(f);
+  await connect(f);
+  await f.choose();
+  const job = await queuedVoice(f);
+  const gate = barrier(),
+    permit = f.study.permit.bind(f.study);
+  f.study.permit = async (work) => {
+    if (work.state === "assessed") await gate.pause();
+    await permit(work);
+  };
+  const running = f.study.work(job.id);
+  await gate.waiting;
+  try {
+    const row = f.database
+      .prepare("SELECT state FROM study_attempts WHERE lesson_id=?")
+      .get(job.lessonId);
+    assert.equal(row?.state, "assessed");
+    f.authority("authority-2");
+  } finally {
+    gate.release();
+  }
+  assert.equal((await running).state, "cancelled");
+  await f.study.work(job.id);
+  assert.equal(f.study.session(actor).view.progress.resolved, 0);
+  assert.equal(linked.calls(), 1);
+});
 
 test("future connected lessons use the existing Study account/queue; the earlier trial remains private and unrewarded", async (t) => {
   const f = await botFixture();

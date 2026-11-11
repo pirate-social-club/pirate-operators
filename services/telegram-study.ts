@@ -1,10 +1,12 @@
 import { digest } from "../packages/protocol/index.ts";
 import {
   TELEGRAM_OPEN_MS,
+  accountMatches,
   actorKey,
   sameActor,
   telegramCheck,
   type ChatActor,
+  type TelegramGrant,
 } from "../packages/telegram/contracts.ts";
 import type {
   TelegramCatalogPort,
@@ -27,6 +29,19 @@ import { workTelegramLinked } from "./telegram-linked-jobs.ts";
 import { STUDY_POLICY } from "../packages/study/contracts.ts";
 import { telegramWorkAuthorityLost } from "./telegram-work-claim.ts";
 import { readTelegramSpeechJob } from "./telegram-job-privacy.ts";
+
+/** The durable link identifies the association. Its version is from linking. */
+function sameLinkedGrant(
+  stored: TelegramGrant | null | undefined,
+  expected: TelegramGrant,
+) {
+  return (
+    stored?.revokedAt === null &&
+    stored.id === expected.id &&
+    stored.accountId === expected.accountId &&
+    stored.wallet.toLowerCase() === expected.wallet.toLowerCase()
+  );
+}
 
 export interface TelegramStudyOptions {
   grants: TelegramGrants;
@@ -94,7 +109,7 @@ export class TelegramStudyService {
         `telegram_${digest([actorKey(actor), requestId]).slice(2)}`,
       );
       view = linkedLessonView(lesson, songKey);
-      await grants.assert(actor, grant.id);
+      await this.assertCurrentAuthority(actor, grant);
     } else view = await this.options.trial.start(actor, songKey, requestId);
     return grants.store.transaction(() => {
       grants.binding(actor);
@@ -106,8 +121,7 @@ export class TelegramStudyService {
         );
       if (grant)
         telegramCheck(
-          grants.read(actor)?.id === grant.id &&
-            grants.read(actor)?.revokedAt === null,
+          sameLinkedGrant(grants.read(actor), grant),
           "telegram_authority_changed",
           403,
         );
@@ -118,20 +132,29 @@ export class TelegramStudyService {
     });
   }
   async resume(actor: ChatActor) {
-    const session = this.session(actor);
-    const view =
-      session.mode === "trial"
-        ? this.options.trial.get(actor, session.view.id)
-        : linkedLessonView(
-            await this.options.linked.get(
-              actor,
-              await this.options.grants.assert(actor, session.grant!.id),
-              session.view.id,
-            ),
-            session.view.songKey,
-          );
-    this.save(actor, { ...session, actor, view });
-    return view;
+    const grants = this.options.grants,
+      session = this.session(actor);
+    if (session.mode === "trial")
+      return this.save(actor, {
+        ...session,
+        actor,
+        view: this.options.trial.get(actor, session.view.id),
+      });
+    const grant = await grants.assert(actor, session.grant!.id),
+      view = linkedLessonView(
+        await this.options.linked.get(actor, grant, session.view.id),
+        session.view.songKey,
+      );
+    await this.assertCurrentAuthority(actor, grant);
+    return grants.store.transaction(() => {
+      grants.binding(actor);
+      telegramCheck(
+        sameLinkedGrant(grants.read(actor), grant),
+        "telegram_authority_changed",
+        403,
+      );
+      return this.save(actor, { ...session, actor, grant, view });
+    });
   }
   async accept(
     actor: ChatActor,
@@ -184,14 +207,16 @@ export class TelegramStudyService {
         409,
       );
       let reservedDay = Math.floor(grants.now() / 86400_000);
-      if (grant)
+      if (grant) {
         telegramCheck(
-          grants.read(actor)?.id === grant.id &&
-            grants.read(actor)?.revokedAt === null,
+          sameLinkedGrant(grants.read(actor), grant) &&
+            sameLinkedGrant(current.grant, grant),
           "telegram_authority_changed",
           403,
         );
-      else {
+        if (current.grant?.authorityVersion !== grant.authorityVersion)
+          this.save(actor, { ...current, grant });
+      } else {
         telegramCheck(
           grants.read(actor)?.revokedAt !== null,
           "telegram_use_connected_study",
@@ -249,17 +274,21 @@ export class TelegramStudyService {
       return job;
     });
   }
+  private async assertCurrentAuthority(
+    actor: ChatActor,
+    expected: TelegramGrant,
+  ) {
+    const current = await this.options.grants.assert(actor, expected.id);
+    telegramCheck(
+      accountMatches(current, expected),
+      "telegram_authority_changed",
+      403,
+    );
+  }
   async permit(job: TelegramStudyWork) {
     const grants = this.options.grants;
     grants.binding(job.actor);
-    if (job.grant) {
-      const current = await grants.assert(job.actor, job.grant.id);
-      telegramCheck(
-        current.authorityVersion === job.grant.authorityVersion,
-        "telegram_authority_changed",
-        403,
-      );
-    }
+    if (job.grant) await this.assertCurrentAuthority(job.actor, job.grant);
     telegramCheck(
       grants.store.get<string>(`active-session:${actorKey(job.actor)}`) ===
         job.lessonId,
@@ -267,7 +296,7 @@ export class TelegramStudyService {
       409,
     );
   }
-  /** Used synchronously at the submission and application commit boundaries. */
+  /** After permit checks the live version, fence local identity at commit. */
   private currentWorkSession(job: TelegramStudyWork) {
     const grants = this.options.grants;
     grants.binding(job.actor);
@@ -297,12 +326,8 @@ export class TelegramStudyService {
     const current = grants.read(job.actor);
     if (job.grant) {
       telegramCheck(
-        current?.revokedAt === null &&
-          current.id === job.grant.id &&
-          current.accountId === job.grant.accountId &&
-          current.wallet === job.grant.wallet &&
-          current.authorityVersion === job.grant.authorityVersion &&
-          session.grant?.id === job.grant.id,
+        sameLinkedGrant(current, job.grant) &&
+          sameLinkedGrant(session.grant, job.grant),
         "telegram_authority_changed",
         403,
       );
