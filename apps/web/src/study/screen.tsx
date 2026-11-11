@@ -1,5 +1,5 @@
 import type { JSX } from "@solidjs/web";
-import { createSignal, Show } from "solid-js";
+import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { StudyLesson } from "../../../../packages/study/lesson.ts";
 import type { StudyClient } from "./client.ts";
 import { createOperatorStudyingClient } from "./operator-studying-adapter.ts";
@@ -14,7 +14,7 @@ import {
 } from "./completion-flow.tsx";
 
 /** Existing mount contract now delegates to the selected source controller. */
-export function StudyScreen(props: {
+export interface StudyScreenProps {
   client: StudyClient;
   onLesson?: (lesson: StudyLesson) => void;
   onExit?: () => void;
@@ -22,30 +22,99 @@ export function StudyScreen(props: {
   rewardSlot?: JSX.Element;
   recorder?: StudyingRecorder;
   account?: string;
+  postId?: string;
+  lessonId?: string;
+  onLessonCleared?: () => void;
   completionCapability?: StudyCompletionCapability;
-}) {
+}
+export function StudyScreen(props: StudyScreenProps) {
+  const scope = createMemo(() => ({
+    client: props.client,
+    account: props.account,
+    postId: props.postId,
+    lessonId: props.lessonId,
+  }));
+  return (
+    <Show when={scope()} keyed>
+      {(owner) => <OwnedStudyScreen {...props} owner={owner} />}
+    </Show>
+  );
+}
+function OwnedStudyScreen(
+  props: StudyScreenProps & {
+    owner: {
+      client: StudyClient;
+      account?: string;
+      postId?: string;
+      lessonId?: string;
+    };
+  },
+) {
+  const owner = props.owner,
+    onLesson = props.onLesson,
+    clearLesson = props.onLessonCleared;
+  let active = true;
+  const current = () =>
+    active &&
+    props.client === owner.client &&
+    props.account === owner.account &&
+    props.postId === owner.postId &&
+    props.lessonId === owner.lessonId;
+  const recorder = props.recorder ?? createStudyingBrowserRecorder();
   const [completed, setCompleted] = createSignal<StudyLesson>();
-  const client = createOperatorStudyingClient(props.client, (lesson) => {
-    setCompleted(lesson.status === "completed" ? lesson : undefined);
-    props.onLesson?.(lesson);
-  });
+  const client = createOperatorStudyingClient(
+    owner.client,
+    (lesson) => {
+      if (!current()) return;
+      setCompleted(lesson.status === "completed" ? lesson : undefined);
+      onLesson?.(lesson);
+    },
+    {
+      isActive: current,
+      onLoading: () => {
+        if (current()) {
+          setCompleted(undefined);
+          clearLesson?.();
+        }
+      },
+    },
+  );
+  const invalidate = () => {
+    if (!active) return;
+    active = false;
+    client.dispose();
+    void recorder.cancel?.();
+    clearLesson?.();
+  };
+  const clear = () => {
+    if (current()) {
+      setCompleted(undefined);
+      invalidate();
+    }
+  };
+  const exit = () => {
+    invalidate();
+    props.onExit?.();
+  };
+  onCleanup(invalidate);
   return (
     <StudyingRouteView
-      postId="owned-lesson-port"
+      postId={owner.postId ?? "owned-lesson-port"}
       client={client}
-      recorder={props.recorder ?? createStudyingBrowserRecorder()}
-      onExit={props.onExit}
+      recorder={recorder}
+      onExit={exit}
       onConnect={props.onConnect}
+      onAuthRequired={clear}
       rewardSlot={props.rewardSlot}
-      loadingSlot={<StudyLoading onExit={props.onExit} />}
+      loadingSlot={<StudyLoading onExit={exit} />}
       renderComplete={
-        props.account
+        owner.account
           ? (result, actions) => (
               <Show when={completed()}>
                 {(lesson) => (
                   <StudyCompletionFlow
                     target={{
-                      account: props.account!,
+                      account: owner.account!,
                       communityId: lesson().song.communityId,
                       postId: lesson().song.postId,
                       lessonId: lesson().lessonId,
@@ -59,7 +128,7 @@ export function StudyScreen(props: {
                       }
                     }
                     rewardSlot={props.rewardSlot}
-                    onExit={props.onExit}
+                    onExit={exit}
                     onStudyAgain={actions.studyAgain}
                   />
                 )}

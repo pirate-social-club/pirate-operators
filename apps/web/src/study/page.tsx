@@ -33,7 +33,7 @@ export interface StudyPageProps {
   onExit(): void;
   onConnect?(): void;
   onLessonOpened?(lessonId: string): void;
-  onLearningActions?(actions: { download(): Promise<void> }): void;
+  onLearningActions?(actions: { download(): Promise<void> } | null): void;
   rewardSlot?: JSX.Element;
   completionCapability?: StudyCompletionCapability;
 }
@@ -44,7 +44,11 @@ export interface StudyPageProps {
 export function StudyPage(props: StudyPageProps) {
   return (
     <Show
-      when={props.account ? `${props.account}\u0000${props.postId}` : null}
+      when={
+        props.account
+          ? `${props.account}\u0000${props.postId}\u0000${props.lessonId ?? ""}`
+          : null
+      }
       keyed
       fallback={
         <StudyAuthRequiredState
@@ -63,6 +67,12 @@ export function StudyPage(props: StudyPageProps) {
 }
 
 function OwnedStudyPage(props: StudyPageProps & { account: string }) {
+  const owner = {
+    account: props.account,
+    postId: props.postId,
+    lessonId: props.lessonId,
+  };
+  const actions = props.onLearningActions;
   const [client, setClient] = createSignal<StudyClient>();
   const [error, setError] = createSignal("");
   const [auth, setAuth] = createSignal(false);
@@ -74,24 +84,35 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     timer: ReturnType<typeof setTimeout> | undefined;
   let active = true,
     generation = 0;
+  const current = () =>
+    active &&
+    props.account === owner.account &&
+    props.postId === owner.postId &&
+    props.lessonId === owner.lessonId;
+  const clearActions = () => actions?.(null);
   onCleanup(() => {
     active = false;
     generation += 1;
     clearTimeout(timer);
+    clearActions();
   });
-  const request = <T,>(path: string, body?: unknown) =>
-    learningRequest<T>(path, {
-      account: props.account,
+  const request = async <T,>(path: string, body?: unknown) => {
+    if (!current()) throw new Error("This Study was closed or replaced.");
+    const value = await learningRequest<T>(path, {
+      account: owner.account,
       csrf: props.csrf,
       body,
     });
+    if (!current()) throw new Error("This Study was closed or replaced.");
+    return value;
+  };
   const enroll = () => {
     if (!props.wallet)
       return Promise.reject(
         new Error("Connect your MOSS account to continue Study."),
       );
     return ensureStudyEnrollment({
-      active: () => active,
+      active: current,
       wallet: props.wallet,
       request: () =>
         request<StudyEnrollmentView>("/api/karaoke/enrollment", {
@@ -107,32 +128,37 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
   };
   async function load() {
     const revision = ++generation;
+    clearActions();
     setError("");
     setClient(undefined);
     try {
       const song = await request<StudySong>(
         `/api/study/song?postId=${encodeURIComponent(props.postId)}`,
       );
-      if (!active || generation !== revision) return;
+      if (!current() || generation !== revision) return;
       setClient(
         createStudyClient(
           song,
           () => props.csrf,
           props.lessonId,
-          props.onLessonOpened,
+          (id) => {
+            if (current() && generation === revision)
+              props.onLessonOpened?.(id);
+          },
           props.signInPermission ? undefined : enroll,
-          () => active,
-          props.account,
+          () => current() && generation === revision,
+          owner.account,
         ),
       );
     } catch (error) {
-      if (!active || generation !== revision) return;
+      if (!current() || generation !== revision) return;
       if (
         (error as { status?: number }).status === 401 ||
         (error as { code?: string }).code === "study_account_changed"
-      )
+      ) {
+        clearActions();
         setAuth(true);
-      else
+      } else
         setError(
           error instanceof Error
             ? error.message
@@ -141,15 +167,17 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     }
   }
   function observe(lesson: StudyLesson) {
-    if (!active) return;
-    props.onLearningActions?.({
+    if (!current()) return;
+    const revision = generation;
+    actions?.({
       download: async () => {
-        if (!active) throw new Error("This Study was closed.");
+        if (!current() || revision !== generation)
+          throw new Error("This Study was closed.");
         const history = await request(
           `/api/study/lessons/${encodeURIComponent(lesson.lessonId)}/history`,
           {},
         );
-        if (!active) return;
+        if (!current() || revision !== generation) return;
         const url = URL.createObjectURL(
           new Blob([JSON.stringify(history, null, 2)], {
             type: "application/json",
@@ -240,8 +268,11 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
           <StudyScreen
             client={value()}
             account={props.account}
+            postId={owner.postId}
+            lessonId={owner.lessonId}
             completionCapability={props.completionCapability}
             onLesson={observe}
+            onLessonCleared={clearActions}
             onExit={props.onExit}
             onConnect={props.onConnect}
             rewardSlot={

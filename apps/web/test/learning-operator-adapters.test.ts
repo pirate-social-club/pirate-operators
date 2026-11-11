@@ -308,6 +308,12 @@ test("explicit budget refusal preserves refusal evidence and allows deliberate s
           429,
           "speech_budget_exhausted",
           "Community limit",
+          {
+            stage: "endpoint_refusal",
+            path: "/api/karaoke/tickets",
+            method: "POST",
+            endpointStatus: 429,
+          },
         );
       }
       return { state: "none" } as T;
@@ -335,4 +341,108 @@ test("disposing an in-flight ticket ignores its late identity and cannot start a
   resolve(open);
   await assert.rejects(pending, /closed/);
   await assert.rejects(port.ticket(), /closed/);
+});
+
+test("ready readback retains the original live Study upload across reload and replacement audio", async () => {
+  const initial = lesson(),
+    originalAttempt = attempt(initial);
+  let saved: StudyLesson = {
+      ...initial,
+      current: { ...initial.current!, attempt: originalAttempt },
+    },
+    finishOriginal!: () => void,
+    opens = 0,
+    uploads = 0;
+  const original = input(initial);
+  const server = new Promise<void>((resolve) => {
+    finishOriginal = resolve;
+  }).then(() => {
+    saved = {
+      ...initial,
+      status: "completed",
+      current: null,
+      completedAt: 200,
+      lastAttempt: {
+        ...originalAttempt,
+        state: "assessed",
+        grade: {
+          correct: true,
+          matchKind: "exact",
+          policyRevision: "script_aware_token_phonetic_v5",
+        },
+      },
+      progress: { ...initial.progress, resolved: 4, firstPassCorrect: 3 },
+    };
+  });
+  const port = createOperatorStudyingClient({
+    ...client(initial),
+    open: async () => {
+      opens++;
+      return { attempt: originalAttempt, lesson: initial };
+    },
+    submit: async (lessonId, attemptId, audio) => {
+      uploads++;
+      assert.equal(lessonId, initial.lessonId);
+      assert.equal(attemptId, originalAttempt.attemptId);
+      assert.equal(
+        audio,
+        original.type === "say_it_back" ? original.audio : null,
+      );
+      throw new Error("delivery unknown while original body still streams");
+    },
+    refresh: async () => saved,
+  });
+  await port.loadLesson("song");
+  await assert.rejects(port.submitAttempt(original), {
+    details: {
+      reason_code: "study_provider_outcome_unknown",
+      next_action: "operator_review",
+    },
+  });
+  const held = await port.loadLesson("song");
+  assert.equal(
+    held.spoken_submission?.session_item_id,
+    originalAttempt.line.lineId,
+  );
+  await assert.rejects(port.submitAttempt(input(initial)));
+  assert.deepEqual([opens, uploads], [1, 1]);
+  finishOriginal();
+  await server;
+  const resolved = await port.loadLesson("song");
+  assert.deepEqual(resolved.exercises, []);
+  assert.equal(resolved.correct_count, 3);
+  assert.equal(resolved.spoken_submission, null);
+  assert.deepEqual([opens, uploads], [1, 1]);
+});
+
+test("ready and malformed assessed results are uncertainty, never provider refusal", () => {
+  const value = lesson();
+  for (const state of ["ready", "assessed"] as const)
+    assert.throws(
+      () =>
+        operatorStudyResult({ lesson: value, attempt: attempt(value, state) }),
+      {
+        details: {
+          reason_code: "study_provider_outcome_unknown",
+          next_action: "operator_review",
+        },
+      },
+    );
+});
+
+test("a fresh adapter also holds an existing ready attempt across a full page reload", async () => {
+  const value = lesson();
+  value.current!.attempt = attempt(value, "ready");
+  let opens = 0;
+  const port = createOperatorStudyingClient({
+    ...client(value),
+    open: async () => {
+      opens++;
+      throw new Error("must not replace existing ready upload");
+    },
+  });
+  const payload = await port.loadLesson("song");
+  assert.equal(payload.spoken_submission?.state, "provider_outcome_unknown");
+  await assert.rejects(port.submitAttempt(input(value)));
+  assert.equal(opens, 0);
 });

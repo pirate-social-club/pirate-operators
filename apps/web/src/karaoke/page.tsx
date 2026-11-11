@@ -86,7 +86,7 @@ export interface KaraokePageProps {
   /** V4: signing in is the publication permission; no enrollment step. */
   signInPermission?: boolean;
   onExit: () => void;
-  onLearningActions?: (actions: LearningActions) => void;
+  onLearningActions?: (actions: LearningActions | null) => void;
 }
 export function KaraokePage(props: KaraokePageProps) {
   return (
@@ -109,6 +109,7 @@ export function KaraokePage(props: KaraokePageProps) {
   );
 }
 function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
+  const learningActions = props.onLearningActions;
   const port =
     props.port ??
     createOperatorKaraokePort({
@@ -152,6 +153,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     disposed = true;
     port.dispose();
     cancelPlaybackPosition?.();
+    learningActions?.(null);
   });
   const validateEnrollment = (request: KaraokeConsentRequest) => {
     // The disclosure bound by the signature must be the expected one.

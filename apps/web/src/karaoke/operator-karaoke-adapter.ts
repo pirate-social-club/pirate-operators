@@ -116,11 +116,18 @@ export function createOperatorKaraokePort(options: {
             proof: issued.proof,
           };
         } catch (error) {
-          // Explicit refusal created no new take. Unknown delivery remains held.
+          // Only evidence from this request's actual endpoint (or a preflight
+          // before dispatch) can release the creation hold. A post-check 401/409
+          // may follow a committed ticket and must retain the unknown outcome.
           if (
             error instanceof LearningServiceError &&
-            error.status < 500 &&
-            error.status !== 408
+            error.evidence?.path === "/api/karaoke/tickets" &&
+            error.evidence.method === "POST" &&
+            (error.evidence.stage === "before_dispatch" ||
+              (error.evidence.stage === "endpoint_refusal" &&
+                error.evidence.endpointStatus === error.status &&
+                error.status < 500 &&
+                error.status !== 408))
           )
             throw error;
           startUnknown = true;

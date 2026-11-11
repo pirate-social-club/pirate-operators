@@ -62,6 +62,8 @@ export interface StudyingRouteViewProps {
   onKaraoke?: () => void;
   onStudyAgain?: () => void;
   onConnect?: () => void;
+  /** Invalidate the host's private actions before showing an auth hold. */
+  onAuthRequired?: () => void;
 }
 
 type SayItBackSurfaceState = Extract<
@@ -635,7 +637,10 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
       })
       .catch((rejection: StudyingAttemptRejection) => {
         if (!active || revision !== generation) return;
-        if (isStudyingAuthError(rejection)) setAuthRequired(true);
+        if (isStudyingAuthError(rejection)) {
+          props.onAuthRequired?.();
+          setAuthRequired(true);
+        }
         setLoadError(rejection);
       })
       .finally(() => {
@@ -732,6 +737,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                 {...props}
                 onAuthRequired={() => {
                   void props.recorder?.cancel?.();
+                  props.onAuthRequired?.();
                   setAuthRequired(true);
                 }}
                 onStudyAgain={() => load(true)}
