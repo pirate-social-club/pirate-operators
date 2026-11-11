@@ -156,9 +156,10 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
       }
     } catch {
       if (currentVerification(serial)) {
-        setFailedPolls(failedPolls() + 1);
+        const failures = failedPolls() + 1;
+        setFailedPolls(failures);
         setNotice("Verification is still pending. Your winnings stay held.");
-        if (failedPolls() >= 5) {
+        if (failures >= 5) {
           setNotice(
             "Verification could not be checked. Your winnings stay held. Press Check palm scan to resume this same verification.",
           );
