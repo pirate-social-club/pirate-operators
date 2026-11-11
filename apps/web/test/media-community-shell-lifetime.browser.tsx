@@ -322,7 +322,10 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
           late?.job?.phase === "published",
           "late canonical receipt was not saved under original lock",
         );
-      check(Number(refreshed) === 0, "late old receipt notified new owner");
+      check(
+        Number(refreshed) === 0,
+        "late old receipt notified new owner during " + change,
+      );
       check(
         f.calls
           .slice(before)
@@ -447,7 +450,7 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
       await until(() => entered.done);
       await settle();
       check(
-        root.textContent?.includes("IndexedDB File storage and Web Locks"),
+        root.textContent?.includes("cannot safely save your release"),
         "native unsupported state missing",
       );
       check(
