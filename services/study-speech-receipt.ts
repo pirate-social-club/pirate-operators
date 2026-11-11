@@ -1,4 +1,6 @@
 import type { Hex } from "viem";
+import { sanitizeStudySpeechReceipt } from "./study-private-assessment.ts";
+import { reconcileCommunitySpeechDigest } from "./study-speech-reservation.ts";
 import { check } from "../packages/protocol/index.ts";
 import type {
   StudySpeechParameters,
@@ -19,6 +21,8 @@ export interface StudySpeechJob {
   parameters: StudySpeechParameters;
   receipt: StudySpeechReceipt;
   expiresAt: number;
+  channel?: "website-study" | "telegram-linked";
+  completionEvidence?: Hex;
 }
 
 /** First terminal receipt wins, across status recovery and late dispatch I/O.
@@ -41,9 +45,18 @@ export function completeStudySpeech(
     if (
       current.receipt.state === "assessed" ||
       current.receipt.state === "unavailable"
-    )
-      return current;
-    const completed = { ...current, receipt };
+    ) {
+      const safe = {
+        ...current,
+        ...sanitizeStudySpeechReceipt(store, current, current.receipt),
+      };
+      store.set(key, safe);
+      return safe;
+    }
+    const completed = {
+      ...current,
+      ...sanitizeStudySpeechReceipt(store, current, receipt),
+    };
     store.set(key, completed);
     return completed;
   });
@@ -58,6 +71,13 @@ export async function recoverStudySpeech(
   job: StudySpeechJob,
   provider?: StudyTranscriber,
 ): Promise<StudySpeechJob> {
+  const safe = completeStudySpeech(store, key, job.requestHash, job.receipt);
+  if (!safe)
+    return {
+      ...job,
+      receipt: { state: "unavailable", error: "study_history_expired" },
+    };
+  job = safe;
   if (
     !provider?.recover ||
     !["assessing", "uncertain"].includes(job.receipt.state)
@@ -84,11 +104,20 @@ export async function recoverStudySpeech(
     (current.receipt.state === "assessed" ||
       current.receipt.state === "unavailable")
   )
-    await reconcileCommunitySpeech(
-      env,
-      `study:${job.parameters.attemptId}`,
-      current.receipt.state === "assessed" ? "succeeded" : "refused",
-      current.receipt,
+    await (
+      current.completionEvidence
+        ? reconcileCommunitySpeechDigest(
+            env,
+            `study:${job.parameters.attemptId}`,
+            current.receipt.state === "assessed" ? "succeeded" : "refused",
+            current.completionEvidence,
+          )
+        : reconcileCommunitySpeech(
+            env,
+            `study:${job.parameters.attemptId}`,
+            current.receipt.state === "assessed" ? "succeeded" : "refused",
+            current.receipt,
+          )
     ).catch(() => undefined);
   return current;
 }

@@ -77,17 +77,19 @@ export async function dispatchStudySpeech(options: {
   // If history closed during I/O, keep accounting the actual provider outcome
   // without reviving private lesson data or inventing a refund.
   const resolved = completed?.receipt ?? receipt;
-  if (reservation)
-    await reservation
-      .resolve(
-        resolved.state === "assessed"
-          ? "succeeded"
-          : resolved.state === "unavailable"
-            ? "refused"
-            : "unknown",
-        resolved,
-      )
-      .catch(() => undefined);
+  if (reservation) {
+    const state =
+      resolved.state === "assessed"
+        ? "succeeded"
+        : resolved.state === "unavailable"
+          ? "refused"
+          : "unknown";
+    await (
+      completed?.completionEvidence
+        ? reservation.resolveDigest(state, completed.completionEvidence)
+        : reservation.resolve(state, resolved)
+    ).catch(() => undefined);
+  }
   return (
     completed?.receipt ?? {
       state: "unavailable",

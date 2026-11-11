@@ -38,6 +38,7 @@ import { makeStudyService } from "./study-spoken.ts";
 import {
   bindManagedStudy,
   managedStudyTranscriber,
+  managedStudyAssessor,
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
 import type {
@@ -349,6 +350,7 @@ export function liveStudy(
               authorizationId: telegram.authorizationId,
               speechChannel: "telegram-linked",
               telegramFence: fence,
+              privateSpeechSource: lyrics,
             }
           : {
               ...offer,
@@ -442,6 +444,12 @@ export function liveStudy(
       )?.line;
       studyCheck(line, "study_line_unavailable", 404);
       return line;
+    },
+    assessor: async (context) => {
+      const saved = await bound(context.lessonId);
+      return saved.binding.offer.speechChannel === "telegram-linked"
+        ? managedStudyAssessor(saved.operator, saved.binding)
+        : null;
     },
     transcriber: {
       providerRetention: "stored",

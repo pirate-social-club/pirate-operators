@@ -54,6 +54,8 @@ import {
   persistTelegramStudyDenial,
   studyTelegramPublication,
 } from "./study-telegram-publication.ts";
+import { privateStudySource } from "./study-private-assessment.ts";
+import { completeStudySpeech } from "./study-speech-receipt.ts";
 import { dispatchStudySpeech } from "./study-speech-dispatch.ts";
 
 /** A V3 lesson binding: the learner's learning enrollment. */
@@ -84,6 +86,7 @@ async function bindStudyLesson(
     store,
     studyTelegramPublication(offer, target, env.COMMUNITY_ID),
   );
+  if (offer.privateSpeechSource) privateStudySource(offer, env.COMMUNITY_ID);
   const key = `studyBinding:${offer.lessonId}`;
   const old = studyBinding(store, offer.lessonId),
     hash = digest(offer) as Hex;
@@ -162,6 +165,8 @@ async function speak(
   const binding = studyBinding(store, parameters.lessonId);
   check(binding, "study_lesson_not_bound");
   retainedTarget(env, binding.target);
+  if (binding.offer.speechChannel === "telegram-linked")
+    privateStudySource(binding.offer, env.COMMUNITY_ID);
   const line = binding.offer.exercises.find(
     (line) => line.lineId === parameters.lineId,
   );
@@ -197,7 +202,14 @@ async function speak(
         previous.bindingHash === binding.offerHash,
       "study_speech_request_changed",
     );
-    return previous.receipt;
+    const safe = completeStudySpeech(
+      store,
+      key,
+      previous.requestHash,
+      previous.receipt,
+    );
+    check(safe, "study_history_expired");
+    return safe.receipt;
   }
   check(store.now() * 1000 < binding.offer.expiresAt, "study_lesson_expired");
   await checkLearningDisclosure(env, binding.target);
@@ -260,6 +272,7 @@ async function speak(
       parameters,
       receipt: { state: "assessing", error: "speech_pending" },
       expiresAt: store.now() + 30 * 86400,
+      channel: binding.offer.speechChannel ?? "website-study",
     } satisfies SpeechJob);
     return true;
   });
@@ -335,7 +348,9 @@ export async function studyOperatorRoute(
   check(reader, "invalid_study_request_body");
   const chunks: Uint8Array[] = [];
   const maximum =
-    path === "/study/terminal" ? STUDY_SOURCE_MAX_BYTES + 65536 : 16000;
+    path === "/study/terminal" || path === "/study/bind"
+      ? STUDY_SOURCE_MAX_BYTES + 65536
+      : 16000;
   let size = 0;
   try {
     while (true) {

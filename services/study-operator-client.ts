@@ -1,6 +1,13 @@
 // Uses the existing service binding and community ticket signer. Provider keys
 // and HTTP transports remain in the operator, not in the application/browser.
 import type { Hex } from "viem";
+import { canonical } from "../packages/protocol/index.ts";
+import {
+  minimalStudyGrade,
+  type StudyAssessmentPort,
+} from "../packages/study/assessment.ts";
+import { STUDY_POLICY } from "../packages/study/contracts.ts";
+import { privateStudySource } from "./study-private-assessment.ts";
 import { check, digest } from "../packages/protocol/index.ts";
 import {
   authorizeStudyRequest,
@@ -136,10 +143,14 @@ export function managedStudyTranscriber(
           ),
         "study_speech_receipt_changed",
       );
-      return status.receipt.state === "assessed" ||
-        status.receipt.state === "unavailable"
-        ? status.receipt
-        : null;
+      if (status.receipt.state === "assessed") {
+        check(
+          status.receipt.transcript && !status.receipt.grade,
+          "study_private_assessment_required",
+        );
+        return { state: "assessed", transcript: status.receipt.transcript };
+      }
+      return status.receipt.state === "unavailable" ? status.receipt : null;
     },
     async transcribe(audio, contentType, language, context) {
       check(
@@ -159,11 +170,80 @@ export function managedStudyTranscriber(
         audio,
         { ...context, contentType },
       );
-      if (receipt.state === "assessed") return receipt.transcript;
+      if (receipt.state === "assessed") {
+        check(
+          receipt.transcript && !receipt.grade,
+          "study_private_assessment_required",
+        );
+        return receipt.transcript;
+      }
       throw new StudySpeechError(
         receipt.error,
         receipt.state === "unavailable" ? "known_failed" : "unknown",
       );
+    },
+  };
+}
+
+/** Uses the original signed public source and policy. Actual transcripts never
+ * cross this linked client boundary; pending work is queried, never resent. */
+export function managedStudyAssessor(
+  ports: StudyOperatorPorts,
+  binding: StudyBinding,
+): StudyAssessmentPort {
+  const source = privateStudySource(binding.offer);
+  const policy = binding.offer.graderRevision ?? STUDY_POLICY;
+  const grade = (receipt: StudySpeechReceipt) => {
+    if (receipt.state === "assessed") {
+      check(
+        receipt.grade && !receipt.transcript,
+        "study_private_assessment_required",
+      );
+      return minimalStudyGrade(receipt.grade, policy);
+    }
+    throw new StudySpeechError(
+      receipt.error,
+      receipt.state === "unavailable" ? "known_failed" : "unknown",
+    );
+  };
+  return {
+    async assess(audio, contentType, line, context) {
+      check(
+        context.lessonId === binding.offer.lessonId &&
+          canonical(
+            source.selected.find(
+              (expected) => expected.lineId === context.lineId,
+            ),
+          ) === canonical(line),
+        "study_reference_mismatch",
+      );
+      const receipt = await call<StudySpeechReceipt>(
+        ports,
+        "/study/speech",
+        audio,
+        { ...context, contentType },
+      );
+      return grade(receipt);
+    },
+    async recover(context, audioDigest) {
+      const status = await managedStudyReceipt(
+        ports,
+        context.lessonId,
+        context.attemptId,
+      );
+      check(
+        context.lessonId === binding.offer.lessonId &&
+          status.audioDigest === audioDigest &&
+          Object.entries(context).every(
+            ([key, value]) =>
+              status.parameters[key as keyof typeof status.parameters] ===
+              value,
+          ),
+        "study_speech_receipt_changed",
+      );
+      if (status.receipt.state === "assessed")
+        return { state: "assessed", grade: grade(status.receipt) };
+      return status.receipt.state === "unavailable" ? status.receipt : null;
     },
   };
 }

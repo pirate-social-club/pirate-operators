@@ -27,6 +27,10 @@ export async function reserveCommunitySpeech(
         _state: "succeeded" | "refused" | "unknown",
         _evidence: unknown,
       ) {},
+      async resolveDigest(
+        _state: "succeeded" | "refused" | "unknown",
+        _digest: string,
+      ) {},
     };
   }
   const policy = JSON.parse(
@@ -50,6 +54,13 @@ export async function reserveCommunitySpeech(
     ) {
       await budget.resolve(requestId, state, digest(evidence));
     },
+    async resolveDigest(
+      state: "succeeded" | "refused" | "unknown",
+      evidenceDigest: string,
+    ) {
+      check(/^0x[0-9a-f]{64}$/.test(evidenceDigest), "speech_evidence_invalid");
+      await budget.resolve(requestId, state, evidenceDigest);
+    },
   };
 }
 
@@ -68,5 +79,26 @@ export async function reconcileCommunitySpeech(
     requestId,
     state,
     digest(evidence),
+  );
+}
+
+/** Internal compensation consumes the exact original observation hash; it
+ * cannot recover or log the discarded private assessment content. */
+export async function reconcileCommunitySpeechDigest(
+  env: SpeechAdmissionEnv,
+  requestId: string,
+  state: "succeeded" | "refused",
+  evidenceDigest: string,
+) {
+  if (!env.SPEECH_ADMISSION_CONFIG) return;
+  check(/^0x[0-9a-f]{64}$/.test(evidenceDigest), "speech_evidence_invalid");
+  check(env.SPEECH_BUDGET, "speech_budget_unconfigured");
+  const policy = JSON.parse(
+    env.SPEECH_ADMISSION_CONFIG,
+  ) as SpeechAdmissionPolicy;
+  await env.SPEECH_BUDGET.getByName(speechAdmissionObjectName(policy)).resolve(
+    requestId,
+    state,
+    evidenceDigest,
   );
 }

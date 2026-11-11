@@ -1,4 +1,6 @@
 import type { Address, Hex } from "viem";
+import type { LyricManifest } from "../community/lyric-manifest.ts";
+import type { StudyMinimalGrade } from "./assessment.ts";
 import type { TelegramStudyFence } from "./telegram-publication.ts";
 import { check } from "../protocol/index.ts";
 import { studyExercisesHash } from "../protocol/learning-results-v3.ts";
@@ -13,6 +15,9 @@ export interface StudyLessonOffer {
    * Trial history never uses this public-result lesson contract. */
   speechChannel?: "telegram-linked";
   telegramFence?: TelegramStudyFence;
+  /** Canonical public expected text, signed with the original linked offer.
+   * Speech requests cannot replace this source or its grading policy. */
+  privateSpeechSource?: LyricManifest;
   graderRevision?: "script_aware_token_phonetic_v5";
   lessonId: string;
   learner: Address;
@@ -83,6 +88,11 @@ export function validateStudyOffer(
       Array.isArray(value.exercises),
     "invalid_study_lesson_binding",
   );
+  check(
+    value.privateSpeechSource === undefined ||
+      (version === 4 && value.speechChannel === "telegram-linked"),
+    "study_private_grading_source_changed",
+  );
   const exercisesHash = studyExercisesHash(
     value.exercises.map((x) => x.ordinal),
   );
@@ -118,7 +128,9 @@ export type StudySpeechReceipt =
         language: string | null;
         languageConfidence?: number | null;
       };
-    };
+      grade?: never;
+    }
+  | { state: "assessed"; grade: StudyMinimalGrade; transcript?: never };
 export interface StudySpeechStatus {
   parameters: StudySpeechParameters;
   audioDigest: Hex;

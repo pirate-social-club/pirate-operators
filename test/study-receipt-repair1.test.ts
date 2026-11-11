@@ -59,6 +59,7 @@ test("controlled late dispatch/recovery interleaving preserves the first termina
         parameters,
         receipt: { state: "assessing", error: "speech_pending" },
         expiresAt: f.store.now() + 3600,
+        channel: "website-study",
       } satisfies StudySpeechJob);
       let began!: () => void, finish!: () => void;
       const pending = new Promise<void>((resolve) => {
