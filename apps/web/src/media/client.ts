@@ -26,12 +26,13 @@ export interface MediaClient {
 }
 /** A parsed HTTP refusal is distinct from a lost or malformed acknowledgement. */
 export class MediaHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-  ) {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string) {
     super(mediaErrorText(code));
     this.name = "MediaHttpError";
+    this.status = status;
+    this.code = code;
   }
 }
 export function mediaErrorText(code: string) {
@@ -85,11 +86,41 @@ export function mediaClient(
       headers,
       credentials: "same-origin",
     });
-    const body = (await response.json()) as { error?: string };
+    // Retain the HTTP authentication status independently of body decoding.
+    // Structured policy refusals keep their original code. Intermediary HTML,
+    // empty bodies and rejected/malformed JSON must still produce an auth hold.
+    const authenticationStatus =
+      response.status === 401 || response.status === 403;
+    if (
+      authenticationStatus &&
+      !response.headers
+        .get("content-type")
+        ?.toLowerCase()
+        .includes("application/json")
+    )
+      throw new MediaHttpError(
+        response.status,
+        "media_authentication_required",
+      );
+    let body: { error?: unknown } | null;
+    try {
+      body = await response.json();
+    } catch (error) {
+      if (authenticationStatus)
+        throw new MediaHttpError(
+          response.status,
+          "media_authentication_required",
+        );
+      throw error;
+    }
     if (!response.ok)
       throw new MediaHttpError(
         response.status,
-        body.error ?? "media_service_unavailable",
+        typeof body?.error === "string"
+          ? body.error
+          : authenticationStatus
+            ? "media_authentication_required"
+            : "media_service_unavailable",
       );
     return body as T;
   }

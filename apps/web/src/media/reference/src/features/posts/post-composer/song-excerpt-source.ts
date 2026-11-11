@@ -57,17 +57,21 @@ export type SongSourceReader = (
 /** A refusal the reader can name, so the screen sends people to the right fix
  * instead of collapsing every failure into one message. */
 export class SongSourceError extends Error {
+  readonly reasonCode:
+    | "not_found"
+    | "age_restricted"
+    | "playback_unavailable"
+    | "rate_limited"
+    | "read_failed";
+  readonly retryable: boolean;
   constructor(
-    readonly reasonCode:
-      | "not_found"
-      | "age_restricted"
-      | "playback_unavailable"
-      | "rate_limited"
-      | "read_failed",
+    reasonCode: SongSourceError["reasonCode"],
     message: string,
-    readonly retryable: boolean,
+    retryable: boolean,
   ) {
     super(message);
+    this.reasonCode = reasonCode;
+    this.retryable = retryable;
     this.name = "SongSourceError";
   }
 }

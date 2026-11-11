@@ -119,7 +119,10 @@ export class VideoComposerMedia {
   private guideReleases = new WeakMap<GuideAudio, () => void>();
   private disposed = false;
 
-  constructor(private readonly options: ComposerMediaOptions) {}
+  private readonly options: ComposerMediaOptions;
+  constructor(options: ComposerMediaOptions) {
+    this.options = options;
+  }
 
   private createGuide(url: string) {
     return this.options.createGuideAudio?.(url) ?? new Audio(url);

@@ -7,11 +7,10 @@ export type VideoCaptureFailure =
   /** The page was hidden while a take depended on page-driven frames. */
   | "interrupted";
 export class VideoCaptureError extends Error {
-  constructor(
-    readonly reason: VideoCaptureFailure,
-    message: string,
-  ) {
+  readonly reason: VideoCaptureFailure;
+  constructor(reason: VideoCaptureFailure, message: string) {
     super(message);
+    this.reason = reason;
     this.name = "VideoCaptureError";
   }
 }

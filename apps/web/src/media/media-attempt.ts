@@ -24,6 +24,10 @@ export interface MediaAttempt {
   readonly status: MediaStatus | null;
   readonly pending: MediaCommand | null;
   readonly rejection?: string;
+  /** False proves this command has not yet crossed its first dispatch fence.
+   * Missing on a legacy pending record is conservatively uncertain. */
+  readonly commandDispatched?: boolean;
+  readonly authenticationHold?: boolean;
 }
 /** Host owns durable storage and account isolation. No reference localStorage. */
 export interface MediaAttemptStorage {
@@ -46,7 +50,7 @@ const definitive = (error: unknown) =>
   error instanceof MediaHttpError &&
   error.status >= 400 &&
   error.status < 500 &&
-  ![408, 409, 429].includes(error.status);
+  ![401, 403, 408, 409, 429].includes(error.status);
 const terminal = (status: MediaStatus | null) =>
   status && ["withdrawn", "revoked", "expired"].includes(status.state);
 
@@ -59,8 +63,29 @@ export interface MediaAttemptPorts {
   accountId: string;
   communityId: string;
   createId?: () => string;
-  onChange?: (record: MediaAttempt | null) => void;
-  onReady?: (receipt: ReadyMedia) => void;
+  onChange?: (
+    record: MediaAttempt | null,
+    notificationCurrent: () => boolean,
+  ) => void;
+  onReady?: (receipt: ReadyMedia, notificationCurrent: () => boolean) => void;
+  /** Host lifetime/authority fence, not an authentication substitute. */
+  isCurrentOwner?: () => boolean;
+}
+
+interface OperationFence {
+  current(): boolean;
+  assert(): void;
+}
+
+/** Presentation projection only; the copied XState chart still owns flow. */
+export function mediaNeedsStartOver(record: MediaAttempt | null): boolean {
+  return Boolean(
+    record &&
+      (record.pending === "withdraw" ||
+        terminal(record.status) ||
+        (record.status?.state === "failed" && !record.status.canRetry) ||
+        (record.rejection && !record.pending && !record.authenticationHold)),
+  );
 }
 
 export class MediaAttemptController {
@@ -68,16 +93,27 @@ export class MediaAttemptController {
   private busy = false;
   private pauseRevision = 0;
   private abort: AbortController | undefined;
+  private disposed = false;
+  private withdrawalRequested = false;
+  private ownsStorage = false;
+  private loaded = false;
+  private busyDone: Promise<void> | undefined;
+  private withdrawal: Promise<void> | undefined;
+  private writes: Promise<void> = Promise.resolve();
   private readonly ports: MediaAttemptPorts;
   constructor(ports: MediaAttemptPorts) {
-    this.ports = ports;
+    this.ports = { ...ports };
   }
   get current() {
     return this.record;
   }
   /** Local playback is denied before the withdrawal request leaves this device. */
   get playbackUrl() {
-    return this.record?.pending === "withdraw"
+    return this.disposed ||
+      !(this.ports.isCurrentOwner?.() ?? true) ||
+      this.withdrawalRequested ||
+      this.record?.pending === "withdraw" ||
+      terminal(this.record?.status ?? null)
       ? undefined
       : this.record?.status?.playbackUrl;
   }
@@ -85,10 +121,41 @@ export class MediaAttemptController {
     this.pauseRevision++;
     this.abort?.abort();
   }
-  private async save(record: MediaAttempt) {
-    await this.ports.storage.save(record);
-    this.record = record;
-    this.ports.onChange?.(record);
+  dispose() {
+    this.disposed = true;
+    this.pause();
+  }
+  private fence(): OperationFence {
+    const revision = this.pauseRevision;
+    const current = () =>
+      !this.disposed &&
+      revision === this.pauseRevision &&
+      (this.ports.isCurrentOwner?.() ?? true);
+    return {
+      current,
+      assert() {
+        if (!current())
+          throw new Error("Video paused; resume the retained attempt");
+      },
+    };
+  }
+  /** The active operation owns the storage lock. Serialize its writes with a
+   * preempting withdrawal so a late receipt cannot overwrite the delete intent
+   * and a delete-intent write cannot overwrite a late canonical receipt. */
+  private update(
+    change: (current: MediaAttempt | null) => MediaAttempt,
+    fence: OperationFence,
+  ) {
+    const work = this.writes.then(async () => {
+      let record = change(this.record);
+      if (this.withdrawalRequested && !terminal(record.status))
+        record = { ...record, pending: "withdraw" };
+      await this.ports.storage.save(record);
+      this.record = record;
+      if (fence.current()) this.ports.onChange?.(record, fence.current);
+    });
+    this.writes = work.catch(() => {});
+    return work;
   }
   private require(): MediaAttempt {
     if (!this.record) throw new Error("No retained video attempt");
@@ -111,29 +178,48 @@ export class MediaAttemptController {
       throw new Error("Retained video identity or digest changed");
   }
   private async exclusive<T>(
-    work: (active: () => void) => Promise<T>,
+    work: (active: OperationFence) => Promise<T>,
   ): Promise<T> {
     if (this.busy) throw new Error("A video command is already in progress");
     this.busy = true;
-    const revision = this.pauseRevision;
-    const active = () => {
-      if (revision !== this.pauseRevision)
-        throw new Error("Video paused; resume the retained attempt");
-    };
+    let complete!: () => void;
+    this.busyDone = new Promise((resolve) => {
+      complete = resolve;
+    });
+    const active = this.fence();
     try {
       return await this.ports.storage.exclusive(async () => {
-        const stored = await this.ports.storage.load();
-        if (stored) await this.validate(stored);
-        this.record = stored;
-        this.ports.onChange?.(stored);
-        active();
-        return work(active);
+        this.ownsStorage = true;
+        try {
+          const stored = await this.ports.storage.load();
+          if (stored) await this.validate(stored);
+          this.record = stored;
+          this.loaded = true;
+          if (this.withdrawalRequested && stored && !terminal(stored.status))
+            await this.update(
+              (current) => ({ ...current!, pending: "withdraw" }),
+              active,
+            );
+          if (active.current())
+            this.ports.onChange?.(this.record, active.current);
+          active.assert();
+          return await work(active);
+        } finally {
+          while (true) {
+            const tail = this.writes;
+            await tail;
+            if (tail === this.writes) break;
+          }
+          this.loaded = false;
+          this.ownsStorage = false;
+        }
       });
     } finally {
       this.busy = false;
+      complete();
     }
   }
-  private async accept(status: MediaStatus) {
+  private async accept(status: MediaStatus, active: OperationFence) {
     const record = this.require();
     if (
       !status ||
@@ -185,20 +271,76 @@ export class MediaAttemptController {
         throw new Error("Media receipt changed frozen bindings");
     }
     // A status read cannot settle a lost withdrawal until revocation is proven.
-    const pending =
-      record.pending === "withdraw" && !terminal(status) ? "withdraw" : null;
-    const { rejection: _rejection, ...accepted } = record;
-    await this.save({ ...accepted, status, pending });
-    if (status.state === "ready" && status.ready && pending !== "withdraw")
-      this.ports.onReady?.(status.ready);
+    await this.update((current) => {
+      const {
+        rejection: _rejection,
+        authenticationHold: _hold,
+        ...accepted
+      } = current!;
+      const pending =
+        (this.withdrawalRequested || accepted.pending === "withdraw") &&
+        !terminal(status)
+          ? "withdraw"
+          : null;
+      return {
+        ...accepted,
+        status,
+        pending,
+        commandDispatched: pending !== null,
+      };
+    }, active);
+    if (
+      active.current() &&
+      !this.withdrawalRequested &&
+      status.state === "ready" &&
+      status.ready &&
+      this.record?.pending !== "withdraw"
+    )
+      this.ports.onReady?.(status.ready, active.current);
   }
-  private async execute(command: MediaCommand, active: () => void) {
+  private async refusal(
+    error: unknown,
+    command: MediaCommand,
+    priorUnknown: boolean,
+    active: OperationFence,
+  ) {
+    if (!(error instanceof MediaHttpError)) return;
+    const hold = error.status === 401 || error.status === 403;
+    if (hold || definitive(error))
+      await this.update(
+        (current) => ({
+          ...current!,
+          pending:
+            command === "withdraw" || this.withdrawalRequested
+              ? "withdraw"
+              : hold || priorUnknown
+                ? command
+                : null,
+          commandDispatched:
+            hold ||
+            priorUnknown ||
+            command === "withdraw" ||
+            this.withdrawalRequested,
+          authenticationHold: hold,
+          // This names the latest refused wire attempt, never proof that an
+          // earlier uncertain reservation did not commit. pending is authoritative.
+          rejection: error.code,
+        }),
+        active,
+      );
+  }
+  private async execute(command: MediaCommand, active: OperationFence) {
     const record = this.require();
     if (record.pending && record.pending !== command)
       throw new Error("Reconcile the retained command first");
-    active();
-    await this.save({ ...record, pending: command });
-    active();
+    const priorUnknown =
+      record.pending === command && record.commandDispatched !== false;
+    active.assert();
+    await this.update(
+      (current) => ({ ...current!, pending: command, commandDispatched: true }),
+      active,
+    );
+    active.assert();
     try {
       let status: MediaStatus;
       if (command === "reserve")
@@ -221,36 +363,80 @@ export class MediaAttemptController {
           status = await this.ports.client.retry(record.status.id);
         else status = await this.ports.client.withdraw(record.status.id);
       }
-      await this.accept(status); // Persist late replies even if paused meanwhile.
-      active();
+      await this.accept(status, active); // Persist late replies even if paused meanwhile.
+      active.assert();
+      if (command === "withdraw" && !terminal(status))
+        throw new Error("Withdrawal is not yet confirmed");
     } catch (error) {
-      if (definitive(error)) {
-        await this.save({
-          ...this.require(),
-          pending: command === "withdraw" ? "withdraw" : null,
-          rejection: (error as MediaHttpError).code,
-        });
-      }
+      await this.refusal(error, command, priorUnknown, active);
       throw error;
     }
   }
-  private async reconcile(active: () => void) {
+  private async finishWithdrawal(active: OperationFence) {
+    if (terminal(this.require().status)) {
+      await this.accept(this.require().status!, active);
+      return;
+    }
+    // The only recovery needed for DELETE is its identifier. Replaying the
+    // exact reservation envelope settles a lost acknowledgement without bytes.
+    if (!this.require().status) {
+      active.assert();
+      await this.update(
+        (current) => ({
+          ...current!,
+          pending: "withdraw",
+          commandDispatched: true,
+        }),
+        active,
+      );
+      active.assert();
+      try {
+        await this.accept(
+          await this.ports.client.reserve(this.require().intent),
+          active,
+        );
+      } catch (error) {
+        await this.refusal(error, "withdraw", true, active);
+        throw error;
+      }
+      active.assert();
+    }
+    if (!terminal(this.require().status))
+      await this.execute("withdraw", active);
+  }
+  private async reconcile(active: OperationFence) {
     const record = this.require();
     if (record.pending === "reserve") {
       await this.execute("reserve", active);
       return;
     }
     if (record.pending === "withdraw") {
-      await this.execute("withdraw", active);
+      await this.finishWithdrawal(active);
       return;
     }
     if (!record.status) return;
     const pending = record.pending;
     // Lost upload/retry acknowledgements read canonical job state first. A
     // receiving/queued/processing response never triggers another upload.
-    const status = await this.ports.client.status(record.status.id);
-    await this.accept(status);
-    active();
+    let status: MediaStatus;
+    try {
+      status = await this.ports.client.status(record.status.id);
+    } catch (error) {
+      if (
+        error instanceof MediaHttpError &&
+        [401, 403].includes(error.status)
+      ) {
+        // A refused read says nothing about the pending mutation's outcome.
+        // Preserve its exact command/dispatch witness, bytes and identity.
+        await this.update(
+          (current) => ({ ...current!, authenticationHold: true }),
+          active,
+        );
+      }
+      throw error;
+    }
+    await this.accept(status, active);
+    active.assert();
     if (pending === "upload" && status.state === "uploading")
       await this.execute("upload", active);
     if (pending === "retry" && status.state === "failed" && status.canRetry) {
@@ -259,9 +445,16 @@ export class MediaAttemptController {
       return;
     }
   }
-  restore() {
+  restore(options: { reconcileHeld?: boolean } = {}) {
     return this.exclusive(async (active) => {
-      if (this.record) await this.reconcile(active);
+      // Automatic host restoration can display a durable reconnect hold
+      // without retrying it. Explicit same-owner reconciliation keeps the
+      // existing default behavior and uses the transport's fresh CSRF/session.
+      if (
+        this.record &&
+        !(this.record.authenticationHold && options.reconcileHeld === false)
+      )
+        await this.reconcile(active);
       return this.record;
     });
   }
@@ -306,24 +499,31 @@ export class MediaAttemptController {
         purpose: "public-feed",
         publicConsent: false,
       };
-      active();
-      await this.save({
-        version: MEDIA_ATTEMPT_VERSION,
-        accountId: this.ports.accountId,
-        communityId: this.ports.communityId,
-        file: input.file,
-        rating: input.rating,
-        song: { ...input.song },
-        intent,
-        intentDigest: await digestIntent(intent),
-        status: null,
-        pending: "reserve",
-      });
+      const intentDigest = await digestIntent(intent);
+      active.assert();
+      await this.update(
+        () => ({
+          version: MEDIA_ATTEMPT_VERSION,
+          accountId: this.ports.accountId,
+          communityId: this.ports.communityId,
+          file: input.file,
+          rating: input.rating,
+          song: { ...input.song },
+          intent,
+          intentDigest,
+          status: null,
+          pending: "reserve",
+          commandDispatched: false,
+        }),
+        active,
+      );
       await this.execute("reserve", active);
     });
   }
   submit() {
     return this.exclusive(async (active) => {
+      if (mediaNeedsStartOver(this.record))
+        throw new Error("Start over after closing the retained video");
       await this.reconcile(active);
       const record = this.require();
       if (record.rejection)
@@ -337,29 +537,82 @@ export class MediaAttemptController {
   }
   refresh() {
     return this.exclusive(async (active) => {
+      // Background polling cannot release an authentication hold. Only an
+      // explicit restore/submit/start-over reconciliation may do so.
+      if (this.require().authenticationHold) return this.require().status;
       await this.reconcile(active);
       return this.require().status;
     });
   }
   withdraw() {
-    return this.exclusive(async (active) => {
-      if (this.require().pending && this.require().pending !== "withdraw")
-        await this.reconcile(active);
-      await this.execute("withdraw", active);
+    if (this.withdrawal) return this.withdrawal;
+    this.withdrawalRequested = true;
+    const inFlight = this.busy ? this.busyDone : undefined;
+    this.pause(); // Abort bytes, invalidate old notifications and later effects.
+    const active = this.fence();
+    // An in-flight operation already holds the exclusive storage lock. Its
+    // serialized write queue can persist DELETE intent before its late reply.
+    const persisted =
+      this.ownsStorage && this.loaded && this.record
+        ? this.update(
+            (current) => ({ ...current!, pending: "withdraw" }),
+            active,
+          )
+        : Promise.resolve();
+    const work = (async () => {
+      await persisted;
+      await inFlight;
+      await this.exclusive(async (current) => {
+        this.require();
+        if (!terminal(this.record!.status))
+          await this.update(
+            (record) => ({ ...record!, pending: "withdraw" }),
+            current,
+          );
+        await this.finishWithdrawal(current);
+      });
+    })();
+    const completion: Promise<void> = work.finally(() => {
+      if (this.withdrawal === completion) this.withdrawal = undefined;
     });
+    this.withdrawal = completion;
+    return completion;
   }
   discard() {
     return this.exclusive(async (active) => {
-      if (this.require().pending) await this.reconcile(active);
+      // Discard never resumes bytes or retries processing as a side effect.
+      if (terminal(this.require().status))
+        await this.accept(this.require().status!, active);
+      if (this.require().pending === "withdraw")
+        await this.finishWithdrawal(active);
       const record = this.require();
       if (
-        !terminal(record.status) &&
-        !(record.rejection && !record.status && !record.pending)
+        record.pending ||
+        (!terminal(record.status) &&
+          !(
+            record.rejection &&
+            !record.status &&
+            !record.pending &&
+            record.commandDispatched === false
+          ))
       )
         throw new Error("Withdraw the retained video before discarding it");
+      active.assert();
       await this.ports.storage.remove();
       this.record = null;
-      this.ports.onChange?.(null);
+      this.withdrawalRequested = false;
+      if (active.current()) this.ports.onChange?.(null, active.current);
     });
+  }
+  async startOver() {
+    const record = this.require();
+    const rejectedBeforeCommit =
+      record.rejection &&
+      !record.status &&
+      !record.pending &&
+      record.commandDispatched === false;
+    if (!terminal(record.status) && !rejectedBeforeCommit)
+      await this.withdraw();
+    await this.discard();
   }
 }
