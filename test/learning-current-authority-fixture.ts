@@ -56,7 +56,11 @@ export function currentOperatorAuthorityFixture(options: {
       await fixture.bootstrapPage();
       await fixture.initialize();
     },
-    async selectV4(communityId: Hex, contract: Address, chainId = 31337) {
+    async selectV4(
+      communityId: Hex,
+      contract: Address,
+      chainId: WithdrawalSource["target"]["chainId"] = 31337,
+    ) {
       const client = createPublicClient({ transport: http(options.rpcUrl) });
       assert.equal(await client.getChainId(), chainId);
       const [code, version, originalCommunity] = await Promise.all([

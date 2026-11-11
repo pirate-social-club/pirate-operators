@@ -45,7 +45,7 @@ test("current authority fixture keeps legacy stores and an unconfigured source d
     learner: `0x${"11".repeat(20)}` as const,
     target: {
       version: 4 as const,
-      chainId: 31337,
+      chainId: 31337 as const,
       contract: `0x${"22".repeat(20)}` as const,
     },
   };
