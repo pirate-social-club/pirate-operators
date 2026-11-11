@@ -46,6 +46,24 @@ import { selectedDanceRewardSource } from "../packages/dance-chain/source-select
 import { retainedDanceAccount } from "../services/dance-reward-source.ts";
 import { MemorySqliteD1 } from "./dance-sqlite-fixture.ts";
 
+import { observeDanceIntent } from "../services/dance-canonical-ports.ts";
+import type {
+  DanceCapture as LocalCapture,
+  DanceReview,
+  DanceOutbox,
+} from "../packages/dance/contracts.ts";
+import {
+  decisionIntent,
+  submissionIntentPreimage,
+} from "../packages/dance/intent.ts";
+import { mediaBinding } from "../packages/dance/validation.ts";
+import {
+  canonicalDanceCapture,
+  canonicalDanceDecision,
+  canonicalDanceRegistration,
+  reconcileCanonicalDanceVerdict,
+} from "../services/dance-canonical-commands.ts";
+
 const word = (i: number): Hex => `0x${i.toString(16).padStart(64, "0")}`;
 const address = (i: number): Address => `0x${i.toString(16).padStart(40, "0")}`;
 const code: Hex = "0x60006000f3";
@@ -569,5 +587,236 @@ test("categorical release config is exact and identifies the real wire source", 
   assert.throws(
     () => selectedDanceRewardSource(JSON.stringify(main), hashJson(main)),
     /dance_wrong_chain/,
+  );
+});
+
+test("local Dance outbox freezes the exact canonical capture, submission and verdict command", async () => {
+  const f = fixture(),
+    wire = f.capture,
+    { domain, pin } = f.source;
+  const captureId = wire.captureId.slice(2);
+  const capture: LocalCapture = {
+    version: "pirate.dance/1",
+    captureId,
+    communityId: domain.communityId,
+    learner: {
+      accountId: f.accountId,
+      wallet: f.learner,
+      active: true,
+      identityEpoch: 1,
+      groupId: wire.groupId,
+      groupEpoch: 1,
+      knownAliases: [f.accountId],
+      authorizationId: wire.authorizationId,
+      accountCommitment: wire.accountCommitment,
+    },
+    songKey: f.offer.songKey,
+    songRevision: Number(wire.song.revision),
+    songDurationSamples: 1440000,
+    manifestSha256: wire.song.manifestSha256,
+    audioSha256: wire.song.audioSha256,
+    mediaPolicyVersion: "pirate.dance-private/1",
+    mediaPolicyHash: pin.mediaPolicySha256,
+    reference: null,
+    startSample: Number(wire.referenceSelection.startSample),
+    durationSamples: Number(wire.referenceSelection.durationSamples),
+    policy: "moderator-review-policy-v2",
+    rulesHash: pin.rulesSha256,
+    termsHash: pin.termsSha256,
+    rubricHash: pin.rubricSha256,
+    rubricText: "Fixture rubric",
+    offer: {
+      offerId: f.offer.offerId,
+      offerIdCommitment: wire.offer.offerIdCommitment,
+      inputHash: f.inputHash,
+      sourceHash: f.source.sourceHash,
+      opensAtMs: f.offer.opensAt,
+      cutoffAtMs: f.offer.cutoffAt,
+    },
+    source: {
+      chainId: 6343,
+      address: domain.verifier,
+      runtimeCodeHash: pin.runtimeCodeHash,
+      fromBlock: pin.deploymentBlock.toString(),
+      communityId: domain.communityId,
+      publisher: pin.fixedPublisher,
+      policyHash: pin.publicityPolicyHash,
+      sourceHash: f.source.sourceHash,
+    },
+    reservedAtMs: Number(wire.reservedAtMs),
+    expiresAtMs: Number(ms + 10000n),
+    captureHash: f.submission.captureHash,
+    consent: {
+      accepted: true,
+      version: "fixture-consent",
+      termsHash: pin.termsSha256,
+      publicityPolicyHash: pin.publicityPolicyHash,
+      receiptId: "fixture_consent_1",
+      accountId: f.accountId,
+      captureId,
+      captureHash: f.submission.captureHash,
+      acceptedAtMs: Number(f.consent.acceptedAtMs),
+    },
+    expected: {
+      ownerEpoch: 1,
+      configurationRevision: 2,
+      rulesEpoch: 0,
+      mediaEpoch: 0,
+    },
+  };
+  const review: DanceReview = {
+    version: capture.version,
+    reviewId: captureId,
+    revision: 1,
+    capture,
+    media: mediaBinding(capture, f.recordingSha256),
+    receipt: {
+      submissionId: captureId,
+      communityId: domain.communityId,
+      accountId: f.accountId,
+      mediaId: "fixture-media-id",
+      bindingCommitment: f.submission.mediaBindingHash,
+      trustedSubmittedAtMs: Number(f.submission.trustedSubmittedAtMs),
+      reviewDeadlineMs: Number(f.submission.reviewDeadlineMs),
+      mediaRevision: 2,
+    },
+    state: "awaiting_review",
+    localDenied: false,
+    decision: null,
+    canonical: null,
+  };
+  const payload = submissionIntentPreimage(review, "fixture_register_1");
+  const outbox: DanceOutbox = {
+    commandId: payload.commandId,
+    communityId: domain.communityId,
+    subjectId: captureId,
+    kind: "submission",
+    status: "held",
+    payloadJson: JSON.stringify(payload),
+    localIntegrityHash: hashJson(payload),
+  };
+  assert.deepEqual(
+    canonicalDanceCapture(f.source, capture, wire.song.postId),
+    wire,
+  );
+  const registered = canonicalDanceRegistration(
+    f.source,
+    review,
+    wire.song.postId,
+    outbox,
+  );
+  assert.deepEqual(registered.submission, f.submission);
+  assert.equal(
+    registered.submissionHash,
+    danceSubmissionHash(domain, f.submission),
+  );
+  assert.equal(registered.command.encoded.length, 2 + 54 * 64);
+  assert.throws(
+    () => canonicalDanceRegistration(f.source, review, word(99), outbox),
+    /dance_canonical_capture_changed/,
+  );
+  assert.throws(
+    () =>
+      canonicalDanceRegistration(f.source, review, wire.song.postId, {
+        ...outbox,
+        localIntegrityHash: word(99),
+      }),
+    /dance_outbox_conflict/,
+  );
+
+  const reviewerWallet = address(24),
+    reviewerId = "fixture_reviewer";
+  const account = danceAccountCommitment(domain, reviewerId, reviewerWallet);
+  const decision = decisionIntent(
+    review,
+    "fixture_verdict_1",
+    "pass",
+    {
+      accountId: reviewerId,
+      wallet: reviewerWallet,
+      identityEpoch: 1,
+      groupId: danceSingletonId(domain, account),
+      groupEpoch: 1,
+      authorizationId: word(45),
+      knownAliases: [reviewerId],
+      authority: "owner:fixture",
+      ownerEpoch: 1,
+      roleEpoch: 1,
+      accountCommitment: account,
+      expectedConfigurationRevision: 2,
+      expectedRulesEpoch: 0,
+      expectedMediaEpoch: 1,
+      consentVersion: "fixture-consent",
+      publicityPolicyHash: pin.publicityPolicyHash,
+      consentAccepted: true,
+    },
+    Number(ms - 1000n),
+  );
+  const committed = canonicalDanceDecision(f.source, decision);
+  assert.equal(committed.submissionId, f.submission.submissionId);
+  assert.equal(committed.command.encoded.length, 2 + 15 * 64);
+  await assert.rejects(
+    reconcileCanonicalDanceVerdict(f.rpc, f.source, decision, f.log),
+    /dance_canonical_evidence_changed/,
+  );
+  f.log.topics[2] = committed.command.id;
+  const words = f.log.data.slice(2).match(/.{64}/g)!;
+  words[2] = committed.command.hash.slice(2);
+  words[4] = account.slice(2);
+  f.log.data = `0x${words.join("")}`;
+  f.receipt.logs[0] = { ...f.log };
+  const evidence = await reconcileCanonicalDanceVerdict(
+    f.rpc,
+    f.source,
+    decision,
+    f.log,
+  );
+  assert.equal(evidence.commandId, decision.commandId);
+  assert.equal(evidence.submissionId, captureId);
+  assert.equal(evidence.commandHash, committed.command.hash);
+  assert.equal(evidence.submissionHash, registered.submissionHash);
+  assert.equal(evidence.verdict, "pass");
+
+  const journal = {
+    attempts: async () => [f.receipt.transactionHash],
+    prior: async () => null,
+  };
+  assert.deepEqual(
+    await observeDanceIntent(f.rpc, f.source, journal, decision),
+    evidence,
+  );
+  await assert.rejects(
+    observeDanceIntent(
+      f.rpc,
+      f.source,
+      { ...journal, attempts: async () => [word(999)] },
+      decision,
+    ),
+    /dance_receipt_not_owned/,
+  );
+  assert.equal(
+    await observeDanceIntent(
+      f.rpc,
+      f.source,
+      {
+        attempts: async () => [],
+        prior: async () => evidence,
+      },
+      decision,
+    ),
+    null,
+  );
+  f.eventBlock.hash = word(998);
+  assert.deepEqual(
+    await observeDanceIntent(
+      f.rpc,
+      f.source,
+      {
+        attempts: async () => [],
+        prior: async () => evidence,
+      },
+      decision,
+    ),
+    { ...evidence, canonical: false },
   );
 });
