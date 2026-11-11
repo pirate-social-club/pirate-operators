@@ -202,21 +202,8 @@ export async function configureTelegramPublicationScope(
     "scope"
   >,
 ) {
-  const key = `bot:${next.communityId}`;
-  const old = grants.store.get<BotRegistration>(key);
-  if (
-    old &&
-    (old.generation !== next.generation ||
-      old.botId !== next.botId ||
-      (old.enabled && !next.enabled))
-  ) {
-    await invalidation.scope(old);
-    const current = grants.store.get<BotRegistration>(key);
-    insist(
-      current && digest(current) === digest(old),
-      "study_telegram_scope_changed",
-      409,
-    );
-  }
-  return grants.configure(next);
+  const staged = grants.stagePublicationScope(next);
+  if (!staged.pending) return staged.registration;
+  await invalidation.scope(staged.pending.from);
+  return grants.finishPublicationScope(staged.pending);
 }

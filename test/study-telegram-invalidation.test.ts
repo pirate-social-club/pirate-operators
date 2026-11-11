@@ -15,6 +15,7 @@ import type { Env } from "../services/runtime.ts";
 import { studyOperatorRoute } from "../services/study-operator.ts";
 import type { StudyOperatorPorts } from "../services/study-operator-client.ts";
 import { telegramStudyDenied } from "../services/study-telegram-publication.ts";
+import { TelegramGrants } from "../services/telegram-grants.ts";
 import { telegramCommunityRoutes } from "../services/telegram-http.ts";
 import {
   configureTelegramPublicationScope,
@@ -151,6 +152,72 @@ test("unlink waits for a signed operator denial and failed acknowledgments leave
     ),
     false,
   );
+});
+
+test("invalid bot scope changes cannot deny a live scope; re-enable requires a new generation", async (t) => {
+  const f = await linkFixture();
+  t.after(f.dispose);
+  const sent: number[] = [];
+  const scope = async (old: { generation: number }) => {
+    sent.push(old.generation);
+  };
+  for (const [next, error] of [
+    [{ ...actor, enabled: false, generation: 0 }, /telegram_generation_invalid/],
+    [{ ...actor, enabled: true, botId: "90002" }, /telegram_bot_change_requires_generation/],
+  ] as const) {
+    await assert.rejects(
+      configureTelegramPublicationScope(f.grants, next, { scope }),
+      error,
+    );
+    assert.equal(f.grants.current(actor).enabled, true);
+  }
+  assert.deepEqual(sent, []);
+  await configureTelegramPublicationScope(
+    f.grants, { ...actor, enabled: false }, { scope },
+  );
+  await assert.rejects(
+    configureTelegramPublicationScope(f.grants, { ...actor, enabled: true }, { scope }),
+    /telegram_reenable_requires_generation/,
+  );
+  assert.throws(
+    () => f.grants.configure({ ...actor, enabled: true }),
+    /telegram_publication_scope_managed/,
+  );
+  const next = { ...actor, enabled: true, generation: actor.generation + 1 };
+  await configureTelegramPublicationScope(f.grants, next, { scope });
+  assert.equal(f.grants.current(next).generation, next.generation);
+  assert.deepEqual(sent, [actor.generation, actor.generation]);
+});
+
+test("a lost bot scope acknowledgement holds activity and retries only the staged transition", async (t) => {
+  const f = await linkFixture();
+  t.after(f.dispose);
+  const next = { ...actor, enabled: true, generation: actor.generation + 1 };
+  let calls = 0;
+  const scope = async (old: { generation: number }) => {
+    assert.equal(old.generation, actor.generation);
+    if (++calls === 1) throw Error("lost_acknowledgement");
+  };
+  await assert.rejects(
+    configureTelegramPublicationScope(f.grants, next, { scope }),
+    /lost_acknowledgement/,
+  );
+  const restarted = new TelegramGrants(
+    f.grants.store, f.grants.accounts, f.grants.now,
+  );
+  assert.throws(() => restarted.current(actor), /telegram_publication_scope_pending/);
+  assert.throws(() => restarted.configure(next), /telegram_publication_scope_managed/);
+  await assert.rejects(
+    configureTelegramPublicationScope(
+      restarted, { ...next, generation: next.generation + 1 }, { scope },
+    ),
+    /telegram_publication_scope_pending/,
+  );
+  assert.equal(calls, 1);
+  await configureTelegramPublicationScope(restarted, next, { scope });
+  assert.equal(restarted.current(next).generation, next.generation);
+  await configureTelegramPublicationScope(restarted, next, { scope });
+  assert.equal(calls, 2);
 });
 
 test("the internal resolver accepts only the current grant and exact original V4 authorization", async () => {

@@ -19,6 +19,17 @@ import {
 import { randomToken } from "../packages/telegram/security.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
 
+interface PublicationScopeChange {
+  from: BotRegistration;
+  to: BotRegistration;
+}
+const registrationMatches = (a: BotRegistration, b: BotRegistration) =>
+  sameScope(a, b) && a.enabled === b.enabled;
+const publicationScopeChangeKey = (communityId: string) =>
+  `bot-publication-change:${communityId}`;
+const managedScopeKey = (communityId: string) =>
+  `bot-publication-managed:${communityId}`;
+
 export class TelegramGrants {
   readonly store: TelegramJournal;
   readonly accounts: TelegramAccountPort;
@@ -32,44 +43,116 @@ export class TelegramGrants {
     this.accounts = accounts;
     this.now = now;
   }
-  configure(next: BotRegistration) {
-    validateScope(next);
-    return this.store.transaction(() => {
-      const key = `bot:${next.communityId}`,
-        old = this.store.get<BotRegistration>(key);
-      // Unversioned legacy state cannot prove that this bot was never replaced
-      // and restored under the old partial scan. Require migration evidence;
-      // never silently bless an omitted legacy grant as the current lineage.
+  private registration(next: BotRegistration): BotRegistration {
+    telegramCheck(typeof next.enabled === "boolean", "telegram_bot_invalid");
+    return { ...validateScope(next), enabled: next.enabled };
+  }
+  private previous(next: BotRegistration) {
+    const old = this.store.get<BotRegistration>(`bot:${next.communityId}`);
+    // Legacy state without an explicit lineage cannot be trusted to exclude
+    // grants from a bot that was replaced and later restored.
+    telegramCheck(
+      !old || this.store.get(`bot-lineage:${next.communityId}`),
+      "telegram_lineage_migration_required",
+      503,
+    );
+    if (old) {
       telegramCheck(
-        !old || this.store.get(`bot-lineage:${next.communityId}`),
-        "telegram_lineage_migration_required",
-        503,
+        next.generation >= old.generation,
+        "telegram_generation_stale",
+        409,
       );
-      if (!old)
-        this.store.set(`bot-lineage:${next.communityId}`, {
-          incarnation: 0,
-          replacedAt: 0,
-        });
-      if (old) {
+      telegramCheck(
+        next.generation !== old.generation || next.botId === old.botId,
+        "telegram_bot_change_requires_generation",
+        409,
+      );
+    }
+    return old;
+  }
+  private saveRegistration(next: BotRegistration, old?: BotRegistration) {
+    if (!old)
+      this.store.set(`bot-lineage:${next.communityId}`, {
+        incarnation: 0,
+        replacedAt: 0,
+      });
+    else if (old.botId !== next.botId) {
+      const lineage = this.lineage(next.communityId);
+      this.store.set(`bot-lineage:${next.communityId}`, {
+        incarnation: lineage.incarnation + 1,
+        replacedAt: this.now(),
+      });
+    }
+    this.store.set(`bot:${next.communityId}`, next);
+    return next;
+  }
+  configure(value: BotRegistration) {
+    const next = this.registration(value);
+    return this.store.transaction(() => {
+      const old = this.previous(next);
+      if (this.store.get(managedScopeKey(next.communityId))) {
         telegramCheck(
-          next.generation >= old.generation,
-          "telegram_generation_stale",
+          old &&
+            registrationMatches(old, next) &&
+            !this.store.get(publicationScopeChangeKey(next.communityId)),
+          "telegram_publication_scope_managed",
           409,
         );
-        telegramCheck(
-          next.generation !== old.generation || next.botId === old.botId,
-          "telegram_bot_change_requires_generation",
-          409,
-        );
-        if (old.botId !== next.botId) {
-          const lineage = this.lineage(next.communityId);
-          this.store.set(`bot-lineage:${next.communityId}`, {
-            incarnation: lineage.incarnation + 1,
-            replacedAt: this.now(),
-          });
-        }
+        return old;
       }
-      this.store.set(key, next);
+      return this.saveRegistration(next, old);
+    });
+  }
+  stagePublicationScope(value: BotRegistration) {
+    const next = this.registration(value);
+    return this.store.transaction(() => {
+      const old = this.previous(next);
+      const key = publicationScopeChangeKey(next.communityId);
+      const pending = this.store.get<PublicationScopeChange>(key);
+      if (pending) {
+        telegramCheck(
+          old &&
+            registrationMatches(old, pending.from) &&
+            registrationMatches(next, pending.to),
+          "telegram_publication_scope_pending",
+          409,
+        );
+        return { registration: next, pending };
+      }
+      telegramCheck(
+        !old ||
+          old.enabled ||
+          !next.enabled ||
+          next.generation > old.generation,
+        "telegram_reenable_requires_generation",
+        409,
+      );
+      this.store.set(managedScopeKey(next.communityId), true);
+      if (!old || registrationMatches(old, next))
+        return { registration: this.saveRegistration(next, old), pending: null };
+      const change = { from: this.registration(old), to: next };
+      this.store.set(key, change);
+      return { registration: next, pending: change };
+    });
+  }
+  finishPublicationScope(change: PublicationScopeChange) {
+    return this.store.transaction(() => {
+      const key = publicationScopeChangeKey(change.to.communityId);
+      const old = this.previous(change.to);
+      const pending = this.store.get<PublicationScopeChange>(key);
+      // Exact duplicate acknowledgments can arrive after a completed retry.
+      if (!pending && old && registrationMatches(old, change.to)) return old;
+      telegramCheck(
+        old &&
+          pending &&
+          registrationMatches(old, change.from) &&
+          registrationMatches(pending.from, change.from) &&
+          registrationMatches(pending.to, change.to),
+        "telegram_publication_scope_changed",
+        409,
+      );
+      const next = this.saveRegistration(pending.to, old);
+      this.store.delete(key);
       return next;
     });
   }
@@ -118,6 +201,11 @@ export class TelegramGrants {
       this.store.get(`bot-lineage:${scope.communityId}`),
       "telegram_lineage_migration_required",
       503,
+    );
+    telegramCheck(
+      !this.store.get(publicationScopeChangeKey(scope.communityId)),
+      "telegram_publication_scope_pending",
+      409,
     );
     const current = this.store.get<BotRegistration>(`bot:${scope.communityId}`);
     telegramCheck(
