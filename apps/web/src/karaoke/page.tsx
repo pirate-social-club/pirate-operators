@@ -31,6 +31,8 @@ import { positionPlaybackWhenReady } from "./playback-position.ts";
 import {
   createOperatorKaraokePort,
   type OperatorKaraokePort,
+  type KaraokeAttemptView,
+  type KaraokeRecord,
 } from "./operator-karaoke-adapter.ts";
 import { KaraokeCompletionStatus } from "./completion-status.tsx";
 
@@ -55,33 +57,13 @@ interface OpenTake {
   socketUrl: string;
   proof: string;
 }
-interface Record_ {
-  consented: boolean;
-  consent: KaraokeConsentRequest | null;
-  publication: { state: string } | null;
-}
+type Record_ = KaraokeRecord;
 interface Finished {
   ticketId: string;
   result: KaraokeOperatorResult;
   record: Record_;
 }
-type AttemptView =
-  | { state: "none" }
-  | {
-      state: "open";
-      ticket: { body: { ticketId: string } };
-      socketUrl: string;
-      proof: string;
-      elapsedMs: number | null;
-    }
-  | {
-      state: "finished";
-      result: {
-        body: KaraokeOperatorResult & { ticketId: string };
-        presentation?: KaraokeOperatorResult["presentation"];
-      };
-      record: Record_;
-    };
+type AttemptView = KaraokeAttemptView;
 
 /** The operator opens a line's purchase 15 s before it starts; buy inside that. */
 export const PURCHASE_LEAD_MS = 12000;
@@ -184,8 +166,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       );
   };
 
-  const attemptView = () =>
-    get<AttemptView>(`/api/karaoke/attempt?postId=${props.postId}`);
+  const attemptView = (): Promise<AttemptView> => port.attempt();
   const retainHistoryDownload = (ticketId: string) =>
     props.onLearningActions?.({ download: () => downloadHistory(ticketId) });
   function apply(view: AttemptView) {
