@@ -807,6 +807,25 @@ test("local Dance outbox freezes the exact canonical capture, submission and ver
     null,
   );
   f.eventBlock.hash = word(998);
+  const orphanedJournal = {
+    attempts: async () => [],
+    prior: async () => evidence,
+  };
+  await assert.rejects(
+    observeDanceIntent(
+      {
+        ...f.rpc,
+        block: async (number) =>
+          number === f.safe.number
+            ? { ...f.safe, hash: word(997) }
+            : f.rpc.block(number),
+      },
+      f.source,
+      orphanedJournal,
+      decision,
+    ),
+    /dance_observation_anchor_changed/,
+  );
   assert.deepEqual(
     await observeDanceIntent(
       f.rpc,

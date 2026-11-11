@@ -148,8 +148,23 @@ export async function observeDanceIntent(
     if (number <= safe.number) {
       const observed = await rpc.block(number);
       insist(observed.number === number, "dance_log_position_invalid", 503);
-      if (observed.hash !== prior.blockHash)
+      if (observed.hash !== prior.blockHash) {
+        const [anchor, replacement] = await Promise.all([
+          rpc.block(safe.number),
+          rpc.block(number),
+        ]);
+        insist(
+          anchor.number === safe.number &&
+            anchor.hash === safe.hash &&
+            anchor.timestamp === safe.timestamp &&
+            replacement.number === observed.number &&
+            replacement.hash === observed.hash &&
+            replacement.timestamp === observed.timestamp,
+          "dance_observation_anchor_changed",
+          503,
+        );
         return { ...prior, canonical: false };
+      }
     }
   }
   return null;
