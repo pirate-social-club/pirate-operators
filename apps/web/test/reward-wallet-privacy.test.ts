@@ -80,19 +80,23 @@ test("a held A page followed by same-currency distinct B rows fails closed inste
     reads++;
     return body.promise;
   };
-  t.mock.method(globalThis, "fetch", async (_input, init) => {
-    const headers = new Headers(init?.headers);
-    assert.equal(headers.get("x-csrf-token"), "session-a");
-    assert.equal(headers.get("x-pirate-reward-owner"), a);
-    return pages++ === 0
-      ? first
-      : Response.json({
-          object: "reward_credit_list",
-          accountId: b,
-          items: [credit(b, "credit_b002")],
-          next_cursor: null,
-        });
-  });
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      assert.equal(headers.get("x-csrf-token"), "session-a");
+      assert.equal(headers.get("x-pirate-reward-owner"), a);
+      return pages++ === 0
+        ? first
+        : Response.json({
+            object: "reward_credit_list",
+            accountId: b,
+            items: [credit(b, "credit_b002")],
+            next_cursor: null,
+          });
+    },
+  );
   const pending = rewardsData("session-a").credits(a);
   await Promise.resolve();
   assert.equal(reads, 1);

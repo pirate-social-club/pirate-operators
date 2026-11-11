@@ -88,7 +88,9 @@ export function rewardsData(csrf: string) {
       let cursor: string | null = null;
       for (let page = 0; page < 100; page++) {
         assertRewardReadCurrent(lifetime);
-        const value = await get<RewardCreditList & { accountId?: unknown }>(
+        const value: RewardCreditList & { accountId?: unknown } = await get<
+          RewardCreditList & { accountId?: unknown }
+        >(
           `/api/rewards/credits?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
           {
             signal: lifetime?.signal,
