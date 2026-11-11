@@ -9,10 +9,7 @@ import { StudyScreen, StudyLoading } from "../study/screen.tsx";
 import { StudyRouteLoadFailureState } from "../study/presentation/studying-route-states.tsx";
 import { get, post } from "./api.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
-import {
-  ensureStudyEnrollment,
-  type StudyEnrollmentView,
-} from "./study-enrollment.ts";
+import { enrollStudyForAccount } from "../study/enrollment-intent.ts";
 
 interface Publication {
   state: "unbound" | "bound" | StudyPublicationReceipt["state"];
@@ -51,24 +48,10 @@ export function LiveStudy(props: {
   // community a lesson binds the sign-in; the client retries briefly while
   // that sign-in is still being recorded.
   const enroll = () =>
-    ensureStudyEnrollment({
+    enrollStudyForAccount({
+      account: () => props.account,
+      csrf: () => props.csrf,
       active: () => active,
-      request: () =>
-        post<StudyEnrollmentView>(
-          "/api/karaoke/enrollment",
-          { activity: "study" },
-          props.csrf,
-        ),
-      submit: (request, signature) =>
-        post<{ state: string }>(
-          "/api/karaoke/enrollment",
-          {
-            enrollment: request.message,
-            target: request.target,
-            signature,
-          },
-          props.csrf,
-        ),
       wallet: props.wallet,
     });
   async function load() {
