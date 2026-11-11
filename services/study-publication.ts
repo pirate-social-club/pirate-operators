@@ -41,6 +41,16 @@ import {
   type TxRow,
 } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  checkTelegramStudyPublication,
+  studyTelegramPublication,
+  telegramResultPublication,
+  telegramStudyDenied,
+} from "./study-telegram-publication.ts";
+import {
+  resolveTelegramStudyFence,
+  type TelegramStudyFence,
+} from "../packages/study/telegram-publication.ts";
 import type { Env } from "./runtime.ts";
 import {
   readStudyRevision,
@@ -60,6 +70,7 @@ export interface PublicationJob {
   // Absent on earlier rows. Receipt bytes alone do not version cursor progress.
   observationRevision?: number;
   requestHash: Hex;
+  telegramFence?: TelegramStudyFence;
   target: ResultsTarget;
   result: TerminalResult;
   outcomes: Hex;
@@ -152,6 +163,12 @@ async function freeze(
   const binding = store.get<StudyBinding>("studyBinding:" + input.lessonId);
   check(binding, "study_lesson_not_bound");
   const target = retainedTarget(env, binding.target);
+  const telegram = studyTelegramPublication(
+    binding.offer,
+    target,
+    env.COMMUNITY_ID,
+  );
+  await checkTelegramStudyPublication(env, store, telegram);
   if (binding.authorization)
     check(
       target.version === 4 &&
@@ -232,6 +249,10 @@ async function freeze(
   };
   store.transaction(() => {
     if (closedStudyPublication(store, input.lessonId)) return;
+    check(
+      !telegram || !telegramStudyDenied(store, telegram.fence),
+      "study_telegram_grant_withdrawn",
+    );
     const concurrent = store.get<PublicationJob>(key(input.lessonId));
     check(
       !concurrent || concurrent.requestHash === hash,
@@ -242,6 +263,7 @@ async function freeze(
         key(input.lessonId),
         durable({
           requestHash: hash,
+          ...(telegram ? { telegramFence: telegram.fence } : {}),
           target,
           ...bundle,
           data,
@@ -458,6 +480,18 @@ export async function resumeStudyPublication(
   // is sent only while its sign-in permission is unbroken; withdrawal keeps it
   // private. Both keep the bounded private-history erasure.
   if (job.target.version === 4 && intent?.nonce == null) {
+    const telegram = telegramResultPublication(env, store, ref);
+    if (
+      telegram &&
+      (telegramStudyDenied(store, telegram.fence) ||
+        !(await resolveTelegramStudyFence(
+          env.STUDY_TELEGRAM_AUTHORITY,
+          telegram.fence,
+          telegram.context,
+        )) ||
+        telegramStudyDenied(store, telegram.fence))
+    )
+      return keepPrivate(env, store, id, job, "authorization_withdrawn");
     if (Number(job.result.status) !== 1)
       return keepPrivate(env, store, id, job, "unfinished");
     // The contract's publish rule, re-read just before dispatch.

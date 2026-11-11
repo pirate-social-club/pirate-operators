@@ -22,6 +22,8 @@ import {
   erasedStudyReceipt,
   erasePrivateStudyOutbox,
 } from "./study-private-history.ts";
+import { resolveTelegramStudyFence } from "../packages/study/telegram-publication.ts";
+import { studyTelegramPublication } from "./study-telegram-publication.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 
 /**
@@ -33,6 +35,7 @@ export function studyPublicationQueue(
   operatorFor: (target: ResultsTarget) => StudyOperatorPorts,
   owner: StudyPrincipal,
   now = Date.now,
+  telegramAuthority?: Pick<Fetcher, "fetch">,
 ) {
   const load = (id: string) => studyOutboxRow(db, owner, id);
   const view = (row: StudyOutboxRow | null) => {
@@ -75,6 +78,30 @@ export function studyPublicationQueue(
       )
         return prior;
       const binding = JSON.parse(row.binding_json) as StudyBinding;
+      const telegram = studyTelegramPublication(
+        binding.offer,
+        binding.target,
+        owner.communityId,
+      );
+      if (telegram) {
+        studyCheck(
+          telegram.fence.facts.accountId === owner.accountId,
+          "study_telegram_fence_context_changed",
+          409,
+        );
+        // Pending rows may have reached the operator even if our call did not
+        // return. Let the operator reconcile its original job and guard any send.
+        if (row.state === "bound")
+          studyCheck(
+            await resolveTelegramStudyFence(
+              telegramAuthority,
+              telegram.fence,
+              telegram.context,
+            ),
+            "study_telegram_grant_withdrawn",
+            409,
+          );
+      }
       const operator = operatorFor(binding.target);
       // Preserve a retryable row before the request; publication cannot depend
       // on this HTTP response reaching either the app or its browser.

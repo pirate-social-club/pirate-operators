@@ -19,6 +19,10 @@ import {
 } from "./learning-contract.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  studyTelegramPublication,
+  telegramStudyDenied,
+} from "./study-telegram-publication.ts";
 import { closedStudyPublication } from "./study-private-publication.ts";
 import type { StudyBinding } from "./study-operator.ts";
 import type { Env } from "./runtime.ts";
@@ -151,6 +155,11 @@ export async function bindAuthorizedLesson(
   check(state.unbroken, "study_authorization_required");
   return store.transaction(() => {
     check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
+    const telegram = studyTelegramPublication(v4, target, env.COMMUNITY_ID);
+    check(
+      !telegram || !telegramStudyDenied(store, telegram.fence),
+      "study_telegram_grant_withdrawn",
+    );
     const concurrent = store.get<StudyBinding>(`studyBinding:${v4.lessonId}`);
     if (concurrent) {
       check(

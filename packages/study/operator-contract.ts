@@ -1,4 +1,5 @@
 import type { Address, Hex } from "viem";
+import type { TelegramStudyFence } from "./telegram-publication.ts";
 import { check } from "../protocol/index.ts";
 import { studyExercisesHash } from "../protocol/learning-results-v3.ts";
 import {
@@ -11,6 +12,7 @@ export interface StudyLessonOffer {
   /** Trusted issuer freezes connected Telegram provenance in the binding.
    * Trial history never uses this public-result lesson contract. */
   speechChannel?: "telegram-linked";
+  telegramFence?: TelegramStudyFence;
   graderRevision?: "script_aware_token_phonetic_v5";
   lessonId: string;
   learner: Address;

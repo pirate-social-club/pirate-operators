@@ -29,6 +29,8 @@ export interface Env {
   SPONSOR_DATA_FEE_WEI?: string;
   SPEECH_DAILY_LIMIT?: string;
   SPEECH_BUDGET?: DurableObjectNamespace<SpeechBudget>;
+  /** Optional trusted service binding. Absent in the ordinary website release. */
+  STUDY_TELEGRAM_AUTHORITY?: Fetcher;
   HISTORY_RETENTION_DAYS?: string;
   OPERATOR_PROFILE?: string;
   APPROVED_ACTIVATION_ACCOUNT?: string;

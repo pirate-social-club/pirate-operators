@@ -49,6 +49,7 @@ import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 export interface StudyEnv extends KaraokeEnv {
   STUDY_GRADER_ACTIVATION?: string;
+  STUDY_TELEGRAM_AUTHORITY?: Fetcher;
   STUDY_RESULTS_V3_CONTRACT?: string;
   /** The V4 results contract; must equal the directory's learningRecords. */
   STUDY_RESULTS_V4_CONTRACT?: string;
@@ -365,7 +366,13 @@ export function liveStudy(
     resolveLines: async (song) =>
       studySourceLines(await source(song)).lines.map((entry) => entry.line),
   });
-  const publications = studyPublicationQueue(ports.db, operatorFor, owner, now);
+  const publications = studyPublicationQueue(
+    ports.db,
+    operatorFor,
+    owner,
+    now,
+    ports.env.STUDY_TELEGRAM_AUTHORITY,
+  );
   async function reconcilePublication(lesson: StudyLesson) {
     if (lesson.status !== "active")
       await publications.sync(lesson.lessonId).catch(() => undefined);

@@ -49,6 +49,10 @@ import {
   recoverStudySpeech,
   type StudySpeechJob as SpeechJob,
 } from "./study-speech-receipt.ts";
+import {
+  checkTelegramStudyPublication,
+  studyTelegramPublication,
+} from "./study-telegram-publication.ts";
 import { dispatchStudySpeech } from "./study-speech-dispatch.ts";
 
 /** A V3 lesson binding: the learner's learning enrollment. */
@@ -73,6 +77,11 @@ async function bindStudyLesson(
   check(
     !closedStudyPublication(store, offer.lessonId),
     "study_history_expired",
+  );
+  await checkTelegramStudyPublication(
+    env,
+    store,
+    studyTelegramPublication(offer, target, env.COMMUNITY_ID),
   );
   const key = `studyBinding:${offer.lessonId}`;
   const old = studyBinding(store, offer.lessonId),
