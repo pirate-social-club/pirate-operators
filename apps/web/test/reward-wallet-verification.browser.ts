@@ -151,6 +151,11 @@ for (const fail of [false, true]) {
     await expect.poll(async () => (await snapshot(page)).starts.length).toBe(1);
     await page.evaluate(() => {
       window.rewardVerificationFixture.cancel();
+    });
+    await expect
+      .poll(async () => (await snapshot(page)).state?.busy)
+      .toBe(false);
+    await page.evaluate(() => {
       window.rewardVerificationFixture.start();
     });
     await expect.poll(async () => (await snapshot(page)).starts.length).toBe(2);
