@@ -17,6 +17,7 @@ import {
   requireCommandPorts,
   resultReviewId,
   DanceOriginalHeldError,
+  reconcileSubmissionExpiry,
 } from "./command-ordering.ts";
 import { createDanceRecordingController } from "./dance-recording.ts";
 import { createBrowserDanceRecordingStorage } from "./dance-recording-storage.ts";
@@ -146,6 +147,11 @@ export function createDanceReviewController(
       if (command.targetKey) assertCommandTarget(command, options);
       if (
         command.path === "reviews" &&
+        (await reconcileSubmissionExpiry(options, command, guard))
+      )
+        throw new DanceClientError("dance_capture_expired", false, 410);
+      if (
+        command.path === "reviews" &&
         entry.capture?.captureId === desired &&
         entry.upload
       ) {
@@ -165,14 +171,26 @@ export function createDanceReviewController(
           });
       }
       guard();
-      if (command.targetKey) {
-        await client.dispatchPrepared(command, signal);
+      try {
+        if (command.targetKey) {
+          await client.dispatchPrepared(command, signal);
+          guard();
+          recovered = await client.command(command.commandId);
+          guard();
+        } else {
+          recovered = await options.client.recover(signal);
+          guard();
+        }
+      } catch (error) {
         guard();
-        recovered = await client.command(command.commandId);
-        guard();
-      } else {
-        recovered = await options.client.recover(signal);
-        guard();
+        if (
+          error instanceof DanceClientError &&
+          error.status === 410 &&
+          error.code === "dance_capture_expired" &&
+          command.path === "reviews"
+        )
+          await reconcileSubmissionExpiry(options, command, guard);
+        throw error;
       }
     }
     if (recovered?.subject.startsWith("withdraw:") && recovered.receiptJson) {
@@ -332,7 +350,7 @@ export function createDanceReviewController(
               error.status === 410 &&
               error.code === "dance_capture_expired"
             ) {
-              await handle.save({ submission: "none", terminal: "expired" });
+              await reconcileSubmissionExpiry(options, command, guard, handle);
               guard();
             }
             throw error;

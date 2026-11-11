@@ -1,5 +1,11 @@
 import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
-import type { DanceJournalEntry } from "../journal.ts";
+import {
+  hasDanceExpiredOutcome,
+  sameOriginalCommand,
+  type DanceJournalEntry,
+} from "../journal.ts";
+import type { DanceJourneyHandle } from "./journey-store.ts";
+import { verdictDigest } from "./digests.ts";
 import {
   assertCapture,
   danceTargetKey,
@@ -121,4 +127,104 @@ export function acceptedCaptureMatches(
   } catch {
     return null;
   }
+}
+
+/** An outcome is recovered from the exact durable original, never from a
+ * thrown transport error, a local deadline or a new command candidate. */
+async function expiredOriginal(
+  options: DanceSourcePorts,
+  command: DanceJournalEntry,
+  guard: () => void,
+) {
+  const client = requireCommandPorts(options);
+  const stored = await client.command(command.commandId);
+  guard();
+  if (!stored || !sameOriginalCommand(stored, command))
+    throw Error("dance_original_command_changed");
+  if (!hasDanceExpiredOutcome(stored)) return null;
+  if (
+    stored.scope.accountId !== options.scope.accountId ||
+    stored.scope.communityId !== options.scope.communityId
+  )
+    throw Error("dance_account_changed");
+  if (stored.targetKey) assertCommandTarget(stored, options);
+  return stored;
+}
+export async function reconcileSubmissionExpiry(
+  options: DanceSourcePorts,
+  command: DanceJournalEntry,
+  guard: () => void,
+  held?: DanceJourneyHandle,
+): Promise<boolean> {
+  const stored = await expiredOriginal(options, command, guard);
+  if (!stored) return false;
+  if (stored.path !== "reviews") throw Error("dance_original_command_changed");
+  const use = async (handle: DanceJourneyHandle) => {
+    guard();
+    const entry = handle.read(),
+      body = JSON.parse(stored.bodyJson);
+    if (
+      !entry.capture ||
+      !entry.upload ||
+      entry.captureUnknown ||
+      entry.submission === "accepted" ||
+      entry.terminal === "canceled" ||
+      body.captureId !== entry.capture.captureId ||
+      body.mediaId !== entry.upload.mediaId ||
+      body.recordingSha256 !== verdictDigest(entry.upload.recordingSha256) ||
+      (entry.commands?.submit &&
+        !sameOriginalCommand(entry.commands.submit, stored))
+    )
+      throw Error("dance_original_command_changed");
+    assertCapture(entry.capture, options.scope);
+    if (
+      entry.submission === "none" &&
+      entry.terminal === "expired" &&
+      (!entry.commands?.submit || hasDanceExpiredOutcome(entry.commands.submit))
+    )
+      return true;
+    await handle.save({
+      submission: "none",
+      terminal: "expired",
+      // Historical commands can retain their original pre-metadata shape.
+      // Their durable outcome stays in the command journal; never manufacture
+      // targetKey/requestJson just to fit the prepared-command copy codec.
+      commands:
+        stored.targetKey && stored.requestJson
+          ? { ...entry.commands, submit: stored }
+          : entry.commands,
+    });
+    guard();
+    return true;
+  };
+  return held
+    ? use(held)
+    : options.journal.exclusive(options.scope, guard, use);
+}
+/** Capture refusal has no accepted capture to invent. Keep the original in
+ * command history; clear only the matching local pending reservation. */
+export async function reconcileCaptureExpiry(
+  options: DanceSourcePorts,
+  command: DanceJournalEntry,
+  guard: () => void,
+  handle: DanceJourneyHandle,
+): Promise<boolean> {
+  const stored = await expiredOriginal(options, command, guard);
+  if (!stored) return false;
+  assertCaptureCommand(stored, options);
+  const entry = handle.read();
+  if (
+    entry.capture ||
+    entry.upload ||
+    entry.submission !== "none" ||
+    (entry.commands?.capture &&
+      !sameOriginalCommand(entry.commands.capture, stored))
+  )
+    throw Error("dance_original_command_changed");
+  if (entry.captureUnknown || entry.commands)
+    await handle.save({ captureUnknown: false, commands: undefined });
+  guard();
+  await options.client.acknowledgeRecovery(stored.commandId);
+  guard();
+  return true;
 }

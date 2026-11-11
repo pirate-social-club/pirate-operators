@@ -10,6 +10,7 @@ import {
   createIndexedDanceJournal,
   identicalCommand,
   sameOriginalCommand,
+  hasDanceExpiredOutcome,
   type DanceJournal,
   type DanceJournalEntry,
 } from "./journal.ts";
@@ -184,6 +185,8 @@ export function createDanceClient(options: {
       e.scope.accountId !== scope.accountId
     )
       throw new DanceClientError("dance_account_changed");
+    if (hasDanceExpiredOutcome(e))
+      throw new DanceClientError("dance_capture_expired", false, 410);
     let response: Response;
     try {
       response = await fetcher("/api/dance/" + e.path, {
@@ -216,7 +219,8 @@ export function createDanceClient(options: {
       if (
         error instanceof DanceClientError &&
         error.status === 410 &&
-        error.code === "dance_capture_expired"
+        error.code === "dance_capture_expired" &&
+        ["captures", "reviews"].includes(e.path)
       )
         await journal.rejectExpired(e);
       throw error;
@@ -308,9 +312,13 @@ export function createDanceClient(options: {
     current();
     if (!original || !sameOriginalCommand(original, e))
       throw new DanceClientError("dance_original_command_changed");
+    if (hasDanceExpiredOutcome(original))
+      throw new DanceClientError("dance_capture_expired", false, 410);
     if (original.receiptJson) return JSON.parse(original.receiptJson);
     const admitted = await journal.markDispatch(original);
     current();
+    if (hasDanceExpiredOutcome(admitted))
+      throw new DanceClientError("dance_capture_expired", false, 410);
     if (admitted.receiptJson) return JSON.parse(admitted.receiptJson);
     return send(admitted, signal);
   }
@@ -459,20 +467,13 @@ export function createDanceClient(options: {
     },
     resetDefiniteCapture: async (captureId) => {
       current();
-      if (captureId && journal.acceptedCapture) {
-        const e = await journal.acceptedCapture(scope);
-        current();
-        if (e)
-          await journal.definiteCaptureReset(scope, {
-            commandId: e.commandId,
-            captureId,
-          });
-        else {
-          const active = await journal.active(scope);
-          current();
-          if (active) throw Error("dance_response_unknown");
-        }
-      } else await journal.definiteCaptureReset(scope);
+      if (captureId)
+        await journal.definiteCaptureReset(scope, {
+          captureId,
+          keepUnrelated: true,
+        });
+      else await journal.definiteCaptureReset(scope);
+      current();
     },
     dispose: () => controller.abort(),
   };

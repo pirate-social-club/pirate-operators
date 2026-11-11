@@ -1,7 +1,11 @@
 import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
 import type { MediaStatus } from "../../../../../packages/community-media/contracts.ts";
 import { danceTargetKey, type DanceScope } from "./ports.ts";
-import { sameOriginalCommand, type DanceJournalEntry } from "../journal.ts";
+import {
+  hasDanceExpiredOutcome,
+  sameOriginalCommand,
+  type DanceJournalEntry,
+} from "../journal.ts";
 
 export interface DanceUploadEntry {
   readonly requestId: string;
@@ -91,6 +95,7 @@ export function decodeJourney(
         !command ||
         !["capture", "submit"].includes(kind) ||
         command.version !== 1 ||
+        (command.outcome !== undefined && !hasDanceExpiredOutcome(command)) ||
         command.scope.accountId !== scope.accountId ||
         command.scope.communityId !== scope.communityId ||
         command.targetKey !== r.targetKey ||

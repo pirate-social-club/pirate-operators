@@ -17,7 +17,29 @@ export interface DanceJournalEntry {
   targetKey?: string;
   requestJson?: string;
   attempted?: true;
+  /** Actual HTTP refusal bound to this original preimage, never a local clock. */
+  outcome?: DanceExpiredOutcome;
 }
+export interface DanceExpiredOutcome {
+  version: "pirate.dance-command-outcome/1";
+  status: 410;
+  code: "dance_capture_expired";
+}
+export function hasDanceExpiredOutcome(entry: DanceJournalEntry): boolean {
+  const outcome = entry.outcome;
+  return (
+    !!outcome &&
+    Object.keys(outcome).length === 3 &&
+    outcome.version === "pirate.dance-command-outcome/1" &&
+    outcome.status === 410 &&
+    outcome.code === "dance_capture_expired" &&
+    !entry.receiptJson &&
+    ["captures", "reviews"].includes(entry.path)
+  );
+}
+export type DanceCaptureReset =
+  | { commandId: string; captureId: string }
+  | { captureId: string; keepUnrelated: true };
 export interface DanceJournal {
   reserve(entry: DanceJournalEntry): Promise<DanceJournalEntry>;
   active(scope: DanceJournalScope): Promise<DanceJournalEntry | null>;
@@ -26,7 +48,7 @@ export interface DanceJournal {
   accept(entry: DanceJournalEntry, receiptJson: string): Promise<void>;
   definiteCaptureReset(
     scope: DanceJournalScope,
-    expected?: { commandId: string; captureId: string },
+    expected?: DanceCaptureReset,
   ): Promise<void>;
   rejectExpired(entry: DanceJournalEntry): Promise<void>;
   command?(
@@ -93,6 +115,8 @@ function state(v: unknown, s: DanceJournalScope): DanceJournalState {
       (e.attempted !== undefined && e.attempted !== true)
     )
       throw Error("dance_journal_corrupt");
+    if (e.outcome !== undefined && !hasDanceExpiredOutcome(e))
+      throw Error("dance_journal_corrupt");
   }
   return result;
 }
@@ -154,6 +178,29 @@ export function danceJournalOperations(
       ...Object.values(s.accepted),
       ...Object.values(s.history ?? {}),
     ].filter((e): e is DanceJournalEntry => !!e);
+  const captureId = (entry: DanceJournalEntry, scope: DanceJournalScope) => {
+    if (
+      entry.path !== "captures" ||
+      entry.subject !== "capture" ||
+      !entry.receiptJson ||
+      entry.outcome ||
+      key(entry.scope) !== key(scope)
+    )
+      throw Error("dance_capture_reset_changed");
+    const capture = JSON.parse(entry.receiptJson) as {
+      captureId?: unknown;
+      communityId?: unknown;
+      learner?: { accountId?: unknown };
+    };
+    if (
+      typeof capture.captureId !== "string" ||
+      !capture.captureId ||
+      capture.communityId !== scope.communityId ||
+      capture.learner?.accountId !== scope.accountId
+    )
+      throw Error("dance_capture_reset_changed");
+    return capture.captureId;
+  };
   return {
     reserve: (e) =>
       transact(e.scope, true, (s) => {
@@ -193,33 +240,41 @@ export function danceJournalOperations(
       transact(s, true, (v) => {
         if (v.active) throw Error("dance_response_unknown");
         const old = v.accepted.capture;
+        const oldId = old ? captureId(old, s) : undefined;
         if (
           expected &&
-          (!old ||
-            old.commandId !== expected.commandId ||
-            !old.receiptJson ||
-            (JSON.parse(old.receiptJson) as { captureId?: string })
-              .captureId !== expected.captureId)
+          (typeof expected.captureId !== "string" ||
+            !expected.captureId ||
+            ("keepUnrelated" in expected && expected.keepUnrelated !== true))
         )
           throw Error("dance_capture_reset_changed");
-        if (old) (v.history ??= {})[old.commandId] = old;
-        delete v.accepted.capture;
-        const captureId =
-          expected?.captureId ??
-          (old?.receiptJson
-            ? (JSON.parse(old.receiptJson) as { captureId?: string }).captureId
-            : undefined);
+        if (
+          expected &&
+          "commandId" in expected &&
+          (!old ||
+            old.commandId !== expected.commandId ||
+            oldId !== expected.captureId)
+        )
+          throw Error("dance_capture_reset_changed");
+        const requestedId = expected?.captureId ?? oldId;
+        if (old && oldId === requestedId) {
+          (v.history ??= {})[old.commandId] = old;
+          delete v.accepted.capture;
+        }
         for (const e of entries(v))
           if (
-            captureId &&
-            (e.subject === "submission:" + captureId ||
-              e.subject === "withdraw:" + captureId)
+            requestedId &&
+            (e.subject === "submission:" + requestedId ||
+              e.subject === "withdraw:" + requestedId)
           )
             (v.history ??= {})[e.commandId] = e;
         if (
-          v.latest?.subject === "capture" ||
-          (captureId &&
-            ["submission:" + captureId, "withdraw:" + captureId].includes(
+          (v.latest?.subject === "capture" &&
+            (v.latest.outcome
+              ? v.latest.commandId === old?.commandId
+              : captureId(v.latest, s) === requestedId)) ||
+          (requestedId &&
+            ["submission:" + requestedId, "withdraw:" + requestedId].includes(
               v.latest?.subject ?? "",
             ))
         )
@@ -227,11 +282,34 @@ export function danceJournalOperations(
       }),
     rejectExpired: (e) =>
       transact(e.scope, true, (s) => {
-        if (!s.active || !sameOriginalCommand(s.active, e))
+        const previous = entries(s).find(
+          (row) => row.commandId === e.commandId,
+        );
+        if (
+          previous &&
+          sameOriginalCommand(previous, e) &&
+          hasDanceExpiredOutcome(previous)
+        )
+          return;
+        if (
+          !s.active ||
+          !sameOriginalCommand(s.active, e) ||
+          s.active.outcome ||
+          e.receiptJson ||
+          !["captures", "reviews"].includes(e.path)
+        )
           throw Error("dance_journal_conflict");
+        const expired: DanceJournalEntry = {
+          ...s.active,
+          outcome: {
+            version: "pirate.dance-command-outcome/1",
+            status: 410,
+            code: "dance_capture_expired",
+          },
+        };
         s.active = null;
-        (s.history ??= {})[e.commandId] = e;
-        delete s.accepted.capture;
+        (s.history ??= {})[e.commandId] = expired;
+        s.latest = expired;
       }),
     command: (scope, id) =>
       transact(
@@ -246,7 +324,7 @@ export function danceJournalOperations(
         const found = entries(s).find((v) => v.commandId === e.commandId);
         if (!found || !sameOriginalCommand(found, e))
           throw Error("dance_original_command_changed");
-        if (found.receiptJson) return found;
+        if (found.receiptJson || hasDanceExpiredOutcome(found)) return found;
         if (!s.active || !sameOriginalCommand(s.active, e))
           throw Error("dance_other_command_pending");
         s.active = { ...s.active, attempted: true };

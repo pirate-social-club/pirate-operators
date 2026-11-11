@@ -20,8 +20,13 @@ import {
   assertCaptureCommand,
   requireCommandPorts,
   DanceOriginalHeldError,
+  reconcileCaptureExpiry,
 } from "./command-ordering.ts";
-import { sameOriginalCommand, type DanceJournalEntry } from "../journal.ts";
+import {
+  hasDanceExpiredOutcome,
+  sameOriginalCommand,
+  type DanceJournalEntry,
+} from "../journal.ts";
 
 export type DancePreparationView =
   | {
@@ -277,9 +282,7 @@ export function createDancePreparationController(options: DanceSourcePorts) {
               e.status === 410 &&
               e.code === "dance_capture_expired"
             ) {
-              // The server explicitly rejected this original reservation;
-              // its command remains in command history, not as the next take.
-              await handle.save({ captureUnknown: false, commands: undefined });
+              await reconcileCaptureExpiry(options, command, guard, handle);
               guard();
             }
             throw e;
@@ -321,6 +324,11 @@ export function createDancePreparationController(options: DanceSourcePorts) {
           throw Error("dance_original_command_changed");
         if (!command) command = await client.acceptedCapture();
         guard();
+        if (
+          command?.path === "captures" &&
+          (await reconcileCaptureExpiry(options, command, guard, handle))
+        )
+          throw new DanceClientError("dance_capture_expired", false, 410);
         if (!capture && command?.path === "captures") {
           if (command.receiptJson && !command.targetKey) {
             capture = acceptedCaptureMatches(command, options);
@@ -332,11 +340,22 @@ export function createDancePreparationController(options: DanceSourcePorts) {
               commands: { ...entry.commands, capture: command },
             });
             guard();
-            capture = (await client.dispatchPrepared(
-              command,
-              signal,
-            )) as DanceCapture;
-            guard();
+            try {
+              capture = (await client.dispatchPrepared(
+                command,
+                signal,
+              )) as DanceCapture;
+              guard();
+            } catch (error) {
+              guard();
+              if (
+                error instanceof DanceClientError &&
+                error.status === 410 &&
+                error.code === "dance_capture_expired"
+              )
+                await reconcileCaptureExpiry(options, command, guard, handle);
+              throw error;
+            }
           }
         }
         if (!capture) throw Error("dance_legacy_original_missing");
@@ -370,7 +389,9 @@ export function createDancePreparationController(options: DanceSourcePorts) {
         if (
           entry.captureUnknown ||
           entry.submission === "unknown" ||
-          (original && !original.receiptJson)
+          (original &&
+            !original.receiptJson &&
+            !hasDanceExpiredOutcome(original))
         )
           throw Error("dance_preparation_resolution_unproven");
         if (entry.submission === "accepted") {
