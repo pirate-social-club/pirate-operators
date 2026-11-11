@@ -12,6 +12,7 @@ import {
   runDanceStorageBrowserCases,
   runDanceCommandOrderingBrowserCases,
 } from "./dance-source-storage.browser.ts";
+import { runDanceTerminalOutcomeBrowserCases } from "./dance-terminal-outcomes.browser.ts";
 import { runCommunityStorageBrowserCases } from "./media-community-storage.browser.ts";
 import { runCommunityHostBrowserCase } from "./media-community-host.browser.tsx";
 import { runCommunityComposerBrowserCase } from "./media-community-composer.browser.tsx";
@@ -67,7 +68,7 @@ function Player() {
     </div>
   );
 }
-function Storage(props: { commands?: boolean }) {
+function Storage(props: { commands?: boolean; terminal?: boolean }) {
   const [status, setStatus] = createSignal("idle");
   const [detail, setDetail] = createSignal("");
   return (
@@ -75,9 +76,11 @@ function Storage(props: { commands?: boolean }) {
       <button
         onClick={() => {
           setStatus("running");
-          const work = props.commands
-            ? runDanceCommandOrderingBrowserCases()
-            : runDanceStorageBrowserCases();
+          const work = props.terminal
+            ? runDanceTerminalOutcomeBrowserCases()
+            : props.commands
+              ? runDanceCommandOrderingBrowserCases()
+              : runDanceStorageBrowserCases();
           void work.then(
             (value) => {
               setDetail(JSON.stringify(value));
@@ -90,9 +93,11 @@ function Storage(props: { commands?: boolean }) {
           );
         }}
       >
-        {props.commands
-          ? "Run actual Dance command ordering"
-          : "Run actual Dance storage cases"}
+        {props.terminal
+          ? "Run actual Dance terminal outcomes"
+          : props.commands
+            ? "Run actual Dance command ordering"
+            : "Run actual Dance storage cases"}
       </button>
       <output data-storage-status={status()}>{detail()}</output>
     </div>
@@ -174,6 +179,7 @@ function Fixture() {
   if (mode === "switch") return <ShellPlayerSwitchInput />;
   if (mode === "dance-storage") return <Storage />;
   if (mode === "dance-command-ordering") return <Storage commands />;
+  if (mode === "dance-terminal-outcomes") return <Storage terminal />;
   if (
     mode === "media-shell-profile" ||
     mode === "media-shell" ||

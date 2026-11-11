@@ -221,3 +221,16 @@ test("actual native Dance command ordering retains one original through a lost a
   );
   expect(result).toEqual({ errors: [], unexpected: [] });
 });
+test("actual native Dance terminal outcomes recover exact originals across interrupted commits", async ({
+  page,
+}) => {
+  const result = await sourceFixture(page, "fixture=dance-terminal-outcomes");
+  await page
+    .getByRole("button", { name: "Run actual Dance terminal outcomes" })
+    .click();
+  await expect(page.locator("[data-storage-status]")).toHaveAttribute(
+    "data-storage-status",
+    "passed",
+  );
+  expect(result).toEqual({ errors: [], unexpected: [] });
+});

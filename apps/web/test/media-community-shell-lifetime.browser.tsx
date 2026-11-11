@@ -18,6 +18,7 @@ import {
 import {
   createBrowserSongStorage,
   CommunitySongController,
+  type CommunitySongDraft,
 } from "../src/media/community-song-controller.ts";
 import { communityHttp } from "../src/media/community-http.ts";
 import { shellFixture, latch } from "./media-community-shell-fixture.ts";
@@ -55,6 +56,33 @@ async function readSaved(f: ReturnType<typeof shellFixture>) {
     return await storage.exclusive(() => storage.load());
   } finally {
     owner.dispose();
+  }
+}
+// Observe the committed native cell while the replacement owner's read holds
+// its Web Lock. This read never changes the cell or bypasses a product write.
+async function readCommitted(f: ReturnType<typeof shellFixture>) {
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("pirate-community-composer-v1", 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  try {
+    return await new Promise<CommunitySongDraft | null>((resolve, reject) => {
+      const tx = db.transaction("records", "readonly");
+      const request = tx
+        .objectStore("records")
+        .get(
+          JSON.stringify([
+            f.context.community.id,
+            f.context.owner.accountId,
+            "song",
+          ]),
+        );
+      tx.oncomplete = () => resolve(request.result?.value ?? null);
+      tx.onabort = tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
   }
 }
 async function clean(f: ReturnType<typeof shellFixture>) {
@@ -277,6 +305,7 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
       refreshed++;
     });
     let gate: ReturnType<typeof f.delay> | undefined;
+    let replacement: ReturnType<typeof f.delay> | undefined;
     try {
       await until(() => app.scope().count() === 1);
       const old = app.scope().runtime();
@@ -293,6 +322,10 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
           next.feed.communityId = next.community.id;
         }
         if (change === "csrf") next.session.csrf = "fixture-next-csrf";
+        // Same account/namespace with fresh CSRF legitimately recovers the
+        // saved job. Hold that owner's independent response so it cannot be
+        // mistaken for the old runtime's late notification.
+        if (change === "csrf") replacement = f.delay("job-body");
         app.authority(
           change === "private-owner-loss" || change === "unknown-authority"
             ? null
@@ -315,8 +348,9 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
       );
       const before = f.calls.length;
       gate.release.resolve();
+      if (replacement) await until(() => replacement!.entered.done);
       await settle();
-      const late = await readSaved(f);
+      const late = replacement ? await readCommitted(f) : await readSaved(f);
       if (change !== "403-headers")
         check(
           late?.job?.phase === "published",
@@ -338,12 +372,26 @@ export async function runCommunityShellLifetimeBrowserCases(root: HTMLElement) {
         "old authority dispatched a follow-on command/proof",
       );
       check(!old?.active(), "old captured owner survived invalidation");
+      if (replacement) {
+        const writes = f.calls.filter((call) => call.method !== "GET").length;
+        replacement.release.resolve();
+        await until(() => refreshed === 1);
+        await settle();
+        check(
+          app.scope().runtime()?.active() &&
+            app.scope().runtime()?.record()?.requestId === late?.requestId &&
+            f.calls.filter((call) => call.method !== "GET").length === writes,
+          "replacement owner did not recover the same job without a POST",
+        );
+        check(refreshed === 1, "replacement owner refreshed more than once");
+      }
       results.push(
         change +
           " masks/invalidates before late body; no stale callback, publication or next command",
       );
     } finally {
       gate?.release.resolve();
+      replacement?.release.resolve();
       app.dispose();
       await clean(f);
     }
