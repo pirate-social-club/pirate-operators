@@ -18,6 +18,10 @@ test(
       import {DurableObject} from 'cloudflare:workers';
       import {telegramAlarmScheduler} from './services/telegram-alarm.ts';
       export class State extends DurableObject {
+        async alarm() {
+          const fired = await this.ctx.storage.get('fired') ?? 0;
+          await this.ctx.storage.put('fired', fired + 1);
+        }
         async fetch(request) {
           if(request.method==='POST') {
             const deadlines=await request.json();
@@ -26,7 +30,7 @@ test(
             this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS wake_receipt(id INTEGER PRIMARY KEY,value TEXT)');
             this.ctx.storage.sql.exec("INSERT OR REPLACE INTO wake_receipt VALUES(1,'armed')");
           }
-          return Response.json({alarm:await this.ctx.storage.getAlarm(),
+          return Response.json({alarm:await this.ctx.storage.getAlarm(),fired:await this.ctx.storage.get('fired') ?? 0,
             receipt:this.ctx.storage.sql.exec('SELECT value FROM wake_receipt WHERE id=1').toArray()[0]?.value});
         }
       }
@@ -60,7 +64,11 @@ test(
       );
       const body = await response.text();
       assert.equal(response.status, 200, body);
-      return JSON.parse(body) as { alarm: number; receipt: string };
+      return JSON.parse(body) as {
+        alarm: number | null;
+        receipt: string;
+        fired: number;
+      };
     };
     try {
       const earliest = Date.now() + 300000;
@@ -75,6 +83,15 @@ test(
       runtime = make();
       assert.deepEqual(await call(), initial);
       assert.equal((await call([earliest - 60000])).alarm, earliest - 60000);
+      await call([Date.now() + 50]);
+      const deadline = Date.now() + 5000;
+      let delivered = await call();
+      while (delivered.fired === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        delivered = await call();
+      }
+      assert.ok(delivered.fired > 0, "native alarm event was not delivered");
+      assert.equal(delivered.alarm, null);
     } finally {
       await runtime.dispose();
       await rm(directory, { recursive: true, force: true });
