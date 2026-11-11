@@ -51,6 +51,7 @@ async function call<T>(
   path: StudyOperatorPath,
   bytes: Uint8Array,
   parameters: Record<string, unknown> = {},
+  beforeSend?: () => Promise<void>,
 ) {
   const header = await authorizeStudyRequest(
     ports.authority,
@@ -60,6 +61,7 @@ async function call<T>(
     ports.issuerKey,
     Math.floor((ports.now ?? Date.now)() / 1000),
   );
+  if (beforeSend) await beforeSend();
   const response = await ports.binding.fetch(`http://operator${path}`, {
     method: "POST",
     headers: { [STUDY_AUTH_HEADER]: header },
@@ -74,6 +76,7 @@ const encoded = (value: unknown) =>
 export async function denyManagedStudyPublication(
   ports: StudyOperatorPorts,
   value: TelegramStudyDenial,
+  beforeSend?: () => Promise<void>,
 ) {
   const denial = telegramStudyDenial(value);
   check(
@@ -84,6 +87,8 @@ export async function denyManagedStudyPublication(
     ports,
     "/study/telegram/deny",
     encoded(denial),
+    {},
+    beforeSend,
   );
   check(
     receipt.recorded === true && receipt.denialHash === digest(denial),

@@ -1,3 +1,4 @@
+import { commitWithdrawalSettings } from "../packages/community-setup/authority-withdrawals.ts";
 // V4 account settings: turning public results off and on. Both are explicit
 // settings actions, never exercise prompts. Turning off relays the learner's
 // signed Revocation and stops relaying their sign-ins. The operator applies
@@ -23,6 +24,36 @@ import {
 } from "./learning-sign-in.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
+import {
+  beginAuthorityAction,
+  authorityReady,
+  readAuthorityState,
+  type AuthorityAction,
+} from "../packages/community-setup/authority-ledger.ts";
+import {
+  progressAuthorityAction,
+  type AuthorityRecoveryPorts,
+} from "../packages/community-setup/authority-recovery.ts";
+
+/** Internal connected-selection mount only. The existing website consent and
+ * account APIs below retain their behavior. The shared authenticated route
+ * supplies the distinct action identity/predecessor and required signed bridge;
+ * this function never interprets a browser payload as that authority. */
+export async function connectedPublicResultsAction(
+  db: D1Database,
+  action: AuthorityAction,
+  ports: AuthorityRecoveryPorts,
+) {
+  const local = {
+    ...ports,
+    closeLocal: (accountId: string) =>
+      closeWithdrawnStudyLessons(db, accountId, action.atMs),
+  };
+  const op = await beginAuthorityAction(db, action, local);
+  const result = await progressAuthorityAction(db, op.operation_id, local);
+  authorityReady(!(await readAuthorityState(db, action.accountId)).pending);
+  return result;
+}
 
 interface Learner {
   account_id: string;
@@ -34,16 +65,21 @@ async function recordWithdrawal(
   db: D1Database,
   accountId: string,
   atMs: number,
+  identity: { nonce: string; subject: string },
 ) {
-  await db
-    .prepare(
-      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
+  await commitWithdrawalSettings(
+    db,
+    accountId,
+    db
+      .prepare(
+        `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
       ON CONFLICT(account_id) DO UPDATE SET
         public_results_withdrawn_at=COALESCE(public_results_withdrawn_at,excluded.public_results_withdrawn_at),
         last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)`,
-    )
-    .bind(accountId, atMs)
-    .run();
+      )
+      .bind(accountId, atMs),
+    { kind: "submitted", ...identity, cutoffMs: atMs },
+  );
 }
 
 /**
@@ -100,17 +136,26 @@ export async function publicationSignInAtLogin(
     return current?.withdrawn == null ? v4 : undefined;
   }
   if (account) {
-    const noted = await db
-      .prepare(
-        `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
+    const noted = await commitWithdrawalSettings(
+      db,
+      account.account_id,
+      db
+        .prepare(
+          `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at) VALUES(?1,?2,?2)
       ON CONFLICT(account_id) DO UPDATE SET public_results_withdrawn_at=excluded.public_results_withdrawn_at,
         last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),excluded.last_withdrawn_at)
       WHERE acknowledged_revocation_nonce IS NULL
         OR length(acknowledged_revocation_nonce)<length(?3)
         OR (length(acknowledged_revocation_nonce)=length(?3) AND acknowledged_revocation_nonce<?3)`,
-      )
-      .bind(account.account_id, observed.atMs, observed.nonce)
-      .run();
+        )
+        .bind(account.account_id, observed.atMs, observed.nonce),
+      {
+        kind: "observed",
+        nonce: observed.nonce,
+        subject: wallet,
+        cutoffMs: observed.atMs,
+      },
+    );
     if (!noted.meta.changes) {
       // Turn-on may have acknowledged this withdrawal while the read was
       // pending. Never overwrite that newer choice or close its lessons.
@@ -197,7 +242,10 @@ export async function turnOffPublicResults(
   );
   // A pending transaction is the operator's to finish; the withdrawal holds now.
   if (relayed.state === "success" || relayed.state === "pending") {
-    await recordWithdrawal(db, learner.account_id, now);
+    await recordWithdrawal(db, learner.account_id, now, {
+      nonce: String(message.nonce),
+      subject: learner.wallet.toLowerCase(),
+    });
     // As the policy says: an open Study lesson closes at once. A retry of
     // this request repeats it; the closure is idempotent.
     await closeWithdrawnStudyLessons(db, learner.account_id, now);
@@ -375,9 +423,12 @@ export async function noteChainWithdrawal(
     /^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce)
       ? live.revocationNonce
       : null;
-  const marked = await db
-    .prepare(
-      `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at)
+  const marked = await commitWithdrawalSettings(
+    db,
+    learner.account_id,
+    db
+      .prepare(
+        `INSERT INTO learning_settings(account_id,public_results_withdrawn_at,last_withdrawn_at)
     SELECT ?1,?2,?2 WHERE NOT EXISTS(SELECT 1 FROM learning_authorizations WHERE account_id=?1
       AND state IN ('pending','recorded') AND issued_at>?3)
     ON CONFLICT(account_id) DO UPDATE SET
@@ -388,9 +439,15 @@ export async function noteChainWithdrawal(
       AND (?4 IS NULL OR acknowledged_revocation_nonce IS NULL
         OR length(acknowledged_revocation_nonce)<length(?4)
         OR (length(acknowledged_revocation_nonce)=length(?4) AND acknowledged_revocation_nonce<?4))`,
-    )
-    .bind(learner.account_id, revokedAt * 1000, revokedAt, nonce)
-    .run();
+      )
+      .bind(learner.account_id, revokedAt * 1000, revokedAt, nonce),
+    {
+      kind: "observed",
+      nonce,
+      subject: learner.wallet.toLowerCase(),
+      cutoffMs: revokedAt * 1000,
+    },
+  );
   // An already recorded withdrawal retries closure after a prior interruption.
   const current = await db
     .prepare(

@@ -1,3 +1,4 @@
+import { guardLinkedPublication } from "./study-linked-withdrawal.ts";
 import type { Address, Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
 import {
@@ -135,7 +136,10 @@ export function legacyResultGate(env: Env, store: ResultStore): SendGate {
           : null;
       if (telegram) {
         check(env.STUDY_TELEGRAM_AUTHORITY, "study_telegram_fence_unavailable");
-        return telegramStudyDenied(store, telegram.fence, telegram.context);
+        return (
+          guardLinkedPublication(store, telegram) ||
+          telegramStudyDenied(store, telegram.fence, telegram.context)
+        );
       }
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && legacyResultsWithheld(store, learner);
@@ -145,16 +149,24 @@ export function legacyResultGate(env: Env, store: ResultStore): SendGate {
         kind === "record_result"
           ? telegramResultPublication(env, store, ref)
           : null;
-      if (telegram)
-        return (
-          telegramStudyDenied(store, telegram.fence, telegram.context) ||
-          !(await resolveTelegramStudyFence(
-            env.STUDY_TELEGRAM_AUTHORITY,
-            telegram.fence,
-            telegram.context,
-          )) ||
+      if (telegram) {
+        if (
+          guardLinkedPublication(store, telegram) ||
           telegramStudyDenied(store, telegram.fence, telegram.context)
+        )
+          return true;
+        const allowed = await resolveTelegramStudyFence(
+          env.STUDY_TELEGRAM_AUTHORITY,
+          telegram.fence,
+          telegram.context,
         );
+        // Run after the await BEFORE interpreting a false resolver result.
+        return (
+          guardLinkedPublication(store, telegram) ||
+          telegramStudyDenied(store, telegram.fence, telegram.context) ||
+          !allowed
+        );
+      }
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && (await legacyResultsWithdrawn(env, store, learner));
     },

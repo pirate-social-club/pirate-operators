@@ -1,3 +1,7 @@
+import {
+  guardLinkedAdmission,
+  guardLinkedPublication,
+} from "./study-linked-withdrawal.ts";
 import type { Address, Hex } from "viem";
 import { bytes32, insist } from "../packages/community/common.ts";
 import { digest } from "../packages/protocol/index.ts";
@@ -132,28 +136,30 @@ export async function checkTelegramStudyPublication(
   env: Pick<Env, "STUDY_TELEGRAM_AUTHORITY">,
   store: ResultStore,
   publication: ReturnType<typeof studyTelegramPublication>,
+  target?: ResultsTarget,
 ) {
   if (!publication) return;
   const { fence, context } = publication;
+  const guard = () =>
+    target
+      ? guardLinkedAdmission(store, publication, target)
+      : guardLinkedPublication(store, publication);
   insist(
-    !telegramStudyDenied(store, fence, context),
+    !guard() && !telegramStudyDenied(store, fence, context),
     "study_telegram_grant_withdrawn",
     409,
   );
+  const allowed = await resolveTelegramStudyFence(
+    env.STUDY_TELEGRAM_AUTHORITY,
+    fence,
+    context,
+  );
   insist(
-    await resolveTelegramStudyFence(
-      env.STUDY_TELEGRAM_AUTHORITY,
-      fence,
-      context,
-    ),
+    !guard() && !telegramStudyDenied(store, fence, context),
     "study_telegram_grant_withdrawn",
     409,
   );
-  insist(
-    !telegramStudyDenied(store, fence, context),
-    "study_telegram_grant_withdrawn",
-    409,
-  );
+  insist(allowed, "study_telegram_grant_withdrawn", 409);
 }
 
 export function telegramResultPublication(

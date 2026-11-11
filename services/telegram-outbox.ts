@@ -16,6 +16,8 @@ import {
   telegramNoticeLocal,
   type TelegramNoticeGuard,
 } from "./telegram-notifications.ts";
+import type { TelegramManagedPublication } from "./telegram-managed-publication.ts";
+import type { TelegramGrantCapture } from "../packages/telegram/transitions.ts";
 
 export interface TelegramOutbound {
   effectId: string;
@@ -31,6 +33,7 @@ export interface TelegramOutbound {
   tries: number;
   nextAt: number;
   messageId: number | null;
+  blockCapture?: TelegramGrantCapture;
 }
 
 /** Retire the former native verdict copy while preserving delivery identity. */
@@ -47,6 +50,7 @@ export function scrubTelegramVerdict(row: TelegramOutbound): TelegramOutbound {
 export class TelegramOutbox {
   readonly grants: TelegramGrants;
   readonly delivery: TelegramDeliveryPort;
+  readonly publication?: TelegramManagedPublication;
   readonly noticeCheck?: (
     actor: ChatActor,
     guard: TelegramNoticeGuard,
@@ -58,10 +62,12 @@ export class TelegramOutbox {
       actor: ChatActor,
       guard: TelegramNoticeGuard,
     ) => Promise<void>,
+    publication?: TelegramManagedPublication,
   ) {
     this.grants = grants;
     this.delivery = delivery;
     this.noticeCheck = noticeCheck;
+    this.publication = publication;
   }
   enqueue(
     actor: ChatActor,
@@ -239,11 +245,26 @@ export class TelegramOutbox {
         sent++;
         continue;
       }
+      // A wake must exist before the call can return a blocking observation.
+      if (this.publication) await this.publication.arm();
+      else
+        telegramCheck(
+          !this.grants.store.get(
+            `bot-publication-managed:${actor.communityId}`,
+          ),
+          "telegram_managed_publication_required",
+          503,
+        );
       const claimed = this.grants.store.transaction(() => {
         const current = this.grants.store.get<TelegramOutbound>(item.key)!;
         if (current.state !== "pending") return false;
         this.permittedLocal(current);
-        row = { ...current, state: "sending", tries: current.tries + 1 };
+        row = {
+          ...current,
+          state: "sending",
+          tries: current.tries + 1,
+          blockCapture: this.grants.publicationCapture(current.actor),
+        };
         this.grants.store.set(item.key, row);
         return true;
       });
@@ -272,21 +293,26 @@ export class TelegramOutbox {
         const known =
           error instanceof TelegramDeliveryError &&
           error.outcome === "known_failed";
-        if (error instanceof TelegramDeliveryError && error.blocked)
-          this.grants.block(row.actor);
-        const current = this.grants.store.get<TelegramOutbound>(item.key)!;
-        this.grants.store.set(item.key, {
-          ...current,
-          state: known
-            ? row.tries < 3 && !(error as TelegramDeliveryError).blocked
-              ? "pending"
-              : "cancelled"
-            : "unknown",
-          nextAt:
-            this.grants.now() +
-            (error instanceof TelegramDeliveryError
-              ? Math.min(3600_000, error.retryAfterMs)
-              : 1000),
+        this.grants.store.transaction(() => {
+          if (error instanceof TelegramDeliveryError && error.blocked) {
+            if (this.publication && row.blockCapture)
+              this.publication.block(row.actor, row.effectId, row.blockCapture);
+            else this.grants.block(row.actor);
+          }
+          const current = this.grants.store.get<TelegramOutbound>(item.key)!;
+          this.grants.store.set(item.key, {
+            ...current,
+            state: known
+              ? row.tries < 3 && !(error as TelegramDeliveryError).blocked
+                ? "pending"
+                : "cancelled"
+              : "unknown",
+            nextAt:
+              this.grants.now() +
+              (error instanceof TelegramDeliveryError
+                ? Math.min(3600_000, error.retryAfterMs)
+                : 1000),
+          });
         });
         break;
       }

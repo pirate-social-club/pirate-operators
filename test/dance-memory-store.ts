@@ -23,6 +23,7 @@ import {
   dispatchable,
   localReviewerFences,
   LOCAL_REVIEWER_ALLOWED_SQL,
+  CAPTURED_REVIEWER_ALLOWED_SQL,
 } from "../packages/dance/local-guards.ts";
 const copy = <T>(v: T): T => structuredClone(v);
 export class MemoryDanceStore implements DanceRepository {
@@ -47,7 +48,8 @@ export class MemoryDanceStore implements DanceRepository {
     this.onCommit = null;
     for (const v of f) {
       const allowed =
-        v.sql === LOCAL_REVIEWER_ALLOWED_SQL
+        v.sql === LOCAL_REVIEWER_ALLOWED_SQL ||
+        v.sql === CAPTURED_REVIEWER_ALLOWED_SQL
           ? ![...this.controls.values()].some(
               (c) =>
                 c.communityId === v.values[0] &&
@@ -89,7 +91,12 @@ export class MemoryDanceStore implements DanceRepository {
       409,
     );
     this.guard(
-      localReviewerFences(r.capture.communityId, r.decision.preimage.reviewer),
+      localReviewerFences(
+        r.capture.communityId,
+        r.decision.preimage.reviewer,
+        r.capture.source.sourceHash,
+        true,
+      ),
     );
   }
   async assertDispatch(
@@ -291,6 +298,8 @@ export class MemoryDanceStore implements DanceRepository {
       ...localReviewerFences(
         i.review.capture.communityId,
         i.intent.preimage.reviewer,
+        i.review.capture.source.sourceHash,
+        true,
       ),
     ]);
     const r = this.records.get(i.review.reviewId)!;
