@@ -418,7 +418,23 @@ export class MediaAttemptController {
     const pending = record.pending;
     // Lost upload/retry acknowledgements read canonical job state first. A
     // receiving/queued/processing response never triggers another upload.
-    const status = await this.ports.client.status(record.status.id);
+    let status: MediaStatus;
+    try {
+      status = await this.ports.client.status(record.status.id);
+    } catch (error) {
+      if (
+        error instanceof MediaHttpError &&
+        [401, 403].includes(error.status)
+      ) {
+        // A refused read says nothing about the pending mutation's outcome.
+        // Preserve its exact command/dispatch witness, bytes and identity.
+        await this.update(
+          (current) => ({ ...current!, authenticationHold: true }),
+          active,
+        );
+      }
+      throw error;
+    }
     await this.accept(status, active);
     active.assert();
     if (pending === "upload" && status.state === "uploading")
@@ -429,9 +445,16 @@ export class MediaAttemptController {
       return;
     }
   }
-  restore() {
+  restore(options: { reconcileHeld?: boolean } = {}) {
     return this.exclusive(async (active) => {
-      if (this.record) await this.reconcile(active);
+      // Automatic host restoration can display a durable reconnect hold
+      // without retrying it. Explicit same-owner reconciliation keeps the
+      // existing default behavior and uses the transport's fresh CSRF/session.
+      if (
+        this.record &&
+        !(this.record.authenticationHold && options.reconcileHeld === false)
+      )
+        await this.reconcile(active);
       return this.record;
     });
   }
@@ -514,6 +537,9 @@ export class MediaAttemptController {
   }
   refresh() {
     return this.exclusive(async (active) => {
+      // Background polling cannot release an authentication hold. Only an
+      // explicit restore/submit/start-over reconciliation may do so.
+      if (this.require().authenticationHold) return this.require().status;
       await this.reconcile(active);
       return this.require().status;
     });

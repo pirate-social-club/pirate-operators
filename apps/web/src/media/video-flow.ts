@@ -224,7 +224,7 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
   const operations: ComposerOperations = {
     async restore(signal) {
       try {
-        await controller.restore();
+        await controller.restore({ reconcileHeld: false });
       } catch (error) {
         if (!controller.current) throw error;
       }
