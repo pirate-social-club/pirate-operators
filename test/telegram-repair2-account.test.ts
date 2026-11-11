@@ -12,6 +12,7 @@ import {
 import { TelegramGrants } from "../services/telegram-grants.ts";
 import { TelegramLinking } from "../services/telegram-linking.ts";
 import { TelegramSqlJournal } from "../services/telegram-store.ts";
+import { managedFixture } from "./telegram-managed-fixture.ts";
 
 async function jsonObject(response: Response) {
   const value: unknown = await response.json();
@@ -40,27 +41,32 @@ async function httpFixture() {
     if (!owner) throw new TelegramError("fixture_account_mismatch", 403);
     return owner;
   };
+  let enabled = true;
   const mount = (linking: TelegramLinking) =>
-    telegramCommunityRoutes(linking, {
-      origin: "https://community.example",
-      scope: actor,
-      async account(request) {
-        const session = request.headers
-          .get("cookie")
-          ?.split(";")
-          .map((value) => value.trim())
-          .find((value) => value.startsWith("fixture-session="))
-          ?.slice("fixture-session=".length);
-        const owner = identities.find((value) => value.sessionId === session);
-        if (!owner) throw new TelegramError("fixture_session_required", 401);
-        return owner;
+    telegramCommunityRoutes(
+      linking,
+      {
+        origin: "https://community.example",
+        scope: actor,
+        async account(request) {
+          const session = request.headers
+            .get("cookie")
+            ?.split(";")
+            .map((value) => value.trim())
+            .find((value) => value.startsWith("fixture-session="))
+            ?.slice("fixture-session=".length);
+          const owner = identities.find((value) => value.sessionId === session);
+          if (!owner) throw new TelegramError("fixture_session_required", 401);
+          return owner;
+        },
+        async csrf(request, owner) {
+          return (
+            request.headers.get("x-csrf-token") === `csrf-${owner.accountId}`
+          );
+        },
       },
-      async csrf(request, owner) {
-        return (
-          request.headers.get("x-csrf-token") === `csrf-${owner.accountId}`
-        );
-      },
-    });
+      managedFixture(linking.grants, { ...actor, enabled }).publication,
+    );
   let routes = mount(f.linking);
   const http = (
     owner: WebAccount,
@@ -79,7 +85,17 @@ async function httpFixture() {
           "x-csrf-token": `csrf-${owner.accountId}`,
           "content-type": "application/json",
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(body === undefined && method !== "DELETE"
+          ? {}
+          : {
+              body: JSON.stringify(
+                body ?? {
+                  operationId: crypto.randomUUID(),
+                  expectedGrantId:
+                    f.grants.forAccount(actor, owner.accountId)?.id ?? null,
+                },
+              ),
+            }),
       }),
     );
   async function link(owner: WebAccount, who = actor) {
@@ -105,6 +121,11 @@ async function httpFixture() {
     second,
     http,
     link,
+    async disable() {
+      enabled = false;
+      await managedFixture(f.grants, { ...actor, enabled }).publication.ready();
+      routes = mount(f.linking);
+    },
     restart() {
       const grants = new TelegramGrants(
         new TelegramSqlJournal(f.storage),
@@ -138,8 +159,7 @@ for (const stale of ["none", "before-relink", "after-relink", "disabled-bot"])
     const indexAfterRelink = f.store.get(indexA);
     if (stale === "after-relink" || stale === "disabled-bot")
       f.store.set(indexA, senderKey); // Previously preserved stale-index state.
-    if (stale === "disabled-bot")
-      f.grants.configure({ ...actor, enabled: false });
+    if (stale === "disabled-bot") await f.disable();
     f.restart();
     const grantB = f.grants.read(actor)!;
     const statusA = await f.http(account, "/api/telegram/connection");
@@ -174,11 +194,20 @@ for (const stale of ["none", "before-relink", "after-relink", "disabled-bot"])
         unlinked: false,
       },
     );
-    assert.deepEqual(statusBodyA, {
-      connected: false,
-      linkedAt: null,
-      preferences: null,
-    });
+    assert.deepEqual(
+      {
+        connected: statusBodyA.connected,
+        linkedAt: statusBodyA.linkedAt,
+        preferences: statusBodyA.preferences,
+        grantId: statusBodyA.grantId,
+      },
+      {
+        connected: false,
+        linkedAt: null,
+        preferences: null,
+        grantId: null,
+      },
+    );
     assert.equal(patchBodyA.error, "telegram_connection_required");
     assert.deepEqual(prefsAfterA, prefsBefore);
     if (stale === "none" || stale === "before-relink")

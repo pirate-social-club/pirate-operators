@@ -16,6 +16,7 @@ import {
   TELEGRAM_CONNECT_COOKIE,
 } from "../services/telegram-http.ts";
 import { telegramBrokerClient } from "../services/telegram-broker-client.ts";
+import { managedFixture } from "./telegram-managed-fixture.ts";
 
 test("independent signed Telegram proof creates one durable narrow grant; browser logout is not bot logout", async (t) => {
   const f = await linkFixture();
@@ -307,12 +308,16 @@ test("unlink blocks old completion replays and concurrent retry cannot resurrect
 test("community HTTP requires existing session and CSRF; signup alone has no link; broker uses confidential backchannel", async (t) => {
   const f = await linkFixture();
   t.after(f.dispose);
-  const routes = telegramCommunityRoutes(f.linking, {
-    origin: "https://community.example",
-    scope: actor,
-    account: async () => account,
-    csrf: async (request) => request.headers.get("x-csrf") === "fixture-csrf",
-  });
+  const routes = telegramCommunityRoutes(
+    f.linking,
+    {
+      origin: "https://community.example",
+      scope: actor,
+      account: async () => account,
+      csrf: async (request) => request.headers.get("x-csrf") === "fixture-csrf",
+    },
+    managedFixture(f.grants).publication,
+  );
   const status = await routes(
     new Request("https://community.example/api/telegram/connection"),
   );

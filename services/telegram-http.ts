@@ -2,7 +2,6 @@ import {
   TelegramError,
   telegramCheck,
   type BotScope,
-  type TelegramGrant,
   type WebAccount,
 } from "../packages/telegram/contracts.ts";
 import type { NotificationPreferences } from "../packages/telegram/contracts.ts";
@@ -17,6 +16,7 @@ import {
 } from "../packages/telegram/security.ts";
 import type { TelegramLoginBroker } from "./telegram-broker.ts";
 import type { TelegramLinking } from "./telegram-linking.ts";
+import { TelegramManagedPublication } from "./telegram-managed-publication.ts";
 
 export const TELEGRAM_CONNECT_COOKIE = "__Host-telegram-connect";
 export const TELEGRAM_BROKER_COOKIE = "__Host-telegram-broker";
@@ -27,8 +27,6 @@ export interface TelegramWebPorts {
   account(request: Request): Promise<WebAccount>;
   /** Existing session-bound CSRF check; absence never becomes approval. */
   csrf(request: Request, account: WebAccount): Promise<boolean>;
-  /** Required on the connected publisher mount: waits for durable operator denial. */
-  beforeUnlink?(grant: TelegramGrant): Promise<void>;
 }
 function query(url: URL, key: string) {
   const values = url.searchParams.getAll(key);
@@ -76,6 +74,7 @@ const string = (value: unknown) => {
 export function telegramCommunityRoutes(
   linking: TelegramLinking,
   ports: TelegramWebPorts,
+  publication?: TelegramManagedPublication,
 ) {
   const origin = httpsOrigin(ports.origin);
   return async (request: Request): Promise<Response> => {
@@ -83,6 +82,13 @@ export function telegramCommunityRoutes(
     try {
       const url = new URL(request.url);
       telegramCheck(url.origin === origin, "telegram_wrong_origin", 403);
+      telegramCheck(
+        publication instanceof TelegramManagedPublication &&
+          publication.grants === linking.grants,
+        "telegram_managed_publication_required",
+        503,
+      );
+      await publication.ready();
       const account = await ports.account(request);
       telegramCheck(
         account.communityId === ports.scope.communityId,
@@ -102,6 +108,11 @@ export function telegramCommunityRoutes(
           const grant = linking.connection(ports.scope, account.accountId);
           return reply({
             connected: !!grant,
+            grantId: grant?.id ?? null,
+            unlinkOperation: publication.unlinkStatus(
+              ports.scope,
+              account.accountId,
+            ),
             linkedAt: grant?.linkedAt ?? null,
             preferences: grant
               ? linking.grants.preferences({
@@ -113,19 +124,24 @@ export function telegramCommunityRoutes(
           });
         }
         if (request.method === "DELETE") {
-          const prior = linking.connection(ports.scope, account.accountId);
-          if (prior && ports.beforeUnlink) {
-            await ports.beforeUnlink(prior);
-            const current = linking.connection(ports.scope, account.accountId);
-            telegramCheck(
-              current === null || current.id === prior.id,
-              "telegram_authority_changed",
-              409,
-            );
-          }
-          return reply({
-            unlinked: linking.grants.unlink(ports.scope, account.accountId),
-          });
+          const input = fields(await readJson(request, 1024), [
+            "operationId",
+            "expectedGrantId",
+          ]);
+          telegramCheck(
+            input.expectedGrantId === null ||
+              typeof input.expectedGrantId === "string",
+            "telegram_input_invalid",
+          );
+          return reply(
+            await publication.unlink(ports.scope, account.accountId, {
+              operationId: string(input.operationId),
+              expectedGrantId:
+                input.expectedGrantId === null
+                  ? null
+                  : string(input.expectedGrantId),
+            }),
+          );
         }
       }
       if (

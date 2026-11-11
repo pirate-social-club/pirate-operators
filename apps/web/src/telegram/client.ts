@@ -1,7 +1,22 @@
 export interface TelegramConnectionView {
   connected: boolean;
+  grantId: string | null;
+  unlinkOperation: {
+    operationId: string;
+    expectedGrantId: string | null;
+    complete: boolean;
+  } | null;
   linkedAt: number | null;
   preferences: { reminders: boolean; rewards: boolean; dance: boolean } | null;
+}
+export class TelegramRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  constructor(status: number, code: string | null) {
+    super(code ?? "Telegram is unavailable.");
+    this.status = status;
+    this.code = code;
+  }
 }
 export function telegramConnectionClient(options: {
   account: () => string;
@@ -9,6 +24,10 @@ export function telegramConnectionClient(options: {
   fetch?: typeof fetch;
 }) {
   const transport = options.fetch ?? fetch;
+  const unlinks = new Map<
+    string,
+    { operationId: string; expectedGrantId: string | null }
+  >();
   async function request<T>(
     path: string,
     method = "GET",
@@ -38,7 +57,7 @@ export function telegramConnectionClient(options: {
       ...(value === undefined ? {} : { body: JSON.stringify(value) }),
     });
     assertAccount();
-    let body;
+    let body: unknown;
     try {
       body = await response.json();
     } finally {
@@ -46,18 +65,64 @@ export function telegramConnectionClient(options: {
       // both the result and parse/read errors before exposing either to callers.
       assertAccount();
     }
-    if (!response.ok)
-      throw new Error(
+    if (!response.ok) {
+      const code =
+        body !== null &&
+        typeof body === "object" &&
+        "error" in body &&
         typeof body.error === "string"
           ? body.error
-          : "Telegram is unavailable.",
-      );
+          : null;
+      throw new TelegramRequestError(response.status, code);
+    }
     return body as T;
   }
   return {
     status: () => request<TelegramConnectionView>("/api/telegram/connection"),
-    unlink: () =>
-      request<{ unlinked: boolean }>("/api/telegram/connection", "DELETE"),
+    async unlink() {
+      const account = options.account();
+      let operation = unlinks.get(account);
+      if (!operation) {
+        const status = await request<TelegramConnectionView>(
+          "/api/telegram/connection",
+        );
+        if (options.account() !== account)
+          throw new Error("The signed-in account changed. Try again.");
+        const previous = status.unlinkOperation;
+        operation =
+          previous &&
+          (!previous.complete ||
+            previous.expectedGrantId === status.grantId ||
+            !status.connected)
+            ? {
+                operationId: previous.operationId,
+                expectedGrantId: previous.expectedGrantId,
+              }
+            : {
+                operationId: crypto.randomUUID(),
+                expectedGrantId: status.grantId,
+              };
+        unlinks.set(account, operation);
+      }
+      try {
+        const result = await request<{ unlinked: boolean }>(
+          "/api/telegram/connection",
+          "DELETE",
+          operation,
+        );
+        if (unlinks.get(account) === operation) unlinks.delete(account);
+        return result;
+      } catch (error) {
+        if (
+          error instanceof TelegramRequestError &&
+          error.status === 409 &&
+          error.code === "telegram_unlink_predecessor_changed" &&
+          unlinks.get(account) === operation
+        )
+          unlinks.delete(account);
+        throw error;
+      }
+    },
     preferences: (value: NonNullable<TelegramConnectionView["preferences"]>) =>
       request("/api/telegram/notifications", "PATCH", value),
     start: (reference: string) =>
