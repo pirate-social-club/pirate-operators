@@ -5,6 +5,26 @@ export interface LearningRequestEvidence {
   readonly method: "GET" | "POST";
   readonly endpointStatus?: number;
 }
+/** Producer trace at 1ff2d5e: these auth/Origin/CSRF failures are returned
+ * before karaokeTicket runs. Its reservation catch maps ANY exception to409,
+ * and authorization may also fail after reservation, so no409 code is proof.
+ * A future refusal protocol needs separate reviewed producer evidence.
+ */
+export function ticketRefusedBeforeReservation(
+  status: number,
+  code: string,
+): boolean {
+  return (
+    (status === 401 && code === "session_required") ||
+    (status === 403 &&
+      [
+        "wrong_host",
+        "wrong_origin",
+        "cross_site_write",
+        "csrf_required",
+      ].includes(code))
+  );
+}
 export class LearningServiceError extends Error {
   readonly status: number;
   readonly code: string;
@@ -131,10 +151,9 @@ export async function learningRequest<T>(
                 : "This step could not complete. Retry the same step.";
     throw new LearningServiceError(response.status, code, message, {
       stage:
-        value &&
-        typeof value.error === "string" &&
-        response.status < 500 &&
-        response.status !== 408
+        method === "POST" &&
+        path === "/api/karaoke/tickets" &&
+        ticketRefusedBeforeReservation(response.status, code)
           ? "endpoint_refusal"
           : "response_uncertain",
       path,
