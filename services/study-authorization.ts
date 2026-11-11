@@ -26,6 +26,12 @@ import {
 import { closedStudyPublication } from "./study-private-publication.ts";
 import type { StudyBinding } from "./study-operator.ts";
 import type { Env } from "./runtime.ts";
+import {
+  commitLinkedBind,
+  linkedWithdrawalBindingWritten,
+  type LinkedBindCapture,
+} from "./study-linked-withdrawal.ts";
+import { pending } from "./study-linked-withdrawal-contract.ts";
 
 /** Stored in a V4 binding in place of a V3 enrollment. */
 export interface BoundAuthorization {
@@ -139,9 +145,22 @@ export async function bindAuthorizedLesson(
   offer: AnyStudyLessonOffer,
   target: ResultsTarget,
   hash: Hex,
+  linkedCapture?: LinkedBindCapture,
 ): Promise<StudyAuthorizationBinding> {
   const exercisesHash = validateStudyOffer(offer, store.now(), 4),
     v4 = offer as StudyLessonOfferV4;
+  const captured =
+    v4.speechChannel === "telegram-linked" ? linkedCapture : undefined;
+  if (v4.speechChannel === "telegram-linked") {
+    // The shared caller MUST capture before its resolver await, not merely
+    // before the chain reads below. Missing composition remains pending.
+    pending(
+      captured &&
+        captured.scope.communityId === env.COMMUNITY_ID &&
+        captured.scope.learner === v4.learner.toLowerCase() &&
+        sameResultsTarget(captured.scope.target, target),
+    );
+  }
   const state = await studyAuthorizationState(
     env,
     target,
@@ -154,6 +173,7 @@ export async function bindAuthorizedLesson(
   );
   check(state.unbroken, "study_authorization_required");
   const commit = () => {
+    if (captured) commitLinkedBind(store, captured, state.issuedAt);
     check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
     const telegram = studyTelegramPublication(v4, target, env.COMMUNITY_ID);
     check(
@@ -192,6 +212,12 @@ export async function bindAuthorizedLesson(
       },
     };
     store.set(`studyBinding:${v4.lessonId}`, binding);
+    if (captured)
+      linkedWithdrawalBindingWritten(
+        store,
+        `studyBinding:${v4.lessonId}`,
+        binding,
+      );
     return binding;
   };
   if (v4.speechChannel === "telegram-linked") {

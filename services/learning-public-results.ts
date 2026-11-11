@@ -23,6 +23,36 @@ import {
 } from "./learning-sign-in.ts";
 import { call } from "./service-call.ts";
 import type { StudyEnv } from "./study-community.ts";
+import {
+  beginAuthorityAction,
+  authorityReady,
+  readAuthorityState,
+  type AuthorityAction,
+} from "../packages/community-setup/authority-ledger.ts";
+import {
+  progressAuthorityAction,
+  type AuthorityRecoveryPorts,
+} from "../packages/community-setup/authority-recovery.ts";
+
+/** Internal connected-selection mount only. The existing website consent and
+ * account APIs below retain their behavior. The shared authenticated route
+ * supplies the distinct action identity/predecessor and required signed bridge;
+ * this function never interprets a browser payload as that authority. */
+export async function connectedPublicResultsAction(
+  db: D1Database,
+  action: AuthorityAction,
+  ports: AuthorityRecoveryPorts,
+) {
+  const local = {
+    ...ports,
+    closeLocal: (accountId: string) =>
+      closeWithdrawnStudyLessons(db, accountId, action.atMs),
+  };
+  const op = await beginAuthorityAction(db, action, local);
+  const result = await progressAuthorityAction(db, op.operation_id, local);
+  authorityReady(!(await readAuthorityState(db, action.accountId)).pending);
+  return result;
+}
 
 interface Learner {
   account_id: string;
