@@ -17,6 +17,7 @@ import {
   enqueue,
   intentOf,
   txRow,
+  WITHHELD_SETTLEMENT_DEPTH,
   type SendGate,
 } from "../services/operator-tx.ts";
 import { legacyResultGate } from "../services/learning-transactions.ts";
@@ -42,7 +43,9 @@ function rpc() {
   const saved = globalThis.fetch,
     sent: Hex[] = [];
   let receipt: unknown = null,
-    safeReads = 0;
+    safeReads = 0,
+    head = 100,
+    nextOperatorNonce = 0;
   const chain = { cutoff: 500n, nonce: 1n };
   globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
     const { id, method, params } = JSON.parse(String(init?.body));
@@ -106,10 +109,10 @@ function rpc() {
         result = "0x1";
         break;
       case "eth_getTransactionCount":
-        result = "0x0";
+        result = "0x" + nextOperatorNonce.toString(16);
         break;
       case "eth_blockNumber":
-        result = "0x64";
+        result = "0x" + head.toString(16);
         break;
       case "eth_getTransactionReceipt":
         result = receipt;
@@ -131,12 +134,16 @@ function rpc() {
     chain,
     safeReads: () => safeReads,
     mine: () => {
+      nextOperatorNonce = 1;
       receipt = {
         status: "0x1",
         blockNumber: "0x64",
         transactionHash: keccak256(sent[0]),
         logs: [],
       };
+    },
+    advance: () => {
+      head += WITHHELD_SETTLEMENT_DEPTH;
     },
     restore: () => {
       globalThis.fetch = saved;
@@ -266,6 +273,9 @@ test("attempted original remains receipt-only after permanent original denial wi
     await dispatch(f.env, f.store, "record_result", f.ref, undefined, gate);
     assert.equal(node.sent.length, 1);
     node.mine();
+    await dispatch(f.env, f.store, "record_result", f.ref, undefined, gate);
+    assert.equal(txRow(f.store, nonce)!.mined, null);
+    node.advance();
     await dispatch(f.env, f.store, "record_result", f.ref, undefined, gate);
     const reconciled = txRow(f.store, nonce)!;
     assert.equal(reconciled.mined?.status, "success");
