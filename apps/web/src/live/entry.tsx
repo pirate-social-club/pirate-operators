@@ -15,8 +15,10 @@ import {
 import "./style.css";
 import {
   CommunityComposerHost,
+  CommunityPendingSongs,
   type CommunityHostContext,
 } from "../media/community-host.tsx";
+import { createCommunityComposerScope } from "../media/community-composer-scope.ts";
 import { LearningPageMount } from "./learning-pages.tsx";
 import { createLearningActionOwner } from "./learning-action-owner.ts";
 import { StudyLoading } from "../study/screen.tsx";
@@ -139,6 +141,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     song: { postId: string; title: string },
     lessonId?: string,
   ) {
+    composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
     const url = activityUrl(new URL(location.href), "study", song.postId);
@@ -151,6 +154,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setStudying(song);
   }
   function openSing(song: { postId: string; title: string }) {
+    composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
     const url = activityUrl(new URL(location.href), "sing", song.postId);
@@ -225,6 +229,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     // resumed capture never mounts twice for one browser action.
     if (lastLocation === location.href) return;
     lastLocation = location.href;
+    if (view() === "publish") composerRuntime.viewClosed();
     setView(appView(location.hash));
     setFragment(location.hash);
     actionOwner.clear();
@@ -291,9 +296,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     }
     if (
       before?.mossAddress !== next?.mossAddress ||
+      before?.authorId !== next?.authorId ||
       before?.csrf !== next?.csrf
-    )
+    ) {
+      composerRuntime.invalidate();
       actionOwner.clear();
+    }
     setSession(next);
   }
   async function refresh() {
@@ -373,6 +381,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     await refreshSession();
   }
   async function signIn() {
+    composerRuntime.invalidate();
     setSettling(true);
     try {
       await settleSignIn();
@@ -436,8 +445,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     const caps = capabilities(),
       songs = feed();
     if (
-      view() !== "publish" ||
-      practiceOpen() ||
       !config ||
       !current ||
       !accountId ||
@@ -475,6 +482,19 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       feed: songs,
     };
   };
+  // One application Solid owner. No route/renderer/getter constructs a scope.
+  const composerRuntime = createCommunityComposerScope({
+    current: composerContext,
+    refreshFeed: async () => {
+      const owner = composerRuntime.runtime();
+      if (!owner) return;
+      const posts = await get<CommunityFeed>("/api/feed");
+      if (!owner.active()) return;
+      if (posts.schema !== "pirate.community-feed/1" || posts.communityId !== owner.owner.communityId)
+        throw new Error("The published feed changed community.");
+      setFeed(posts);
+    },
+  });
   const profileSignIn = async () => {
     await run(signIn);
     if (!session()) throw new Error("Sign in was not completed.");
@@ -485,6 +505,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     if (!current || busy() || settling())
       throw new Error("Sign out is unavailable.");
     setBusy(true);
+    composerRuntime.invalidate();
     profileIntegration.controller()?.clear();
     try {
       await post("/api/logout", {}, current.csrf);
@@ -661,6 +682,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 void run(async () => {
                   const current = session();
                   if (!current) return;
+                  composerRuntime.invalidate();
                   await post("/api/logout", {}, current.csrf);
                   setSession(null);
                   actionOwner.clear();
@@ -680,19 +702,20 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                       })
                   : undefined
               }
+              pendingSongs={() => (
+                <CommunityPendingSongs
+                  scope={composerRuntime}
+                  onOpenStatus={() => location.assign("/#/publish")}
+                />
+              )}
+              pendingSongCount={composerRuntime.count()}
               composer={() => (
                 <CommunityComposerHost
                   open={view() === "publish"}
-                  current={composerContext}
+                  scope={composerRuntime}
                   onOpenChange={(open) => {
                     if (!open) location.assign("/#/");
                   }}
-                  refreshFeed={refresh}
-                  onCloseRefused={() =>
-                    setStatus(
-                      "Stop the current upload before closing the composer.",
-                    )
-                  }
                 />
               )}
             />

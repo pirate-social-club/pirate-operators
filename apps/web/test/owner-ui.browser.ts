@@ -172,7 +172,7 @@ for (const status of [401, 403, 429])
     await expect(state).not.toContainText("private-fixture-account");
     expect(result).toEqual({ errors: [], unexpected: [] });
   });
-for (const kind of ["media-storage", "media-host", "media-composer"])
+for (const kind of ["media-storage", "media-host", "media-composer", "media-shell", "media-shell-profile"])
   test(`actual native community ${kind} preserves original scope and source controls`, async ({
     page,
   }) => {

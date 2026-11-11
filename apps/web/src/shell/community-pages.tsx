@@ -40,6 +40,8 @@ export interface CommunityPagesProps {
   integrations?: ShellIntegrations;
   context: () => ShellFeatureContext;
   composer?: () => JSX.Element;
+  pendingSongs?: () => JSX.Element;
+  pendingSongCount?: number;
   onSignIn: () => void;
   onSignOut: () => void;
   onRefresh: () => void;
@@ -89,6 +91,7 @@ export function CommunityPages(props: CommunityPagesProps) {
   };
   const feedLead = () => (
     <>
+      {props.pendingSongs?.()}
       {props.integrations?.drawSummary?.(props.context())}
       {props.integrations?.publicFeed?.(props.context())}
     </>
@@ -152,8 +155,9 @@ export function CommunityPages(props: CommunityPagesProps) {
             </Show>
           }
           composer={props.view === "publish" ? props.composer : undefined}
+          feedLeadCount={props.pendingSongCount ?? 0}
           feedLead={
-            props.integrations?.drawSummary || props.integrations?.publicFeed
+            (props.pendingSongCount ?? 0) > 0 || props.integrations?.drawSummary || props.integrations?.publicFeed
               ? feedLead
               : undefined
           }

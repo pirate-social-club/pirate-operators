@@ -12,6 +12,8 @@ import { runDanceStorageBrowserCases } from "./dance-source-storage.browser.ts";
 import { runCommunityStorageBrowserCases } from "./media-community-storage.browser.ts";
 import { runCommunityHostBrowserCase } from "./media-community-host.browser.tsx";
 import { runCommunityComposerBrowserCase } from "./media-community-composer.browser.tsx";
+import { runCommunityShellLifetimeBrowserCases } from "./media-community-shell-lifetime.browser.tsx";
+import { runCommunityShellProfileBrowserCase } from "./media-community-shell-profile.browser.tsx";
 import storageWorkerUrl from "./media-community-storage.worker.ts?worker&url";
 import "./owner-ui.fixture.css";
 
@@ -95,7 +97,11 @@ function MediaCases(props: { kind: string }) {
   const run = () => {
     setStatus("running");
     const work =
-      props.kind === "media-storage"
+      props.kind === "media-shell-profile"
+        ? runCommunityShellProfileBrowserCase(root!)
+        : props.kind === "media-shell"
+        ? runCommunityShellLifetimeBrowserCases(root!)
+        : props.kind === "media-storage"
         ? runCommunityStorageBrowserCases(storageWorkerUrl)
         : props.kind === "media-host"
           ? runCommunityHostBrowserCase(root!)
@@ -160,6 +166,8 @@ function Fixture() {
   if (mode === "switch") return <ShellPlayerSwitchInput />;
   if (mode === "dance-storage") return <Storage />;
   if (
+    mode === "media-shell-profile" ||
+    mode === "media-shell" ||
     mode === "media-storage" ||
     mode === "media-host" ||
     mode === "media-composer"

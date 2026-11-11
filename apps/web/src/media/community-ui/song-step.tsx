@@ -4,7 +4,7 @@
 // Primary audio, Instrumental and Vocals are required; the title is prefilled
 // from ID3 or the filename and stays editable.
 
-import { createSignal, Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 
 import {
   Button,
@@ -62,8 +62,10 @@ export function SongStep(props: {
   };
 
   let fileSelection = 0;
+  let live = true;
+  onCleanup(() => { live = false; fileSelection++; });
   async function selectFile(file: File | undefined) {
-    if (!file || audioLocked()) return;
+    if (!live || !file || audioLocked()) return;
     const selection = ++fileSelection;
     const issue = publicSongAudioIssue(file);
     if (issue !== null) {
@@ -92,7 +94,7 @@ export function SongStep(props: {
         lyricsEditorState: "hidden",
       }));
     } catch {
-      setFileError("The audio file could not be read. Choose it again.");
+      if (live && selection === fileSelection) setFileError("The audio file could not be read. Choose it again.");
     } finally {
       if (selection === fileSelection) setReadingFile(false);
     }

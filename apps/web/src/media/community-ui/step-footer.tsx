@@ -5,7 +5,7 @@
 // The final step publishes exactly once through the host's submit runtime.
 
 import { Portal } from "@solidjs/web";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 
 import {
   Button,
@@ -47,6 +47,8 @@ export function PostComposerStepFooter(props: {
   const placement = () => props.placement ?? "fixed";
   const [preparing, setPreparing] = createSignal(false);
   let advancing = false;
+  let live = true;
+  onCleanup(() => { live = false; });
   let mobileBar: HTMLDivElement | undefined;
   let entered = false;
   createEffect(
@@ -95,7 +97,7 @@ export function PostComposerStepFooter(props: {
     // Signal writes are not visible to a second handler in the same tick.
     // This synchronous owner prevents a double click from starting a second
     // advance while the audio preparation is still awaiting its response.
-    if (advancing || !canAdvance()) return;
+    if (!live || advancing || !canAdvance()) return;
     advancing = true;
     const target = getNextComposerStep(
       props.steps.current(),
@@ -112,17 +114,17 @@ export function PostComposerStepFooter(props: {
         // is computed before the await because a successful upload re-seeds the
         // step state, which would otherwise advance a second time.
         setPreparing(true);
-        if (!(await props.runtime.prepare())) return;
+        if (!(await props.runtime.prepare()) || !live) return;
       }
     } catch {
       return;
     } finally {
       advancing = false;
-      setPreparing(false);
+      if (live) setPreparing(false);
     }
     // Release the operation before exposing the next step. An author can
     // legitimately continue as soon as that UI becomes visible.
-    props.steps.set(target);
+    if (live) props.steps.set(target);
   };
 
   const forward = () => (
