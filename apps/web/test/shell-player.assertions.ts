@@ -7,7 +7,15 @@ export async function assertCustomPlayerLifecycle(page: Page) {
   await expect(
     page.getByRole("button", { name: "Play Fixture song", exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("slider")).toBeDisabled();
+  const unavailableSlider = page.getByRole("slider");
+  await expect(unavailableSlider).toHaveAttribute("data-disabled", "");
+  await expect(unavailableSlider).not.toHaveAttribute("tabindex");
+  await unavailableSlider.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(audio).not.toHaveAttribute("src");
+  expect(
+    await audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+  ).toBe(0);
   await expect(page.locator("[data-song-time]")).toContainText("--:--");
   await page
     .getByRole("button", { name: "Play Fixture song", exact: true })
