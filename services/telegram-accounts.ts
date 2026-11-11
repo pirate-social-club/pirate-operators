@@ -112,13 +112,20 @@ export function telegramWebAccountPorts(options: {
     origin: options.origin,
     scope: options.scope,
     async account(request) {
+      // Session failures remain authentication failures. Authority errors are
+      // handled only AFTER a real existing community session was established.
+      let session: Awaited<ReturnType<typeof accountSession>>;
       try {
-        const session = await accountSession(
+        session = await accountSession(
           request,
           options.db,
           context,
           (options.now ?? Date.now)(),
         );
+      } catch {
+        throw new TelegramError("telegram_session_required", 401);
+      }
+      try {
         const identity = await options.accounts.current(
           context.communityId,
           session.account_id,
@@ -129,7 +136,17 @@ export function telegramWebAccountPorts(options: {
           communityId: context.communityId,
           sessionId: session.session_hash,
         };
-      } catch {
+      } catch (error) {
+        if (error instanceof TelegramError && error.status === 503) throw error;
+        if (
+          error instanceof Error &&
+          error.message === "community_authority_pending" &&
+          "status" in error &&
+          error.status === 503 &&
+          "retryable" in error &&
+          error.retryable === true
+        )
+          throw new TelegramError("telegram_publication_pending", 503);
         throw new TelegramError("telegram_session_required", 401);
       }
     },

@@ -21,6 +21,15 @@ CREATE TABLE learning_authority_members(
  PRIMARY KEY(operation_id,authorization_id)
 );
 CREATE TABLE learning_authority_dirty(account_id TEXT PRIMARY KEY, updated_at INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1, error TEXT);
+CREATE TABLE learning_authority_withdrawals(
+ account_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('submitted','observed')),
+ nonce TEXT NOT NULL,subject TEXT NOT NULL,cutoff_ms INTEGER NOT NULL,
+ PRIMARY KEY(account_id,kind,nonce)
+);
+CREATE TRIGGER learning_authority_withdrawal_identity AFTER INSERT ON learning_authority_withdrawals
+ BEGIN INSERT INTO learning_authority_dirty(account_id,updated_at) VALUES(NEW.account_id,0)
+ ON CONFLICT(account_id) DO UPDATE SET updated_at=0,version=version+1; END;
+CREATE INDEX learning_authority_credential_subject ON credential_bindings(namespace,network,subject COLLATE NOCASE);
 CREATE TABLE learning_authority_original_heads(account_id TEXT PRIMARY KEY,revision INTEGER NOT NULL DEFAULT 0);
 INSERT INTO learning_authority_original_heads(account_id) SELECT DISTINCT account_id FROM learning_authorizations;
 ALTER TABLE learning_authorizations ADD COLUMN authority_epoch INTEGER NOT NULL DEFAULT 0;
