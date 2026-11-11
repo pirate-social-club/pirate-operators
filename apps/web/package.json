@@ -12,10 +12,11 @@
     "test": "node --test test/*.test.ts",
     "test:e2e": "playwright test",
     "check:reproducible": "node scripts/reproducible.ts",
-    "check": "npm run typecheck && npm test && npm run test:components && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet",
+    "check": "npm run typecheck && npm test && npm run test:components && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet && npm run test:e2e:owner-ui",
     "build:live": "vite build --config vite.live.config.ts",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
     "test:e2e:wallet": "vite build --config test/reward-wallet.vite.config.ts && playwright test --config test/reward-wallet.playwright.config.ts",
+    "test:e2e:owner-ui": "vite build --config test/owner-ui.vite.config.ts && playwright test --config test/owner-ui.playwright.config.ts",
     "test:components": "vitest run --config test/components.vitest.config.ts"
   },
   "dependencies": {
