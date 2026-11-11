@@ -151,7 +151,12 @@ export async function studyCommunityFixture(
         };
       },
     } as never;
-    const store = { ...f.store, now: () => Math.floor(now / 1000) };
+    const store = {
+      ...f.store,
+      now: () => Math.floor(now / 1000),
+      durableStudyWrite: async <T>(operation: () => T) =>
+        f.store.transaction(operation),
+    };
     const binding = {
       async fetch(input: RequestInfo | URL, init?: RequestInit) {
         const request = new Request(input, init);

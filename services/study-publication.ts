@@ -60,6 +60,7 @@ import type { StudyRevisionEvidence } from "./study-revisions.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 import {
   closedStudyPublication,
+  closedStudyReceipt,
   eraseNeverSubmittedStudy,
   proveNeverSubmittedStudy,
   studyNativeEvidence,
@@ -100,8 +101,7 @@ const durable = <T>(value: T): T =>
     ),
   );
 export const studyPublication = (store: ResultStore, id: string) =>
-  store.get<PublicationJob>(key(id))?.receipt ??
-  closedStudyPublication(store, id)?.receipt;
+  store.get<PublicationJob>(key(id))?.receipt ?? closedStudyReceipt(store, id);
 
 export function saveReceipt(
   store: ResultStore,
@@ -430,7 +430,7 @@ export async function resumeStudyPublication(
   id: string,
 ) {
   const closed = closedStudyPublication(store, id);
-  if (closed) return closed.receipt;
+  if (closed) return closedStudyReceipt(store, id)!;
   let job = store.get<PublicationJob>(key(id));
   check(job, "study_publication_not_found");
   retainedTarget(env, job.target);
@@ -560,7 +560,7 @@ export async function resumeStudyPublication(
   }
   const latest = store.get<PublicationJob>(key(id));
   const final = closedStudyPublication(store, id);
-  if (final) return final.receipt;
+  if (final) return closedStudyReceipt(store, id)!;
   if (
     latest?.receipt.state === "private" ||
     (latest?.receipt.state === "failed" &&
@@ -685,7 +685,7 @@ export async function publishStudyTerminal(
 ) {
   check(input && studyId(input.lessonId), "invalid_study_terminal");
   const closed = closedStudyPublication(store, input.lessonId);
-  if (closed) return closed.receipt;
+  if (closed) return closedStudyReceipt(store, input.lessonId)!;
   await freeze(env, store, input);
   return resumeStudyPublication(env, store, input.lessonId);
 }

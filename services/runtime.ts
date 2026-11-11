@@ -3,6 +3,7 @@ import type { Address, Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
 import { community } from "./community.ts";
 import { operator } from "./operator.ts";
+import { linkedBindingCleanupAlarm } from "./study-binding-retention.ts";
 import { studyPublicationAlarm } from "./study-publication-recovery.ts";
 import { onClose, onMessage, tick } from "./karaoke.ts";
 import { communityTick } from "./community-purchases.ts";
@@ -12,7 +13,10 @@ import { body, signatureChainId } from "./service-call.ts";
 export { body, call, signatureChainId } from "./service-call.ts";
 import { attest } from "./very.ts";
 import type { SpeechBudget } from "./speech-budget.ts";
-import { isLearningProfile, admittedLearningProfile } from "./learning-profile.ts";
+import {
+  isLearningProfile,
+  admittedLearningProfile,
+} from "./learning-profile.ts";
 
 export interface Env {
   STATE: DurableObjectNamespace<ServiceState>;
@@ -72,52 +76,8 @@ export interface Env {
   /** The community's own database; the community needs no Durable Object. */
   DB?: D1Database;
 }
-export class Store {
-  readonly sql: SqlStorage;
-  constructor(
-    private readonly storage: DurableObjectStorage,
-    readonly initialNow = 1800000000,
-    private readonly liveClock = false,
-  ) {
-    this.sql = storage.sql;
-    this.sql.exec(
-      "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
-    );
-  }
-  get<T>(key: string): T | undefined {
-    const row = this.sql
-      .exec<{ value: string }>("SELECT value FROM records WHERE key = ?", key)
-      .toArray()[0];
-    return row ? (JSON.parse(row.value) as T) : undefined;
-  }
-  set(key: string, value: unknown) {
-    this.sql.exec(
-      "INSERT OR REPLACE INTO records VALUES (?, ?)",
-      key,
-      JSON.stringify(value),
-    );
-  }
-  delete(key: string) {
-    this.sql.exec("DELETE FROM records WHERE key = ?", key);
-  }
-  entries(prefix: string) {
-    return this.sql
-      .exec<{ key: string; value: string }>(
-        "SELECT key, value FROM records WHERE key LIKE ? ORDER BY key",
-        `${prefix}%`,
-      )
-      .toArray()
-      .map((r) => ({ key: r.key, value: JSON.parse(r.value) as unknown }));
-  }
-  now() {
-    if (this.liveClock) return Math.floor(Date.now() / 1000);
-    return this.get<number>("clock") ?? this.initialNow;
-  }
-  /** Runs every write in `fn` as one SQLite transaction: all of them land, or none. */
-  transaction<T>(fn: () => T): T {
-    return this.storage.transactionSync(fn);
-  }
-}
+import { Store } from "./operator-store.ts";
+export { Store } from "./operator-store.ts";
 export class ServiceState extends DurableObject<Env> {
   readonly store: Store;
   constructor(ctx: DurableObjectState, env: Env) {
@@ -127,6 +87,13 @@ export class ServiceState extends DurableObject<Env> {
       Number(env.INITIAL_NOW ?? 1800000000),
       isLearningProfile(env),
     );
+    ctx.blockConcurrencyWhile(async () => {
+      if (
+        this.store.hasLinkedStudyBinding() &&
+        (await ctx.storage.getAlarm()) === null
+      )
+        await ctx.storage.setAlarm(Date.now() + 5000);
+    });
   }
   async fetch(request: Request): Promise<Response> {
     try {
@@ -194,21 +161,62 @@ export class ServiceState extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(due);
   }
   async alarm() {
-    try { await tick(this.env, this.store); }
-    finally {
+    try {
+      await tick(this.env, this.store);
+    } finally {
       // Reconcile unknown receipts and abandoned takes independently of browsers.
       const attempts = this.store.entries("attempt:");
-      const pending = attempts.some(({ key, value }) => !(value as { finalized?: boolean }).finalized ||
-        ((publication) => publication?.state === "pending" || (publication?.state === "published" && !publication.confirmed))(
-          this.store.get<{ state: string; confirmed?: boolean }>(`publicationV2:${key.slice(8)}`)));
-      const unsettled = this.store.entries("tx:").some(({ value }) => !(value as { mined: unknown }).mined);
-      const authorizations = this.store.entries("pendingEnrollment:").length > 0 || this.store.entries("pendingAuthorization:").length > 0 || this.store.entries("revocationIntent:").some(({ value }) => (value as { pending: boolean }).pending);
-      const expiries = [...this.store.entries("history:"), ...this.store.entries("studySpeech:")].map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
-      const audits = this.store.entries("publicationV2:").map(({ value }) => value as { state: string; confirmed?: boolean; checkedAt?: number })
-        .filter((publication) => publication.state === "published" && publication.confirmed)
-        .map((publication) => ((publication.checkedAt ?? this.store.now()) + 3600) * 1000);
-      const due = Math.min(...expiries, ...audits, ...studyPublicationAlarm(this.store), pending ? Date.now() + 5000 : unsettled || authorizations ? Date.now() + 30000 : Infinity);
-      if (Number.isFinite(due)) await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
+      const pending = attempts.some(
+        ({ key, value }) =>
+          !(value as { finalized?: boolean }).finalized ||
+          ((publication) =>
+            publication?.state === "pending" ||
+            (publication?.state === "published" && !publication.confirmed))(
+            this.store.get<{ state: string; confirmed?: boolean }>(
+              `publicationV2:${key.slice(8)}`,
+            ),
+          ),
+      );
+      const unsettled = this.store
+        .entries("tx:")
+        .some(({ value }) => !(value as { mined: unknown }).mined);
+      const authorizations =
+        this.store.entries("pendingEnrollment:").length > 0 ||
+        this.store.entries("pendingAuthorization:").length > 0 ||
+        this.store
+          .entries("revocationIntent:")
+          .some(({ value }) => (value as { pending: boolean }).pending);
+      const expiries = [
+        ...this.store.entries("history:"),
+        ...this.store.entries("studySpeech:"),
+      ].map(({ value }) => (value as { expiresAt: number }).expiresAt * 1000);
+      const audits = this.store
+        .entries("publicationV2:")
+        .map(
+          ({ value }) =>
+            value as { state: string; confirmed?: boolean; checkedAt?: number },
+        )
+        .filter(
+          (publication) =>
+            publication.state === "published" && publication.confirmed,
+        )
+        .map(
+          (publication) =>
+            ((publication.checkedAt ?? this.store.now()) + 3600) * 1000,
+        );
+      const due = Math.min(
+        ...expiries,
+        ...audits,
+        ...studyPublicationAlarm(this.store),
+        linkedBindingCleanupAlarm(this.store),
+        pending
+          ? Date.now() + 5000
+          : unsettled || authorizations
+            ? Date.now() + 30000
+            : Infinity,
+      );
+      if (Number.isFinite(due))
+        await this.ctx.storage.setAlarm(Math.max(Date.now() + 1000, due));
     }
   }
 }

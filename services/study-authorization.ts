@@ -153,7 +153,7 @@ export async function bindAuthorizedLesson(
     "study_authorization_mismatch",
   );
   check(state.unbroken, "study_authorization_required");
-  return store.transaction(() => {
+  const commit = () => {
     check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
     const telegram = studyTelegramPublication(v4, target, env.COMMUNITY_ID);
     check(
@@ -193,5 +193,10 @@ export async function bindAuthorizedLesson(
     };
     store.set(`studyBinding:${v4.lessonId}`, binding);
     return binding;
-  });
+  };
+  if (v4.speechChannel === "telegram-linked") {
+    check(store.durableStudyWrite, "study_binding_wake_unconfigured");
+    return store.durableStudyWrite(commit);
+  }
+  return store.transaction(commit);
 }

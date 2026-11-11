@@ -64,6 +64,7 @@ import {
   ticketAuthorization,
 } from "./learning-results.ts";
 import type { Enrollment } from "../packages/protocol/learning-results.ts";
+import { sweepLinkedStudyBindings } from "./study-binding-retention.ts";
 import { expireStudySpeech } from "./study-operator.ts";
 import {
   resumeStudyPublications,
@@ -283,6 +284,7 @@ async function advance(env: Env, store: Store, ticketId: string) {
 export async function tick(env: Env, store: Store) {
   expireLearnerHistory(store);
   expireStudySpeech(store);
+  await sweepLinkedStudyBindings(env, store).catch(() => undefined);
   if (env.RESULTS_V3_CONTRACT || env.RESULTS_V4_CONTRACT)
     await resumeStudyPublications(env, store);
   if (env.RESULTS_V2_CONTRACT) await resumeEnrollments(env, store);
@@ -369,10 +371,29 @@ export async function karaokeRoute(
   }
   if (url.pathname === "/enrollment/request") {
     check(env.RESULTS_V2_CONTRACT, "results_unconfigured");
-    const { learner, target, activity } = await body<{ learner: Address; target?: ResultsTarget; activity?: "study" }>(request);
-    check(activity === undefined || activity === "study", "unsupported_activity");
-    const destination = target ? retainedTarget(env, target) : activity === "study" ? resultsTarget(env, 3) : enrollmentResultsTarget(env);
-    return Response.json(await enrollmentForPractice(env, store, learner, destination, activity === "study" ? 2 : 1));
+    const { learner, target, activity } = await body<{
+      learner: Address;
+      target?: ResultsTarget;
+      activity?: "study";
+    }>(request);
+    check(
+      activity === undefined || activity === "study",
+      "unsupported_activity",
+    );
+    const destination = target
+      ? retainedTarget(env, target)
+      : activity === "study"
+        ? resultsTarget(env, 3)
+        : enrollmentResultsTarget(env);
+    return Response.json(
+      await enrollmentForPractice(
+        env,
+        store,
+        learner,
+        destination,
+        activity === "study" ? 2 : 1,
+      ),
+    );
   }
   if (url.pathname === "/enrollment/revoke") {
     const { learner, nonce, signature, target } = await body<{
@@ -381,8 +402,11 @@ export async function karaokeRoute(
       signature?: Hex;
       target?: ResultsTarget;
     }>(request);
-    const destination = target ? retainedTarget(env, target) : enrollmentResultsTarget(env);
-    if (!signature) return Response.json(await revocationRequest(env, learner, destination));
+    const destination = target
+      ? retainedTarget(env, target)
+      : enrollmentResultsTarget(env);
+    if (!signature)
+      return Response.json(await revocationRequest(env, learner, destination));
     check(nonce !== undefined, "nonce_required");
     const row = await acceptRevocation(
       env,
@@ -395,7 +419,11 @@ export async function karaokeRoute(
     return Response.json({ state: row?.mined?.status ?? "pending" });
   }
   if (url.pathname === "/enrollment") {
-    const { enrollment: input, signature, target } = await body<{
+    const {
+      enrollment: input,
+      signature,
+      target,
+    } = await body<{
       enrollment: Record<string, string>;
       signature: Hex;
       target?: ResultsTarget;
@@ -408,8 +436,13 @@ export async function karaokeRoute(
       expiresAt: BigInt(input.expiresAt),
       nonce: BigInt(input.nonce),
     };
-    const row = await acceptEnrollment(env, store, enrollment, signature,
-      target ? retainedTarget(env, target) : enrollmentResultsTarget(env));
+    const row = await acceptEnrollment(
+      env,
+      store,
+      enrollment,
+      signature,
+      target ? retainedTarget(env, target) : enrollmentResultsTarget(env),
+    );
     return Response.json({ state: row?.mined?.status ?? "pending" });
   }
   if (url.pathname === "/quote") {
@@ -468,9 +501,9 @@ export async function karaokeRoute(
     // authenticated operator path that does not exist yet.
     // The correction is recorded here; operator ticks publish it.
     const input = await body<Parameters<typeof correct>[2]>(request);
-    const corrected = await (learningResultsFor(env, store, input.ticketId)
-      ? correctV2
-      : correct)(env, store, input);
+    const corrected = await (
+      learningResultsFor(env, store, input.ticketId) ? correctV2 : correct
+    )(env, store, input);
     return Response.json({ revision: corrected.revision });
   }
   if (url.pathname === "/consent") {

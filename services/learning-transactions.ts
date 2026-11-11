@@ -27,7 +27,9 @@ import {
 } from "./study-telegram-publication.ts";
 import type { Env, Store } from "./runtime.ts";
 
-export type ResultStore = TxStore & Pick<Store, "now">;
+export type ResultStore = TxStore &
+  Pick<Store, "now"> &
+  Partial<Pick<Store, "durableStudyWrite">>;
 export async function submitResultTransaction(
   env: Env,
   store: ResultStore,

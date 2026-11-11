@@ -15,13 +15,53 @@ import type { PublicationJob } from "./study-publication.ts";
 import type { Env } from "./runtime.ts";
 
 export const STUDY_PRIVATE_RETENTION_SECONDS = 30 * 86400;
-interface ClosedStudyPublication {
+export type ClosedStudyPublication =
+  | {
+      kind?: "publication";
+      target: ResultsTarget;
+      receipt: StudyPublicationReceipt;
+    }
+  | {
+      kind: "binding";
+      target: ResultsTarget;
+      reason: "private_history_expired";
+    };
+export interface StudyCleanupIdentity {
   target: ResultsTarget;
-  receipt: StudyPublicationReceipt;
+  sessionId: `0x${string}`;
 }
 const closedKey = (id: string) => "studyPublicationClosed:" + id;
 export const closedStudyPublication = (store: ResultStore, id: string) =>
   store.get<ClosedStudyPublication>(closedKey(id));
+
+export function closedStudyReceipt(store: ResultStore, id: string) {
+  const closed = closedStudyPublication(store, id);
+  if (!closed) return undefined;
+  check(closed.kind !== "binding", "study_history_expired");
+  return closed.receipt;
+}
+export function releaseStudyBinding(env: Env, store: ResultStore, id: string) {
+  for (const revision of [1, 2])
+    releaseSponsorship(
+      store,
+      sponsorLimits(env),
+      `record_result:study:${id}:${revision}`,
+    );
+  store.delete("studyBinding:" + id);
+}
+export function closeOrphanStudyBinding(
+  env: Env,
+  store: ResultStore,
+  id: string,
+  target: ResultsTarget,
+) {
+  store.set(closedKey(id), {
+    kind: "binding",
+    target,
+    reason: "private_history_expired",
+  } satisfies ClosedStudyPublication);
+  releaseStudyBinding(env, store, id);
+}
 
 /**
  * Any queued work, orphan transaction or charged allowance is retained. The
@@ -37,7 +77,9 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
     "intent:record_result:" + first,
   )?.nonce;
   const own =
-    nonce == null ? undefined : store.get<TxRow>(`tx:${String(nonce).padStart(10, "0")}`);
+    nonce == null
+      ? undefined
+      : store.get<TxRow>(`tx:${String(nonce).padStart(10, "0")}`);
   const cancelled =
     own?.ref === first &&
     own.kind === "record_result" &&
@@ -47,7 +89,9 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
   return (
     store
       .entries("intent:record_result:" + ref)
-      .some(({ key }) => !(cancelled && key === "intent:record_result:" + first)) ||
+      .some(
+        ({ key }) => !(cancelled && key === "intent:record_result:" + first),
+      ) ||
     store.entries("tx:").some(({ value }) => {
       const row = value as TxRow;
       return row.ref?.startsWith(ref) && !(cancelled && row.nonce === nonce);
@@ -56,7 +100,9 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
       .entries("sponsor:reservation:record_result:" + ref)
       .some(
         ({ key, value }) =>
-          !(cancelled && key === "sponsor:reservation:record_result:" + first) &&
+          !(
+            cancelled && key === "sponsor:reservation:record_result:" + first
+          ) &&
           !["reserved", "released"].includes(
             (value as { state: string }).state,
           ),
@@ -64,33 +110,44 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
   );
 }
 
-export async function proveNeverSubmittedStudy(
+export async function proveStudyCleanupIdentity(
   env: Env,
   store: ResultStore,
   id: string,
-  job: PublicationJob,
+  identity: StudyCleanupIdentity,
+  nativeEvidence = () => studyNativeEvidence(store, id),
 ) {
-  if (studyNativeEvidence(store, id)) return false;
-  retainedTarget(env, job.target);
+  if (nativeEvidence()) return false;
+  retainedTarget(env, identity.target);
   const client = resultClient(env),
     head = await client.getBlock({ blockTag: "latest" });
   check(
-    (await client.getChainId()) === job.target.chainId,
+    (await client.getChainId()) === identity.target.chainId,
     "study_publication_chain_changed",
   );
   const commitment = await client.readContract({
-    address: job.target.contract,
-    abi: contractAbi(job.target),
+    address: identity.target.contract,
+    abi: contractAbi(identity.target),
     functionName: "commitments",
-    args: [job.result.sessionId],
+    args: [identity.sessionId],
     blockNumber: head.number,
   });
   check(
     (await client.getBlock({ blockNumber: head.number })).hash === head.hash,
     "study_publication_chain_changed",
   );
-  return commitment === zeroHash && !studyNativeEvidence(store, id);
+  return commitment === zeroHash && !nativeEvidence();
 }
+export const proveNeverSubmittedStudy = (
+  env: Env,
+  store: ResultStore,
+  id: string,
+  job: PublicationJob,
+) =>
+  proveStudyCleanupIdentity(env, store, id, {
+    target: job.target,
+    sessionId: job.result.sessionId,
+  });
 
 export async function eraseNeverSubmittedStudy(
   env: Env,
@@ -99,7 +156,7 @@ export async function eraseNeverSubmittedStudy(
   job: PublicationJob,
 ) {
   const closed = closedStudyPublication(store, id);
-  if (closed) return closed.receipt;
+  if (closed) return closedStudyReceipt(store, id)!;
   if (
     !["private", "failed"].includes(job.receipt.state) ||
     !Number.isSafeInteger(job.privateHistoryExpiresAt) ||
@@ -131,14 +188,8 @@ export async function eraseNeverSubmittedStudy(
     };
     // This marker precedes deletion and permanently refuses new bind/dispatch.
     store.set(closedKey(id), { target: current.target, receipt });
-    for (const revision of [1, 2])
-      releaseSponsorship(
-        store,
-        sponsorLimits(env),
-        `record_result:study:${id}:${revision}`,
-      );
+    releaseStudyBinding(env, store, id);
     store.delete("studyPublication:" + id);
-    store.delete("studyBinding:" + id);
     for (const { key } of store.entries("studySpeechSlot:" + id + ":"))
       store.delete(key);
     for (const { key, value } of store.entries("studySpeech:"))
