@@ -15,7 +15,7 @@ export async function walletFixture(page: Page, mode = "", scenario = "") {
     }
     const path = new URL(route.request().url()).pathname;
     const file = resolve(
-      "../../.local/owner-wallet-parity-correction-20261111/browser-dist",
+      "../../.local/owner-wallet-verification-cancel-repair-20261111/browser-dist",
       path.startsWith("/app/assets/")
         ? path.slice(1)
         : "reward-wallet.fixture.html",
