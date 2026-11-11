@@ -14,6 +14,7 @@ import { telegramPublishedCatalog } from "../services/telegram-catalog.ts";
 import { CommunitySpeechAdmission } from "../services/study-speech-admission.ts";
 import { studyCommunityFixture } from "./study-community-fixture.ts";
 import { journalFixture } from "./telegram-fixture.ts";
+import { boundaryError } from "./telegram-factory-boundary.ts";
 
 export function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -165,6 +166,8 @@ export async function connectedFactoryFixture(port: number) {
     }[] = [];
     const receipts = new Map<string, { messageId: number }>();
     const baseBinding = shared.env.KARAOKE_OPERATOR!;
+    const operatorResponses: { path: string; status: number; code?: string }[] =
+      [];
     let pausePath: string | null = null;
     let paused = deferred(),
       release = deferred();
@@ -176,6 +179,24 @@ export async function connectedFactoryFixture(port: number) {
         if (denialOffline && path === "/study/telegram/deny")
           throw Error("fixture_denial_offline");
         const response = await baseBinding.fetch(request);
+        const observation: (typeof operatorResponses)[number] = {
+          path,
+          status: response.status,
+        };
+        if (!response.ok) {
+          const body: unknown = await response
+            .clone()
+            .json()
+            .catch(() => null);
+          if (
+            body &&
+            typeof body === "object" &&
+            "error" in body &&
+            typeof body.error === "string"
+          )
+            observation.code = boundaryError(new Error(body.error));
+        }
+        operatorResponses.push(observation);
         if (pausePath && path.startsWith(pausePath)) {
           pausePath = null;
           paused.resolve();
@@ -387,6 +408,7 @@ export async function connectedFactoryFixture(port: number) {
       grant,
       journal,
       sent,
+      operatorResponses,
       home,
       choose,
       voice,

@@ -5,6 +5,7 @@ import { Miniflare } from "miniflare";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { studyCommunityFixture } from "./study-community-fixture.ts";
+import { digest } from "../packages/protocol/index.ts";
 
 // UNRUN. Actual factory + native DO SQL/alarm composition. Required ports are
 // explicit test transports to real production source/operator handlers. No
@@ -105,11 +106,26 @@ test(
           },
           serviceBindings: {
             OPERATOR: async (request: Request) => {
-              if (new URL(request.url).pathname === "/study/telegram/deny") {
-                denialCalls++;
-                if (offline) throw Error("fixture_denial_offline");
+              let forwarded: Request | undefined;
+              try {
+                if (new URL(request.url).pathname === "/study/telegram/deny") {
+                  denialCalls++;
+                  if (offline) throw Error("fixture_denial_offline");
+                }
+                // Miniflare and Node have different Request constructors.
+                // Keep exact signed bytes/headers at this explicit test port.
+                forwarded = new Request(request.url, {
+                  method: request.method,
+                  headers: request.headers,
+                  body: ["GET", "HEAD"].includes(request.method)
+                    ? undefined
+                    : await request.arrayBuffer(),
+                });
+                return await shared.env.KARAOKE_OPERATOR!.fetch(forwarded);
+              } finally {
+                for (const body of [request.body, forwarded?.body])
+                  if (body && !body.locked) await body.cancel().catch(() => {});
               }
-              return shared.env.KARAOKE_OPERATOR!.fetch(request);
             },
             PUBLIC_RPC: async (request: Request) => {
               const input = await request.json();
@@ -152,7 +168,19 @@ test(
       assert.equal(recovered.pending, false);
       assert.equal(recovered.registration.generation, 2);
       assert.ok(denialCalls > attempts);
-      assert.equal(shared.store.entries("studyTelegramScopeDenied:").length, 1);
+      assert.equal(shared.store.entries("studyTelegramTombstone:").length, 1);
+      assert.equal(
+        shared.store.get(
+          `studyTelegramTombstone:${digest({
+            schema: "pirate.study.telegram-publication-denial/1",
+            communityId: shared.config.communityId,
+            kind: "scope",
+            botId: "90001",
+            generation: 1,
+          })}`,
+        ),
+        true,
+      );
       const completed = denialCalls;
       await call("/ready", 200);
       await call("/tick", 200);

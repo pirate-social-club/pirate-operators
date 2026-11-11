@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { digest } from "../packages/protocol/index.ts";
 import { telegramConnectedCommunity } from "../services/telegram-connected-community.ts";
 import { connectedFactoryFixture } from "./telegram-connected-factory-fixture.ts";
+import {
+  connectedBoundary,
+  requireFactoryGate,
+} from "./telegram-factory-boundary.ts";
 
 // UNRUN. Coordinator-only: merge exact held shared authority, account reader
 // successor and protected adapters, then run in the serialized fixture slot.
@@ -121,7 +126,13 @@ test(
           state_json: string;
           binding_json: string;
         }>();
-      assert.ok(original);
+      assert.ok(
+        original,
+        JSON.stringify({
+          ...(await connectedBoundary(f)),
+          operatorResponses: f.operatorResponses,
+        }),
+      );
       const binding = JSON.parse(original.binding_json),
         state = JSON.parse(original.state_json);
       assert.equal(binding.offer.speechChannel, "telegram-linked");
@@ -191,7 +202,15 @@ test(
       const wait = f.pause("/authorization/");
       const processing = f.factory.alarm();
       try {
-        await wait.entered;
+        await requireFactoryGate(
+          wait.entered,
+          processing,
+          "/authorization/",
+          async () => ({
+            ...(await connectedBoundary(f)),
+            operatorResponses: f.operatorResponses,
+          }),
+        );
         await f.shared.db
           .prepare(
             "INSERT INTO learning_authority_heads(account_id,revision,permission_revision,pending_operation) VALUES(?,1,1,?) ON CONFLICT(account_id) DO UPDATE SET revision=revision+1,permission_revision=permission_revision+1,pending_operation=excluded.pending_operation",
@@ -237,7 +256,15 @@ test(
       const wait = f.pause("/study/bind");
       const processing = f.factory.alarm();
       try {
-        await wait.entered;
+        await requireFactoryGate(
+          wait.entered,
+          processing,
+          "/study/bind",
+          async () => ({
+            ...(await connectedBoundary(f)),
+            operatorResponses: f.operatorResponses,
+          }),
+        );
         f.denialOffline(true);
         f.restart(2);
         await assert.rejects(f.factory.ready(), /telegram_publication_pending/);
@@ -263,11 +290,23 @@ test(
       await assert.rejects(
         f.factory.transitions.grants.assert(f.actor, f.grant.id),
       );
-      const remote = f.shared.store.entries("studyTelegramScopeDenied:");
+      const remote = f.shared.store.entries("studyTelegramTombstone:");
       // The operator's own denial record must exist, not a local readiness flag.
       assert.ok(
         remote.length,
         "real signed denial must be durably recorded by the operator",
+      );
+      assert.equal(
+        f.shared.store.get(
+          `studyTelegramTombstone:${digest({
+            schema: "pirate.study.telegram-publication-denial/1",
+            communityId: f.actor.communityId,
+            kind: "scope",
+            botId: f.actor.botId,
+            generation: f.actor.generation,
+          })}`,
+        ),
+        true,
       );
       assert.equal(f.shared.counts().calls, 0);
       assert.equal(old.id, f.grant.id);
