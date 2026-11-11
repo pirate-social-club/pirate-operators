@@ -13,15 +13,18 @@ export class TelegramRequestError extends Error {
   readonly status: number;
   readonly code: string | null;
   readonly transactionId: string | null;
+  readonly transactionTerminated: boolean;
   constructor(
     status: number,
     code: string | null,
     transactionId: string | null = null,
+    transactionTerminated = false,
   ) {
     super(code ?? "Telegram is unavailable.");
     this.status = status;
     this.code = code;
     this.transactionId = transactionId;
+    this.transactionTerminated = transactionTerminated;
   }
 }
 export function telegramConnectionClient(options: {
@@ -147,15 +150,26 @@ export function telegramConnectionClient(options: {
       // Only this start response may introduce a server transaction. A retry
       // can confirm its original ID; it cannot replace it with another one.
       const candidate = object(body) ? body.transactionId : null;
-      const id =
+      const correlatedId =
         opening &&
-        code &&
-        !communityInvalidCodes.has(code) &&
         transactionId(candidate) &&
         (!opening.expectedId || opening.expectedId === candidate)
           ? candidate
           : null;
-      throw new TelegramRequestError(response.status, code, id);
+      // Community bound() owns these pairs before dispatch and after awaited
+      // broker reads; broker client authentication does not produce them here.
+      // Require the response's correlated T as well: ambiguous/foreign metadata
+      // cannot terminate the original client operation.
+      const terminated =
+        correlatedId !== null &&
+        ((response.status === 410 && code === "telegram_connection_expired") ||
+          (response.status === 404 &&
+            code === "telegram_connection_not_found"));
+      const id =
+        opening && code && !communityInvalidCodes.has(code) && !terminated
+          ? correlatedId
+          : null;
+      throw new TelegramRequestError(response.status, code, id, terminated);
     }
     return body as T;
   }
@@ -206,8 +220,8 @@ export function telegramConnectionClient(options: {
       if (start === operation) {
         if (
           error instanceof TelegramRequestError &&
-          error.code !== null &&
-          communityInvalidCodes.has(error.code)
+          (error.transactionTerminated ||
+            (error.code !== null && communityInvalidCodes.has(error.code)))
         ) {
           operation.transactionId = null;
           operation.phase = "invalid";
