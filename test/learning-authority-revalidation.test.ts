@@ -10,6 +10,7 @@ import { CommunityAuthorityPending } from "../packages/community-setup/authority
 import { revalidateAuthorityMembers } from "../packages/community-setup/authority-validation.ts";
 import { authorityOperation } from "../packages/community-setup/authority-ledger.ts";
 import { revalidationFixture } from "./learning-authority-revalidation-fixture.ts";
+import { managedFixture } from "./telegram-managed-fixture.ts";
 
 async function drain(f: Awaited<ReturnType<typeof revalidationFixture>>) {
   for (let step = 0; step < 40; step++) {
@@ -277,8 +278,17 @@ test(
     const f = await revalidationFixture();
     try {
       const before = f.snapshot();
-      await f.model.publication.recover();
+      // The positive fixture now supplies its actual D1 validator. Construct
+      // this negative control explicitly without that required capability.
+      const missing = managedFixture(
+        f.publication.grants,
+        { ...f.action.scope, enabled: true },
+        f.model.ports.authority,
+      );
+      await missing.create().recover();
       unchangedDelivery(f, before);
+      assert.equal(missing.requests.length, 0);
+      assert.equal(missing.denials.size, 0);
     } finally {
       f.closeAll();
     }

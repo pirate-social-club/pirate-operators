@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AUTHORITY_VALIDATION_POLICY } from "../packages/community-setup/authority-validation.ts";
+import { CommunityAuthorityPending } from "../packages/community-setup/authority-ledger.ts";
 import { guardedPaginationFixture } from "./telegram-guarded-pagination-fixture.ts";
 import { managedFixture } from "./telegram-managed-fixture.ts";
 import { accounts } from "../harness/runtime.ts";
@@ -29,7 +30,7 @@ async function pages(f: Awaited<ReturnType<typeof guardedPaginationFixture>>) {
   await f.persistPage(first);
   await assert.rejects(
     f.publication.finishAuthorityTransition(f.transitionId),
-    /publication_pending/,
+    CommunityAuthorityPending,
   );
   assert.equal(f.denials.size, 0);
   const last = {

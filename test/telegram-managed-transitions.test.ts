@@ -1,4 +1,5 @@
 import { guardedPaginationFixture } from "./telegram-guarded-pagination-fixture.ts";
+import { CommunityAuthorityPending } from "../packages/community-setup/authority-ledger.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Hex } from "viem";
@@ -334,8 +335,9 @@ test("authority discovery pages are immutable, bounded and unsealed until the sh
   await f.persistPage(first);
   await assert.rejects(
     f.publication.finishAuthorityTransition(id),
-    /publication_pending/,
+    CommunityAuthorityPending,
   );
+  assert.equal(f.denials.size, 0);
   const last = {
     cursor: "page-1",
     next: null,
