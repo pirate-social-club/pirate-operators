@@ -23,6 +23,13 @@ export class Store {
       ON records(json_extract(value,'$.parameters.lessonId')) WHERE key>='studySpeech:' AND key<'studySpeech;'`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_study_binding_channel
       ON records(json_extract(value,'$.offer.speechChannel')) WHERE key>='studyBinding:' AND key<'studyBinding;'`);
+    this.sql
+      .exec(`CREATE INDEX IF NOT EXISTS records_unclassified_transaction_ref
+      ON records(key) WHERE key>='tx:' AND key<'tx;'
+        AND COALESCE(json_type(value,'$.ref'),'')!='text'`);
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS records_unclassified_speech_lesson
+      ON records(key) WHERE key>='studySpeech:' AND key<'studySpeech;'
+        AND COALESCE(json_type(value,'$.parameters.lessonId'),'')!='text'`);
   }
   get<T>(key: string): T | undefined {
     const row = this.sql
@@ -88,7 +95,7 @@ export class Store {
     if (
       this.sql
         .exec(
-          "SELECT 1 FROM records WHERE key>='tx:' AND key<'tx;' AND COALESCE(json_type(value,'$.ref'),'')!='text' LIMIT 1",
+          "SELECT 1 FROM records INDEXED BY records_unclassified_transaction_ref WHERE key>='tx:' AND key<'tx;' AND COALESCE(json_type(value,'$.ref'),'')!='text' LIMIT 1",
         )
         .toArray().length
     )
@@ -96,7 +103,7 @@ export class Store {
     return (
       this.sql
         .exec(
-          `SELECT 1 FROM records WHERE key>='tx:' AND key<'tx;'
+          `SELECT 1 FROM records INDEXED BY records_transaction_ref WHERE key>='tx:' AND key<'tx;'
        AND json_extract(value,'$.ref')>=? AND json_extract(value,'$.ref')<?
        AND (? IS NULL OR key!=?) LIMIT 1`,
           refPrefix,
@@ -124,12 +131,22 @@ export class Store {
   }
   studySpeechExists(lessonId: string) {
     if (this.rangeExists("studySpeechSlot:" + lessonId + ":")) return true;
+    if (
+      this.sql
+        .exec(
+          `SELECT 1 FROM records INDEXED BY records_unclassified_speech_lesson
+      WHERE key>='studySpeech:' AND key<'studySpeech;'
+      AND COALESCE(json_type(value,'$.parameters.lessonId'),'')!='text' LIMIT 1`,
+        )
+        .toArray().length
+    )
+      return true;
     return (
       this.sql
         .exec(
-          `SELECT 1 FROM records WHERE key>='studySpeech:' AND key<'studySpeech;'
-       AND (COALESCE(json_type(value,'$.parameters.lessonId'),'')!='text'
-         OR json_extract(value,'$.parameters.lessonId')=?) LIMIT 1`,
+          `SELECT 1 FROM records INDEXED BY records_speech_lesson
+      WHERE key>='studySpeech:' AND key<'studySpeech;'
+      AND json_extract(value,'$.parameters.lessonId')=? LIMIT 1`,
           lessonId,
         )
         .toArray().length > 0
@@ -139,7 +156,7 @@ export class Store {
     return (
       this.sql
         .exec(
-          `SELECT 1 FROM records WHERE key>='studyBinding:' AND key<'studyBinding;'
+          `SELECT 1 FROM records INDEXED BY records_study_binding_channel WHERE key>='studyBinding:' AND key<'studyBinding;'
        AND json_extract(value,'$.offer.speechChannel')='telegram-linked' LIMIT 1`,
         )
         .toArray().length > 0
