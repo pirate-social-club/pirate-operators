@@ -270,7 +270,7 @@ for (const fault of [
       f.receipt.logs.push({
         ...f.receipt.logs[0],
         address: accounts[0].address,
-        topics: fault === "malformed_extra_log" ? [] : f.receipt.logs[0].topics,
+        topics: f.receipt.logs[0].topics,
         logIndex: fault === "malformed_extra_log" ? -1 : 1,
       });
     if (fault === "revert_log") f.receipt.status = "reverted";
