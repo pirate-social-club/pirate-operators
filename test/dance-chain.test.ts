@@ -806,11 +806,43 @@ test("local Dance outbox freezes the exact canonical capture, submission and ver
     ),
     null,
   );
-  f.eventBlock.hash = word(998);
   const orphanedJournal = {
     attempts: async () => [],
     prior: async () => evidence,
   };
+  const oldEventBlock = { ...f.eventBlock };
+  const replacedEventBlock = { ...oldEventBlock, hash: word(998) };
+  let numericRead = 0;
+  await assert.rejects(
+    observeDanceIntent(
+      {
+        ...f.rpc,
+        safe: async () => oldEventBlock,
+        // A/B/A/B at one height would pass two independent reread
+        // comparisons while the safe tag still names the prior verdict.
+        block: async () =>
+          ++numericRead % 2 ? replacedEventBlock : oldEventBlock,
+      },
+      f.source,
+      orphanedJournal,
+      decision,
+    ),
+    /dance_observation_anchor_changed/,
+  );
+  assert.deepEqual(
+    await observeDanceIntent(
+      {
+        ...f.rpc,
+        safe: async () => replacedEventBlock,
+        block: async () => replacedEventBlock,
+      },
+      f.source,
+      orphanedJournal,
+      decision,
+    ),
+    { ...evidence, canonical: false },
+  );
+  f.eventBlock.hash = replacedEventBlock.hash;
   await assert.rejects(
     observeDanceIntent(
       {

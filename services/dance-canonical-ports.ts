@@ -148,6 +148,15 @@ export async function observeDanceIntent(
     if (number <= safe.number) {
       const observed = await rpc.block(number);
       insist(observed.number === number, "dance_log_position_invalid", 503);
+      // At the safe height the numeric block and safe tag name the same
+      // block. Two individually stable but contradictory answers are not
+      // evidence that the stored verdict was replaced.
+      insist(
+        number !== safe.number ||
+          (observed.hash === safe.hash && observed.timestamp === safe.timestamp),
+        "dance_observation_anchor_changed",
+        503,
+      );
       if (observed.hash !== prior.blockHash) {
         const [anchor, replacement] = await Promise.all([
           rpc.block(safe.number),
