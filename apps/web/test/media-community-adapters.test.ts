@@ -594,7 +594,9 @@ test(
       tx = "0x" + "4".repeat(64),
       bytes = new TextEncoder().encode("canonical guide fixture");
     api.phase("published");
-    current.feed = await (await api.transport("/api/feed")).json();
+    current.feed = await (
+      await api.transport("/api/feed", { credentials: "same-origin" })
+    ).json();
     let corrupt = false;
     const transport: typeof fetch = async (url) =>
       String(url).endsWith("/proof")
