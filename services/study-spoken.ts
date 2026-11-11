@@ -21,7 +21,13 @@ import {
   StudySpeechError,
   type StudyTranscriber,
 } from "../packages/study/speech-transcriber.ts";
-import { gradeTranscriptV2 } from "../packages/study/transcript-grading.ts";
+import {
+  gradeStudySpeech,
+  minimalStudyGrade,
+  type StudyAssessmentPort,
+} from "../packages/study/assessment.ts";
+import type { AdmittedStudyGrader } from "../packages/study/grader-revision.ts";
+import type { StudySpeechContext } from "../packages/study/speech-transcriber.ts";
 
 export async function readStudyAudio(request: Request) {
   const durationMs = Number(request.headers.get("x-study-duration-ms"));
@@ -85,6 +91,8 @@ export async function readStudyAudio(request: Request) {
 export function makeStudyService(options: {
   db: D1Database;
   transcriber: StudyTranscriber;
+  /** Trusted saved binding selects a shared minimal assessor; no client grade. */
+  assessor?(context: StudySpeechContext): Promise<StudyAssessmentPort | null>;
   // Lesson-linked attempts resolve the frozen, authenticated published source.
   resolveLine(
     selection: StudySelection,
@@ -109,6 +117,7 @@ export function makeStudyService(options: {
       requestId: string,
       input: unknown,
       lesson: StudyAttemptLesson | null = null,
+      policy?: AdmittedStudyGrader,
     ) {
       principal(owner);
       studyCheck(
@@ -125,13 +134,13 @@ export function makeStudyService(options: {
         await options.resolveLine(requested, lesson),
         requested,
       );
-      return store.open(owner, requestId, line, now(), lesson);
+      return store.open(owner, requestId, line, now(), lesson, policy);
     },
     async get(owner: StudyPrincipal, id: string) {
       principal(owner);
       const row = await store.get(owner, id);
       if (
-        options.transcriber.recover &&
+        (options.transcriber.recover || options.assessor) &&
         (row.state === "assessing" || row.state === "uncertain") &&
         row.lesson_id &&
         row.audio_digest &&
@@ -150,31 +159,38 @@ export function makeStudyService(options: {
         if (active) {
           const line: StudyLine = JSON.parse(row.line_json);
           // Unavailable status storage is not evidence of a failed dispatch.
-          const receipt = await options.transcriber
-            .recover(
-              {
-                lessonId: row.lesson_id,
-                attemptId: id,
-                lineId: line.lineId,
-                presentationNumber: row.presentation_number!,
-                takeNumber: row.take_number!,
-                durationMs: row.audio_duration_ms,
-              },
-              row.audio_digest,
-            )
-            .catch(() => null);
+          const context: StudySpeechContext = {
+            lessonId: row.lesson_id,
+            attemptId: id,
+            lineId: line.lineId,
+            presentationNumber: row.presentation_number!,
+            takeNumber: row.take_number!,
+            durationMs: row.audio_duration_ms,
+          };
+          const receipt = await (async () => {
+            // Missing legacy context is not evidence of a failed dispatch.
+            // Hold recovery without a raw transcriber fallback; closure can
+            // still record the original attempted work as unmeasured.
+            const assessor = await options.assessor?.(context);
+            return assessor
+              ? assessor.recover(context, row.audio_digest!)
+              : (options.transcriber.recover?.(context, row.audio_digest!) ??
+                  Promise.resolve(null));
+          })().catch(() => null);
           if (receipt)
             return store.finish(
               owner,
               id,
               receipt.state,
               receipt.state === "assessed"
-                ? gradeTranscriptV2(
-                    line.text,
-                    receipt.transcript.text,
-                    line.language,
-                    row.policy,
-                  )
+                ? "grade" in receipt
+                  ? minimalStudyGrade(receipt.grade, row.policy)
+                  : gradeStudySpeech(
+                      line,
+                      receipt.transcript,
+                      row.policy,
+                      row.take_number ?? 1,
+                    )
                 : null,
               receipt.state === "unavailable" ? receipt.error : null,
               now(),
@@ -206,27 +222,34 @@ export function makeStudyService(options: {
             return attemptView(await store.get(owner, id));
           try {
             const line: StudyLine = JSON.parse(row.line_json);
-            const transcript = await options.transcriber.transcribe(
-              audio,
-              contentType,
-              line.language,
-              row.lesson_id
-                ? {
-                    lessonId: row.lesson_id,
-                    attemptId: id,
-                    lineId: line.lineId,
-                    presentationNumber: row.presentation_number!,
-                    takeNumber: row.take_number!,
-                    durationMs,
-                  }
-                : undefined,
-            );
-            const grade = gradeTranscriptV2(
-              line.text,
-              transcript.text,
-              line.language,
-              row.policy,
-            );
+            const context: StudySpeechContext | undefined = row.lesson_id
+              ? {
+                  lessonId: row.lesson_id,
+                  attemptId: id,
+                  lineId: line.lineId,
+                  presentationNumber: row.presentation_number!,
+                  takeNumber: row.take_number!,
+                  durationMs,
+                }
+              : undefined;
+            const assessor = context ? await options.assessor?.(context) : null;
+            const grade =
+              assessor && context
+                ? minimalStudyGrade(
+                    await assessor.assess(audio, contentType, line, context),
+                    row.policy,
+                  )
+                : gradeStudySpeech(
+                    line,
+                    await options.transcriber.transcribe(
+                      audio,
+                      contentType,
+                      line.language,
+                      context,
+                    ),
+                    row.policy,
+                    row.take_number ?? 1,
+                  );
             return await store.finish(
               owner,
               id,

@@ -356,6 +356,18 @@ test(
         speech.transcribe(recording(), "audio/webm", "en", next),
         /speech_rate_limited/,
       );
+      // A confirmed refusal does not spend this learning slot. Its retry has
+      // new physical bytes/id while preserving the same presentation/take.
+      f.setBehavior(async () => ({ text: "Hold me close", language: "en" }));
+      const refusedRetry = {
+        ...next,
+        attemptId: "study-attempt-refused-retry",
+      };
+      assert.equal(
+        (await speech.transcribe(recording(), "audio/webm", "en", refusedRetry))
+          .text,
+        "Hold me close",
+      );
       f.setBehavior(async () => {
         throw new Error("connection lost");
       });
@@ -386,7 +398,7 @@ test(
         (e: Error) =>
           e instanceof StudySpeechError && e.outcome === "known_failed",
       );
-      assert.deepEqual(f.counts(), { calls: 3, observations: 3 });
+      assert.deepEqual(f.counts(), { calls: 4, observations: 4 });
     } finally {
       await f.stop();
     }

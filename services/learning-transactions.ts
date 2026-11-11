@@ -20,9 +20,16 @@ import {
   legacyResultsWithheld,
   resultsTarget,
 } from "./learning-contract.ts";
+import { resolveTelegramStudyFence } from "../packages/study/telegram-publication.ts";
+import {
+  telegramResultPublication,
+  telegramStudyDenied,
+} from "./study-telegram-publication.ts";
 import type { Env, Store } from "./runtime.ts";
 
-export type ResultStore = TxStore & Pick<Store, "now">;
+export type ResultStore = TxStore &
+  Pick<Store, "now"> &
+  Partial<Pick<Store, "durableStudyWrite">>;
 export async function submitResultTransaction(
   env: Env,
   store: ResultStore,
@@ -122,10 +129,32 @@ export function legacyResultGate(env: Env, store: ResultStore): SendGate {
   return {
     reason: "authorization_withdrawn",
     recorded(kind, ref) {
+      const telegram =
+        kind === "record_result"
+          ? telegramResultPublication(env, store, ref)
+          : null;
+      if (telegram) {
+        check(env.STUDY_TELEGRAM_AUTHORITY, "study_telegram_fence_unavailable");
+        return telegramStudyDenied(store, telegram.fence, telegram.context);
+      }
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && legacyResultsWithheld(store, learner);
     },
     async withheld(kind, ref) {
+      const telegram =
+        kind === "record_result"
+          ? telegramResultPublication(env, store, ref)
+          : null;
+      if (telegram)
+        return (
+          telegramStudyDenied(store, telegram.fence, telegram.context) ||
+          !(await resolveTelegramStudyFence(
+            env.STUDY_TELEGRAM_AUTHORITY,
+            telegram.fence,
+            telegram.context,
+          )) ||
+          telegramStudyDenied(store, telegram.fence, telegram.context)
+        );
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && (await legacyResultsWithdrawn(env, store, learner));
     },

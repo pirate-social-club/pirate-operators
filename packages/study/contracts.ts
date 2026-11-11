@@ -1,4 +1,5 @@
-import type { StudyTranscriptGradeV2 } from "./transcript-grading.ts";
+import type { StudyGrade } from "./assessment.ts";
+import type { AdmittedStudyGrader } from "./grader-revision.ts";
 
 export const STUDY_SCHEMA = "pirate.study.attempt/1" as const;
 export const STUDY_POLICY = "script_aware_token_phonetic_v4" as const;
@@ -31,11 +32,11 @@ export interface StudyAttempt {
   kind: "say-it-back";
   attemptId: string;
   line: StudyLine;
-  policy: typeof STUDY_POLICY;
+  policy: AdmittedStudyGrader;
   startedAt: number;
   completedAt: number | null;
   state: "ready" | "assessing" | "assessed" | "unavailable" | "uncertain";
-  grade: StudyTranscriptGradeV2 | null;
+  grade: StudyGrade | null;
   failure: string | null;
   lesson: StudyAttemptLesson | null;
   recordingDurationMs: number | null;

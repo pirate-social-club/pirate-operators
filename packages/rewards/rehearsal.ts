@@ -128,6 +128,7 @@ export function withRewardRehearsal(
     mode: live.mode,
     ...(live.resultSources ? { resultSources: live.resultSources } : {}),
     qualifiers: live.qualifiers,
+    ...(live.closure ? { closure: live.closure } : {}),
     async purchase(input, current) {
       insist(
         canonical(current) === canonical(profile),

@@ -51,7 +51,11 @@ export default {
     return runtime.fetch(request, env);
   }
 };`;
-async function worker(persist: string, speechLimit = "2", version: 2 | 3 = 2) {
+async function worker(
+  persist: string,
+  speechLimit = "2",
+  version: 2 | 3 | 4 = 2,
+) {
   const bundle = await build({
     stdin: { contents: source, resolveDir: process.cwd() },
     write: false,
@@ -74,13 +78,22 @@ async function worker(persist: string, speechLimit = "2", version: 2 | 3 = 2) {
       OPERATOR_PROFILE:
         version === 2
           ? "pirate-karaoke-testnet-v2"
-          : "pirate-learning-testnet-v3",
+          : version === 3
+            ? "pirate-learning-testnet-v3"
+            : "pirate-community-learning-v4",
       ...(version === 3 ? { RESULTS_V3_CONTRACT: accounts[1].address } : {}),
+      ...(version === 4
+        ? {
+            RESULTS_V4_CONTRACT: accounts[1].address,
+            ACTIVATION_TOTAL_CAP_WEI: "700",
+            ACTIVATION_ACCOUNT_CAP_WEI: "202",
+            ACTIVATION_MAX_ACCOUNTS: "3",
+          }
+        : { RESULTS_V2_CONTRACT: accounts[0].address }),
       ROLE: "operator",
       COMMUNITY_ID: "runtime-test",
       PAYMENT_CHAIN_ID: "6343",
       SERVICE_MODE: "internal",
-      RESULTS_V2_CONTRACT: accounts[0].address,
       PRIVATE_KEY: keys[2],
       OPERATOR_ADDRESS: accounts[2].address,
       SPONSOR_CAP_WEI: "1000",
@@ -273,6 +286,59 @@ test("V3 admission requires both distinct testnet destinations and cannot silent
     { PAYMENT_CHAIN_ID: "1" },
     { OPERATOR_PROFILE: "pirate-karaoke-testnet-v2" },
     { SPEECH_BUDGET: undefined },
+  ])
+    assert.equal(admittedLearningProfile({ ...env, ...change }), false);
+});
+
+test("fresh V4-only Worker uses the live clock and protects its durable journal", async () => {
+  const mf = await worker(
+    mkdtempSync(join(tmpdir(), "pirate-learning-fresh-v4-")),
+    "0",
+    4,
+  );
+  try {
+    const clock = (await (
+      await mf.dispatchFetch("http://worker/test/alarm")
+    ).json()) as { now: number };
+    assert.ok(Math.abs(clock.now - Math.floor(Date.now() / 1000)) < 2);
+    for (const path of ["/__state", "/__clock", "/__fault"])
+      assert.equal(
+        (await mf.dispatchFetch(`http://worker${path}`)).status,
+        404,
+      );
+  } finally {
+    await mf.dispose();
+  }
+});
+
+test("fresh V4 admission requires explicit first-use caps and refuses historical targets", () => {
+  const env = {
+    OPERATOR_PROFILE: "pirate-community-learning-v4",
+    ROLE: "operator",
+    PAYMENT_CHAIN_ID: "6343",
+    SERVICE_MODE: "internal",
+    RESULTS_V4_CONTRACT: accounts[1].address,
+    SPEECH_BUDGET: {},
+    SPONSOR_CAP_WEI: "1000",
+    SPONSOR_GAS_PRICE_WEI: "1",
+    SPONSOR_GAS_LIMIT: "100",
+    SPONSOR_DATA_FEE_WEI: "0",
+    ACTIVATION_TOTAL_CAP_WEI: "700",
+    ACTIVATION_ACCOUNT_CAP_WEI: "200",
+    ACTIVATION_MAX_ACCOUNTS: "3",
+  } as Env;
+  assert.equal(admittedLearningProfile(env), true);
+  for (const change of [
+    { RECORDS_CONTRACT: accounts[0].address },
+    { RECORDS_CONTRACT: "" },
+    { RESULTS_V2_CONTRACT: accounts[0].address },
+    { RESULTS_V3_CONTRACT: accounts[2].address },
+    { RESULTS_V4_CONTRACT: undefined },
+    { PAYMENT_CHAIN_ID: "4326" },
+    { SPONSOR_DATA_FEE_WEI: undefined },
+    { ACTIVATION_ACCOUNT_CAP_WEI: "199" },
+    { ACTIVATION_TOTAL_CAP_WEI: "1001" },
+    { ACTIVATION_MAX_ACCOUNTS: "0" },
   ])
     assert.equal(admittedLearningProfile({ ...env, ...change }), false);
 });

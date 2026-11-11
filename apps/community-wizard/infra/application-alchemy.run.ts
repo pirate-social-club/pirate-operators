@@ -4,9 +4,14 @@ import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import { encryptedLocalState } from "./encrypted-state.ts";
-import { applicationLearningBindings } from "./learning-bindings.ts";
+import {
+  applicationLearningBindings,
+  requireExistingLearningStack,
+} from "./learning-bindings.ts";
 import { applicationRewardsBindings } from "./rewards-bindings.ts";
 import { applicationPublishingBindings } from "./publishing-bindings.ts";
+
+requireExistingLearningStack(process.env);
 
 export default Alchemy.Stack(
   "pirate-first-song-20261105",

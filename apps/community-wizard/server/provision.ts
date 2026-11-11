@@ -32,6 +32,12 @@ const sources = [
   "server/secrets.ts",
   "server/infisical-auth.ts",
   "server/setup.ts",
+  "server/learning-setup.ts",
+  "server/learning-secrets.ts",
+  "../../packages/community-setup/manifest.ts",
+  "../../packages/community-setup/authority.ts",
+  "../../packages/community-setup/bindings.ts",
+  "../../packages/community-setup/connected-learning.ts",
   "server/operator.ts",
   "server/start-operator.ts",
 ];

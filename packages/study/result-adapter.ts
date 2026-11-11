@@ -153,7 +153,13 @@ export function terminalStudyFacts(
     })),
   );
   return {
-    schema: "pirate.study-terminal-facts/1",
+    schema:
+      state.graderRevision === "script_aware_token_phonetic_v5"
+        ? "pirate.study-terminal-facts/2"
+        : "pirate.study-terminal-facts/1",
+    ...(state.graderRevision === "script_aware_token_phonetic_v5"
+      ? { graderRevision: state.graderRevision }
+      : {}),
     startedAt: state.startedAt,
     completedAt: state.completedAt!,
     expiresAt: state.expiresAt,

@@ -6,14 +6,16 @@ import { seal } from "../infra/protected-data.ts";
 import { privateDirectory } from "./state.ts";
 
 export class DeploymentFailure extends Error {
-  constructor(
-    readonly logId: string,
-    readonly phase: string,
-    readonly exitCode: number | null,
-  ) {
+  readonly logId: string;
+  readonly phase: string;
+  readonly exitCode: number | null;
+  constructor(logId: string, phase: string, exitCode: number | null) {
     super(
       `Alchemy ${phase} did not complete (${exitCode ?? "could not start"}). Private encrypted diagnostics: ${logId}.`,
     );
+    this.logId = logId;
+    this.phase = phase;
+    this.exitCode = exitCode;
   }
 }
 export async function runWithDiagnostics(

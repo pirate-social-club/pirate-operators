@@ -177,6 +177,14 @@ export interface VerificationIntent {
   expires_at: number;
   launch_url: string | null;
 }
+/** Public shape only: keep client contracts independent of the Worker store. */
+export interface RewardClosureEvidence {
+  chainId: 6343;
+  cutoffNumber: string;
+  cutoffHash: string;
+  cutoffTimestampSeconds: string;
+  sources: { sourceHash: string; policyEvidenceHash: string }[];
+}
 /** Provider ports must validate original chain/proof evidence before returning these values. */
 export interface RewardSources {
   readonly mode: RewardsProfile["mode"];
@@ -185,12 +193,36 @@ export interface RewardSources {
    * publishes to. A new offer must pin a subset that includes the current one.
    * Absent for sources that read no public results.
    */
-  readonly resultSources?: { accepted: readonly string[]; current: string };
+  readonly resultSources?: {
+    accepted: readonly string[];
+    current: string;
+    /** Categorical admissions can require an explicit pin on the new offer. */
+    defaults?: readonly string[];
+  };
   purchase(
     offer: RewardOfferInput,
     profile: RewardsProfile,
   ): Promise<{ receiptHash: string; mode: RewardsProfile["mode"] }>;
   qualifiers(offer: RewardOfferInput): Promise<QualificationEntry[]>;
+  /** Opted in at attachment. Closed entries and this evidence share a transaction. */
+  closure?: {
+    requires(offer: RewardOfferInput): boolean;
+    admit?(offer: RewardOfferInput): Promise<void>;
+    scan(
+      offer: RewardOfferInput,
+      inputHash: string,
+    ): Promise<{
+      entries: QualificationEntry[];
+      // Only candidates authenticated against the retained capture can bypass
+      // the mutable current-credential lookup used by older result sources.
+      captured: ReadonlySet<string>;
+      evidence: RewardClosureEvidence;
+    }>;
+    verify(
+      offer: RewardOfferInput,
+      evidence: RewardClosureEvidence,
+    ): Promise<void>;
+  };
   winnings(
     offer: RewardOfferInput,
     profile: RewardsProfile,

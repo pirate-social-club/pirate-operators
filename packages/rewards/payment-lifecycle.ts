@@ -3,9 +3,11 @@ import type {
   RewardChain,
   RewardPayment,
   RewardPaymentAttempt,
+  RewardSources,
 } from "./contracts.ts";
 import { RewardStore, type PaymentRow } from "./store.ts";
 import { rewardAmount, rewardId } from "./validation.ts";
+import { verifyPaymentRewardClosures } from "./offers.ts";
 import { MOSS_GUARD_IMPLEMENTATION } from "./moss-guard.ts";
 
 const terminal = (row: PaymentRow) =>
@@ -14,10 +16,17 @@ export class RewardPaymentLifecycle {
   readonly store: RewardStore;
   readonly chain: RewardChain;
   readonly now: () => number;
-  constructor(store: RewardStore, chain: RewardChain, now: () => number) {
+  readonly source?: RewardSources;
+  constructor(
+    store: RewardStore,
+    chain: RewardChain,
+    now: () => number,
+    source?: RewardSources,
+  ) {
     this.store = store;
     this.chain = chain;
     this.now = now;
+    this.source = source;
   }
   async dispatch(
     id: string,
@@ -40,6 +49,10 @@ export class RewardPaymentLifecycle {
           attemptId,
         )
         .first<{ payment_id: string; action: string }>();
+      // Opening or retrying a signing request is a new opportunity to pay.
+      // A consumed guard is instead reconciled above from its chain receipt.
+      if (action === "pay")
+        await verifyPaymentRewardClosures(this.store, this.source, id);
       if (prior) {
         insist(
           prior.payment_id === id && prior.action === action,

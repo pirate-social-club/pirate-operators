@@ -27,6 +27,10 @@ import {
   type TxStore,
 } from "../services/operator-tx.ts";
 import type { Env } from "../services/runtime.ts";
+import { digest } from "../packages/protocol/index.ts";
+import type { TelegramStudyFacts } from "../packages/study/telegram-publication.ts";
+import { legacyResultGate, type ResultStore } from "../services/learning-transactions.ts";
+import { recordTelegramStudyDenial } from "../services/study-telegram-publication.ts";
 import { warnings } from "./unsent-result-support.ts";
 
 const operator = accounts[2]!.address;
@@ -73,6 +77,7 @@ function node() {
     lagging: new Map<string, number>(),
     mineSends: true,
     gasPrice: 10n ** 9n,
+    dataFee: 0n,
   };
   const mine = (raw: Hex) => {
     const hash = keccak256(raw);
@@ -113,11 +118,11 @@ function node() {
           !lagged(method) && state.known.has(params[0]) ? { hash: params[0] } : null,
         );
       case "eth_call": {
-        // GasPriceOracle.getL1Fee(bytes): record what was priced, answer 0.
+        // GasPriceOracle.getL1Fee(bytes): record the bytes and return the current fixture price.
         const data = params[0].data as Hex;
         const [priced] = (await import("viem")).decodeAbiParameters([{ type: "bytes" }], `0x${data.slice(10)}`);
         state.priced.push(priced as Hex);
-        return reply(encodeAbiParameters([{ type: "uint256" }], [0n]));
+        return reply(encodeAbiParameters([{ type: "uint256" }], [state.dataFee]));
       }
       case "eth_getTransactionReceipt":
         return reply(lagged(method) ? null : (state.receipts.get(params[0]) ?? null));
@@ -194,6 +199,32 @@ test("a row still none is priced unsigned; its signed bytes reach the RPC only i
     assert.equal(carries(n.state.bodies.slice(0, sendIndex), row.raw!), false);
     assert.equal(sent?.broadcast, "attempted");
     assert.equal(sent?.mined?.status, "success");
+  } finally {
+    n.restore();
+  }
+});
+
+test("a V4-only community prices an unsent result and refuses an excessive data fee", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    const v4 = { ...env, RESULTS_V2_CONTRACT: undefined, RESULTS_V4_CONTRACT: results };
+    enqueue(store, "record_result", "v4:1", results, "0x1234", 200_000n);
+    n.state.dataFee = 1001n;
+    const send = () => dispatch(v4, store, "record_result", "v4:1", limits, gate({ value: false }));
+    await assert.rejects(send, /data_fee_above_limit/);
+    const row = txRow(store, intentOf(store, "record_result", "v4:1")!.nonce!)!;
+    assert.equal(row.broadcast, "none");
+    assert.deepEqual(n.state.priced, [unsigned(row)]);
+    assert.deepEqual(n.state.sent, []);
+    assert.equal(carries(n.state.bodies, row.raw!), false);
+
+    n.state.dataFee = 1000n;
+    assert.equal((await send())?.mined?.status, "success");
+    assert.deepEqual(n.state.priced, [unsigned(row), unsigned(row)]);
+    assert.deepEqual(n.state.sent, [row.raw]);
+    assert.equal((await send())?.nonce, row.nonce);
+    assert.equal(n.state.sent.length, 1);
   } finally {
     n.restore();
   }
@@ -457,6 +488,95 @@ test("a consumed nonce whose receipt lags but whose transaction the node knows i
     assert.ok(!logged.some((l) => l.includes("operator_nonce_superseded")));
     await recoverTransactions(env, store, async () => true, gate({ value: true }));
     assert.equal(txRow(store, 0)!.mined?.status, "success");
+  } finally {
+    n.restore();
+  }
+});
+
+test("persisted Telegram grant denial wins during an awaited resolver after a signed restart", async () => {
+  const n = node();
+  try {
+    const initial = { ...journal(), now: () => 1800000000 };
+    const lessonId = "linked_lesson_fixture_1";
+    const ref = `study:${lessonId}:1`;
+    const communityId = `0x${"66".repeat(32)}` as Hex;
+    const authorizationId = `0x${"33".repeat(32)}` as Hex;
+    const facts: TelegramStudyFacts = {
+      schema: "pirate.study.telegram-publication-fence/1",
+      version: 1,
+      grantId: "grant_fixture",
+      accountId: "account_fixture",
+      authorityVersion: "version_1",
+      actor: { communityId, botId: "50", generation: 1, userId: "60", chatId: "60" },
+    };
+    const telegramFence = { facts, hash: digest(facts) as Hex };
+    const target = { version: 4, chainId: 6343, contract: results };
+    const learner = accounts[1]!.address.toLowerCase();
+    const startedAt = 1_799_999_999_500;
+    initial.set(`studyBinding:${lessonId}`, {
+      offer: { lessonId, speechChannel: "telegram-linked", telegramFence, authorizationId, learner, startedAt },
+      target,
+    });
+    initial.set(`studyPublication:${lessonId}`, {
+      telegramFence, target, result: { learner, enrollmentId: authorizationId, startedAt: "1799999999" },
+    });
+    const waiting = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    let calls = 0;
+    const scoped = {
+      ...env,
+      COMMUNITY_ID: communityId,
+      STUDY_TELEGRAM_AUTHORITY: {
+        async fetch(url: string, init?: RequestInit) {
+          calls++;
+          assert.equal(url, "https://study-telegram.internal/check");
+          const { fence, context } = JSON.parse(String(init?.body));
+          assert.deepEqual(fence, telegramFence);
+          assert.deepEqual(context, { communityId, lessonId, learner, startedAt, authorizationId, contract: results });
+          waiting.resolve();
+          await release.promise;
+          return Response.json({
+            schema: "pirate.study.telegram-fence-observation/1",
+            hash: fence.hash,
+            contextHash: digest(context),
+            allowed: true,
+          });
+        },
+      },
+    } as Env;
+    enqueue(initial, "record_result", ref, results, "0x1234", 21000n);
+    initial.set("fault:crash-before-broadcast", true);
+    await assert.rejects(
+      dispatch(scoped, initial, "record_result", ref, limits, legacyResultGate(scoped, initial)),
+      /simulated_crash_before_broadcast/,
+    );
+    const nonce = intentOf(initial, "record_result", ref)!.nonce!;
+    assert.equal(txRow(initial, nonce)?.broadcast, "none");
+    const raw = txRow(initial, nonce)?.raw;
+    const persisted: ResultStore = { ...journal(), now: initial.now };
+    for (const row of initial.entries("")) persisted.set(row.key, row.value);
+    assert.equal(calls, 0);
+    assert.deepEqual(n.state.sent, []);
+    await assert.rejects(
+      dispatch(scoped, persisted, "record_result", ref, limits, legacyResultGate(
+        { ...scoped, STUDY_TELEGRAM_AUTHORITY: undefined }, persisted,
+      )),
+      /study_telegram_fence_unavailable/,
+    );
+    assert.deepEqual(n.state.sent, []);
+    const retry = dispatch(scoped, persisted, "record_result", ref, limits, legacyResultGate(scoped, persisted));
+    await waiting.promise;
+    recordTelegramStudyDenial(persisted, telegramFence);
+    release.resolve();
+    const row = await retry;
+    assert.equal(row?.broadcast, "none");
+    assert.ok(row?.withheld);
+    assert.equal(row?.raw, raw);
+    assert.deepEqual(n.state.sent, []);
+    assert.equal(calls, 1);
+    await recoverTransactions(scoped, persisted, async () => true, legacyResultGate(scoped, persisted));
+    assert.deepEqual(n.state.sent, []);
+    assert.equal(calls, 1);
   } finally {
     n.restore();
   }

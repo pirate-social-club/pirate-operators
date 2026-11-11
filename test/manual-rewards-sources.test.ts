@@ -659,3 +659,120 @@ test("an appended source is observed live: code, version, community, grader role
   );
   assert.deepEqual(again.observed, []);
 });
+
+test("a categorical pin shares the scored cutoff and remains explicit and revalidatable", async () => {
+  const code = "0x60006000f3";
+  const scored = { ...original, codeHash: keccak256(code) };
+  const scoredHash = hashJson(scored);
+  const categoryHash = rewardHash(9010);
+  let cutoffHash = rewardHash(89) as Hex;
+  let policyHash = rewardHash(9011) as Hex;
+  const entry = {
+    accountId: "learner_01",
+    wallet: `0x${"55".repeat(20)}`,
+    completedAt: 65000,
+    evidenceHash: rewardHash(9012),
+  };
+  const verified: bigint[] = [];
+  const scoredCutoffs: (Hex | undefined)[] = [];
+  const live = liveRewardSources({
+    db: {} as D1Database,
+    profile: { ...liveProfile, resultSourceHash: scoredHash },
+    sources: rewardResultSources(scored, undefined),
+    config: {
+      communityId: rewardHash(7),
+      learningRecords: scored.contract,
+    } as never,
+    reads: {
+      client: {
+        getChainId: async () => 6343,
+        getCode: async () => code,
+        getBlock: async ({
+          blockTag,
+          blockNumber,
+        }: {
+          blockTag?: string;
+          blockNumber?: bigint;
+        }) => {
+          const number = blockTag === "safe" ? 100n : blockNumber!;
+          return {
+            number,
+            timestamp: number,
+            hash: number === 89n ? cutoffHash : rewardHash(Number(number)),
+          };
+        },
+      } as never,
+      profile: {} as never,
+    },
+    readResults: async (_source, range) => {
+      assert.equal(range.fromBlock, 50n);
+      assert.equal(range.toBlock, 89n);
+      scoredCutoffs.push(range.expectedToBlockHash);
+      return [];
+    },
+    categorical: new Map([
+      [
+        categoryHash,
+        {
+          fromBlock: 40n,
+          verifyAt: async (block) => {
+            verified.push(block.number);
+            return policyHash;
+          },
+          read: async (offer, hash, start, block) => {
+            assert.equal(hash, hashJson(offer));
+            assert.equal(start, 50n);
+            assert.equal(block.number, 89n);
+            return [entry];
+          },
+        },
+      ],
+    ]),
+  });
+  assert.deepEqual(live.resultSources, {
+    accepted: [scoredHash, categoryHash],
+    current: scoredHash,
+    defaults: [scoredHash],
+  });
+  const offer: RewardOfferInput = {
+    offerId: "offer_categorical",
+    drawingId: "1",
+    songKey: rewardHash(10),
+    opensAt: 50000,
+    cutoffAt: 90000,
+    purchaseHash: rewardHash(9),
+    ticketIds: ["1"],
+  };
+  const pinned = { ...offer, resultSources: [scoredHash, categoryHash] };
+  assert.ok(live.closure);
+  assert.equal(live.closure.requires(offer), false);
+  assert.deepEqual(await live.qualifiers(offer), []);
+  assert.deepEqual(verified, []);
+  await assert.rejects(live.qualifiers(pinned), /reward_closure_unavailable/);
+  await assert.rejects(
+    live.closure.admit!({ ...pinned, opensAt: 39000 }),
+    /reward_history_starts_after_offer/,
+  );
+  await live.closure.admit!(pinned);
+  const closed = await live.closure.scan(pinned, hashJson(pinned));
+  assert.deepEqual(closed.entries, [entry]);
+  assert.deepEqual(scoredCutoffs, [undefined, undefined, cutoffHash]);
+  assert.deepEqual(closed.captured, new Set([hashJson(entry)]));
+  assert.deepEqual(
+    closed.evidence.sources.map((pin) => pin.sourceHash),
+    pinned.resultSources,
+  );
+  assert.equal(closed.evidence.cutoffHash, cutoffHash);
+  await live.closure.verify(pinned, closed.evidence);
+  assert.deepEqual(verified, [100n, 89n, 89n]);
+  policyHash = rewardHash(9013) as Hex;
+  await assert.rejects(
+    live.closure.verify(pinned, closed.evidence),
+    /reward_closure_sources_changed/,
+  );
+  cutoffHash = rewardHash(9014) as Hex;
+  await assert.rejects(
+    live.closure.verify(pinned, closed.evidence),
+    /reward_results_head_changed/,
+  );
+});

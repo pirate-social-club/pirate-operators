@@ -17,7 +17,12 @@ const browser = {
 
 export default defineConfig({
   testDir: "karaoke-e2e",
-  testMatch: ["learning.spec.ts", "outro.spec.ts", "learning-v4.spec.ts"],
+  testMatch: [
+    "learning.spec.ts",
+    "outro.spec.ts",
+    "learning-v4.spec.ts",
+    "resume.spec.ts",
+  ],
   timeout: 180000,
   workers: 1,
   reporter: [["list"]],
@@ -25,7 +30,7 @@ export default defineConfig({
   projects: [
     {
       name: "learning",
-      testMatch: ["learning.spec.ts", "outro.spec.ts"],
+      testMatch: ["learning.spec.ts", "outro.spec.ts", "resume.spec.ts"],
       use: { ...browser, baseURL: "http://localhost:4180" },
     },
     {

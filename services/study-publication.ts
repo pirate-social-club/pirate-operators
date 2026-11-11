@@ -41,6 +41,16 @@ import {
   type TxRow,
 } from "./operator-tx.ts";
 import { releaseSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  checkTelegramStudyPublication,
+  studyTelegramPublication,
+  telegramResultPublication,
+  telegramStudyDenied,
+} from "./study-telegram-publication.ts";
+import {
+  resolveTelegramStudyFence,
+  type TelegramStudyFence,
+} from "../packages/study/telegram-publication.ts";
 import type { Env } from "./runtime.ts";
 import {
   readStudyRevision,
@@ -50,6 +60,7 @@ import type { StudyRevisionEvidence } from "./study-revisions.ts";
 import { studyRevisionRecovery } from "../packages/study/publication-view.ts";
 import {
   closedStudyPublication,
+  closedStudyReceipt,
   eraseNeverSubmittedStudy,
   proveNeverSubmittedStudy,
   studyNativeEvidence,
@@ -60,6 +71,7 @@ export interface PublicationJob {
   // Absent on earlier rows. Receipt bytes alone do not version cursor progress.
   observationRevision?: number;
   requestHash: Hex;
+  telegramFence?: TelegramStudyFence;
   target: ResultsTarget;
   result: TerminalResult;
   outcomes: Hex;
@@ -89,8 +101,7 @@ const durable = <T>(value: T): T =>
     ),
   );
 export const studyPublication = (store: ResultStore, id: string) =>
-  store.get<PublicationJob>(key(id))?.receipt ??
-  closedStudyPublication(store, id)?.receipt;
+  store.get<PublicationJob>(key(id))?.receipt ?? closedStudyReceipt(store, id);
 
 export function saveReceipt(
   store: ResultStore,
@@ -152,6 +163,12 @@ async function freeze(
   const binding = store.get<StudyBinding>("studyBinding:" + input.lessonId);
   check(binding, "study_lesson_not_bound");
   const target = retainedTarget(env, binding.target);
+  const telegram = studyTelegramPublication(
+    binding.offer,
+    target,
+    env.COMMUNITY_ID,
+  );
+  await checkTelegramStudyPublication(env, store, telegram);
   if (binding.authorization)
     check(
       target.version === 4 &&
@@ -163,6 +180,10 @@ async function freeze(
       target.version === 3 && binding.enrollment.activities! & 2,
       "study_enrollment_mismatch",
     );
+  check(
+    input.terminal.graderRevision === binding.offer.graderRevision,
+    "study_grader_binding_changed",
+  );
   check(
     input.terminal.startedAt === binding.offer.startedAt &&
       input.terminal.expiresAt === binding.offer.expiresAt &&
@@ -228,6 +249,11 @@ async function freeze(
   };
   store.transaction(() => {
     if (closedStudyPublication(store, input.lessonId)) return;
+    check(
+      !telegram ||
+        !telegramStudyDenied(store, telegram.fence, telegram.context),
+      "study_telegram_grant_withdrawn",
+    );
     const concurrent = store.get<PublicationJob>(key(input.lessonId));
     check(
       !concurrent || concurrent.requestHash === hash,
@@ -238,6 +264,7 @@ async function freeze(
         key(input.lessonId),
         durable({
           requestHash: hash,
+          ...(telegram ? { telegramFence: telegram.fence } : {}),
           target,
           ...bundle,
           data,
@@ -403,7 +430,7 @@ export async function resumeStudyPublication(
   id: string,
 ) {
   const closed = closedStudyPublication(store, id);
-  if (closed) return closed.receipt;
+  if (closed) return closedStudyReceipt(store, id)!;
   let job = store.get<PublicationJob>(key(id));
   check(job, "study_publication_not_found");
   retainedTarget(env, job.target);
@@ -454,6 +481,18 @@ export async function resumeStudyPublication(
   // is sent only while its sign-in permission is unbroken; withdrawal keeps it
   // private. Both keep the bounded private-history erasure.
   if (job.target.version === 4 && intent?.nonce == null) {
+    const telegram = telegramResultPublication(env, store, ref);
+    if (
+      telegram &&
+      (telegramStudyDenied(store, telegram.fence, telegram.context) ||
+        !(await resolveTelegramStudyFence(
+          env.STUDY_TELEGRAM_AUTHORITY,
+          telegram.fence,
+          telegram.context,
+        )) ||
+        telegramStudyDenied(store, telegram.fence, telegram.context))
+    )
+      return keepPrivate(env, store, id, job, "authorization_withdrawn");
     if (Number(job.result.status) !== 1)
       return keepPrivate(env, store, id, job, "unfinished");
     // The contract's publish rule, re-read just before dispatch.
@@ -521,7 +560,7 @@ export async function resumeStudyPublication(
   }
   const latest = store.get<PublicationJob>(key(id));
   const final = closedStudyPublication(store, id);
-  if (final) return final.receipt;
+  if (final) return closedStudyReceipt(store, id)!;
   if (
     latest?.receipt.state === "private" ||
     (latest?.receipt.state === "failed" &&
@@ -646,7 +685,7 @@ export async function publishStudyTerminal(
 ) {
   check(input && studyId(input.lessonId), "invalid_study_terminal");
   const closed = closedStudyPublication(store, input.lessonId);
-  if (closed) return closed.receipt;
+  if (closed) return closedStudyReceipt(store, input.lessonId)!;
   await freeze(env, store, input);
   return resumeStudyPublication(env, store, input.lessonId);
 }

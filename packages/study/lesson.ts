@@ -9,6 +9,8 @@ import {
   type StudyLine,
   type StudySelection,
 } from "./contracts.ts";
+import type { Hex } from "viem";
+import type { AdmittedStudyGrader } from "./grader-revision.ts";
 export type StudySong = Omit<StudySelection, "lineId">;
 export const STUDY_LESSON_SCHEMA = "pirate.study.lesson/1" as const;
 export const STUDY_QUEUE_POLICY = "pirate.study.lesson-queue/1" as const;
@@ -125,7 +127,17 @@ export interface LessonItem {
   resolved: boolean;
   firstPassOutcome: "correct" | "incorrect" | null;
 }
+/** Private state persisted in the same D1 row as the new lesson. The
+ * request id cannot later make the same draft a website lesson. */
+export interface StudyTelegramEntry {
+  fenceHash: Hex;
+  authorizationId: Hex;
+}
 export interface LessonState {
+  telegram?: StudyTelegramEntry;
+  graderRevision?: AdmittedStudyGrader;
+  speechRetrySerial?: number;
+  speechRetryAfter?: number;
   policy: typeof STUDY_QUEUE_POLICY;
   song: StudySong;
   items: LessonItem[];
@@ -150,6 +162,8 @@ export interface LessonState {
   takeNumber: number;
 }
 export interface StudyLesson {
+  graderRevision?: AdmittedStudyGrader;
+  speechRetryAfter?: number;
   schema: typeof STUDY_LESSON_SCHEMA;
   kind: "say-it-back";
   lessonId: string;
@@ -209,6 +223,7 @@ export function newLesson(
   song: StudySong,
   lines: StudyLine[],
   now: number,
+  graderRevision?: AdmittedStudyGrader,
 ): LessonState {
   studyCheck(
     Number.isSafeInteger(now) && now >= 0 && now < STUDY_LESSON_NO_DEADLINE,
@@ -221,6 +236,7 @@ export function newLesson(
   );
   const validated = validateStudySongLines(song, lines);
   return {
+    ...(graderRevision ? { graderRevision } : {}),
     policy: STUDY_QUEUE_POLICY,
     song,
     items: validated.map((line) => ({
@@ -301,6 +317,18 @@ export function consumeLessonGrade(
   );
   const next: LessonState = structuredClone(state),
     item = next.items[next.currentIndex!];
+  if (attempt.grade.rerecordReason) {
+    studyCheck(
+      attempt.policy === "script_aware_token_phonetic_v5" &&
+        state.takeNumber === 1,
+      "study_rerecord_changed",
+      409,
+    );
+    next.currentAttemptId = null;
+    next.lastAttemptId = attempt.attemptId;
+    next.takeNumber = 2;
+    return next;
+  }
   const correct = attempt.grade.correct;
   if (item.presentations === 0)
     item.firstPassOutcome = correct ? "correct" : "incorrect";

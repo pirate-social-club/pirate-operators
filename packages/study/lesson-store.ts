@@ -43,12 +43,33 @@ export class StudyLessonStore {
     );
     return state;
   }
-  async latest(owner: StudyPrincipal, song: StudySong) {
+  async latest(
+    owner: StudyPrincipal,
+    song: StudySong,
+    entry?: { fenceHash: string | null },
+  ) {
     return this.db
       .prepare(
-        "SELECT * FROM study_lessons WHERE account_id=? AND community_id=? AND song_json=? AND history_deleted_at IS NULL ORDER BY started_at DESC,rowid DESC LIMIT 1",
+        `SELECT * FROM study_lessons WHERE account_id=? AND community_id=? AND song_json=? AND history_deleted_at IS NULL
+        ${
+          entry
+            ? "AND json_extract(state_json,'$.telegram.fenceHash') IS ?" +
+              (entry.fenceHash === null
+                ? ` AND NOT EXISTS (SELECT 1 FROM study_publications p
+                WHERE p.lesson_id=study_lessons.lesson_id
+                AND (json_extract(p.binding_json,'$.offer.speechChannel') IS NOT NULL
+                  OR json_extract(p.binding_json,'$.offer.telegramFence') IS NOT NULL))`
+                : "")
+            : ""
+        }
+        ORDER BY started_at DESC,rowid DESC LIMIT 1`,
       )
-      .bind(owner.accountId, owner.communityId, JSON.stringify(song))
+      .bind(
+        owner.accountId,
+        owner.communityId,
+        JSON.stringify(song),
+        ...(entry ? [entry.fenceHash] : []),
+      )
       .first<LessonRow>();
   }
   async byRequest(owner: StudyPrincipal, requestId: string) {
@@ -112,7 +133,19 @@ export class StudyLessonStore {
     );
     return row;
   }
+  private sameEntry(row: LessonRow, state: LessonState) {
+    const old = this.state(row).telegram;
+    studyCheck(
+      old === undefined
+        ? state.telegram === undefined
+        : state.telegram?.fenceHash === old.fenceHash &&
+            state.telegram?.authorizationId === old.authorizationId,
+      "study_lesson_channel_changed",
+      409,
+    );
+  }
   async update(owner: StudyPrincipal, row: LessonRow, state: LessonState) {
+    this.sameEntry(row, state);
     const result = await this.db
       .prepare(
         "UPDATE study_lessons SET state_json=?,revision=revision+1 WHERE lesson_id=? AND account_id=? AND community_id=? AND revision=?",
@@ -160,6 +193,7 @@ export class StudyLessonStore {
     state: LessonState,
     current: StudyAttempt | null,
   ) {
+    this.sameEntry(row, state);
     // The current attempt's state is a second CAS input. If claim/finish won,
     // reread it before freezing absence or grade. The batch seals pending takes
     // only after a successful closure (or an already terminal competing close).

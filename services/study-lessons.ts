@@ -1,6 +1,10 @@
 import { Effect } from "effect";
 import { StudyAttemptStore } from "../packages/study/attempt-store.ts";
 import {
+  studyGraderAt,
+  type StudyGraderActivation,
+} from "../packages/study/grader-revision.ts";
+import {
   StudyError,
   studyCheck,
   selectionOf,
@@ -24,6 +28,7 @@ import {
   type StudyLesson,
   type StudySong,
   type StudyLessonSubmission,
+  type StudyTelegramEntry,
 } from "../packages/study/lesson.ts";
 import {
   StudyLessonStore,
@@ -48,6 +53,7 @@ export const studyCloseBoundBinds = [
   STUDY_OPEN_LESSON_MAX_MS,
 ] as const;
 export function makeStudyLessonService(options: {
+  graderActivation?: StudyGraderActivation;
   db: D1Database;
   attempts: ReturnType<typeof makeStudyService>;
   // Return all eligible published lines in song order. Selection is per owner.
@@ -90,9 +96,7 @@ export function makeStudyLessonService(options: {
       if (state.status !== "active") return row;
       bound ??= studyCloseBound(
         state,
-        studyLessonHasDeadline(state)
-          ? null
-          : await consentExpiry(owner, id),
+        studyLessonHasDeadline(state) ? null : await consentExpiry(owner, id),
       );
       // A legacy lesson consumes any saved grade; its speech layer refused to
       // save one after the deadline. A new lesson consumes only a grade that
@@ -103,10 +107,7 @@ export function makeStudyLessonService(options: {
         ? await options.attempts.get(owner, state.currentAttemptId)
         : null;
       // Consume a grade durably saved before the close bound, even after restart.
-      if (
-        attempt?.state === "assessed" &&
-        inside(attempt.completedAt!)
-      ) {
+      if (attempt?.state === "assessed" && inside(attempt.completedAt!)) {
         if (
           await store.update(
             owner,
@@ -175,7 +176,11 @@ export function makeStudyLessonService(options: {
           ...state,
           currentAttemptId: null,
           lastAttemptId: attempt.attemptId,
-          takeNumber: state.takeNumber + 1,
+          // Provider/transport failures do not spend a learner take. A new
+          // physical dispatch gets its own id, with a bounded retry cooldown.
+          speechRetrySerial: (state.speechRetrySerial ?? 0) + 1,
+          speechRetryAfter:
+            ((state.speechRetrySerial ?? 0) + 1) % 3 === 0 ? now() + 60000 : 0,
         };
         if (await store.update(owner, row, next)) continue;
       } else return row;
@@ -199,6 +204,8 @@ export function makeStudyLessonService(options: {
               : null,
           };
     return {
+      ...(s.graderRevision ? { graderRevision: s.graderRevision } : {}),
+      ...(s.speechRetryAfter ? { speechRetryAfter: s.speechRetryAfter } : {}),
       schema: STUDY_LESSON_SCHEMA,
       kind: "say-it-back",
       lessonId: row.lesson_id,
@@ -228,13 +235,41 @@ export function makeStudyLessonService(options: {
     };
   }
   const service = {
-    async start(owner: StudyPrincipal, requestId: string, input: unknown) {
+    async start(
+      owner: StudyPrincipal,
+      requestId: string,
+      input: unknown,
+      entry?: { startedAt: number; telegram: StudyTelegramEntry },
+    ) {
       const song = studySong(input);
       ownerFor(owner, song);
       studyCheck(
         /^[a-zA-Z0-9_-]{16,128}$/.test(requestId),
         "invalid_study_request_id",
       );
+      if (entry)
+        studyCheck(
+          Number.isSafeInteger(entry.startedAt) &&
+            entry.startedAt > 0 &&
+            /^0x[0-9a-f]{64}$/.test(entry.telegram.fenceHash) &&
+            BigInt(entry.telegram.fenceHash) > 0n &&
+            /^0x[0-9a-f]{64}$/.test(entry.telegram.authorizationId) &&
+            BigInt(entry.telegram.authorizationId) > 0n,
+          "study_lesson_channel_changed",
+          409,
+        );
+      function assertEntry(row: LessonRow) {
+        const state = store.state(row);
+        studyCheck(
+          entry
+            ? state.telegram?.fenceHash === entry.telegram.fenceHash &&
+                state.telegram?.authorizationId ===
+                  entry.telegram.authorizationId
+            : state.telegram === undefined,
+          "study_lesson_channel_changed",
+          409,
+        );
+      }
       const previous = await store.byRequest(owner, requestId);
       if (previous) {
         studyCheck(
@@ -247,21 +282,28 @@ export function makeStudyLessonService(options: {
           "study_request_conflict",
           409,
         );
+        assertEntry(previous);
         return service.get(owner, previous.lesson_id);
       }
+      const startedAt = entry?.startedAt ?? now();
+      studyCheck(startedAt <= now(), "invalid_study_start");
+      const initial = newLesson(
+        song,
+        selectStudyLessonLines(
+          song,
+          await options.resolveLines(song),
+          await store.practice(owner, song),
+        ),
+        startedAt,
+        studyGraderAt(startedAt, options.graderActivation),
+      );
       const row = await store.create(
         owner,
         requestId,
-        newLesson(
-          song,
-          selectStudyLessonLines(
-            song,
-            await options.resolveLines(song),
-            await store.practice(owner, song),
-          ),
-          now(),
-        ),
+        entry ? { ...initial, telegram: entry.telegram } : initial,
       );
+      // INSERT may have lost to another channel or to a different grant.
+      assertEntry(row);
       return service.get(owner, row.lesson_id);
     },
     async get(owner: StudyPrincipal, id: string) {
@@ -278,10 +320,14 @@ export function makeStudyLessonService(options: {
       }
       throw new StudyError("study_lesson_busy", 409);
     },
-    async latest(owner: StudyPrincipal, input: unknown) {
+    async latest(
+      owner: StudyPrincipal,
+      input: unknown,
+      entry?: { fenceHash: string | null },
+    ) {
       const song = studySong(input);
       ownerFor(owner, song);
-      const row = await store.latest(owner, song);
+      const row = await store.latest(owner, song, entry);
       return row ? service.get(owner, row.lesson_id) : null;
     },
     /**
@@ -308,9 +354,7 @@ export function makeStudyLessonService(options: {
         const closedAt = now(),
           bound = studyCloseBound(
             s,
-            studyLessonHasDeadline(s)
-              ? null
-              : await consentExpiry(owner, id),
+            studyLessonHasDeadline(s) ? null : await consentExpiry(owner, id),
           ),
           late = closedAt >= bound.at;
         if (
@@ -371,6 +415,11 @@ export function makeStudyLessonService(options: {
           409,
         );
         studyCheck(s.takeNumber <= STUDY_MAX_TAKES, "study_retry_limit", 409);
+        studyCheck(
+          now() >= (s.speechRetryAfter ?? 0),
+          "study_speech_retry_later",
+          429,
+        );
         if (s.currentAttemptId)
           return {
             attempt: await options.attempts.get(owner, s.currentAttemptId),
@@ -379,9 +428,10 @@ export function makeStudyLessonService(options: {
         const ref = { lessonId: id, presentationNumber, takeNumber };
         const attempt = await options.attempts.open(
           owner,
-          `lesson_${id}_${presentationNumber}_${takeNumber}`,
+          `lesson_${id}_${presentationNumber}_${takeNumber}${s.speechRetrySerial ? `_speech_${s.speechRetrySerial}` : ""}`,
           selectionOf(s.items[s.currentIndex].line),
           ref,
+          s.graderRevision,
         );
         studyCheck(
           JSON.stringify(attempt.line) ===

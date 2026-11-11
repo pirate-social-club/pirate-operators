@@ -71,7 +71,7 @@ export async function rewardsCommunityApi(
     store = new RewardStore(ports.db, ports.profile);
   await store.init();
   const claims = new RewardClaims(store, ports.verification, ports.now),
-    payments = new RewardPayments(store, ports.chain, ports.now);
+    payments = new RewardPayments(store, ports.chain, ports.now, ports.sources);
   const treasury = new RewardTreasury(store, ports.chain);
   const reply = (value: unknown) => Response.json(value, { headers });
   const get = () => insist(request.method === "GET", "method_not_allowed", 405),

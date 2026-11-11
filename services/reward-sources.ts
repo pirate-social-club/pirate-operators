@@ -26,13 +26,14 @@ import {
 } from "../packages/rewards/megapot.ts";
 import type {
   QualificationEntry,
+  RewardClosureEvidence,
   RewardOfferInput,
   RewardSources,
   RewardsProfile,
 } from "../packages/rewards/contracts.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
-import { parseAbi, type Hex } from "viem";
+import { keccak256, parseAbi, type Hex } from "viem";
 import { withRewardRehearsal } from "../packages/rewards/rehearsal.ts";
 
 export interface RewardResultSource {
@@ -63,6 +64,21 @@ export type AnyRewardResultSource = RewardResultSource | RewardResultSuccessor;
 export const MAX_RESULT_SUCCESSORS = 7;
 const sourceVersion = (s: AnyRewardResultSource): 3 | 4 =>
   s.schema === "pirate.reward-result-source/2" ? s.version : 3;
+type Cutoff = { number: bigint; timestamp: bigint; hash: Hex };
+
+export interface CategoricalRewardReader {
+  fromBlock: bigint;
+  /** Returns the exact historical source and policy digest at the cutoff. */
+  verifyAt(cutoff: Cutoff): Promise<Hex>;
+  /** Entries have authenticated immutable captured bindings. */
+  read(
+    offer: RewardOfferInput,
+    inputHash: string,
+    fromBlock: bigint,
+    cutoff: Cutoff,
+  ): Promise<QualificationEntry[]>;
+}
+
 /** Greatest canonical block strictly before the offer cutoff, bounded by a confirmed head. */
 export async function rewardCutoffBlock(
   from: bigint,
@@ -316,6 +332,7 @@ async function assertWindowPolicies(
     "reward_window_policy_span",
     409,
   );
+  const schedule: { period: string; activity: number; policy: string }[] = [];
   for (let p = first; p <= last; p++)
     for (const [activity, expected] of [
       [1, source.karaokePolicy],
@@ -335,13 +352,21 @@ async function assertWindowPolicies(
         "reward_result_policy_rotated",
         503,
       );
+      schedule.push({
+        period: p.toString(),
+        activity,
+        policy: policy.toLowerCase(),
+      });
     }
+  return schedule;
 }
 export function liveRewardSources(input: {
   db: D1Database;
   profile: RewardsProfile;
   /** The original source first, then successors, from rewardResultSources. */
   sources: Map<string, AnyRewardResultSource>;
+  /** Separately admitted categorical sources. Never inserted into old offers. */
+  categorical?: ReadonlyMap<string, CategoricalRewardReader>;
   config: CommunityConfig;
   reads: PublicReadPorts;
   /** The verified public results reader; replaced only in tests. */
@@ -352,7 +377,10 @@ export function liveRewardSources(input: {
    */
   sourcePorts?: Pick<
     V3SourcePorts,
-    "karaokeManifest" | "authenticateKaraoke" | "studyManifest" | "authenticateStudy"
+    | "karaokeManifest"
+    | "authenticateKaraoke"
+    | "studyManifest"
+    | "authenticateStudy"
   >;
 }): RewardSources {
   const { profile, sources, reads, config, db } = input;
@@ -368,9 +396,177 @@ export function liveRewardSources(input: {
     ([, s]) => s.contract === config.learningRecords.toLowerCase(),
   )?.[0];
   insist(current, "reward_results_contract_changed", 503);
+  const categorical =
+    input.categorical ?? new Map<string, CategoricalRewardReader>();
+  for (const hash of categorical.keys())
+    insist(!sources.has(bytes32(hash)), "reward_result_source_overlap", 503);
+  const pinnedFor = (offer: RewardOfferInput) => {
+    const pins = offer.resultSources ?? [profile.resultSourceHash];
+    insist(
+      pins.length > 0 && new Set(pins).size === pins.length,
+      "reward_offer_sources_invalid",
+      503,
+    );
+    return pins;
+  };
+  const requires = (offer: RewardOfferInput) =>
+    pinnedFor(offer).some((hash) => categorical.has(hash));
+  const read = async (number: bigint): Promise<Cutoff> => {
+    const b = await reads.client.getBlock({ blockNumber: number });
+    return { number: b.number, timestamp: b.timestamp, hash: b.hash };
+  };
+  const snapshot = async (
+    offer: RewardOfferInput,
+    head: Cutoff,
+  ): Promise<RewardClosureEvidence> => {
+    const evidence: RewardClosureEvidence["sources"] = [];
+    for (const hash of pinnedFor(offer)) {
+      const category = categorical.get(hash),
+        source = sources.get(hash);
+      insist(category || source, "reward_result_source_unavailable", 503);
+      let policyEvidenceHash;
+      if (category) {
+        policyEvidenceHash = await category.verifyAt(head);
+      } else {
+        const scored = source!;
+        const code = await reads.client.getCode({
+          address: scored.contract as Hex,
+          blockNumber: head.number,
+        });
+        insist(
+          code && code !== "0x" && keccak256(code) === scored.codeHash,
+          "reward_result_runtime_changed",
+          503,
+        );
+        const schedule =
+          sourceVersion(scored) === 4
+            ? await assertWindowPolicies(
+                reads.client,
+                scored,
+                offer,
+                head.number,
+              )
+            : [];
+        policyEvidenceHash = hashJson({ source: scored, schedule });
+      }
+      evidence.push({ sourceHash: hash, policyEvidenceHash });
+    }
+    const after = await read(head.number);
+    insist(
+      after.number === head.number &&
+        after.hash === head.hash &&
+        after.timestamp === head.timestamp,
+      "reward_results_head_changed",
+      503,
+    );
+    return {
+      chainId: 6343,
+      cutoffNumber: head.number.toString(),
+      cutoffHash: head.hash,
+      cutoffTimestampSeconds: head.timestamp.toString(),
+      sources: evidence,
+    };
+  };
+  const collect = async (offer: RewardOfferInput, inputHash?: string) => {
+    const confirmed = await reads.client.getBlock({ blockTag: "safe" });
+    const history = await (reads.configurationHistory?.() ??
+      Promise.resolve([config]));
+    const scoredEntries: Omit<QualificationEntry, "accountId">[] = [];
+    const capturedEntries: QualificationEntry[] = [];
+    let head: Cutoff | null = null;
+    for (const hash of pinnedFor(offer)) {
+      const source = sources.get(hash),
+        category = categorical.get(hash);
+      insist(source || category, "reward_result_source_unavailable", 503);
+      const range = await rewardOfferBlocks(
+        category?.fromBlock ?? BigInt(source!.fromBlock),
+        confirmed,
+        offer,
+        read,
+      );
+      insist(
+        !head ||
+          (head.number === range.head.number &&
+            head.hash === range.head.hash &&
+            head.timestamp === range.head.timestamp),
+        "reward_results_head_changed",
+        503,
+      );
+      head = range.head;
+      if (category) {
+        insist(inputHash, "reward_closure_unavailable", 503);
+        const found = await category.read(
+          offer,
+          inputHash,
+          range.fromBlock,
+          head,
+        );
+        insist(
+          found.length + capturedEntries.length <= 20000,
+          "reward_entry_limit",
+          409,
+        );
+        for (const entry of found) capturedEntries.push(entry);
+        continue;
+      }
+      const scored = source!;
+      if (sourceVersion(scored) === 4)
+        await assertWindowPolicies(reads.client, scored, offer, head.number);
+      const context = {
+        client: reads.client,
+        posts: reads.profile,
+        head: head.number,
+        history,
+        transport: reads.transport,
+      };
+      const results = await readResults(
+        {
+          contract: scored.contract as Hex,
+          codeHash: scored.codeHash as Hex,
+          version: sourceVersion(scored),
+        },
+        {
+          communityId: config.communityId,
+          rpcUrl: profile.rpcUrl,
+          chainId: 6343,
+          fromBlock: range.fromBlock,
+          toBlock: head.number,
+          ...(inputHash ? { expectedToBlockHash: head.hash } : {}),
+          ...(input.sourcePorts ?? {
+            authenticateKaraoke: sourceAuthenticator(context),
+            studyManifest: studySourceReader(context),
+            authenticateStudy: studySourceAuthenticator(context),
+          }),
+        },
+      );
+      for (const result of results)
+        if (qualifiesRewardResult(result, offer, scored))
+          scoredEntries.push({
+            wallet: result.result.learner.toLowerCase(),
+            evidenceHash: result.commitment,
+            completedAt: Number(result.result.completedAt) * 1000,
+          });
+    }
+    const scored = await resolveRewardQualifiers(db, scoredEntries);
+    insist(
+      head && (await read(head.number)).hash === head.hash,
+      "reward_results_head_changed",
+      503,
+    );
+    return {
+      head,
+      entries: [...scored, ...capturedEntries],
+      captured: new Set(capturedEntries.map(hashJson)),
+    };
+  };
+  const defaults = [...sources.keys()];
   return withRewardRehearsal(profile, {
     mode: "live-testnet",
-    resultSources: { accepted: [...sources.keys()], current },
+    resultSources: {
+      accepted: [...defaults, ...categorical.keys()],
+      current,
+      ...(categorical.size ? { defaults } : {}),
+    },
     purchase: async (...args) => ({
       ...(await megapotPurchase(...args)),
       mode: "live-testnet",
@@ -380,89 +576,92 @@ export function liveRewardSources(input: {
       mode: "live-testnet",
     }),
     async qualifiers(offer) {
-      // An offer from before succession accepts the original source alone.
-      const pinned = offer.resultSources ?? [profile.resultSourceHash];
-      const confirmed = await reads.client.getBlock({ blockTag: "safe" });
-      const history = await (reads.configurationHistory?.() ??
-        Promise.resolve([config]));
-      const read = async (number: bigint) => {
-        const b = await reads.client.getBlock({ blockNumber: number });
-        return { number: b.number, timestamp: b.timestamp, hash: b.hash };
-      };
-      const results: Omit<QualificationEntry, "accountId">[] = [];
-      let head: Awaited<ReturnType<typeof rewardOfferBlocks>>["head"] | null =
-        null;
-      insist(
-        pinned.length > 0 && new Set(pinned).size === pinned.length,
-        "reward_offer_sources_invalid",
-        503,
-      );
-      for (const hash of pinned) {
-        const source = sources.get(hash);
-        // A pinned source that is no longer configured stops the close rather
-        // than silently narrowing what the offer accepts.
-        insist(source, "reward_result_source_unavailable", 503);
-        const range = await rewardOfferBlocks(
-          BigInt(source.fromBlock),
-          confirmed,
-          offer,
-          read,
-        );
-        // Every source is read to one cutoff block.
-        insist(
-          !head ||
-            (head.number === range.head.number &&
-              head.hash === range.head.hash),
-          "reward_results_head_changed",
-          503,
-        );
-        head = range.head;
-        if (sourceVersion(source) === 4)
-          await assertWindowPolicies(reads.client, source, offer, head.number);
-        const context = {
-          client: reads.client,
-          posts: reads.profile,
-          head: range.head.number,
-          history,
-          transport: reads.transport,
-        };
-        const evidence = await readResults(
-          {
-            contract: source.contract as Hex,
-            codeHash: source.codeHash as Hex,
-            version: sourceVersion(source),
-          },
-          {
-            communityId: config.communityId,
-            rpcUrl: profile.rpcUrl,
-            chainId: 6343,
-            fromBlock: range.fromBlock,
-            toBlock: range.head.number,
-            ...(input.sourcePorts ?? {
-              authenticateKaraoke: sourceAuthenticator(context),
-              studyManifest: studySourceReader(context),
-              authenticateStudy: studySourceAuthenticator(context),
-            }),
-          },
-        );
-        for (const result of evidence)
-          if (qualifiesRewardResult(result, offer, source))
-            results.push({
-              wallet: result.result.learner.toLowerCase(),
-              evidenceHash: result.commitment,
-              completedAt: Number(result.result.completedAt) * 1000,
-            });
-      }
-      const entries = await resolveRewardQualifiers(db, results);
-      // Every source was read to the same cutoff block, which must still be canonical.
-      insist(
-        head &&
-          (await reads.client.getBlock({ blockNumber: head.number })).hash ===
-            head.hash,
-        "reward_results_head_changed",
-        503,
-      );
-      return entries;
+      return (await collect(offer)).entries;
     },
+    ...(categorical.size
+      ? {
+          closure: {
+            requires,
+            async admit(offer: RewardOfferInput) {
+              insist(
+                requires(offer) && (await reads.client.getChainId()) === 6343,
+                "reward_closure_unavailable",
+                503,
+              );
+              const safe = await reads.client.getBlock({ blockTag: "safe" });
+              const head = {
+                number: safe.number,
+                timestamp: safe.timestamp,
+                hash: safe.hash,
+              };
+              for (const hash of pinnedFor(offer)) {
+                const category = categorical.get(hash),
+                  source = sources.get(hash);
+                insist(
+                  category || source,
+                  "reward_result_source_unavailable",
+                  503,
+                );
+                const start = category?.fromBlock ?? BigInt(source!.fromBlock);
+                insist(
+                  start <= head.number,
+                  "reward_result_source_unavailable",
+                  503,
+                );
+                const first = await read(start);
+                insist(
+                  first.number === start &&
+                    first.timestamp * 1000n <= BigInt(offer.opensAt),
+                  "reward_history_starts_after_offer",
+                  409,
+                );
+              }
+              await snapshot(offer, head);
+            },
+            async scan(offer: RewardOfferInput, inputHash: string) {
+              insist(
+                requires(offer) && (await reads.client.getChainId()) === 6343,
+                "reward_closure_unavailable",
+                503,
+              );
+              const { head, ...result } = await collect(offer, inputHash);
+              return { ...result, evidence: await snapshot(offer, head) };
+            },
+            async verify(
+              offer: RewardOfferInput,
+              expected: RewardClosureEvidence,
+            ) {
+              insist(
+                requires(offer) && (await reads.client.getChainId()) === 6343,
+                "reward_closure_unavailable",
+                503,
+              );
+              const n = rewardAmount(expected.cutoffNumber);
+              const [head, next, safe] = await Promise.all([
+                read(n),
+                read(n + 1n),
+                reads.client.getBlock({ blockTag: "safe" }),
+              ]);
+              insist(
+                head.number === n &&
+                  next.number === n + 1n &&
+                  next.number <= safe.number &&
+                  head.hash === expected.cutoffHash &&
+                  head.timestamp.toString() ===
+                    expected.cutoffTimestampSeconds &&
+                  head.timestamp * 1000n < BigInt(offer.cutoffAt) &&
+                  next.timestamp * 1000n >= BigInt(offer.cutoffAt),
+                "reward_results_head_changed",
+                503,
+              );
+              insist(
+                hashJson(await snapshot(offer, head)) === hashJson(expected),
+                "reward_closure_sources_changed",
+                503,
+              );
+            },
+          },
+        }
+      : {}),
   });
 }

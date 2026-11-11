@@ -2,6 +2,7 @@
 // authorization in force when it started; it may publish only while the
 // contract's publish rule still accepts that authorization.
 import type { Address, Hex } from "viem";
+import { resultsV4Abi } from "../packages/protocol/learning-results-v4.ts";
 import { check } from "../packages/protocol/index.ts";
 import { STUDY_AUTH_HEADER } from "../packages/study/operator-auth.ts";
 import {
@@ -10,7 +11,7 @@ import {
   type StudyLessonOfferV4,
 } from "../packages/study/operator-contract.ts";
 import {
-  readResultContract,
+  resultClient,
   resultsTarget,
   retainedTarget,
   sameResultsTarget,
@@ -18,6 +19,10 @@ import {
 } from "./learning-contract.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import { reserveSponsorship, sponsorLimits } from "./sponsor-budget.ts";
+import {
+  studyTelegramPublication,
+  telegramStudyDenied,
+} from "./study-telegram-publication.ts";
 import { closedStudyPublication } from "./study-private-publication.ts";
 import type { StudyBinding } from "./study-operator.ts";
 import type { Env } from "./runtime.ts";
@@ -42,10 +47,20 @@ export async function studyAuthorizationState(
 ) {
   target = retainedTarget(env, target);
   check(target.version === 4, "unsupported_results_version");
+  const chain = resultClient(env);
+  const blockNumber = await chain.getBlockNumber({ cacheTime: 0 });
+  const read = <T>(functionName: string, args: unknown[]) =>
+    chain.readContract({
+      address: target.contract,
+      abi: resultsV4Abi,
+      functionName,
+      args,
+      blockNumber,
+    } as never) as Promise<T>;
   const [owner, issuedAt, since] = await Promise.all([
-    readResultContract<Address>(env, target, "authorizationLearner", [id]),
-    readResultContract<bigint>(env, target, "authorizationIssuedAt", [id]),
-    readResultContract<bigint>(env, target, "authorizedSince", [learner]),
+    read<Address>("authorizationLearner", [id]),
+    read<bigint>("authorizationIssuedAt", [id]),
+    read<bigint>("authorizedSince", [learner]),
   ]);
   return {
     /** The authorization exists and belongs to this learner. */
@@ -91,7 +106,10 @@ export interface StudyAuthorizationBinding {
  * the request names the configured V4 contract; anything else is V3 as before,
  * so V3 lessons keep working beside V4.
  */
-export function studyAuthorityTarget(env: Env, request: Request): ResultsTarget {
+export function studyAuthorityTarget(
+  env: Env,
+  request: Request,
+): ResultsTarget {
   if (env.RESULTS_V4_CONTRACT) {
     let named: unknown;
     try {
@@ -135,8 +153,14 @@ export async function bindAuthorizedLesson(
     "study_authorization_mismatch",
   );
   check(state.unbroken, "study_authorization_required");
-  return store.transaction(() => {
+  const commit = () => {
     check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
+    const telegram = studyTelegramPublication(v4, target, env.COMMUNITY_ID);
+    check(
+      !telegram ||
+        !telegramStudyDenied(store, telegram.fence, telegram.context),
+      "study_telegram_grant_withdrawn",
+    );
     const concurrent = store.get<StudyBinding>(`studyBinding:${v4.lessonId}`);
     if (concurrent) {
       check(
@@ -169,5 +193,10 @@ export async function bindAuthorizedLesson(
     };
     store.set(`studyBinding:${v4.lessonId}`, binding);
     return binding;
-  });
+  };
+  if (v4.speechChannel === "telegram-linked") {
+    check(store.durableStudyWrite, "study_binding_wake_unconfigured");
+    return store.durableStudyWrite(commit);
+  }
+  return store.transaction(commit);
 }

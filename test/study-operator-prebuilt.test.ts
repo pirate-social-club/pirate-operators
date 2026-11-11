@@ -98,13 +98,24 @@ test(
     assert.equal(closure.module, "operator.mjs");
     assert.equal(closure.sha256, prepared!.artifactSha256);
     assert.equal(closure.bytes, prepared!.artifactBytes);
-    if (retained) {
-      assert.equal(closure.bytes, 1032605);
-      assert.equal(
-        closure.sha256,
+    // The provider reader is fixed; the current bundle may change. An
+    // earlier profile is never allowed to authorize a different artifact.
+    const precedingArtifact = {
+      ...good.profile.artifact,
+      bytes: 1032605,
+      sha256:
         "0xfc67440e01f006ff15da37ff8f24a798d660ce7e99e1109a9a399bd8ed6f4958",
+    };
+    if (closure.sha256 !== precedingArtifact.sha256)
+      await assert.rejects(
+        assertOperatorModuleClosure(
+          { ...good.profile, artifact: precedingArtifact },
+          good.directory,
+          prepared!,
+          available,
+        ),
+        /upload_closure_changed/,
       );
-    }
     for (const name of operatorPackageFiles)
       assert.ok(
         (await readFile(join(good.directory, name))).equals(

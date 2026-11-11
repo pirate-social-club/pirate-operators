@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import type { Settings, SecretName } from "../server/model.ts";
 import type { Snapshot } from "./types.ts";
+import { LearningSetup } from "./learning-setup.tsx";
 import { ManagedServices } from "./managed-services.tsx";
 import { Readiness } from "./readiness.tsx";
 import { InfisicalConnection } from "./infisical-connection.tsx";
@@ -155,7 +156,13 @@ function App() {
           </p>
           <nav aria-label="Setup steps">
             <For
-              each={["Community", "Services", "Review & deploy", "Readiness"]}
+              each={[
+                "Community",
+                "Services",
+                "Review & deploy",
+                "Readiness",
+                "Learning",
+              ]}
             >
               {(title, i) => (
                 <button
@@ -173,8 +180,8 @@ function App() {
           <div class="resume">
             <span class="dot" /> Progress stays on this device.
             <p>
-              Independent operator keys belong in that operator’s Infisical
-              scope. Managed communities do not supply provider keys.
+              Moderation keys belong to its operator. Learning uses each
+              community’s own ElevenLabs key in Infisical.
             </p>
           </div>
         </aside>
@@ -197,6 +204,9 @@ function App() {
             when={state()}
             fallback={<p>Connecting to your local runner…</p>}
           >
+            <Show when={step() === 4}>
+              <LearningSetup state={state()!} busy={busy()} action={action} />
+            </Show>
             <Show when={step() === 0}>
               <h2>A home for your community</h2>
               <p class="lede">

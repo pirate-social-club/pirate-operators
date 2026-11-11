@@ -1,9 +1,10 @@
 import { bytes32, hashJson, insist } from "../community/common.ts";
-import type { RewardChain, RewardPayment } from "./contracts.ts";
+import type { RewardChain, RewardPayment, RewardSources } from "./contracts.ts";
 import { RewardStore, type PaymentRow } from "./store.ts";
 import { rewardAmount, rewardId } from "./validation.ts";
 import { RewardTreasury } from "./treasury.ts";
 import { paymentGuardNonce } from "./moss-guard.ts";
+import { verifyPaymentRewardClosures, verifyRewardOfferIds } from "./offers.ts";
 import { RewardPaymentLifecycle } from "./payment-lifecycle.ts";
 
 interface Inventory {
@@ -17,14 +18,17 @@ export class RewardPayments {
   readonly store: RewardStore;
   readonly chain: RewardChain;
   readonly now: () => number;
+  readonly source?: RewardSources;
   constructor(
     store: RewardStore,
     chain: RewardChain,
     now: () => number = Date.now,
+    source?: RewardSources,
   ) {
     this.store = store;
     this.chain = chain;
     this.now = now;
+    this.source = source;
   }
   private async inventory() {
     const r = await this.store
@@ -126,6 +130,17 @@ export class RewardPayments {
     });
     return receipt;
   }
+  private async revalidatePreparation(row: PaymentRow): Promise<RewardPayment> {
+    if (row.state === "confirmed" || row.state === "cancelled")
+      return this.store.paymentView(row);
+    if (row.dispatch_at !== null) {
+      const payment = await this.reconcile(row.payment_id);
+      if (payment.state === "confirmed" || payment.state === "cancelled")
+        return payment;
+    }
+    await verifyPaymentRewardClosures(this.store, this.source, row.payment_id);
+    return this.store.paymentView(await this.store.payment(row.payment_id));
+  }
   async prepare(id: string, accountId: string): Promise<RewardPayment> {
     rewardId(id);
     rewardId(accountId);
@@ -139,7 +154,7 @@ export class RewardPayments {
       .first<PaymentRow>();
     if (previous) {
       insist(previous.account_id === accountId, "reward_payment_conflict", 409);
-      return this.store.paymentView(previous);
+      return this.revalidatePreparation(previous);
     }
     const audit = await new RewardTreasury(this.store, this.chain).audit();
     insist(audit.complete, "reward_audit_catching_up", 409);
@@ -164,7 +179,7 @@ export class RewardPayments {
       "reward_guard_already_used",
       409,
     );
-    await this.store.atomic(async () => {
+    const created = await this.store.atomic(async () => {
       const prior = await this.store
         .statement(
           "SELECT * FROM reward_payments WHERE payment_id=? AND program_id=?",
@@ -174,7 +189,7 @@ export class RewardPayments {
         .first<PaymentRow>();
       if (prior) {
         insist(prior.account_id === accountId, "reward_payment_conflict", 409);
-        return { value: null, statements: [] };
+        return { value: false, statements: [] };
       }
       const active = await this.store
         .statement(
@@ -220,8 +235,13 @@ export class RewardPayments {
         "reward_reserve_not_funded",
         409,
       );
+      await verifyRewardOfferIds(
+        this.store,
+        this.source,
+        credits.map((credit) => credit.offer_id),
+      );
       return {
-        value: null,
+        value: true,
         statements: [
           this.store.statement(
             "INSERT INTO reward_payments(payment_id,program_id,account_id,sender,recipient,amount_atomic,state,minimum_block,prepared_at,guard_nonce) VALUES(?,?,?,?,?,?,'prepared',?,?,?)",
@@ -259,10 +279,18 @@ export class RewardPayments {
         ],
       };
     });
-    return this.store.paymentView(await this.store.payment(id));
+    const row = await this.store.payment(id);
+    return created
+      ? this.store.paymentView(row)
+      : this.revalidatePreparation(row);
   }
   private lifecycle() {
-    return new RewardPaymentLifecycle(this.store, this.chain, this.now);
+    return new RewardPaymentLifecycle(
+      this.store,
+      this.chain,
+      this.now,
+      this.source,
+    );
   }
   dispatch(id: string, action: "pay" | "cancel", attemptId: string) {
     return this.lifecycle().dispatch(id, action, attemptId);

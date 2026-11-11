@@ -1,4 +1,7 @@
 import type { Address, Hex } from "viem";
+import type { LyricManifest } from "../community/lyric-manifest.ts";
+import type { StudyMinimalGrade } from "./assessment.ts";
+import type { TelegramStudyFence } from "./telegram-publication.ts";
 import { check } from "../protocol/index.ts";
 import { studyExercisesHash } from "../protocol/learning-results-v3.ts";
 import {
@@ -8,6 +11,14 @@ import {
 
 /** A V3 lesson offer, bound to the learner's learning enrollment. */
 export interface StudyLessonOffer {
+  /** Trusted issuer freezes connected Telegram provenance in the binding.
+   * Trial history never uses this public-result lesson contract. */
+  speechChannel?: "telegram-linked";
+  telegramFence?: TelegramStudyFence;
+  /** Canonical public expected text, signed with the original linked offer.
+   * Speech requests cannot replace this source or its grading policy. */
+  privateSpeechSource?: LyricManifest;
+  graderRevision?: "script_aware_token_phonetic_v5";
   lessonId: string;
   learner: Address;
   sourceDigest: Hex;
@@ -33,6 +44,19 @@ export function validateStudyOffer(
   nowS: number,
   version: 3 | 4 = 3,
 ) {
+  check(
+    value &&
+      (value.speechChannel === undefined ||
+        (version === 4 && value.speechChannel === "telegram-linked")),
+    "invalid_study_speech_channel",
+  );
+  check(
+    value &&
+      (value.graderRevision === undefined ||
+        (version === 4 &&
+          value.graderRevision === "script_aware_token_phonetic_v5")),
+    "invalid_study_grader_revision",
+  );
   check(
     version === 4
       ? value &&
@@ -64,6 +88,11 @@ export function validateStudyOffer(
       Array.isArray(value.exercises),
     "invalid_study_lesson_binding",
   );
+  check(
+    value.privateSpeechSource === undefined ||
+      (version === 4 && value.speechChannel === "telegram-linked"),
+    "study_private_grading_source_changed",
+  );
   const exercisesHash = studyExercisesHash(
     value.exercises.map((x) => x.ordinal),
   );
@@ -94,8 +123,14 @@ export type StudySpeechReceipt =
   | { state: "unavailable"; error: string }
   | {
       state: "assessed";
-      transcript: { text: string; language: string | null };
-    };
+      transcript: {
+        text: string;
+        language: string | null;
+        languageConfidence?: number | null;
+      };
+      grade?: never;
+    }
+  | { state: "assessed"; grade: StudyMinimalGrade; transcript?: never };
 export interface StudySpeechStatus {
   parameters: StudySpeechParameters;
   audioDigest: Hex;
