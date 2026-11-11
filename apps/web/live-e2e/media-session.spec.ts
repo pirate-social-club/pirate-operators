@@ -240,8 +240,15 @@ for (const width of [1440, 390])
         await page.locator("#song-track-title").fill("Fixture");
         await page.locator("#song-lyrics").fill("Fixture line.");
         await page.getByRole("button", { name: "Next", exact: true }).click();
-        await page.locator('input[type="checkbox"]').check();
-        await page.locator('input[type="radio"][value="general"]').check();
+        const consent = page.getByRole("checkbox");
+        await consent.press("Space");
+        await expect(consent).toBeChecked();
+        const rating = page.getByRole("radio", {
+          name: "General",
+          exact: true,
+        });
+        await rating.press("Space");
+        await expect(rating).toBeChecked();
         await page.getByRole("button", { name: "Next", exact: true }).click();
         await expect.poll(() => reservations.length).toBe(1);
         const before = await retained(page, accountId);
