@@ -80,6 +80,8 @@ async function serve(
     if (path === "/api/rewards/offers") return json({ offers: [] });
     if (path === "/api/feed")
       return json({
+        schema: "pirate.community-feed/1",
+        communityId: "fixture",
         posts: options.songs
           ? [
               {
@@ -273,9 +275,11 @@ test("fresh anonymous browser loads the real client, offers sign-in and preserve
     page.getByRole("heading", { name: "Browser Fixture Community" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Sign in with MOSS" }),
+    page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeEnabled();
-  await expect(page.getByText("The first release starts here.")).toBeVisible();
+  await expect(
+    page.getByText("No posts in this community yet.", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Connect creator wallet" }),
   ).toHaveCount(0);
@@ -284,9 +288,11 @@ test("fresh anonymous browser loads the real client, offers sign-in and preserve
   ).toHaveCount(0);
   await page.reload();
   await expect(
-    page.getByRole("button", { name: "Sign in with MOSS" }),
+    page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeEnabled();
-  await expect(page.getByText("The first release starts here.")).toBeVisible();
+  await expect(
+    page.getByText("No posts in this community yet.", { exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: test.info().outputPath("community-client.png"),
     fullPage: true,
@@ -297,7 +303,7 @@ test("an existing session can sign out after a reload during a directory outage"
   page,
 }) => {
   await serve(page, true, true);
-  await page.goto(origin);
+  await page.goto(origin + "/#/settings");
   await expect(page.locator(".live-status")).toContainText(
     "temporarily unavailable",
   );
@@ -314,10 +320,12 @@ test("a signed-in learner sees no creator setup or release controls, even on the
   await page.goto(
     `${origin}/creator/complete?connection=aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa&state=${"s".repeat(43)}`,
   );
-  await expect(page.locator(".live-status")).toHaveText(
-    "Your community is ready.",
-  );
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
+  await expect(page.locator("[data-community-page]")).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: "Profile", exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Release a song" }),
   ).toHaveCount(0);
@@ -443,27 +451,49 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   });
 });
 
-test("shell routes, keyboard skip, back and refresh expose only available destinations", async ({
+test("desktop uses reference sidebar and community-owned chrome; profile/settings routes stay separate", async ({
   page,
 }) => {
-  await serve(page, false, false, false, "strict-origin", {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await serve(page, true, false, true, "strict-origin", {
     songs: true,
     rewards: true,
   });
-  await page.goto(origin + "/#/songs");
+  await page.goto(origin);
   const nav = page.getByRole("navigation", {
     name: "Main navigation",
     exact: true,
   });
-  await expect(
-    nav.getByRole("link", { name: "Songs", exact: true }),
-  ).toHaveAttribute("aria-current", "page");
-  await expect(
-    page.getByRole("heading", { name: "All songs", exact: true }),
-  ).toBeVisible();
+  await expect(nav).toBeVisible();
+  await expect(page.locator("header[data-appearance]")).toHaveCount(0);
   await expect(
     nav.getByRole("link", { name: "Create", exact: true }),
   ).toHaveCount(0);
+  await expect(
+    nav.getByRole("link", { name: "Release a song", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .locator("[data-community-post-slot]")
+      .getByRole("button", { name: "Post", exact: true }),
+  ).toBeVisible();
+  const tabs = page.locator("[data-community-tabs]");
+  await expect(
+    tabs.getByRole("button", { name: "Feed", exact: true }),
+  ).toBeVisible();
+  await tabs.getByRole("button", { name: "Songs", exact: true }).click();
+  await expect(page.locator("[data-community-post]")).toHaveCount(1);
+  await nav.getByRole("link", { name: "Your Songs", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your songs", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Song history is coming soon" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("heading", { name: "Your songs", exact: true }),
+  ).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("link", { name: "Skip to content" }),
@@ -471,71 +501,75 @@ test("shell routes, keyboard skip, back and refresh expose only available destin
   await page.keyboard.press("Enter");
   await expect(page.locator("#app-content")).toBeFocused();
   expect(new URL(page.url()).hash).toBe("#/songs");
-  await nav.getByRole("link", { name: "Account", exact: true }).click();
+  await nav.getByRole("link", { name: "Profile", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Account", exact: true }),
+    page.getByRole("heading", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator("[data-profile-layout]")).toHaveCount(0);
+  // No profile read exists in this HTTP fixture: no invented posts/counters.
+  await expect(page.locator("[data-profile-activity]")).toHaveCount(0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Account", exact: true }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Sign out", exact: true }),
+  ).toBeEnabled();
   await page.goBack();
   await expect(
-    page.getByRole("heading", { name: "All songs", exact: true }),
+    page.getByRole("heading", { name: "Profile", exact: true }),
   ).toBeVisible();
-  await nav.getByRole("link", { name: "Wallet", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Sign in to view your wallet" }),
-  ).toBeVisible();
+  await expect(page.locator("[data-profile-layout]")).toHaveCount(0);
   await page.goto(origin + "/#/unknown");
   await expect(
-    page.getByRole("heading", { name: "Page not found" }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "Return to the community" }).click();
-  await expect(
-    page.getByRole("heading", {
-      name: "Browser Fixture Community",
-      exact: true,
-    }),
+    page.getByRole("heading", { name: "Post unavailable" }),
   ).toBeVisible();
 });
 
-test("published song fixture plays native audio, exposes lyrics and survives a song permalink", async ({
+test("reference PostCard owns the compact SongPlayer and post detail owns its activity links", async ({
   page,
 }) => {
   await serve(page, false, false, false, "strict-origin", { songs: true });
   await page.goto(origin);
-  const player = page.getByLabel("Play Published fixture song", {
+  const card = page.locator("[data-community-post]").first();
+  await expect(card.getByText("Unknown author", { exact: true })).toBeVisible();
+  await expect(card).not.toContainText("0x" + "4".repeat(64));
+  const play = card.getByRole("button", {
+    name: "Play Published fixture song",
     exact: true,
   });
-  await expect(player).toHaveAttribute("src", "/fixture-song.wav");
-  await expect
-    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.readyState))
-    .toBeGreaterThan(0);
-  await player.evaluate(async (audio: HTMLAudioElement) => {
-    await audio.play();
+  await expect(play).toBeVisible();
+  await expect(card.locator("audio")).toHaveCount(0);
+  await play.click();
+  const audio = card.getByLabel("Audio for Published fixture song", {
+    exact: true,
   });
+  await expect(audio).toHaveAttribute("src", origin + "/fixture-song.wav");
   await expect
-    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .poll(() =>
+      audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+    )
     .toBeGreaterThan(0);
-  await page.getByText("Lyrics", { exact: true }).click();
-  await expect(
-    page.getByText("A fixture lyric line", { exact: true }),
-  ).toBeVisible();
-  await page
+  await card
     .getByRole("link", { name: "Published fixture song", exact: true })
     .click();
   await page.reload();
-  await expect(player).toBeVisible();
+  await expect(page.locator("[data-public-post-state=content]")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Study", exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText("Sign in with MOSS to study or sing this song."),
+    page.getByText("A fixture lyric line", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Song activities" })
+      .getByRole("link", { name: "Karaoke", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Study", exact: true }),
+  ).toHaveCount(0);
 });
 
-test("an audio transport failure offers a working playback retry", async ({
+test("the source SongPlayer retains playback failure and deliberate retry", async ({
   page,
 }) => {
   await serve(page, false, false, false, "strict-origin", { songs: true });
@@ -543,29 +577,29 @@ test("an audio transport failure offers a working playback retry", async ({
     route.fulfill({ status: 503, body: "fixture unavailable" }),
   );
   await page.goto(origin);
+  await page
+    .getByRole("button", { name: "Play Published fixture song", exact: true })
+    .click();
   await expect(
-    page.getByText(
-      "This recording could not be played. Check your connection and retry.",
-      { exact: true },
-    ),
+    page.getByText("Audio could not be loaded. Retry playback.", {
+      exact: true,
+    }),
   ).toBeVisible();
   await page.unroute(origin + "/fixture-song.wav");
-  await page.getByRole("button", { name: "Retry playback" }).click();
-  const player = page.getByLabel("Play Published fixture song", {
+  await page
+    .getByRole("button", { name: "Retry playback", exact: true })
+    .click();
+  const audio = page.getByLabel("Audio for Published fixture song", {
     exact: true,
   });
   await expect
-    .poll(() => player.evaluate((audio: HTMLAudioElement) => audio.currentTime))
+    .poll(() =>
+      audio.evaluate((element: HTMLAudioElement) => element.currentTime),
+    )
     .toBeGreaterThan(0);
-  await expect(
-    page.getByText(
-      "This recording could not be played. Check your connection and retry.",
-      { exact: true },
-    ),
-  ).toHaveCount(0);
 });
 
-test("mobile shell fits small screens and keeps account, songs and safe-area navigation reachable", async ({
+test("mobile community, library, post and composer use the accepted route chrome policies", async ({
   page,
 }) => {
   await serve(page, true, false, true, "strict-origin", {
@@ -574,60 +608,108 @@ test("mobile shell fits small screens and keeps account, songs and safe-area nav
   });
   for (const width of [320, 390, 767]) {
     await page.setViewportSize({ width, height: 844 });
-    await page.goto(origin + "/#/songs");
-    const nav = page.getByRole("navigation", {
+    await page.goto(origin);
+    await expect(page.locator("header[data-appearance]")).toHaveCount(0);
+    const footer = page.getByRole("navigation", {
       name: "Primary navigation",
       exact: true,
     });
-    await expect(nav).toBeVisible();
+    await expect(footer).toBeVisible();
     await expect(
       page.getByRole("navigation", { name: "Main navigation", exact: true }),
     ).toBeHidden();
+    await footer
+      .getByRole("button", { name: "Your Songs", exact: true })
+      .click();
+    await expect(page.locator("header[data-appearance]")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Your songs", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "Open navigation", exact: true })
+      .click();
+    await expect(
+      page.getByRole("navigation", {
+        name: "Community navigation",
+        exact: true,
+      }),
+    ).toBeVisible();
+    // The source mobile drawer has community links; footer tabs own learner destinations.
+    await expect(
+      page
+        .getByRole("navigation", { name: "Community navigation" })
+        .getByRole("link", { name: "Your Songs", exact: true }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("button", { name: "Open navigation", exact: true }),
+    ).toBeFocused();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    const bottom = await nav.boundingBox();
+    const bottom = await footer.boundingBox();
     expect(bottom!.y + bottom!.height).toBeLessThanOrEqual(844);
-    await page.evaluate(() => scrollTo(0, 0));
+    await footer.getByRole("button", { name: "Profile", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Profile", exact: true }),
+    ).toBeVisible();
+    await expect(page.locator("[data-profile-layout]")).toHaveCount(0);
+    await footer.getByRole("button", { name: "Home", exact: true }).click();
+    await page
+      .locator("[data-community-post]")
+      .getByRole("link", { name: "Published fixture song", exact: true })
+      .click();
+    await expect(footer).toBeHidden();
+    await expect(page.locator("header[data-appearance]")).toHaveCount(0);
+    const detail = page.locator("[data-public-post-state=content]");
+    const author = detail.getByText("Unknown author", { exact: true });
+    await expect(author).toBeInViewport();
+    const authorBox = await author.boundingBox();
+    expect(authorBox!.y).toBeGreaterThanOrEqual(64);
+    const lyricsBox = await detail
+      .getByText("A fixture lyric line", { exact: true })
+      .boundingBox();
+    const activitiesBox = await detail
+      .getByRole("navigation", { name: "Song activities" })
+      .boundingBox();
+    expect(activitiesBox!.y).toBeLessThan(lyricsBox!.y);
+    await page.reload();
+    await expect(
+      detail.getByText("Unknown author", { exact: true }),
+    ).toBeInViewport();
+    await page.goto(origin + "/#/publish");
+    await expect(footer).toBeHidden();
+    await expect(page.getByLabel("Song title", { exact: true })).toBeVisible();
     await page.screenshot({
-      path: test.info().outputPath(`shell-mobile-songs-${width}.png`),
+      path: test.info().outputPath("composer-mobile-" + width + ".png"),
       fullPage: true,
     });
-    await nav.getByRole("link", { name: "Account", exact: true }).click();
-    await expect(
-      page.getByRole("heading", { name: "Account", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "Open wallet and rewards" }),
-    ).toBeVisible();
-    await nav.getByRole("link", { name: "Create", exact: true }).click();
-    await expect(page.getByLabel("Song title", { exact: true })).toBeVisible();
   }
 });
 
-test("shell distinguishes feed failure from an empty community and offers retry", async ({
+test("feed error is not an empty community and retains the source retry control", async ({
   page,
 }) => {
   await serve(page, true, false, false, "strict-origin", { feedOutage: true });
   await page.goto(origin);
-  await expect(page.locator(".live-status")).toContainText(
-    "temporarily unavailable",
-  );
-  await expect(page.getByText("The first release starts here.")).toHaveCount(0);
+  await expect(
+    page.getByText("No posts in this community yet.", { exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Try again", exact: true }),
   ).toBeEnabled();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeEnabled();
   await page.route(origin + "/api/feed", (route) =>
     route.fulfill({ contentType: "application/json", body: '{"posts":[]}' }),
   );
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(page.getByText("The first release starts here.")).toBeVisible();
+  await expect(
+    page.getByText("No posts in this community yet.", { exact: true }),
+  ).toBeVisible();
 });
 
-test("Study opens from Songs, makes navigation inert, and resumes the same lesson through back, forward and reload", async ({
+test("Study opens from Your songs with bare chrome, and resumes the same lesson through back, forward and reload", async ({
   page,
 }) => {
   const state = await serveStudy(page);
@@ -637,11 +719,10 @@ test("Study opens from Songs, makes navigation inert, and resumes the same lesso
   await expect(page.locator(".study-surface h2")).toBeVisible();
   const lessonId = new URL(page.url()).searchParams.get("lesson");
   expect(lessonId).toBeTruthy();
-  await expect(page.locator(".app-sidebar")).toHaveAttribute("inert", "");
-  await expect(page.locator(".app-mobile-nav")).toHaveAttribute("inert", "");
+  await expect(page.locator("[data-application-chrome]")).toHaveCount(0);
   await page.goBack();
   await expect(page.locator(".live-study-overlay")).toHaveCount(0);
-  await expect(page.locator(".app-sidebar")).not.toHaveAttribute("inert");
+  await expect(page.locator("[data-application-chrome]")).toBeVisible();
   await page.goForward();
   await expect(page.locator(".study-surface h2")).toBeVisible();
   expect(new URL(page.url()).searchParams.get("lesson")).toBe(lessonId);
@@ -687,7 +768,7 @@ test("Karaoke retains its song route across reload and reads server attempt stat
     route.fulfill({ status: 302, headers: { location: "/fixture-song.wav" } }),
   );
   await page.goto(origin + "/#/songs");
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await page.getByRole("button", { name: "Karaoke", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Start karaoke", exact: true }),
   ).toBeVisible();
@@ -702,7 +783,7 @@ test("Karaoke retains its song route across reload and reads server attempt stat
   await page.goBack();
   await expect(page.locator(".live-karaoke-overlay")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "All songs", exact: true }),
+    page.getByRole("heading", { name: "Your songs", exact: true }),
   ).toBeVisible();
 });
 
@@ -718,7 +799,11 @@ test("an anonymous Study deep link survives sign-in; malformed and missing song 
     ),
   ).toBeVisible();
   await expect(page.locator(".live-study-overlay")).toHaveCount(0);
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+  await page
+    .getByRole("navigation", { name: "Main navigation", exact: true })
+    .locator("..")
+    .getByRole("button", { name: "Sign in", exact: true })
+    .click();
   await expect(page.locator(".study-surface h2")).toBeVisible();
   await page.goto(new URL(state.url).origin + "/?study=missing");
   await expect(
@@ -767,7 +852,11 @@ for (const policy of ["same-origin", "strict-origin"]) {
       });
     });
     await page.goto(origin + "/draft?draft=fixture-private-context");
-    await page.getByRole("button", { name: "Sign in with MOSS" }).click();
+    await page
+      .getByRole("navigation", { name: "Main navigation", exact: true })
+      .locator("..")
+      .getByRole("button", { name: "Sign in", exact: true })
+      .click();
     const body = page.frameLocator("iframe").locator("body");
     await expect(body).toHaveAttribute(
       "data-referrer",

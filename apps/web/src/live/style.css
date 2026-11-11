@@ -3,6 +3,12 @@
 @import "./app-shell.css";
 @source "./app-shell.tsx";
 @source "../shell/";
+@source "../../node_modules/@pirate/web-solid-ui/src/patterns/navigation/";
+@source "../../node_modules/@pirate/web-solid-ui/src/patterns/engagement/community-avatar/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/data-display/avatar/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/sheet/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/toast/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/forms/input/";
 @source "./entry.tsx";
 @source "./upload.tsx";
 @source "./karaoke.tsx";
@@ -23,8 +29,8 @@
 :root {
   color-scheme: dark;
   font-family: var(--font-sans);
-  background: #0e1411;
-  color: #eef0e9;
+  background: var(--background);
+  color: var(--foreground);
   font-synthesis: none;
 }
 * {

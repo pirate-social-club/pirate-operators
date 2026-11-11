@@ -23,14 +23,6 @@ import {
   type LearningActions,
 } from "./karaoke.tsx";
 
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/overlays/dropdown-menu/dropdown-menu";
-import { buttonVariants } from "@/components/actions/button/button";
-import { IconGearSix } from "@/components/media/icons";
 import { CommunityAppShell } from "./app-shell.tsx";
 import {
   appView,
@@ -38,7 +30,7 @@ import {
   activityUrl,
   withoutActivity,
 } from "../shell/routing.ts";
-import { SongFeed } from "../shell/song-feed.tsx";
+import { CommunityPages } from "../shell/community-pages.tsx";
 import type {
   ShellFeatureContext,
   ShellIntegrations,
@@ -70,15 +62,14 @@ const mossWallet: KaraokeWallet = {
     return signed.signature;
   },
 };
-const shortened = (address: string) =>
-  `${address.slice(0, 8)}…${address.slice(-6)}`;
 export function App(props: { integrations?: ShellIntegrations } = {}) {
   const walletPage = ["/wallet", "/verify/very", "/operator/rewards"].includes(
     location.pathname,
   );
   const initialPractice = activityRoute(new URL(location.href));
-  const [name, setName] = createSignal("Your community"),
+  const [name, setName] = createSignal(""),
     [view, setView] = createSignal(appView(location.hash)),
+    [fragment, setFragment] = createSignal(location.hash),
     [routeNotice, setRouteNotice] = createSignal(""),
     [boot, setBoot] = createSignal<CommunityClientConfig | null>(null),
     [session, setSession] = createSignal<CommunitySessionView | null>(null),
@@ -98,7 +89,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       postId: string;
       title: string;
     } | null>(null),
-    [status, setStatus] = createSignal("Loading community…"),
+    [status, setStatus] = createSignal(""),
     [error, setError] = createSignal(false);
   // Practice deep links hold their loading state until the community resolves
   // the song and permission. The requested activity stays in the address.
@@ -161,10 +152,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           setRouteNotice(
             "This song is unavailable in this community. Choose another song.",
           );
-        else
-          requestAnimationFrame(() =>
-            document.getElementById(`song-${postId}`)?.scrollIntoView(),
-          );
+        else requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0 }));
       }
       return;
     }
@@ -208,6 +196,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     if (lastLocation === location.href) return;
     lastLocation = location.href;
     setView(appView(location.hash));
+    setFragment(location.hash);
     setStudying(null);
     setSinging(null);
     if (boot() && feed()) syncActivity();
@@ -222,6 +211,39 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     window.removeEventListener("hashchange", syncLocation);
     window.removeEventListener("popstate", syncLocation);
   });
+  function navigateLearning(href: string) {
+    const requested = activityRoute(new URL(href, location.origin));
+    if (requested.kind !== "study" && requested.kind !== "sing") {
+      location.assign(href);
+      return;
+    }
+    const song = feed()?.posts.find(
+      (item) => item.manifest.postId === requested.postId,
+    );
+    if (
+      !song ||
+      (requested.kind === "study" && !capabilities()?.study) ||
+      settling()
+    )
+      return;
+    if (session()) {
+      const selected = {
+        postId: song.manifest.postId,
+        title: song.manifest.title,
+      };
+      if (requested.kind === "study") openStudy(selected);
+      else openSing(selected);
+      return;
+    }
+    if (!boot() || capabilities()?.signIn !== true || busy()) return;
+    history.pushState(
+      null,
+      "",
+      activityUrl(new URL(location.href), requested.kind, requested.postId),
+    );
+    lastLocation = location.href;
+    void run(signIn);
+  }
   async function refreshSession() {
     const before = session()?.mossAddress;
     let next: CommunitySessionView | null = null;
@@ -344,7 +366,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       if (cleared) await signInOnce(mega).catch(() => undefined);
     }
     await refresh();
-    setStatus("Signed in. Choose a song to study or sing.");
+    setStatus("");
   }
   // Owner-only publishing has no creator connection step. Preserved creator
   // connection routes stay on the server for the deferred integration.
@@ -354,136 +376,23 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     } finally {
       setOpening(false);
     }
-    setStatus(
-      session() ? "Your community is ready." : "Sign in to study or sing.",
-    );
+    setStatus("");
   });
   return (
     <CommunityAppShell
       name={name()}
+      communityId={boot()?.communityId ?? ""}
       view={view()}
       walletPage={walletPage}
       rewards={capabilities()?.rewards === true}
-      publisher={
-        session()?.publisher === true ||
-        (!!session() &&
-          props.integrations?.publicPosting === "allowed" &&
-          !!props.integrations.publicComposer)
-      }
       practiceOpen={practiceOpen()}
-      account={
-        <Show
-          when={session()}
-          fallback={
-            <div>
-              <Button
-                variant="outline"
-                disabled={busy() || !boot() || capabilities()?.signIn !== true}
-                onClick={() => void run(signIn)}
-              >
-                {boot() && capabilities()?.signIn === false
-                  ? "Sign-in unavailable"
-                  : "Sign in with MOSS"}
-              </Button>
-              <p class="live-muted">
-                <a href="/terms" target="_blank" rel="noopener">
-                  Terms
-                </a>{" "}
-                ·{" "}
-                <a href="/privacy" target="_blank" rel="noopener">
-                  Privacy
-                </a>
-                {/* Only a V4 sign-in accepts the learning documents. */}
-                <Show
-                  when={
-                    capabilities()?.learningPolicy?.version === 4
-                      ? capabilities()?.learningPolicy
-                      : undefined
-                  }
-                >
-                  {(policy) => (
-                    <>
-                      {" "}
-                      ·{" "}
-                      <a
-                        href={policy().termsUrl}
-                        target="_blank"
-                        rel="noopener"
-                      >
-                        Learning terms
-                      </a>{" "}
-                      ·{" "}
-                      <a
-                        href={policy().privacyUrl}
-                        target="_blank"
-                        rel="noopener"
-                      >
-                        Learning privacy
-                      </a>
-                    </>
-                  )}
-                </Show>
-              </p>
-            </div>
-          }
-        >
-          {(current) => (
-            <div class="live-account">
-              <Show when={capabilities()?.rewards}>
-                <a href="/wallet">Wallet</a>
-              </Show>
-              <a href="/#/account">
-                <span title={current().mossAddress}>
-                  {shortened(current().mossAddress)}
-                </span>
-              </a>
-              <Show
-                when={
-                  capabilities()?.learningServiceMode === "internal" &&
-                  learningActions()
-                }
-              >
-                <DropdownMenu placement="bottom-end">
-                  <DropdownMenuTrigger
-                    class={buttonVariants({ variant: "ghost" })}
-                    aria-label="Learning settings"
-                  >
-                    <IconGearSix class="size-5" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <Show when={learningActions()}>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void run(async () => {
-                            await learningActions()!.download();
-                            setStatus("Private history downloaded.");
-                          })
-                        }
-                      >
-                        Download private history
-                      </DropdownMenuItem>
-                    </Show>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </Show>
-              <Button
-                variant="ghost"
-                disabled={busy()}
-                onClick={() =>
-                  void run(async () => {
-                    await post("/api/logout", {}, current().csrf);
-                    setSession(null);
-                    setLearningActions(null);
-                    setStatus("Signed out.");
-                  })
-                }
-              >
-                Sign out
-              </Button>
-            </div>
-          )}
-        </Show>
-      }
+      signedIn={!!session()}
+      ready={!!boot()}
+      busy={busy() || settling()}
+      canSignIn={capabilities()?.signIn === true}
+      accountSeed={session()?.mossAddress}
+      composing={view() === "publish"}
+      onSignIn={() => void run(signIn)}
     >
       <Show when={walletPage && session() && !settling()}>
         <Show
@@ -554,256 +463,147 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           </div>
         )}
       </Show>
-      <Show when={!walletPage}>
-        <main class="live-main app-main" inert={practiceOpen()}>
-          <section
+      <Show when={!walletPage && !practiceOpen()}>
+        <Show when={status()}>
+          <p
             class={`live-status${error() ? " live-error" : ""}`}
             role="status"
             aria-live="polite"
           >
             {status()}
-          </section>
-          <Show when={error()}>
-            <Button
-              variant="outline"
-              disabled={busy()}
-              onClick={() =>
-                void run(async () => {
-                  await refresh();
-                  setStatus("Your community is ready.");
-                })
-              }
-            >
-              Try again
-            </Button>
-          </Show>
-          <Show when={routeNotice()}>
-            <p class="app-route-notice" role="status">
-              {routeNotice()}{" "}
-              <a href="/#/songs" onClick={closeStudy}>
-                Browse songs
-              </a>
-            </p>
-          </Show>
-          <Show when={view() === "home" || view() === "songs"}>
-            <section class="app-community-banner">
-              <div class="app-community-avatar" aria-hidden="true">
-                {name().slice(0, 1).toUpperCase()}
-              </div>
-              <div>
-                <p class="live-kicker">MUSIC COMMUNITY</p>
-                <h1>{view() === "songs" ? "Songs" : name()}</h1>
-                <p>Play the songs. Learn the words. Sing along.</p>
-              </div>
-            </section>
-            <div class="app-community-tabs" aria-label="Community views">
-              <a
-                href="/#/"
-                aria-current={view() === "home" ? "page" : undefined}
-              >
-                Feed
-              </a>
-              <a
-                href="/#/songs"
-                aria-current={view() === "songs" ? "page" : undefined}
-              >
-                Songs
-              </a>
-            </div>
-            <div class="app-community-body">
-              <div class="app-feed-column">
-                <Show when={view() === "home" && boot()}>
-                  {props.integrations?.publicFeed?.(featureContext())}
-                </Show>
-                <section class="live-songs" aria-label="Published songs">
-                  <div class="live-section-heading">
-                    <h2>{view() === "songs" ? "All songs" : "Latest songs"}</h2>
-                    <Button
-                      variant="ghost"
-                      disabled={busy()}
-                      onClick={() => void run(refresh)}
-                    >
-                      Refresh
-                    </Button>
-                  </div>
-                  <Show
-                    when={feed()}
-                    fallback={
-                      <p class="live-empty">
-                        {busy()
-                          ? "Loading songs…"
-                          : "Songs could not be loaded. Try again."}
-                      </p>
-                    }
-                  >
-                    {(songs) => (
-                      <SongFeed
-                        feed={songs()}
-                        signedIn={!!session() && !settling()}
-                        study={capabilities()?.study === true}
-                        rewards={capabilities()?.rewards === true}
-                        offers={rewardOffers()}
-                        onStudy={openStudy}
-                        onSing={openSing}
-                      />
-                    )}
-                  </Show>
-                </section>
-              </div>
-              <aside class="app-about" aria-label="About this community">
-                <h2>About this community</h2>
-                <p>
-                  A home for songs and the people who make them. Listen here,
-                  then sign in with your MOSS wallet to study or sing.
-                </p>
-                <p>
-                  Study and Karaoke results are public. Reward offers, when
-                  available, state their own qualification window.
-                </p>
-                <a href="/#/account">Your account and learning history</a>
-                <Show when={session()?.publisher}>
-                  <a href="/#/publish">Release a song</a>
-                </Show>
-              </aside>
-            </div>
-          </Show>
-          <Show when={view() === "account"}>
-            <section class="app-account-page">
-              <p class="live-kicker">YOUR COMMUNITY</p>
-              <h1>Account</h1>
+          </p>
+        </Show>
+        <Show when={error() && feed()}>
+          <Button
+            variant="outline"
+            disabled={busy()}
+            onClick={() =>
+              void run(async () => {
+                await refresh();
+                setStatus("");
+              })
+            }
+          >
+            Try again
+          </Button>
+        </Show>
+        <Show when={routeNotice()}>
+          <p role="status" class="px-5 py-3 text-sm">
+            {routeNotice()}{" "}
+            <a href="/#/songs" onClick={closeStudy}>
+              Browse songs
+            </a>
+          </p>
+        </Show>
+        <CommunityPages
+          view={view()}
+          hash={fragment()}
+          name={name()}
+          communityId={boot()?.communityId ?? ""}
+          feed={feed()}
+          session={session()}
+          settling={settling()}
+          busy={busy()}
+          error={error()}
+          study={capabilities()?.study === true}
+          publisher={session()?.publisher === true}
+          canSignIn={capabilities()?.signIn === true}
+          rewards={capabilities()?.rewards === true}
+          offers={rewardOffers()}
+          integrations={props.integrations}
+          context={featureContext}
+          onNavigate={(href) => location.assign(href)}
+          onLearningLink={navigateLearning}
+          onSignIn={() => void run(signIn)}
+          onSignOut={() =>
+            void run(async () => {
+              const current = session();
+              if (!current) return;
+              await post("/api/logout", {}, current.csrf);
+              setSession(null);
+              setLearningActions(null);
+              setStatus("Signed out.");
+            })
+          }
+          onRefresh={() => void run(refresh)}
+          onDownload={
+            learningActions()
+              ? () =>
+                  void run(async () => {
+                    await learningActions()!.download();
+                    setStatus("Private history downloaded.");
+                  })
+              : undefined
+          }
+          composer={() => (
+            <>
               <Show
-                when={session()}
+                when={session()?.publisher ? session() : null}
                 fallback={
                   <p>
-                    Sign in with MOSS using the button above to study, sing and
-                    access your wallet.
+                    Song publishing is available to the authorized community
+                    publisher. Sign in with that account to continue.
                   </p>
                 }
               >
                 {(current) => (
-                  <>
-                    <p>Your MOSS account</p>
-                    <p class="app-address">{current().mossAddress}</p>
-                    <Show when={capabilities()?.rewards}>
-                      <a class="app-action-link" href="/wallet">
-                        Open wallet and rewards
-                      </a>
-                    </Show>
-                    <h2>Learning history</h2>
-                    <Show
-                      when={learningActions()}
-                      fallback={
-                        <p>
-                          Open Study or Karaoke for a song to retrieve its
-                          retained private history.
-                        </p>
-                      }
-                    >
-                      <Button
-                        variant="outline"
-                        disabled={busy()}
-                        onClick={() =>
-                          void run(async () => {
-                            await learningActions()!.download();
-                            setStatus("Private history downloaded.");
-                          })
-                        }
-                      >
-                        Download private history
-                      </Button>
-                    </Show>
-                    <p>
-                      Study and Karaoke results are public. Private recordings
-                      and history have their own retention limits.
-                    </p>
-                    <a href="/#/songs">Choose a song</a>
-                    <Show
-                      when={boot() && !settling() && current().mossAddress}
-                      keyed
-                    >
-                      {(_account) => (
-                        <>
-                          {props.integrations?.privateDance?.(featureContext())}
-                          {props.integrations?.accountSettings?.(
-                            featureContext(),
-                          )}
-                        </>
-                      )}
-                    </Show>
-                  </>
+                  <SongUpload
+                    session={current()}
+                    policy={capabilities()?.policyVersion ?? ""}
+                    enabled={capabilities()?.upload === true}
+                    refreshFeed={refresh}
+                  />
                 )}
               </Show>
-            </section>
-          </Show>
-          <Show when={view() === "publish"}>
-            <h1>Create</h1>
-            <Show
-              when={session()?.publisher ? session() : null}
-              fallback={
-                <p>
-                  Song publishing is available to the authorized community
-                  publisher. Sign in with that account to continue.
-                </p>
-              }
-            >
-              {(current) => (
-                <SongUpload
-                  session={current()}
-                  policy={capabilities()?.policyVersion ?? ""}
-                  enabled={capabilities()?.upload === true}
-                  refreshFeed={refresh}
-                />
-              )}
-            </Show>
-            <Show
-              when={
-                session() &&
-                !settling() &&
-                boot() &&
-                props.integrations?.publicPosting === "allowed" &&
-                session()!.mossAddress
-              }
-              keyed
-            >
-              {(_account) =>
-                props.integrations?.publicComposer?.(featureContext())
-              }
-            </Show>
-          </Show>
-          <Show when={view() === "missing"}>
-            <h1>Page not found</h1>
-            <p>This community link is unavailable.</p>
-            <a href="/#/">Return to the community</a>
-          </Show>
-        </main>
+              <Show
+                when={
+                  session() &&
+                  !settling() &&
+                  boot() &&
+                  props.integrations?.publicPosting === "allowed" &&
+                  session()!.mossAddress
+                }
+                keyed
+              >
+                {(_account) =>
+                  props.integrations?.publicComposer?.(featureContext())
+                }
+              </Show>
+            </>
+          )}
+        />
       </Show>
       {/* Normal site navigation: the documents stay reachable while signed
           in, outside the Study and Karaoke overlays. */}
-      <footer class="live-footer" inert={practiceOpen()}>
-        <span>A community of independent creators.</span>
-        <nav class="live-footer-links" aria-label="Community documents">
-          <a href="/terms" target="_blank" rel="noopener">
-            Terms
-          </a>
-          <a href="/privacy" target="_blank" rel="noopener">
-            Privacy
-          </a>
-          {/* The learning documents of the community's own version, V3 or
+      <Show when={!practiceOpen()}>
+        <footer
+          class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
+          inert={practiceOpen()}
+        >
+          <nav class="live-footer-links" aria-label="Community documents">
+            <a href="/terms" target="_blank" rel="noopener">
+              Terms
+            </a>
+            <a href="/privacy" target="_blank" rel="noopener">
+              Privacy
+            </a>
+            {/* The learning documents of the community's own version, V3 or
               V4; exercise surfaces carry no links in any mode. */}
-          <Show when={capabilities()?.learningPolicy}>
-            {(policy) => (
-              <>
-                <a href={policy().termsUrl} target="_blank" rel="noopener">
-                  Learning terms
-                </a>
-                <a href={policy().privacyUrl} target="_blank" rel="noopener">
-                  Learning privacy
-                </a>
-              </>
-            )}
-          </Show>
-        </nav>
-      </footer>
+            <Show when={capabilities()?.learningPolicy}>
+              {(policy) => (
+                <>
+                  <a href={policy().termsUrl} target="_blank" rel="noopener">
+                    Learning terms
+                  </a>
+                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                    Learning privacy
+                  </a>
+                </>
+              )}
+            </Show>
+          </nav>
+        </footer>
+      </Show>
     </CommunityAppShell>
   );
 }

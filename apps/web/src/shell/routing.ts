@@ -1,13 +1,22 @@
-export type AppView = "home" | "songs" | "account" | "publish" | "missing";
+export type AppView =
+  | "home"
+  | "songs"
+  | "account"
+  | "publish"
+  | "settings"
+  | "song"
+  | "missing";
 export type ActivityRoute =
   | { kind: "none" }
   | { kind: "invalid" }
   | { kind: "study" | "sing"; postId: string };
 
 export function appView(hash: string): AppView {
-  if (!hash || hash === "#/" || hash.startsWith("#song-")) return "home";
+  if (!hash || hash === "#/") return "home";
+  if (hash.startsWith("#song-")) return "song";
   const view = hash.slice(2);
-  return hash.startsWith("#/") && ["songs", "account", "publish"].includes(view)
+  return hash.startsWith("#/") &&
+    ["songs", "account", "publish", "settings"].includes(view)
     ? (view as AppView)
     : "missing";
 }
