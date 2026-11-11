@@ -12,6 +12,7 @@ import {
 } from "../services/study-operator-client.ts";
 import {
   closedStudyPublication,
+  closedStudyReceipt,
   eraseNeverSubmittedStudy,
 } from "../services/study-private-publication.ts";
 import { resumeStudyPublications } from "../services/study-publication-recovery.ts";
@@ -250,7 +251,7 @@ test(
       await resumeStudyPublications(f.operatorEnv, f.store);
       assert.equal(f.store.get(key), undefined);
       assert.equal(
-        closedStudyPublication(f.store, lesson.lessonId)!.receipt
+        closedStudyReceipt(f.store, lesson.lessonId)!
           .privateHistoryErased,
         true,
       );

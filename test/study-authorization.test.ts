@@ -27,7 +27,7 @@ import {
   studyBinding,
   type StudyAuthorizationBinding,
 } from "../services/study-operator.ts";
-import { closedStudyPublication } from "../services/study-private-publication.ts";
+import { closedStudyPublication, closedStudyReceipt } from "../services/study-private-publication.ts";
 import { resumeStudyPublications } from "../services/study-publication-recovery.ts";
 import { deleteExpiredStudyHistory } from "../services/study-retention.ts";
 import { STUDY_HISTORY_EXPORT_WINDOW_MS } from "../services/study-history.ts";
@@ -174,7 +174,7 @@ async function eraseOnSchedule(f: Fixture, lesson: StudyLesson) {
   assert.equal(receipt.commitment, zeroHash);
   assert.equal(studyBinding(f.store, lesson.lessonId), undefined);
   assert.equal(
-    closedStudyPublication(f.store, lesson.lessonId)!.receipt
+    closedStudyReceipt(f.store, lesson.lessonId)!
       .privateHistoryErased,
     true,
   );

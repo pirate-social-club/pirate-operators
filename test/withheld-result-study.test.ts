@@ -33,7 +33,7 @@ import {
   recoverLearningTransactions,
   settleWithheldLearningTransactions,
 } from "../services/study-publication-recovery.ts";
-import { closedStudyPublication } from "../services/study-private-publication.ts";
+import { closedStudyPublication, closedStudyReceipt } from "../services/study-private-publication.ts";
 import {
   json,
   lessonPath,
@@ -510,7 +510,7 @@ test(
       assert.equal(txRow(c.f.store, allocated.nonce)!.mined?.status, "cancelled");
       await resume(c);
       assert.equal(c.f.store.get(`studyPublication:${c.id}`), undefined);
-      assert.equal(closedStudyPublication(c.f.store, c.id)!.receipt.privateHistoryErased, true);
+      assert.equal(closedStudyReceipt(c.f.store, c.id)!.privateHistoryErased, true);
       assert.ok(txRow(c.f.store, allocated.nonce), "the row stays for nonce accounting");
       await nothingOnV3(c);
     } finally {
