@@ -19,9 +19,20 @@ for (const entry of ["new lesson", "resumed lesson", "active lesson"] as const)
     const linked = await linkedStudyFixture(f);
     const original = await connect(f);
     if (entry !== "new lesson") await f.choose();
+    const oldId =
+      entry === "new lesson" ? null : f.study.session(actor).view.id;
     f.authority("authority-2");
     if (entry === "new lesson") await f.choose();
-    if (entry === "resumed lesson") await f.command("/resume");
+    if (entry === "active lesson") {
+      // The old prompt cannot authorize a recording on a new lesson.
+      await f.webhook(f.voiceUpdate());
+      for (const row of f.store.entries<string>("update-ready:"))
+        await f.bot.processUpdate(row.value);
+      assert.equal(f.store.entries("speech-job:").length, 0);
+      assert.equal(linked.calls(), 0);
+    }
+    if (entry !== "new lesson") await f.command("/resume");
+    if (oldId) assert.notEqual(f.study.session(actor).view.id, oldId);
     const job = await queuedVoice(f);
     assert.deepEqual(job.grant, {
       ...original,

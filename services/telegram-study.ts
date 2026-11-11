@@ -131,7 +131,7 @@ export class TelegramStudyService {
       return view;
     });
   }
-  async resume(actor: ChatActor) {
+  async resume(actor: ChatActor, controlId?: number) {
     const grants = this.options.grants,
       session = this.session(actor);
     if (session.mode === "trial")
@@ -140,14 +140,31 @@ export class TelegramStudyService {
         actor,
         view: this.options.trial.get(actor, session.view.id),
       });
-    const grant = await grants.assert(actor, session.grant!.id),
-      view = linkedLessonView(
-        await this.options.linked.get(actor, grant, session.view.id),
+    const grant = await grants.assert(actor, session.grant!.id);
+    if (grant.authorityVersion !== session.grant!.authorityVersion)
+      return this.start(
+        actor,
         session.view.songKey,
+        "authority_resume_" +
+          digest([session.view.id, grant.id, grant.authorityVersion]).slice(2),
+        controlId,
       );
+    const view = linkedLessonView(
+      await this.options.linked.get(actor, grant, session.view.id),
+      session.view.songKey,
+    );
     await this.assertCurrentAuthority(actor, grant);
     return grants.store.transaction(() => {
       grants.binding(actor);
+      telegramCheck(
+        (controlId === undefined ||
+          grants.store.get<number>(`control:${actorKey(actor)}`) ===
+            controlId) &&
+          grants.store.get<string>(`active-session:${actorKey(actor)}`) ===
+            session.view.id,
+        "telegram_control_stale",
+        409,
+      );
       telegramCheck(
         sameLinkedGrant(grants.read(actor), grant),
         "telegram_authority_changed",
@@ -214,8 +231,11 @@ export class TelegramStudyService {
           "telegram_authority_changed",
           403,
         );
-        if (current.grant?.authorityVersion !== grant.authorityVersion)
-          this.save(actor, { ...current, grant });
+        telegramCheck(
+          current.grant?.authorityVersion === grant.authorityVersion,
+          "telegram_authority_changed",
+          403,
+        );
       } else {
         telegramCheck(
           grants.read(actor)?.revokedAt !== null,

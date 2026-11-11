@@ -170,7 +170,7 @@ export class TelegramBot {
       const view =
         action.kind === "song"
           ? await study.start(actor, action.key, String(update.id), update.id)
-          : await study.resume(actor);
+          : await study.resume(actor, update.id);
       return this.views.prompt(view);
     }
     const command = update.kind === "command" ? update.command : "help";
@@ -179,7 +179,7 @@ export class TelegramBot {
       case "songs":
         return [await this.views.home(actor)];
       case "resume":
-        return this.views.prompt(await study.resume(actor));
+        return this.views.prompt(await study.resume(actor, update.id));
       case "download": {
         const { song } = await this.views.selected(actor);
         return [{ kind: "song", audio: song.publicAudio, title: song.title }];
@@ -292,16 +292,18 @@ export class TelegramBot {
             text:
               code === "telegram_history_expired"
                 ? "This lesson's private history has expired. Use /songs to start a new lesson."
-                : code === "telegram_reply_to_current_prompt"
-                  ? "Reply to the current lesson line to continue."
-                  : code === "telegram_choose_song" ||
-                      code === "telegram_button_stale"
-                    ? "Use /songs to continue."
-                    : code === "telegram_answer_pending"
-                      ? "Checking your answer. Your progress is saved."
-                      : code === "telegram_start_required"
-                        ? "Send /start to reconnect this chat."
-                        : "Learning is unavailable right now. Your progress is saved.",
+                : code === "telegram_authority_changed"
+                  ? "Your learning permission changed. Use /resume for a new lesson."
+                  : code === "telegram_reply_to_current_prompt"
+                    ? "Reply to the current lesson line to continue."
+                    : code === "telegram_choose_song" ||
+                        code === "telegram_button_stale"
+                      ? "Use /songs to continue."
+                      : code === "telegram_answer_pending"
+                        ? "Checking your answer. Your progress is saved."
+                        : code === "telegram_start_required"
+                          ? "Send /start to reconnect this chat."
+                          : "Learning is unavailable right now. Your progress is saved.",
           },
         ];
     }
