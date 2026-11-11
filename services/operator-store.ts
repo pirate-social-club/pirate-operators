@@ -1,7 +1,12 @@
 import { check } from "../packages/protocol/index.ts";
+import {
+  linkedStudyBindingIndex,
+  type LinkedStudyBindingIndex,
+} from "./study-linked-binding-index.ts";
 
 export class Store {
   readonly sql: SqlStorage;
+  readonly linkedStudyBindings: LinkedStudyBindingIndex;
   private readonly storage: DurableObjectStorage;
   readonly initialNow: number;
   private readonly liveClock: boolean;
@@ -17,6 +22,7 @@ export class Store {
     this.sql.exec(
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
+    this.linkedStudyBindings = linkedStudyBindingIndex(this.sql);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_transaction_ref
       ON records(json_extract(value,'$.ref')) WHERE key>='tx:' AND key<'tx;'`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_speech_lesson

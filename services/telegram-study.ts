@@ -72,14 +72,17 @@ export class TelegramStudyService {
     telegramCheck(session, "telegram_choose_song", 409);
     return session;
   }
-  private save(actor: ChatActor, session: TelegramStudySession) {
+  private assertHistory(actor: ChatActor, id: string) {
     telegramCheck(
       !this.options.grants.store.get(
-        `linked-history-expired:${actorKey(actor)}:${session.view.id}`,
+        `linked-history-expired:${actorKey(actor)}:${id}`,
       ),
       "telegram_history_expired",
       410,
     );
+  }
+  private save(actor: ChatActor, session: TelegramStudySession) {
+    this.assertHistory(actor, session.view.id);
     this.options.grants.store.set(
       this.sessionKey(actor, session.view.id),
       session,
@@ -141,6 +144,7 @@ export class TelegramStudyService {
         view: this.options.trial.get(actor, session.view.id),
       });
     const grant = await grants.assert(actor, session.grant!.id);
+    this.assertHistory(actor, session.view.id);
     if (grant.authorityVersion !== session.grant!.authorityVersion)
       return this.start(
         actor,
@@ -156,6 +160,8 @@ export class TelegramStudyService {
     await this.assertCurrentAuthority(actor, grant);
     return grants.store.transaction(() => {
       grants.binding(actor);
+      // Retention wins before checking the now-removed active pointer.
+      this.assertHistory(actor, session.view.id);
       telegramCheck(
         (controlId === undefined ||
           grants.store.get<number>(`control:${actorKey(actor)}`) ===

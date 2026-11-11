@@ -9,13 +9,17 @@ test("Telegram settings use existing same-origin session, CSRF and explicit acco
     csrf: () => "session-csrf",
     fetch: (async (_url, init) => {
       calls.push(init!);
-      return Response.json({ unlinked: true });
+      return Response.json(
+        init?.method === "GET"
+          ? { connected: true, grantId: "fixture_grant", unlinkOperation: null }
+          : { unlinked: true },
+      );
     }) as typeof fetch,
   });
   await client.unlink();
-  assert.equal(calls[0].credentials, "same-origin");
-  assert.equal(calls[0].redirect, "error");
-  const headers = new Headers(calls[0].headers);
+  assert.equal(calls[1].credentials, "same-origin");
+  assert.equal(calls[1].redirect, "error");
+  const headers = new Headers(calls[1].headers);
   assert.equal(headers.get("x-telegram-account"), "account-one");
   assert.equal(headers.get("x-csrf-token"), "session-csrf");
 });

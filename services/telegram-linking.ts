@@ -43,7 +43,9 @@ export class TelegramLinking {
     validateActor(actor);
     this.grants.binding(actor);
     const reference = randomToken();
-    this.grants.store.set(`pending:${await sha256(reference)}`, {
+    const hash = await sha256(reference);
+    this.grants.binding(actor);
+    this.grants.store.set(`pending:${hash}`, {
       actor,
       expiresAt: this.grants.now() + TELEGRAM_LINK_MS,
       consumedBy: null,
@@ -70,6 +72,9 @@ export class TelegramLinking {
       "telegram_account_mismatch",
       403,
     );
+    this.grants.current(pending.actor);
+    this.grants.senderReady(pending.actor);
+    this.grants.accountReady(pending.actor, account.accountId);
     const current = await this.grants.accounts.current(
       account.communityId,
       account.accountId,
@@ -80,9 +85,13 @@ export class TelegramLinking {
       "telegram_account_mismatch",
       403,
     );
+    this.grants.senderReady(pending.actor);
+    this.grants.accountReady(pending.actor, account.accountId);
     const browserHash = await sha256(browserSecret);
     return this.grants.store.transaction(() => {
       this.grants.current(pending.actor);
+      this.grants.senderReady(pending.actor);
+      this.grants.accountReady(pending.actor, account.accountId);
       const live = this.grants.store.get<PendingConnection>(key);
       telegramCheck(
         live && live.expiresAt > this.grants.now() && !live.consumedBy,
@@ -134,6 +143,8 @@ export class TelegramLinking {
       410,
     );
     this.grants.current(transaction.actor);
+    this.grants.senderReady(transaction.actor);
+    this.grants.accountReady(transaction.actor, transaction.account.accountId);
     telegramCheck(
       account.communityId === transaction.account.communityId &&
         account.sessionId === transaction.account.sessionId &&
@@ -146,6 +157,8 @@ export class TelegramLinking {
       "telegram_browser_mismatch",
       403,
     );
+    this.grants.senderReady(transaction.actor);
+    this.grants.accountReady(transaction.actor, transaction.account.accountId);
     const current = await this.grants.accounts.current(
       account.communityId,
       account.accountId,

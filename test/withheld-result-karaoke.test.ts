@@ -455,8 +455,9 @@ test("the operator's regular tick settles withheld result transactions", async (
   const body = source.slice(source.indexOf("export async function tick("), source.indexOf("export async function recover("));
   assert.match(body, /await settleWithheldLearningTransactions\(env, store\);/);
   const runtime = await readFile(new URL("../services/runtime.ts", import.meta.url), "utf8");
-  assert.match(runtime, /async alarm\(\) \{\s*try \{ await tick\(this\.env, this\.store\); \}/);
-  assert.match(runtime, /const unsettled = this\.store\.entries\("tx:"\)\.some\(\(\{ value \}\) => !\(value as \{ mined: unknown \}\)\.mined\);/);
+  const compact = runtime.replace(/\s+/g, "");
+  assert.match(compact, /asyncalarm\(\)\{try\{awaittick\(this\.env,this\.store\);\}/);
+  assert.match(compact, /constunsettled=this\.store\.entries\("tx:"\)\.some\(\(\{value\}\)=>!\(valueas\{mined:unknown\}\)\.mined,?\);/);
 });
 
 test(

@@ -27,6 +27,7 @@ import {
   type StudyOperatorPorts,
 } from "./study-operator-client.ts";
 import type { TelegramGrants } from "./telegram-grants.ts";
+import { TelegramManagedPublication } from "./telegram-managed-publication.ts";
 
 const endpoint = "https://study-telegram.internal/check";
 function parseContext(value: unknown): TelegramStudyContext {
@@ -67,6 +68,7 @@ export function telegramPublicationAuthority(input: {
   grants: TelegramGrants;
   communityId: Hex;
   contract: Address;
+  publication: TelegramManagedPublication;
 }) {
   return async (request: Request): Promise<Response> => {
     const reply = (value: unknown, status = 200) =>
@@ -77,6 +79,14 @@ export function telegramPublicationAuthority(input: {
         "study_telegram_route_not_found",
         404,
       );
+      telegramCheck(
+        input.publication instanceof TelegramManagedPublication &&
+          input.publication.grants === input.grants,
+        "telegram_managed_publication_required",
+        503,
+      );
+      input.publication.assertTarget(input.communityId, input.contract);
+      await input.publication.ready();
       const body = object(await readJson(request, 4096));
       exact(body, ["fence", "context"]);
       const fence = telegramStudyFence(body.fence);
@@ -198,13 +208,13 @@ export function telegramPublicationInvalidation(ports: StudyOperatorPorts) {
 export async function configureTelegramPublicationScope(
   grants: TelegramGrants,
   next: BotRegistration,
-  invalidation: Pick<
-    ReturnType<typeof telegramPublicationInvalidation>,
-    "scope"
-  >,
+  publication: TelegramManagedPublication,
 ) {
-  const staged = grants.stagePublicationScope(next);
-  if (!staged.pending) return staged.registration;
-  await invalidation.scope(staged.pending.from);
-  return grants.finishPublicationScope(staged.pending);
+  telegramCheck(
+    publication instanceof TelegramManagedPublication &&
+      publication.grants === grants,
+    "telegram_managed_publication_required",
+    503,
+  );
+  return publication.configure(next);
 }
