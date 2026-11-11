@@ -26,6 +26,7 @@ import {
 } from "../packages/rewards/megapot.ts";
 import type {
   QualificationEntry,
+  RewardClosureEvidence,
   RewardOfferInput,
   RewardSources,
   RewardsProfile,
@@ -33,7 +34,6 @@ import type {
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { keccak256, parseAbi, type Hex } from "viem";
-import type { RewardClosureEvidence } from "../packages/rewards/closure.ts";
 import { withRewardRehearsal } from "../packages/rewards/rehearsal.ts";
 
 export interface RewardResultSource {

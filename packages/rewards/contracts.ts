@@ -177,6 +177,14 @@ export interface VerificationIntent {
   expires_at: number;
   launch_url: string | null;
 }
+/** Public shape only: keep client contracts independent of the Worker store. */
+export interface RewardClosureEvidence {
+  chainId: 6343;
+  cutoffNumber: string;
+  cutoffHash: string;
+  cutoffTimestampSeconds: string;
+  sources: { sourceHash: string; policyEvidenceHash: string }[];
+}
 /** Provider ports must validate original chain/proof evidence before returning these values. */
 export interface RewardSources {
   readonly mode: RewardsProfile["mode"];
@@ -208,11 +216,11 @@ export interface RewardSources {
       // Only candidates authenticated against the retained capture can bypass
       // the mutable current-credential lookup used by older result sources.
       captured: ReadonlySet<string>;
-      evidence: import("./closure.ts").RewardClosureEvidence;
+      evidence: RewardClosureEvidence;
     }>;
     verify(
       offer: RewardOfferInput,
-      evidence: import("./closure.ts").RewardClosureEvidence,
+      evidence: RewardClosureEvidence,
     ): Promise<void>;
   };
   winnings(

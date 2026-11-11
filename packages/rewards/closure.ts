@@ -1,15 +1,11 @@
 import { bytes32, hashJson, insist, object } from "../community/common.ts";
-import type { RewardOfferInput, RewardSources } from "./contracts.ts";
+import type {
+  RewardClosureEvidence,
+  RewardOfferInput,
+  RewardSources,
+} from "./contracts.ts";
 import type { OfferRow, RewardStore } from "./store.ts";
 import { rewardAmount } from "./validation.ts";
-
-export interface RewardClosureEvidence {
-  chainId: 6343;
-  cutoffNumber: string;
-  cutoffHash: string;
-  cutoffTimestampSeconds: string;
-  sources: { sourceHash: string; policyEvidenceHash: string }[];
-}
 
 export interface RewardClosureSnapshot {
   schema: "pirate.reward-closure/1";
