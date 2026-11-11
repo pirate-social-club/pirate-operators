@@ -283,13 +283,24 @@ async function fixture(
   };
 }
 
+async function expectZeroBalance(page: Page) {
+  await expect(
+    page.getByRole("paragraph").filter({ hasText: /^\$0\.00$/ }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "MegaETH testnet", exact: true })
+      .getByText("$0.00", { exact: true }),
+  ).toBeVisible();
+}
+
 test("claim survives reload, credits stay separate from balance, and the learner page stays simple", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const f = await fixture(page);
   await page.goto(origin + "/wallet");
-  await expect(page.getByText("$0.00", { exact: true })).toBeVisible();
+  await expectZeroBalance(page);
   await expect(page.getByText("0.18 test USDm", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("region", { name: "MegaETH testnet", exact: true }),
@@ -319,7 +330,7 @@ test("claim survives reload, credits stay separate from balance, and the learner
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page.getByText("$0.00", { exact: true })).toBeVisible();
+  await expectZeroBalance(page);
   expect(f.claims()).toBe(2);
   f.pay();
   await page
