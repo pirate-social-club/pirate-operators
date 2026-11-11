@@ -86,6 +86,11 @@ export function mediaClient(
       headers,
       credentials: "same-origin",
     });
+    // Authentication status is authoritative even when an intermediary returns
+    // an empty/HTML body or the body stream never completes. Preserve the
+    // controller's pending command while it holds for explicit reconnection.
+    if (response.status === 401 || response.status === 403)
+      throw new MediaHttpError(response.status, "media_authentication_required");
     const body = (await response.json()) as { error?: string };
     if (!response.ok)
       throw new MediaHttpError(
