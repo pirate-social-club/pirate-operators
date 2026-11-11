@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { communityRuntime } from "./community-runtime.ts";
 import { CommunityMedia } from "../services/community-media.ts";
@@ -85,7 +86,7 @@ test("withdrawal during processing cannot resurrect bytes or readiness", async (
 
 test("actual local FFmpeg renders song-backed phone MP4 through D1/R2 and HTTP", async (t) => {
   const f = await fixture(t),
-    dir = await mkdtemp(join(process.env.TMPDIR!, "media-test-"));
+    dir = await mkdtemp(join(tmpdir(), "media-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const sourcePath = join(dir, "source.mp4"),
     songPath = join(dir, "song.wav");

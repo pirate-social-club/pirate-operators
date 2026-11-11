@@ -290,8 +290,23 @@ async function ownerDatabases() {
   try {
     const community = await runtime.getD1Database("DB"),
       managed = await runtime.getD1Database("MANAGED");
-    await migrate(community, await chain(COMMUNITY));
-    await migrate(managed, await chain(MANAGED));
+    // Use the same owner/V4 migration profile as the retained deployment.
+    // Private media and Dance are separate opt-in profiles with their own tests.
+    const communityNames = (await chain(COMMUNITY)).map(
+      (path) => path.split("/").at(-1)!,
+    );
+    await migrate(
+      community,
+      communityMigrations(communityNames, {
+        rewards: true,
+        ownerPublishing: true,
+        v4: true,
+      }).map((name) => `${COMMUNITY}/${name}`),
+    );
+    await migrate(
+      managed,
+      managedMigrations(true).map((name) => `${MANAGED}/${name}`),
+    );
     return {
       community,
       managed,

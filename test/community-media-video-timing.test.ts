@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { actor, exec, fixture } from "./community-media-fixture.ts";
 import { FFmpegMediaProcessor } from "../packages/community-media/ffmpeg.ts";
@@ -9,7 +10,7 @@ import { sha256 } from "../packages/community-media/validation.ts";
 
 test("one-second visual stream with six-second audio is refused for source and output timing", async (t) => {
   const f = await fixture(t),
-    dir = await mkdtemp(join(process.env.TMPDIR!, "media-timing-"));
+    dir = await mkdtemp(join(tmpdir(), "media-timing-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const original = join(dir, "short-picture.mp4"),
     canonical = join(dir, "song.wav");
