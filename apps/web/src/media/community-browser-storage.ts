@@ -156,8 +156,8 @@ export function createScopedBrowserStorage<T extends ScopedRecord>(options: {
     }
   };
   return {
-    exclusive: (work) =>
-      platform.locks.request(
+    exclusive: async (work) =>
+      await platform.locks.request(
         lockName,
         {
           mode: "exclusive",

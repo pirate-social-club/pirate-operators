@@ -58,7 +58,7 @@ export function CommunityComposerHost(props: CommunityComposerHostProps) {
         </FormNote>
       }
     >
-      {() => <CommunityHostSession {...props} />}
+      {(_identity: string) => <CommunityHostSession {...props} />}
     </Show>
   );
 }
