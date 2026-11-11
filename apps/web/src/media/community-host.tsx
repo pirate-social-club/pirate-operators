@@ -288,7 +288,7 @@ function CommunityHostView(
         }}
       />
       <FormNote>
-        Text, image processing, collaborator splits and public video posting are
+        Text, images, collaborator splits and public video posting are
         unavailable here.
       </FormNote>
       <Show

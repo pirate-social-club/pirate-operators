@@ -63,7 +63,10 @@ export function SongStep(props: {
 
   let fileSelection = 0;
   let live = true;
-  onCleanup(() => { live = false; fileSelection++; });
+  onCleanup(() => {
+    live = false;
+    fileSelection++;
+  });
   async function selectFile(file: File | undefined) {
     if (!live || !file || audioLocked()) return;
     const selection = ++fileSelection;
@@ -94,7 +97,8 @@ export function SongStep(props: {
         lyricsEditorState: "hidden",
       }));
     } catch {
-      if (live && selection === fileSelection) setFileError("The audio file could not be read. Choose it again.");
+      if (live && selection === fileSelection)
+        setFileError("The audio file could not be read. Choose it again.");
     } finally {
       if (selection === fileSelection) setReadingFile(false);
     }

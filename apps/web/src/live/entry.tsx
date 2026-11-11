@@ -444,13 +444,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     const accountId = profileIntegration.ownerAccountId();
     const caps = capabilities(),
       songs = feed();
-    if (
-      !config ||
-      !current ||
-      !accountId ||
-      !caps ||
-      !songs
-    ) {
+    if (!config || !current || !accountId || !caps || !songs) {
       composerScope = "";
       return null;
     }
@@ -490,7 +484,10 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       if (!owner) return;
       const posts = await get<CommunityFeed>("/api/feed");
       if (!owner.active()) return;
-      if (posts.schema !== "pirate.community-feed/1" || posts.communityId !== owner.owner.communityId)
+      if (
+        posts.schema !== "pirate.community-feed/1" ||
+        posts.communityId !== owner.owner.communityId
+      )
         throw new Error("The published feed changed community.");
       setFeed(posts);
     },

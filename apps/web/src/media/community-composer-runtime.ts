@@ -160,7 +160,7 @@ export function createCommunityComposerRuntime(
       });
     } catch {
       setFault(
-        "This browser needs IndexedDB File storage and Web Locks before a release can be saved safely.",
+        "This browser cannot safely save your release. Open it in a supported browser.",
       );
     }
     const requireController = () => {

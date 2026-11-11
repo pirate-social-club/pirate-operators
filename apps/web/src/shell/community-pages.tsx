@@ -157,7 +157,9 @@ export function CommunityPages(props: CommunityPagesProps) {
           composer={props.view === "publish" ? props.composer : undefined}
           feedLeadCount={props.pendingSongCount ?? 0}
           feedLead={
-            (props.pendingSongCount ?? 0) > 0 || props.integrations?.drawSummary || props.integrations?.publicFeed
+            (props.pendingSongCount ?? 0) > 0 ||
+            props.integrations?.drawSummary ||
+            props.integrations?.publicFeed
               ? feedLead
               : undefined
           }

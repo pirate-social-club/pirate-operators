@@ -48,7 +48,9 @@ export function PostComposerStepFooter(props: {
   const [preparing, setPreparing] = createSignal(false);
   let advancing = false;
   let live = true;
-  onCleanup(() => { live = false; });
+  onCleanup(() => {
+    live = false;
+  });
   let mobileBar: HTMLDivElement | undefined;
   let entered = false;
   createEffect(

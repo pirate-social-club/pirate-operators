@@ -8,7 +8,10 @@ import {
 } from "./shell-player-inputs.tsx";
 import { ProfileCompositionInput } from "./profile-composition-inputs.tsx";
 import { ProfileRecoveryInput } from "./profile-recovery-inputs.tsx";
-import { runDanceStorageBrowserCases } from "./dance-source-storage.browser.ts";
+import {
+  runDanceStorageBrowserCases,
+  runDanceCommandOrderingBrowserCases,
+} from "./dance-source-storage.browser.ts";
 import { runCommunityStorageBrowserCases } from "./media-community-storage.browser.ts";
 import { runCommunityHostBrowserCase } from "./media-community-host.browser.tsx";
 import { runCommunityComposerBrowserCase } from "./media-community-composer.browser.tsx";
@@ -64,7 +67,7 @@ function Player() {
     </div>
   );
 }
-function Storage() {
+function Storage(props: { commands?: boolean }) {
   const [status, setStatus] = createSignal("idle");
   const [detail, setDetail] = createSignal("");
   return (
@@ -72,7 +75,10 @@ function Storage() {
       <button
         onClick={() => {
           setStatus("running");
-          void runDanceStorageBrowserCases().then(
+          const work = props.commands
+            ? runDanceCommandOrderingBrowserCases()
+            : runDanceStorageBrowserCases();
+          void work.then(
             (value) => {
               setDetail(JSON.stringify(value));
               setStatus("passed");
@@ -84,7 +90,9 @@ function Storage() {
           );
         }}
       >
-        Run actual Dance storage cases
+        {props.commands
+          ? "Run actual Dance command ordering"
+          : "Run actual Dance storage cases"}
       </button>
       <output data-storage-status={status()}>{detail()}</output>
     </div>
@@ -100,12 +108,12 @@ function MediaCases(props: { kind: string }) {
       props.kind === "media-shell-profile"
         ? runCommunityShellProfileBrowserCase(root!)
         : props.kind === "media-shell"
-        ? runCommunityShellLifetimeBrowserCases(root!)
-        : props.kind === "media-storage"
-        ? runCommunityStorageBrowserCases(storageWorkerUrl)
-        : props.kind === "media-host"
-          ? runCommunityHostBrowserCase(root!)
-          : runCommunityComposerBrowserCase(root!);
+          ? runCommunityShellLifetimeBrowserCases(root!)
+          : props.kind === "media-storage"
+            ? runCommunityStorageBrowserCases(storageWorkerUrl)
+            : props.kind === "media-host"
+              ? runCommunityHostBrowserCase(root!)
+              : runCommunityComposerBrowserCase(root!);
     void work.then(
       (value) => {
         setDetail(JSON.stringify(value));
@@ -165,6 +173,7 @@ function Fixture() {
   }
   if (mode === "switch") return <ShellPlayerSwitchInput />;
   if (mode === "dance-storage") return <Storage />;
+  if (mode === "dance-command-ordering") return <Storage commands />;
   if (
     mode === "media-shell-profile" ||
     mode === "media-shell" ||

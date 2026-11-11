@@ -172,7 +172,13 @@ for (const status of [401, 403, 429])
     await expect(state).not.toContainText("private-fixture-account");
     expect(result).toEqual({ errors: [], unexpected: [] });
   });
-for (const kind of ["media-storage", "media-host", "media-composer", "media-shell", "media-shell-profile"])
+for (const kind of [
+  "media-storage",
+  "media-host",
+  "media-composer",
+  "media-shell",
+  "media-shell-profile",
+])
   test(`actual native community ${kind} preserves original scope and source controls`, async ({
     page,
   }) => {
@@ -196,6 +202,22 @@ test("actual isolated browser Dance storage, immutable File reload and Web Locks
   await expect(page.locator("[data-storage-status]")).toHaveAttribute(
     "data-storage-status",
     "passed",
+  );
+  expect(result).toEqual({ errors: [], unexpected: [] });
+});
+test("actual native Dance command ordering retains one original through a lost acknowledgement", async ({
+  page,
+}) => {
+  const result = await sourceFixture(page, "fixture=dance-command-ordering");
+  await page
+    .getByRole("button", { name: "Run actual Dance command ordering" })
+    .click();
+  await expect(page.locator("[data-storage-status]")).toHaveAttribute(
+    "data-storage-status",
+    "passed",
+  );
+  await expect(page.locator("[data-storage-status]")).toContainText(
+    '"commandId"',
   );
   expect(result).toEqual({ errors: [], unexpected: [] });
 });
