@@ -310,10 +310,20 @@ test(
       );
       assert.equal(f.shared.counts().calls, 0);
       assert.equal(old.id, f.grant.id);
-      assert.equal(
-        f.factory.transitions.grants.read({ ...f.actor, generation: 2 })
-          ?.revokedAt !== null,
-        true,
+      // Same-bot rotation denies the old publication scope, not the durable
+      // account association. read() is not current chat authorization.
+      const association = f.factory.transitions.grants.read({
+        ...f.actor,
+        generation: 2,
+      });
+      assert.ok(association);
+      assert.equal(association.id, f.grant.id);
+      assert.equal(association.revokedAt, null);
+      assert.deepEqual(
+        f.journal.store.get(
+          `grant:${f.actor.communityId}:${f.actor.botId}:${f.actor.userId}`,
+        ),
+        f.grant,
       );
     } finally {
       await f.dispose();

@@ -638,6 +638,10 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     createSignal<StudyingAttemptRejection | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [authRequired, setAuthRequired] = createSignal(false);
+  const restartError = () =>
+    loadError() && !loading()
+      ? "A new lesson could not start. Try again."
+      : undefined;
   const [authDescription, setAuthDescription] = createSignal(
     "Study packs follow the song's community. Sign in to pick up your lesson and streak.",
   );
@@ -761,6 +765,16 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                     {loaded.resolved_count ?? 0} of {loaded.served_count ?? 0}{" "}
                     cards resolved.
                   </Type>
+                  <Show when={restartError()}>
+                    <Type
+                      as="p"
+                      class="text-destructive-text"
+                      role="alert"
+                      variant="caption"
+                    >
+                      {restartError()}
+                    </Type>
+                  </Show>
                   <div class="mt-auto flex gap-3">
                     <Button
                       class="flex-1"
@@ -779,11 +793,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
               <LoadedStudyingLesson
                 {...props}
                 onAuthHold={holdForAuth}
-                restartError={
-                  loadError() && !loading()
-                    ? "A new lesson could not start. Try again."
-                    : undefined
-                }
+                restartError={restartError()}
                 onStudyAgain={() => load(true)}
                 onReload={() => load()}
                 payload={loaded}

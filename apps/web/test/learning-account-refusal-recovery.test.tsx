@@ -414,3 +414,335 @@ test("deferred 503 restart keeps the original 3/4 and retries only explicitly wi
   expect(enrollmentRequests).toBe(0);
   expect(JSON.stringify(completed)).toBe(original);
 });
+
+// UNRUN successor cases. Reach expiry via the actual open/refusal/refresh
+// pipeline, rather than injecting a synthetic route payload or replacing its
+// controller. Producer: study-lessons reconcile/openAttempt/abandon at 345117d.
+function expiredRestartHTTP() {
+  const initial = lesson(),
+    replacement = lesson(lessonB);
+  // Only a retained legacy finite deadline can produce status=expired.
+  initial.expiresAt = initial.startedAt + 3_600_000;
+  initial.progress = {
+    ...initial.progress,
+    resolved: 1,
+    mastered: 1,
+    presentations: 1,
+    firstPassGraded: 1,
+    firstPassCorrect: 1,
+  };
+  initial.current!.presentationNumber = 2;
+  const expired: StudyLesson = {
+    ...initial,
+    status: "expired",
+    current: null,
+    completedAt: initial.expiresAt,
+    completionReason: "deadline",
+  };
+  const expiredBytes = JSON.stringify(expired);
+  const first = deferred<Response>();
+  const requests: { path: string; method: string; body: string | undefined }[] =
+    [];
+  const starts: string[] = [];
+  let saved = initial,
+    committed: StudyLesson | undefined;
+  let created = 0,
+    reads = 0,
+    attempts = 0,
+    abandons = 0;
+  let cookieWallet = walletA;
+  const commit = () => {
+    if (!committed) {
+      committed = replacement;
+      created++;
+    }
+    return committed;
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input),
+        method = init?.method ?? "GET";
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-study-account")).toBe(walletA);
+      expect(headers.get("x-csrf-token")).toBe("fixture-csrf");
+      expect(init?.credentials).toBe("same-origin");
+      requests.push({
+        path,
+        method,
+        body: typeof init?.body === "string" ? init.body : undefined,
+      });
+      if (cookieWallet !== walletA)
+        return response({ error: "study_account_changed" }, 401);
+      if (path === `/api/study/lessons/${lessonA}` && method === "GET") {
+        reads++;
+        return response(saved);
+      }
+      if (
+        path === `/api/study/lessons/${lessonA}/attempts` &&
+        method === "POST"
+      ) {
+        attempts++;
+        expect(JSON.parse(String(init?.body))).toEqual({
+          presentationNumber: 2,
+          takeNumber: 1,
+        });
+        // Reconcile reaches the finite deadline before openAttempt's active
+        // guard. It closes the original lesson and refuses any new attempt.
+        saved = expired;
+        return response({ error: "study_lesson_changed" }, 409);
+      }
+      if (
+        path === `/api/study/lessons/${lessonA}/abandon` &&
+        method === "POST"
+      ) {
+        abandons++;
+        // Actual terminal abandon returns the unchanged terminal view.
+        expect(saved).toBe(expired);
+        return response(expired);
+      }
+      if (path === "/api/study/lessons" && method === "POST") {
+        starts.push(String(init?.body));
+        const value = JSON.parse(starts.at(-1)!);
+        expect(value.song).toEqual(initial.song);
+        expect(value.requestId).toMatch(/^[a-zA-Z0-9_-]{16,128}$/);
+        if (starts.length === 1) return first.promise;
+        expect(starts).toHaveLength(2);
+        expect(starts[1]).toBe(starts[0]);
+        // Model the producer's byRequest behavior: an unknown first commit is
+        // acknowledged under the same request, never a second created lesson.
+        return response(commit());
+      }
+      throw new Error(`Unexpected request ${method} ${path}`);
+    }),
+  );
+  const client = createStudyClient(
+    initial.song,
+    () => "fixture-csrf",
+    lessonA,
+    undefined,
+    undefined,
+    undefined,
+    walletA,
+  );
+  return {
+    client,
+    initial,
+    expired,
+    expiredBytes,
+    replacement,
+    starts,
+    requests,
+    counts: () => ({ created, reads, attempts, abandons }),
+    refuse() {
+      first.resolve(response({ error: "fixture_restart_refused" }, 503));
+    },
+    loseCommittedBody() {
+      commit();
+      first.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.error(
+                new TypeError("committed start acknowledgement body lost"),
+              );
+            },
+          }),
+          { status: 200 },
+        ),
+      );
+    },
+    refuseAccount() {
+      cookieWallet = walletB;
+      first.resolve(response({ error: "study_account_changed" }, 401));
+    },
+    acceptLate() {
+      const reply = response(commit()),
+        consumed = deferred<void>();
+      const read = reply.json.bind(reply);
+      vi.spyOn(reply, "json").mockImplementation(async () => {
+        const value = await read();
+        consumed.resolve();
+        return value;
+      });
+      first.resolve(reply);
+      return consumed.promise;
+    },
+  };
+}
+async function reachExpired(
+  host: HTMLElement,
+  api: ReturnType<typeof expiredRestartHTTP>,
+) {
+  await press(host, "Record");
+  expect(host.textContent).toContain("First account private line");
+  await press(host, "Stop");
+  const region = await vi.waitFor(() => {
+    const node = host.querySelector<HTMLElement>(
+      '[aria-label="Expired Study session"]',
+    );
+    expect(node).not.toBeNull();
+    expect(node!.textContent?.replace(/\s+/g, " ")).toContain(
+      "1 of 4 cards resolved.",
+    );
+    return node!;
+  });
+  expect(region.querySelector('[role="alert"]')).toBeNull();
+  expect(api.counts()).toEqual({
+    created: 0,
+    reads: 3,
+    attempts: 1,
+    abandons: 0,
+  });
+  expect(api.starts).toEqual([]);
+  return region;
+}
+
+test.each(["503", "committed-body-lost"] as const)(
+  "expired explicit restart %s retains identity/progress/error until an explicit same-request recovery",
+  async (outcome) => {
+    const api = expiredRestartHTTP(),
+      capture = recorder();
+    const seen: string[] = [];
+    const { host } = mount(() => (
+      <StudyScreen
+        client={api.client}
+        account={walletA}
+        postId={api.initial.song.postId}
+        recorder={capture}
+        onExit={() => {}}
+        onLesson={(value) => seen.push(value.lessonId)}
+      />
+    ));
+    const originalRegion = await reachExpired(host, api);
+    expect(seen).toEqual([lessonA, lessonA, lessonA]);
+    await press(host, "Start new lesson");
+    await vi.waitFor(() => expect(api.starts).toHaveLength(1));
+    expect(host.querySelector('[aria-label="Expired Study session"]')).toBe(
+      originalRegion,
+    );
+    await press(host, "Start new lesson"); // pending click cannot dispatch again
+    expect(api.starts).toHaveLength(1);
+    if (outcome === "503") api.refuse();
+    else api.loseCommittedBody();
+    await vi.waitFor(() =>
+      expect(
+        originalRegion.querySelector('[role="alert"]')?.textContent?.trim(),
+      ).toBe("A new lesson could not start. Try again."),
+    );
+    expect(host.querySelector('[aria-label="Expired Study session"]')).toBe(
+      originalRegion,
+    );
+    expect(originalRegion.textContent?.replace(/\s+/g, " ")).toContain(
+      "1 of 4 cards resolved.",
+    );
+    expect(seen).toEqual([lessonA, lessonA, lessonA]);
+    expect(JSON.stringify(api.expired)).toBe(api.expiredBytes);
+    expect(api.starts).toHaveLength(1);
+    expect(api.counts()).toEqual({
+      created: outcome === "503" ? 0 : 1,
+      reads: 3,
+      attempts: 1,
+      abandons: 1,
+    });
+    expect(
+      [...host.querySelectorAll("button")].some(
+        (node) => node.textContent?.trim() === "Record",
+      ),
+    ).toBe(false);
+    expect(
+      api.requests.some((request) => /enrollment|\/audio/.test(request.path)),
+    ).toBe(false);
+    await press(host, "Start new lesson");
+    await vi.waitFor(() =>
+      expect(host.textContent).toContain("Current account line"),
+    );
+    const record = [...host.querySelectorAll("button")].find(
+      (node) => node.textContent?.trim() === "Record",
+    );
+    expect(record).toBeDefined();
+    expect(record!.disabled).toBe(false);
+    expect(
+      host.querySelector('[aria-label="Expired Study session"]'),
+    ).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(seen).toEqual([lessonA, lessonA, lessonA, lessonB]);
+    expect(api.starts).toHaveLength(2);
+    expect(api.starts[1]).toBe(api.starts[0]);
+    expect(api.counts()).toEqual({
+      created: 1,
+      reads: 3,
+      attempts: 1,
+      abandons: 1,
+    });
+    expect(JSON.stringify(api.expired)).toBe(api.expiredBytes);
+    expect(
+      api.requests.some((request) => /enrollment|\/audio/.test(request.path)),
+    ).toBe(false);
+  },
+);
+
+test.each(["account-refusal", "disposed"] as const)(
+  "expired restart error presentation cannot bypass the %s private lifetime fence",
+  async (boundary) => {
+    const api = expiredRestartHTTP(),
+      capture = recorder();
+    const seen: string[] = [];
+    let privateAction: string | null = null;
+    const { host, dispose } = mount(() => (
+      <StudyScreen
+        client={api.client}
+        account={walletA}
+        postId={api.initial.song.postId}
+        recorder={capture}
+        onExit={() => {}}
+        onLesson={(value) => {
+          seen.push(value.lessonId);
+          privateAction = value.lessonId;
+        }}
+        onLessonCleared={() => {
+          privateAction = null;
+        }}
+      />
+    ));
+    await reachExpired(host, api);
+    await press(host, "Start new lesson");
+    await vi.waitFor(() => expect(api.starts).toHaveLength(1));
+    expect(privateAction).toBeNull();
+    if (boundary === "account-refusal") {
+      api.refuseAccount();
+      await vi.waitFor(() => expect(host.textContent).toContain(changed));
+      expect(
+        host.querySelector('[aria-label="Expired Study session"]'),
+      ).toBeNull();
+      expect(host.textContent).not.toContain("1 of 4 cards resolved.");
+      expect(host.textContent).not.toContain("First account private line");
+      expect(
+        [...host.querySelectorAll("button")].some(
+          (node) => node.textContent?.trim() === "Start new lesson",
+        ),
+      ).toBe(false);
+    } else {
+      dispose();
+      expect(host.textContent).toBe("");
+      await api.acceptLate();
+      // The actual Response.json has completed; drain its controller chain.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(host.textContent).toBe("");
+    }
+    expect(privateAction).toBeNull();
+    expect(seen).toEqual([lessonA, lessonA, lessonA]);
+    expect(capture.cancel).toHaveBeenCalled();
+    expect(api.starts).toHaveLength(1);
+    expect(api.counts()).toEqual({
+      created: boundary === "disposed" ? 1 : 0,
+      reads: 3,
+      attempts: 1,
+      abandons: 1,
+    });
+    expect(JSON.stringify(api.expired)).toBe(api.expiredBytes);
+    expect(
+      api.requests.some((request) => /enrollment|\/audio/.test(request.path)),
+    ).toBe(false);
+  },
+);
