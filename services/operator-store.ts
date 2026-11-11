@@ -2,11 +2,17 @@ import { check } from "../packages/protocol/index.ts";
 
 export class Store {
   readonly sql: SqlStorage;
+  private readonly storage: DurableObjectStorage;
+  readonly initialNow: number;
+  private readonly liveClock: boolean;
   constructor(
-    private readonly storage: DurableObjectStorage,
-    readonly initialNow = 1800000000,
-    private readonly liveClock = false,
+    storage: DurableObjectStorage,
+    initialNow = 1800000000,
+    liveClock = false,
   ) {
+    this.storage = storage;
+    this.initialNow = initialNow;
+    this.liveClock = liveClock;
     this.sql = storage.sql;
     this.sql.exec(
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
