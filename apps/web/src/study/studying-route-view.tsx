@@ -50,7 +50,7 @@ export interface StudyingRouteViewProps {
   loadingSlot?: JSX.Element;
   renderComplete?: (
     state: Extract<StudyingSurfaceState, { kind: "complete" }>,
-    actions: { studyAgain(): void },
+    actions: { studyAgain(): void; restartError?: string },
   ) => JSX.Element;
   postId: string;
   client: StudyingClient;
@@ -103,8 +103,9 @@ function initialSurface(payload: StudyingLessonPayload): StudyingSurfaceState {
 
 function LoadedStudyingLesson(
   props: StudyingRouteViewProps & {
-    onAuthRequired: () => void;
+    onAuthHold: (rejection: StudyingAttemptRejection) => void;
     onReload: () => void;
+    restartError?: string;
     payload: StudyingLessonPayload;
   },
 ) {
@@ -302,7 +303,7 @@ function LoadedStudyingLesson(
       .catch((rejection: StudyingAttemptRejection) => {
         if (!active) return;
         if (isStudyingAuthError(rejection)) {
-          props.onAuthRequired();
+          props.onAuthHold(rejection);
           return;
         }
         const recordingFailure =
@@ -593,7 +594,21 @@ function LoadedStudyingLesson(
             onPrimaryAction={handlePrimaryAction}
             onStudyAgain={props.onStudyAgain}
             rewardLabel={props.payload.reward_label}
-            rewardSlot={props.rewardSlot}
+            rewardSlot={
+              <>
+                <Show when={props.restartError}>
+                  <Type
+                    as="p"
+                    class="text-destructive-text"
+                    role="alert"
+                    variant="caption"
+                  >
+                    {props.restartError}
+                  </Type>
+                </Show>
+                {props.rewardSlot}
+              </>
+            }
             state={lesson().surface}
           />
         }
@@ -601,6 +616,9 @@ function LoadedStudyingLesson(
         {(result) =>
           props.renderComplete!(result(), {
             studyAgain: () => props.onStudyAgain?.(),
+            get restartError() {
+              return props.restartError;
+            },
           })
         }
       </Show>
@@ -620,13 +638,34 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     createSignal<StudyingAttemptRejection | null>(null);
   const [loading, setLoading] = createSignal(true);
   const [authRequired, setAuthRequired] = createSignal(false);
-
+  const [authDescription, setAuthDescription] = createSignal(
+    "Study packs follow the song's community. Sign in to pick up your lesson and streak.",
+  );
+  const holdForAuth = (rejection: StudyingAttemptRejection) => {
+    // Carry only an allowlisted nonprivate reason across the authority mask.
+    // Never preserve a response message, lesson body or disposed page action.
+    setAuthDescription(
+      rejection.code === "study_account_changed"
+        ? "You are signed in with a different account. Reload to continue."
+        : "Study packs follow the song's community. Sign in to pick up your lesson and streak.",
+    );
+    setAuthRequired(true);
+    setPayload(undefined);
+    setLoadError(null);
+    void props.recorder?.cancel?.();
+    props.onAuthRequired?.();
+  };
+  let requestPending = false;
   const load = (restart = false) => {
+    if (requestPending) return;
+    requestPending = true;
     if (restart) props.onStudyAgain?.();
     const revision = ++generation;
     setLoading(true);
     setLoadError(null);
-    setPayload(undefined);
+    // Keep the original completed/expired surface while an explicit restart
+    // is pending. Only an accepted replacement may replace its identity.
+    if (!restart) setPayload(undefined);
     void (
       restart && props.client.restartLesson
         ? props.client.restartLesson()
@@ -638,13 +677,16 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
       .catch((rejection: StudyingAttemptRejection) => {
         if (!active || revision !== generation) return;
         if (isStudyingAuthError(rejection)) {
-          props.onAuthRequired?.();
-          setAuthRequired(true);
+          holdForAuth(rejection);
+          return;
         }
         setLoadError(rejection);
       })
       .finally(() => {
-        if (active && revision === generation) setLoading(false);
+        if (active && revision === generation) {
+          requestPending = false;
+          setLoading(false);
+        }
       });
   };
   if (typeof window !== "undefined")
@@ -658,7 +700,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
       fallback={
         <StudyAuthRequiredState
           ctaLabel="Sign in"
-          description="Study packs follow the song's community. Sign in to pick up your lesson and streak."
+          description={authDescription()}
           onConnect={props.onConnect}
           onExit={props.onExit}
           title="Sign in to study"
@@ -667,6 +709,7 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     >
       <Show
         when={payload()}
+        keyed
         fallback={
           <Show
             when={!loading()}
@@ -690,18 +733,18 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
       >
         {(loaded) => (
           <Show
-            when={!loaded().locked}
+            when={!loaded.locked}
             fallback={
               <StudyingSurface
                 onExit={props.onExit}
                 onPrimaryAction={props.onExit}
-                rewardLabel={loaded().reward_label}
-                state={lockedSurface(loaded().price_label)}
+                rewardLabel={loaded.reward_label}
+                state={lockedSurface(loaded.price_label)}
               />
             }
           >
             <Show
-              when={!loaded().expired}
+              when={!loaded.expired}
               fallback={
                 <section
                   class="mx-auto flex min-h-dvh w-full max-w-xl flex-col gap-6 px-5 py-8"
@@ -715,8 +758,8 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
                     ready.
                   </Type>
                   <Type as="p" variant="body">
-                    {loaded().resolved_count ?? 0} of{" "}
-                    {loaded().served_count ?? 0} cards resolved.
+                    {loaded.resolved_count ?? 0} of {loaded.served_count ?? 0}{" "}
+                    cards resolved.
                   </Type>
                   <div class="mt-auto flex gap-3">
                     <Button
@@ -735,14 +778,15 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
             >
               <LoadedStudyingLesson
                 {...props}
-                onAuthRequired={() => {
-                  void props.recorder?.cancel?.();
-                  props.onAuthRequired?.();
-                  setAuthRequired(true);
-                }}
+                onAuthHold={holdForAuth}
+                restartError={
+                  loadError() && !loading()
+                    ? "A new lesson could not start. Try again."
+                    : undefined
+                }
                 onStudyAgain={() => load(true)}
                 onReload={() => load()}
-                payload={loaded()}
+                payload={loaded}
               />
             </Show>
           </Show>

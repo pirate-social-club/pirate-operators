@@ -258,6 +258,7 @@ export function createOperatorStudyingClient(
         )
           throw reviewRequired();
         unresolvedUpload = undefined;
+        reconciliationRequired = false;
         return remember(value, revision);
       } catch (error) {
         ensureCurrent(revision);

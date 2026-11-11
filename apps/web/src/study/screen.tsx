@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { StudyLesson } from "../../../../packages/study/lesson.ts";
+import { Type } from "./ui.ts";
 import type { StudyClient } from "./client.ts";
 import { createOperatorStudyingClient } from "./operator-studying-adapter.ts";
 import { createStudyingBrowserRecorder } from "./studying-browser-recorder.ts";
@@ -73,7 +74,8 @@ function OwnedStudyScreen(
       isActive: current,
       onLoading: () => {
         if (current()) {
-          setCompleted(undefined);
+          // A restart request does not erase the authoritative old result.
+          // Replacement facts arrive through onLesson; auth/disposal still clear.
           clearLesson?.();
         }
       },
@@ -127,7 +129,21 @@ function OwnedStudyScreen(
                           "The operator does not expose exact-lesson earned-day credit.",
                       }
                     }
-                    rewardSlot={props.rewardSlot}
+                    rewardSlot={
+                      <>
+                        <Show when={actions.restartError}>
+                          <Type
+                            as="p"
+                            class="text-destructive-text"
+                            role="alert"
+                            variant="caption"
+                          >
+                            {actions.restartError}
+                          </Type>
+                        </Show>
+                        {props.rewardSlot}
+                      </>
+                    }
                     onExit={exit}
                     onStudyAgain={actions.studyAgain}
                   />
