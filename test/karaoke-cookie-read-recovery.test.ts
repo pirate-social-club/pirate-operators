@@ -288,18 +288,33 @@ for (const mutation of [
           .bind(accounts[6].address.toLowerCase(), captured.binding_id)
           .run();
       if (mutation === "binding") {
-        await f.db
-          .prepare(
-            "INSERT INTO credential_bindings VALUES('replacement-binding','a','fixture',6343,?,0)",
-          )
-          .bind(f.wallet)
-          .run();
-        await f.db
-          .prepare(
-            "UPDATE community_sessions SET binding_id='replacement-binding' WHERE session_hash=?",
-          )
-          .bind(captured.session_hash)
-          .run();
+        // Rekey the actual moss binding atomically, retaining the exact cookie,
+        // account, wallet, CSRF and expiry. Respect the production FK/uniqueness
+        // constraints rather than inserting a second wallet or fake namespace.
+        await f.db.batch([
+          f.db
+            .prepare("DELETE FROM community_sessions WHERE session_hash=?")
+            .bind(captured.session_hash),
+          f.db
+            .prepare(
+              "UPDATE credential_bindings SET binding_id='replacement-binding' WHERE binding_id=?",
+            )
+            .bind(captured.binding_id),
+          f.db
+            .prepare(
+              "INSERT INTO community_sessions(session_hash,community_id,community_origin,account_id,binding_id,csrf_token,expires_at) VALUES(?,?,?,?,?,?,?)",
+            )
+            .bind(
+              captured.session_hash,
+              captured.community_id,
+              captured.community_origin,
+              captured.account_id,
+              "replacement-binding",
+              captured.csrf_token,
+              captured.expires_at,
+            ),
+        ]);
+        assert.equal((await sessionRow(f))?.binding_id, "replacement-binding");
       }
       if (mutation === "community")
         await f.db
@@ -330,15 +345,30 @@ for (const mode of ["ack", "body"] as const)
     let pending: ReturnType<typeof port.ticket> | undefined;
     try {
       pending = port.ticket();
-      const rejected = assert.rejects(pending, /confirm this take/);
-      await gate.entered;
+      // Observe an early preflight refusal as a test failure, not an unhandled
+      // rejection followed by an indefinitely awaited prepare gate.
+      const outcome = pending.then(
+        () => ({ fulfilled: true as const }),
+        (error: unknown) => ({ fulfilled: false as const, error }),
+      );
+      await Promise.race([
+        gate.entered,
+        outcome.then((result) => {
+          throw new Error("Ticket completed before the held prepare", {
+            cause: result.fulfilled ? undefined : result.error,
+          });
+        }),
+      ]);
       const state = await f.walletState();
       assert.ok(state.open);
       const ticketHash = digest(await f.row(`ticket:${state.open.ticketId}`)),
         sponsorHash = digest(f.store.entries("sponsor:"));
       await actualLogout(f);
       gate.release();
-      await rejected;
+      const rejected = await outcome;
+      assert.equal(rejected.fulfilled, false);
+      if (!rejected.fulfilled)
+        assert.match(String(rejected.error), /confirm this take/);
       assert.deepEqual(f.responses, [
         { status: 409, value: { error: "karaoke_session_changed" } },
       ]);

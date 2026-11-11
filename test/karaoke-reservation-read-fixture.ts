@@ -308,6 +308,9 @@ export async function readRecoveryFixture() {
     assert.ok(url.startsWith("/api/"), `unexpected fixture network ${url}`);
     const headers = new Headers(init?.headers);
     headers.set("cookie", auth.cookie);
+    // A browser supplies Origin on same-origin writes; Node fetch does not.
+    if (init?.method && !["GET", "HEAD"].includes(init.method.toUpperCase()))
+      headers.set("origin", firstSong.origin);
     return call(url, { ...init, headers });
   }) as typeof fetch;
   try {
