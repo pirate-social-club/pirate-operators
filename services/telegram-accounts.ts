@@ -17,6 +17,10 @@ import type { TelegramWebPorts } from "./telegram-http.ts";
 export function telegramAccountPort(options: {
   db: D1Database;
   assertAccountEnabled(accountId: string): Promise<void>;
+  /** Coordinator-owned durable epoch and pending transition state. */
+  authorityState(
+    accountId: string,
+  ): Promise<{ revision: string; pending: boolean }>;
 }): TelegramAccountPort {
   return {
     async current(communityId, accountId, wallet) {
@@ -25,22 +29,42 @@ export function telegramAccountPort(options: {
         "telegram_account_mismatch",
         403,
       );
-      const row = await options.db
-        .prepare(
-          `SELECT b.binding_id,b.subject,s.last_withdrawn_at
+      const before = await options.authorityState(accountId);
+      telegramCheck(
+        before &&
+          typeof before.revision === "string" &&
+          before.revision.length > 0 &&
+          before.pending === false,
+        "telegram_publication_pending",
+        503,
+      );
+      const read = () =>
+        options.db
+          .prepare(
+            `SELECT b.binding_id,b.subject,s.last_withdrawn_at
         FROM credential_bindings b JOIN community_accounts a ON a.account_id=b.account_id
         JOIN application_identity i ON i.id=1 AND i.community_id=?
         LEFT JOIN learning_settings s ON s.account_id=b.account_id
         WHERE b.account_id=? AND b.namespace='moss' AND b.network=6343 AND b.subject=?`,
-        )
-        .bind(communityId, accountId, wallet)
-        .first<{
-          binding_id: string;
-          subject: string;
-          last_withdrawn_at: number | null;
-        }>();
+          )
+          .bind(communityId, accountId, wallet)
+          .first<{
+            binding_id: string;
+            subject: string;
+            last_withdrawn_at: number | null;
+          }>();
+      const row = await read();
       telegramCheck(row, "telegram_account_mismatch", 403);
       await options.assertAccountEnabled(accountId);
+      const again = await read(),
+        after = await options.authorityState(accountId);
+      telegramCheck(
+        after.pending === false &&
+          after.revision === before.revision &&
+          digest(again) === digest(row),
+        "telegram_authority_changed",
+        403,
+      );
       return {
         accountId,
         wallet: row.subject,
@@ -49,6 +73,7 @@ export function telegramAccountPort(options: {
           row.binding_id,
           row.subject,
           row.last_withdrawn_at,
+          after.revision,
         ]),
       };
     },

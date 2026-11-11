@@ -1,5 +1,11 @@
 export interface TelegramConnectionView {
   connected: boolean;
+  grantId: string | null;
+  unlinkOperation: {
+    operationId: string;
+    expectedGrantId: string | null;
+    complete: boolean;
+  } | null;
   linkedAt: number | null;
   preferences: { reminders: boolean; rewards: boolean; dance: boolean } | null;
 }
@@ -9,6 +15,10 @@ export function telegramConnectionClient(options: {
   fetch?: typeof fetch;
 }) {
   const transport = options.fetch ?? fetch;
+  const unlinks = new Map<
+    string,
+    { operationId: string; expectedGrantId: string | null }
+  >();
   async function request<T>(
     path: string,
     method = "GET",
@@ -56,8 +66,39 @@ export function telegramConnectionClient(options: {
   }
   return {
     status: () => request<TelegramConnectionView>("/api/telegram/connection"),
-    unlink: () =>
-      request<{ unlinked: boolean }>("/api/telegram/connection", "DELETE"),
+    async unlink() {
+      const account = options.account();
+      let operation = unlinks.get(account);
+      if (!operation) {
+        const status = await request<TelegramConnectionView>(
+          "/api/telegram/connection",
+        );
+        if (options.account() !== account)
+          throw new Error("The signed-in account changed. Try again.");
+        const previous = status.unlinkOperation;
+        operation =
+          previous &&
+          (!previous.complete ||
+            previous.expectedGrantId === status.grantId ||
+            !status.connected)
+            ? {
+                operationId: previous.operationId,
+                expectedGrantId: previous.expectedGrantId,
+              }
+            : {
+                operationId: crypto.randomUUID(),
+                expectedGrantId: status.grantId,
+              };
+        unlinks.set(account, operation);
+      }
+      const result = await request<{ unlinked: boolean }>(
+        "/api/telegram/connection",
+        "DELETE",
+        operation,
+      );
+      if (unlinks.get(account) === operation) unlinks.delete(account);
+      return result;
+    },
     preferences: (value: NonNullable<TelegramConnectionView["preferences"]>) =>
       request("/api/telegram/notifications", "PATCH", value),
     start: (reference: string) =>

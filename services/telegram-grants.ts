@@ -18,6 +18,8 @@ import {
 } from "../packages/telegram/contracts.ts";
 import { randomToken } from "../packages/telegram/security.ts";
 import type { TelegramJournal } from "./telegram-store.ts";
+import { accountPending } from "./telegram-transition-store.ts";
+import type { TelegramGrantCapture } from "../packages/telegram/transitions.ts";
 
 interface PublicationScopeChange {
   from: BotRegistration;
@@ -129,11 +131,28 @@ export class TelegramGrants {
       );
       this.store.set(managedScopeKey(next.communityId), true);
       if (!old || registrationMatches(old, next))
-        return { registration: this.saveRegistration(next, old), pending: null };
+        return {
+          registration: this.saveRegistration(next, old),
+          pending: null,
+        };
       const change = { from: this.registration(old), to: next };
       this.store.set(key, change);
       return { registration: next, pending: change };
     });
+  }
+  pendingPublicationScope(communityId: string) {
+    return this.store.get<PublicationScopeChange>(
+      publicationScopeChangeKey(communityId),
+    );
+  }
+  accountReady(scope: BotScope, accountId: string) {
+    telegramCheck(
+      !this.store.get(
+        accountPending(scope.communityId, scope.botId, accountId),
+      ),
+      "telegram_publication_pending",
+      503,
+    );
   }
   finishPublicationScope(change: PublicationScopeChange) {
     return this.store.transaction(() => {
@@ -185,6 +204,7 @@ export class TelegramGrants {
     accountId: string,
     expected: TelegramLinkFence,
   ) {
+    this.accountReady(actor, accountId);
     const current = this.linkFence(actor, accountId);
     telegramCheck(
       expected &&
@@ -226,6 +246,11 @@ export class TelegramGrants {
   }
   binding(actor: ChatActor) {
     this.current(actor);
+    telegramCheck(
+      !this.store.get(`publication-user:${actorKey(actor)}`),
+      "telegram_publication_pending",
+      503,
+    );
     const binding = this.store.get<ChatBinding>(`chat:${actorKey(actor)}`);
     telegramCheck(
       binding &&
@@ -238,10 +263,51 @@ export class TelegramGrants {
     return binding;
   }
   block(actor: ChatActor) {
+    telegramCheck(
+      this.read(actor)?.revokedAt !== null,
+      "telegram_managed_publication_required",
+      503,
+    );
     const key = `chat:${actorKey(actor)}`,
       binding = this.store.get<ChatBinding>(key);
     if (binding && sameScope(binding, actor))
       this.store.set(key, { ...binding, blocked: true });
+  }
+  publicationCapture(actor: ChatActor): TelegramGrantCapture {
+    return {
+      grant: this.read(actor) ?? null,
+      revision:
+        this.store.get<number>(`grant-revision:${actorKey(actor)}`) ?? 0,
+    };
+  }
+  /** Managed caller journals its pending denial atomically with this retirement. */
+  retirePublicationGrant(
+    scope: BotScope,
+    accountId: string,
+    expected: string | null,
+  ) {
+    const grant = this.forAccount(scope, accountId);
+    telegramCheck(
+      (grant?.id ?? null) === expected,
+      "telegram_unlink_predecessor_changed",
+      409,
+    );
+    return this.retire(scope, accountId, grant);
+  }
+  retireCapturedPublicationGrant(scope: BotScope, captured: TelegramGrant) {
+    const row = this.read({
+      ...scope,
+      userId: captured.userId,
+      chatId: captured.userId,
+    });
+    telegramCheck(
+      row?.id === captured.id &&
+        row.accountId === captured.accountId &&
+        row.revokedAt === null,
+      "telegram_unlink_predecessor_changed",
+      409,
+    );
+    return this.retire(scope, captured.accountId, row);
   }
   read(actor: ChatActor) {
     return this.effective(
@@ -332,6 +398,8 @@ export class TelegramGrants {
         capabilities: ["study", "progress", "reward-status", "notifications"],
       };
       this.store.set(key, grant);
+      const revision = `grant-revision:${actorKey(actor)}`;
+      this.store.set(revision, (this.store.get<number>(revision) ?? 0) + 1);
       this.store.set(index, key);
       return grant;
     });
@@ -371,21 +439,35 @@ export class TelegramGrants {
     });
   }
   unlink(scope: BotScope, accountId: string) {
+    telegramCheck(
+      !this.store.get(managedScopeKey(scope.communityId)),
+      "telegram_managed_publication_required",
+      503,
+    );
     return this.store.transaction(() => {
       const grant = this.forAccount(scope, accountId);
-      const accountFence = `unlink-account:${scope.communityId}:${scope.botId}:${accountId}`;
-      this.store.set(
-        accountFence,
-        (this.store.get<number>(accountFence) ?? 0) + 1,
-      );
-      if (!grant) return false;
-      const userFence = `unlink-user:${actorKey({ ...scope, userId: grant.userId, chatId: grant.userId })}`;
-      this.store.set(userFence, (this.store.get<number>(userFence) ?? 0) + 1);
-      const row = `grant:${grant.communityId}:${grant.botId}:${grant.userId}`;
-      this.store.set(row, { ...grant, revokedAt: this.now() });
-      this.retireAccountIndex(this.accountIndex(scope, accountId), row);
-      return true;
+      return this.retire(scope, accountId, grant);
     });
+  }
+  private retire(
+    scope: BotScope,
+    accountId: string,
+    grant: TelegramGrant | null,
+  ) {
+    const accountFence = `unlink-account:${scope.communityId}:${scope.botId}:${accountId}`;
+    this.store.set(
+      accountFence,
+      (this.store.get<number>(accountFence) ?? 0) + 1,
+    );
+    if (!grant) return false;
+    const userFence = `unlink-user:${actorKey({ ...scope, userId: grant.userId, chatId: grant.userId })}`;
+    this.store.set(userFence, (this.store.get<number>(userFence) ?? 0) + 1);
+    const revision = `grant-revision:${actorKey({ ...scope, userId: grant.userId, chatId: grant.userId })}`;
+    this.store.set(revision, (this.store.get<number>(revision) ?? 0) + 1);
+    const row = `grant:${grant.communityId}:${grant.botId}:${grant.userId}`;
+    this.store.set(row, { ...grant, revokedAt: this.now() });
+    this.retireAccountIndex(this.accountIndex(scope, accountId), row);
+    return true;
   }
   preferences(actor: ChatActor): NotificationPreferences {
     return (
@@ -403,6 +485,7 @@ export class TelegramGrants {
     accountId: string,
     value: NotificationPreferences,
   ) {
+    this.accountReady(scope, accountId);
     const grant = this.forAccount(scope, accountId);
     telegramCheck(grant, "telegram_connection_required", 403);
     return this.savePreferences(

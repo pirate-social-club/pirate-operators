@@ -83,6 +83,7 @@ export class TelegramLinking {
     const browserHash = await sha256(browserSecret);
     return this.grants.store.transaction(() => {
       this.grants.current(pending.actor);
+      this.grants.accountReady(pending.actor, account.accountId);
       const live = this.grants.store.get<PendingConnection>(key);
       telegramCheck(
         live && live.expiresAt > this.grants.now() && !live.consumedBy,
@@ -134,6 +135,7 @@ export class TelegramLinking {
       410,
     );
     this.grants.current(transaction.actor);
+    this.grants.accountReady(transaction.actor, transaction.account.accountId);
     telegramCheck(
       account.communityId === transaction.account.communityId &&
         account.sessionId === transaction.account.sessionId &&
