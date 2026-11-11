@@ -45,7 +45,12 @@ function capability(): Extract<
     state: "available",
     resolveAccount: vi.fn(async () => target.account),
     consumeEarnedSignal: vi.fn(() => true),
-    readCompletion: vi.fn(async () => ({
+    readCompletion: vi.fn<
+      Extract<
+        StudyCompletionCapability,
+        { state: "available" }
+      >["readCompletion"]
+    >(async () => ({
       target,
       timezone: "UTC",
       decision: {

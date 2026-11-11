@@ -184,3 +184,13 @@ test("recovery refuses another tab's ticket instead of replacing the charged ide
   expect(service.ticket).not.toHaveBeenCalled();
   expect(capture.started).not.toHaveBeenCalled();
 });
+
+test("a new take consumes the actual flat operator ticket without replacing its identity", async () => {
+  const service = port();
+  vi.mocked(service.attempt).mockResolvedValue({ state: "none" });
+  const { host, capture } = mount(service);
+  await start(host);
+  await vi.waitFor(() => expect(capture.started).toHaveBeenCalledOnce());
+  expect(service.ticket).toHaveBeenCalledOnce();
+  expect(host.textContent).not.toContain("could not be prepared");
+});

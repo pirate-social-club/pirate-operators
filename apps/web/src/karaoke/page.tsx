@@ -120,7 +120,9 @@ export function KaraokePage(props: KaraokePageProps) {
         />
       }
     >
-      {() => <OwnedKaraokePage {...props} account={props.account!} />}
+      {(_identity: string) => (
+        <OwnedKaraokePage {...props} account={props.account!} />
+      )}
     </Show>
   );
 }
@@ -242,7 +244,10 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     }
     if (!disposed) setLoaded(true);
   }
-  void loadSong();
+  if (typeof window !== "undefined")
+    queueMicrotask(() => {
+      if (!disposed) void loadSong();
+    });
 
   const capture = (props.createCapture ?? useKaraokeCapture)({
     get enabled() {
@@ -539,7 +544,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         setFeedback(null);
         setRestoredRatingKey(null);
         currentTake = {
-          ticketId: issued.ticket.body.ticketId,
+          ticketId: issued.ticketId,
           socketUrl: issued.socketUrl,
           proof: issued.proof,
         };

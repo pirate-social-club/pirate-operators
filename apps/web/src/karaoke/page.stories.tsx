@@ -19,6 +19,13 @@ const meta = {
   title: "Screens/Karaoke/Decentralized route",
   component: KaraokePage,
   parameters: { layout: "fullscreen" },
+  args: {
+    account: null,
+    postId: "story-post",
+    title: "Fixture song",
+    csrf: "",
+    onExit: () => {},
+  },
 } satisfies Meta<typeof KaraokePage>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -56,13 +63,13 @@ function storyPort(
     song: async () => {
       if (state === "loading") return new Promise(() => {});
       if (state === "error")
-        throw new Error("We couldn't load karaoke for this song.");
+        throw new globalThis.Error("We couldn't load karaoke for this song.");
       return state === "empty" ? { lines: [], segments: [] } : song;
     },
     attempt: async () => (state === "recovered" ? view : { state: "none" }),
     ticket: async () => {
       if (state === "unknown")
-        throw new Error(
+        throw new globalThis.Error(
           "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
         );
       return {
@@ -72,7 +79,7 @@ function storyPort(
       };
     },
     request: async () => {
-      throw new Error(
+      throw new globalThis.Error(
         "This story has no enrollment, purchase or history capability.",
       );
     },

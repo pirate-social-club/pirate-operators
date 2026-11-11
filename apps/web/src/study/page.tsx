@@ -55,7 +55,9 @@ export function StudyPage(props: StudyPageProps) {
         />
       }
     >
-      {() => <OwnedStudyPage {...props} account={props.account!} />}
+      {(_identity: string) => (
+        <OwnedStudyPage {...props} account={props.account!} />
+      )}
     </Show>
   );
 }
@@ -202,7 +204,10 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
         timer = setTimeout(() => void checkPublication(), 3000);
     }
   }
-  void load();
+  if (typeof window !== "undefined")
+    queueMicrotask(() => {
+      if (!!active) void load();
+    });
   return (
     <Show
       when={!auth()}

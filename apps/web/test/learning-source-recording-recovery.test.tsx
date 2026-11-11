@@ -291,10 +291,15 @@ test("an unknown provider outcome blocks recording and offers only an explicit n
   await press(container, "Study again");
   expect(studyAgain).toHaveBeenCalledOnce();
   expect(api.submitAttempt).toHaveBeenCalledOnce();
-  container
-    .querySelector<HTMLButtonElement>('[aria-label="Exit study"]')
-    ?.click();
-  expect(exit).toHaveBeenCalledOnce();
+  const exitControl = await vi.waitFor(() => {
+    const control = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Exit study"]',
+    );
+    expect(control).not.toBeNull();
+    return control!;
+  });
+  exitControl.click();
+  await vi.waitFor(() => expect(exit).toHaveBeenCalledOnce());
 });
 
 test("a fresh route read retains the exact blocked card and cannot start capture", async () => {
