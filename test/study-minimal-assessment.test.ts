@@ -266,7 +266,7 @@ test("linked assessment source and minimal result are exact; missing original so
         }),
       /minimal_grade_invalid/,
     );
-    const offer = { ...f.offer, privateSpeechSource: undefined };
+    const { privateSpeechSource: _source, ...offer } = f.offer;
     const hash = digest(offer);
     f.store.set("studyBinding:" + offer.lessonId, {
       ...f.binding,
