@@ -196,9 +196,6 @@ function CommunityHostView(
     },
     mediaStatus: () => (
       <>
-        <Show when={r.error()}>
-          {(message) => <FormNote tone="warning">{message()}</FormNote>}
-        </Show>
         <Show when={r.busy()}>
           <Button variant="outline" onClick={r.stopUpload}>
             Stop upload

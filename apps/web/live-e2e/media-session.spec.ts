@@ -251,6 +251,15 @@ for (const width of [1440, 390])
         await expect(rating).toBeChecked();
         await page.getByRole("button", { name: "Next", exact: true }).click();
         await expect.poll(() => reservations.length).toBe(1);
+        await expect(
+          page.getByText(
+            "The release service is temporarily unavailable. Your recording is saved. Try this step again.",
+            { exact: true },
+          ),
+        ).toHaveCount(1);
+        await expect(
+          page.getByText("release_processing_unavailable", { exact: true }),
+        ).toHaveCount(0);
         const before = await retained(page, accountId);
         expect(before.accountId).toBe(accountId);
         expect(before.accountId).not.toBe(accounts.first);

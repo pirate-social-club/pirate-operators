@@ -27,7 +27,7 @@ import {
   type CommunitySongDraft,
   type SongReleaseInput,
 } from "./community-song-controller.ts";
-import { communityHttp } from "./community-http.ts";
+import { communityHttp, CommunityPortError } from "./community-http.ts";
 import { bindCommunitySongJob } from "./community-job-binding.ts";
 
 export interface CommunityRuntimeOptions {
@@ -260,9 +260,12 @@ export function createCommunityComposerRuntime(
       } catch (failure) {
         if (active())
           setError(
-            failure instanceof Error
-              ? failure.message
-              : "The saved release could not be confirmed.",
+            failure instanceof CommunityPortError &&
+              failure.code === "release_processing_unavailable"
+              ? "The release service is temporarily unavailable. Your recording is saved. Try this step again."
+              : failure instanceof Error
+                ? failure.message
+                : "The saved release could not be confirmed.",
           );
         throw failure;
       } finally {
