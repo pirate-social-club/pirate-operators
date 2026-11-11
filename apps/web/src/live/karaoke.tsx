@@ -21,7 +21,7 @@ import {
 import { deriveKaraokeFeedback } from "../karaoke/scoring-feedback.ts";
 import { ScoringResponseWatch } from "../karaoke/scoring-response-watch.ts";
 import { positionPlaybackWhenReady } from "../karaoke/playback-position.ts";
-import { get, post } from "./api.ts";
+import { get as apiGet, post as apiPost } from "./api.ts";
 
 import type {
   KaraokeConsentRequest,
@@ -80,6 +80,7 @@ const AUTHORIZATION_RETRIES = 5,
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function LiveKaraoke(props: {
+  account: string;
   postId: string;
   title: string;
   csrf: string;
@@ -90,6 +91,10 @@ export function LiveKaraoke(props: {
   onExit: () => void;
   onLearningActions?: (actions: LearningActions) => void;
 }) {
+  const owner = { "x-study-account": props.account };
+  const get = <T,>(path: string) => apiGet<T>(path, { headers: owner });
+  const post = <T,>(path: string, body: unknown, csrf?: string) =>
+    apiPost<T>(path, body, csrf, owner);
   const [song, setSong] = createSignal<TimedSong | null>(null),
     [loaded, setLoaded] = createSignal(false),
     [take, setTake] = createSignal<OpenTake | null>(null),
@@ -375,7 +380,8 @@ export function LiveKaraoke(props: {
         }>("/api/karaoke/tickets", { postId: props.postId }, props.csrf);
       } catch (error) {
         if (
-          (error as { code?: string }).code !== "karaoke_authorization_pending" ||
+          (error as { code?: string }).code !==
+            "karaoke_authorization_pending" ||
           retry + 1 >= AUTHORIZATION_RETRIES
         )
           throw error;

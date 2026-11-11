@@ -745,6 +745,12 @@ export async function communityFetch(
     if (url.pathname === "/api/karaoke/attempt") {
       insist(request.method === "GET", "method_not_allowed", 405);
       const session = await accountSession(request, env.DB, context);
+      insist(
+        request.headers.get("x-study-account")?.toLowerCase() ===
+          session.wallet.toLowerCase(),
+        "study_account_changed",
+        409,
+      );
       return reply(
         await karaokeAttempt(
           karaokePorts,
@@ -795,6 +801,13 @@ export async function communityFetch(
         return reply({ authenticated: true, csrf: verified.csrf });
       }
       const session = await authenticatedWrite(request, env.DB, context);
+      if (url.pathname.startsWith("/api/karaoke/"))
+        insist(
+          request.headers.get("x-study-account")?.toLowerCase() ===
+            session.wallet.toLowerCase(),
+          "study_account_changed",
+          409,
+        );
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/enrollments")

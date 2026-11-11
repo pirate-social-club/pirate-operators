@@ -419,6 +419,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       <Show when={singing() && session()}>
         <div class="live-karaoke-overlay">
           <LiveKaraoke
+            account={session()!.mossAddress}
             postId={singing()!.postId}
             title={singing()!.title}
             csrf={session()!.csrf}

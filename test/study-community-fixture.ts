@@ -262,6 +262,7 @@ export async function studyCommunityFixture(
         return {
           cookie: response.headers.get("set-cookie")!.split(";")[0],
           "x-csrf-token": session.csrf,
+          "x-study-account": accounts[index].address,
         };
       },
       async enroll(index = 5) {

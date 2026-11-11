@@ -584,9 +584,17 @@ export async function karaokeLive(
     };
     type Session = Awaited<ReturnType<typeof signIn>>;
     const get = <T>(session: Session | null, path: string) =>
-      app(path, session ? { headers: { cookie: session.cookie } } : {}).then(
-        (r) => json<T>(r),
-      );
+      app(
+        path,
+        session
+          ? {
+              headers: {
+                cookie: session.cookie,
+                "x-study-account": session.wallet,
+              },
+            }
+          : {},
+      ).then((r) => json<T>(r));
     const post = <T>(session: Session, path: string, body: unknown) =>
       app(path, {
         method: "POST",
@@ -595,6 +603,7 @@ export async function karaokeLive(
           "content-type": "application/json",
           cookie: session.cookie,
           "x-csrf-token": session.csrf,
+          "x-study-account": session.wallet,
         },
         body: JSON.stringify(body),
       }).then((r) => json<T>(r));
