@@ -3,6 +3,8 @@
 @import "./app-shell.css";
 @source "./app-shell.tsx";
 @source "../shell/";
+@source "../media/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/";
 @source "../wallet/";
 @source "../../node_modules/@pirate/web-solid-ui/src/patterns/navigation/";
 @source "../../node_modules/@pirate/web-solid-ui/src/patterns/engagement/community-avatar/";

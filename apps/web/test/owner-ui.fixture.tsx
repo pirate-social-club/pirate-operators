@@ -9,6 +9,10 @@ import {
 import { ProfileCompositionInput } from "./profile-composition-inputs.tsx";
 import { ProfileRecoveryInput } from "./profile-recovery-inputs.tsx";
 import { runDanceStorageBrowserCases } from "./dance-source-storage.browser.ts";
+import { runCommunityStorageBrowserCases } from "./media-community-storage.browser.ts";
+import { runCommunityHostBrowserCase } from "./media-community-host.browser.tsx";
+import { runCommunityComposerBrowserCase } from "./media-community-composer.browser.tsx";
+import storageWorkerUrl from "./media-community-storage.worker.ts?worker&url";
 import "./owner-ui.fixture.css";
 
 const query = new URL(location.href).searchParams;
@@ -84,6 +88,41 @@ function Storage() {
     </div>
   );
 }
+function MediaCases(props: { kind: string }) {
+  const [status, setStatus] = createSignal("idle"),
+    [detail, setDetail] = createSignal("");
+  let root: HTMLDivElement | undefined;
+  const run = () => {
+    setStatus("running");
+    const work =
+      props.kind === "media-storage"
+        ? runCommunityStorageBrowserCases(storageWorkerUrl)
+        : props.kind === "media-host"
+          ? runCommunityHostBrowserCase(root!)
+          : runCommunityComposerBrowserCase(root!);
+    void work.then(
+      (value) => {
+        setDetail(JSON.stringify(value));
+        setStatus("passed");
+      },
+      (error) => {
+        setDetail(String(error));
+        setStatus("failed");
+      },
+    );
+  };
+  return (
+    <>
+      <button onClick={run}>Run actual community cases</button>
+      <output data-community-status={status()}>{detail()}</output>
+      <div
+        ref={(element) => {
+          root = element;
+        }}
+      />
+    </>
+  );
+}
 function Fixture() {
   const mode = query.get("fixture");
   if (mode === "profile") {
@@ -120,6 +159,12 @@ function Fixture() {
   }
   if (mode === "switch") return <ShellPlayerSwitchInput />;
   if (mode === "dance-storage") return <Storage />;
+  if (
+    mode === "media-storage" ||
+    mode === "media-host" ||
+    mode === "media-composer"
+  )
+    return <MediaCases kind={mode} />;
   return <Player />;
 }
 render(

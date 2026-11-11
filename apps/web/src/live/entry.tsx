@@ -13,7 +13,10 @@ import {
   type CommunitySessionView,
 } from "./api.ts";
 import "./style.css";
-import { SongUpload } from "./upload.tsx";
+import {
+  CommunityComposerHost,
+  type CommunityHostContext,
+} from "../media/community-host.tsx";
 import { LearningPageMount } from "./learning-pages.tsx";
 import { createLearningActionOwner } from "./learning-action-owner.ts";
 import { StudyLoading } from "../study/screen.tsx";
@@ -424,6 +427,54 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         : null,
     ready: () => !walletPage && !!boot() && !settling(),
   });
+  let composerScope = "",
+    composerGeneration = "";
+  const composerContext = (): CommunityHostContext | null => {
+    const config = boot(),
+      current = settling() ? null : session();
+    const accountId = profileIntegration.ownerAccountId();
+    const caps = capabilities(),
+      songs = feed();
+    if (
+      view() !== "publish" ||
+      practiceOpen() ||
+      !config ||
+      !current ||
+      !accountId ||
+      !caps ||
+      !songs
+    ) {
+      composerScope = "";
+      return null;
+    }
+    const scope = JSON.stringify([
+      config.communityId,
+      accountId,
+      current.authorId,
+      current.csrf,
+    ]);
+    if (scope !== composerScope) {
+      composerScope = scope;
+      composerGeneration = crypto.randomUUID();
+    }
+    return {
+      community: {
+        id: config.communityId,
+        name: name(),
+        origin: config.canonicalOrigin,
+      },
+      language: config.defaultLanguage,
+      session: current,
+      owner: {
+        accountId,
+        authorId: current.authorId,
+        communityId: config.communityId,
+        generation: composerGeneration,
+      },
+      capabilities: caps,
+      feed: songs,
+    };
+  };
   const profileSignIn = async () => {
     await run(signIn);
     if (!session()) throw new Error("Sign in was not completed.");
@@ -630,40 +681,19 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                   : undefined
               }
               composer={() => (
-                <>
-                  <Show
-                    when={session()?.publisher ? session() : null}
-                    fallback={
-                      <p>
-                        Song publishing is available to the authorized community
-                        publisher. Sign in with that account to continue.
-                      </p>
-                    }
-                  >
-                    {(current) => (
-                      <SongUpload
-                        session={current()}
-                        policy={capabilities()?.policyVersion ?? ""}
-                        enabled={capabilities()?.upload === true}
-                        refreshFeed={refresh}
-                      />
-                    )}
-                  </Show>
-                  <Show
-                    when={
-                      session() &&
-                      !settling() &&
-                      boot() &&
-                      props.integrations?.publicPosting === "allowed" &&
-                      session()!.mossAddress
-                    }
-                    keyed
-                  >
-                    {(_account) =>
-                      props.integrations?.publicComposer?.(featureContext())
-                    }
-                  </Show>
-                </>
+                <CommunityComposerHost
+                  open={view() === "publish"}
+                  current={composerContext}
+                  onOpenChange={(open) => {
+                    if (!open) location.assign("/#/");
+                  }}
+                  refreshFeed={refresh}
+                  onCloseRefused={() =>
+                    setStatus(
+                      "Stop the current upload before closing the composer.",
+                    )
+                  }
+                />
               )}
             />
           )}

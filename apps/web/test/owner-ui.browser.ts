@@ -27,6 +27,16 @@ for (const width of [1440, 390])
     await page
       .getByRole("button", { name: "Pause Fixture song", exact: true })
       .click();
+    await expect(
+      page.getByRole("button", { name: "Play Fixture song", exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .locator("[data-song-player] audio")
+          .evaluate((element: HTMLAudioElement) => element.paused),
+      )
+      .toBe(true);
     await page.screenshot({
       path: test.info().outputPath(`player-${width}.png`),
     });
@@ -160,6 +170,20 @@ for (const status of [401, 403, 429])
     await expect(state).toHaveAttribute("data-saves", "1");
     await expect(state).toContainText("Fixture profile");
     await expect(state).not.toContainText("private-fixture-account");
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });
+for (const kind of ["media-storage", "media-host", "media-composer"])
+  test(`actual native community ${kind} preserves original scope and source controls`, async ({
+    page,
+  }) => {
+    const result = await sourceFixture(page, `fixture=${kind}`);
+    await page
+      .getByRole("button", { name: "Run actual community cases" })
+      .click();
+    await expect(page.locator("[data-community-status]")).toHaveAttribute(
+      "data-community-status",
+      "passed",
+    );
     expect(result).toEqual({ errors: [], unexpected: [] });
   });
 test("actual isolated browser Dance storage, immutable File reload and Web Locks", async ({
