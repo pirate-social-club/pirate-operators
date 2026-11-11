@@ -9,7 +9,8 @@ export type AppView =
 export type ActivityRoute =
   | { kind: "none" }
   | { kind: "invalid" }
-  | { kind: "study" | "sing"; postId: string };
+  | { kind: "study"; postId: string; lessonId?: string }
+  | { kind: "sing"; postId: string };
 
 export function appView(hash: string): AppView {
   if (!hash || hash === "#/") return "home";
@@ -27,9 +28,25 @@ export function activityRoute(url: URL): ActivityRoute {
   if (!study.length && !sing.length) return { kind: "none" };
   if (study.length + sing.length !== 1 || !(study[0] ?? sing[0]))
     return { kind: "invalid" };
+  const lessons = url.searchParams.getAll("lesson");
+  if (
+    study.length &&
+    (lessons.length > 1 ||
+      (lessons.length === 1 &&
+        (!lessons[0] ||
+          lessons[0].length > 1024 ||
+          /[\u0000-\u001f\u007f]/u.test(lessons[0]))))
+  )
+    return { kind: "invalid" };
+  if (study.length)
+    return {
+      kind: "study",
+      postId: study[0]!,
+      ...(lessons.length ? { lessonId: lessons[0] } : {}),
+    };
   return {
-    kind: study.length ? "study" : "sing",
-    postId: (study[0] ?? sing[0])!,
+    kind: "sing",
+    postId: sing[0]!,
   };
 }
 

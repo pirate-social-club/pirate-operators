@@ -2,7 +2,7 @@ import { createCommunityProfileIntegration } from "../shell/profiles/integration
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -14,17 +14,14 @@ import {
 } from "./api.ts";
 import "./style.css";
 import { SongUpload } from "./upload.tsx";
-import { LiveStudy } from "./study.tsx";
+import { LearningPageMount } from "./learning-pages.tsx";
+import { createLearningActionOwner } from "./learning-action-owner.ts";
 import { StudyLoading } from "../study/screen.tsx";
 import { KaraokeRouteLoadingState } from "../karaoke/route-states.tsx";
 import { LiveRewardWallet } from "./rewards.tsx";
 import { LiveRewardOperator } from "./reward-operator.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
-import {
-  LiveKaraoke,
-  type KaraokeWallet,
-  type LearningActions,
-} from "./karaoke.tsx";
+import type { KaraokeWallet, LearningActions } from "../karaoke/page.tsx";
 
 import { CommunityAppShell } from "./app-shell.tsx";
 import {
@@ -97,9 +94,29 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   // Practice deep links hold their loading state until the community resolves
   // the song and permission. The requested activity stays in the address.
   const [opening, setOpening] = createSignal(initialPractice.kind !== "none");
+  const [studyLesson, setStudyLesson] = createSignal<string | undefined>();
   // True while sign-in is settling its permission. The wallet pages and the
   // practice buttons wait, so nothing mounts with the first of two sessions.
   const [settling, setSettling] = createSignal(false);
+  const actionOwner = createLearningActionOwner(setLearningActions);
+  onCleanup(actionOwner.clear);
+  const learningRoute = createMemo(() => {
+    const study = studying(),
+      sing = singing();
+    return study
+      ? { kind: "study" as const, ...study, lessonId: studyLesson() }
+      : sing
+        ? { kind: "sing" as const, ...sing }
+        : null;
+  });
+  const learningAccount = createMemo(() =>
+    settling() ? null : (session()?.mossAddress ?? null),
+  );
+  const learningPermission = createMemo(
+    () =>
+      !settling() &&
+      ["on", "pending", "off"].includes(session()?.publicResults ?? ""),
+  );
   const practiceOpen = () =>
     singing() !== null || studying() !== null || opening();
   let lastLocation = location.href;
@@ -115,27 +132,36 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     ))
       media.pause();
   }
-  function openStudy(song: { postId: string; title: string }) {
-    setLearningActions(null);
+  function openStudy(
+    song: { postId: string; title: string },
+    lessonId?: string,
+  ) {
+    actionOwner.clear();
     pauseFeed();
     const url = activityUrl(new URL(location.href), "study", song.postId);
+    url.searchParams.delete("lesson");
+    if (lessonId) url.searchParams.set("lesson", lessonId);
     if (url.href !== location.href) history.pushState(null, "", url);
     lastLocation = location.href;
     setSinging(null);
+    setStudyLesson(lessonId);
     setStudying(song);
   }
   function openSing(song: { postId: string; title: string }) {
-    setLearningActions(null);
+    actionOwner.clear();
     pauseFeed();
     const url = activityUrl(new URL(location.href), "sing", song.postId);
     if (url.href !== location.href) history.pushState(null, "", url);
     lastLocation = location.href;
     setStudying(null);
+    setStudyLesson(undefined);
     setSinging(song);
   }
   function closeStudy() {
+    actionOwner.clear();
     setStudying(null);
     setSinging(null);
+    setStudyLesson(undefined);
     setRouteNotice("");
     history.replaceState(null, "", withoutActivity(new URL(location.href)));
     lastLocation = location.href;
@@ -145,6 +171,10 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   }
   function syncActivity(posts = feed(), caps = capabilities()) {
     const requested = activityRoute(new URL(location.href));
+    actionOwner.clear();
+    setStudying(null);
+    setSinging(null);
+    setStudyLesson(undefined);
     setRouteNotice("");
     if (requested.kind === "none") {
       setStudying(null);
@@ -174,12 +204,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       );
       return;
     }
-    if (!session()) {
-      setRouteNotice(
-        "Sign in with MOSS to open this song. Your practice link is saved.",
-      );
-      return;
-    }
     if (requested.kind === "study" && !caps?.study) {
       setRouteNotice(
         "Study is unavailable in this community. You can still play this song.",
@@ -190,7 +214,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       postId: song.manifest.postId,
       title: song.manifest.title,
     };
-    if (requested.kind === "study") openStudy(selected);
+    if (requested.kind === "study") openStudy(selected, requested.lessonId);
     else openSing(selected);
   }
   const syncLocation = () => {
@@ -200,6 +224,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     lastLocation = location.href;
     setView(appView(location.hash));
     setFragment(location.hash);
+    actionOwner.clear();
     setStudying(null);
     setSinging(null);
     if (boot() && feed()) syncActivity();
@@ -234,32 +259,38 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         postId: song.manifest.postId,
         title: song.manifest.title,
       };
-      if (requested.kind === "study") openStudy(selected);
+      if (requested.kind === "study") openStudy(selected, requested.lessonId);
       else openSing(selected);
       return;
     }
     if (!boot() || capabilities()?.signIn !== true || busy()) return;
-    history.pushState(
-      null,
-      "",
-      activityUrl(new URL(location.href), requested.kind, requested.postId),
+    const next = activityUrl(
+      new URL(location.href),
+      requested.kind,
+      requested.postId,
     );
+    if (requested.kind === "study") {
+      next.searchParams.delete("lesson");
+      if (requested.lessonId)
+        next.searchParams.set("lesson", requested.lessonId);
+    }
+    history.pushState(null, "", next);
     lastLocation = location.href;
     void run(signIn);
   }
   async function refreshSession() {
-    const before = session()?.mossAddress;
+    const before = session();
     let next: CommunitySessionView | null = null;
     try {
       next = await get<CommunitySessionView>("/api/session");
     } catch {
       next = null;
     }
-    // Study is closed whenever this page refreshes its session (the header is
-    // inert while practice is open), and closing Study drops its lesson link. A
-    // download offered for another account is dropped here; the server would
-    // refuse it anyway. A failed read keeps it.
-    if (before && next && next.mossAddress !== before) setLearningActions(null);
+    if (
+      before?.mossAddress !== next?.mossAddress ||
+      before?.csrf !== next?.csrf
+    )
+      actionOwner.clear();
     setSession(next);
   }
   async function refresh() {
@@ -407,7 +438,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     try {
       await post("/api/logout", {}, current.csrf);
       setSession(null);
-      setLearningActions(null);
+      actionOwner.clear();
       setStatus("Signed out.");
     } finally {
       setBusy(false);
@@ -456,24 +487,32 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           <p role="status">{status()}</p>
         </main>
       </Show>
-      <Show when={singing() && session()}>
-        <div class="live-karaoke-overlay">
-          <LiveKaraoke
-            account={session()!.mossAddress}
-            postId={singing()!.postId}
-            title={singing()!.title}
-            csrf={session()!.csrf}
-            wallet={mossWallet}
-            serviceMode={capabilities()?.learningServiceMode}
-            // A V4 community reports public results by sign-in.
-            signInPermission={["on", "pending", "off"].includes(
-              session()!.publicResults,
-            )}
-            onExit={closeStudy}
-            onLearningActions={(actions) => setLearningActions(actions)}
-          />
-        </div>
-      </Show>
+      <LearningPageMount
+        communityId={boot()?.communityId ?? ""}
+        route={learningRoute()}
+        account={learningAccount()}
+        csrf={session()?.csrf ?? ""}
+        wallet={mossWallet}
+        serviceMode={capabilities()?.learningServiceMode}
+        signInPermission={learningPermission()}
+        actions={actionOwner}
+        onExit={closeStudy}
+        onConnect={() => void run(signIn)}
+        onLessonOpened={(lessonId) => {
+          const current = studying();
+          if (!current || studyLesson() === lessonId) return;
+          const url = activityUrl(
+            new URL(location.href),
+            "study",
+            current.postId,
+          );
+          url.searchParams.set("lesson", lessonId);
+          if (activityRoute(url).kind !== "study") return;
+          history.replaceState(null, "", url);
+          lastLocation = location.href;
+          setStudyLesson(lessonId);
+        }}
+      />
       <Show when={opening() && !studying() && !singing()}>
         <div class="live-study-overlay">
           <Show
@@ -483,26 +522,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
             <KaraokeRouteLoadingState label="Loading karaoke" />
           </Show>
         </div>
-      </Show>
-      {/* Keyed by account: another sign-in remounts Study with no prior state. */}
-      <Show when={studying() && session()?.mossAddress} keyed>
-        {(account) => (
-          <div class="live-study-overlay">
-            <LiveStudy
-              postId={studying()!.postId}
-              title={studying()!.title}
-              csrf={session()!.csrf}
-              account={account}
-              wallet={mossWallet}
-              // A V4 community's Study needs no enrollment before a lesson.
-              signInPermission={["on", "pending", "off"].includes(
-                session()!.publicResults,
-              )}
-              onExit={closeStudy}
-              onLearningActions={(actions) => setLearningActions(actions)}
-            />
-          </div>
-        )}
       </Show>
       <Show when={!walletPage && !practiceOpen()}>
         <Show when={status()}>
@@ -550,9 +569,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           canSignOut={!!session() && !settling()}
           walletAvailable={capabilities()?.rewards === true}
           services={{
-            privateHistory: learningActions()
-              ? () => learningActions()!.download()
-              : undefined,
+            privateHistory: learningActions()?.download,
             publicResults: props.integrations?.accountSettings
               ? () => props.integrations!.accountSettings!(featureContext())
               : undefined,
@@ -595,7 +612,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                   if (!current) return;
                   await post("/api/logout", {}, current.csrf);
                   setSession(null);
-                  setLearningActions(null);
+                  actionOwner.clear();
                   setStatus("Signed out.");
                 })
               }
@@ -604,8 +621,11 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 learningActions()
                   ? () =>
                       void run(async () => {
-                        await learningActions()!.download();
-                        setStatus("Private history downloaded.");
+                        const actions = learningActions();
+                        if (!actions) return;
+                        await actions.download();
+                        if (actionOwner.current() === actions)
+                          setStatus("Private history downloaded.");
                       })
                   : undefined
               }

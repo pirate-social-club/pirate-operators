@@ -77,3 +77,26 @@ test("exiting clears only practice identity, preserving other query state and cu
   );
   assert.equal(current.searchParams.get("sing"), "song");
 });
+
+test("Study links carry one explicit lesson identity and refuse ambiguous private selectors", () => {
+  assert.deepEqual(
+    activityRoute(
+      new URL("https://community.example/?study=song-a&lesson=lesson-a"),
+    ),
+    { kind: "study", postId: "song-a", lessonId: "lesson-a" },
+  );
+  for (const query of [
+    "lesson=",
+    "lesson=a&lesson=b",
+    "lesson=a&lesson=a",
+    "lesson=%00a",
+    "lesson=%0aa",
+    `lesson=${"a".repeat(1025)}`,
+  ])
+    assert.deepEqual(
+      activityRoute(
+        new URL(`https://community.example/?study=song-a&${query}`),
+      ),
+      { kind: "invalid" },
+    );
+});
