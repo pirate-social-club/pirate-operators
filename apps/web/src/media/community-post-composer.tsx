@@ -1,4 +1,5 @@
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import type { JSX } from "@solidjs/web";
 import type {
   MediaCapability,
   ReadyMedia,
@@ -41,6 +42,13 @@ export interface SongComposerPort {
   readonly publish: () => Promise<SongSubmissionHandover>;
   readonly chooseFile: (file: File) => void;
   readonly unresolved: () => boolean;
+  /** Owned backend-specific composition; defaults to the preserved reference. */
+  readonly render?: (events: {
+    close(): void;
+    publish(): void;
+    busy(): boolean;
+    error(): string | null;
+  }) => JSX.Element;
 }
 export interface CommunityPostComposerProps {
   readonly open: boolean;
@@ -54,6 +62,11 @@ export interface CommunityPostComposerProps {
   readonly onMediaReady?: (media: ReadyMedia) => void;
   readonly onTextPublished?: (href: string) => void;
   readonly onCloseRefused?: () => void;
+  readonly initialMode?: "text" | "song";
+  readonly initialSongSubmissionId?: string;
+  readonly draftVersion?: number;
+  /** Captured host generation, including changes before reactive cleanup. */
+  readonly isCurrent?: () => boolean;
 }
 
 /** Mount inside the shell-owned CommunityPageShell main column. The actual
@@ -83,7 +96,11 @@ export function CommunityPostComposer(props: CommunityPostComposerProps) {
       when={
         props.open &&
         props.accountId &&
-        JSON.stringify([props.accountId, props.community.id])
+        JSON.stringify([
+          props.accountId,
+          props.community.id,
+          props.draftVersion ?? 0,
+        ])
       }
       keyed
     >
@@ -93,7 +110,19 @@ export function CommunityPostComposer(props: CommunityPostComposerProps) {
 }
 
 function ComposerSession(props: CommunityPostComposerProps) {
-  const [mode, setMode] = createSignal<"text" | "song" | "video">("text");
+  const [mode, setMode] = createSignal<"text" | "song" | "video">(
+    props.initialMode ?? "text",
+  );
+  let disposed = false;
+  const identity = [props.accountId, props.community.id];
+  const current = () =>
+    !disposed &&
+    identity[0] === props.accountId &&
+    identity[1] === props.community.id &&
+    props.isCurrent?.() !== false;
+  onCleanup(() => {
+    disposed = true;
+  });
   const [draft, setDraft] = createSignal<TextPostDraft>(emptyTextPostDraft);
   const [submittedSongId, setSubmittedSongId] = createSignal<string>();
   const [songBusy, setSongBusy] = createSignal(false);
@@ -128,6 +157,7 @@ function ComposerSession(props: CommunityPostComposerProps) {
     setSongError(null);
     try {
       const receipt = await props.song.publish();
+      if (!current()) return;
       if (
         receipt.accountId !== props.accountId ||
         receipt.communityId !== props.community.id ||
@@ -138,9 +168,9 @@ function ComposerSession(props: CommunityPostComposerProps) {
       props.song.owner.adopt(receipt);
       setSubmittedSongId(receipt.submissionId);
     } catch {
-      setSongError("The song could not be submitted safely.");
+      if (current()) setSongError("The song could not be submitted safely.");
     } finally {
-      setSongBusy(false);
+      if (current()) setSongBusy(false);
     }
   };
   const postedSong = () =>
@@ -148,7 +178,8 @@ function ComposerSession(props: CommunityPostComposerProps) {
       .items()
       .find(
         (item) =>
-          item.submissionId === submittedSongId() &&
+          item.submissionId ===
+            (submittedSongId() ?? props.initialSongSubmissionId) &&
           item.accountId === props.accountId &&
           item.communityId === props.community.id,
       );
@@ -187,28 +218,44 @@ function ComposerSession(props: CommunityPostComposerProps) {
               }
             >
               {(port) => (
-                <PostComposer
-                  {...port().composer}
-                  presentation="inline"
-                  attachmentBarPlacement="inline"
-                  availableCapabilities={["song"]}
-                  canCreateSongPost={port().capability.allowed}
-                  onClose={close}
-                  validateDraftBeforeSubmit
-                  submit={{
-                    ...port().composer.submit,
-                    label: "Post",
-                    disabled:
-                      songBusy() ||
-                      !port().capability.allowed ||
-                      port().composer.submit?.disabled,
-                    loading: songBusy() || port().composer.submit?.loading,
-                    error: songError() ?? port().composer.submit?.error,
-                    onSubmit: () => {
-                      void postSong();
-                    },
-                  }}
-                />
+                <Show
+                  when={port().render}
+                  fallback={
+                    <PostComposer
+                      {...port().composer}
+                      presentation="inline"
+                      attachmentBarPlacement="inline"
+                      availableCapabilities={["song"]}
+                      canCreateSongPost={port().capability.allowed}
+                      onClose={close}
+                      validateDraftBeforeSubmit
+                      submit={{
+                        ...port().composer.submit,
+                        label: "Post",
+                        disabled:
+                          songBusy() ||
+                          !port().capability.allowed ||
+                          port().composer.submit?.disabled,
+                        loading: songBusy() || port().composer.submit?.loading,
+                        error: songError() ?? port().composer.submit?.error,
+                        onSubmit: () => {
+                          void postSong();
+                        },
+                      }}
+                    />
+                  }
+                >
+                  {(render) =>
+                    render()({
+                      close,
+                      publish: () => {
+                        void postSong();
+                      },
+                      busy: songBusy,
+                      error: songError,
+                    })
+                  }
+                </Show>
               )}
             </Show>
           }
