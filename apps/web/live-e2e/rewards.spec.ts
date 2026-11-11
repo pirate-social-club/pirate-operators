@@ -87,7 +87,7 @@ async function fixture(
         ]
       : [],
   });
-  await page.route(`${origin}/**`, async (route) => {
+  await page.route("**/*", async (route) => {
     const req = route.request(),
       url = new URL(req.url()),
       path = url.pathname,
@@ -97,6 +97,10 @@ async function fixture(
           contentType: "application/json",
           body: JSON.stringify(body),
         });
+    if (url.origin !== origin) {
+      await route.abort();
+      return;
+    }
     if (path === "/api/session")
       return json({
         authenticated: true,
@@ -286,14 +290,17 @@ test("claim survives reload, credits stay separate from balance, and the learner
   const f = await fixture(page);
   await page.goto(origin + "/wallet");
   await expect(page.getByText("$0.00", { exact: true })).toBeVisible();
-  await expect(page.getByText("$0.18", { exact: true })).toBeVisible();
+  await expect(page.getByText("0.18 test USDm", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "MegaETH testnet", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText(/This drawing had no prize\./)).toBeVisible();
   await expect(
     page.getByText(/You did not qualify for this drawing\./),
   ).toBeVisible();
-  await expect(
-    page.getByText(/Claimable royalties|Base Sepolia|MegaETH|USDm/),
-  ).toHaveCount(0);
+  await expect(page.getByText(/Claimable royalties|Base Sepolia/)).toHaveCount(
+    0,
+  );
   await page
     .getByRole("button", { name: "Verify to claim", exact: true })
     .click();
@@ -315,9 +322,11 @@ test("claim survives reload, credits stay separate from balance, and the learner
   await expect(page.getByText("$0.00", { exact: true })).toBeVisible();
   expect(f.claims()).toBe(2);
   f.pay();
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Refresh balances", exact: true })
+    .click();
   await expect(
-    page.getByText("Sent to your wallet.", { exact: true }),
+    page.getByText("Sent to your wallet", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("$0.18", { exact: true })).toHaveCount(2);
   await expect(
@@ -328,9 +337,12 @@ test("claim survives reload, credits stay separate from balance, and the learner
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
-  await mkdir(".local/rewards-acceptance", { recursive: true });
+  await mkdir(
+    "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser",
+    { recursive: true },
+  );
   await page.screenshot({
-    path: ".local/rewards-acceptance/learner-phone.png",
+    path: "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser/learner-phone.png",
     fullPage: true,
   });
 });
@@ -362,9 +374,12 @@ test("operator sees one combined payment and can cancel it before requesting a s
   await expect(
     page.getByText("$0.18 across 2 credits", { exact: true }),
   ).toBeVisible();
-  await mkdir(".local/rewards-acceptance", { recursive: true });
+  await mkdir(
+    "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser",
+    { recursive: true },
+  );
   await page.screenshot({
-    path: ".local/rewards-acceptance/operator-desktop.png",
+    path: "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser/operator-desktop.png",
     fullPage: true,
   });
 });
