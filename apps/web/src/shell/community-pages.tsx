@@ -154,7 +154,11 @@ export function CommunityPages(props: CommunityPagesProps) {
               </IconButton>
             </Show>
           }
-          composer={props.view === "publish" ? props.composer : undefined}
+          composer={
+            props.view === "publish" && props.session
+              ? props.composer
+              : undefined
+          }
           feedLeadCount={props.pendingSongCount ?? 0}
           feedLead={
             (props.pendingSongCount ?? 0) > 0 ||
