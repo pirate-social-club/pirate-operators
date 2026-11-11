@@ -207,3 +207,85 @@ test("unlink during live admission refuses connected learning without importing 
     await f.dispose();
   }
 });
+
+test("a captured connected authorization survives same-second later sign-ins and never relays a substitute", async () => {
+  const { connectedPracticeAuthorization, recordedAuthorization } =
+    await import("../services/learning-sign-in.ts");
+  const f = await fixture();
+  try {
+    const newer = `0x${"ff".repeat(32)}` as const;
+    await f.db
+      .prepare(
+        `INSERT INTO learning_authorizations
+      (authorization_id,account_id,subject,sign_in_json,message,signature,policy_hash,policy_version,issued_at,state,created_at,updated_at)
+      VALUES(?,'a',?,'{}','','0x',?,4,100,'recorded',0,0)`,
+      )
+      .bind(newer, subject, id)
+      .run();
+    assert.deepEqual(await recordedAuthorization(f.db, "a", subject, 110), {
+      id: newer,
+    });
+    assert.deepEqual(await recordedAuthorization(f.db, "a", subject, 110, id), {
+      id,
+    });
+    const context = {
+      communityId: id,
+      botId: "123",
+      generation: 1,
+      startedAtMs: 110000,
+      authorizationId: id,
+    };
+    const link = {
+      version: 1 as const,
+      communityId: id,
+      botId: "123",
+      generation: 1,
+      accountId: "a",
+      wallet: subject,
+      linkedAtMs: 109000,
+      revokedAtMs: null,
+    };
+    let calls = 0;
+    const env = operator(async () => {
+      calls++;
+      return Response.json(live);
+    });
+    assert.deepEqual(
+      await connectedPracticeAuthorization(
+        env,
+        f.db,
+        context,
+        async () => link,
+        110000,
+      ),
+      { id },
+    );
+    assert.equal(calls, 1);
+    await f.db
+      .prepare(
+        "UPDATE learning_authorizations SET state='refused' WHERE authorization_id=?",
+      )
+      .bind(id)
+      .run();
+    assert.deepEqual(
+      await connectedPracticeAuthorization(
+        env,
+        f.db,
+        context,
+        async () => link,
+        110000,
+      ),
+      { id: null, pending: false },
+    );
+    assert.equal(
+      calls,
+      1,
+      "an unavailable original cannot request relay or substitute the newer sign-in",
+    );
+    assert.deepEqual(await recordedAuthorization(f.db, "a", subject, 110), {
+      id: newer,
+    });
+  } finally {
+    await f.dispose();
+  }
+});

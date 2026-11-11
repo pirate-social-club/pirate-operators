@@ -15,6 +15,8 @@ export interface ConnectedLearningContextV1 {
   botId: string;
   generation: number;
   startedAtMs: number;
+  /** Original private activity authorization, when recovering saved work. */
+  authorizationId?: string;
 }
 export function assertConnectedLearningLink(
   link: ConnectedLearningLinkV1 | null,

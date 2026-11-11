@@ -92,16 +92,18 @@ export async function recordedAuthorization(
   accountId: string,
   subject: string,
   atS: number,
+  capturedId?: Hex,
 ): Promise<{ id: Hex } | { id: null; pending: boolean }> {
   const row = await db
     .prepare(
       `SELECT
         (SELECT a.authorization_id FROM learning_authorizations a
           WHERE a.account_id=?1 AND a.subject=?2 AND a.state='recorded' AND a.issued_at<=?3 AND ${sinceWithdrawal("a")}
+          AND (?4 IS NULL OR a.authorization_id=?4)
           ORDER BY a.issued_at DESC,a.authorization_id DESC LIMIT 1) AS recorded,
         EXISTS(SELECT 1 FROM learning_authorizations a WHERE a.account_id=?1 AND a.state='pending' AND ${sinceWithdrawal("a")}) AS pending`,
     )
-    .bind(accountId, subject.toLowerCase(), atS)
+    .bind(accountId, subject.toLowerCase(), atS, capturedId ?? null)
     .first<{ recorded: string | null; pending: number }>();
   // Explicit withdrawal wins even if a relay completed concurrently.
   const withdrawn = await db
@@ -302,14 +304,27 @@ export async function practiceAuthorization(
   subject: string,
   atS: number,
   now: number,
+  capturedId?: Hex,
 ) {
   // Central cleanup also runs on retries that find the local off flag before
   // there is any selected authorization. All admission consumers share it.
   await closeWithdrawnStudyLessons(db, accountId, now);
-  let chosen = await recordedAuthorization(db, accountId, subject, atS);
-  if (!chosen.id && chosen.pending) {
+  let chosen = await recordedAuthorization(
+    db,
+    accountId,
+    subject,
+    atS,
+    capturedId,
+  );
+  if (!chosen.id && chosen.pending && capturedId === undefined) {
     await requestSignInRelay(env, db, accountId, now);
-    chosen = await recordedAuthorization(db, accountId, subject, atS);
+    chosen = await recordedAuthorization(
+      db,
+      accountId,
+      subject,
+      atS,
+      capturedId,
+    );
   }
   if (!chosen.id) return chosen;
   const live = await liveAccountAuthorization(env, subject);
@@ -327,7 +342,13 @@ export async function practiceAuthorization(
   }
   // Re-read after the network wait. A local withdrawal or replacement while
   // that read was in flight must not admit the old sign-in.
-  const current = await recordedAuthorization(db, accountId, subject, atS);
+  const current = await recordedAuthorization(
+    db,
+    accountId,
+    subject,
+    atS,
+    capturedId,
+  );
   if (!current.id || current.id !== chosen.id) {
     await closeWithdrawnStudyLessons(db, accountId, now);
     return { id: null, pending: false } as const;
@@ -444,6 +465,12 @@ export async function connectedPracticeAuthorization(
     throw new Error("connected_learning_not_prospective");
   const link = await resolveLink();
   assertConnectedLearningLink(link, context);
+  if (
+    context.authorizationId !== undefined &&
+    (!/^0x[0-9a-f]{64}$/.test(context.authorizationId) ||
+      BigInt(context.authorizationId) === 0n)
+  )
+    throw new Error("connected_learning_authorization_changed");
   const admitted = await practiceAuthorization(
     env,
     db,
@@ -451,6 +478,7 @@ export async function connectedPracticeAuthorization(
     link.wallet,
     Math.floor(context.startedAtMs / 1000),
     now,
+    context.authorizationId as Hex | undefined,
   );
   const current = await resolveLink();
   assertConnectedLearningLink(current, context);

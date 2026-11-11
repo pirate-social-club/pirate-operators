@@ -262,8 +262,7 @@ export function makeStudyLessonService(options: {
         const state = store.state(row);
         studyCheck(
           entry
-            ? state.startedAt === entry.startedAt &&
-                state.telegram?.fenceHash === entry.telegram.fenceHash &&
+            ? state.telegram?.fenceHash === entry.telegram.fenceHash &&
                 state.telegram?.authorizationId ===
                   entry.telegram.authorizationId
             : state.telegram === undefined,

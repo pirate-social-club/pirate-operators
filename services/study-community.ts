@@ -154,10 +154,21 @@ export function liveStudy(
       "study_telegram_fence_context_changed",
       409,
     );
+  let linkedStartedAt = linked?.startedAt;
+  function adoptOriginal(state: ReturnType<StudyLessonStore["state"]>) {
+    if (!linked || !telegram) return;
+    studyCheck(
+      state.telegram?.fenceHash === telegram.fenceHash &&
+        state.telegram?.authorizationId === telegram.authorizationId,
+      "study_lesson_channel_changed",
+      409,
+    );
+    linkedStartedAt = state.startedAt;
+  }
   function matchEntry(state: ReturnType<StudyLessonStore["state"]>) {
     studyCheck(
       linked && telegram
-        ? state.startedAt === linked.startedAt &&
+        ? state.startedAt === linkedStartedAt &&
             state.telegram?.fenceHash === telegram.fenceHash &&
             state.telegram?.authorizationId === telegram.authorizationId
         : state.telegram === undefined,
@@ -538,7 +549,10 @@ export function liveStudy(
     },
     async start(requestId: string, song: unknown) {
       const previous = await store.byRequest(owner, requestId);
-      if (previous) await participant(previous.lesson_id);
+      if (previous) {
+        adoptOriginal(store.state(previous));
+        await participant(previous.lesson_id);
+      }
       if (linked) await linked.check();
       // V4: refuse before creating a lesson while sign-in is being recorded,
       // so the client's retry starts the lesson once it is.
@@ -551,6 +565,7 @@ export function liveStudy(
           ? { startedAt: linked.startedAt, telegram }
           : undefined,
       );
+      adoptOriginal(store.state(await store.row(owner, lesson.lessonId)));
       const failed = await ensureBinding(lesson).then(
         () => undefined,
         (error: unknown) => ({ error }),

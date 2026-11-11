@@ -1,5 +1,8 @@
 import { bytes32 } from "../packages/community/common.ts";
-import { telegramStudyFacts } from "../packages/study/telegram-publication.ts";
+import {
+  telegramStudyFacts,
+  telegramStudyFence,
+} from "../packages/study/telegram-publication.ts";
 import type { Hex } from "viem";
 import { digest } from "../packages/protocol/index.ts";
 import {
@@ -31,6 +34,7 @@ export interface TelegramConnectedContext {
   botId: string;
   generation: number;
   startedAtMs: number;
+  authorizationId?: string;
 }
 export interface TelegramConnectedLink extends TelegramConnectedContext {
   version: 1;
@@ -109,6 +113,7 @@ export function telegramLinkedStudy(options: {
     actor: ChatActor,
     expected: TelegramGrant,
     startedAtMs: number,
+    capturedId?: Hex,
   ) {
     const current = await options.grants.assert(actor, expected.id);
     telegramCheck(
@@ -124,6 +129,7 @@ export function telegramLinkedStudy(options: {
       botId: actor.botId,
       generation: actor.generation,
       startedAtMs,
+      ...(capturedId ? { authorizationId: capturedId } : {}),
     };
     const admitted = await options.authorize(context, async () => {
       const grant = await options.grants.assert(actor, expected.id);
@@ -142,6 +148,11 @@ export function telegramLinkedStudy(options: {
         ? "telegram_authorization_pending"
         : "telegram_authorization_required",
       admitted.pending ? 409 : 403,
+    );
+    telegramCheck(
+      capturedId === undefined || admitted.id === capturedId,
+      "telegram_authorization_changed",
+      403,
     );
     const after = await options.grants.assert(actor, expected.id);
     telegramCheck(
@@ -164,17 +175,20 @@ export function telegramLinkedStudy(options: {
           "telegram_authority_changed",
           403,
         );
-        const accepted = await options.authorize(context, async () => {
-          const latest = await options.grants.assert(actor, expected.id);
-          return {
-            ...context,
-            version: 1,
-            accountId: latest.accountId,
-            wallet: latest.wallet,
-            linkedAtMs: latest.linkedAt,
-            revokedAtMs: latest.revokedAt,
-          };
-        });
+        const accepted = await options.authorize(
+          { ...context, authorizationId: admitted.id! },
+          async () => {
+            const latest = await options.grants.assert(actor, expected.id);
+            return {
+              ...context,
+              version: 1,
+              accountId: latest.accountId,
+              wallet: latest.wallet,
+              linkedAtMs: latest.linkedAt,
+              revokedAtMs: latest.revokedAt,
+            };
+          },
+        );
         telegramCheck(
           accepted.id === admitted.id,
           "telegram_authorization_changed",
@@ -208,26 +222,75 @@ export function telegramLinkedStudy(options: {
   ) {
     const row = await options.db
       .prepare(
-        "SELECT binding_json FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
+        `SELECT p.binding_json,
+          json_extract(l.state_json,'$.telegram.fenceHash') AS fence_hash,
+          json_extract(l.state_json,'$.telegram.authorizationId') AS authorization_id
+          FROM study_publications p JOIN study_lessons l ON l.lesson_id=p.lesson_id
+            AND l.account_id=p.account_id AND l.community_id=p.community_id
+          WHERE p.lesson_id=? AND p.account_id=? AND p.community_id=? AND l.history_deleted_at IS NULL`,
       )
       .bind(lesson.lessonId, grant.accountId, actor.communityId)
-      .first<{ binding_json: string }>();
+      .first<{
+        binding_json: string;
+        fence_hash: string | null;
+        authorization_id: string | null;
+      }>();
     const offer = row ? JSON.parse(row.binding_json)?.offer : null;
     telegramCheck(
-      offer?.speechChannel === "telegram-linked",
+      row && offer?.speechChannel === "telegram-linked",
       "telegram_linked_channel_not_bound",
       503,
     );
+    const expected = telegramStudyFacts({
+      schema: "pirate.study.telegram-publication-fence/1",
+      version: 1,
+      grantId: grant.id,
+      actor,
+      accountId: grant.accountId,
+      authorityVersion: grant.authorityVersion,
+    });
+    const fence = telegramStudyFence(offer.telegramFence);
+    telegramCheck(
+      row.fence_hash === fence.hash &&
+        fence.hash === digest(expected) &&
+        row.authorization_id === offer.authorizationId,
+      "telegram_saved_provenance_required",
+      409,
+    );
+  }
+  async function savedAuthorization(
+    actor: ChatActor,
+    grant: TelegramGrant,
+    id: string,
+  ) {
+    const row = await options.db
+      .prepare(
+        "SELECT json_extract(state_json,'$.telegram.authorizationId') AS id FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=? AND history_deleted_at IS NULL",
+      )
+      .bind(id, grant.accountId, actor.communityId)
+      .first<{ id: string | null }>();
+    telegramCheck(row?.id, "telegram_saved_authorization_required", 409);
+    return bytes32(row.id);
   }
   async function existing(actor: ChatActor, grant: TelegramGrant, id: string) {
     const row = await options.db
       .prepare(
-        "SELECT started_at FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=? AND history_deleted_at IS NULL",
+        "SELECT started_at,json_extract(state_json,'$.telegram.authorizationId') AS authorization_id FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=? AND history_deleted_at IS NULL",
       )
       .bind(id, grant.accountId, actor.communityId)
-      .first<{ started_at: number }>();
+      .first<{ started_at: number; authorization_id: Hex | null }>();
     telegramCheck(row, "telegram_lesson_not_found", 404);
-    const api = await authority(actor, grant, row.started_at);
+    telegramCheck(
+      row.authorization_id,
+      "telegram_saved_authorization_required",
+      409,
+    );
+    const api = await authority(
+      actor,
+      grant,
+      row.started_at,
+      bytes32(row.authorization_id),
+    );
     await channel(actor, grant, { lessonId: id } as StudyLesson);
     await scrubLinkedGrades(options.db, id, grant.accountId, actor.communityId);
     return api;
@@ -246,11 +309,21 @@ export function telegramLinkedStudy(options: {
       // if the operator accepted its binding before the response was lost.
       const original = await options.db
         .prepare(
-          `SELECT lesson_id,started_at FROM study_lessons WHERE account_id=?
+          `SELECT lesson_id,started_at,json_extract(state_json,'$.telegram.authorizationId') AS authorization_id FROM study_lessons WHERE account_id=?
           AND community_id=? AND request_id=? AND history_deleted_at IS NULL`,
         )
         .bind(grant.accountId, actor.communityId, requestId)
-        .first<{ lesson_id: string; started_at: number }>();
+        .first<{
+          lesson_id: string;
+          started_at: number;
+          authorization_id: Hex | null;
+        }>();
+      if (original)
+        telegramCheck(
+          original.authorization_id,
+          "telegram_saved_authorization_required",
+          409,
+        );
       const previous = original
         ? null
         : await options.db
@@ -278,23 +351,41 @@ export function telegramLinkedStudy(options: {
         actor,
         grant,
         original?.started_at ?? options.grants.now(),
+        original?.authorization_id
+          ? bytes32(original.authorization_id)
+          : undefined,
       );
       const lesson = await api.start(requestId, song.song);
       await channel(actor, grant, lesson);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       return lesson;
     },
     async get(actor, grant, id) {
       const api = await existing(actor, grant, id),
         lesson = await api.get(id);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       await channel(actor, grant, lesson);
       return lesson;
     },
     async answer(actor, grant, id, expected, request) {
       const api = await existing(actor, grant, id),
         lesson = await api.get(id);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       await channel(actor, grant, lesson);
       telegramCheck(
         expected && linkedLessonView(lesson, "").prompt?.key === expected.key,
@@ -302,15 +393,30 @@ export function telegramLinkedStudy(options: {
         409,
       );
       const opened = await api.open(id, expected.presentation, expected.take);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       const result = await api.submit(id, opened.attempt.attemptId, request);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       return result;
     },
     async recover(actor, grant, id, expected, audioDigest) {
       const api = await existing(actor, grant, id),
         lesson = await api.get(id);
-      await authority(actor, grant, lesson.startedAt);
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
+      );
       await channel(actor, grant, lesson);
       telegramCheck(expected, "telegram_prompt_changed", 409);
       const row = await options.db

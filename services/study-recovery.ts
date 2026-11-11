@@ -4,7 +4,10 @@ import {
   studyAvailable,
   type StudyCommunityPorts,
 } from "./study-community.ts";
-import { telegramLinkedDatabase } from "./telegram-linked-privacy.ts";
+import {
+  scrubLinkedGrades,
+  telegramLinkedDatabase,
+} from "./telegram-linked-privacy.ts";
 import { makeStudyService } from "./study-spoken.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import {
@@ -32,7 +35,8 @@ export async function recoverStudyLessons(
     .prepare(
       `
     SELECT l.lesson_id,l.account_id,l.community_id,l.history_deleted_at,p.learner,
-      json_type(l.state_json,'$.telegram') IS NOT NULL AS telegram
+      (json_type(l.state_json,'$.telegram') IS NOT NULL OR
+        json_extract(p.binding_json,'$.offer.speechChannel')='telegram-linked') AS telegram
     FROM study_lessons l LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
     WHERE l.community_id=? AND (
       (json_extract(l.state_json,'$.status')='active' AND ${STUDY_CLOSE_BOUND_SQL}<=?) OR
@@ -63,6 +67,13 @@ export async function recoverStudyLessons(
   for (const row of rows.results) {
     try {
       if (row.learner) {
+        if (row.telegram)
+          await scrubLinkedGrades(
+            ports.db,
+            row.lesson_id,
+            row.account_id,
+            row.community_id,
+          );
         const live = liveStudy(
           row.telegram
             ? { ...ports, db: telegramLinkedDatabase(ports.db) }

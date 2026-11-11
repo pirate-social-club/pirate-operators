@@ -95,6 +95,7 @@ export function telegramPublicationAuthority(input: {
         botId: actor.botId,
         generation: actor.generation,
         startedAtMs: context.startedAt,
+        authorizationId: context.authorizationId,
       };
       const observe = (allowed: boolean) =>
         reply({

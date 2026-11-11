@@ -137,7 +137,21 @@ export async function linkedStudyFixture(
         telegramGrantFenceVersion: fenceVersion,
         latest: (song) => lessons.latest(principal, song),
         async start(requestId, song) {
-          const lesson = await lessons.start(principal, requestId, song);
+          const facts = telegramStudyFacts({
+            schema: "pirate.study.telegram-publication-fence/1",
+            version: 1,
+            grantId: fence.grantId,
+            actor: fence.actor,
+            accountId: fence.accountId,
+            authorityVersion: fence.authorityVersion,
+          });
+          const lesson = await lessons.start(principal, requestId, song, {
+            startedAt: fence.startedAt,
+            telegram: {
+              fenceHash: digest(facts) as `0x${string}`,
+              authorizationId: fence.authorizationId,
+            },
+          });
           await db
             .prepare("INSERT OR IGNORE INTO study_publications VALUES(?,?,?,?)")
             .bind(
@@ -147,7 +161,9 @@ export async function linkedStudyFixture(
               JSON.stringify({
                 offer: {
                   speechChannel: bindChannel,
+                  authorizationId: fence.authorizationId,
                   telegramFence: {
+                    facts,
                     hash: digest(
                       telegramStudyFacts({
                         schema: "pirate.study.telegram-publication-fence/1",
