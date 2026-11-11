@@ -34,6 +34,9 @@ export interface Env {
   HISTORY_RETENTION_DAYS?: string;
   OPERATOR_PROFILE?: string;
   APPROVED_ACTIVATION_ACCOUNT?: string;
+  ACTIVATION_TOTAL_CAP_WEI?: string;
+  ACTIVATION_ACCOUNT_CAP_WEI?: string;
+  ACTIVATION_MAX_ACCOUNTS?: string;
   LOCAL_ONLY: string;
   PRIVATE_KEY: Hex;
   COMMUNITY: Fetcher;

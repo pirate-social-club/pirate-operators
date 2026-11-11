@@ -5,7 +5,12 @@ import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
 import { resolve } from "node:path";
 import { encryptedLocalState } from "./encrypted-state.ts";
-import { learningContractBindings } from "./learning-bindings.ts";
+import {
+  learningContractBindings,
+  requireExistingLearningStack,
+} from "./learning-bindings.ts";
+
+requireExistingLearningStack(process.env);
 
 const required = (name: string) => {
   const value = process.env[name];

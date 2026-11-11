@@ -16,6 +16,7 @@ import { learningCommunityProfile } from "../harness/learning-community-profile.
 import {
   learningContractBindings,
   applicationLearningBindings,
+  requireExistingLearningStack,
 } from "../apps/community-wizard/infra/learning-bindings.ts";
 import { selectionFixture } from "./fixtures/study-release.ts";
 import { writeApplicationInfrastructure } from "../harness/community-infrastructure.ts";
@@ -170,7 +171,10 @@ test("an explicit V4 contract adds only the V4 bindings; without it every bindin
     { LEARNING_RESULTS_V4_CONTRACT: v4 },
     { ...env, LEARNING_RESULTS_V4_CONTRACT: "" },
     { ...env, LEARNING_RESULTS_V4_CONTRACT: `0x${"0".repeat(40)}` },
-    { ...env, LEARNING_RESULTS_V4_CONTRACT: v4.toUpperCase().replace("0X", "0x") },
+    {
+      ...env,
+      LEARNING_RESULTS_V4_CONTRACT: v4.toUpperCase().replace("0X", "0x"),
+    },
     { ...env, LEARNING_RESULTS_V4_CONTRACT: p.resultsV2.contract },
     { ...env, LEARNING_RESULTS_V4_CONTRACT: p.resultsV3.contract },
   ]) {
@@ -285,4 +289,37 @@ test("public preparation graph excludes managed credentials, signing journals an
   assert.equal(v2.learningResults, retainedResultsV2.contract);
   assert.equal(v2.codeHash, retainedResultsV2.codeHash);
   assert.equal(v2.controller, retainedLearningController);
+});
+
+test("fresh V4 plans contain no historical targets and refuse fixed existing resource stacks", () => {
+  const env = {
+    LEARNING_PROFILE: "pirate-community-learning-v4",
+    LEARNING_RESULTS_V4_CONTRACT: `0x${"c2".repeat(20)}`,
+  };
+  assert.deepEqual(learningContractBindings(env), {
+    OPERATOR_PROFILE: env.LEARNING_PROFILE,
+    RESULTS_V4_CONTRACT: env.LEARNING_RESULTS_V4_CONTRACT,
+  });
+  assert.deepEqual(applicationLearningBindings(env), {
+    STUDY_RESULTS_V4_CONTRACT: env.LEARNING_RESULTS_V4_CONTRACT,
+  });
+  for (const change of [
+    { LEARNING_RESULTS_CONTRACT: env.LEARNING_RESULTS_V4_CONTRACT },
+    { LEARNING_RESULTS_V3_CONTRACT: env.LEARNING_RESULTS_V4_CONTRACT },
+    { LEARNING_RESULTS_V4_CONTRACT: `0x${"00".repeat(20)}` },
+    { LEARNING_SPEECH_DAILY_LIMIT: "1" },
+  ])
+    assert.throws(
+      () => learningContractBindings({ ...env, ...change }),
+      /binding_invalid/,
+    );
+  assert.throws(
+    () => requireExistingLearningStack(env),
+    /fresh_learning_requires_distinct_resource_recipe/,
+  );
+  assert.doesNotThrow(() =>
+    requireExistingLearningStack({
+      LEARNING_PROFILE: "pirate-learning-testnet-v3",
+    }),
+  );
 });
