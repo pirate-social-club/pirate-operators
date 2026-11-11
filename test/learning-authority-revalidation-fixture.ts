@@ -143,8 +143,14 @@ export async function revalidationFixture(
         db: f.db,
         target,
         wake: () => publication.arm(),
-        deny: (denial, beforeSend) =>
-          denyManagedStudyPublication(model.ports, denial, beforeSend),
+        deny: async (denial, beforeSend) => {
+          const receipt = await denyManagedStudyPublication(
+            model.ports,
+            denial,
+            beforeSend,
+          );
+          return { ...receipt, recorded: true as const };
+        },
       }),
       wake: () => publication.arm(),
       closeLocal: (id) => closeWithdrawnStudyLessons(f.db, id, clock),
