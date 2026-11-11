@@ -51,12 +51,12 @@ export async function connectedFactoryFixture(port: number) {
     const auth = await shared.login();
     await shared.recordSignIns();
     const origin = shared.config.app.origin;
-    // HTTP login and cookie validation use wall-clock time. The independently
-    // frozen chain clock is in 2027 and is not the cookie issuance clock.
+    // Use the same controlled clock as the actual HTTP challenge and verify.
     const session = await accountSession(
       new Request(origin + "/api/telegram/connection", { headers: auth }),
       shared.db,
       { communityId: shared.config.communityId, origin },
+      shared.clock(),
     );
     const actor: ChatActor = {
       communityId: shared.config.communityId,
