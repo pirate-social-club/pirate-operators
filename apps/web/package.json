@@ -24,7 +24,8 @@
     "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
     "solid-js": "2.0.0-rc.0",
-    "xstate": "5.33.2"
+    "xstate": "5.33.2",
+    "viem": "2.57.16"
   },
   "devDependencies": {
     "@ipld/car": "5.4.7",
