@@ -61,6 +61,57 @@ function verifyProof(op: WithdrawalOperation, proof: WithdrawalProof) {
       proof.kind === "observed" && proof.revokedAtS > 0,
       "study_withdrawal_original_changed",
     );
+  // Canonicality alone is insufficient: a safe anchor may still precede the
+  // signal that created THIS hold. Never acknowledge a newer signal with an
+  // older (otherwise valid) withdrawal. Local marker.at is not chain time.
+  const signal = op.identity as {
+    cutoff?: unknown;
+    nonce?: unknown;
+    revokedAt?: unknown;
+    revocationNonce?: unknown;
+  };
+  const uint64 = (value: unknown): value is string =>
+    typeof value === "string" &&
+    /^(0|[1-9][0-9]{0,19})$/.test(value) &&
+    BigInt(value) < 1n << 64n;
+  const cutoff = (value: unknown) => {
+    pending(
+      (typeof value === "string" && /^[1-9][0-9]*$/.test(value)) ||
+        (typeof value === "number" && Number.isSafeInteger(value) && value > 0),
+    );
+    const seconds = Number(value);
+    pending(Number.isSafeInteger(seconds * 1000));
+    return seconds;
+  };
+  if (op.kind === "observed") {
+    pending(signal && uint64(signal.nonce));
+    pending(
+      proof.revokedAtS >= cutoff(signal.cutoff) &&
+        BigInt(proof.nextNonce) >= BigInt(signal.nonce),
+    );
+  } else if (op.kind === "legacy") {
+    pending(signal && typeof signal === "object");
+    if (signal.revokedAt !== undefined)
+      pending(proof.revokedAtS >= cutoff(signal.revokedAt));
+    if (signal.revocationNonce !== undefined) {
+      pending(
+        uint64(signal.revocationNonce) &&
+          BigInt(proof.nextNonce) >= BigInt(signal.revocationNonce),
+      );
+    }
+    if (signal.nonce !== undefined) {
+      pending(uint64(signal.nonce));
+      // A signed legacy marker records the submitted revoke nonce, whereas
+      // an observed revocationNonce is already the consumed nextNonce.
+      const revertedOriginal =
+        op.original &&
+        op.original.nonce === signal.nonce &&
+        proof.kind === "reverted";
+      pending(
+        revertedOriginal || BigInt(proof.nextNonce) > BigInt(signal.nonce),
+      );
+    } else pending(signal.revokedAt !== undefined);
+  }
 }
 export function mergeLinkedProof(
   store: ResultStore,

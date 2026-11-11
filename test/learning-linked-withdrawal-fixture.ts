@@ -1,3 +1,4 @@
+import { keccak256 } from "viem";
 // Queued SQLite tests; no checks run by the source actor. The coordinator
 // MUST mount its prepared index before importing this fixture.
 import { DatabaseSync } from "node:sqlite";
@@ -29,7 +30,7 @@ export const target = {
 export const scope = { communityId, learner, target };
 export const source = {
   ...scope,
-  runtimeCodeHash: digest("actual-runtime-fixture"),
+  runtimeCodeHash: keccak256("0x6000"),
 };
 export function linkedFixture() {
   const sqlite = new DatabaseSync(":memory:");
@@ -38,7 +39,8 @@ export function linkedFixture() {
     rollback = false;
   const sql = {
     exec(query: string, ...args: (string | number | null)[]) {
-      return { toArray: () => sqlite.prepare(query).all(...args) };
+      const rows = sqlite.prepare(query).all(...args);
+      return { toArray: () => rows };
     },
   };
   const transactionSync = <T>(work: () => T) => {
@@ -100,7 +102,7 @@ export function linkedFixture() {
           throw Error("entries discovery fallback forbidden");
         return Store.prototype.entries.call(instance, prefix);
       },
-    }) as LinkedStore;
+    }) as Store & LinkedStore;
   };
   function binding(index: number, issuedAt = 100): StudyAuthorizationBinding {
     const facts = {
@@ -161,8 +163,8 @@ export async function boot(store: LinkedStore) {
   )
     await bootstrapLinkedWithdrawals(store);
 }
-/** Explicit trusted proof-port fixture. Cryptographic/canonical qualification
- * belongs to the coordinator's prepared proof2 test suite, still unrun. */
+/** Explicit trusted proof-port fixture. Canonical proof qualification belongs
+ * to the coordinator's separately reviewed foundation, not this fixture. */
 export function proofFor(
   store: LinkedStore,
   id: string,

@@ -6,6 +6,7 @@ import {
 import {
   authorityOperation,
   authorityReady,
+  assertAuthorityOriginalsUnchanged,
   type AuthorityAction,
   type AuthorityTransitionPort,
 } from "./authority-ledger.ts";
@@ -27,6 +28,7 @@ export function authorityDenialTransition(options: {
       await options.wake();
       const op = await authorityOperation(db, request.operationId);
       authorityReady(op);
+      await assertAuthorityOriginalsUnchanged(db, op);
       const action = JSON.parse(op.request_json) as AuthorityAction;
       check(
         digest(action.target) === digest(options.target),
@@ -44,6 +46,7 @@ export function authorityDenialTransition(options: {
     async appendAuthorizations(id, page) {
       const op = await authorityOperation(db, id);
       authorityReady(op);
+      await assertAuthorityOriginalsUnchanged(db, op);
       const action = JSON.parse(op.request_json) as AuthorityAction;
       check(
         digest(action.target) === digest(options.target),
@@ -83,6 +86,7 @@ export function authorityDenialTransition(options: {
           continue;
         }
         await options.wake();
+        await assertAuthorityOriginalsUnchanged(db, op);
         const receipt = await options.deny(denial);
         check(
           receipt.recorded === true && receipt.denialHash === hash,
@@ -99,6 +103,7 @@ export function authorityDenialTransition(options: {
     async finishAuthorityTransition(id) {
       const op = await authorityOperation(db, id);
       authorityReady(op?.sealed);
+      await assertAuthorityOriginalsUnchanged(db, op);
       check(
         digest((JSON.parse(op.request_json) as AuthorityAction).target) ===
           digest(options.target),

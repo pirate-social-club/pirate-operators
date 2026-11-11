@@ -2,6 +2,12 @@ import type { Hex } from "viem";
 import { check, digest } from "../protocol/index.ts";
 import { validateScope, type BotScope } from "../telegram/contracts.ts";
 import type { ResultsTarget } from "../../services/learning-contract.ts";
+import {
+  INVALID_AUTHORITY_ORIGINAL_QUERY,
+  AUTHORITY_ORIGINAL_PAGE_QUERY,
+  validateAuthorityOriginal,
+  type RetainedAuthorityOriginal,
+} from "./authority-originals.ts";
 
 export class CommunityAuthorityPending extends Error {
   readonly status = 503;
@@ -42,6 +48,7 @@ export interface AuthorityOperation {
   transition_id: string | null;
   updated_at: number;
   dirty_version: number | null;
+  original_revision: number | null;
 }
 export interface AuthorityPage {
   cursor: string | null;
@@ -144,6 +151,31 @@ export const authorityOperation = (db: D1Database, id: string) =>
     .prepare("SELECT * FROM learning_authority_operations WHERE operation_id=?")
     .bind(id)
     .first<AuthorityOperation>();
+
+/** Indexed invalid guard plus an O(1) immutable-original revision fence. State,
+ * receipt and retry updates do not change this revision. Identity mutations
+ * behind a completed cursor retain the operation as an unresolved hold. */
+export async function assertAuthorityOriginalsUnchanged(
+  db: D1Database,
+  op: AuthorityOperation,
+) {
+  const invalid = await db
+    .prepare(INVALID_AUTHORITY_ORIGINAL_QUERY)
+    .bind(op.account_id)
+    .first();
+  authorityReady(!invalid);
+  const unchanged = await db
+    .prepare(
+      `SELECT 1 FROM learning_authority_operations o
+    JOIN learning_authority_heads h ON h.account_id=o.account_id
+    LEFT JOIN learning_authority_original_heads r ON r.account_id=o.account_id
+    WHERE o.operation_id=?1 AND o.epoch=?2 AND h.pending_operation=?1 AND h.revision=?2
+      AND o.original_revision=COALESCE(r.revision,0)`,
+    )
+    .bind(op.operation_id, op.epoch)
+    .first();
+  authorityReady(unchanged);
+}
 
 /** Stage before mutations/discovery. Exact retries retain their predecessor
  * and result, including a prior terminal reverted revoke. New explicit actions
@@ -260,7 +292,8 @@ export async function beginAuthorityAction(
         ]),
     db
       .prepare(
-        `UPDATE learning_authority_operations SET dirty_version=(SELECT version FROM learning_authority_dirty WHERE account_id=?1)
+        `UPDATE learning_authority_operations SET dirty_version=(SELECT version FROM learning_authority_dirty WHERE account_id=?1),
+        original_revision=COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?1),0)
       WHERE operation_id=?2 AND EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND revision=?3 AND pending_operation=?2)`,
       )
       .bind(action.accountId, id, epoch),
@@ -278,6 +311,7 @@ export async function freezeAuthorityPage(
   db: D1Database,
   op: AuthorityOperation,
 ) {
+  await assertAuthorityOriginalsUnchanged(db, op);
   const pageId = digest(op.cursor),
     prior = await db
       .prepare(
@@ -285,34 +319,27 @@ export async function freezeAuthorityPage(
       )
       .bind(op.operation_id, pageId)
       .first<{ page_json: string }>();
-  if (prior) return JSON.parse(prior.page_json) as AuthorityPage;
+  if (prior) {
+    await assertAuthorityOriginalsUnchanged(db, op);
+    return JSON.parse(prior.page_json) as AuthorityPage;
+  }
   const action = JSON.parse(op.request_json) as AuthorityAction;
-  const malformed = await db
-    .prepare(
-      `SELECT 1 FROM learning_authorizations WHERE account_id=?1 AND authority_epoch<?2 AND (
-    length(authorization_id)!=66 OR substr(authorization_id,1,2)!='0x' OR substr(authorization_id,3) GLOB '*[^0-9a-f]*'
-    OR length(subject)!=42 OR substr(subject,1,2)!='0x' OR substr(subject,3) GLOB '*[^0-9a-f]*'
-    OR typeof(issued_at)!='integer' OR issued_at<0) LIMIT 1`,
-    )
-    .bind(op.account_id, op.epoch)
-    .first();
-  check(!malformed, "authority_discovery_unresolved");
   const rows = await db
-    .prepare(
-      `SELECT authorization_id,issued_at,subject FROM learning_authorizations
-    WHERE account_id=?1 AND authority_epoch<?2 AND authorization_id>?3 ORDER BY authorization_id LIMIT 50`,
-    )
+    .prepare(AUTHORITY_ORIGINAL_PAGE_QUERY)
     .bind(op.account_id, op.epoch, op.cursor ?? "")
-    .all<{ authorization_id: Hex; issued_at: number; subject: string }>();
-  check(
-    rows.results.every(
-      (row) =>
-        /^0x[0-9a-f]{64}$/.test(row.authorization_id) &&
-        Number.isSafeInteger(row.issued_at) &&
-        /^0x[0-9a-f]{40}$/.test(row.subject),
-    ),
-    "authority_discovery_unresolved",
-  );
+    .all<RetainedAuthorityOriginal>();
+  const identity = await db
+    .prepare(
+      "SELECT community_id,community_origin FROM application_identity WHERE id=1",
+    )
+    .first<{ community_id: string; community_origin: string }>();
+  authorityReady(identity);
+  try {
+    for (const row of rows.results)
+      validateAuthorityOriginal(row, action, identity);
+  } catch {
+    throw new CommunityAuthorityPending();
+  }
   const page: AuthorityPage = {
     cursor: op.cursor,
     next: rows.results.at(-1)?.authorization_id ?? op.cursor,
@@ -323,8 +350,8 @@ export async function freezeAuthorityPage(
       .map((row) => row.authorization_id),
     exhausted: rows.results.length < 50,
   };
-  const owns =
-    "EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)";
+  const owns = `EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)
+     AND EXISTS(SELECT 1 FROM learning_authority_operations o WHERE o.operation_id=?2 AND o.original_revision=COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?1),0))`;
   await db.batch([
     db
       .prepare(
@@ -353,6 +380,7 @@ export async function freezeAuthorityPage(
     )
     .bind(op.operation_id, pageId)
     .first<{ page_json: string }>();
+  await assertAuthorityOriginalsUnchanged(db, op);
   authorityReady(saved);
   check(
     saved.page_json === JSON.stringify(page),

@@ -43,7 +43,7 @@ const stage = (
     id,
     scope,
     kind: "observed",
-    identity: { id },
+    identity: { cutoff: 500, nonce: "1" },
   });
 
 test("indexed multipage discovery covers every captured original without D1, survives lost page reply/restart and preserves later authority", async () => {
@@ -92,7 +92,7 @@ test("an unresolved learner cannot starve a later durable page and a late read c
       id: "available",
       scope: other,
       kind: "observed",
-      identity: { nonce: "1" },
+      identity: { cutoff: 500, nonce: "1" },
     });
     let aborted = false;
     await recoverLinkedWithdrawals(
@@ -173,7 +173,12 @@ test("canonical revert retains reverted outcome and separate recovery floor; exa
   try {
     const db = f.store();
     await boot(db);
-    stage(db, "revert");
+    stageLinkedWithdrawal(db, {
+      id: "revert",
+      scope,
+      kind: "signed",
+      identity: { nonce: "0" },
+    });
     prove(db, "revert", 0, "0", "reverted", 600);
     discoverLinkedWithdrawal(
       db,
@@ -181,7 +186,12 @@ test("canonical revert retains reverted outcome and separate recovery floor; exa
       db.get<WithdrawalHead>(headKey(scope))!.revision,
     );
     const before = db.get<WithdrawalHead>(headKey(scope))!;
-    stage(db, "revert");
+    stageLinkedWithdrawal(db, {
+      id: "revert",
+      scope,
+      kind: "signed",
+      identity: { nonce: "0" },
+    });
     assert.deepEqual(db.get(headKey(scope)), before);
     assert.equal(before.cutoffS, 0);
     assert.equal(before.recoveryFloorS, 600);
@@ -210,10 +220,20 @@ test("same-second nonce merges and larger cutoff rescans; stale completion canno
     prove(db, "first", 500, "1");
     const old = db.get<WithdrawalHead>(headKey(scope))!.revision;
     discoverLinkedWithdrawal(db, scope, old);
-    stage(db, "same-second");
+    stageLinkedWithdrawal(db, {
+      id: "same-second",
+      scope,
+      kind: "observed",
+      identity: { cutoff: 500, nonce: "2" },
+    });
     prove(db, "same-second", 500, "2");
     assert.equal(db.get<WithdrawalHead>(headKey(scope))!.nextNonce, "2");
-    stage(db, "larger");
+    stageLinkedWithdrawal(db, {
+      id: "larger",
+      scope,
+      kind: "observed",
+      identity: { cutoff: 800, nonce: "3" },
+    });
     prove(db, "larger", 800, "3");
     assert.equal(discoverLinkedWithdrawal(db, scope, old), false);
     const current = db.get<WithdrawalHead>(headKey(scope))!;
@@ -373,6 +393,151 @@ test("actual shared resolver gate rechecks pending after delayed approval and sy
     );
   } finally {
     release?.();
+    f.close();
+  }
+});
+
+for (const kind of ["observed", "chain-marker"] as const)
+  test(`safe proof must cover the retained ${kind} cutoff and nonce before completion`, async () => {
+    const f = linkedFixture();
+    try {
+      let db = f.store();
+      const b = f.binding(600, 600);
+      db.set("studyBinding:" + b.offer.lessonId, b);
+      await boot(db);
+      const marker = {
+        at: 900,
+        revokedAt: "800",
+        revocationNonce: "3",
+        source: "chain",
+      };
+      const id =
+        kind === "observed"
+          ? "newer-signal"
+          : digest(["legacy", scope, marker]);
+      if (kind === "observed")
+        stageLinkedWithdrawal(db, {
+          id,
+          scope,
+          kind: "observed",
+          identity: { cutoff: "800", nonce: "3" },
+        });
+      else {
+        db.set("legacyResultsWithheld:" + scope.learner, marker);
+        await assert.rejects(
+          prepareLinkedBind(db, scope),
+          LinkedWithdrawalPending,
+        );
+      }
+      db = f.store(); // Retained signal, not a current default or caller timestamp.
+      const before = db.get<WithdrawalHead>(headKey(scope))!;
+      for (const [cutoff, nonce] of [
+        [500, "1"],
+        [800, "2"],
+        [799, "3"],
+      ] as const) {
+        assert.throws(
+          () => mergeLinkedProof(db, id, proofFor(db, id, cutoff, nonce)),
+          LinkedWithdrawalPending,
+        );
+        assert.equal(
+          db.get<WithdrawalHead>(headKey(scope))!.openProofs,
+          before.openProofs,
+        );
+        assert.equal(db.get<{ proof?: unknown }>(opKey(id))!.proof, undefined);
+        assert.ok(db.get("linkedWithdrawalWork:" + id));
+        assert.throws(() => guardLinkedBinding(db, b), LinkedWithdrawalPending);
+        assert.equal(
+          db.get("linkedWithdrawalLegacy:" + digest(scope)),
+          undefined,
+        );
+      }
+      mergeLinkedProof(db, id, proofFor(db, id, 800, "3"));
+      discoverLinkedWithdrawal(
+        db,
+        scope,
+        db.get<WithdrawalHead>(headKey(scope))!.revision,
+      );
+      assert.equal(
+        telegramStudyDenied(db, b.offer.telegramFence!, {
+          communityId,
+          lessonId: b.offer.lessonId,
+          learner: scope.learner,
+          startedAt: b.offer.startedAt,
+          authorizationId: b.authorization.id,
+          contract: target.contract,
+        }),
+        true,
+      );
+      if (kind === "chain-marker") {
+        await recoverLinkedWithdrawals(db, {
+          source: () => source,
+          original: () => null,
+          observe: async () => null,
+        });
+        assert.equal(
+          db.get("linkedWithdrawalLegacy:" + digest(scope)),
+          digest(marker),
+        );
+      }
+    } finally {
+      f.close();
+    }
+  });
+test("a legacy signed canonical revert uses its original recovery floor without inventing success", async () => {
+  const f = linkedFixture();
+  try {
+    const db = f.store();
+    await boot(db);
+    const marker = { at: 900, nonce: "0" },
+      id = digest(["legacy", scope, marker]);
+    db.set("legacyResultsWithheld:" + scope.learner, marker);
+    await assert.rejects(prepareLinkedBind(db, scope), LinkedWithdrawalPending);
+    mergeLinkedProof(db, id, proofFor(db, id, 0, "0", "reverted", 600));
+    const h = db.get<WithdrawalHead>(headKey(scope))!;
+    assert.equal(h.cutoffS, 0);
+    assert.equal(h.recoveryFloorS, 600);
+    assert.equal(h.nextNonce, "0");
+    assert.equal(
+      db.get<{ proof: { kind: string } }>(opKey(id))!.proof.kind,
+      "reverted",
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test("production SQLite fixture executes constructor DDL and writes eagerly without toArray", () => {
+  const f = linkedFixture();
+  try {
+    const db = f.store();
+    assert.ok(
+      f.sqlite
+        .prepare("SELECT name FROM sqlite_master WHERE name='records'")
+        .get(),
+    );
+    db.set("fixture-eager", { value: 1 });
+    assert.equal(
+      JSON.parse(
+        String(
+          f.sqlite
+            .prepare("SELECT value FROM records WHERE key='fixture-eager'")
+            .get()!.value,
+        ),
+      ).value,
+      1,
+    );
+    const snapshot = db.sql.exec<{ value: string }>(
+      "SELECT value FROM records WHERE key='fixture-eager'",
+    );
+    db.set("fixture-eager", { value: 2 });
+    assert.equal(JSON.parse(snapshot.toArray()[0].value).value, 1);
+    db.delete("fixture-eager");
+    assert.equal(
+      f.sqlite.prepare("SELECT 1 FROM records WHERE key='fixture-eager'").get(),
+      undefined,
+    );
+  } finally {
     f.close();
   }
 });

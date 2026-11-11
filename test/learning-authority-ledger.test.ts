@@ -1,3 +1,13 @@
+import { accounts } from "../harness/runtime.ts";
+import {
+  signInMessageV4,
+  signInIdV4,
+  type SignInV4Context,
+} from "../packages/protocol/learning-results-v4.ts";
+import {
+  AUTHORITY_ORIGINAL_PAGE_QUERY,
+  INVALID_AUTHORITY_ORIGINAL_QUERY,
+} from "../packages/community-setup/authority-originals.ts";
 import { loginChallenge, loginVerify } from "../packages/community/accounts.ts";
 import { signInV4 } from "../services/learning-sign-in.ts";
 // UNRUN. Real SQL migrations/atomic batches with explicit bridge fixtures.
@@ -32,6 +42,63 @@ import {
 
 async function fixture() {
   const f = await withdrawalFixture();
+  const selected = signInV4(f.env, f.ports.config)!;
+  const context: SignInV4Context = {
+    origin: f.ports.config.app.origin,
+    chainId: selected.chainId,
+    contract: selected.contract,
+    communityId: selected.communityId,
+    publicationPolicy: selected.publicationPolicy,
+  };
+  const original = async (
+    index: number,
+    issuedAt = 100,
+    overrides: Partial<SignInV4Context> = {},
+  ) => {
+    const ctx = { ...context, ...overrides },
+      args = {
+        learner: accounts[5].address,
+        nonce: digest("original-" + index),
+        issuedAt: BigInt(issuedAt),
+      };
+    const message = signInMessageV4(ctx, args),
+      id = signInIdV4(ctx, args),
+      signature = await accounts[5].signMessage({ message });
+    return {
+      id,
+      message,
+      signature,
+      compact: JSON.stringify({ ...args, issuedAt: String(args.issuedAt) }),
+      policy: ctx.publicationPolicy,
+      issuedAt,
+    };
+  };
+  // Replace the old syntactic-only seed with the exact signed V4 original and
+  // keep its Study binding consistent. Fixed existing fixture key only.
+  const initial = await original(-1, f.now / 1000 - 2);
+  await f.db
+    .prepare(
+      "UPDATE learning_authorizations SET authorization_id=?,sign_in_json=?,message=?,signature=?,policy_hash=? WHERE account_id='a'",
+    )
+    .bind(
+      initial.id,
+      initial.compact,
+      initial.message,
+      initial.signature,
+      initial.policy,
+    )
+    .run();
+  const publication = (await f.publication())!,
+    binding = JSON.parse(publication.binding_json);
+  binding.authorization.id = initial.id;
+  binding.offer.authorizationId = initial.id;
+  binding.offerHash = digest(binding.offer);
+  await f.db
+    .prepare(
+      "UPDATE study_publications SET binding_json=? WHERE account_id='a'",
+    )
+    .bind(JSON.stringify(binding))
+    .run();
   f.memory.sqlite.exec(AUTHORITY_LEDGER_SCHEMA);
   f.memory.sqlite.exec(
     "CREATE TABLE remote_pages(id TEXT,page TEXT,hash TEXT,PRIMARY KEY(id,page));CREATE TABLE remote_operations(id TEXT PRIMARY KEY,sealed INTEGER DEFAULT 0);CREATE TABLE denials(hash TEXT PRIMARY KEY)",
@@ -131,19 +198,30 @@ async function fixture() {
     originalRevocationId: digest("retained-terminal-revert"),
   });
   const add = async (index: number, issuedAt = 100) => {
+    const row = await original(index, issuedAt);
     await f.db
       .prepare(
         `INSERT INTO learning_authorizations(authorization_id,account_id,subject,sign_in_json,message,signature,policy_hash,policy_version,issued_at,state,created_at,updated_at)
-  VALUES(?,'a',?,'{}','','0x',?,4,?,'recorded',0,0)`,
+      VALUES(?,'a',?,?,?,?,?,4,?,'recorded',0,0)`,
       )
-      .bind(digest("original-" + index), wallet, digest("policy"), issuedAt)
+      .bind(
+        row.id,
+        wallet,
+        row.compact,
+        row.message,
+        row.signature,
+        row.policy,
+        row.issuedAt,
+      )
       .run();
+    return row.id;
   };
   return {
     ...f,
     ports,
     action,
     add,
+    original,
     lost: () => {
       lost = true;
     },
@@ -277,7 +355,7 @@ test("login insertion is fenced during pending epoch and accepted inserts captur
         .prepare(
           "SELECT count(*) n FROM learning_authorizations WHERE authorization_id=?",
         )
-        .get(digest("original-44"))!.n,
+        .get((await f.original(44)).id)!.n,
       0,
     );
     await progressAuthorityAction(f.db, op.operation_id, f.ports);
@@ -287,7 +365,7 @@ test("login insertion is fenced during pending epoch and accepted inserts captur
         .prepare(
           "SELECT authority_epoch FROM learning_authorizations WHERE authorization_id=?",
         )
-        .get(digest("original-45"))!.authority_epoch,
+        .get((await f.original(45)).id)!.authority_epoch,
       2,
     );
   } finally {
@@ -372,12 +450,12 @@ test("malformed original behind a retained cursor is unresolved; no discovery co
     // Corruption probe only; normal insert trigger is fenced during the epoch.
     await f.db
       .prepare(
-        "UPDATE learning_authorizations SET authorization_id='' WHERE account_id='a'",
+        "UPDATE learning_authorizations SET subject='bad' WHERE account_id='a'",
       )
       .run();
     await assert.rejects(
       progressAuthorityAction(f.db, op.operation_id, f.ports),
-      /authority_discovery_unresolved/,
+      CommunityAuthorityPending,
     );
     assert.equal((await readAuthorityState(f.db, "a")).pending, true);
   } finally {
@@ -542,3 +620,285 @@ test("a newer behind-cursor off marker remains pending after an older sealed act
     f.close();
   }
 });
+
+test("turn-on cannot mutate settings or complete across a newer dirty-version Off", async () => {
+  const f = await fixture(),
+    entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<{
+      revocationNonce: string;
+      pendingWithdrawal: boolean;
+    }>();
+  try {
+    const off = await beginAuthorityAction(f.db, f.action(), f.ports);
+    await progressAuthorityAction(f.db, off.operation_id, f.ports);
+    const on = await beginAuthorityAction(
+      f.db,
+      f.action("on", "2", "delayed-on"),
+      f.ports,
+    );
+    const before = f.memory.sqlite
+      .prepare("SELECT * FROM learning_settings WHERE account_id='a'")
+      .get()!;
+    const waiting = progressAuthorityAction(f.db, on.operation_id, {
+      ...f.ports,
+      observeTurnOn: async () => {
+        entered.resolve();
+        return release.promise;
+      },
+    });
+    await entered.promise;
+    await f.db
+      .prepare(
+        "UPDATE learning_settings SET public_results_withdrawn_at=?1,last_withdrawn_at=?1 WHERE account_id='a'",
+      )
+      .bind(f.now + 5000)
+      .run();
+    const dirty = f.memory.sqlite
+      .prepare(
+        "SELECT version FROM learning_authority_dirty WHERE account_id='a'",
+      )
+      .get()!.version;
+    release.resolve({ revocationNonce: "2", pendingWithdrawal: false });
+    await assert.rejects(waiting, CommunityAuthorityPending);
+    const settings = f.memory.sqlite
+      .prepare("SELECT * FROM learning_settings WHERE account_id='a'")
+      .get()!;
+    assert.equal(settings.public_results_withdrawn_at, f.now + 5000);
+    assert.equal(settings.last_withdrawn_at, f.now + 5000);
+    assert.equal(
+      settings.acknowledged_revocation_nonce,
+      before.acknowledged_revocation_nonce,
+    );
+    assert.equal(
+      f.memory.sqlite
+        .prepare(
+          "SELECT complete FROM learning_authority_operations WHERE operation_id=?",
+        )
+        .get(on.operation_id)!.complete,
+      0,
+    );
+    const head = f.memory.sqlite
+      .prepare(
+        "SELECT revision,pending_operation FROM learning_authority_heads WHERE account_id='a'",
+      )
+      .get()!;
+    assert.equal(head.pending_operation, on.operation_id);
+    assert.equal(head.revision, on.epoch);
+    assert.equal(
+      f.memory.sqlite
+        .prepare(
+          "SELECT version FROM learning_authority_dirty WHERE account_id='a'",
+        )
+        .get()!.version,
+      dirty,
+    );
+  } finally {
+    release.resolve({ revocationNonce: "2", pendingWithdrawal: false });
+    f.close();
+  }
+});
+for (const fault of [
+  "id",
+  "issued_at",
+  "compact",
+  "target",
+  "community",
+  "learner",
+] as const)
+  test(`retained original ${fault} mismatch cannot freeze or issue any permanent authorization denial`, async () => {
+    const f = await fixture();
+    try {
+      await f.db.prepare("DELETE FROM learning_authorizations").run();
+      const id = await f.add(1, 100);
+      if (fault === "id") {
+        const later = await f.original(9, 600);
+        await f.db
+          .prepare(
+            "UPDATE learning_authorizations SET authorization_id=? WHERE authorization_id=?",
+          )
+          .bind(later.id, id)
+          .run();
+      }
+      if (fault === "issued_at")
+        await f.db
+          .prepare(
+            "UPDATE learning_authorizations SET issued_at=50 WHERE authorization_id=?",
+          )
+          .bind(id)
+          .run();
+      if (fault === "compact")
+        await f.db
+          .prepare(
+            "UPDATE learning_authorizations SET sign_in_json=json_set(sign_in_json,'$.issuedAt','50') WHERE authorization_id=?",
+          )
+          .bind(id)
+          .run();
+      if (fault === "learner")
+        await f.db
+          .prepare(
+            "UPDATE learning_authorizations SET subject=? WHERE authorization_id=?",
+          )
+          .bind(accounts[4].address.toLowerCase(), id)
+          .run();
+      if (fault === "target" || fault === "community") {
+        const row = await f.original(
+          1,
+          100,
+          fault === "target"
+            ? { contract: accounts[4].address.toLowerCase() as `0x${string}` }
+            : { communityId: digest("other-community") },
+        );
+        await f.db
+          .prepare(
+            "UPDATE learning_authorizations SET authorization_id=?,message=?,sign_in_json=?,signature=? WHERE authorization_id=?",
+          )
+          .bind(row.id, row.message, row.compact, row.signature, id)
+          .run();
+      }
+      // Stage AFTER corruption so only full identity validation can catch these
+      // syntactically valid originals; this is not just a revision-fence test.
+      const op = await beginAuthorityAction(
+        f.db,
+        f.action("observed"),
+        f.ports,
+      );
+      await assert.rejects(
+        progressAuthorityAction(f.db, op.operation_id, f.ports),
+        CommunityAuthorityPending,
+      );
+      assert.equal(
+        f.memory.sqlite.prepare("SELECT count(*) n FROM denials").get()!.n,
+        0,
+      );
+      assert.equal(
+        f.memory.sqlite
+          .prepare("SELECT count(*) n FROM learning_authority_members")
+          .get()!.n,
+        0,
+      );
+      assert.equal(
+        f.memory.sqlite
+          .prepare("SELECT count(*) n FROM learning_authority_pages")
+          .get()!.n,
+        0,
+      );
+      assert.equal((await readAuthorityState(f.db, "a")).pending, true);
+    } finally {
+      f.close();
+    }
+  });
+test("invalid guard and 50-row keyset pages use their actual SQL indexes through restart", async () => {
+  const f = await fixture();
+  try {
+    await f.db.prepare("DELETE FROM learning_authorizations").run();
+    for (let i = 0; i < 123; i++) await f.add(i, 100);
+    const op = await beginAuthorityAction(f.db, f.action("observed"), f.ports);
+    const invalid = f.memory.sqlite
+      .prepare("EXPLAIN QUERY PLAN " + INVALID_AUTHORITY_ORIGINAL_QUERY)
+      .all("a");
+    assert.ok(
+      invalid.some(
+        (row) =>
+          String(row.detail).includes("SEARCH learning_authorizations ") &&
+          String(row.detail).includes(
+            "learning_authorizations_invalid_original",
+          ),
+      ),
+      JSON.stringify(invalid),
+    );
+    const selection = f.memory.sqlite
+      .prepare("EXPLAIN QUERY PLAN " + AUTHORITY_ORIGINAL_PAGE_QUERY)
+      .all("a", op.epoch, "");
+    assert.ok(
+      selection.some((row) =>
+        String(row.detail).includes("learning_authorizations_discovery"),
+      ),
+      JSON.stringify(selection),
+    );
+    assert.ok(
+      !selection.some((row) => String(row.detail).includes("TEMP B-TREE")),
+      JSON.stringify(selection),
+    );
+    await progressAuthorityAction(f.db, op.operation_id, f.ports);
+    assert.equal(
+      f.memory.sqlite
+        .prepare("SELECT count(*) n FROM learning_authority_members")
+        .get()!.n,
+      50,
+    );
+    // Recreate services over the same native SQLite state, not a Map snapshot.
+    await progressAuthorityAction(f.db, op.operation_id, { ...f.ports });
+    assert.equal(
+      f.memory.sqlite
+        .prepare("SELECT count(*) n FROM learning_authority_members")
+        .get()!.n,
+      100,
+    );
+    await progressAuthorityAction(f.db, op.operation_id, { ...f.ports });
+    assert.equal(
+      f.memory.sqlite.prepare("SELECT count(*) n FROM denials").get()!.n,
+      123,
+    );
+    assert.equal((await readAuthorityState(f.db, "a")).pending, false);
+  } finally {
+    f.close();
+  }
+});
+for (const syntax of [true, false])
+  test(`late original mutation behind the frozen cursor holds after restart (syntax=${syntax})`, async () => {
+    const f = await fixture();
+    try {
+      await f.db.prepare("DELETE FROM learning_authorizations").run();
+      for (let i = 0; i < 75; i++) await f.add(i, 100);
+      const op = await beginAuthorityAction(
+        f.db,
+        f.action("observed"),
+        f.ports,
+      );
+      await progressAuthorityAction(f.db, op.operation_id, f.ports);
+      const seen = f.memory.sqlite
+        .prepare(
+          "SELECT authorization_id FROM learning_authority_members WHERE operation_id=? ORDER BY authorization_id LIMIT 1",
+        )
+        .get(op.operation_id)!.authorization_id as string;
+      const cursor = f.memory.sqlite
+        .prepare(
+          "SELECT cursor FROM learning_authority_operations WHERE operation_id=?",
+        )
+        .get(op.operation_id)!.cursor;
+      await f.db
+        .prepare(
+          syntax
+            ? "UPDATE learning_authorizations SET subject='bad' WHERE authorization_id=?"
+            : "UPDATE learning_authorizations SET issued_at=issued_at+1 WHERE authorization_id=?",
+        )
+        .bind(seen)
+        .run();
+      await assert.rejects(
+        progressAuthorityAction(f.db, op.operation_id, { ...f.ports }),
+        CommunityAuthorityPending,
+      );
+      assert.equal(
+        f.memory.sqlite
+          .prepare(
+            "SELECT cursor FROM learning_authority_operations WHERE operation_id=?",
+          )
+          .get(op.operation_id)!.cursor,
+        cursor,
+      );
+      assert.equal(
+        f.memory.sqlite.prepare("SELECT count(*) n FROM denials").get()!.n,
+        50,
+      );
+      assert.equal(
+        f.memory.sqlite
+          .prepare(
+            "SELECT complete FROM learning_authority_operations WHERE operation_id=?",
+          )
+          .get(op.operation_id)!.complete,
+        0,
+      );
+    } finally {
+      f.close();
+    }
+  });

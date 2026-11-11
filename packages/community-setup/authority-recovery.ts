@@ -4,6 +4,7 @@ import {
   authorityReady,
   beginAuthorityAction,
   freezeAuthorityPage,
+  assertAuthorityOriginalsUnchanged,
   type AuthorityAction,
   type AuthorityPorts,
 } from "./authority-ledger.ts";
@@ -38,6 +39,12 @@ export async function progressAuthorityAction(
   // Canonical local lesson/attempt/private outbox closure always runs BEFORE
   // any callback that can wait on Telegram/operator reconciliation.
   await ports.closeLocal(op.account_id);
+  await assertAuthorityOriginalsUnchanged(db, op);
+  // Validate the captured page before any transition callback can issue a
+  // permanent denial. Cached retries must pass the same original-version fence.
+  const preparedPage = op.sealed
+    ? undefined
+    : await freezeAuthorityPage(db, op);
   if (!op.transition_id) {
     const transition = await bridge.beginAuthorityTransition(
       action.scope,
@@ -55,7 +62,8 @@ export async function progressAuthorityAction(
     authorityReady(op?.transition_id === transition);
   }
   if (!op.sealed) {
-    const page = await freezeAuthorityPage(db, op);
+    await assertAuthorityOriginalsUnchanged(db, op);
+    const page = preparedPage!;
     await bridge.appendAuthorizations(op.transition_id!, page);
     // Lost acknowledgement retries the identical captured page and originals.
     await db.batch([
@@ -91,6 +99,7 @@ export async function progressAuthorityAction(
     authorityReady(op);
     if (!op.sealed) return op; // Bounded page per scheduler iteration.
   }
+  await assertAuthorityOriginalsUnchanged(db, op);
   await bridge.finishAuthorityTransition(op.transition_id!);
   const live =
     action.kind === "on" ? await ports.observeTurnOn(action) : undefined;
@@ -102,8 +111,13 @@ export async function progressAuthorityAction(
       "authority_observation_changed",
     );
   const nonce = live?.revocationNonce ?? action.revocationNonce;
-  const owns = `EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)
-    AND EXISTS(SELECT 1 FROM learning_authority_operations WHERE operation_id=?2 AND sealed=1 AND complete=0)`;
+  const stillOwns = `EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)
+    AND EXISTS(SELECT 1 FROM learning_authority_operations o WHERE o.operation_id=?2 AND o.sealed=1
+      AND o.original_revision=COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?1),0)
+      ${action.kind === "on" ? "AND o.dirty_version=(SELECT version FROM learning_authority_dirty WHERE account_id=?1)" : ""})`;
+  const owns =
+    stillOwns +
+    " AND EXISTS(SELECT 1 FROM learning_authority_operations WHERE operation_id=?2 AND complete=0)";
   // Exact nonce acknowledgment and epoch predicates survive every async read.
   const observedFence =
     action.kind === "observed"
@@ -149,13 +163,14 @@ export async function progressAuthorityAction(
     settings,
     db
       .prepare(
-        `DELETE FROM learning_authority_dirty WHERE account_id=?1 AND ${owns}
-      AND version=(SELECT dirty_version FROM learning_authority_operations WHERE operation_id=?2)`,
+        `UPDATE learning_authority_operations SET complete=1 WHERE operation_id=?2 AND account_id=?1 AND sealed=1 AND ${owns}`,
       )
       .bind(op.account_id, id, op.epoch),
     db
       .prepare(
-        `UPDATE learning_authority_operations SET complete=1 WHERE operation_id=?2 AND account_id=?1 AND sealed=1 AND ${owns}`,
+        `DELETE FROM learning_authority_dirty WHERE account_id=?1 AND ${stillOwns}
+      AND EXISTS(SELECT 1 FROM learning_authority_operations WHERE operation_id=?2 AND complete=1)
+      AND version=(SELECT dirty_version FROM learning_authority_operations WHERE operation_id=?2)`,
       )
       .bind(op.account_id, id, op.epoch),
     db

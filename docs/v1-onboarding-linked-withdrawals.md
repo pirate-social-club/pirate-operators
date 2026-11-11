@@ -1,3 +1,72 @@
+# Linked withdrawal repair1 — source-only successor
+
+This repair starts at preserved `8cc15b31d48f704389df90105c3ff77fc76d85df`
+and addresses only the six findings in the operator and community ledger source
+reviews. The historical implementation notes below describe the earlier
+handback. Its sealed `.local/onboarding-linked-withdrawals/**` artifacts remain
+byte-for-byte unchanged. New proposals/evidence live exclusively in
+`.local/onboarding-linked-withdrawals-repair1`.
+
+Proof must cover the immutable signal that staged each operation, including
+its cutoff and consumed nonce where observed. A canonical safe anchor at500
+cannot acknowledge a retained signal at800, even if it is otherwise valid.
+Direct chain markers retain cutoff and consumed-nextNonce separately from a
+signed revoke nonce. Unknown/older proof keeps openProofs, work and marker ACK
+pending. Exact original canonical revert still records its distinct recovery
+floor and reverted outcome; it does not fabricate a successful withdrawal.
+
+The full replacement operator proposal puts withdrawal recovery before the
+public `/recover` general transaction sender, as well as before tick's
+publication/retention and in startup/alarm continuation. Final synchronous
+pre-send gating and original attempted receipt/commitment reconciliation remain.
+The required SQL fixture now executes statements eagerly, returning captured
+rows. Constructor DDL and writes no longer depend on calling `toArray()`.
+
+Community turn-on compares its captured dirty version inside BOTH the settings
+mutation and operation completion CAS. A newer Off arriving during its awaited
+chain read preserves the Off, the old pending operation and its predecessor;
+it is not consumed merely because a dirty repair row remains. Epoch/source
+original-version fences remain in the same completion transaction.
+
+Before freezing a <=50-row page, discovery reuses the canonical V4 SIWE parser
+and EIP-191 ID, matching retained compact learner/nonce/issuance, row issuance,
+community/origin, original target, policy and subject. This validates the exact
+identity of an already admitted signature; it never substitutes EOA-only
+verification for MOSS or calls a live provider. Cross-wired canonical IDs,
+issuance or target/context holds cannot issue exact authorization tombstones.
+Prepared fixtures now contain legitimate signed V4 messages/IDs using only the
+existing public fixture account, including a consistent original Study binding.
+
+The old per-page malformed full-history scan is replaced by a partial invalid
+index lookup and bounded full-identity validation on the existing keyset pages.
+An account original-revision ledger advances on inserts, deletions or immutable
+identity-column changes, while routine state/receipt/retry updates leave it
+unchanged. Staging captures that revision atomically. A late identity mutation
+behind a frozen cursor holds the operation, callbacks and completion across
+restart; it cannot silently reuse cached page validation. Such unexpected
+identity mutation remains an unresolved obligation for coordinator repair,
+not permission to reset an acknowledged page or rewrite an original.
+
+The NEW full replacement migration adds the partial index, revision table,
+triggers and captured revision column. No migration was applied or ordinal
+reserved. Replace the previous unapplied proposal set; never stack both sets
+or rewrite earlier evidence. Each protected patch has its exact source base
+and hash in the new repair directory. The community/Telegram call-site proposal
+signatures are unchanged. Protected source files were not edited.
+
+Prepared regressions cover delayed safe-head/nonce coverage, marker ACK holds,
+original revert, eager SQL, both `/recover` ordering failures, delayed turn-on,
+cross-wired originals without tombstones, actual query plans, multipage restart
+and syntactic/semantic changes behind a cursor. ALL tests/typechecks remain
+UNRUN by this actor. Only the mandatory scope probe, pinned formatter and
+`git diff --check` run. Dependency/hosted CI reports and A6 install repairs
+supply no source clearance for this successor. Authenticated actions,
+target-specific bridges, managed runtime/marker assembly, provider/device and
+new-account/second-community acceptance remain held. No connected marker or
+runtime/provider readiness is claimed.
+
+---
+
 # Linked withdrawal journal and community authority ledger
 
 This uncommitted successor starts at
