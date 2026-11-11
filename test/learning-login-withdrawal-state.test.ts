@@ -18,7 +18,11 @@ import {
   resultsV4Abi,
   signInMessageV4,
 } from "../packages/protocol/learning-results-v4.ts";
-import { revocationKey, resultsTarget } from "../services/learning-contract.ts";
+import {
+  revocationKey,
+  resultsTarget,
+  legacyResultsWithheldKey,
+} from "../services/learning-contract.ts";
 import {
   guardLinkedWithdrawal,
   stageLinkedWithdrawal,
@@ -34,6 +38,8 @@ import {
   scopeOf,
   headKey,
   opKey,
+  workKey,
+  watchKey,
   bootstrapKey,
   type WithdrawalOperation,
   type WithdrawalHead,
@@ -219,23 +225,68 @@ test(
         assert.ok(
           dueWork.every(({ value }) => (value as { due: number }).due <= now),
         );
+        const markerKey = legacyResultsWithheldKey(learner);
+        const marker = store.get<{ at: number; nonce: string }>(markerKey);
+        assert.ok(marker);
+        assert.equal(marker.nonce, String(nonce));
         await authority!.recover();
-        // The watch phase follows the work scan and can queue this original
-        // legacy marker. Process only that concrete, already-due second phase.
+        const canonicalScope = scopeOf(scope);
+        const acknowledgementKey =
+          "linkedWithdrawalLegacy:" + digest(canonicalScope);
+        assert.deepEqual(store.entries("linkedWithdrawalWork:"), []);
+        assert.equal(store.get(acknowledgementKey), undefined);
+        assert.throws(
+          () => guardLinkedWithdrawal(store, scope),
+          /study_linked_withdrawal_pending/,
+        );
+        // Proof merges persist a future watch. Honor that exact scope/deadline;
+        // the work scan precedes watch discovery, so processing is a later phase.
+        const watch = store.get<{
+          scope: ReturnType<typeof scopeOf>;
+          due: number;
+        }>(watchKey(scope));
+        assert.ok(watch);
+        assert.deepEqual(watch.scope, canonicalScope);
+        assert.ok(
+          Number.isSafeInteger(watch.due) &&
+            watch.due > now &&
+            watch.due <= now + 60,
+        );
+        assert.deepEqual(store.get(markerKey), marker);
+        await evm.rpc("evm_setNextBlockTimestamp", [watch.due]);
+        await evm.rpc("evm_mine", []);
+        now = Number((await evm.publicClient.getBlock()).timestamp);
+        assert.equal(now, watch.due);
+        await authority!.recover();
+        const legacyId = digest(["legacy", canonicalScope, marker]);
         const legacyWork = store.entries("linkedWithdrawalWork:");
-        if (legacyWork.length) {
-          assert.equal(legacyWork.length, 1);
-          const work = legacyWork[0]!.value as {
-            operationId: string;
-            due: number;
-          };
-          assert.ok(work.due <= now);
-          assert.equal(
-            store.get<WithdrawalOperation>(opKey(work.operationId))?.kind,
-            "legacy",
-          );
-          await authority!.recover();
-        }
+        assert.equal(legacyWork.length, 1);
+        assert.equal(legacyWork[0]!.key, workKey(legacyId));
+        const work = legacyWork[0]!.value as {
+          operationId: string;
+          due: number;
+        };
+        assert.equal(work.operationId, legacyId);
+        assert.equal(work.due, now);
+        assert.ok(work.due <= now);
+        const legacy = store.get<WithdrawalOperation>(opKey(legacyId));
+        assert.ok(legacy);
+        assert.equal(legacy.id, legacyId);
+        assert.equal(legacy.kind, "legacy");
+        assert.deepEqual(legacy.scope, canonicalScope);
+        assert.deepEqual(legacy.identity, marker);
+        assert.equal(legacy.proof, undefined);
+        assert.equal(store.get(acknowledgementKey), undefined);
+        assert.deepEqual(store.get(markerKey), marker);
+        await authority!.recover();
+        const recoveredLegacy = store.get<WithdrawalOperation>(opKey(legacyId));
+        assert.equal(recoveredLegacy?.proof?.kind, "success");
+        assert.equal(
+          recoveredLegacy?.proof?.original?.transactionHash,
+          originalHash,
+        );
+        assert.deepEqual(store.get(markerKey), marker);
+        assert.equal(store.get(acknowledgementKey), digest(marker));
         guardLinkedWithdrawal(store, scope);
       };
       let fired = false,
