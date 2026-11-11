@@ -82,7 +82,7 @@ test("a signed-in learner sees no creator setup or release controls, even on the
   await expect(
     page.getByRole("heading", { name: "Release a song" }),
   ).toHaveCount(0);
-  await expect(page.getByLabel("Song title", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#song-track-title")).toHaveCount(0);
   await expect(page.getByText(/creator wallet/i)).toHaveCount(0);
   await expect(page.getByText(/royalt/i)).toHaveCount(0);
   await page.reload();
@@ -323,7 +323,7 @@ test("saved binary and release intent survive an interrupted upload and reload; 
   await page
     .getByRole("button", { name: "Start another release", exact: true })
     .click();
-  await expect(page.getByLabel("Song title", { exact: true })).toBeEditable();
+  await expect(page.locator("#song-track-title")).toBeEditable();
   await expect(page.getByText(/regist/i)).toHaveCount(0);
   expect(state.creatorCalls()).toBe(0);
   expect(state.reservations()).toBe(2);
@@ -621,7 +621,7 @@ test("mobile community, library, post and composer use the accepted route chrome
     await expect(page.locator('input[aria-label="Upload audio"]')).toHaveCount(
       1,
     );
-    await expect(page.getByLabel("Song title", { exact: true })).toBeVisible();
+    await expect(page.locator("#song-track-title")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Close composer", exact: true }),
     ).toBeInViewport();
@@ -815,7 +815,10 @@ test("anonymous mobile publish keeps actual community sign-in chrome and no priv
     page.getByRole("button", { name: "Sign in", exact: true }).first(),
   ).toBeInViewport();
   await expect(
-    page.getByRole("navigation", { name: "Primary navigation", exact: true }),
+    page.getByRole("button", { name: "Feed", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Songs", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("main", { name: "Create a post", exact: true }),

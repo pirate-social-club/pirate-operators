@@ -9,7 +9,7 @@ import {
 } from "./account-fixture.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { origin, serveStudy } from "./study-fixture.ts";
-import { readFile, mkdir } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 
 async function expectNoPublicationPanel(page: Page) {
   const study = studyOverlay(page);
@@ -464,12 +464,8 @@ for (const width of [1366, 390]) {
     await expect(
       studyOverlay(page).getByRole("heading", { level: 2 }),
     ).toHaveText("Hold me close");
-    await mkdir(
-      "../../.local/study-scoring-parity-audit-20261107/screenshots",
-      { recursive: true },
-    );
     await page.screenshot({
-      path: `../../.local/study-scoring-parity-audit-20261107/screenshots/study-${width}.png`,
+      path: test.info().outputPath(`study-${width}.png`),
     });
   });
 }
