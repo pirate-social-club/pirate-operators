@@ -1,3 +1,4 @@
+import { withKaraokeRequestSession } from "./karaoke-request-session.ts";
 import { communityProfilesApi } from "./community-profiles.ts";
 import { connectedPublicResultsAction } from "./learning-public-results.ts";
 import {
@@ -795,13 +796,28 @@ export async function communityFetch(
         "study_account_changed",
         409,
       );
-      return reply(
-        await karaokeAttempt(
-          karaokePorts,
-          session,
-          bytes32(url.searchParams.get("postId")),
-        ),
+      const requestPorts = withKaraokeRequestSession(
+        karaokePorts,
+        request,
+        context,
+        session,
       );
+      await requestPorts.requestSession.check(session);
+      const view = await karaokeAttempt(
+        requestPorts,
+        session,
+        bytes32(url.searchParams.get("postId")),
+      );
+      return await requestPorts.requestSession.expose(session, () => {
+        if (view.state === "open")
+          insist(
+            Math.floor((ports.now ?? Date.now)() / 1000) <
+              view.ticket.body.expiresAt,
+            "karaoke_reservation_expired",
+            409,
+          );
+        return reply(view);
+      });
     }
     const study = await studyCommunityApi(
       request,
@@ -922,10 +938,30 @@ export async function communityFetch(
         );
       if (url.pathname === "/api/learning/public-results/on")
         return reply(await turnOnPublicResults(env, env.DB, config, session));
-      if (url.pathname === "/api/karaoke/tickets")
-        return reply(
-          await karaokeTicket(karaokePorts, session, body, endStudyLessons),
+      if (url.pathname === "/api/karaoke/tickets") {
+        const requestPorts = withKaraokeRequestSession(
+          karaokePorts,
+          request,
+          context,
+          session,
         );
+        await requestPorts.requestSession.check(session);
+        const issued = await karaokeTicket(
+          requestPorts,
+          session,
+          body,
+          endStudyLessons,
+        );
+        return await requestPorts.requestSession.expose(session, () => {
+          insist(
+            Math.floor((ports.now ?? Date.now)() / 1000) <
+              issued.ticket.body.expiresAt,
+            "karaoke_reservation_expired",
+            409,
+          );
+          return reply(issued);
+        });
+      }
       if (url.pathname === "/api/karaoke/purchases")
         return reply(await karaokePurchase(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/consent")

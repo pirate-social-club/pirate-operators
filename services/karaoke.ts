@@ -1,3 +1,5 @@
+import { prepareRecovery } from "./karaoke-prepare-recovery.ts";
+import type { KaraokePreparation } from "./karaoke-preparation.ts";
 import { recoverLinkedWithdrawals } from "./study-linked-withdrawal-recovery.ts";
 import { configuredWithdrawalPorts } from "./study-linked-withdrawal-ports.ts";
 import type { LinkedStore } from "./study-linked-withdrawal-contract.ts";
@@ -468,7 +470,15 @@ export async function karaokeRoute(
     const input = await body<{
       ticket: Signed<Ticket>;
       manifest: KaraokeManifest;
+      preparation?: KaraokePreparation;
     }>(request);
+    if (input.preparation)
+      return Response.json(
+        await prepareRecovery(env, store, {
+          ...input,
+          preparation: input.preparation,
+        }),
+      );
     const ticket = await verify(
       input.ticket,
       "ticket",

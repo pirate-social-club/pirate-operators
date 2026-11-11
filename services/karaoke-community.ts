@@ -1,3 +1,7 @@
+import {
+  recoveryScope,
+  reservationFence,
+} from "./karaoke-reservation-recovery.ts";
 // Karaoke in the community application: the learner's tickets, per-line
 // purchases, consent relay and reload recovery for one published song. The
 // existing community purchase code runs unchanged on the application's D1
@@ -47,7 +51,9 @@ import { noteChainWithdrawal } from "./learning-public-results.ts";
 
 /** The application's Karaoke bindings. Karaoke is off until all are present. */
 export interface KaraokeEnv {
-  KARAOKE_SPEECH_BUDGET?: DurableObjectNamespace<import("./speech-budget.ts").SpeechBudget>;
+  KARAOKE_SPEECH_BUDGET?: DurableObjectNamespace<
+    import("./speech-budget.ts").SpeechBudget
+  >;
   KARAOKE_SERVICE_MODE?: "internal";
   KARAOKE_OPERATOR?: Fetcher;
   KARAOKE_OPERATOR_ADDRESS?: string;
@@ -83,7 +89,8 @@ const configured = (env: KaraokeEnv, config: CommunityConfig) =>
     env.KARAOKE_PAYMENT_CHAIN_ID &&
     env.KARAOKE_PAYMENT_TOKEN &&
     env.KARAOKE_RPC_URL &&
-    (env.KARAOKE_SERVICE_MODE === "internal" || config.operatorPayments !== "0x0000000000000000000000000000000000000000")
+    (env.KARAOKE_SERVICE_MODE === "internal" ||
+      config.operatorPayments !== "0x0000000000000000000000000000000000000000")
   );
 export const karaokeAvailable = configured;
 
@@ -175,8 +182,15 @@ async function prepared(ports: KaraokePorts, postId: Hex) {
     quote = await trustedQuote(env, store);
   validateManifest(manifest, quote.maxSegmentMs);
   const manifestSha256 = digest(manifest) as Hex;
-  if (ports.env.KARAOKE_SERVICE_MODE === "internal" && ports.reads.manifestAvailable)
-    insist(await ports.reads.manifestAvailable(manifestSha256), "public_result_manifest_unavailable", 503);
+  if (
+    ports.env.KARAOKE_SERVICE_MODE === "internal" &&
+    ports.reads.manifestAvailable
+  )
+    insist(
+      await ports.reads.manifestAvailable(manifestSha256),
+      "public_result_manifest_unavailable",
+      503,
+    );
   await store.set(`manifest:${manifestSha256}`, manifest);
   await store.set(`manifestFor:${manifest.songHash}`, manifestSha256);
   return { env, store, manifest, manifestSha256, quote };
@@ -208,9 +222,13 @@ async function connectionProof(
 ) {
   const secret = await store.get<Hex>(`sessionSecret:${sessionKey}`);
   insist(secret, "session_key_unavailable", 409);
-  return privateKeyToAccount(secret).signMessage({
-    message: `connect:${ticketId}`,
-  });
+  const account = privateKeyToAccount(secret);
+  insist(
+    account.address.toLowerCase() === sessionKey.toLowerCase(),
+    "session_key_unavailable",
+    409,
+  );
+  return account.signMessage({ message: `connect:${ticketId}` });
 }
 
 /**
@@ -256,7 +274,19 @@ export async function karaokeTicket(
         maxDurationMs: lastEndMs + 5000,
         issuedAt: now,
         expiresAt: now + Math.ceil(lastEndMs / 1000) + 120,
-        ...(authorizationId ? { authorizationId } : {}),
+        ...(authorizationId
+          ? {
+              authorizationId,
+              recoveryScope: await recoveryScope(
+                ports,
+                learner,
+                env,
+                postId,
+                quote,
+                authorizationId,
+              ),
+            }
+          : {}),
       },
       (sequence) =>
         digest({
@@ -270,30 +300,36 @@ export async function karaokeTicket(
       insist(false, error.message, 409);
       throw error;
     });
-  return {
-    ticket: await ensureTicket(env, store, wallet, open).catch(
-      async (error: Error) => {
-        // The operator's sign-in permission answers reach the learner. A
-        // withdrawal made outside the application is noted first.
-        if (
-          error.message === "karaoke_authorization_required" &&
-          karaokeResultsV4(ports.env, ports.config) &&
-          learner.account_id
-        )
-          await noteChainWithdrawal(
-            ports.env,
-            ports.db,
-            { account_id: learner.account_id, wallet: learner.wallet },
-            endLessons,
-          ).catch(() => false);
-        if (authorizationRefusals.has(error.message))
-          insist(false, error.message, 409);
-        throw error;
-      },
-    ),
-    socketUrl: socketUrl(ports.env),
-    proof: await connectionProof(store, open.sessionKey, open.ticketId),
-  };
+  const fence = open.recoveryScope
+    ? reservationFence(ports, learner, env, store, postId, open, manifestSha256)
+    : undefined;
+  const ticket = await ensureTicket(
+    env,
+    store,
+    wallet,
+    open,
+    fence?.live,
+  ).catch(async (error: Error) => {
+    // The operator's sign-in permission answers reach the learner. A
+    // withdrawal made outside the application is noted first.
+    if (
+      error.message === "karaoke_authorization_required" &&
+      karaokeResultsV4(ports.env, ports.config) &&
+      learner.account_id
+    )
+      await noteChainWithdrawal(
+        ports.env,
+        ports.db,
+        { account_id: learner.account_id, wallet: learner.wallet },
+        endLessons,
+      ).catch(() => false);
+    if (authorizationRefusals.has(error.message))
+      insist(false, error.message, 409);
+    throw error;
+  });
+  const proof = await connectionProof(store, open.sessionKey, open.ticketId);
+  await fence?.live();
+  return { ticket, socketUrl: socketUrl(ports.env), proof };
 }
 
 export async function karaokePurchase(
@@ -390,28 +426,83 @@ export async function karaokeAttempt(
       postId,
     ),
     ticketId =
-      state?.open?.songHash === manifest.songHash ? state.open.ticketId : last;
+      state?.open &&
+      (state.open.recoveryScope?.postId === postId ||
+        state.open.songHash === manifest.songHash)
+        ? state.open.ticketId
+        : last;
   if (!ticketId) return { state: "none" as const };
+  const open = state?.open?.ticketId === ticketId ? state.open : undefined;
+  const fence = open?.recoveryScope
+    ? reservationFence(
+        ports,
+        learner,
+        env,
+        store,
+        postId,
+        open,
+        digest(manifest) as Hex,
+      )
+    : undefined;
+  let preparationChecked = false;
+  let signedTicket = await store.get<Signed<Ticket>>(`ticket:${ticketId}`);
+  if (!signedTicket && open) {
+    // No manual hidden ticket POST, new reservation, key, quote or sequence.
+    insist(fence, "karaoke_recovery_scope_required", 409);
+    await fence.live();
+    signedTicket = await ensureTicket(env, store, wallet, open, fence.live);
+    preparationChecked = true;
+  }
   const ticket = (await ownedTicket(store, wallet, ticketId)).body,
     result = await boundResult(env, store, ticket);
-  if (state?.open?.ticketId === ticketId && env.SERVICE_MODE === "internal" && !result) {
-    const signedStart = await call<Signed<AttemptStart> | null>(env.OPERATOR, "/attempt-start", { ticketId });
+  if (
+    !result &&
+    open &&
+    !preparationChecked &&
+    (open.recoveryScope || open.authorizationId)
+  ) {
+    // Existing signed row can precede failed/lost preparation acknowledgement.
+    // Both interrupted stages go through the same current private-work fence.
+    insist(fence, "karaoke_recovery_scope_required", 409);
+    await fence.live();
+    signedTicket = await ensureTicket(env, store, wallet, open, fence.live);
+  }
+  if (
+    state?.open?.ticketId === ticketId &&
+    env.SERVICE_MODE === "internal" &&
+    !result
+  ) {
+    const signedStart = await call<Signed<AttemptStart> | null>(
+      env.OPERATOR,
+      "/attempt-start",
+      { ticketId },
+    );
     if (signedStart) {
-      const start = await verify(signedStart, "attempt_start", env.OPERATOR_ADDRESS, signatureChainId(env));
+      const start = await verify(
+        signedStart,
+        "attempt_start",
+        env.OPERATOR_ADDRESS,
+        signatureChainId(env),
+      );
       check(start.ticketId === ticketId, "attempt_start_mismatch");
       state.open.startedAt = start.startedAt;
     }
   }
   if (state?.open?.ticketId === ticketId) {
-    // A ticket that never produced a result is released once it expires.
+    // Scoped recovery keeps uncertain terminal work held at exact expiry.
+    // The original unscoped expiry branch remains below for legacy callers.
     if (!result && (await store.now()) >= state.open.expiresAt) {
+      insist(!state.open.recoveryScope, "karaoke_reservation_expired", 409);
       await settleTicket(env, store, wallet, ticketId, false);
       return { state: "none" as const };
     }
-    if (!result)
+    if (!result) {
+      insist(signedTicket, "ticket_not_found", 404);
+      const proof = await connectionProof(store, ticket.sessionKey, ticketId);
+      await fence?.live();
       return {
         state: "open" as const,
-        ticket: await store.get<Signed<Ticket>>(`ticket:${ticketId}`),
+        ticket: signedTicket,
         // From the operator's start, set by the first purchase, on this
         // clock: the page resumes the song here, whatever its own clock says.
         elapsedMs:
@@ -419,12 +510,13 @@ export async function karaokeAttempt(
             ? null
             : Math.max(0, ((await store.now()) - state.open.startedAt) * 1000),
         socketUrl: socketUrl(ports.env),
-        proof: await connectionProof(store, ticket.sessionKey, ticketId),
+        proof,
       };
+    }
     await settleTicket(env, store, wallet, ticketId, true);
     await store.set(`lastTicket:${wallet}:${postId}`, ticketId);
   }
-  if (!result) return { state: "none" as const };
+  insist(result, "karaoke_result_pending", 409);
   const record = await call<{
     attemptId: Hex;
     consented: boolean;
@@ -467,33 +559,75 @@ export async function karaokeConsent(
 }
 
 /** Standing consent is requested before ticket preparation; the operator verifies it. */
-export async function karaokeEnrollments(ports: KaraokePorts, learner: KaraokeLearner) {
+export async function karaokeEnrollments(
+  ports: KaraokePorts,
+  learner: KaraokeLearner,
+) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
   return call(env.OPERATOR, "/enrollment/list", { learner: learner.wallet });
 }
 
-export async function karaokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
+export async function karaokeEnrollment(
+  ports: KaraokePorts,
+  learner: KaraokeLearner,
+  value: Record<string, unknown>,
+) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
   if (!value.signature) {
-    check(value.activity === undefined || value.activity === "study", "unsupported_activity");
-    return call(env.OPERATOR, "/enrollment/request", { learner: learner.wallet, target: value.target, activity: value.activity });
+    check(
+      value.activity === undefined || value.activity === "study",
+      "unsupported_activity",
+    );
+    return call(env.OPERATOR, "/enrollment/request", {
+      learner: learner.wallet,
+      target: value.target,
+      activity: value.activity,
+    });
   }
   const enrollment = object(value.enrollment);
-  check(String(enrollment.learner).toLowerCase() === learner.wallet.toLowerCase(), "wrong_learner");
-  return call(env.OPERATOR, "/enrollment", { enrollment, signature: value.signature, target: value.target });
+  check(
+    String(enrollment.learner).toLowerCase() === learner.wallet.toLowerCase(),
+    "wrong_learner",
+  );
+  return call(env.OPERATOR, "/enrollment", {
+    enrollment,
+    signature: value.signature,
+    target: value.target,
+  });
 }
 
-export async function karaokeHistory(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
-  const env = runtimeEnv(ports.env, ports.config), store = new KaraokeStore(ports.db, ports.now ?? Date.now);
-  const ticketId = bytes32(value.ticketId), ticket = await ownedTicket(store, learner.wallet, ticketId);
-  return call(env.OPERATOR, "/history", { ticketId, proof: await connectionProof(store, ticket.body.sessionKey, ticketId) });
+export async function karaokeHistory(
+  ports: KaraokePorts,
+  learner: KaraokeLearner,
+  value: Record<string, unknown>,
+) {
+  const env = runtimeEnv(ports.env, ports.config),
+    store = new KaraokeStore(ports.db, ports.now ?? Date.now);
+  const ticketId = bytes32(value.ticketId),
+    ticket = await ownedTicket(store, learner.wallet, ticketId);
+  return call(env.OPERATOR, "/history", {
+    ticketId,
+    proof: await connectionProof(store, ticket.body.sessionKey, ticketId),
+  });
 }
 
-export async function karaokeRevokeEnrollment(ports: KaraokePorts, learner: KaraokeLearner, value: Record<string, unknown>) {
+export async function karaokeRevokeEnrollment(
+  ports: KaraokePorts,
+  learner: KaraokeLearner,
+  value: Record<string, unknown>,
+) {
   const env = runtimeEnv(ports.env, ports.config);
   check(env.SERVICE_MODE === "internal", "enrollment_unavailable");
-  return call(env.OPERATOR, "/enrollment/revoke", { learner: learner.wallet, target: value.target,
-    ...(value.signature ? { nonce: String(object(value.message).nonce), signature: value.signature } : {}) });
+  return call(env.OPERATOR, "/enrollment/revoke", {
+    learner: learner.wallet,
+    target: value.target,
+    ...(value.signature
+      ? {
+          nonce: String(object(value.message).nonce),
+          signature: value.signature,
+        }
+      : {}),
+  });
 }
