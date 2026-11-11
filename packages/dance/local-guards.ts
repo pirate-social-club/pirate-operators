@@ -2,8 +2,14 @@ import type { DanceFence, DanceOutbox, ReviewerContext } from "./contracts.ts";
 import type { DanceRevokeContext } from "./control-contracts.ts";
 const max = 9007199254740991;
 const now = "CAST(unixepoch('subsec')*1000 AS INTEGER)";
-const integer = (s: string, min: number, upper = max) =>
-  `(typeof(${s})='integer' AND ${s} BETWEEN ${min} AND ${upper})`;
+const integer = (s: string, min: number, upper = max) => {
+  // Bound JavaScript numbers may have SQLite REAL storage class. Require an
+  // exact safe integer for context parameters; persisted rows remain INTEGER.
+  const type = s.startsWith("ctx.")
+    ? `typeof(${s}) IN ('integer','real') AND ${s}=CAST(${s} AS INTEGER)`
+    : `typeof(${s})='integer'`;
+  return `(${type} AND ${s} BETWEEN ${min} AND ${upper})`;
+};
 /** CASE makes NULL, malformed rows and account-only cross-wallet matches veto. */
 function allowed(context: string, captured: boolean) {
   const e = "json_extract(c.body_json,'$.expectedReviewerEpoch')";
