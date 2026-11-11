@@ -14,6 +14,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
       - uses: foundry-rs/foundry-toolchain@v1
         id: foundry
         continue-on-error: true
@@ -27,6 +30,7 @@ jobs:
       - name: Bootstrap dependencies and Solidity compiler
         run: |
           npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/web
           forge build
       - name: Validate Worker packaging
         run: npm run build

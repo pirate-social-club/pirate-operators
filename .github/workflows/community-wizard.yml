@@ -3,10 +3,24 @@ on:
   workflow_dispatch:
   push:
     paths:
-      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+      - "apps/community-wizard/**"
+      - "packages/**"
+      - "services/**"
+      - "harness/**"
+      - "fixtures/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/community-wizard.yml"
   pull_request:
     paths:
-      ["apps/community-wizard/**", ".github/workflows/community-wizard.yml"]
+      - "apps/community-wizard/**"
+      - "packages/**"
+      - "services/**"
+      - "harness/**"
+      - "fixtures/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/community-wizard.yml"
 permissions:
   contents: read
 jobs:
@@ -22,12 +36,22 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/community-wizard/package-lock.json
-      - run: npm ci
+          cache-dependency-path: |
+            package-lock.json
+            apps/community-wizard/package-lock.json
+      - name: Install shared package and wizard dependencies
+        working-directory: .
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/community-wizard
       - run: npx playwright install --with-deps chromium
       - run: npm run check
       - run: npm run test:browser
-      - run: npm ci --omit=dev
+      - name: Install production dependencies only
+        working-directory: .
+        run: |
+          npm ci --omit=dev --ignore-scripts
+          npm ci --omit=dev --ignore-scripts --prefix apps/community-wizard
       - run: npm run smoke:runtime
       - uses: actions/upload-artifact@v4
         if: always()
