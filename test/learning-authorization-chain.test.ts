@@ -483,7 +483,7 @@ test(
       const s = await f.signIn(learner);
       // The learner withdraws directly on chain after signing in.
       await f.advance(1);
-      await f.evm.write(
+      const withdrawalReceipt = await f.evm.write(
         f.v4,
         "LearningResultsV4",
         "revoke",
@@ -544,7 +544,22 @@ test(
       );
       assert.equal(f.count("tx:"), 0);
       assert.equal(f.count("sponsor:reservation:"), 0);
+      const safeBefore = await f.evm.publicClient.getBlock({ blockTag: "safe" });
+      assert.ok(safeBefore.number < withdrawalReceipt.blockNumber);
+      assert.ok(safeBefore.timestamp < revokedAt);
+      // Anvil's unchanged default safe anchor trails by 32 blocks. Time alone
+      // does not mature it: mine real descendants of the original withdrawal.
+      await f.evm.rpc("anvil_mine", ["0x20"]);
+      await f.sync();
       await f.advance(6);
+      const safeAfter = await f.evm.publicClient.getBlock({ blockTag: "safe" });
+      assert.ok(safeAfter.number >= withdrawalReceipt.blockNumber);
+      assert.ok(safeAfter.timestamp >= revokedAt);
+      const dueWork = f.store.entries("linkedWithdrawalWork:");
+      assert.ok(dueWork.length > 0);
+      assert.ok(
+        dueWork.every(({ value }) => (value as { due: number }).due <= f.now()),
+      );
       await f.scheduled();
       assert.deepEqual(
         await observe(learner.address.toLowerCase() as Address),

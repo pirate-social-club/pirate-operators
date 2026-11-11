@@ -194,23 +194,47 @@ test(
       );
       const scope = { communityId, target, learner };
       const recoverReady = async () => {
-        for (let pass = 0; pass < 4; pass++) {
+        const receipt = await evm.publicClient.getTransactionReceipt({
+          hash: originalHash,
+        });
+        assert.equal(receipt.status, "success");
+        const withdrawalBlock = await evm.publicClient.getBlock({
+          blockNumber: receipt.blockNumber,
+        });
+        assert.equal(withdrawalBlock.hash, receipt.blockHash);
+        const safeBefore = await evm.publicClient.getBlock({ blockTag: "safe" });
+        // Keep Anvil's default 32-slot policy and the original signed receipt.
+        // Mature real descendants before asking the actual proof port to recover.
+        await evm.rpc("anvil_mine", ["0x20"]);
+        now = Number((await evm.publicClient.getBlock()).timestamp);
+        await evm.rpc("evm_setNextBlockTimestamp", [now + 6]);
+        await evm.rpc("evm_mine", []);
+        now = Number((await evm.publicClient.getBlock()).timestamp);
+        const safeAfter = await evm.publicClient.getBlock({ blockTag: "safe" });
+        assert.ok(safeAfter.number >= receipt.blockNumber);
+        assert.ok(safeAfter.timestamp >= withdrawalBlock.timestamp);
+        assert.ok(safeAfter.number >= safeBefore.number);
+        const dueWork = store.entries("linkedWithdrawalWork:");
+        assert.ok(dueWork.length > 0);
+        assert.ok(
+          dueWork.every(({ value }) => (value as { due: number }).due <= now),
+        );
+        await authority!.recover();
+        // The watch phase follows the work scan and can queue this original
+        // legacy marker. Process only that concrete, already-due second phase.
+        const legacyWork = store.entries("linkedWithdrawalWork:");
+        if (legacyWork.length) {
+          assert.equal(legacyWork.length, 1);
+          const work = legacyWork[0]!.value as {
+            operationId: string;
+            due: number;
+          };
+          assert.ok(work.due <= now);
+          assert.equal(
+            store.get<WithdrawalOperation>(opKey(work.operationId))?.kind,
+            "legacy",
+          );
           await authority!.recover();
-          try {
-            guardLinkedWithdrawal(store, scope);
-            return;
-          } catch (error) {
-            if (
-              !(error instanceof Error) ||
-              error.message !== "study_linked_withdrawal_pending"
-            )
-              throw error;
-          }
-          // Genuine blocks/time only. Unsupported canonical proof reads remain
-          // a failing gate; no favourable RPC fallback or synthetic proof exists.
-          await evm.rpc("evm_setNextBlockTimestamp", [now + 6]);
-          await evm.rpc("evm_mine", []);
-          now = Number((await evm.publicClient.getBlock()).timestamp);
         }
         guardLinkedWithdrawal(store, scope);
       };
@@ -263,6 +287,10 @@ test(
                 hash: originalHash,
               });
               assert.equal(receipt.status, "success");
+              const safeBefore = await evm.publicClient.getBlock({
+                blockTag: "safe",
+              });
+              assert.ok(safeBefore.number < receipt.blockNumber);
               // Actual production receipt-only recovery runs BEFORE accepting
               // the retained job again. It cannot rebroadcast or cancel.
               const refreshed = await refreshTransaction(
@@ -285,7 +313,6 @@ test(
                 store.get<{ pending: boolean }>(key)?.pending,
                 false,
               );
-              await recoverReady();
             } finally {
               busy = false;
             }
@@ -299,6 +326,7 @@ test(
         revokedAt: 0,
         revocationNonce: "0",
         pendingWithdrawal: true,
+        linkedWithdrawalPending: true,
       });
       assert.equal(fired, true);
       assert.equal(pinnedReads.length, 3);
