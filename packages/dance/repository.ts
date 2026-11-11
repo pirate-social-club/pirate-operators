@@ -13,6 +13,10 @@ import type {
   DanceStoredGrant,
   DanceAttempt,
 } from "./contracts.ts";
+import type {
+  DanceControlBinding,
+  DanceRevokeContext,
+} from "./control-contracts.ts";
 export interface DanceRepository {
   now(): Promise<number>;
   assert(fences: DanceFence[]): Promise<void>;
@@ -84,11 +88,13 @@ export interface DanceRepository {
   control(
     intent: DanceControlIntent,
     fences: DanceFence[],
+    binding?: DanceControlBinding,
   ): Promise<DanceControlIntent>;
   locallyRevoked(
     community: string,
     account: string,
     wallet: string,
+    context?: DanceRevokeContext,
   ): Promise<boolean>;
   observe(
     reviewId: string,
