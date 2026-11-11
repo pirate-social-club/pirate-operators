@@ -122,6 +122,7 @@ function captureDouble() {
   return { createCapture, started, disposed };
 }
 function mount(service: OperatorKaraokePort) {
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
   vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
   const capture = captureDouble(),
     host = document.createElement("div");
