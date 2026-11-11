@@ -10,7 +10,7 @@ import {
   type CommunityEnv,
 } from "../services/community-application.ts";
 import { validateConfig } from "../packages/community/config-manifest.ts";
-import { verifyLoginOffline } from "../packages/community/accounts.ts";
+import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import type { OwnerProfile } from "../packages/community-profile/contracts.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import { releasePostsFixture } from "./fixtures/release-posts.ts";
