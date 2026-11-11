@@ -387,10 +387,15 @@ test("local closure precedes never-resolving bridge and legacy off markers immed
       ...f.ports,
       transitions: {
         ...f.ports.transitions,
-        beginAuthorityTransition: () =>
-          new Promise<string>((done) => {
+        beginAuthorityTransition: async (...args) => {
+          const id = await f.ports.transitions.beginAuthorityTransition(
+            ...args,
+          );
+          await new Promise<string>((done) => {
             resolve = done;
-          }),
+          });
+          return id;
+        },
       },
     });
     while (!resolve) await Promise.resolve();
