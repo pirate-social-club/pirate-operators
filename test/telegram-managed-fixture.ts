@@ -1,3 +1,7 @@
+import {
+  validateManagedAuthorityDelivery,
+  type AuthorityDeliveryRequest,
+} from "../packages/community-setup/authority-validation.ts";
 import assert from "node:assert/strict";
 import { sha256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -19,6 +23,7 @@ export function managedFixture(
   grants: TelegramGrants,
   registration: BotRegistration = { ...actor, enabled: true },
   target: Partial<StudyOperatorPorts["authority"]> = {},
+  authorityDb?: D1Database,
 ) {
   const issuerKey = ("0x" + "12".repeat(32)) as Hex;
   const issuer = privateKeyToAccount(issuerKey).address;
@@ -83,6 +88,14 @@ export function managedFixture(
       registration: next,
       ports,
       scheduleWork,
+      // Scope/unlink-only fixtures retain fail-closed authority behavior when
+      // no DB is supplied. Positive authority fixtures supply their actual DB.
+      ...(authorityDb
+        ? {
+            authorityValidation: (request: AuthorityDeliveryRequest) =>
+              validateManagedAuthorityDelivery(authorityDb, request),
+          }
+        : {}),
     });
   return {
     publication: create(),

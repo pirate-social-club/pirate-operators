@@ -86,7 +86,10 @@ export function telegramConnectionClient(options: {
     typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
   const object = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === "object" && !Array.isArray(value);
-  const authCodes = new Set([
+  // On connect/start these codes prove that the community identity/binding
+  // failed. Broker client authentication concerns the server channel and can
+  // fail with the same HTTP status while this community reservation is valid.
+  const communityInvalidCodes = new Set([
     "telegram_session_required",
     "telegram_csrf_required",
     "telegram_account_mismatch",
@@ -144,15 +147,10 @@ export function telegramConnectionClient(options: {
       // Only this start response may introduce a server transaction. A retry
       // can confirm its original ID; it cannot replace it with another one.
       const candidate = object(body) ? body.transactionId : null;
-      const resumable =
-        response.status >= 500 ||
-        response.status === 429 ||
-        response.status === 409;
       const id =
         opening &&
         code &&
-        !authCodes.has(code) &&
-        resumable &&
+        !communityInvalidCodes.has(code) &&
         transactionId(candidate) &&
         (!opening.expectedId || opening.expectedId === candidate)
           ? candidate
@@ -208,8 +206,8 @@ export function telegramConnectionClient(options: {
       if (start === operation) {
         if (
           error instanceof TelegramRequestError &&
-          ([401, 403, 404, 410].includes(error.status) ||
-            (error.code !== null && authCodes.has(error.code)))
+          error.code !== null &&
+          communityInvalidCodes.has(error.code)
         ) {
           operation.transactionId = null;
           operation.phase = "invalid";

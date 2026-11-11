@@ -1,3 +1,4 @@
+import { guardedPaginationFixture } from "./telegram-guarded-pagination-fixture.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { Hex } from "viem";
@@ -305,16 +306,15 @@ test("blocking atomically retires the captured grant; start and a late callback 
 });
 
 test("authority discovery pages are immutable, bounded and unsealed until the shared writer exhausts discovery", async (t) => {
-  const f = await linked(t);
+  const f = await guardedPaginationFixture(t);
   const id = await f.publication.beginAuthorityTransition(
-    actor,
-    account.accountId,
-    requestFor(f.grant.id),
+    f.action.scope,
+    f.accountId,
+    { operationId: f.op.operation_id, expectedGrantId: f.grant.id },
   );
-  const ids = Array.from(
-    { length: 65 },
-    (_, i) => ("0x" + (i + 1).toString(16).padStart(64, "0")) as Hex,
-  );
+  assert.equal(id, f.transitionId);
+  const ids = [...f.ids].sort();
+  assert.equal(ids.length, 65);
   const first = {
     cursor: null,
     next: "page-1",
@@ -331,17 +331,23 @@ test("authority discovery pages are immutable, bounded and unsealed until the sh
       }),
     /conflict/,
   );
+  await f.persistPage(first);
   await assert.rejects(
     f.publication.finishAuthorityTransition(id),
     /publication_pending/,
   );
-  f.publication.appendAuthorizations(id, {
+  const last = {
     cursor: "page-1",
     next: null,
     authorizationIds: ids.slice(40),
     exhausted: true,
-  });
-  for (let i = 0; i < 70; i++) await f.publication.recover();
+  };
+  f.publication.appendAuthorizations(id, last);
+  await f.persistPage(last);
+  for (let i = 0; i < 70; i++) {
+    f.advance();
+    await f.publication.recover();
+  }
   await f.publication.finishAuthorityTransition(id);
   assert.equal(f.denials.size, 66);
   assert.equal(new Set(f.requests).size, 66);

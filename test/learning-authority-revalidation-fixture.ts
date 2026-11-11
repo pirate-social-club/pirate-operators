@@ -12,7 +12,6 @@ import {
 import { signInV4 } from "../services/learning-sign-in.ts";
 import { closeWithdrawnStudyLessons } from "../services/learning-public-results.ts";
 import { TelegramGrants } from "../services/telegram-grants.ts";
-import { TelegramManagedPublication } from "../services/telegram-managed-publication.ts";
 import { telegramAccountPort } from "../services/telegram-accounts.ts";
 import { authorityDenialTransition } from "../packages/community-setup/authority-denials.ts";
 import { denyManagedStudyPublication } from "../services/study-operator-client.ts";
@@ -26,7 +25,6 @@ import {
   progressAuthorityAction,
   type AuthorityRecoveryPorts,
 } from "../packages/community-setup/authority-recovery.ts";
-import { validateManagedAuthorityDelivery } from "../packages/community-setup/authority-validation.ts";
 import { journalFixture } from "./telegram-fixture.ts";
 import { managedFixture } from "./telegram-managed-fixture.ts";
 import {
@@ -38,6 +36,7 @@ export async function revalidationFixture(
   count = 1,
   bad = false,
   sealed = true,
+  options: { stagePages?: boolean; linked?: boolean } = {},
 ) {
   const f = await withdrawalFixture(),
     journal = journalFixture();
@@ -108,7 +107,14 @@ export async function revalidationFixture(
     f.memory.sqlite.exec(sql);
     const accountsPort = telegramAccountPort({
       db: f.db,
-      assertAccountEnabled: async () => undefined,
+      async assertAccountEnabled(accountId) {
+        assert.ok(
+          await f.db
+            .prepare("SELECT 1 FROM community_accounts WHERE account_id=?")
+            .bind(accountId)
+            .first(),
+        );
+      },
       authorityState: (id) => readAuthorityState(f.db, id),
     });
     const grants = new TelegramGrants(journal.store, accountsPort, () => clock);
@@ -120,18 +126,27 @@ export async function revalidationFixture(
         chainId: 6343,
         contract: target.contract,
       },
+      f.db,
     );
-    const recreate = () =>
-      TelegramManagedPublication.create({
-        grants,
-        registration: { ...scope, enabled: true },
-        ports: model.ports,
-        scheduleWork: model.scheduleWork,
-        authorityValidation: (request) =>
-          validateManagedAuthorityDelivery(f.db, request),
-      });
+    const recreate = () => model.create();
     const publication = recreate();
     await publication.ready();
+    const actor = { ...scope, userId: "70001", chatId: "70001" };
+    let grant = null as ReturnType<TelegramGrants["read"]> | null;
+    if (options.linked) {
+      grants.start(actor);
+      const identity = await accountsPort.current(
+        scope.communityId,
+        "a",
+        wallet,
+      );
+      grant = grants.commit(
+        actor,
+        identity,
+        "fixture_guarded_pagination_grant",
+        grants.linkFence(actor, "a"),
+      );
+    }
     const ports: AuthorityRecoveryPorts = {
       target,
       usingTarget: (named) => {
@@ -167,7 +182,7 @@ export async function revalidationFixture(
       wallet,
       actionId: "retained-original-off",
       expectedRevision: "0",
-      expectedGrantId: null,
+      expectedGrantId: grant?.id ?? null,
       kind: "off",
       atMs: f.now,
       cutoffS: 110,
@@ -178,7 +193,7 @@ export async function revalidationFixture(
     const transitionId = await publication.beginAuthorityTransition(
       scope,
       "a",
-      { operationId: op.operation_id, expectedGrantId: null },
+      { operationId: op.operation_id, expectedGrantId: grant?.id ?? null },
     );
     await f.db
       .prepare(
@@ -186,20 +201,24 @@ export async function revalidationFixture(
       )
       .bind(transitionId, op.operation_id)
       .run();
-    const sorted = [...ids].sort();
-    let cursor: string | null = null;
-    for (let offset = 0; offset < sorted.length; offset += 50) {
-      const page: AuthorityPage = {
-        cursor,
-        next: sorted[Math.min(offset + 50, sorted.length) - 1],
-        authorizationIds: sorted.slice(offset, offset + 50),
-        exhausted: sealed && offset + 50 >= sorted.length,
-      };
-      publication.appendAuthorizations(transitionId, page);
+    // Retained fixture-state reconstruction, not a validator implementation.
+    // The actual shared validator independently checks signatures, credentials,
+    // membership revisions and the original operation at every delivery.
+    async function persistPage(page: AuthorityPage) {
+      const previous = await f.db
+        .prepare(
+          "SELECT page_json FROM learning_authority_pages WHERE operation_id=? AND page_id=?",
+        )
+        .bind(op.operation_id, digest(page.cursor))
+        .first<{ page_json: string }>();
+      if (previous) {
+        assert.equal(previous.page_json, JSON.stringify(page));
+        return;
+      }
       await f.db.batch([
         f.db
           .prepare("INSERT INTO learning_authority_pages VALUES(?,?,?,1)")
-          .bind(op.operation_id, digest(cursor), JSON.stringify(page)),
+          .bind(op.operation_id, digest(page.cursor), JSON.stringify(page)),
         ...page.authorizationIds.map((id) =>
           f.db
             .prepare(
@@ -207,15 +226,34 @@ export async function revalidationFixture(
             )
             .bind(op.operation_id, id),
         ),
+        f.db
+          .prepare(
+            "UPDATE learning_authority_operations SET cursor=?,sealed=? WHERE operation_id=?",
+          )
+          .bind(page.next, Number(page.exhausted), op.operation_id),
       ]);
-      cursor = page.next;
     }
-    await f.db
-      .prepare(
-        "UPDATE learning_authority_operations SET cursor=?,sealed=? WHERE operation_id=?",
-      )
-      .bind(cursor, Number(sealed), op.operation_id)
-      .run();
+    const sorted = [...ids].sort();
+    let cursor: string | null = null;
+    if (options.stagePages !== false) {
+      for (let offset = 0; offset < sorted.length; offset += 50) {
+        const page: AuthorityPage = {
+          cursor,
+          next: sorted[Math.min(offset + 50, sorted.length) - 1],
+          authorizationIds: sorted.slice(offset, offset + 50),
+          exhausted: sealed && offset + 50 >= sorted.length,
+        };
+        publication.appendAuthorizations(transitionId, page);
+        await persistPage(page);
+        cursor = page.next;
+      }
+      await f.db
+        .prepare(
+          "UPDATE learning_authority_operations SET cursor=?,sealed=? WHERE operation_id=?",
+        )
+        .bind(cursor, Number(sealed), op.operation_id)
+        .run();
+    }
     const snapshot = () => ({
       request: f.memory.sqlite
         .prepare(
@@ -255,6 +293,9 @@ export async function revalidationFixture(
       ids,
       transitionId,
       action,
+      actor,
+      grant,
+      persistPage,
       snapshot,
       advance: () => {
         clock += 65000;
