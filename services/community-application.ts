@@ -854,6 +854,7 @@ export async function communityFetch(
           text(body.id, 64),
           text(body.signature, 32768),
           ports.verifyLogin,
+          (ports.now ?? Date.now)(),
         );
         // The V4 sign-in is only stored: it is relayed when the learner
         // first starts Study or Karaoke work, never at login.

@@ -34,7 +34,8 @@ test(
           super(ctx,env);
           const config=JSON.parse(env.CONFIG),now=()=>Number(env.CLOCK),origin=config.app.origin;
           const unavailable=async()=>{throw Error('fixture_projection_unavailable')};
-          const reads={profile:JSON.parse(env.PROFILE),
+          const profile=JSON.parse(env.PROFILE);profile.deploymentBlock=BigInt(profile.deploymentBlock);
+          const reads={profile,
             client:createPublicClient({transport:custom({request:async args=>{
               const response=await env.PUBLIC_RPC.fetch('https://fixture.internal/rpc',{method:'POST',body:JSON.stringify(args)});
               if(!response.ok)throw Error('fixture_rpc_unavailable');return response.json();
@@ -92,7 +93,11 @@ test(
           d1Persist: join(directory, "d1"),
           bindings: {
             CONFIG: JSON.stringify(shared.config),
-            PROFILE: JSON.stringify(shared.ports.publicReads!.profile),
+            PROFILE: JSON.stringify({
+              ...shared.ports.publicReads!.profile,
+              deploymentBlock:
+                shared.ports.publicReads!.profile.deploymentBlock.toString(),
+            }),
             CLOCK: String(shared.clock()),
             GENERATION: String(generation),
             OPERATOR_ADDRESS: shared.env.KARAOKE_OPERATOR_ADDRESS!,
