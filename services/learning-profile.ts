@@ -31,6 +31,7 @@ export function admittedLearningProfile(env: Env) {
   }
   const configuredTargets = fresh
     ? address(env.RESULTS_V4_CONTRACT) &&
+      env.RECORDS_CONTRACT === undefined &&
       env.RESULTS_V2_CONTRACT === undefined &&
       env.RESULTS_V3_CONTRACT === undefined
     : address(env.RESULTS_V2_CONTRACT) &&

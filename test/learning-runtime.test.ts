@@ -329,6 +329,8 @@ test("fresh V4 admission requires explicit first-use caps and refuses historical
   } as Env;
   assert.equal(admittedLearningProfile(env), true);
   for (const change of [
+    { RECORDS_CONTRACT: accounts[0].address },
+    { RECORDS_CONTRACT: "" },
     { RESULTS_V2_CONTRACT: accounts[0].address },
     { RESULTS_V3_CONTRACT: accounts[2].address },
     { RESULTS_V4_CONTRACT: undefined },
