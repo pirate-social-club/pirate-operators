@@ -424,7 +424,10 @@ test(
     assert.equal(failures[0].reason, "encoder_failed");
     assert.throws(
       () => boundary.assertFinalized(),
-      (error) => error === failures[0],
+      (error) =>
+        error instanceof VideoCaptureError &&
+        error.reason === failures[0].reason &&
+        error.message === failures[0].message,
     );
   },
 );
