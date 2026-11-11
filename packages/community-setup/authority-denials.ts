@@ -1,3 +1,4 @@
+import { requireAuthorityValidation } from "./authority-validation.ts";
 import { validateAuthorityOriginalAccount } from "./authority-originals.ts";
 import { check, digest } from "../protocol/index.ts";
 import {
@@ -21,6 +22,8 @@ export function authorityDenialTransition(options: {
   wake(): Promise<void>;
   deny(
     value: TelegramStudyDenial,
+    /** Required transport hook: after issuer signing, immediately before fetch. */
+    beforeSend: () => Promise<void>,
   ): Promise<{ recorded: true; denialHash: string }>;
 }): AuthorityTransitionPort {
   const { db } = options;
@@ -30,6 +33,7 @@ export function authorityDenialTransition(options: {
       const op = await authorityOperation(db, request.operationId);
       authorityReady(op);
       await assertAuthorityOriginalsUnchanged(db, op);
+      await requireAuthorityValidation(db, op);
       const action = JSON.parse(op.request_json) as AuthorityAction;
       check(
         digest(action.target) === digest(options.target),
@@ -48,6 +52,7 @@ export function authorityDenialTransition(options: {
       const op = await authorityOperation(db, id);
       authorityReady(op);
       await assertAuthorityOriginalsUnchanged(db, op);
+      await requireAuthorityValidation(db, op);
       const action = JSON.parse(op.request_json) as AuthorityAction;
       check(
         digest(action.target) === digest(options.target),
@@ -88,6 +93,7 @@ export function authorityDenialTransition(options: {
         }
         await options.wake();
         await assertAuthorityOriginalsUnchanged(db, op);
+        await requireAuthorityValidation(db, op);
         const original = await db
           .prepare(
             "SELECT account_id,subject FROM learning_authorizations WHERE authorization_id=? AND account_id=?",
@@ -100,7 +106,24 @@ export function authorityDenialTransition(options: {
         } catch {
           authorityReady(false);
         }
-        const receipt = await options.deny(denial);
+        await requireAuthorityValidation(db, op);
+        const beforeSend = async () => {
+          await requireAuthorityValidation(db, op);
+          const retained = await db
+            .prepare(
+              "SELECT account_id,subject FROM learning_authorizations WHERE authorization_id=? AND account_id=?",
+            )
+            .bind(authorizationId, op.account_id)
+            .first<{ account_id: string; subject: string }>();
+          authorityReady(retained);
+          try {
+            await validateAuthorityOriginalAccount(db, retained);
+          } catch {
+            authorityReady(false);
+          }
+          await requireAuthorityValidation(db, op);
+        };
+        const receipt = await options.deny(denial, beforeSend);
         check(
           receipt.recorded === true && receipt.denialHash === hash,
           "authority_denial_ack_invalid",
@@ -117,6 +140,7 @@ export function authorityDenialTransition(options: {
       const op = await authorityOperation(db, id);
       authorityReady(op?.sealed);
       await assertAuthorityOriginalsUnchanged(db, op);
+      await requireAuthorityValidation(db, op);
       check(
         digest((JSON.parse(op.request_json) as AuthorityAction).target) ===
           digest(options.target),

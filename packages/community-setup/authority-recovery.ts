@@ -1,3 +1,7 @@
+import {
+  revalidateAuthorityMembers,
+  requireAuthorityValidation,
+} from "./authority-validation.ts";
 import { check, digest } from "../protocol/index.ts";
 import {
   authorityOperation,
@@ -45,6 +49,7 @@ export async function progressAuthorityAction(
   const preparedPage = op.sealed
     ? undefined
     : await freezeAuthorityPage(db, op);
+  if (!(await revalidateAuthorityMembers(db, op))) return op; // Bounded validation continuation, never permanent refusal.
   if (!op.transition_id) {
     const transition = await bridge.beginAuthorityTransition(
       action.scope,
@@ -100,6 +105,7 @@ export async function progressAuthorityAction(
     if (!op.sealed) return op; // Bounded page per scheduler iteration.
   }
   await assertAuthorityOriginalsUnchanged(db, op);
+  await requireAuthorityValidation(db, op);
   await bridge.finishAuthorityTransition(op.transition_id!);
   const live =
     action.kind === "on" ? await ports.observeTurnOn(action) : undefined;
@@ -110,10 +116,14 @@ export async function progressAuthorityAction(
         BigInt(live.revocationNonce) >= BigInt(action.revocationNonce),
       "authority_observation_changed",
     );
+  await requireAuthorityValidation(db, op);
   const nonce = live?.revocationNonce ?? action.revocationNonce;
   const stillOwns = `EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)
     AND EXISTS(SELECT 1 FROM learning_authority_operations o WHERE o.operation_id=?2 AND o.sealed=1
       AND o.original_revision=COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?1),0)
+      AND EXISTS(SELECT 1 FROM learning_authority_validation v WHERE v.operation_id=o.operation_id AND v.policy=1 AND v.complete=1
+        AND v.original_revision=o.original_revision AND v.member_revision=o.member_revision
+        AND v.credential_revision=COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=?1),0))
       ${action.kind === "on" ? "AND o.dirty_version=(SELECT version FROM learning_authority_dirty WHERE account_id=?1)" : ""})`;
   const owns =
     stillOwns +

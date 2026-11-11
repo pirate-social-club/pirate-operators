@@ -1,3 +1,73 @@
+# Linked withdrawal repair3 — retained credential-validation provenance
+
+Exact source base is `fe385519aef10fe4d2cf5ce1e73f4486fdbafff4`.
+The coordinator's repair2 composition and root/web types plus56 focused passes
+are dated predecessor evidence. The remaining held P1 concerns old frozen
+membership and queued denials, including sealed or already-advanced operations.
+All older sealed evidence remains byte-for-byte unchanged. Repair3 artifacts
+live only in `.local/onboarding-linked-withdrawals-repair3`.
+
+A new durable validation journal records a source-versioned policy, original,
+credential and membership revisions, generation, keyset cursor and completion.
+Every pending operation, sealed or not, validates ALL retained members, including
+already-ACKed and earlier pages, before a delivery/finish callback. Each pass
+reads at most50 members plus one indexed continuation probe, validates complete
+retained canonical originals and exact account credentials, and advances its
+cursor only by a generation/revision CAS. Missing provenance never inherits an
+old authorization decision. Failed or stale passes retain their obligations.
+Partial passes keep the operation pending with an armed recovery wake; they do
+not become a permanent refusal. No frozen request, original, proof or denial is
+rewritten to repair bad legacy data.
+
+Credential revisions advance atomically on canonical binding identity changes;
+membership revisions advance on inserts/deletes or identity changes, not ACKs.
+Changed snapshots restart the bounded pass. Completion and both settings effects
+also compare this provenance inside their existing SQL CAS. A new valid page may
+require additional bounded passes over retained members; tests drain to the
+actual completed state with a finite bound rather than assuming a call count.
+The canonical lowercase/unique MOSS6343 credential constraints remain intact.
+The existing corrupt-import ambiguity lookup regression is retained; sealed
+recovery additionally covers missing and changed canonical bindings.
+
+The NEW protected successor proposal makes managed authority transitions require
+`authorityValidation: request => validateManagedAuthorityDelivery(db, request)`.
+The port binds the exact retained transition ID, immutable action/request hash,
+account, community scope/generation, original target and queued denial to D1
+membership and current credentials. It runs after issuer signing and immediately
+before each irreversible denial fetch, and before transition completion, through
+both explicit finish and independent recover/alarm. A missing port holds legacy
+work. A denial not in retained membership holds. Other Telegram lifecycle kinds
+retain their existing authority rules. The selective historical bridge retains
+its narrow authorization-only scope and requires its transport to invoke the
+supplied `beforeSend` guard after signing; the exact client proposal supplies
+that hook. This adds no runtime mount, action endpoint or connected marker.
+
+The unpublished numbered18 proposal adds the validation journal, membership
+counter/triggers, credential revision heads/triggers and transition lookup index.
+It is a delta against exactfe385519 plus a full resulting SQL text. No protected
+file or migration was edited and no SQL was executed by this actor. New tests
+read the actual coordinator-composed numbered18 file as one native SQLite script;
+that does not qualify a D1 migration/upgrade runner. Existing semicolon-splitting
+migration helpers cannot parse trigger bodies and remain an explicit gate. Do
+not replace this gate with hand-executed exported source DDL or call a local
+replacement an executed upgrade.
+
+Prepared regressions use actual recovery, native SQLite/D1 modeling, actual
+Telegram journal/bridge, issuer signing and request verification with explicit
+mocked operator receipts. They reconstruct the legacy59908a wrong-learner-under-
+account state at a sealed boundary and after a full advanced page; prove no
+new wrong selection, denial or ACK; cover independent recovery, positive sealed
+multipage recovery, credential removal/change and repair retry, deferred stale
+validation, lost-CAS-response restart and missing required composition. These
+repair3 tests and all type/build/package/Worker/browser/Forge gates are UNRUN.
+Only the isolation probe, pinned formatter and git diff --check run. Actual
+numbered18, trigger-aware D1 migration, authenticated action/original-target
+issuer bridge, runtime/source/alarm/connected selection and full/provider/device/
+fresh-account/second-community acceptance remain held. UI and release source
+are outside this repair, and no transfer/Send was repeated.
+
+---
+
 # Linked withdrawal repair2 — four finding successor
 
 This delta starts at coordinator candidate

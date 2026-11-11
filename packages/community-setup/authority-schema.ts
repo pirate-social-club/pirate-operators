@@ -1,3 +1,4 @@
+import { AUTHORITY_VALIDATION_SCHEMA } from "./authority-validation-schema.ts";
 import { INVALID_AUTHORITY_ORIGINAL } from "./authority-originals.ts";
 /** Schema for the coordinator-owned numbered18 candidate, never runtime
  * auto-migration. Repair2 proposes a current-base delta; fixtures may apply
@@ -11,7 +12,7 @@ CREATE TABLE learning_authority_operations(
  operation_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, action_id TEXT NOT NULL,
  request_json TEXT NOT NULL CHECK(json_valid(request_json)), epoch INTEGER NOT NULL,
  cursor TEXT, sealed INTEGER NOT NULL DEFAULT 0, complete INTEGER NOT NULL DEFAULT 0,
- transition_id TEXT, error TEXT, dirty_version INTEGER, original_revision INTEGER, updated_at INTEGER NOT NULL,
+ transition_id TEXT, error TEXT, dirty_version INTEGER, original_revision INTEGER, member_revision INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL,
  UNIQUE(account_id,action_id)
 );
 CREATE INDEX learning_authority_pending ON learning_authority_operations(complete,updated_at,operation_id);
@@ -77,4 +78,5 @@ CREATE TRIGGER learning_authority_off_update AFTER UPDATE OF public_results_with
  ON CONFLICT(account_id) DO UPDATE SET updated_at=0,version=version+1; END;
 INSERT INTO learning_authority_dirty(account_id,updated_at)
  SELECT account_id,0 FROM learning_settings WHERE public_results_withdrawn_at IS NOT NULL;
+${AUTHORITY_VALIDATION_SCHEMA}
 `;

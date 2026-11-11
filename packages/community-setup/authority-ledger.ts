@@ -50,6 +50,7 @@ export interface AuthorityOperation {
   updated_at: number;
   dirty_version: number | null;
   original_revision: number | null;
+  member_revision: number;
 }
 export interface AuthorityPage {
   cursor: string | null;

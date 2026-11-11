@@ -235,6 +235,18 @@ async function fixture() {
     wakes: () => wakes,
   };
 }
+/** Recovery now includes durable bounded validation passes; no fixed call
+ * count is a substitute for a completed operation. Keep a finite drain bound. */
+async function drainAuthority(
+  f: Awaited<ReturnType<typeof fixture>>,
+  id: string,
+) {
+  for (let step = 0; step < 30; step++) {
+    const op = await progressAuthorityAction(f.db, id, { ...f.ports });
+    if (op.complete) return;
+  }
+  assert.fail("authority recovery did not finish within bounded fixture drain");
+}
 test("several SQL pages retain all original IDs without publication rows and exact lost-ack retry survives service recreation", async () => {
   const f = await fixture();
   try {
@@ -247,8 +259,7 @@ test("several SQL pages retain all original IDs without publication rows and exa
       /lost_append_ack/,
     );
     assert.equal((await readAuthorityState(f.db, "a")).pending, true);
-    for (let i = 0; i < 4; i++)
-      await progressAuthorityAction(f.db, op.operation_id, { ...f.ports });
+    await drainAuthority(f, op.operation_id);
     assert.equal((await readAuthorityState(f.db, "a")).pending, false);
     assert.equal(
       f.memory.sqlite
@@ -846,7 +857,7 @@ test("invalid guard and 50-row keyset pages use their actual SQL indexes through
         .get()!.n,
       100,
     );
-    await progressAuthorityAction(f.db, op.operation_id, { ...f.ports });
+    await drainAuthority(f, op.operation_id);
     assert.equal(
       f.memory.sqlite.prepare("SELECT count(*) n FROM denials").get()!.n,
       123,
