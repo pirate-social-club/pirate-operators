@@ -167,13 +167,16 @@ export function makeStudyService(options: {
             takeNumber: row.take_number!,
             durationMs: row.audio_duration_ms,
           };
-          const assessor = await options.assessor?.(context);
-          const receipt = await (
-            assessor
-              ? assessor.recover(context, row.audio_digest)
-              : (options.transcriber.recover?.(context, row.audio_digest) ??
-                Promise.resolve(null))
-          ).catch(() => null);
+          const receipt = await (async () => {
+            // Missing legacy context is not evidence of a failed dispatch.
+            // Hold recovery without a raw transcriber fallback; closure can
+            // still record the original attempted work as unmeasured.
+            const assessor = await options.assessor?.(context);
+            return assessor
+              ? assessor.recover(context, row.audio_digest!)
+              : (options.transcriber.recover?.(context, row.audio_digest!) ??
+                  Promise.resolve(null));
+          })().catch(() => null);
           if (receipt)
             return store.finish(
               owner,
