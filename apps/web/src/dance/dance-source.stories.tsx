@@ -41,7 +41,7 @@ async function button(root: HTMLElement, label: string) {
       requestAnimationFrame(() => resolve()),
     );
   }
-  throw Error("Expected source button: " + label);
+  throw new globalThis.Error("Expected source button: " + label);
 }
 async function frame(root: HTMLElement) {
   (await button(root, "Open dance 1")).click();
@@ -49,7 +49,7 @@ async function frame(root: HTMLElement) {
   (await button(root, "Accept and continue")).click();
   await button(root, "Record");
   if (root.textContent?.includes("opening cue"))
-    throw Error("No-pose source must not invent a cue");
+    throw new globalThis.Error("No-pose source must not invent a cue");
 }
 export const ChooseAndFrame = {
   render: render("camera"),
@@ -71,9 +71,11 @@ export const RecordAndReview = {
       submit.disabled ||
       !root.querySelector('video[aria-label="Your private recording"]')
     )
-      throw Error("Explicit source take preview/submission required");
+      throw new globalThis.Error(
+        "Explicit source take preview/submission required",
+      );
     if (root.textContent?.includes("Show publicly if it passes"))
-      throw Error("Held public choice must not be enabled");
+      throw new globalThis.Error("Held public choice must not be enabled");
   },
 };
 export const SavedOriginal = {
@@ -88,7 +90,7 @@ export const SavedOriginal = {
         (b) => b.textContent?.trim() === "Record",
       )
     )
-      throw Error("Recovery cannot recapture");
+      throw new globalThis.Error("Recovery cannot recapture");
   },
 };
 export const UnknownSubmission = {
@@ -100,7 +102,7 @@ export const UnknownSubmission = {
     (await button(root, "Resume submission")).click();
     await button(root, "Done");
     if (root.textContent?.includes("Passed"))
-      throw Error("An acknowledged submission is not a verdict");
+      throw new globalThis.Error("An acknowledged submission is not a verdict");
   },
 };
 export const PermissionRefused = { render: render("permission") };
@@ -117,7 +119,9 @@ export const DeniedAfterPrivateLoad = {
     window.dispatchEvent(new Event("online"));
     await button(root, "Sign in");
     if (root.querySelector("video"))
-      throw Error("Denial must clear private camera/media/result state");
+      throw new globalThis.Error(
+        "Denial must clear private camera/media/result state",
+      );
   },
 };
 export const Loading = { render: render("loading") };

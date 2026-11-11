@@ -309,3 +309,42 @@ test("only definite expired submission permits reset; unknown transport remains 
       await assert.rejects(prep.closeTerminal(signal()), /resolution_unproven/);
   }
 });
+
+test("actual recorder command recovery retains original capture and returns consent view without opening camera", async () => {
+  const f = simulatedSource();
+  await f.seed({ captureUnknown: true });
+  f.setRetained({
+    version: 1,
+    scope: { accountId: scope.accountId, communityId: scope.communityId },
+    commandId: "original_capture_command",
+    path: "captures",
+    subject: "capture",
+    bodyJson: "{}",
+    receiptJson: JSON.stringify(f.c),
+  });
+  let cameraCalls = 0;
+  const recorder = createDanceRecorder({
+    ...f.ports,
+    storage: simulatedRecordingStorage().storage,
+    openCamera: async () => {
+      cameraCalls++;
+      throw new Error("recovery cannot request a camera");
+    },
+  });
+  try {
+    const result = await recorder.recover(
+      consent.termsHash,
+      signal(),
+      () => {},
+    );
+    assert.equal(result.kind, "objectives");
+    assert.equal(cameraCalls, 0);
+    assert.equal(
+      (await f.journey.store.read(scope, () => {})).capture?.captureHash,
+      f.c.captureHash,
+    );
+    assert.equal(f.calls.includes("reset"), false);
+  } finally {
+    recorder.dispose();
+  }
+});

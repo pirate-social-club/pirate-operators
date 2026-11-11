@@ -72,7 +72,10 @@ for (const elapsed of [0, 25, 250])
         assertCurrent: () => {},
       },
       {
-        prepareSource: async () => a.source,
+        prepareSource: async (songKey) => {
+          assert.equal(songKey, f.c.songKey);
+          return a.source;
+        },
         createAudioContext: () => a.audio,
         nowMs: () => 1000,
       },

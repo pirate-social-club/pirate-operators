@@ -43,7 +43,6 @@ export async function prepareDanceCaptureGuide(
   const {
     session_id: sessionId,
     terms_hash: termsHash,
-    song_post_id: postId,
     body_start_ms: bodyStartMs,
     body_end_ms: bodyEndMs,
   } = input.context.session;
@@ -51,6 +50,7 @@ export async function prepareDanceCaptureGuide(
     canonical_song_start_ms: songStartMs,
     canonical_song_end_ms: songEndMs,
   } = input.context.reference;
+  const songKey = input.context.session.capture.songKey;
   const noPose = isNoPoseDanceWindow(input.context.session);
   const current = () => {
     signal.throwIfAborted();
@@ -116,7 +116,7 @@ export async function prepareDanceCaptureGuide(
       throw new Error("dance_guide_unavailable");
     if (!dependencies.prepareSource)
       throw new Error("dance_guide_port_unavailable");
-    source = await dependencies.prepareSource(postId, signal);
+    source = await dependencies.prepareSource(songKey, signal);
     current();
     if (new URL(source.url).protocol !== "blob:")
       throw new Error("dance_guide_unavailable");

@@ -378,6 +378,10 @@ export function createDanceRecorder(
         const recovered = await preparation.recover(policyHash, signal);
         current(signal);
         supported(recovered);
+        // Recovery cannot silently enter the camera/guide path. The separate
+        // deliberate Accept operation owns conversion of capture readiness.
+        if (recovered.kind === "capture_ready")
+          throw new Error("dance_recorder_state_inconsistent");
         return recovered;
       });
     },
