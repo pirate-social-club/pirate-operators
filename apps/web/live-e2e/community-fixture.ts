@@ -277,7 +277,7 @@ export async function serveCommunity(
       return json({ error: "session_required" }, 401);
     if (path === "/api/uploads" && method === "GET")
       return json({
-        uploads: releases.toReversed().map((row) => ({
+        uploads: [...releases].reverse().map((row) => ({
           submissionId: row.submissionId,
           postId: row.postId,
           title: row.body.title,
