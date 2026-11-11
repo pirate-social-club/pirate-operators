@@ -21,8 +21,10 @@
     "@megaeth-labs/wallet-sdk": "1.0.8",
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
     "@solidjs/web": "2.0.0-rc.0",
+    "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
-    "solid-js": "2.0.0-rc.0"
+    "solid-js": "2.0.0-rc.0",
+    "xstate": "5.33.2"
   },
   "devDependencies": {
     "@ipld/car": "5.4.7",
