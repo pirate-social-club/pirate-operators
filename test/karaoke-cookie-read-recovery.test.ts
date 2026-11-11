@@ -45,6 +45,7 @@ async function original(f: Fixture, stage: "missing" | "interrupted") {
   const response = await f.create();
   assert.notEqual(response.status, 200);
   const rejected = await response.json();
+  assert.ok(rejected !== null && typeof rejected === "object");
   assert.equal(Object.hasOwn(rejected, "proof"), false);
   const state = await f.walletState();
   assert.ok(state.open?.recoveryScope);

@@ -28,15 +28,19 @@ export async function get<T>(
       : {}),
   });
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403)
+      throw new Error(
+        response.status === 401
+          ? "Sign in to continue."
+          : "The community is temporarily unavailable. Please try again.",
+      );
     const error = (await response.json().catch(() => ({}))) as {
       error?: string;
     };
     throw new Error(
-      response.status === 401
-        ? "Sign in to continue."
-        : error.error === "study_account_changed"
-          ? messages.study_account_changed
-          : "The community is temporarily unavailable. Please try again.",
+      error.error === "study_account_changed"
+        ? messages.study_account_changed
+        : "The community is temporarily unavailable. Please try again.",
     );
   }
   return response.json() as Promise<T>;
@@ -88,8 +92,7 @@ const messages: Record<string, string> = {
     "You are signed in with a different account. Reload to continue.",
   karaoke_authorization_pending:
     "Your sign-in is still being confirmed. Try again in a moment.",
-  karaoke_authorization_required:
-    "Sign out, then sign in again to continue.",
+  karaoke_authorization_required: "Sign out, then sign in again to continue.",
   public_results_unavailable: "Public results settings are unavailable here.",
   reward_unmatched_outgoing:
     "Review the unmatched outgoing transfer before preparing another payment.",
