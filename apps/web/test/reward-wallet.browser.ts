@@ -1,70 +1,84 @@
-// Simulated browser evidence only. No real provider, signer, chain or palm action.
-import { test, expect, type Page } from "@playwright/test";
-import { readFile } from "node:fs/promises";
-import { resolve, extname } from "node:path";
+// Queued accepted-composition cases; simulated ports only, no provider/body acceptance.
+import { test, expect } from "@playwright/test";
+import {
+  walletFixture as fixture,
+  walletOrigin as origin,
+  recipient,
+  count,
+  reviewQuoted,
+} from "./reward-wallet-owner-browser-helpers.ts";
 
-const origin = "https://wallet.example",
-  recipient = `0x${"22".repeat(20)}`;
-async function fixture(page: Page, mode = "") {
-  const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.route(`${origin}/**`, async (route) => {
-    const path = new URL(route.request().url()).pathname;
-    const file = resolve(
-      "../../.local/wallet-browser-dist",
-      path.startsWith("/app/assets/")
-        ? path.slice(1)
-        : "reward-wallet.fixture.html",
-    );
-    await route.fulfill({
-      body: await readFile(file),
-      contentType:
-        extname(file) === ".js"
-          ? "text/javascript"
-          : extname(file) === ".css"
-            ? "text/css"
-            : "text/html",
+for (const [name, width, height] of [
+  ["desktop", 1440, 1000],
+  ["phone", 390, 844],
+] as const) {
+  test(`accepted WalletPortfolio/WalletHub and ReceiveSheet on ${name}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    const errors = await fixture(page);
+    await expect(
+      page.getByRole("heading", { name: "Wallet", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Assets", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Your wallets", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Refresh balances" }),
+    ).toBeVisible();
+    await expect(page.getByText(/Pending rewards: \$0.03/)).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Lottery winnings" }),
+    ).toHaveCount(0);
+    await page.screenshot({
+      path: test.info().outputPath(`wallet-${name}.png`),
+      fullPage: true,
     });
+    await page.getByRole("button", { name: "Receive", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Receive", exact: true });
+    await expect(
+      dialog.getByText("0x" + "11".repeat(20), { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByText("MegaETH testnet address", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByRole("button", { name: "Copy address" }),
+    ).toBeVisible();
+    if (width > 600)
+      await expect
+        .poll(async () => Math.round((await dialog.boundingBox())!.width))
+        .toBe(480);
+    else
+      await expect
+        .poll(async () =>
+          Math.abs(
+            (await dialog.boundingBox())!.y +
+              (await dialog.boundingBox())!.height -
+              height,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
+    expect(await count(page, "fixture_sends")).toBe(0);
+    expect(await count(page, "fixture_guard_calls")).toBe(0);
+    await page.screenshot({
+      path: test.info().outputPath(`receive-${name}.png`),
+      fullPage: true,
+    });
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    expect(errors).toEqual([]);
   });
-  await page.goto(`${origin}/wallet${mode ? `?fixture=${mode}` : ""}`);
-  return errors;
 }
-const count = (page: Page, key: string) =>
-  page.evaluate((key) => Number(localStorage.getItem(key) ?? "0"), key);
-
-test("phone wallet separates winnings from spendable balance and Receive shows the exact network/address with no wallet action", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const errors = await fixture(page);
-  await expect(
-    page.getByText("Pending rewards: $0.03", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(/Action needed: verify your palm to claim/),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Receive", exact: true }).click();
-  await expect(page.getByAltText("Your wallet address QR code")).toBeVisible();
-  await expect(page.getByLabel("Your wallet address")).toHaveValue(
-    `0x${"11".repeat(20)}`,
-  );
-  await expect(
-    page.getByText("Receive test USDm on MegaETH testnet (6343)."),
-  ).toBeVisible();
-  expect(await count(page, "fixture_sends")).toBe(0);
-  expect(await count(page, "fixture_guard_calls")).toBe(0);
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true);
-  expect(errors).toEqual([]);
-  await page.screenshot({
-    path: "../../.local/evidence/wallet-receive-phone.png",
-    fullPage: true,
-  });
-});
-test("palm reload resumes the same verification, then claim is accepted without a second verification", async ({
+test("palm return resumes the same intent and source WalletWinnings claims the credit once", async ({
   page,
 }) => {
   const errors = await fixture(page);
@@ -81,126 +95,147 @@ test("palm reload resumes the same verification, then claim is accepted without 
   expect(await count(page, "fixture_intents")).toBe(1);
   await page.evaluate(() => localStorage.setItem("fixture_verified", "true"));
   await expect(
-    page.getByText(/Claim accepted. Waiting for payment/),
+    page.getByText("Awaiting payment. Payments are processed daily.", {
+      exact: true,
+    }),
   ).toBeVisible();
-  expect(await count(page, "fixture_intents")).toBe(1);
   expect(await count(page, "fixture_claims")).toBe(2);
+  expect(await count(page, "fixture_intents")).toBe(1);
   await page.reload();
   await expect(
-    page.getByText(/Claim accepted. Waiting for payment/),
+    page.getByText("Awaiting payment. Payments are processed daily.", {
+      exact: true,
+    }),
   ).toBeVisible();
   expect(await count(page, "fixture_claims")).toBe(2);
   expect(errors).toEqual([]);
 });
-test("hosted Send is repeatable explicit navigation and never replays after reload or opening history", async ({
+test("confirmed payout is separate from balance, pending zero and no extra claim or Send", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("fixture_claimed", "true");
+    localStorage.setItem("fixture_paid", "true");
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await fixture(page);
+  await expect(
+    page.getByText("Sent to your wallet", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Pending rewards: $0.00", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Verify to claim" }),
+  ).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(await count(page, "fixture_claims")).toBe(0);
+  expect(await count(page, "fixture_sends")).toBe(0);
+  expect(errors).toEqual([]);
+});
+test("hosted Send is explicit navigation; reload/history never replays a transfer or creates guarded intent", async ({
   page,
   context,
 }) => {
   const errors = await fixture(page);
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByText(/Max reserves a fee allowance/)).toBeVisible();
-  await page.getByRole("button", { name: "Continue in MOSS" }).click();
-  await expect(page.getByText(/Check MOSS history for any Send/)).toBeVisible();
-  expect(await count(page, "fixture_sends")).toBe(1);
+  let dialog = page.getByRole("dialog", { name: "Send test USDm" });
+  await expect(dialog.getByText(/Max reserves a fee allowance/)).toBeVisible();
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Continue in MOSS", exact: true })
+    .click();
+  await expect(
+    dialog.getByText(/Check MOSS history for any Send/),
+  ).toBeVisible();
   await page.reload();
   expect(await count(page, "fixture_sends")).toBe(1);
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Continue in MOSS" }),
-  ).toBeEnabled();
   const other = await context.newPage();
   await fixture(other);
   await other.getByRole("button", { name: "Send", exact: true }).click();
-  await other.getByRole("button", { name: "Open MOSS history" }).click();
+  dialog = other.getByRole("dialog", { name: "Send test USDm" });
+  await dialog.getByRole("button", { name: "Open MOSS history" }).click();
   await expect.poll(() => count(page, "fixture_history")).toBe(1);
   expect(await count(page, "fixture_sends")).toBe(1);
-  await other.evaluate(() =>
-    localStorage.setItem("fixture_sdk_status", "approved"),
-  );
-  await other.getByRole("button", { name: "Continue in MOSS" }).click();
-  await expect.poll(() => count(page, "fixture_sends")).toBe(2);
-  await expect(
-    other.getByRole("button", { name: "Continue in MOSS" }),
-  ).toBeEnabled();
+  expect(await count(page, "fixture_prepares")).toBe(0);
   expect(errors).toEqual([]);
 });
-test("changing the wallet session closes Receive and reloads before rendering the next identity", async ({
+test("changed account closes old Receive and reloads before showing the next identity", async ({
   page,
 }) => {
   const errors = await fixture(page);
   await page.getByRole("button", { name: "Receive", exact: true }).click();
-  await expect(page.getByAltText("Your wallet address QR code")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Receive" })).toBeVisible();
   await page.evaluate(() => {
     localStorage.setItem("fixture_account", "0x" + "22".repeat(20));
     history.replaceState(null, "", "/wallet?claim=credit_0001");
   });
-  const navigated = page.waitForEvent(
-    "framenavigated",
-    (frame) => frame === page.mainFrame(),
-  );
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await navigated;
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Refresh balances", exact: true })
+    .click();
   await expect(page).toHaveURL(origin + "/wallet");
-  await expect(
-    page.getByRole("button", { name: "Receive", exact: true }),
-  ).toBeEnabled();
-  await expect(page.getByAltText("Your wallet address QR code")).toHaveCount(0);
   await page.getByRole("button", { name: "Receive", exact: true }).click();
-  await expect(page.getByLabel("Your wallet address")).toHaveValue(
-    "0x" + "22".repeat(20),
-  );
-  await expect(page.getByAltText("Your wallet address QR code")).toBeVisible();
-  expect(errors).toEqual([]);
-});
-test("late QR completion for the prior identity cannot overwrite Receive for a new identity", async ({
-  page,
-}) => {
-  const errors = await fixture(page, "receive-switch");
-  await page.waitForFunction(
-    () =>
-      typeof (window as unknown as { releaseReceiveA?: unknown })
-        .releaseReceiveA === "function",
-  );
-  await page.getByRole("button", { name: "Switch fixture account" }).click();
-  await expect(page.getByLabel("Your wallet address")).toHaveValue(
-    "0x" + "22".repeat(20),
-  );
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("fixture_qr_b")))
-    .not.toBeNull();
-  const expected = await page.evaluate(() =>
-    localStorage.getItem("fixture_qr_b"),
-  );
+  const dialog = page.getByRole("dialog", { name: "Receive" });
   await expect(
-    page.getByAltText("Your wallet address QR code"),
-  ).toHaveAttribute("src", expected!);
-  await page.evaluate(async () => {
-    (window as unknown as { releaseReceiveA(): void }).releaseReceiveA();
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => resolve()),
-    );
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => resolve()),
-    );
-  });
-  await expect(
-    page.getByAltText("Your wallet address QR code"),
-  ).toHaveAttribute("src", expected!);
-  expect(errors).toEqual([]);
-});
-test("quoted Max reviews recipient amount and fee separately; reload/retry retains the frozen guard", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  const errors = await fixture(page, "quoted");
-  await page.getByLabel("Recipient wallet address").fill(recipient);
-  await page.getByRole("button", { name: "Max", exact: true }).click();
-  await expect(
-    page.getByText("Recipient receives $0.028 test USDm."),
+    dialog.getByText("0x" + "22".repeat(20), { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText(/Fee reserve: 0.002 USDm/)).toBeVisible();
-  await page.getByRole("button", { name: "Approve Send in wallet" }).click();
-  await expect(page.getByText("Send submitted.")).toBeVisible();
+  await expect(
+    dialog.getByText("0x" + "11".repeat(20), { exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+test("late clipboard completion cannot mark another identity as copied", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) =>
+            Object.assign(window, { releaseCopyOld: resolve }),
+          ),
+      },
+    }),
+  );
+  const errors = await fixture(page, "receive-switch");
+  const dialog = page.getByRole("dialog", { name: "Receive" });
+  await dialog.getByRole("button", { name: "Copy address" }).click();
+  await page.evaluate(() => dispatchEvent(new Event("fixture-account-switch")));
+  await expect(
+    dialog.getByText("0x" + "22".repeat(20), { exact: true }),
+  ).toBeVisible();
+  await page.evaluate(() =>
+    (window as unknown as { releaseCopyOld(): void }).releaseCopyOld(),
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Copy address", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Copied", exact: true }),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+test("quoted Max reviews exact fee/recipient; reload and explicit retry keep the frozen guard", async ({
+  page,
+}) => {
+  const errors = await fixture(page, "quoted"),
+    dialog = await reviewQuoted(page);
+  await dialog
+    .getByRole("button", { name: "Authorize send", exact: true })
+    .click();
+  await expect(
+    dialog.getByText(/The network is checking this send/),
+  ).toBeVisible();
+  const before = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("fixture_intent")!).payment.guardNonce,
+  );
   const request = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("fixture_guard_request")!),
   );
@@ -209,10 +244,6 @@ test("quoted Max reviews recipient amount and fee separately; reload/retry retai
   expect(request.sponsor).toBe(false);
   expect(request.data).toContain(
     `a9059cbb${recipient.slice(2).padStart(64, "0")}${28000000000000000n.toString(16).padStart(64, "0")}`,
-  );
-  const before = await page.evaluate(
-    () =>
-      JSON.parse(localStorage.getItem("fixture_intent")!).payment.guardNonce,
   );
   await page.reload();
   await page.getByRole("button", { name: "Review same guarded Send" }).click();
@@ -224,58 +255,59 @@ test("quoted Max reviews recipient amount and fee separately; reload/retry retai
         JSON.parse(localStorage.getItem("fixture_intent")!).payment.guardNonce,
     ),
   ).toBe(before);
-  await page.getByRole("button", { name: "Check Send status" }).click();
-  await expect(page.getByText("Send confirmed.")).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
+  await page
+    .getByRole("button", { name: "Refresh status", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "This send is confirmed. The test USDm arrived at the recipient.",
     ),
-  ).toBe(true);
+  ).toBeVisible();
   expect(errors).toEqual([]);
-  await page.screenshot({
-    path: "../../.local/evidence/wallet-max-phone.png",
-    fullPage: true,
-  });
 });
-test("lost prepare response forces recovery of the same server intent before any new quote", async ({
+test("lost prepare response recovers the server intent before any fresh details or signing", async ({
   page,
 }) => {
   await fixture(page, "quoted");
   await page.evaluate(() =>
     localStorage.setItem("fixture_prepare_failure", "true"),
   );
-  await page.getByLabel("Recipient wallet address").fill(recipient);
-  await page.getByLabel("Amount, dollars").fill("0.001");
-  await page.getByRole("button", { name: "Review Send", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Max", exact: true }),
-  ).toHaveCount(0);
-  await page.getByRole("button", { name: "Refresh Send status" }).click();
-  await expect(
-    page.getByText("Recipient receives $0.001 test USDm."),
-  ).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Send test USDm" });
+  await dialog.getByLabel("Send to", { exact: true }).fill(recipient);
+  await dialog.getByLabel("Amount (test USDm)").fill("0.001");
+  await dialog.getByRole("button", { name: "Continue", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Authorize send", exact: true })
+    .click();
+  await expect(dialog.getByText(/Nothing was signed/)).toBeVisible();
   expect(await count(page, "fixture_prepares")).toBe(1);
-  await page.getByRole("button", { name: "Cancel prepared Send" }).click();
   await expect(
-    page.getByRole("button", { name: "Max", exact: true }),
-  ).toBeVisible();
+    dialog.getByRole("button", { name: "Max", exact: true }),
+  ).toHaveCount(0);
+  await dialog
+    .getByRole("button", { name: "Cancel prepared Send", exact: true })
+    .click();
+  await dialog.getByRole("button", { name: "New send", exact: true }).click();
+  await expect(dialog.getByLabel("Send to", { exact: true })).toHaveValue("");
   expect(await count(page, "fixture_guard_calls")).toBe(0);
 });
-
-test("cancelling an unresolved guarded Send signs only its frozen nonce, without another transfer", async ({
+test("unresolved guarded cancellation signs only the same nonce and no second token transfer", async ({
   page,
 }) => {
   await fixture(page, "quoted");
-  await page.getByLabel("Recipient wallet address").fill(recipient);
-  await page.getByRole("button", { name: "Max", exact: true }).click();
-  await page.getByRole("button", { name: "Approve Send in wallet" }).click();
-  await expect(page.getByText("Send submitted.")).toBeVisible();
+  const dialog = await reviewQuoted(page);
+  await dialog
+    .getByRole("button", { name: "Authorize send", exact: true })
+    .click();
+  await expect(
+    dialog.getByText(/The network is checking this send/),
+  ).toBeVisible();
   const before = await page.evaluate(
     () =>
       JSON.parse(localStorage.getItem("fixture_intent")!).payment.guardNonce,
   );
-  await page
-    .getByRole("button", { name: "Cancel Send through wallet" })
+  await dialog
+    .getByRole("button", { name: "Cancel Send through wallet", exact: true })
     .click();
   await expect.poll(() => count(page, "fixture_guard_calls")).toBe(2);
   const request = await page.evaluate(() =>

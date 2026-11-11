@@ -5,6 +5,19 @@ const increment = (key: string) =>
     key,
     String(Number(localStorage.getItem(key) ?? "0") + 1),
   );
+function externalWalletFocusDouble() {
+  if (!localStorage.getItem("fixture_moss_focus")) return;
+  const button = document.createElement("button");
+  button.textContent = "Simulated MOSS control";
+  button.style.cssText =
+    "position:fixed;inset:0 auto auto 0;z-index:2147483647;pointer-events:auto;background:white;color:black;padding:16px";
+  button.onclick = () => {
+    increment("fixture_moss_focused");
+    button.remove();
+  };
+  document.body.append(button);
+  button.focus();
+}
 export const mega = {
   async initialise() {},
   async connect() {
@@ -16,6 +29,7 @@ export const mega = {
   async send(request: unknown) {
     increment("fixture_sends");
     localStorage.setItem("fixture_send_request", JSON.stringify(request));
+    externalWalletFocusDouble();
     const status = localStorage.getItem("fixture_sdk_status") ?? "unknown";
     if (status === "unknown") throw Error("simulated lost wallet response");
     return { status };

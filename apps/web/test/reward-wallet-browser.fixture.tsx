@@ -1,12 +1,18 @@
 // Explicit presentation/provider simulation. These facts are not live chain, Very or MOSS evidence.
 import { render } from "@solidjs/web";
 import { createSignal, createMemo } from "solid-js";
-import QRCode from "qrcode";
 import { WalletReceivePanel } from "../src/wallet/receive-panel.tsx";
 import { LiveRewardOperator } from "../src/live/reward-operator.tsx";
 import { LiveRewardWallet } from "../src/live/rewards.tsx";
 import { RewardOfferPanel } from "../src/live/reward-offer-panel.tsx";
 import { WalletSendPanel } from "../src/wallet/send-panel.tsx";
+import { Show } from "solid-js";
+import { WalletSponsoredSendSheet } from "../src/wallet/established/wallet-sponsored-send-sheet.tsx";
+import {
+  sourceSendFixture,
+  sourceSender,
+  sourceReviewStoryDependencies,
+} from "./reward-wallet-owner-flow-doubles.ts";
 import { rewardCloseReadiness } from "../src/wallet/close-readiness.ts";
 import type {
   RewardsData,
@@ -50,11 +56,13 @@ const credit = (): RewardCredit => ({
   token_address: token,
   token_decimals: 18,
   amount_atomic: "30000000000000000",
-  paid_atomic: "0",
+  paid_atomic: localStorage.getItem("fixture_paid") ? "30000000000000000" : "0",
   payment_id: null,
   claim: {
     status: localStorage.getItem("fixture_claimed") ? "accepted" : "unclaimed",
-    payout_status: "awaiting_payment",
+    payout_status: localStorage.getItem("fixture_paid")
+      ? "confirmed"
+      : "awaiting_payment",
   },
 });
 const verification = (): VerificationIntent => ({
@@ -66,6 +74,9 @@ const verification = (): VerificationIntent => ({
 const data: RewardsData = {
   wallet: async () => ({
     ...view,
+    balanceAtomic: localStorage.getItem("fixture_paid")
+      ? "23204550198600016"
+      : view.balanceAtomic,
     address: localStorage.getItem("fixture_account") ?? view.address,
   }),
   credits: async () => [credit()],
@@ -231,7 +242,9 @@ function OperatorFixture(props: { stalled?: boolean }) {
         inventory: {
           received_atomic: "0",
           reserved_atomic: "0",
-          paid_atomic: "0",
+          paid_atomic: localStorage.getItem("fixture_paid")
+            ? "30000000000000000"
+            : "0",
           cost_atomic: "0",
         },
         liabilities: { total: "0", unclaimed: "0", held: "0", accepted: "0" },
@@ -278,33 +291,56 @@ function OperatorFixture(props: { stalled?: boolean }) {
 }
 function ReceiveSwitchFixture() {
   const [wallet, setWallet] = createSignal(view);
-  const next = { ...view, address: "0x" + "22".repeat(20) };
-  const original = QRCode.toDataURL;
-  void original(next.address, { width: 256, margin: 2 }).then((image) =>
-    localStorage.setItem("fixture_qr_b", image),
+  window.addEventListener("fixture-account-switch", () =>
+    setWallet({ ...view, address: "0x" + "22".repeat(20) }),
   );
-  QRCode.toDataURL = (async (
-    text: string,
-    options?: { width?: number; margin?: number },
-  ) => {
-    const image = await original(text, options);
-    if (text === view.address)
-      await new Promise<void>((resolve) =>
-        Object.assign(window, { releaseReceiveA: resolve }),
-      );
-    return image;
-  }) as typeof QRCode.toDataURL;
+  return <WalletReceivePanel view={wallet()} onClose={() => {}} />;
+}
+function SourceFlowFixture() {
+  const scenario = new URL(location.href).searchParams.get("case");
+  const fixture = sourceSendFixture({
+    reserveFails: scenario === "reserve-lost",
+    submitFails: scenario === "submit-lost",
+    changed: scenario === "changed",
+    wrongChain: scenario === "wrong-chain",
+    restoreAllowed: scenario !== "authorization",
+    suspendRestore: scenario === "deferred",
+  });
+  const [shown, setShown] = createSignal(true);
+  Object.assign(window, {
+    walletSourceSnapshot: () => ({ ...fixture.calls }),
+    unmountOwnerFixture: () => setShown(false),
+    reopenOwnerFixture: () => setShown(true),
+    releaseOwnerRestore: fixture.releaseRestore,
+  });
   return (
-    <>
-      <WalletReceivePanel view={wallet()} onClose={() => {}} />
-      <button onClick={() => setWallet(next)}>Switch fixture account</button>
-    </>
+    <Show when={shown()}>
+      <WalletSponsoredSendSheet
+        accountId={sourceSender}
+        personaId={fixture.identity}
+        walletAddress={sourceSender}
+        dependencies={
+          scenario === "review-story"
+            ? sourceReviewStoryDependencies()
+            : fixture.dependencies
+        }
+        onClose={() => {
+          fixture.calls.close++;
+          setShown(false);
+        }}
+        onConfirmed={() => {
+          fixture.calls.confirmed++;
+        }}
+      />
+    </Show>
   );
 }
 const mode = new URL(location.href).searchParams.get("fixture");
 render(
   () =>
-    mode === "receive-switch" ? (
+    mode === "source-flow" ? (
+      <SourceFlowFixture />
+    ) : mode === "receive-switch" ? (
       <ReceiveSwitchFixture />
     ) : mode === "operator-stall" ? (
       <OperatorFixture stalled />
@@ -313,7 +349,9 @@ render(
     ) : mode === "quoted" ? (
       <WalletSendPanel view={view} adapter={adapter} onClose={() => {}} />
     ) : (
-      <LiveRewardWallet csrf="fixture-only" onExit={() => {}} data={data} />
+      <div class="p-5">
+        <LiveRewardWallet csrf="fixture-only" onExit={() => {}} data={data} />
+      </div>
     ),
   document.getElementById("app")!,
 );
