@@ -61,6 +61,7 @@ export function VideoComposerSurface(props: VideoComposerSurfaceProps) {
     reservationExpired,
     otherDestination,
     reviewVisible,
+    needsStartOver,
     uploadUnconfirmed,
     completedUpload,
     statusText,
@@ -385,8 +386,7 @@ export function VideoComposerSurface(props: VideoComposerSurfaceProps) {
                     loading={busy()}
                     onClick={() => {
                       if (completedUpload()) posted();
-                      else if (reservationExpired() || record()?.rejection)
-                        send({ type: "START_OVER" });
+                      else if (needsStartOver()) send({ type: "START_OVER" });
                       else void publish();
                     }}
                   >
@@ -394,7 +394,7 @@ export function VideoComposerSurface(props: VideoComposerSurfaceProps) {
                       ? "Uploading"
                       : completedUpload()
                         ? "Home"
-                        : reservationExpired() || record()?.rejection
+                        : needsStartOver()
                           ? "Start over"
                           : "Try again"}
                   </Button>

@@ -26,12 +26,13 @@ export interface MediaClient {
 }
 /** A parsed HTTP refusal is distinct from a lost or malformed acknowledgement. */
 export class MediaHttpError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-  ) {
+  readonly status: number;
+  readonly code: string;
+  constructor(status: number, code: string) {
     super(mediaErrorText(code));
     this.name = "MediaHttpError";
+    this.status = status;
+    this.code = code;
   }
 }
 export function mediaErrorText(code: string) {

@@ -86,7 +86,6 @@ type Outcome =
       readonly postId: string;
     }
   | { readonly kind: "rejected"; readonly rejection: TextSubmissionRejection }
-  | { readonly kind: "conflict"; readonly submissionId: string }
   | { readonly kind: "sign_in_required" }
   | { readonly kind: "unconfirmed" };
 
@@ -149,20 +148,21 @@ export function createTextSubmissionMachine(
         }
       >(async ({ input, signal }) => {
         try {
-          if (input.submissionId !== null) {
-            const known = await withTimeout(transport.read(input.submissionId));
-            signal.throwIfAborted();
-            if (known !== null) return projectSnapshot(known);
-          }
+          // A retained ID alone has no binding proof to this envelope. The
+          // current transport has no hash-bound read receipt, so reconcile by
+          // dispatching only the original bytes/key. Never read/adopt the ID
+          // named by a different-request-hash conflict (or a legacy envelope).
           // A stalled connection must not hold the post on its first
           // attempt: an unanswered request is unconfirmed like any other,
           // and the replay is safe because the key is the same.
-          return projectSnapshot(
-            await withTimeout(transport.dispatch(input.envelope)),
+          const snapshot = await withTimeout(
+            transport.dispatch(input.envelope),
           );
+          signal.throwIfAborted();
+          return projectSnapshot(snapshot);
         } catch (error) {
           if (error instanceof IdempotencyConflictError)
-            return { kind: "conflict", submissionId: error.submission_id };
+            return { kind: "unconfirmed" };
           if (error instanceof TextSubmissionAuthenticationRequiredError)
             return { kind: "sign_in_required" };
           if (
@@ -232,18 +232,6 @@ export function createTextSubmissionMachine(
                 rejection: ({ event }) =>
                   event.output.kind === "rejected"
                     ? event.output.rejection
-                    : null,
-              }),
-            },
-            {
-              // The key is bound to a submission the server already holds;
-              // the next attempt reads it instead of sending again.
-              guard: ({ event }) => event.output.kind === "conflict",
-              target: "waiting",
-              actions: assign({
-                submissionId: ({ event }) =>
-                  event.output.kind === "conflict"
-                    ? event.output.submissionId
                     : null,
               }),
             },

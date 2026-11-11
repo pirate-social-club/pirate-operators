@@ -9,8 +9,10 @@ import {
 } from "../../../../packages/community-media/contracts.ts";
 import {
   MediaAttemptController,
+  mediaNeedsStartOver,
   type MediaAttemptStorage,
 } from "./media-attempt.ts";
+import { createMediaOwnerLifetime } from "./media-owner-lifetime.ts";
 import {
   createVideoComposerMachine,
   type ComposerContext,
@@ -74,12 +76,29 @@ export interface VideoFlowProps {
 /** The pinned statechart is the sole video flow owner. This projection binds
  * its ComposerOperations seam to actual media HTTP and browser device ports. */
 export function useCommunityVideoFlow(props: VideoFlowProps) {
+  const owner = {
+    accountId: props.accountId,
+    communityId: props.communityId,
+    client: props.client,
+    ports: props.ports,
+    onExit: props.onExit,
+    onMediaReady: props.onMediaReady,
+  };
+  const lifetime = createMediaOwnerLifetime(
+    owner.accountId,
+    owner.communityId,
+    () => props,
+  );
+  const notifyReady = lifetime.capture();
+  const exit = () => {
+    if (lifetime.current()) owner.onExit();
+  };
   const mobile = Boolean(
     globalThis.matchMedia?.("(pointer: coarse) and (max-width: 767px)").matches,
   );
   const excerptStore = createMemoryExcerptDraftStore();
   const songPreflight: SongIntervalPreflight = async (input, signal) => {
-    const response = await props.ports.songPreflight(input, signal);
+    const response = await owner.ports.songPreflight(input, signal);
     if (response.song_post_id !== input.body.song_post_id)
       throw new Error("The song couldn’t be confirmed. Nothing was uploaded.");
     if (response.state !== "ready") return response;
@@ -143,20 +162,25 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
     storage: props.ports.storage,
     accountId: props.accountId,
     communityId: props.communityId,
-    onChange: (record) => {
-      if (!disposed)
-        queueMicrotask(() => {
-          if (!disposed) actor.send({ type: "RECORD_CHANGED", record });
-        });
+    onChange: (record, notificationCurrent) => {
+      lifetime.queue(notificationCurrent, () =>
+        actor.send({ type: "RECORD_CHANGED", record }),
+      );
     },
-    onReady: props.onMediaReady,
+    onReady: (receipt, notificationCurrent) => {
+      if (notifyReady() && notificationCurrent()) owner.onMediaReady?.(receipt);
+    },
+    isCurrentOwner: lifetime.current,
   });
   const media = new VideoComposerMedia({
     ...props.ports.device,
     prepareGuideSource: props.ports.prepareGuideSource,
     canCapture: () => operations.canCapture(actor.getSnapshot().context),
-    onStream: setStream,
+    onStream: (next) => {
+      if (lifetime.current()) setStream(next);
+    },
     onOriginalTake: (file) => {
+      if (!lifetime.current()) return;
       if (originalPreview()) URL.revokeObjectURL(originalPreview()!);
       setOriginalPreview(URL.createObjectURL(file));
     },
@@ -206,7 +230,8 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
       }
       const record = controller.current;
       if (!signal.aborted && record) showFile(record.file);
-      // Restore is observational; a retained command resumes only explicitly.
+      // Reconciliation retains the same identity; restoring never creates a
+      // new attempt or reports media readiness as public publication.
       return { record, released: false, resume: false };
     },
     checkPlayback: async (selection, signal) => {
@@ -241,12 +266,12 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
             context.takeAlignment === "unaligned"
           )
             throw new Error("Choose a different part of the song.");
-          const resolved = await props.ports.resolveSong(selection, signal);
+          const resolved = await owner.ports.resolveSong(selection, signal);
           if (
             resolved.version !== "pirate.video-song-resolution/1" ||
             resolved.sourcePostId !== selection.songPostId ||
             resolved.audioRevision !== selection.audioRevision ||
-            resolved.song.communityId !== props.communityId
+            resolved.song.communityId !== owner.communityId
           )
             throw new Error(
               "The song changed. Choose it again before recording.",
@@ -269,8 +294,7 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
       }
     },
     async startOver() {
-      if (controller.current?.status) await controller.withdraw();
-      await controller.discard();
+      await controller.startOver();
     },
     async refresh() {
       await controller.refresh();
@@ -290,13 +314,14 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
       ),
     shouldRefresh: (context) =>
       Boolean(
-        context.record?.pending ||
-          ["receiving", "queued", "processing"].includes(
-            context.record?.status?.state ?? "",
-          ),
+        !context.record?.authenticationHold &&
+          (context.record?.pending ||
+            ["receiving", "queued", "processing"].includes(
+              context.record?.status?.state ?? "",
+            )),
       ),
-    onPosted: props.onExit,
-    onExit: props.onExit,
+    onPosted: exit,
+    onExit: exit,
     onReset: () => {
       clearPreviewUrls();
       media.closePreview();
@@ -321,6 +346,20 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
     ),
   );
   const { snapshot, send } = useOwnedActor(actor);
+  createEffect(
+    () => [props.accountId, props.communityId] as const,
+    (identity) => {
+      if (
+        identity[0] !== owner.accountId ||
+        identity[1] !== owner.communityId
+      ) {
+        lifetime.dispose();
+        controller.dispose();
+        media.dispose();
+        clearPreviewUrls();
+      }
+    },
+  );
   const model = () => snapshot().context;
   const inCapture = (phase: string) =>
     snapshot().matches({ capture: phase as "idle" });
@@ -339,9 +378,14 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
     ["queued", "processing", "ready"].includes(record()?.status?.state ?? "") &&
     !record()?.pending;
   const playLive = (element: HTMLVideoElement) => {
+    const notify = lifetime.capture();
     void element.play()?.then(
-      () => setViewfinderStalled(false),
-      () => setViewfinderStalled(true),
+      () => {
+        if (notify()) setViewfinderStalled(false);
+      },
+      () => {
+        if (notify()) setViewfinderStalled(true);
+      },
     );
   };
   const bindViewfinder = (element: HTMLVideoElement) => {
@@ -385,7 +429,8 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
   if (!isServer) document.addEventListener("visibilitychange", visibility);
   onCleanup(() => {
     disposed = true;
-    controller.pause();
+    lifetime.dispose();
+    controller.dispose();
     media.dispose();
     clearPreviewUrls();
     if (!isServer) document.removeEventListener("visibilitychange", visibility);
@@ -441,23 +486,33 @@ export function useCommunityVideoFlow(props: VideoFlowProps) {
     interactionBusy: () => busy() || finalizing(),
     editing: () => !record(),
     reservationExpired: () => record()?.status?.state === "expired",
+    needsStartOver: () => mediaNeedsStartOver(record()),
     otherDestination: () => false,
     reviewVisible: () => file() !== null && !record(),
     uploadUnconfirmed: () => Boolean(record()?.pending),
     completedUpload,
     statusText: () =>
-      record()?.pending === "withdraw"
-        ? "This video is being withdrawn. Playback is unavailable."
-        : record()?.pending
-          ? "We couldn’t confirm this upload yet. Your video is saved here. Try again to resume the same upload."
-          : record()?.rejection
-            ? "This video wasn’t accepted."
-            : completedUpload()
-              ? "Your video has uploaded."
-              : busy()
-                ? "Uploading video…"
-                : "Your video couldn’t upload. Try again.",
-    posted: props.onExit,
+      record()?.authenticationHold
+        ? "Reconnect your community account before continuing."
+        : record()?.pending === "withdraw"
+          ? "This video is being withdrawn. Playback is unavailable."
+          : record()?.pending
+            ? "We couldn’t confirm this upload yet. Your video is saved here. Try again to resume the same upload."
+            : ["withdrawn", "revoked", "expired"].includes(
+                  record()?.status?.state ?? "",
+                )
+              ? "This video is no longer available. Start over."
+              : record()?.status?.state === "failed" &&
+                  !record()?.status?.canRetry
+                ? "This video couldn’t be processed. Start over."
+                : record()?.rejection
+                  ? "This video wasn’t accepted."
+                  : completedUpload()
+                    ? "Your video has uploaded."
+                    : busy()
+                      ? "Uploading video…"
+                      : "Your video couldn’t upload. Try again.",
+    posted: exit,
     clearPreviewUrls,
     openSongSheet: () => send({ type: "OPEN_SONG" }),
     confirmSound: () => send({ type: "CONTINUE" }),
