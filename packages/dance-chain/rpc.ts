@@ -13,7 +13,10 @@ const event = danceVerdictsAbi.find(
 )!;
 
 /** Read-only viem adapter. A caller supplies the already selected community RPC. */
-export function danceReadPort(client: PublicClient): DanceReadPort & {
+export function danceReadPort(
+  client: PublicClient,
+  stateAnchor?: Pick<DanceBlock, "number" | "hash">,
+): DanceReadPort & {
   verdictLogs(
     address: Address,
     fromBlock: bigint,
@@ -37,6 +40,11 @@ export function danceReadPort(client: PublicClient): DanceReadPort & {
       transactions: b.transactions,
     };
   };
+  const stateBlock = (number: bigint) => {
+    if (!stateAnchor) return { blockNumber: number };
+    insist(number === stateAnchor.number, "dance_state_anchor_mismatch", 503);
+    return { blockHash: stateAnchor.hash, requireCanonical: true as const };
+  };
   return {
     chainId: () => client.getChainId(),
     safe: async () =>
@@ -45,14 +53,19 @@ export function danceReadPort(client: PublicClient): DanceReadPort & {
       ),
     block: async (blockNumber) =>
       block(await client.getBlock({ blockNumber, includeTransactions: false })),
-    code: (address, blockNumber) => client.getCode({ address, blockNumber }),
+    code: (address, blockNumber) =>
+      client.getCode({ address, ...stateBlock(blockNumber) }),
     receipt: (hash) =>
       client.getTransactionReceipt({ hash }).catch((error: unknown) => {
         if (error instanceof TransactionReceiptNotFoundError) return null;
         throw error;
       }),
     async sourceView(address, blockNumber) {
-      const read = { address, abi: danceVerdictsAbi, blockNumber } as const;
+      const read = {
+        address,
+        abi: danceVerdictsAbi,
+        ...stateBlock(blockNumber),
+      } as const;
       const [
         sourceHash,
         communityId,
@@ -83,7 +96,7 @@ export function danceReadPort(client: PublicClient): DanceReadPort & {
         abi: danceVerdictsAbi,
         functionName: "registrationOf",
         args: [id],
-        blockNumber,
+        ...stateBlock(blockNumber),
       }),
     verdictLogs: (address, fromBlock, toBlock) =>
       client.getLogs({ address, event, fromBlock, toBlock, strict: true }),
