@@ -23,6 +23,18 @@ for (const [name, width, height] of [
     await expect(
       page.getByRole("heading", { name: "Assets", exact: true }),
     ).toBeVisible();
+    if (width < 600) {
+      // Pinned PortfolioStory uses p-5 around the actual composition.
+      await expect
+        .poll(async () =>
+          Math.round(
+            (await page
+              .getByRole("heading", { name: "Wallet", exact: true })
+              .boundingBox())!.x,
+          ),
+        )
+        .toBe(20);
+    }
     await expect(
       page.getByRole("heading", { name: "Your wallets", exact: true }),
     ).toBeVisible();

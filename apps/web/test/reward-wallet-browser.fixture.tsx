@@ -28,7 +28,7 @@ import type {
   WalletSendIntentV1,
   WalletSendQuoteV1,
 } from "../src/wallet/contracts.ts";
-import "../src/live/style.css";
+import "./reward-wallet.fixture.css";
 
 const address = `0x${"11".repeat(20)}`,
   token = `0x${"33".repeat(20)}`;
