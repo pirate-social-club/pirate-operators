@@ -11,11 +11,17 @@ import type {
   AnyStudyLessonOffer,
   StudyLessonOfferV4,
 } from "../packages/study/operator-contract.ts";
+import { bytes32 } from "../packages/community/common.ts";
+import {
+  telegramStudyFence,
+  type TelegramStudyFence,
+} from "../packages/study/telegram-publication.ts";
 import type { StudyGraderActivation } from "../packages/study/grader-revision.ts";
 import {
   studySong,
   type StudySong,
   type StudyLesson,
+  type StudyTelegramEntry,
 } from "../packages/study/lesson.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import {
@@ -46,6 +52,7 @@ import {
   recordedAuthorization,
 } from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
+import { telegramLinkedDatabase } from "./telegram-linked-privacy.ts";
 
 export interface StudyEnv extends KaraokeEnv {
   STUDY_GRADER_ACTIVATION?: string;
@@ -93,10 +100,21 @@ export function studyAvailable(env: StudyEnv, config: CommunityConfig) {
   return studyVersion(env, config) !== null;
 }
 
+export interface LinkedStudyEntry {
+  fence: TelegramStudyFence;
+  authorizationId: Hex;
+  startedAt: number;
+  check(): Promise<void>;
+}
+
 export function liveStudy(
-  ports: StudyCommunityPorts,
+  inputPorts: StudyCommunityPorts,
   session: { account_id: string; wallet: string },
+  linked?: LinkedStudyEntry,
 ) {
+  const ports = linked
+    ? { ...inputPorts, db: telegramLinkedDatabase(inputPorts.db) }
+    : inputPorts;
   const version = studyVersion(ports.env, ports.config);
   studyCheck(version !== null, "study_unavailable", 503);
   const owner: StudyPrincipal = {
@@ -116,6 +134,64 @@ export function liveStudy(
       contract: contract as Address,
     },
   });
+  const fence = linked ? telegramStudyFence(linked.fence) : undefined;
+  const telegram: StudyTelegramEntry | undefined =
+    linked && fence
+      ? {
+          fenceHash: fence.hash,
+          authorizationId: bytes32(linked.authorizationId),
+        }
+      : undefined;
+  if (linked)
+    studyCheck(
+      version === 4 &&
+        ports.env.STUDY_TELEGRAM_AUTHORITY &&
+        fence?.facts.actor.communityId === owner.communityId &&
+        fence?.facts.accountId === owner.accountId &&
+        Number.isSafeInteger(linked.startedAt) &&
+        linked.startedAt > 0 &&
+        linked.startedAt <= now(),
+      "study_telegram_fence_context_changed",
+      409,
+    );
+  function matchEntry(state: ReturnType<StudyLessonStore["state"]>) {
+    studyCheck(
+      linked && telegram
+        ? state.startedAt === linked.startedAt &&
+            state.telegram?.fenceHash === telegram.fenceHash &&
+            state.telegram?.authorizationId === telegram.authorizationId
+        : state.telegram === undefined,
+      "study_lesson_channel_changed",
+      409,
+    );
+  }
+  async function participant(id: string) {
+    matchEntry(store.state(await store.row(owner, id)));
+    const bound = await ports.db
+      .prepare(
+        `SELECT json_extract(binding_json,'$.offer.speechChannel') AS channel,
+      json_extract(binding_json,'$.offer.telegramFence.hash') AS fence_hash,
+      json_extract(binding_json,'$.offer.authorizationId') AS authorization_id
+      FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?`,
+      )
+      .bind(id, owner.accountId, owner.communityId)
+      .first<{
+        channel: string | null;
+        fence_hash: string | null;
+        authorization_id: string | null;
+      }>();
+    if (bound)
+      studyCheck(
+        telegram
+          ? bound.channel === "telegram-linked" &&
+              bound.fence_hash === telegram.fenceHash &&
+              bound.authorization_id === telegram.authorizationId
+          : bound.channel === null && bound.fence_hash === null,
+        "study_lesson_channel_changed",
+        409,
+      );
+    if (linked) await linked.check();
+  }
   // New lessons use the configured version's contract.
   const operator = operatorPorts(
     (version === 4
@@ -202,14 +278,28 @@ export function liveStudy(
     studyCheck(!chosen.pending, "study_authorization_pending", 409);
     throw new StudyError("study_authorization_required", 409);
   }
+  function verifyLinkedBinding(saved: Awaited<ReturnType<typeof bound>>) {
+    if (telegram)
+      studyCheck(
+        saved.binding.target.version === 4 &&
+          saved.binding.authorization?.id === telegram.authorizationId &&
+          saved.binding.offer.speechChannel === "telegram-linked" &&
+          telegramStudyFence(saved.binding.offer.telegramFence).hash ===
+            telegram.fenceHash,
+        "study_binding_changed",
+        409,
+      );
+    return saved;
+  }
   async function ensureBinding(lesson: StudyLesson) {
+    await participant(lesson.lessonId);
     const existing = await ports.db
       .prepare(
         "SELECT 1 AS present FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",
       )
       .bind(lesson.lessonId, owner.accountId, owner.communityId)
       .first();
-    if (existing) return bound(lesson.lessonId);
+    if (existing) return verifyLinkedBinding(await bound(lesson.lessonId));
     const state = store.state(await store.row(owner, lesson.lessonId)),
       lyrics = await source(state.song);
     const ordinals = state.items.map(
@@ -241,10 +331,19 @@ export function liveStudy(
     let binding: StudyBinding, offered: AnyStudyLessonOffer;
     if (version === 4) {
       // The lesson binds the sign-in in force when it started.
-      const v4: StudyLessonOfferV4 = {
-        ...offer,
-        authorizationId: await authorizationAt(state.startedAt),
-      };
+      const v4: StudyLessonOfferV4 =
+        telegram && fence
+          ? {
+              ...offer,
+              authorizationId: telegram.authorizationId,
+              speechChannel: "telegram-linked",
+              telegramFence: fence,
+            }
+          : {
+              ...offer,
+              authorizationId: await authorizationAt(state.startedAt),
+            };
+      if (linked) await linked.check();
       const accepted: StudyAuthorizationBinding = await bindManagedStudy(
         operator,
         v4,
@@ -309,6 +408,7 @@ export function liveStudy(
       )
       .run();
     const saved = await bound(lesson.lessonId);
+    if (linked) await linked.check();
     studyCheck(
       canonical(saved.binding) === canonical(binding) &&
         canonical(saved.source) === canonical(lyrics),
@@ -343,7 +443,9 @@ export function liveStudy(
       },
       async transcribe(audio, contentType, language, context) {
         studyCheck(context, "study_lesson_not_bound", 409);
+        await participant(context.lessonId);
         const saved = await bound(context.lessonId);
+        if (linked) await linked.check();
         return managedStudyTranscriber(
           saved.operator,
           saved.binding,
@@ -435,10 +537,20 @@ export function liveStudy(
       });
     },
     async start(requestId: string, song: unknown) {
+      const previous = await store.byRequest(owner, requestId);
+      if (previous) await participant(previous.lesson_id);
+      if (linked) await linked.check();
       // V4: refuse before creating a lesson while sign-in is being recorded,
       // so the client's retry starts the lesson once it is.
-      if (version === 4) await authorizationAt(now());
-      const lesson = await lessons.start(owner, requestId, song);
+      if (version === 4 && !linked) await authorizationAt(now());
+      const lesson = await lessons.start(
+        owner,
+        requestId,
+        song,
+        linked && telegram
+          ? { startedAt: linked.startedAt, telegram }
+          : undefined,
+      );
       const failed = await ensureBinding(lesson).then(
         () => undefined,
         (error: unknown) => ({ error }),
@@ -461,24 +573,40 @@ export function liveStudy(
         throw new StudyError("study_authorization_required", 409);
       }
       if (failed) throw failed.error;
+      if (linked) await linked.check();
       return lesson;
     },
-    get: async (id: string) =>
+    // Internal scheduled recovery only; its caller supplies the privacy
+    // database for an existing linked lesson and never starts new speech.
+    recoverSavedLesson: async (id: string) =>
       reconcilePublication(await lessons.get(owner, id)),
-    latest: async (song: unknown) => {
-      const lesson = await lessons.latest(owner, song);
-      return lesson ? reconcilePublication(lesson) : null;
+    async get(id: string) {
+      await participant(id);
+      return reconcilePublication(await lessons.get(owner, id));
     },
-    abandon: async (id: string) =>
-      reconcilePublication(await lessons.abandon(owner, id)),
+    latest: async (song: unknown) => {
+      if (linked) await linked.check();
+      const row = await store.latest(owner, studySong(song), {
+        fenceHash: telegram?.fenceHash ?? null,
+      });
+      if (!row) return null;
+      await participant(row.lesson_id);
+      return reconcilePublication(await lessons.get(owner, row.lesson_id));
+    },
+    async abandon(id: string) {
+      await participant(id);
+      return reconcilePublication(await lessons.abandon(owner, id));
+    },
     /** "Turn off public results"; see endForWithdrawal above. */
     endForWithdrawal,
     async open(id: string, presentation: number, take: number) {
+      await participant(id);
       await ensureBinding(await lessons.get(owner, id));
       return lessons.openAttempt(owner, id, presentation, take);
     },
     async submit(id: string, attemptId: string, request: Request) {
-      await bound(id);
+      await participant(id);
+      verifyLinkedBinding(await bound(id));
       const result = await Effect.runPromise(
         Effect.match(lessons.submit(owner, id, attemptId, request), {
           onSuccess: (value) => ({ ok: true as const, value }),

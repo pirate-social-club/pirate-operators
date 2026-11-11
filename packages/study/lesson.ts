@@ -9,6 +9,7 @@ import {
   type StudyLine,
   type StudySelection,
 } from "./contracts.ts";
+import type { Hex } from "viem";
 import type { AdmittedStudyGrader } from "./grader-revision.ts";
 export type StudySong = Omit<StudySelection, "lineId">;
 export const STUDY_LESSON_SCHEMA = "pirate.study.lesson/1" as const;
@@ -126,7 +127,14 @@ export interface LessonItem {
   resolved: boolean;
   firstPassOutcome: "correct" | "incorrect" | null;
 }
+/** Private state persisted in the same D1 row as the new lesson. The
+ * request id cannot later make the same draft a website lesson. */
+export interface StudyTelegramEntry {
+  fenceHash: Hex;
+  authorizationId: Hex;
+}
 export interface LessonState {
+  telegram?: StudyTelegramEntry;
   graderRevision?: AdmittedStudyGrader;
   speechRetrySerial?: number;
   speechRetryAfter?: number;

@@ -1,3 +1,5 @@
+import { digest } from "../packages/protocol/index.ts";
+import { telegramStudyFacts } from "../packages/study/telegram-publication.ts";
 import { readFileSync } from "node:fs";
 import { Effect } from "effect";
 import type { DatabaseSync } from "node:sqlite";
@@ -142,7 +144,23 @@ export async function linkedStudyFixture(
               lesson.lessonId,
               principal.accountId,
               principal.communityId,
-              JSON.stringify({ offer: { speechChannel: bindChannel } }),
+              JSON.stringify({
+                offer: {
+                  speechChannel: bindChannel,
+                  telegramFence: {
+                    hash: digest(
+                      telegramStudyFacts({
+                        schema: "pirate.study.telegram-publication-fence/1",
+                        version: 1,
+                        grantId: fence.grantId,
+                        actor: fence.actor,
+                        accountId: fence.accountId,
+                        authorityVersion: fence.authorityVersion,
+                      }),
+                    ),
+                  },
+                },
+              }),
             )
             .run();
           return lesson;

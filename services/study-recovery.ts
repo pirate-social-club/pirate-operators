@@ -4,6 +4,7 @@ import {
   studyAvailable,
   type StudyCommunityPorts,
 } from "./study-community.ts";
+import { telegramLinkedDatabase } from "./telegram-linked-privacy.ts";
 import { makeStudyService } from "./study-spoken.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import {
@@ -30,7 +31,8 @@ export async function recoverStudyLessons(
   const rows = await ports.db
     .prepare(
       `
-    SELECT l.lesson_id,l.account_id,l.community_id,l.history_deleted_at,p.learner
+    SELECT l.lesson_id,l.account_id,l.community_id,l.history_deleted_at,p.learner,
+      json_type(l.state_json,'$.telegram') IS NOT NULL AS telegram
     FROM study_lessons l LEFT JOIN study_publications p ON p.lesson_id=l.lesson_id
     WHERE l.community_id=? AND (
       (json_extract(l.state_json,'$.status')='active' AND ${STUDY_CLOSE_BOUND_SQL}<=?) OR
@@ -56,17 +58,23 @@ export async function recoverStudyLessons(
       community_id: string;
       learner: string | null;
       history_deleted_at: number | null;
+      telegram: number;
     }>();
   for (const row of rows.results) {
     try {
       if (row.learner) {
-        const live = liveStudy(ports, {
-          account_id: row.account_id,
-          wallet: row.learner,
-        });
+        const live = liveStudy(
+          row.telegram
+            ? { ...ports, db: telegramLinkedDatabase(ports.db) }
+            : ports,
+          {
+            account_id: row.account_id,
+            wallet: row.learner,
+          },
+        );
         if (row.history_deleted_at != null)
           await live.syncPublication(row.lesson_id);
-        else await live.get(row.lesson_id);
+        else await live.recoverSavedLesson(row.lesson_id);
       } else {
         // A draft whose grant binding never completed cannot have paid speech.
         // Close it privately; do not invent a learner or acquire a new grant.

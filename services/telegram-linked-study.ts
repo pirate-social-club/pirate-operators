@@ -1,3 +1,6 @@
+import { bytes32 } from "../packages/community/common.ts";
+import { telegramStudyFacts } from "../packages/study/telegram-publication.ts";
+import type { Hex } from "viem";
 import { digest } from "../packages/protocol/index.ts";
 import {
   StudyAttemptStore,
@@ -42,6 +45,8 @@ export interface TelegramPublicationFence {
   actor: ChatActor;
   accountId: string;
   authorityVersion: string;
+  startedAt: number;
+  authorizationId: Hex;
   check(): Promise<void>;
 }
 export function linkedLessonView(
@@ -150,6 +155,8 @@ export function telegramLinkedStudy(options: {
       actor,
       accountId: expected.accountId,
       authorityVersion: expected.authorityVersion,
+      startedAt: startedAtMs,
+      authorizationId: bytes32(admitted.id),
       async check() {
         const grant = await options.grants.assert(actor, expected.id);
         telegramCheck(
@@ -168,7 +175,11 @@ export function telegramLinkedStudy(options: {
             revokedAtMs: latest.revokedAt,
           };
         });
-        telegramCheck(accepted.id, "telegram_authorization_required", 403);
+        telegramCheck(
+          accepted.id === admitted.id,
+          "telegram_authorization_changed",
+          403,
+        );
         const after = await options.grants.assert(actor, expected.id);
         telegramCheck(
           after.authorityVersion === expected.authorityVersion,
@@ -223,25 +234,51 @@ export function telegramLinkedStudy(options: {
   }
   return {
     async start(actor, grant, song, requestId) {
-      const api = await authority(actor, grant, options.grants.now());
-      const previous = await options.db
+      const expectedFacts = telegramStudyFacts({
+        schema: "pirate.study.telegram-publication-fence/1",
+        version: 1,
+        grantId: grant.id,
+        actor,
+        accountId: grant.accountId,
+        authorityVersion: grant.authorityVersion,
+      });
+      // An exact retry must keep the original time and authorization even
+      // if the operator accepted its binding before the response was lost.
+      const original = await options.db
         .prepare(
-          `SELECT l.lesson_id FROM study_lessons l JOIN study_publications p ON p.lesson_id=l.lesson_id
+          `SELECT lesson_id,started_at FROM study_lessons WHERE account_id=?
+          AND community_id=? AND request_id=? AND history_deleted_at IS NULL`,
+        )
+        .bind(grant.accountId, actor.communityId, requestId)
+        .first<{ lesson_id: string; started_at: number }>();
+      const previous = original
+        ? null
+        : await options.db
+            .prepare(
+              `SELECT l.lesson_id FROM study_lessons l JOIN study_publications p ON p.lesson_id=l.lesson_id
         AND p.account_id=l.account_id AND p.community_id=l.community_id WHERE l.account_id=? AND l.community_id=? AND l.song_json=?
         AND l.started_at>=? AND l.history_deleted_at IS NULL AND json_extract(l.state_json,'$.status')='active'
-        AND json_extract(p.binding_json,'$.offer.speechChannel')='telegram-linked' ORDER BY l.started_at DESC LIMIT 1`,
-        )
-        .bind(
-          grant.accountId,
-          actor.communityId,
-          JSON.stringify(song.song),
-          grant.linkedAt,
-        )
-        .first<{ lesson_id: string }>();
+        AND json_extract(p.binding_json,'$.offer.speechChannel')='telegram-linked'
+        AND json_extract(p.binding_json,'$.offer.telegramFence.hash')=?
+        ORDER BY l.started_at DESC LIMIT 1`,
+            )
+            .bind(
+              grant.accountId,
+              actor.communityId,
+              JSON.stringify(song.song),
+              grant.linkedAt,
+              digest(expectedFacts),
+            )
+            .first<{ lesson_id: string }>();
       if (previous)
         return (await existing(actor, grant, previous.lesson_id)).get(
           previous.lesson_id,
         );
+      const api = await authority(
+        actor,
+        grant,
+        original?.started_at ?? options.grants.now(),
+      );
       const lesson = await api.start(requestId, song.song);
       await channel(actor, grant, lesson);
       await authority(actor, grant, lesson.startedAt);

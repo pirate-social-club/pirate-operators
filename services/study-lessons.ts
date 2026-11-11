@@ -28,6 +28,7 @@ import {
   type StudyLesson,
   type StudySong,
   type StudyLessonSubmission,
+  type StudyTelegramEntry,
 } from "../packages/study/lesson.ts";
 import {
   StudyLessonStore,
@@ -234,13 +235,42 @@ export function makeStudyLessonService(options: {
     };
   }
   const service = {
-    async start(owner: StudyPrincipal, requestId: string, input: unknown) {
+    async start(
+      owner: StudyPrincipal,
+      requestId: string,
+      input: unknown,
+      entry?: { startedAt: number; telegram: StudyTelegramEntry },
+    ) {
       const song = studySong(input);
       ownerFor(owner, song);
       studyCheck(
         /^[a-zA-Z0-9_-]{16,128}$/.test(requestId),
         "invalid_study_request_id",
       );
+      if (entry)
+        studyCheck(
+          Number.isSafeInteger(entry.startedAt) &&
+            entry.startedAt > 0 &&
+            /^0x[0-9a-f]{64}$/.test(entry.telegram.fenceHash) &&
+            BigInt(entry.telegram.fenceHash) > 0n &&
+            /^0x[0-9a-f]{64}$/.test(entry.telegram.authorizationId) &&
+            BigInt(entry.telegram.authorizationId) > 0n,
+          "study_lesson_channel_changed",
+          409,
+        );
+      function assertEntry(row: LessonRow) {
+        const state = store.state(row);
+        studyCheck(
+          entry
+            ? state.startedAt === entry.startedAt &&
+                state.telegram?.fenceHash === entry.telegram.fenceHash &&
+                state.telegram?.authorizationId ===
+                  entry.telegram.authorizationId
+            : state.telegram === undefined,
+          "study_lesson_channel_changed",
+          409,
+        );
+      }
       const previous = await store.byRequest(owner, requestId);
       if (previous) {
         studyCheck(
@@ -253,23 +283,28 @@ export function makeStudyLessonService(options: {
           "study_request_conflict",
           409,
         );
+        assertEntry(previous);
         return service.get(owner, previous.lesson_id);
       }
-      const startedAt = now();
+      const startedAt = entry?.startedAt ?? now();
+      studyCheck(startedAt <= now(), "invalid_study_start");
+      const initial = newLesson(
+        song,
+        selectStudyLessonLines(
+          song,
+          await options.resolveLines(song),
+          await store.practice(owner, song),
+        ),
+        startedAt,
+        studyGraderAt(startedAt, options.graderActivation),
+      );
       const row = await store.create(
         owner,
         requestId,
-        newLesson(
-          song,
-          selectStudyLessonLines(
-            song,
-            await options.resolveLines(song),
-            await store.practice(owner, song),
-          ),
-          startedAt,
-          studyGraderAt(startedAt, options.graderActivation),
-        ),
+        entry ? { ...initial, telegram: entry.telegram } : initial,
       );
+      // INSERT may have lost to another channel or to a different grant.
+      assertEntry(row);
       return service.get(owner, row.lesson_id);
     },
     async get(owner: StudyPrincipal, id: string) {
@@ -286,10 +321,14 @@ export function makeStudyLessonService(options: {
       }
       throw new StudyError("study_lesson_busy", 409);
     },
-    async latest(owner: StudyPrincipal, input: unknown) {
+    async latest(
+      owner: StudyPrincipal,
+      input: unknown,
+      entry?: { fenceHash: string | null },
+    ) {
       const song = studySong(input);
       ownerFor(owner, song);
-      const row = await store.latest(owner, song);
+      const row = await store.latest(owner, song, entry);
       return row ? service.get(owner, row.lesson_id) : null;
     },
     /**
