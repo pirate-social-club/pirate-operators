@@ -18,11 +18,13 @@ export interface DanceClient {
     offerId: string | null,
     referenceId: string | null,
     consent: DanceConsentAcceptance,
+    signal?: AbortSignal,
   ): Promise<DanceCapture>;
   submit(
     captureId: string,
     mediaId: string,
     recordingSha256: string,
+    signal?: AbortSignal,
   ): Promise<DanceReceipt>;
   get(reviewId: string): Promise<DanceReview>;
   queue(cursor?: string | null): Promise<DanceQueue>;
@@ -32,8 +34,16 @@ export interface DanceClient {
     verdict: DanceVerdict,
     consentVersion: string,
   ): Promise<DanceReceipt>;
-  withdraw(reviewId: string, revision: number): Promise<DanceReceipt>;
-  recover(): Promise<DanceJournalEntry | null>;
+  withdraw(
+    reviewId: string,
+    revision: number,
+    signal?: AbortSignal,
+  ): Promise<DanceReceipt>;
+  recover(signal?: AbortSignal): Promise<DanceJournalEntry | null>;
+  /** Read-only capabilities used by the original recorder journey. Optional
+   * for historical callers; a source mount requires both explicitly. */
+  retained?(): Promise<DanceJournalEntry | null>;
+  observe?(reviewId: string, signal?: AbortSignal): Promise<DanceReview>;
   acknowledgeRecovery(): Promise<void>;
   resetDefiniteCapture(): Promise<void>;
   dispose(): void;
@@ -109,7 +119,7 @@ export function createDanceClient(options: {
     }
     return v;
   }
-  async function send(e: DanceJournalEntry) {
+  async function send(e: DanceJournalEntry, signal?: AbortSignal) {
     current();
     if (
       e.scope.communityId !== scope.communityId ||
@@ -122,7 +132,9 @@ export function createDanceClient(options: {
         method: "POST",
         credentials: "same-origin",
         cache: "no-store",
-        signal: controller.signal,
+        signal: signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal,
         headers: {
           "x-dance-account": scope.accountId,
           "content-type": "application/json",
@@ -162,13 +174,13 @@ export function createDanceClient(options: {
     current();
     return value;
   }
-  async function recover() {
+  async function recover(signal?: AbortSignal) {
     current();
     return (recovery ??= (async () => {
       const active = await journal.active(scope);
       if (active) {
-        await send(active);
-        return active;
+        await send(active, signal);
+        return journal.latest(scope);
       }
       return journal.latest(scope);
     })().finally(() => {
@@ -179,6 +191,7 @@ export function createDanceClient(options: {
     subject: string,
     path: string,
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<T> {
     current();
     const candidate: DanceJournalEntry = {
@@ -192,7 +205,7 @@ export function createDanceClient(options: {
     const retained = await journal.reserve(candidate);
     current();
     if (!identicalCommand(retained, candidate)) {
-      if (!retained.receiptJson) await send(retained);
+      if (!retained.receiptJson) await send(retained, signal);
       throw new DanceClientError(
         "dance_original_command_recovered",
         false,
@@ -200,17 +213,23 @@ export function createDanceClient(options: {
       );
     }
     if (retained.receiptJson) return JSON.parse(retained.receiptJson) as T;
-    return (await send(retained)) as T;
+    return (await send(retained, signal)) as T;
   }
-  async function get<T>(path: string): Promise<T> {
-    await recover();
+  async function get<T>(
+    path: string,
+    recoverCommands = true,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (recoverCommands) await recover(signal);
     current();
     let response: Response;
     try {
       response = await fetcher("/api/dance/" + path, {
         credentials: "same-origin",
         cache: "no-store",
-        signal: controller.signal,
+        signal: signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal,
         headers: { "x-dance-account": scope.accountId },
       });
     } catch {
@@ -220,14 +239,24 @@ export function createDanceClient(options: {
     return (await readResponse(response)) as T;
   }
   return {
-    capture: (songKey, offerId, referenceId, consent) =>
-      mutate("capture", "captures", { songKey, offerId, referenceId, consent }),
-    submit: (captureId, mediaId, recordingSha256) =>
-      mutate("submission:" + captureId, "reviews", {
-        captureId,
-        mediaId,
-        recordingSha256,
-      }),
+    capture: (songKey, offerId, referenceId, consent, signal) =>
+      mutate(
+        "capture",
+        "captures",
+        { songKey, offerId, referenceId, consent },
+        signal,
+      ),
+    submit: (captureId, mediaId, recordingSha256, signal) =>
+      mutate(
+        "submission:" + captureId,
+        "reviews",
+        {
+          captureId,
+          mediaId,
+          recordingSha256,
+        },
+        signal,
+      ),
     get: (id) => get("reviews/" + encodeURIComponent(id)),
     queue: (cursor) =>
       get("queue" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "")),
@@ -237,13 +266,23 @@ export function createDanceClient(options: {
         "reviews/" + encodeURIComponent(id) + "/verdict",
         { revision, verdict, consentVersion },
       ),
-    withdraw: (id, revision) =>
+    withdraw: (id, revision, signal) =>
       mutate(
         "withdraw:" + id,
         "reviews/" + encodeURIComponent(id) + "/withdraw",
         { revision },
+        signal,
       ),
     recover,
+    retained: async () => {
+      current();
+      const result =
+        (await journal.active(scope)) ?? (await journal.latest(scope));
+      current();
+      return result;
+    },
+    observe: (id, signal) =>
+      get("reviews/" + encodeURIComponent(id), false, signal),
     acknowledgeRecovery: async () => {
       current();
       await journal.acknowledge(scope);

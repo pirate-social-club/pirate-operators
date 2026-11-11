@@ -27,6 +27,7 @@ interface State {
   active: DanceJournalEntry | null;
   accepted: Record<string, DanceJournalEntry>;
   latest?: DanceJournalEntry;
+  history?: Record<string, DanceJournalEntry>;
 }
 const key = (s: DanceJournalScope) =>
   JSON.stringify([s.communityId, s.accountId]);
@@ -43,9 +44,11 @@ function state(v: unknown, s: DanceJournalScope): State {
   if (!v || typeof v !== "object" || !("active" in v) || !("accepted" in v))
     throw Error("dance_journal_corrupt");
   const result = v as State;
-  for (const e of [result.active, ...Object.values(result.accepted)].filter(
-    (x): x is DanceJournalEntry => !!x,
-  )) {
+  for (const e of [
+    result.active,
+    ...Object.values(result.accepted),
+    ...Object.values(result.history ?? {}),
+  ].filter((x): x is DanceJournalEntry => !!x)) {
     if (
       e.version !== 1 ||
       key(e.scope) !== key(s) ||
@@ -128,6 +131,8 @@ export function createIndexedDanceJournal(
     definiteCaptureReset: (s) =>
       transact(s, true, (v) => {
         if (v.active) throw Error("dance_response_unknown");
+        const old = v.accepted.capture;
+        if (old) (v.history ??= {})[old.commandId] = old;
         delete v.accepted.capture;
         if (v.latest?.subject === "capture") v.latest = undefined;
       }),
