@@ -51,6 +51,7 @@ import {
 } from "./study-speech-receipt.ts";
 import {
   checkTelegramStudyPublication,
+  persistTelegramStudyDenial,
   studyTelegramPublication,
 } from "./study-telegram-publication.ts";
 import { dispatchStudySpeech } from "./study-speech-dispatch.ts";
@@ -360,6 +361,10 @@ export async function studyOperatorRoute(
   );
   check(canonical(auth.parameters) === "{}", "invalid_study_parameters");
   const value = JSON.parse(new TextDecoder().decode(bytes));
+  if (path === "/study/telegram/deny") {
+    check(target.version === 4, "study_telegram_fence_missing");
+    return reply(persistTelegramStudyDenial(store, env.COMMUNITY_ID, value));
+  }
   if (path === "/study/bind")
     return reply(await bindStudyLesson(env, store, value, target));
   sameContract(value?.lessonId);

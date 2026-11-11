@@ -133,7 +133,7 @@ export function legacyResultGate(env: Env, store: ResultStore): SendGate {
           : null;
       if (telegram) {
         check(env.STUDY_TELEGRAM_AUTHORITY, "study_telegram_fence_unavailable");
-        return telegramStudyDenied(store, telegram.fence);
+        return telegramStudyDenied(store, telegram.fence, telegram.context);
       }
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && legacyResultsWithheld(store, learner);
@@ -145,13 +145,13 @@ export function legacyResultGate(env: Env, store: ResultStore): SendGate {
           : null;
       if (telegram)
         return (
-          telegramStudyDenied(store, telegram.fence) ||
+          telegramStudyDenied(store, telegram.fence, telegram.context) ||
           !(await resolveTelegramStudyFence(
             env.STUDY_TELEGRAM_AUTHORITY,
             telegram.fence,
             telegram.context,
           )) ||
-          telegramStudyDenied(store, telegram.fence)
+          telegramStudyDenied(store, telegram.fence, telegram.context)
         );
       const learner = legacyResultLearner(store, kind, ref);
       return !!learner && (await legacyResultsWithdrawn(env, store, learner));

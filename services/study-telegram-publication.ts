@@ -5,7 +5,9 @@ import type { AnyStudyLessonOffer } from "../packages/study/operator-contract.ts
 import {
   resolveTelegramStudyFence,
   telegramStudyFence,
+  telegramStudyDenial,
   type TelegramStudyContext,
+  type TelegramStudyDenial,
   type TelegramStudyFence,
 } from "../packages/study/telegram-publication.ts";
 import type { ResultsTarget } from "./learning-contract.ts";
@@ -30,13 +32,63 @@ export function recordTelegramStudyDenial(
   });
 }
 
+const tombstoneKey = (denial: TelegramStudyDenial) =>
+  `studyTelegramTombstone:${digest(denial)}`;
+const denialBase = (communityId: Hex) => ({
+  schema: "pirate.study.telegram-publication-denial/1" as const,
+  communityId,
+});
+
+/** Called after signed issuer and V4 community/contract authentication. */
+export function persistTelegramStudyDenial(
+  store: ResultStore,
+  communityId: string,
+  value: unknown,
+) {
+  const denial = telegramStudyDenial(value);
+  insist(
+    denial.communityId === communityId,
+    "study_telegram_fence_context_changed",
+    403,
+  );
+  store.transaction(() => store.set(tombstoneKey(denial), true));
+  return { denialHash: digest(denial), recorded: true as const };
+}
+
 export function telegramStudyDenied(
   store: ResultStore,
   fence: TelegramStudyFence,
+  context?: TelegramStudyContext,
 ) {
+  const actor = fence.facts.actor;
+  const base = denialBase(actor.communityId);
   return (
     store.get(deniedKey(fence)) === true ||
-    store.get(scopeKey(fence.facts.actor)) === true
+    store.get(scopeKey(actor)) === true ||
+    store.get(
+      tombstoneKey({
+        ...base,
+        kind: "scope",
+        botId: actor.botId,
+        generation: actor.generation,
+      }),
+    ) === true ||
+    store.get(
+      tombstoneKey({
+        ...base,
+        kind: "grant",
+        botId: actor.botId,
+        grantId: fence.facts.grantId,
+      }),
+    ) === true ||
+    (context !== undefined &&
+      store.get(
+        tombstoneKey({
+          ...base,
+          kind: "authorization",
+          authorizationId: context.authorizationId,
+        }),
+      ) === true)
   );
 }
 
@@ -84,7 +136,7 @@ export async function checkTelegramStudyPublication(
   if (!publication) return;
   const { fence, context } = publication;
   insist(
-    !telegramStudyDenied(store, fence),
+    !telegramStudyDenied(store, fence, context),
     "study_telegram_grant_withdrawn",
     409,
   );
@@ -98,7 +150,7 @@ export async function checkTelegramStudyPublication(
     409,
   );
   insist(
-    !telegramStudyDenied(store, fence),
+    !telegramStudyDenied(store, fence, context),
     "study_telegram_grant_withdrawn",
     409,
   );

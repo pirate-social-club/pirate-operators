@@ -137,3 +137,53 @@ export async function resolveTelegramStudyFence(
   );
   return result.allowed;
 }
+
+export type TelegramStudyDenial = {
+  schema: "pirate.study.telegram-publication-denial/1";
+  communityId: Hex;
+} & (
+  | { kind: "grant"; botId: string; grantId: string }
+  | { kind: "scope"; botId: string; generation: number }
+  | { kind: "authorization"; authorizationId: Hex }
+);
+
+export function telegramStudyDenial(value: unknown): TelegramStudyDenial {
+  const input = object(value),
+    kind = input.kind;
+  insist(
+    input.schema === "pirate.study.telegram-publication-denial/1",
+    "study_telegram_denial_invalid",
+  );
+  const base = {
+    schema: input.schema,
+    communityId: bytes32(input.communityId),
+  } as const;
+  const common = ["schema", "kind", "communityId"];
+  if (kind === "grant") {
+    exact(input, [...common, "botId", "grantId"]);
+    return {
+      ...base,
+      kind,
+      botId: telegramId(input.botId),
+      grantId: id(input.grantId),
+    };
+  }
+  if (kind === "scope") {
+    exact(input, [...common, "botId", "generation"]);
+    insist(
+      typeof input.generation === "number" &&
+        Number.isSafeInteger(input.generation) &&
+        input.generation > 0,
+      "study_telegram_denial_invalid",
+    );
+    return {
+      ...base,
+      kind,
+      botId: telegramId(input.botId),
+      generation: input.generation,
+    };
+  }
+  insist(kind === "authorization", "study_telegram_denial_invalid");
+  exact(input, [...common, "authorizationId"]);
+  return { ...base, kind, authorizationId: bytes32(input.authorizationId) };
+}

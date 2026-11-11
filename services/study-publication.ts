@@ -250,7 +250,8 @@ async function freeze(
   store.transaction(() => {
     if (closedStudyPublication(store, input.lessonId)) return;
     check(
-      !telegram || !telegramStudyDenied(store, telegram.fence),
+      !telegram ||
+        !telegramStudyDenied(store, telegram.fence, telegram.context),
       "study_telegram_grant_withdrawn",
     );
     const concurrent = store.get<PublicationJob>(key(input.lessonId));
@@ -483,13 +484,13 @@ export async function resumeStudyPublication(
     const telegram = telegramResultPublication(env, store, ref);
     if (
       telegram &&
-      (telegramStudyDenied(store, telegram.fence) ||
+      (telegramStudyDenied(store, telegram.fence, telegram.context) ||
         !(await resolveTelegramStudyFence(
           env.STUDY_TELEGRAM_AUTHORITY,
           telegram.fence,
           telegram.context,
         )) ||
-        telegramStudyDenied(store, telegram.fence))
+        telegramStudyDenied(store, telegram.fence, telegram.context))
     )
       return keepPrivate(env, store, id, job, "authorization_withdrawn");
     if (Number(job.result.status) !== 1)

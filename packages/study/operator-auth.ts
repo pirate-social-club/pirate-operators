@@ -8,7 +8,8 @@ export type StudyOperatorPath =
   | "/study/bind"
   | "/study/terminal"
   | "/study/speech"
-  | "/study/speech/status";
+  | "/study/speech/status"
+  | "/study/telegram/deny";
 export interface StudyOperatorAuthority {
   chainId: 31337 | 6343;
   communityId: Hex;
@@ -74,6 +75,7 @@ export async function verifyStudyAuthorization(
         "/study/terminal",
         "/study/speech",
         "/study/speech/status",
+        "/study/telegram/deny",
       ].includes(a.path) &&
       new URL(request.url).pathname === a.path &&
       a.chainId === authority.chainId &&

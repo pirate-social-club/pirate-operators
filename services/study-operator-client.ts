@@ -1,7 +1,7 @@
 // Uses the existing service binding and community ticket signer. Provider keys
 // and HTTP transports remain in the operator, not in the application/browser.
 import type { Hex } from "viem";
-import { check } from "../packages/protocol/index.ts";
+import { check, digest } from "../packages/protocol/index.ts";
 import {
   authorizeStudyRequest,
   STUDY_AUTH_HEADER,
@@ -24,6 +24,10 @@ import type {
   StudyBinding,
   StudyOperatorBinding,
 } from "./study-operator.ts";
+import {
+  telegramStudyDenial,
+  type TelegramStudyDenial,
+} from "../packages/study/telegram-publication.ts";
 import type {
   StudyTerminalRequest,
   StudyPublicationReceipt,
@@ -60,6 +64,27 @@ async function call<T>(
 }
 const encoded = (value: unknown) =>
   new TextEncoder().encode(JSON.stringify(value));
+export async function denyManagedStudyPublication(
+  ports: StudyOperatorPorts,
+  value: TelegramStudyDenial,
+) {
+  const denial = telegramStudyDenial(value);
+  check(
+    denial.communityId === ports.authority.communityId,
+    "study_telegram_fence_context_changed",
+  );
+  const receipt = await call<{ denialHash: string; recorded: boolean }>(
+    ports,
+    "/study/telegram/deny",
+    encoded(denial),
+  );
+  check(
+    receipt.recorded === true && receipt.denialHash === digest(denial),
+    "study_telegram_denial_not_recorded",
+  );
+  return receipt;
+}
+
 /** A V3 offer binds an enrollment; a V4 offer binds its sign-in authorization. */
 export function bindManagedStudy(
   ports: StudyOperatorPorts,

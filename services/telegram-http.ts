@@ -2,6 +2,7 @@ import {
   TelegramError,
   telegramCheck,
   type BotScope,
+  type TelegramGrant,
   type WebAccount,
 } from "../packages/telegram/contracts.ts";
 import type { NotificationPreferences } from "../packages/telegram/contracts.ts";
@@ -26,6 +27,8 @@ export interface TelegramWebPorts {
   account(request: Request): Promise<WebAccount>;
   /** Existing session-bound CSRF check; absence never becomes approval. */
   csrf(request: Request, account: WebAccount): Promise<boolean>;
+  /** Required on the connected publisher mount: waits for durable operator denial. */
+  beforeUnlink?(grant: TelegramGrant): Promise<void>;
 }
 function query(url: URL, key: string) {
   const values = url.searchParams.getAll(key);
@@ -109,10 +112,21 @@ export function telegramCommunityRoutes(
               : null,
           });
         }
-        if (request.method === "DELETE")
+        if (request.method === "DELETE") {
+          const prior = linking.connection(ports.scope, account.accountId);
+          if (prior && ports.beforeUnlink) {
+            await ports.beforeUnlink(prior);
+            const current = linking.connection(ports.scope, account.accountId);
+            telegramCheck(
+              current === null || current.id === prior.id,
+              "telegram_authority_changed",
+              409,
+            );
+          }
           return reply({
             unlinked: linking.grants.unlink(ports.scope, account.accountId),
           });
+        }
       }
       if (
         url.pathname === "/api/telegram/notifications" &&

@@ -157,7 +157,8 @@ export async function bindAuthorizedLesson(
     check(!closedStudyPublication(store, v4.lessonId), "study_history_expired");
     const telegram = studyTelegramPublication(v4, target, env.COMMUNITY_ID);
     check(
-      !telegram || !telegramStudyDenied(store, telegram.fence),
+      !telegram ||
+        !telegramStudyDenied(store, telegram.fence, telegram.context),
       "study_telegram_grant_withdrawn",
     );
     const concurrent = store.get<StudyBinding>(`studyBinding:${v4.lessonId}`);
