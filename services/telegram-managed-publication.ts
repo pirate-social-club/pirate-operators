@@ -243,15 +243,20 @@ export class TelegramManagedPublication {
       account = op.accountId!;
     const key = accountPending(op.scope.communityId, op.scope.botId, account);
     telegramCheck(!store.get(key), "telegram_publication_pending", 503);
+    const senderKey = op.captured
+      ? `publication-user:${actorKey({ ...op.scope, userId: op.captured.userId, chatId: op.captured.userId })}`
+      : null;
+    if (senderKey)
+      telegramCheck(
+        !store.get(senderKey) || store.get(senderKey) === op.id,
+        "telegram_publication_pending",
+        503,
+      );
     if (op.captured)
       this.grants.retireCapturedPublicationGrant(op.scope, op.captured);
     else this.grants.retirePublicationGrant(op.scope, account, null);
     store.set(key, op.id);
-    if (op.captured)
-      store.set(
-        `publication-user:${actorKey({ ...op.scope, userId: op.captured.userId, chatId: op.captured.userId })}`,
-        op.id,
-      );
+    if (senderKey) store.set(senderKey, op.id);
   }
   private stageAccount(
     kind: "unlink" | "authority",

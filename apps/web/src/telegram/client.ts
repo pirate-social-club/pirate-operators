@@ -9,6 +9,15 @@ export interface TelegramConnectionView {
   linkedAt: number | null;
   preferences: { reminders: boolean; rewards: boolean; dance: boolean } | null;
 }
+export class TelegramRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  constructor(status: number, code: string | null) {
+    super(code ?? "Telegram is unavailable.");
+    this.status = status;
+    this.code = code;
+  }
+}
 export function telegramConnectionClient(options: {
   account: () => string;
   csrf: () => string;
@@ -48,7 +57,7 @@ export function telegramConnectionClient(options: {
       ...(value === undefined ? {} : { body: JSON.stringify(value) }),
     });
     assertAccount();
-    let body;
+    let body: unknown;
     try {
       body = await response.json();
     } finally {
@@ -56,12 +65,16 @@ export function telegramConnectionClient(options: {
       // both the result and parse/read errors before exposing either to callers.
       assertAccount();
     }
-    if (!response.ok)
-      throw new Error(
+    if (!response.ok) {
+      const code =
+        body !== null &&
+        typeof body === "object" &&
+        "error" in body &&
         typeof body.error === "string"
           ? body.error
-          : "Telegram is unavailable.",
-      );
+          : null;
+      throw new TelegramRequestError(response.status, code);
+    }
     return body as T;
   }
   return {
@@ -91,13 +104,24 @@ export function telegramConnectionClient(options: {
               };
         unlinks.set(account, operation);
       }
-      const result = await request<{ unlinked: boolean }>(
-        "/api/telegram/connection",
-        "DELETE",
-        operation,
-      );
-      if (unlinks.get(account) === operation) unlinks.delete(account);
-      return result;
+      try {
+        const result = await request<{ unlinked: boolean }>(
+          "/api/telegram/connection",
+          "DELETE",
+          operation,
+        );
+        if (unlinks.get(account) === operation) unlinks.delete(account);
+        return result;
+      } catch (error) {
+        if (
+          error instanceof TelegramRequestError &&
+          error.status === 409 &&
+          error.code === "telegram_unlink_predecessor_changed" &&
+          unlinks.get(account) === operation
+        )
+          unlinks.delete(account);
+        throw error;
+      }
     },
     preferences: (value: NonNullable<TelegramConnectionView["preferences"]>) =>
       request("/api/telegram/notifications", "PATCH", value),

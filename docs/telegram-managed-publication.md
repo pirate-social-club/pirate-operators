@@ -4,7 +4,11 @@ The source composition takes the existing signed `StudyOperatorPorts` and a dura
 
 Each transition has a stable request identity, expected predecessor, monotonic local revision and captured target. Denials occupy separately indexed child rows. A pending account or sender fence is installed in the same transaction as retirement and the transition record. Remote failure keeps that local fence and the original denial. Completion clears only fences belonging to that operation after every denial acknowledgement has been persisted. A malformed operation or child holds recovery for review.
 
+Link creation checks both the sender fence and the destination account before and after awaited identity reads. Final grant commit checks the sender fence with the captured counters. A different transition cannot overwrite an existing sender operation.
+
 Unlink uses the existing account session, Origin and CSRF checks. The connection projection includes `grantId` and the retained `unlinkOperation`. DELETE takes `operationId` and `expectedGrantId`. The client keeps these values through uncertain responses and resumes the server operation after reload. Repeating a completed operation returns its retained result, including after a replacement grant is created. A new request with a stale expected predecessor fails.
+
+An HTTP 409 carrying `telegram_unlink_predecessor_changed` ends the client's unstaged cached operation. A subsequent explicit action fetches fresh status and creates a new intent. Other failures retain the original operation and predecessor for retry.
 
 Before a native delivery starts, the outbox captures the original grant and its local revision and pre-arms durable recovery. A blocking response atomically retires that captured grant, advances the existing link fences and stages its denial. A delayed response compares the capture with the current association. `/start` restores chat reachability while the old grant remains retired. A fresh link becomes available after denial recovery completes.
 

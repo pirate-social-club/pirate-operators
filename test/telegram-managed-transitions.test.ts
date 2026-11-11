@@ -65,11 +65,17 @@ test("HTTP unlink authenticates the existing account and retains a completed pre
   assert.equal(f.denials.size, 0);
   f.lost();
   assert.equal((await unlink(request)).status, 503);
-  const status = await (
+  const status: unknown = await (
     await route(
       new Request("https://community.example/api/telegram/connection"),
     )
   ).json();
+  assert.ok(
+    status &&
+      typeof status === "object" &&
+      "grantId" in status &&
+      "unlinkOperation" in status,
+  );
   assert.equal(status.grantId, null);
   assert.deepEqual(status.unlinkOperation, { ...request, complete: false });
   f.advance(2000);

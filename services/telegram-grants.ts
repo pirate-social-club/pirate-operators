@@ -154,6 +154,13 @@ export class TelegramGrants {
       503,
     );
   }
+  senderReady(actor: ChatActor) {
+    telegramCheck(
+      !this.store.get(`publication-user:${actorKey(actor)}`),
+      "telegram_publication_pending",
+      503,
+    );
+  }
   finishPublicationScope(change: PublicationScopeChange) {
     return this.store.transaction(() => {
       const key = publicationScopeChangeKey(change.to.communityId);
@@ -204,6 +211,7 @@ export class TelegramGrants {
     accountId: string,
     expected: TelegramLinkFence,
   ) {
+    this.senderReady(actor);
     this.accountReady(actor, accountId);
     const current = this.linkFence(actor, accountId);
     telegramCheck(
@@ -246,11 +254,7 @@ export class TelegramGrants {
   }
   binding(actor: ChatActor) {
     this.current(actor);
-    telegramCheck(
-      !this.store.get(`publication-user:${actorKey(actor)}`),
-      "telegram_publication_pending",
-      503,
-    );
+    this.senderReady(actor);
     const binding = this.store.get<ChatBinding>(`chat:${actorKey(actor)}`);
     telegramCheck(
       binding &&
