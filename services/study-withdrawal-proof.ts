@@ -10,6 +10,7 @@ import {
   type Address,
   type Hex,
   type PublicClient,
+  type TransactionSerialized,
 } from "viem";
 import { check, digest } from "../packages/protocol/index.ts";
 import { resultsV4Abi } from "../packages/protocol/learning-results-v4.ts";
@@ -159,7 +160,8 @@ export async function observeStudyWithdrawal(input: {
           (parsed.value === undefined || parsed.value === 0n) &&
           same(
             await recoverTransactionAddress({
-              serializedTransaction: expected.raw,
+              // parseTransaction above has already validated the wire format.
+              serializedTransaction: expected.raw as TransactionSerialized,
             }),
             expected.sender,
           ),
