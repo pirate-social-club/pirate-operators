@@ -5,6 +5,9 @@ export { Avatar } from "@/components/data-display/avatar/avatar";
 export { Card, CardContent } from "@/components/data-display/card/card";
 export { Type } from "@/components/data-display/type/type";
 export { Input } from "@/components/forms/input/input";
+export { MediaControlButton } from "@/components/media/media-control-button/media-control-button";
+export { Scrubber } from "@/components/media/scrubber/scrubber";
+export { Spinner } from "@/components/feedback/spinner/spinner";
 export {
   Sheet,
   SheetContent,

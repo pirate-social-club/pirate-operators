@@ -1,7 +1,10 @@
 // Independently owned source copy. src/features/posts/song-player/song-player.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
 // Adapter differences: docs/v1-shell-owner-correction-20261111.md.
-import { Show, createSignal, onCleanup, untrack } from "solid-js";
-import { Button, IconPlay, Type } from "../design-system.ts";
+// Central controls/captured identity: docs/v1-shell-player-controls-20261111.md.
+import { Show, createMemo, createSignal, onCleanup, untrack } from "solid-js";
+import { Button, Type } from "../design-system.ts";
+import { SongPlaybackControls } from "../player/playback-controls.tsx";
+import { mediaFacts, seekMedia } from "../player/media-state.ts";
 import type { SongPlaybackGrant } from "../playback-access.ts";
 
 type PlayerGrant = Omit<SongPlaybackGrant, "expires_at" | "renew_after"> & {
@@ -68,28 +71,58 @@ export interface SongPlayerProps {
   readonly readAccess: (postId: string) => Promise<SongPlaybackGrant>;
   readonly now?: () => number;
   /**
-   * Compact mode joins the caller's flex row: the trigger stays on the line
-   * and the granted native audio wraps to its own full-width line beneath it.
+   * Compact mode retains the centralized controls inside the authored card.
+   * Hidden media remains present; native controls never render.
    */
   readonly compact?: boolean;
   /** Targeted private detail owns its grant for this mount only. */
   readonly cacheAccess?: boolean;
 }
-/** Native controls provide seeking, volume and keyboard access to the real full mix. */
+/** Remount on actual post/access-port identity changes; stale mounts dispose. */
 export function SongPlayer(props: SongPlayerProps) {
+  const identity = createMemo(() => ({
+    postId: props.postId,
+    reader: props.readAccess,
+    cache: props.cacheAccess,
+  }));
+  return (
+    <Show when={identity()} keyed>
+      {(scope) => (
+        <SongPlayerInstance
+          {...props}
+          postId={scope.postId}
+          readAccess={scope.reader}
+          cacheAccess={scope.cache}
+        />
+      )}
+    </Show>
+  );
+}
+function SongPlayerInstance(props: SongPlayerProps) {
+  const postId = untrack(() => props.postId);
+  const reader = untrack(() => props.readAccess);
+  const cacheAccess = untrack(() => props.cacheAccess);
   let audio: HTMLAudioElement | undefined;
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let resumeAt = 0;
   let shouldResume = false;
   const [busy, setBusy] = createSignal(false);
+  const [playing, setPlaying] = createSignal(false);
+  const [waiting, setWaiting] = createSignal(false);
+  const [position, setPosition] = createSignal<number>();
+  const [duration, setDuration] = createSignal<number>();
+  const updateFacts = () => {
+    if (!audio || disposed) return;
+    const facts = mediaFacts(audio);
+    setPosition(facts.position);
+    setDuration(facts.duration);
+  };
   const [issue, setIssue] = createSignal<string>();
   const now = () => Math.floor((props.now?.() ?? Date.now()) / 1000);
   const [grant, setGrant] = createSignal<PlayerGrant | undefined>(
     untrack(() =>
-      props.cacheAccess === false
-        ? undefined
-        : cachedPlaybackGrant(props.postId, now()),
+      cacheAccess === false ? undefined : cachedPlaybackGrant(postId, now()),
     ),
   );
   const clearTimer = () => {
@@ -104,28 +137,35 @@ export function SongPlayer(props: SongPlayerProps) {
     audio?.load();
   });
   onCleanup(
-    subscribePlaybackGrant(props.postId, (next) => {
-      if (!disposed && props.cacheAccess !== false) setGrant(next);
+    subscribePlaybackGrant(postId, (next) => {
+      if (!disposed && cacheAccess !== false) setGrant(next);
     }),
   );
   const renew = async (start: boolean): Promise<void> => {
     if (busy() || disposed) return;
     clearTimer();
+    const retrying = issue() !== undefined;
     setIssue(undefined);
     const cached =
-      props.cacheAccess === false
-        ? undefined
-        : cachedPlaybackGrant(props.postId, now());
+      cacheAccess === false ? undefined : cachedPlaybackGrant(postId, now());
     if (cached !== undefined) {
       // A still-valid grant must not pause playback on a retry. Reuse the
       // element, or let the freshly rendered one resume on metadata.
       resumeAt = audio?.currentTime ?? 0;
       shouldResume = start;
+      setWaiting(start);
       if (grant() !== cached) setGrant(cached);
+      if (retrying && audio) {
+        audio.load();
+        return;
+      }
       if (start && audio !== undefined && audio.readyState > 0) {
         shouldResume = false;
         void audio.play().catch(() => {
-          if (!disposed) setIssue("Press play to start the song.");
+          if (!disposed) {
+            setWaiting(false);
+            setIssue("Press play to start the song.");
+          }
         });
       }
       return;
@@ -135,8 +175,9 @@ export function SongPlayer(props: SongPlayerProps) {
     const previousSource = audio?.currentSrc || audio?.src;
     shouldResume = start;
     audio?.pause();
+    setWaiting(start);
     try {
-      const response = await props.readAccess(props.postId);
+      const response = await reader(postId);
       const next: PlayerGrant = {
         ...response,
         expires_at:
@@ -163,7 +204,7 @@ export function SongPlayer(props: SongPlayerProps) {
         throw new Error("Invalid playback grant");
       // Cache before the disposal check so a replaced component still leaves
       // reusable access for the one that follows it.
-      if (props.cacheAccess !== false) cachePlaybackGrant(props.postId, next);
+      if (cacheAccess !== false) cachePlaybackGrant(postId, next);
       if (disposed) return;
       setGrant(next);
       // A public community endpoint has no rotating grant URL. Retrying a
@@ -171,6 +212,9 @@ export function SongPlayer(props: SongPlayerProps) {
       if (audio && previousSource === next.playback_url) audio.load();
     } catch {
       if (!disposed) {
+        shouldResume = false;
+        setWaiting(false);
+        setPlaying(false);
         setGrant(undefined);
         setIssue("This song could not be played. Try again.");
       }
@@ -195,88 +239,138 @@ export function SongPlayer(props: SongPlayerProps) {
   };
   const ready = () => {
     if (!audio || disposed) return;
+    updateFacts();
     if (Number.isFinite(audio.duration))
       audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration));
     if (shouldResume) {
       shouldResume = false;
       void audio.play().catch(() => {
-        if (!disposed) setIssue("Press play to start the song.");
+        if (!disposed) {
+          setWaiting(false);
+          setIssue("Press play to start the song.");
+        }
       });
+    }
+  };
+  const play = () => {
+    if (!audio || disposed || busy()) return;
+    const current = grant();
+    if (
+      !current ||
+      issue() ||
+      (current.renew_after !== undefined && current.renew_after <= now())
+    ) {
+      void renew(true);
+      return;
+    }
+    void audio.play().catch(() => {
+      if (!disposed) {
+        setWaiting(false);
+        setIssue("Press play to start the song.");
+      }
+    });
+  };
+  const seek = (ms: number) => {
+    if (!audio || disposed) return;
+    try {
+      if (seekMedia(audio, ms)) {
+        resumeAt = audio.currentTime;
+        updateFacts();
+      }
+    } catch {
+      setIssue("This position could not be reached. Try again.");
     }
   };
   return (
     <div
-      class={props.compact ? "contents" : "flex min-w-0 flex-col gap-2"}
-      data-song-player={props.postId}
+      class={props.compact ? "w-full min-w-0" : "flex min-w-0 flex-col gap-2"}
+      data-song-player={postId}
     >
-      <Show
-        when={grant()}
-        fallback={
-          <Button
-            aria-label={`Play ${props.title}`}
-            class={
-              props.compact
-                ? "ml-auto size-11 shrink-0 rounded-full px-0"
-                : "max-w-full"
-            }
-            disabled={busy()}
-            loading={props.compact ? busy() : undefined}
-            onClick={() => void renew(true)}
-            size="sm"
-            type="button"
-            variant={props.compact ? "default" : "secondary"}
-          >
-            {props.compact ? (
-              busy() ? undefined : (
-                <IconPlay aria-hidden="true" class="ml-0.5 size-5" />
-              )
-            ) : busy() ? (
-              "Loading audio…"
-            ) : (
-              "Play song"
-            )}
-          </Button>
-        }
-      >
-        {(current) => (
-          <audio
-            aria-label={`Audio for ${props.title}`}
-            class={props.compact ? "w-full basis-full" : "w-full"}
-            controls
-            preload="metadata"
-            ref={audio}
-            src={current().playback_url}
-            onLoadedMetadata={ready}
-            onPlay={(event) => {
-              for (const media of document.querySelectorAll<HTMLMediaElement>(
-                "audio, video",
-              ))
-                if (media !== event.currentTarget) media.pause();
-              schedule();
-            }}
-            onPause={clearTimer}
-            onEnded={clearTimer}
-            onError={() => {
-              clearTimer();
-              setIssue("Audio could not be loaded. Retry playback.");
-            }}
-          />
-        )}
-      </Show>
+      <SongPlaybackControls
+        title={props.title}
+        playing={playing()}
+        buffering={busy() || waiting()}
+        position={position()}
+        duration={duration()}
+        canSeek={duration() !== undefined && grant() !== undefined}
+        onPlay={play}
+        onPause={() => audio?.pause()}
+        onSeek={seek}
+      />
+      <audio
+        hidden
+        aria-label={"Audio for " + props.title}
+        preload="metadata"
+        ref={audio}
+        src={grant()?.playback_url}
+        onLoadedMetadata={ready}
+        onDurationChange={updateFacts}
+        onTimeUpdate={updateFacts}
+        onPlaying={() => {
+          if (!disposed) {
+            setPlaying(true);
+            setWaiting(false);
+            updateFacts();
+            schedule();
+          }
+        }}
+        onPlay={(event) => {
+          if (disposed) return;
+          for (const media of document.querySelectorAll<HTMLMediaElement>(
+            "audio, video",
+          ))
+            if (media !== event.currentTarget) media.pause();
+        }}
+        onWaiting={() => {
+          if (!disposed && audio && !audio.paused) setWaiting(true);
+        }}
+        onStalled={() => {
+          if (!disposed && audio && !audio.paused) setWaiting(true);
+        }}
+        onPause={() => {
+          if (!disposed) {
+            setPlaying(false);
+            setWaiting(false);
+            clearTimer();
+            updateFacts();
+          }
+        }}
+        onEnded={() => {
+          if (!disposed) {
+            setPlaying(false);
+            setWaiting(false);
+            clearTimer();
+            updateFacts();
+          }
+        }}
+        onSeeked={updateFacts}
+        onEmptied={() => {
+          if (!disposed) {
+            setPlaying(false);
+            setWaiting(shouldResume);
+            setPosition(undefined);
+            setDuration(undefined);
+          }
+        }}
+        onError={() => {
+          if (!disposed) {
+            shouldResume = false;
+            clearTimer();
+            setPlaying(false);
+            setWaiting(false);
+            setIssue("Audio could not be loaded. Retry playback.");
+          }
+        }}
+      />
       <Show when={issue()}>
         {(message) => (
-          <Type
-            class={props.compact ? "basis-full" : undefined}
-            role="status"
-            variant="caption"
-          >
+          <Type role="status" variant="caption">
             {message()}
           </Type>
         )}
       </Show>
-      <Show when={issue() && grant()}>
+      <Show when={issue()}>
         <Button
-          class={props.compact ? "basis-full" : undefined}
           disabled={busy()}
           onClick={() => void renew(true)}
           size="sm"
