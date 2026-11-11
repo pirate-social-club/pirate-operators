@@ -152,13 +152,7 @@ export async function progressAuthorityAction(
         last_withdrawn_at=MAX(COALESCE(last_withdrawn_at,0),?5)
         WHERE account_id=?1 AND ${owns} ${observedFence}`,
             )
-            .bind(
-              op.account_id,
-              id,
-              op.epoch,
-              nonce,
-              action.kind === "observed" ? action.cutoffS * 1000 : action.atMs,
-            );
+            .bind(op.account_id, id, op.epoch, nonce, action.atMs);
   await db.batch([
     settings,
     db

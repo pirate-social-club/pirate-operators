@@ -21,7 +21,11 @@ test("account authority includes the persisted revision and rechecks it after de
   f.database
     .prepare("INSERT INTO credential_bindings VALUES(?,?,'moss',6343,?)")
     .run("binding-one", account.accountId, account.wallet);
-  const state = { revision: "revision-1", pending: false };
+  const state = {
+    revision: "revision-1",
+    permissionRevision: "permission-1",
+    pending: false,
+  };
   let gate: ReturnType<typeof barrier> | undefined;
   const port = telegramAccountPort({
     db: d1Sqlite(f.database),
@@ -41,7 +45,14 @@ test("account authority includes the persisted revision and rechecks it after de
     account.accountId,
     account.wallet,
   );
-  assert.notEqual(first.authorityVersion, second.authorityVersion);
+  assert.equal(first.authorityVersion, second.authorityVersion);
+  state.permissionRevision = "permission-2";
+  const changedPermission = await port.current(
+    actor.communityId,
+    account.accountId,
+    account.wallet,
+  );
+  assert.notEqual(first.authorityVersion, changedPermission.authorityVersion);
   gate = barrier();
   const running = port.current(
     actor.communityId,
@@ -51,7 +62,7 @@ test("account authority includes the persisted revision and rechecks it after de
   await gate.waiting;
   state.revision = "revision-3";
   gate.release();
-  await assert.rejects(running, /authority_changed/);
+  await assert.rejects(running, /publication_pending/);
   state.pending = true;
   await assert.rejects(
     port.current(actor.communityId, account.accountId, account.wallet),

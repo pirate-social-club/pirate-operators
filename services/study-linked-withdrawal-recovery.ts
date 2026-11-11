@@ -316,7 +316,7 @@ export async function recoverLinkedWithdrawals(
     const item = row.value as { operationId: string; due: number };
     if (item.due > db.now()) continue;
     try {
-      let op = await db.durableStudyWrite(() => {
+      let op: WithdrawalOperation | null = await db.durableStudyWrite(() => {
         const current = db.get<WithdrawalOperation>(opKey(item.operationId));
         check(current, "study_withdrawal_operation_missing");
         if (current.proof) {
@@ -355,9 +355,12 @@ export async function recoverLinkedWithdrawals(
         return next;
       });
       if (!op) continue;
-      const proof = await observeBounded(ports, op, waitMs);
+      const observedOperation = op;
+      const proof = await observeBounded(ports, observedOperation, waitMs);
       if (proof)
-        await db.durableStudyWrite(() => mergeLinkedProof(db, op.id, proof));
+        await db.durableStudyWrite(() =>
+          mergeLinkedProof(db, observedOperation.id, proof),
+        );
     } catch (error) {
       await db.durableStudyWrite(() =>
         db.set(row.key, { ...item, due: db.now() + 5, error: String(error) }),

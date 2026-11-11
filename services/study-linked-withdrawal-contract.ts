@@ -138,12 +138,12 @@ export function pending(condition: unknown): asserts condition {
 export function linkedStore(store: ResultStore): LinkedStore {
   const candidate = store as LinkedStore;
   pending(
-    candidate.page &&
-      candidate.durableStudyWrite &&
-      candidate.linkedWithdrawalSource &&
-      candidate.hasUnclassifiedLegacyWithdrawal &&
-      candidate.linkedStudyBindings?.page &&
-      candidate.linkedStudyBindings.hasUnclassified,
+    typeof candidate.page === "function" &&
+      typeof candidate.durableStudyWrite === "function" &&
+      typeof candidate.linkedWithdrawalSource === "function" &&
+      typeof candidate.hasUnclassifiedLegacyWithdrawal === "function" &&
+      typeof candidate.linkedStudyBindings?.page === "function" &&
+      typeof candidate.linkedStudyBindings?.hasUnclassified === "function",
   );
   return candidate;
 }

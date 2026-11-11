@@ -34,7 +34,7 @@ import {
 export function stageLinkedWithdrawal(
   store: ResultStore,
   input: Omit<WithdrawalOperation, "proof" | "original" | "source">,
-) {
+): WithdrawalOperation {
   const operation = { ...input, scope: scopeOf(input.scope) },
     prior = store.get<WithdrawalOperation>(opKey(input.id));
   if (prior) {
