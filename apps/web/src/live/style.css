@@ -3,6 +3,7 @@
 @import "./app-shell.css";
 @source "./app-shell.tsx";
 @source "../shell/";
+@source "../wallet/";
 @source "./entry.tsx";
 @source "./upload.tsx";
 @source "./karaoke.tsx";
