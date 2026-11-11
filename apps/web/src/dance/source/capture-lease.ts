@@ -40,7 +40,7 @@ export async function claimBrowserDanceCapture(
         });
         await finished;
       },
-    );
+    ).then(() => {});
     void request.catch(reject);
   });
 }
