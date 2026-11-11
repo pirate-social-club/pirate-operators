@@ -2,8 +2,15 @@
 // unregistered owner policy. Real signatures, real D1 budget tables.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { Miniflare } from "miniflare";
+import {
+  migrateOwnerDatabase as migrate,
+  ownerMigrationRecords,
+  applyOwnerMigrationRecords,
+  ownerMigrationLedger,
+  migrationSha,
+} from "./owner-publishing-migration-fixture.ts";
 import { build } from "esbuild";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashJson } from "../packages/community/common.ts";
@@ -255,19 +262,6 @@ const claimWorker = await build({
   platform: "browser",
   external: ["node:*"],
 });
-async function migrate(db: D1Database, files: string[]) {
-  for (const file of files) {
-    const sql = await readFile(new URL(`../${file}`, import.meta.url), "utf8");
-    await db.batch(
-      sql
-        .replace(/--[^\n]*/g, "")
-        .split(";")
-        .map((statement) => statement.trim())
-        .filter(Boolean)
-        .map((statement) => db.prepare(statement)),
-    );
-  }
-}
 const COMMUNITY = "apps/community-wizard/infra/migrations",
   MANAGED = "apps/managed-moderation/migrations";
 /** The complete ordered chain in a migrations directory, optionally stopping before a file. */
@@ -829,7 +823,11 @@ test("community schema upgrades the complete 0001-0011 chain to 0012 and keeps S
       ledger = await versions();
     // The applied ledger ends at rewards 11 (0003 and 0004 never wrote versions).
     assert.equal(ledger.at(-1), 11);
-    await migrate(db, [`${COMMUNITY}/0012_owner_budget_windows.sql`]);
+    const successor = [
+      ...predecessor,
+      `${COMMUNITY}/0012_owner_budget_windows.sql`,
+    ];
+    await migrate(db, successor);
     assert.equal(await snapshot(), before);
     assert.deepEqual(await versions(), [...ledger, 12]);
     await db
@@ -841,11 +839,29 @@ test("community schema upgrades the complete 0001-0011 chain to 0012 and keeps S
         .run(),
       /CHECK constraint failed/,
     );
-    // Applying 0012 again is refused rather than silently re-versioned.
+    // Alchemy reconciles the recorded hash without executing DDL again.
+    const applied = await ownerMigrationLedger(db);
+    await migrate(db, successor);
+    assert.deepEqual(await ownerMigrationLedger(db), applied);
+    assert.equal(await snapshot(), before);
+    assert.deepEqual(await versions(), [...ledger, 12]);
+    // Changed applied bytes and removed history remain hard failures.
+    const records = await ownerMigrationRecords(successor);
+    const changedSql =
+      records.at(-1)!.sql + "\n-- fixture changed applied bytes\n";
     await assert.rejects(
-      migrate(db, [`${COMMUNITY}/0012_owner_budget_windows.sql`]),
-      /already exists|UNIQUE constraint failed/,
+      applyOwnerMigrationRecords(db, [
+        ...records.slice(0, -1),
+        { ...records.at(-1)!, hash: migrationSha(changedSql) },
+      ]),
+      /does not match the local files/,
     );
+    await assert.rejects(
+      applyOwnerMigrationRecords(db, records.slice(0, -1)),
+      /does not match the local files/,
+    );
+    assert.deepEqual(await ownerMigrationLedger(db), applied);
+    assert.equal(await snapshot(), before);
   } finally {
     await runtime.dispose();
   }
@@ -902,7 +918,10 @@ test("managed schema upgrades 0001-0003 to 0004 and keeps existing budgets and r
           .then((r) => r.map((x) => x.results)),
       );
     const before = await snapshot();
-    await migrate(db, [`${MANAGED}/0004_owner_budget_windows.sql`]);
+    await migrate(db, [
+      ...predecessor,
+      `${MANAGED}/0004_owner_budget_windows.sql`,
+    ]);
     assert.equal(await snapshot(), before);
     const g = validateOwnerGrant(grant());
     await claimOwnerWindow(db, g, 1500);
@@ -927,7 +946,11 @@ test("deployment packages add the publishing migrations only when owner publishi
     ownerPublishing: false,
     v4: false,
   });
-  assert.equal(deployed.at(-1), "0011_manual_rewards.sql");
+  // Profiles are shared baseline schema, after optional feature migrations.
+  const baseline = names.filter(
+    (name) => name < "0011_" || name === "0019_community_profiles.sql",
+  );
+  assert.deepEqual(deployed, [...baseline, "0011_manual_rewards.sql"].sort());
   assert.equal(deployed.includes("0012_owner_budget_windows.sql"), false);
   assert.deepEqual(
     communityMigrations(names, {
@@ -935,7 +958,7 @@ test("deployment packages add the publishing migrations only when owner publishi
       ownerPublishing: true,
       v4: false,
     }),
-    [...deployed, "0012_owner_budget_windows.sql"],
+    [...deployed, "0012_owner_budget_windows.sql"].sort(),
   );
   assert.throws(
     () =>
@@ -977,14 +1000,33 @@ test("the V4 sign-in migration is opt-in and appends only after the deployed 001
       ),
       false,
     );
-  assert.equal(publishing.at(-1), "0012_owner_budget_windows.sql");
+  for (const selected of [
+    { rewards: false, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: true, v4: false },
+  ])
+    assert.equal(
+      communityMigrations(names, selected).includes(
+        "0018_learning_authority.sql",
+      ),
+      false,
+    );
+  assert.deepEqual(
+    publishing.filter((name) => name < "0019_"),
+    names.filter((name) => name < "0013_"),
+  );
+  assert.equal(publishing.at(-1), "0019_community_profiles.sql");
   assert.deepEqual(
     communityMigrations(names, {
       rewards: true,
       ownerPublishing: true,
       v4: true,
     }),
-    [...publishing, "0013_learning_authorization.sql"],
+    [
+      ...publishing,
+      "0013_learning_authorization.sql",
+      "0018_learning_authority.sql",
+    ].sort(),
   );
   // V4 needs the deployed order: owner publishing, which needs rewards.
   for (const selected of [
@@ -1358,5 +1400,228 @@ test("recognition rechecks the grant for each new provider reservation and dispa
     );
   } finally {
     await f.dispose();
+  }
+});
+
+// These cases use the package selector and the actual pinned migration engine.
+// They cannot pass by truncating the current directory at a historical ordinal.
+test("each selected package profile applies through the actual Alchemy D1 boundary with only its opted-in triggers", async () => {
+  const names = (await chain(COMMUNITY)).map((path) => path.split("/").at(-1)!);
+  assert.deepEqual(
+    names.map((name) => Number(name.slice(0, 4))),
+    Array.from({ length: 19 }, (_, index) => index + 1),
+  );
+  const profiles = [
+    { rewards: false, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: false, v4: false },
+    { rewards: true, ownerPublishing: true, v4: false },
+    { rewards: true, ownerPublishing: true, v4: true },
+    {
+      rewards: true,
+      ownerPublishing: true,
+      v4: true,
+      rewardClosure: true,
+      media: true,
+      dance: true,
+    },
+  ];
+  for (const selected of profiles) {
+    const runtime = new Miniflare({
+      modules: true,
+      script: "export default {fetch(){return new Response('fixture')}}",
+      compatibilityDate: "2026-08-06",
+      d1Databases: ["DB"],
+    });
+    try {
+      const db = await runtime.getD1Database("DB");
+      const selectedNames = communityMigrations(names, selected);
+      const records = await migrate(
+        db,
+        selectedNames.map((name) => `${COMMUNITY}/${name}`),
+      );
+      assert.deepEqual(
+        await ownerMigrationLedger(db),
+        records.map(({ name, hash }) => ({ name, hash })),
+      );
+      const present = new Set(
+        (
+          await db
+            .prepare("SELECT name FROM sqlite_schema WHERE type='table'")
+            .all<{ name: string }>()
+        ).results.map((row) => row.name),
+      );
+      assert.equal(
+        present.has("owner_budget_windows"),
+        selected.ownerPublishing,
+      );
+      assert.equal(present.has("learning_authorizations"), selected.v4);
+      assert.equal(present.has("learning_authority_operations"), selected.v4);
+      assert.equal(
+        present.has("dance_control_bindings"),
+        "dance" in selected && selected.dance === true,
+      );
+      assert.equal(present.has("community_profiles"), true);
+      const triggers = (
+        await db
+          .prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger'")
+          .all<{ name: string; sql: string }>()
+      ).results;
+      const authority = triggers.filter((row) =>
+        row.name.startsWith("learning_authority_"),
+      );
+      assert.equal(authority.length, selected.v4 ? 15 : 0);
+      for (const row of triggers) assert.match(row.sql, /END\s*;?\s*$/i);
+      if (selected.v4) {
+        await db.batch([
+          db.prepare(
+            "INSERT INTO community_accounts VALUES('trigger-account-a','trigger-author-a',1),('trigger-account-b','trigger-author-b',1)",
+          ),
+          db
+            .prepare(
+              "INSERT INTO credential_bindings VALUES('trigger-binding','trigger-account-a','moss',6343,?,1)",
+            )
+            .bind("0x" + "11".repeat(20)),
+          db.prepare(
+            "INSERT INTO learning_settings VALUES('trigger-account-a',1000,1000,NULL)",
+          ),
+        ]);
+        await db
+          .prepare(
+            "UPDATE credential_bindings SET account_id='trigger-account-b' WHERE binding_id='trigger-binding'",
+          )
+          .run();
+        assert.deepEqual(
+          (
+            await db
+              .prepare(
+                "SELECT account_id,revision FROM learning_authority_credentials ORDER BY account_id",
+              )
+              .all()
+          ).results,
+          [
+            { account_id: "trigger-account-a", revision: 2 },
+            { account_id: "trigger-account-b", revision: 1 },
+          ],
+        );
+        assert.equal(
+          await db
+            .prepare(
+              "SELECT version FROM learning_authority_dirty WHERE account_id='trigger-account-a'",
+            )
+            .first("version"),
+          1,
+        );
+      }
+      assert.deepEqual(
+        (await db.prepare("PRAGMA foreign_key_check").all()).results,
+        [],
+      );
+      const ledger = await ownerMigrationLedger(db);
+      await migrate(
+        db,
+        selectedNames.map((name) => `${COMMUNITY}/${name}`),
+      );
+      assert.deepEqual(await ownerMigrationLedger(db), ledger);
+    } finally {
+      await runtime.dispose();
+    }
+  }
+});
+
+test("selected V4 trigger migration and its real Alchemy ledger roll back atomically without changing an owner reservation", async () => {
+  const runtime = new Miniflare({
+    modules: true,
+    script: "export default {fetch(){return new Response('fixture')}}",
+    compatibilityDate: "2026-08-06",
+    d1Databases: ["DB"],
+  });
+  try {
+    const db = await runtime.getD1Database("DB");
+    const names = (await chain(COMMUNITY)).map(
+      (path) => path.split("/").at(-1)!,
+    );
+    const selected = communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: true,
+    });
+    const records = await ownerMigrationRecords(
+      selected.map((name) => `${COMMUNITY}/${name}`),
+    );
+    const authorityIndex = records.findIndex(
+      (record) => record.name === "0018_learning_authority.sql",
+    );
+    assert.equal(authorityIndex, 13);
+    await applyOwnerMigrationRecords(db, records.slice(0, authorityIndex));
+    const g = validateOwnerGrant(grant());
+    await reserveOwnerBudget(
+      db,
+      g,
+      "songs",
+      "owner-song:migration-rollback",
+      hashJson({ migration: "rollback" }),
+      "1",
+      1500,
+    );
+    const spending = async () =>
+      (
+        await db.batch([
+          db.prepare("SELECT * FROM owner_budget_windows"),
+          db.prepare(
+            "SELECT * FROM spending_budgets ORDER BY scope,period,asset",
+          ),
+          db.prepare(
+            "SELECT * FROM spending_reservations ORDER BY reservation_id,scope,period,asset",
+          ),
+        ])
+      ).map((result) => result.results);
+    const before = await spending();
+    const ledger = await ownerMigrationLedger(db);
+    const original = records[authorityIndex]!;
+    const failingSql =
+      original.sql + "\nSELECT * FROM owner_fixture_missing_table;\n";
+    // In-memory fault at the migration transport boundary; production SQL and
+    // its on-disk hash remain untouched.
+    await assert.rejects(
+      applyOwnerMigrationRecords(db, [
+        ...records.slice(0, authorityIndex),
+        {
+          ...original,
+          sql: failingSql,
+          hash: migrationSha(failingSql),
+          statements: [
+            ...original.statements,
+            "SELECT * FROM owner_fixture_missing_table;",
+          ],
+        },
+      ]),
+      /owner_fixture_missing_table/,
+    );
+    assert.deepEqual(await ownerMigrationLedger(db), ledger);
+    assert.deepEqual(await spending(), before);
+    assert.equal(
+      await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM sqlite_schema WHERE name LIKE 'learning_authority_%'",
+        )
+        .first("n"),
+      0,
+    );
+    assert.equal(
+      (
+        await db
+          .prepare("PRAGMA table_info(learning_authorizations)")
+          .all<{ name: string }>()
+      ).results.some((row) => row.name === "authority_epoch"),
+      false,
+    );
+    await applyOwnerMigrationRecords(db, records);
+    assert.deepEqual(
+      await ownerMigrationLedger(db),
+      records.map(({ name, hash }) => ({ name, hash })),
+    );
+    assert.deepEqual(await spending(), before);
+  } finally {
+    await runtime.dispose();
   }
 });

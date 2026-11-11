@@ -539,6 +539,13 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       await profileIntegration.controller()?.load();
     }
   };
+  const pageOwnsLegalLinks = () =>
+    !walletPage &&
+    !practiceOpen() &&
+    (view() === "settings" ||
+      (view() === "account" &&
+        !publicProfileAuthor(fragment()) &&
+        profileIntegration.state().view.kind === "anonymous"));
   return (
     <CommunityAppShell
       name={name()}
@@ -748,33 +755,37 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       </Show>
       {/* Normal site navigation: the documents stay reachable while signed
           in, outside the Study and Karaoke overlays. */}
-      <footer
-        class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
-        inert={practiceOpen()}
-      >
-        <nav class="live-footer-links" aria-label="Community documents">
-          <a href="/terms" target="_blank" rel="noopener">
-            Terms
-          </a>
-          <a href="/privacy" target="_blank" rel="noopener">
-            Privacy
-          </a>
-          {/* The learning documents of the community's own version, V3 or
-              V4; exercise surfaces carry no links in any mode. */}
-          <Show when={capabilities()?.learningPolicy}>
-            {(policy) => (
-              <>
-                <a href={policy().termsUrl} target="_blank" rel="noopener">
-                  Learning terms
-                </a>
-                <a href={policy().privacyUrl} target="_blank" rel="noopener">
-                  Learning privacy
-                </a>
-              </>
-            )}
-          </Show>
-        </nav>
-      </footer>
+      <Show when={!pageOwnsLegalLinks() || capabilities()?.learningPolicy}>
+        <footer
+          class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
+          inert={practiceOpen()}
+        >
+          <nav class="live-footer-links" aria-label="Community documents">
+            <Show when={!pageOwnsLegalLinks()}>
+              <a href="/terms" target="_blank" rel="noopener">
+                Terms
+              </a>
+              <a href="/privacy" target="_blank" rel="noopener">
+                Privacy
+              </a>
+            </Show>
+            {/* The learning documents of the community's own version, V3 or
+                V4; exercise surfaces carry no links in any mode. */}
+            <Show when={capabilities()?.learningPolicy}>
+              {(policy) => (
+                <>
+                  <a href={policy().termsUrl} target="_blank" rel="noopener">
+                    Learning terms
+                  </a>
+                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
+                    Learning privacy
+                  </a>
+                </>
+              )}
+            </Show>
+          </nav>
+        </footer>
+      </Show>
     </CommunityAppShell>
   );
 }
