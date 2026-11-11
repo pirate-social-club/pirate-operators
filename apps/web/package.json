@@ -90,6 +90,7 @@
     "tslib": "2.8.1",
     "jsdom": {
       "undici": "8.10.2"
-    }
+    },
+    "@storybook/builder-vite": "10.6.0"
   }
 }
