@@ -260,7 +260,9 @@ test("lost post-commit migration18 reply reconciles Alchemy's actual ledger befo
   try {
     await f.apply(f.records.slice(0, 17));
     f.loseNextAuthorityReply();
-    await assert.rejects(f.apply(), /fixture_reply_lost_after_D1_commit/);
+    // The actual engine catches the lost reply and verifies its ledger itself.
+    await f.apply();
+    assert.equal(f.lostReplyCount(), 1);
     assert.equal((await f.ledger()).results.length, 18);
     const before = (await f.ledger()).results;
     await f.apply();

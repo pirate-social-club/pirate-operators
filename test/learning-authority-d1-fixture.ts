@@ -79,6 +79,7 @@ export async function authorityD1Fixture() {
       authority: boolean;
     }> = [];
     let loseReply = false;
+    let lostReplies = 0;
     const executor = transport.makeD1MigrationExecutor((sql: string) =>
       Effect.tryPromise({
         try: async () => {
@@ -97,6 +98,7 @@ export async function authorityD1Fixture() {
           );
           if (authority && loseReply) {
             loseReply = false;
+            lostReplies++;
             throw Error("fixture_reply_lost_after_D1_commit");
           }
           return { result };
@@ -120,6 +122,7 @@ export async function authorityD1Fixture() {
       db,
       records,
       calls,
+      lostReplyCount: () => lostReplies,
       apply,
       ledger,
       loseNextAuthorityReply: () => {
