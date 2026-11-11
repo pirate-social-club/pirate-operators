@@ -349,11 +349,11 @@ test("claim survives reload, credits stay separate from balance, and the learner
     ),
   ).toBe(true);
   await mkdir(
-    "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser",
+    "../../.local/owner-wallet-verification-cancel-repair-20261111/existing-rewards-browser",
     { recursive: true },
   );
   await page.screenshot({
-    path: "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser/learner-phone.png",
+    path: "../../.local/owner-wallet-verification-cancel-repair-20261111/existing-rewards-browser/learner-phone.png",
     fullPage: true,
   });
 });
@@ -386,11 +386,11 @@ test("operator sees one combined payment and can cancel it before requesting a s
     page.getByText("$0.18 across 2 credits", { exact: true }),
   ).toBeVisible();
   await mkdir(
-    "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser",
+    "../../.local/owner-wallet-verification-cancel-repair-20261111/existing-rewards-browser",
     { recursive: true },
   );
   await page.screenshot({
-    path: "../../.local/owner-wallet-parity-correction-20261111/existing-rewards-browser/operator-desktop.png",
+    path: "../../.local/owner-wallet-verification-cancel-repair-20261111/existing-rewards-browser/operator-desktop.png",
     fullPage: true,
   });
 });
