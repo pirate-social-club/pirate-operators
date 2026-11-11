@@ -298,7 +298,7 @@ export function RewardWalletVerificationFixture() {
   }
   return (
     <Show when={shown()}>
-      {() =>
+      {(_shown) =>
         mounted ? (
           <div class="p-5">
             <LiveRewardWallet
