@@ -400,14 +400,13 @@ test("projection regression, uncertainty and reorg demotion retain evidence and 
     });
     assert.equal(await f.denied(), true);
     assert.ok(f.db.count("dance_control_observations") >= 2);
-    assert.equal(
-      f.db.sqlite
-        .prepare(
-          "SELECT count(*) n FROM dance_control_observations WHERE state='canonical'",
-        )
-        .get()!.n > 0,
-      true,
-    );
+    const canonicalCount = f.db.sqlite
+      .prepare(
+        "SELECT count(*) n FROM dance_control_observations WHERE state='canonical'",
+      )
+      .get()!.n;
+    assert.equal(typeof canonicalCount, "number");
+    assert.ok(typeof canonicalCount === "number" && canonicalCount > 0);
     await f.journal.holdRole(
       f.source.domain.communityId,
       f.source.sourceHash,
