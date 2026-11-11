@@ -98,20 +98,20 @@ test(
             FIXTURE_SIGNER: shared.env.KARAOKE_SIGNER_PRIVATE_KEY!,
           },
           serviceBindings: {
-            OPERATOR: async (request) => {
+            OPERATOR: async (request: Request) => {
               if (new URL(request.url).pathname === "/study/telegram/deny") {
                 denialCalls++;
                 if (offline) throw Error("fixture_denial_offline");
               }
               return shared.env.KARAOKE_OPERATOR!.fetch(request);
             },
-            PUBLIC_RPC: async (request) => {
+            PUBLIC_RPC: async (request: Request) => {
               const input = await request.json();
               return Response.json(
                 await shared.ports.publicReads!.client.request(input as never),
               );
             },
-            PUBLIC_CONTENT: (request) =>
+            PUBLIC_CONTENT: (request: Request) =>
               shared.ports.publicReads!.transport!(request),
           },
         });

@@ -40,7 +40,7 @@ test(
               ...options.study,
               config: {
                 ...options.study.config,
-                learningRecords: "0x" + "b".repeat(40),
+                learningRecords: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
               },
             },
           }),
