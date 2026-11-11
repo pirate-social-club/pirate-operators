@@ -1,4 +1,5 @@
 import {
+  AUTHORITY_VALIDATION_POLICY,
   revalidateAuthorityMembers,
   requireAuthorityValidation,
 } from "./authority-validation.ts";
@@ -121,7 +122,7 @@ export async function progressAuthorityAction(
   const stillOwns = `EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=?1 AND pending_operation=?2 AND revision=?3)
     AND EXISTS(SELECT 1 FROM learning_authority_operations o WHERE o.operation_id=?2 AND o.sealed=1
       AND o.original_revision=COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?1),0)
-      AND EXISTS(SELECT 1 FROM learning_authority_validation v WHERE v.operation_id=o.operation_id AND v.policy=1 AND v.complete=1
+      AND EXISTS(SELECT 1 FROM learning_authority_validation v WHERE v.operation_id=o.operation_id AND v.policy=${AUTHORITY_VALIDATION_POLICY} AND v.complete=1
         AND v.original_revision=o.original_revision AND v.member_revision=o.member_revision
         AND v.credential_revision=COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=?1),0))
       ${action.kind === "on" ? "AND o.dirty_version=(SELECT version FROM learning_authority_dirty WHERE account_id=?1)" : ""})`;
