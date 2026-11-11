@@ -10,6 +10,9 @@ for (const mode of ["abandon", "open_limit"] as const) {
   test(`missing original linked grading source preserves uncertainty and permits ${mode} closure without a transcript fallback`, async () => {
     const f = await lessonFixture();
     try {
+      // Model the stored V4 authorization's unbounded consent separately
+      // from the unavailable older speech-grading context.
+      f.consent(Infinity);
       const lesson = await f.start();
       f.fail("unknown");
       const original = await f.answer(lesson, true);
@@ -51,6 +54,18 @@ for (const mode of ["abandon", "open_limit"] as const) {
           ? await lessons.abandon(f.owner, lesson.lessonId)
           : await lessons.get(f.owner, lesson.lessonId);
       assert.notEqual(closed.status, "active");
+      assert.equal(
+        closed.completionReason,
+        mode === "open_limit" ? "open_limit" : "left",
+      );
+      const terminal = await f.db
+        .prepare("SELECT state_json FROM study_lessons WHERE lesson_id=?")
+        .bind(lesson.lessonId)
+        .first<{ state_json: string }>();
+      assert.equal(
+        JSON.parse(terminal!.state_json).terminalAbsences[0],
+        "unmeasured",
+      );
       assert.equal(closed.progress.firstPassGraded, 0);
       assert.equal(
         (await attempts.get(f.owner, original.attempt.attemptId)).grade,
