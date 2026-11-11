@@ -53,22 +53,25 @@ const terminal = (status: MediaStatus | null) =>
 /** The existing media protocol has one reservation and one upload job, not a
  * published Post receipt. Unknown acknowledgements retain this exact envelope.
  * All wire mutations run behind the host's exclusive durable storage lock. */
+export interface MediaAttemptPorts {
+  client: MediaClient;
+  storage: MediaAttemptStorage;
+  accountId: string;
+  communityId: string;
+  createId?: () => string;
+  onChange?: (record: MediaAttempt | null) => void;
+  onReady?: (receipt: ReadyMedia) => void;
+}
+
 export class MediaAttemptController {
   private record: MediaAttempt | null = null;
   private busy = false;
   private pauseRevision = 0;
   private abort: AbortController | undefined;
-  constructor(
-    private readonly ports: {
-      client: MediaClient;
-      storage: MediaAttemptStorage;
-      accountId: string;
-      communityId: string;
-      createId?: () => string;
-      onChange?: (record: MediaAttempt | null) => void;
-      onReady?: (receipt: ReadyMedia) => void;
-    },
-  ) {}
+  private readonly ports: MediaAttemptPorts;
+  constructor(ports: MediaAttemptPorts) {
+    this.ports = ports;
+  }
   get current() {
     return this.record;
   }
