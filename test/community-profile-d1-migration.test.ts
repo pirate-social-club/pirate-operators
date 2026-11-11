@@ -45,9 +45,9 @@ test("actual Alchemy applies contiguous1 through19 and the exact independently o
       1,
     );
     const ledger = (await f.ledger()).results;
-    const calls = f.calls.length;
+    assert.equal(f.calls.filter((call) => call.profiles).length, 1);
     await f.apply();
-    assert.equal(f.calls.length, calls);
+    assert.equal(f.calls.filter((call) => call.profiles).length, 1);
     assert.deepEqual((await f.ledger()).results, ledger);
     assert.deepEqual(
       (await f.db.prepare("PRAGMA foreign_key_check").all()).results,

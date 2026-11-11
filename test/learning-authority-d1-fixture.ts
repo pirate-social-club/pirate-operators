@@ -81,6 +81,7 @@ export async function authorityD1Fixture(through = 18) {
       hash: string;
       statements: number;
       authority: boolean;
+      profiles: boolean;
     }> = [];
     let loseReply = false;
     let lostReplies = 0;
@@ -96,6 +97,7 @@ export async function authorityD1Fixture(through = 18) {
             hash: sha(sql),
             statements: statements.length,
             authority,
+            profiles: sql.includes("CREATE TABLE community_profiles"),
           });
           const result = await db.batch(
             statements.map((statement) => db.prepare(statement)),
