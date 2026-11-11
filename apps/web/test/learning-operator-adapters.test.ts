@@ -295,7 +295,7 @@ test("unresolved ticket creation never treats an early empty read as authority t
   port.dispose();
 });
 
-test("explicit budget refusal preserves refusal evidence and allows deliberate same-step retry", async () => {
+test("explicit pre-dispatch budget refusal preserves evidence and allows deliberate same-step retry", async () => {
   let writes = 0;
   const port = createOperatorKaraokePort({
     account: "fixture-account",
@@ -309,10 +309,12 @@ test("explicit budget refusal preserves refusal evidence and allows deliberate s
           "speech_budget_exhausted",
           "Community limit",
           {
-            stage: "endpoint_refusal",
+            // This injected transport denies BEFORE dispatch. These counters
+            // count transport calls, not committed endpoint work. A real HTTP
+            // 429 response is separately asserted uncertain in the HTTP suite.
+            stage: "before_dispatch",
             path: "/api/karaoke/tickets",
             method: "POST",
-            endpointStatus: 429,
           },
         );
       }

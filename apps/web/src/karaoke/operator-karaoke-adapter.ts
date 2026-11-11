@@ -3,6 +3,7 @@ import type { KaraokeOperatorResult } from "../api-contract.ts";
 import {
   learningRequest,
   LearningServiceError,
+  ticketRefusedBeforeReservation,
 } from "./operator-learning-http.ts";
 
 export interface KaraokeSong {
@@ -116,9 +117,9 @@ export function createOperatorKaraokePort(options: {
             proof: issued.proof,
           };
         } catch (error) {
-          // Only evidence from this request's actual endpoint (or a preflight
-          // before dispatch) can release the creation hold. A post-check 401/409
-          // may follow a committed ticket and must retain the unknown outcome.
+          // Require the actual producer's pre-handler refusal, or a transport
+          // preflight that never dispatched. Structured409 can follow a wallet
+          // reservation commit with lost acknowledgement; status is no proof.
           if (
             error instanceof LearningServiceError &&
             error.evidence?.path === "/api/karaoke/tickets" &&
@@ -126,8 +127,7 @@ export function createOperatorKaraokePort(options: {
             (error.evidence.stage === "before_dispatch" ||
               (error.evidence.stage === "endpoint_refusal" &&
                 error.evidence.endpointStatus === error.status &&
-                error.status < 500 &&
-                error.status !== 408))
+                ticketRefusedBeforeReservation(error.status, error.code)))
           )
             throw error;
           startUnknown = true;

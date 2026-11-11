@@ -95,7 +95,7 @@ test("delayed successful ticket body followed by account change carries post-dis
   }
 });
 
-test("only a structured ticket-endpoint refusal is definitive; body failure stays uncertain", async () => {
+test("structured budget status alone is uncertain; body failure stays uncertain", async () => {
   const original = globalThis.fetch;
   let malformed = false;
   globalThis.fetch = (async (path) => {
@@ -115,7 +115,7 @@ test("only a structured ticket-endpoint refusal is definitive; body failure stay
       status: 429,
       code: "speech_budget_exhausted",
       evidence: {
-        stage: "endpoint_refusal",
+        stage: "response_uncertain",
         path: "/api/karaoke/tickets",
         method: "POST",
         endpointStatus: 429,
