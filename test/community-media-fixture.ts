@@ -114,7 +114,7 @@ export async function fixture(
       who.accountId === actor.accountId ||
       (reviewAllowed && who.accountId === reviewer.accountId),
     processor: processor as MediaProcessor | undefined,
-    enqueue: async () => {
+    enqueue: async (_id: string) => {
       sends++;
     },
   };

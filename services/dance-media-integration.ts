@@ -17,7 +17,7 @@ import {
   MEDIA_SUBMISSION_DB_NOW,
   prepareMediaSubmission,
 } from "../packages/community-media/submission.ts";
-import { digest } from "../packages/community-media/validation.ts";
+import { digest, MediaError } from "../packages/community-media/validation.ts";
 import type {
   MediaRecord,
   MediaActor,
@@ -61,6 +61,22 @@ function ready(result: Awaited<ReturnType<CommunityMedia["readyForReview"]>>) {
     },
   };
 }
+async function danceRead(
+  read: () => ReturnType<CommunityMedia["readyForReview"]>,
+) {
+  try {
+    return ready(await read());
+  } catch (error) {
+    // The Dance queue skips expected item denials and preserves infrastructure
+    // errors. The two lanes keep distinct public error types at their ports.
+    if (
+      error instanceof MediaError &&
+      [401, 403, 404, 409, 410].includes(error.status)
+    )
+      throw new CommunityError(error.code, error.status);
+    throw error;
+  }
+}
 function producerMedia(media: DanceReadyMedia) {
   return { ...media, ...producerBinding(media) };
 }
@@ -71,13 +87,13 @@ export function integratedDanceMedia(service: CommunityMedia): DanceMediaPort {
   return createDanceMediaPort(
     {
       async readyForSubmission(id, binding, actor) {
-        return ready(
-          await service.readyForSubmission(id, producerBinding(binding), actor),
+        return danceRead(() =>
+          service.readyForSubmission(id, producerBinding(binding), actor),
         );
       },
       async readyForReview(id, binding, actor) {
-        return ready(
-          await service.readyForReview(id, producerBinding(binding), actor),
+        return danceRead(() =>
+          service.readyForReview(id, producerBinding(binding), actor),
         );
       },
       prepareMediaSubmission(witness, submissionId, commitment, accepted) {

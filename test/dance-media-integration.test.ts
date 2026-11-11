@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { bytes32, hashJson } from "../packages/community/common.ts";
 import { address } from "../packages/community/manifest-core.ts";
 import { mediaSubmissionReceipt } from "../packages/community-media/submission.ts";
+import { DanceReviewService } from "../services/dance-review.ts";
 import { DanceStore } from "../packages/dance/store.ts";
 import { mediaBinding } from "../packages/dance/validation.ts";
 import {
@@ -173,4 +174,45 @@ test("real media and Dance D1 share one retention transaction and fence all priv
   allowed = false;
   assert.equal((await f.http(path, actor))?.status, 404);
   assert.equal((await f.http(path, reviewer, { method: "HEAD" }))?.status, 404);
+
+  const service = new DanceReviewService(
+    store,
+    {
+      ...model.ports,
+      media: port,
+      async authority(_community, actorId, learnerId) {
+        const known = (id: string) => ({
+          ...(id === reviewer.accountId
+            ? model.principals.owner
+            : model.principals.learner),
+          accountId: id,
+        });
+        return {
+          actor: known(actorId),
+          learner: known(learnerId),
+          owner: {
+            accountId: reviewer.accountId,
+            wallet: model.principals.owner.wallet,
+            assignmentId: "fixture_current_owner",
+            epoch: accepted.expected.ownerEpoch,
+            expiresAtMs: Date.now() + 60_000,
+            canonicalAccepted: true,
+          },
+          fence: { sql: "1", values: [] },
+          epochs: accepted.expected,
+          reviewer: null,
+        };
+      },
+      authorization: async () => ({ sql: "1", values: [] }),
+    },
+    accepted.communityId,
+  );
+  assert.equal((await service.queue(reviewer.accountId)).items.length, 1);
+  await f.service.withdraw(record.id, actor);
+  const queue = await service.queue(reviewer.accountId);
+  assert.deepEqual(queue.items, []);
+  assert.deepEqual(queue.skipped, {
+    count: 1,
+    reasons: { media_unavailable: 1 },
+  });
 });

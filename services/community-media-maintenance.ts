@@ -47,6 +47,7 @@ export async function recoverCommunityMedia(
   after = "",
 ) {
   const records = await service.ports.repository.records(100, after);
+  const wakes: string[] = [];
   for (let record of records) {
     if (
       !terminal(record) &&
@@ -79,7 +80,16 @@ export async function recoverCommunityMedia(
         error: "media_worker_interrupted",
       });
     }
-    if (record.state === "queued") await service.ports.enqueue(record.id);
+    if (record.state === "queued") wakes.push(record.id);
+  }
+  // Retention is independent of the transport. Queued rows are already the
+  // durable wake intent, so failure leaves them eligible on the next sweep.
+  for (const id of wakes) {
+    try {
+      await service.ports.enqueue(id);
+    } catch {
+      // Keep the row queued and finish the cursor page.
+    }
   }
   return records.length === 100 ? records.at(-1)!.id : null;
 }

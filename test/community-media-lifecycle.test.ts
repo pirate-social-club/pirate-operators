@@ -142,3 +142,33 @@ test("erasure failures stay private and reserve capacity until recovery succeeds
     "uploading",
   );
 });
+
+test("a failed media wake leaves durable retry intent and does not block later erasure", async (t) => {
+  const f = await fixture(t);
+  const first = await f.ready({ requestId: "wake_failure_1" });
+  const second = await f.ready({ requestId: "wake_failure_2" });
+  const [earlier, later] = [first, second].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  await f.repository.save(earlier, { state: "queued" });
+  await f.repository.save(later, { expiresAt: f.now() });
+  let fail = true;
+  const queued: string[] = [];
+  f.ports.enqueue = async (id) => {
+    queued.push(id);
+    if (fail) throw Error("fixture_queue_unavailable");
+  };
+  assert.equal(await f.service.recover(), null);
+  assert.deepEqual(queued, [earlier.id]);
+  assert.equal((await f.repository.get(earlier.id)).state, "queued");
+  const retired = await f.repository.get(later.id);
+  assert.equal(retired.state, "expired");
+  assert.equal(retired.erasePending, false);
+  assert.equal(
+    (await f.media.list({ prefix: f.service.prefix(later.id) })).objects.length,
+    0,
+  );
+  fail = false;
+  await f.service.recover();
+  assert.deepEqual(queued, [earlier.id, earlier.id]);
+});
