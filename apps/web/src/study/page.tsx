@@ -12,7 +12,11 @@ import {
 } from "./presentation/studying-route-states.tsx";
 import type { LearningPublicationView } from "./publication-status.tsx";
 import type { StudyCompletionCapability } from "./completion-flow.tsx";
-import { learningRequest } from "../karaoke/operator-learning-http.ts";
+import {
+  learningRequest,
+  isLearningAuthorityLoss,
+  learningAuthorityMessage,
+} from "../karaoke/operator-learning-http.ts";
 import type { KaraokeWallet } from "../live/learning-consent.ts";
 import {
   ensureStudyEnrollment,
@@ -43,7 +47,7 @@ export function StudyPage(props: StudyPageProps) {
     <Show
       when={
         props.account
-          ? `${props.account}\u0000${props.postId}\u0000${props.lessonId ?? ""}`
+          ? `${props.account}\u0000${props.postId}\u0000${props.lessonId ?? ""}\u0000${props.csrf}`
           : null
       }
       keyed
@@ -68,11 +72,15 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     account: props.account,
     postId: props.postId,
     lessonId: props.lessonId,
+    csrf: props.csrf,
   };
   const actions = props.onLearningActions;
   const [client, setClient] = createSignal<StudyClient>();
   const [error, setError] = createSignal("");
   const [auth, setAuth] = createSignal(false);
+  const [authMessage, setAuthMessage] = createSignal(
+    "Sign in again to continue.",
+  );
   const [publication, setPublication] =
     createSignal<LearningPublicationView | null>(null);
   const [checking, setChecking] = createSignal(false);
@@ -81,11 +89,13 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     timer: ReturnType<typeof setTimeout> | undefined;
   let active = true,
     generation = 0;
-  const current = () =>
+  const owned = () =>
     active &&
     props.account === owner.account &&
     props.postId === owner.postId &&
-    props.lessonId === owner.lessonId;
+    props.lessonId === owner.lessonId &&
+    props.csrf === owner.csrf;
+  const current = () => owned() && !auth();
   const clearActions = () => actions?.(null);
   onCleanup(() => {
     active = false;
@@ -95,14 +105,33 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
   });
   const request = async <T,>(path: string, body?: unknown) => {
     if (!current()) throw new Error("This Study was closed or replaced.");
-    const value = await learningRequest<T>(path, {
-      account: owner.account,
-      csrf: props.csrf,
-      body,
-    });
-    if (!current()) throw new Error("This Study was closed or replaced.");
-    return value;
+    try {
+      const value = await learningRequest<T>(path, {
+        account: owner.account,
+        csrf: owner.csrf,
+        body,
+      });
+      if (!current()) throw new Error("This Study was closed or replaced.");
+      return value;
+    } catch (error) {
+      if (isLearningAuthorityLoss(error)) loseAuthority(error);
+      throw error;
+    }
   };
+  function loseAuthority(error: unknown) {
+    if (!owned() || auth()) return;
+    generation += 1;
+    terminalId = undefined;
+    clearTimeout(timer);
+    setAuthMessage(learningAuthorityMessage(error));
+    setAuth(true);
+    // Unmount the actual Screen so its owned adapter and recorder clean up.
+    // The client/command closure is not restarted or assigned a new request ID.
+    setClient(undefined);
+    setPublication(null);
+    setChecking(false);
+    clearActions();
+  }
   const enroll = () => {
     if (!props.wallet)
       return Promise.reject(
@@ -124,6 +153,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     });
   };
   async function load() {
+    if (!current()) return;
     const revision = ++generation;
     clearActions();
     setError("");
@@ -136,7 +166,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
       setClient(
         createStudyClient(
           song,
-          () => props.csrf,
+          () => owner.csrf,
           props.lessonId,
           (id) => {
             if (current() && generation === revision)
@@ -149,18 +179,11 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
       );
     } catch (error) {
       if (!current() || generation !== revision) return;
-      if (
-        (error as { status?: number }).status === 401 ||
-        (error as { code?: string }).code === "study_account_changed"
-      ) {
-        clearActions();
-        setAuth(true);
-      } else
-        setError(
-          error instanceof Error
-            ? error.message
-            : "We couldn't load this study session.",
-        );
+      setError(
+        error instanceof Error
+          ? error.message
+          : "We couldn't load this study session.",
+      );
     }
   }
   function observe(lesson: StudyLesson) {
@@ -202,24 +225,27 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
   }
   async function checkPublication() {
     const id = terminalId;
-    if (!active || !id || checking()) return;
+    if (!current() || !id || checking()) return;
+    const revision = generation;
     clearTimeout(timer);
     setChecking(true);
     try {
       await request(`/api/study/lessons/${encodeURIComponent(id)}`);
-      if (!active || id !== terminalId) return;
+      if (!current() || generation !== revision || id !== terminalId) return;
       const result = await request<LearningPublicationView>(
         `/api/study/lessons/${encodeURIComponent(id)}/publication`,
         {},
       );
-      if (active && id === terminalId) setPublication(result);
+      if (current() && generation === revision && id === terminalId)
+        setPublication(result);
     } catch {
       /* A lost receipt never replaces the saved grade or implies success. */
     } finally {
-      if (active) setChecking(false);
+      if (current() && generation === revision) setChecking(false);
       const value = publication();
       if (
-        active &&
+        current() &&
+        generation === revision &&
         id === terminalId &&
         ++polls < 20 &&
         value?.state !== "private" &&
@@ -239,7 +265,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
       fallback={
         <StudyAuthRequiredState
           title="Sign in to study"
-          description="Sign in to pick up your lesson and streak."
+          description={authMessage()}
           onConnect={props.onConnect}
           onExit={props.onExit}
         />

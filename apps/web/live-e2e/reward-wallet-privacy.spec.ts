@@ -210,7 +210,12 @@ for (const width of [1440, 390])
       page.on("pageerror", (e) => errors.push(e.message));
       const f = await fixture(page);
       await expect(
-        page.getByText("Pending rewards: $0.03", { exact: true }),
+        page
+          .locator("[data-learner-wallet] [data-wallet-hub]")
+          .getByText(
+            "Pending rewards: $0.03. Verify with a palm scan to claim it.",
+            { exact: true },
+          ),
       ).toBeVisible();
       await page.evaluate((status) => {
         window.__walletPrivacy.status = status;

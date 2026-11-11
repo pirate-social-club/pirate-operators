@@ -40,7 +40,22 @@ for (const status of [401, 409])
       csrf: () => "fixture-csrf",
     });
     try {
-      await assert.rejects(port.ticket(), /confirm this take/);
+      // A positive authority observation must reach the owner, while the
+      // original ticket POST remains uncertain. Non-auth409 stays as before.
+      await assert.rejects(
+        port.ticket(),
+        status === 401
+          ? {
+              status: 401,
+              evidence: {
+                stage: "response_uncertain",
+                path: "/api/karaoke/tickets",
+                method: "POST",
+                endpointStatus: 200,
+              },
+            }
+          : /confirm this take/,
+      );
       await assert.rejects(port.ticket(), /confirm this take/);
       assert.equal(writes, 1);
       observedOpen = true;

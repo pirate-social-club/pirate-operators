@@ -34,6 +34,10 @@ import {
   type KaraokeAttemptView,
   type KaraokeRecord,
 } from "./operator-karaoke-adapter.ts";
+import {
+  isLearningAuthorityLoss,
+  learningAuthorityMessage,
+} from "./operator-learning-http.ts";
 import { KaraokeCompletionStatus } from "./completion-status.tsx";
 
 import type {
@@ -91,7 +95,11 @@ export interface KaraokePageProps {
 export function KaraokePage(props: KaraokePageProps) {
   return (
     <Show
-      when={props.account ? `${props.account}\u0000${props.postId}` : null}
+      when={
+        props.account
+          ? `${props.account}\u0000${props.postId}\u0000${props.csrf}`
+          : null
+      }
       keyed
       fallback={
         <KaraokeAuthRequiredState
@@ -110,17 +118,37 @@ export function KaraokePage(props: KaraokePageProps) {
 }
 function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   const learningActions = props.onLearningActions;
+  const owner = {
+    account: props.account,
+    postId: props.postId,
+    csrf: props.csrf,
+  };
   const port =
     props.port ??
     createOperatorKaraokePort({
       postId: props.postId,
       account: props.account,
-      csrf: () => props.csrf,
+      csrf: () => owner.csrf,
+      onAuthorityLoss: loseAuthority,
     });
-  const get = <T,>(path: string) => port.request<T>(path, undefined);
+  const request = async <T,>(path: string, body?: unknown) => {
+    if (!isCurrentOwner()) throw new Error("Karaoke was closed.");
+    try {
+      const value = await port.request<T>(path, body);
+      if (!isCurrentOwner()) throw new Error("Karaoke was closed.");
+      return value;
+    } catch (error) {
+      if (isLearningAuthorityLoss(error)) loseAuthority(error);
+      throw error;
+    }
+  };
+  const get = <T,>(path: string) => request<T>(path);
   const post = <T,>(path: string, body: unknown, _csrf?: string) =>
-    port.request<T>(path, body);
+    request<T>(path, body);
   const [authRequired, setAuthRequired] = createSignal(false);
+  const [authMessage, setAuthMessage] = createSignal(
+    "Sign in again to continue.",
+  );
   const [song, setSong] = createSignal<TimedSong | null>(null),
     [loaded, setLoaded] = createSignal(false),
     [take, setTake] = createSignal<OpenTake | null>(null),
@@ -149,12 +177,43 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   let scoringRecoveryUsed = false;
   let finishing: Promise<void> | undefined;
   let cancelPlaybackPosition: (() => void) | undefined;
+  let portRetired = false;
+  function retirePort() {
+    if (portRetired) return;
+    portRetired = true;
+    port.dispose();
+  }
   onCleanup(() => {
     disposed = true;
-    port.dispose();
+    retirePort();
     cancelPlaybackPosition?.();
     learningActions?.(null);
   });
+  const isCurrentOwner = () =>
+    !disposed &&
+    props.account === owner.account &&
+    props.postId === owner.postId &&
+    props.csrf === owner.csrf;
+  function loseAuthority(error: unknown) {
+    if (!isCurrentOwner()) return;
+    // Abort queued dispatch immediately. Port disposal preserves the original
+    // unknown-start evidence; it does not prove that any earlier POST refused.
+    disposed = true;
+    retirePort();
+    setAuthMessage(learningAuthorityMessage(error));
+    setAuthRequired(true);
+    cancelPlaybackPosition?.();
+    scoringResponses.reset();
+    setPlayingOutro(false);
+    setStarting(false);
+    capture.controls.abort("karaoke_authority_lost");
+    playback?.pause();
+    setTake(null);
+    setFinished(null);
+    setFeedback(null);
+    setResume(null);
+    learningActions?.(null);
+  }
   const validateEnrollment = (request: KaraokeConsentRequest) => {
     // The disclosure bound by the signature must be the expected one.
     enrollmentDisclosure(request);
@@ -168,10 +227,23 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       );
   };
 
-  const attemptView = (): Promise<AttemptView> => port.attempt();
-  const retainHistoryDownload = (ticketId: string) =>
-    props.onLearningActions?.({ download: () => downloadHistory(ticketId) });
+  const attemptView = async (): Promise<AttemptView> => {
+    if (!isCurrentOwner()) throw new Error("Karaoke was closed.");
+    try {
+      const value = await port.attempt();
+      if (!isCurrentOwner()) throw new Error("Karaoke was closed.");
+      return value;
+    } catch (error) {
+      if (isLearningAuthorityLoss(error)) loseAuthority(error);
+      throw error;
+    }
+  };
+  const retainHistoryDownload = (ticketId: string) => {
+    if (isCurrentOwner())
+      learningActions?.({ download: () => downloadHistory(ticketId) });
+  };
   function apply(view: AttemptView) {
+    if (!isCurrentOwner()) return;
     if (view.state === "open") {
       setTake({
         ticketId: view.ticket.body.ticketId,
@@ -199,25 +271,28 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     }
   }
   async function loadSong() {
-    if (disposed) return;
+    if (!isCurrentOwner()) return;
     setLoaded(false);
     setNotice(null);
     try {
       const loaded = await port.song();
-      if (disposed) return;
+      if (!isCurrentOwner()) return;
       if (!loaded.lines.length)
         throw new Error("This song does not have scorable lyrics yet.");
       setSong(loaded);
       const previous = await attemptView();
-      if (disposed) return;
+      if (!isCurrentOwner()) return;
       // A new visit offers a new take. Keep the retained history downloadable;
       // only an open take resumes here. Current-run completion still uses apply.
       if (previous.state === "finished")
         retainHistoryDownload(previous.result.body.ticketId);
       else apply(previous);
     } catch (error) {
-      if (disposed) return;
-      if ((error as { status?: number }).status === 401) setAuthRequired(true);
+      if (!isCurrentOwner()) return;
+      if (isLearningAuthorityLoss(error)) {
+        loseAuthority(error);
+        return;
+      }
       setNotice(
         error instanceof Error
           ? error.message
@@ -225,11 +300,11 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       );
       setSong(null);
     }
-    if (!disposed) setLoaded(true);
+    if (isCurrentOwner()) setLoaded(true);
   }
   if (typeof window !== "undefined")
     queueMicrotask(() => {
-      if (!disposed) void loadSong();
+      if (isCurrentOwner()) void loadSong();
     });
 
   const capture = (props.createCapture ?? useKaraokeCapture)({
@@ -249,7 +324,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       return socket;
     },
     onMessage: (message) => {
-      if (disposed) return;
+      if (!isCurrentOwner()) return;
       if (message.type === "ready") {
         attemptStart = message.attemptStart;
         if (message.feedback)
@@ -291,6 +366,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   }
   createEffect(
     () => {
+      if (!isCurrentOwner()) return null;
       const state = capture.state();
       if (
         state?.status !== "error" ||
@@ -374,6 +450,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     const current = take(),
       timed = song();
     if (
+      disposed ||
       !current ||
       !timed ||
       props.serviceMode === "internal" ||
@@ -401,10 +478,12 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             },
             props.csrf,
           );
-          if (disposed || take()?.ticketId !== current.ticketId) return;
+          if (!isCurrentOwner() || take()?.ticketId !== current.ticketId)
+            return;
           if (capture.controls.send({ type: "purchase", ...signed }))
             bought.add(segment.segmentId);
         } catch {
+          if (!isCurrentOwner()) return;
           // A refused purchase leaves that line unpaid; never retry it.
           bought.add(segment.segmentId);
         }
@@ -423,6 +502,10 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       try {
         return await port.ticket();
       } catch (error) {
+        if (isLearningAuthorityLoss(error)) {
+          loseAuthority(error);
+          throw error;
+        }
         if (
           (error as { code?: string }).code !==
             "karaoke_authorization_pending" ||
@@ -430,15 +513,16 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         )
           throw error;
         await sleep(AUTHORIZATION_RETRY_MS);
-        if (disposed) return null;
+        if (!isCurrentOwner()) return null;
       }
     }
   }
   async function until(ready: () => boolean) {
-    for (let i = 0; i < 150 && !disposed && !ready(); i++) await sleep(20);
+    for (let i = 0; i < 150 && isCurrentOwner() && !ready(); i++)
+      await sleep(20);
   }
   async function start(fromMs: number) {
-    if (disposed || starting()) return;
+    if (!isCurrentOwner() || starting()) return;
     setPlayingOutro(false);
     finishing = undefined;
     cancelPlaybackPosition?.();
@@ -449,7 +533,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       let currentTake = take();
       if (currentTake && capture.state()?.status === "error") {
         const current = await attemptView();
-        if (disposed) return;
+        if (!isCurrentOwner()) return;
         const recoveredId =
           current.state === "open"
             ? current.ticket.body.ticketId
@@ -490,7 +574,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
           >("/api/karaoke/enrollment", {}, props.csrf);
-          if (disposed) return;
+          if (!isCurrentOwner()) return;
           if (enrollment.pending)
             throw new Error(
               "Your enrollment is still being confirmed. Try again shortly.",
@@ -500,7 +584,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             if (!props.wallet)
               throw new Error("Connect your MOSS account to continue Karaoke.");
             const signature = await props.wallet.signConsent(enrollment);
-            if (disposed) return;
+            if (!isCurrentOwner()) return;
             const accepted = await post<{ state: string }>(
               "/api/karaoke/enrollment",
               {
@@ -510,16 +594,16 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
               },
               props.csrf,
             );
-            if (disposed) return;
+            if (!isCurrentOwner()) return;
             if (accepted.state !== "success")
               throw new Error(
                 "Your enrollment is pending. Try again once it is confirmed.",
               );
           }
         }
-        if (disposed) return;
+        if (!isCurrentOwner()) return;
         const issued = await ticket();
-        if (disposed || !issued) return;
+        if (!isCurrentOwner() || !issued) return;
         bought.clear();
         attemptStart = null;
         setResume(null);
@@ -535,7 +619,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
       const ticketId = currentTake.ticketId;
       await until(() => capture.readyFor(ticketId));
-      if (disposed) return;
+      if (!isCurrentOwner()) return;
       if (!capture.readyFor(ticketId))
         throw new Error(
           "The microphone connection could not be prepared. Try again.",
@@ -555,9 +639,11 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       songMs = fromMs;
       await capture.controls.start(fromMs);
     } catch (failure) {
-      if (disposed) return;
-      if ((failure as { status?: number }).status === 401)
-        setAuthRequired(true);
+      if (!isCurrentOwner()) return;
+      if (isLearningAuthorityLoss(failure)) {
+        loseAuthority(failure);
+        return;
+      }
       cancelPlaybackPosition?.();
       setStarting(false);
       setNotice(
@@ -566,7 +652,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
           : "This take couldn't start.",
       );
     } finally {
-      if (!disposed) setStarting(false);
+      if (isCurrentOwner()) setStarting(false);
     }
   }
   /**
@@ -587,9 +673,9 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     done: (view: AttemptView) => boolean,
     expectedTicketId: string,
   ) {
-    for (let i = 0; i < 90 && !disposed; i++) {
+    for (let i = 0; i < 90 && isCurrentOwner(); i++) {
       const view = await attemptView().catch(() => null);
-      if (disposed) return false;
+      if (!isCurrentOwner()) return false;
       if (view) {
         const actual =
           view.state === "open"
@@ -607,6 +693,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
   }
   function finish(atMs: number): Promise<void> {
     return (finishing ??= (async () => {
+      if (!isCurrentOwner()) return;
       const ticketId = take()?.ticketId;
       if (!ticketId) return;
       cancelPlaybackPosition?.();
@@ -615,7 +702,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         (view) => view.state === "finished",
         ticketId,
       );
-      if (!confirmed && !disposed)
+      if (!confirmed && isCurrentOwner())
         setNotice(
           "Your take ended, but its result has not been confirmed. Check the same take again.",
         );
@@ -627,7 +714,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       { ticketId },
       props.csrf,
     );
-    if (disposed) return;
+    if (!isCurrentOwner()) return;
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(history, null, 2)], {
         type: "application/json",
@@ -643,7 +730,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     const expected = finished()?.ticketId ?? take()?.ticketId;
     try {
       const value = await attemptView();
-      if (disposed) return;
+      if (!isCurrentOwner()) return;
       const actual =
         value.state === "open"
           ? value.ticket.body.ticketId
@@ -659,9 +746,8 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       apply(value);
       if (value.state === "finished") setNotice(null);
     } catch (error) {
-      if (!disposed) {
-        if ((error as { status?: number }).status === 401)
-          setAuthRequired(true);
+      if (isCurrentOwner()) {
+        if (isLearningAuthorityLoss(error)) loseAuthority(error);
         else
           setNotice(
             "Your result is still unavailable. Check the same take again.",
@@ -675,7 +761,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       fallback={
         <KaraokeAuthRequiredState
           title="Sign in to sing"
-          description="Sign in to sing this song."
+          description={authMessage()}
           onConnect={props.onConnect}
           onExit={props.onExit}
         />

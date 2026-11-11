@@ -4,6 +4,7 @@ import {
   learningRequest,
   LearningServiceError,
   ticketRefusedBeforeReservation,
+  isLearningAuthorityLoss,
 } from "./operator-learning-http.ts";
 
 export interface KaraokeSong {
@@ -55,23 +56,35 @@ export function createOperatorKaraokePort(options: {
   account: string;
   csrf: () => string;
   request?: <T>(path: string, body?: unknown) => Promise<T>;
+  onAuthorityLoss?: (error: unknown) => void;
 }): OperatorKaraokePort {
   const controller = new AbortController();
   let inFlight: Promise<OpenKaraokeTake> | undefined;
   let startUnknown = false;
+  let originalStartFailure: unknown;
   let disposed = false;
   const request = async <T>(path: string, body?: unknown): Promise<T> => {
     if (disposed) throw new Error("Karaoke was closed.");
-    const result = options.request
-      ? await options.request<T>(path, body)
-      : await learningRequest<T>(path, {
-          account: options.account,
-          csrf: options.csrf(),
-          body,
-          signal: controller.signal,
-        });
-    if (disposed) throw new Error("Karaoke was closed.");
-    return result;
+    try {
+      const result = options.request
+        ? await options.request<T>(path, body)
+        : await learningRequest<T>(path, {
+            account: options.account,
+            csrf: options.csrf(),
+            body,
+            signal: controller.signal,
+          });
+      if (disposed) throw new Error("Karaoke was closed.");
+      return result;
+    } catch (error) {
+      // Notify before any ticket readback/catch can await or translate denial.
+      try {
+        if (!disposed && isLearningAuthorityLoss(error))
+          options.onAuthorityLoss?.(error);
+      } finally {
+        throw error;
+      }
+    }
   };
   const attempt = () =>
     request<KaraokeAttemptView>(
@@ -84,6 +97,11 @@ export function createOperatorKaraokePort(options: {
     socketUrl: view.socketUrl,
     proof: view.proof,
   });
+  const unknownStart = () =>
+    new Error(
+      "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
+      { cause: originalStartFailure },
+    );
   return {
     playbackUrl: () =>
       `/api/karaoke/posts/${encodeURIComponent(options.postId)}/instrumental`,
@@ -99,12 +117,10 @@ export function createOperatorKaraokePort(options: {
         const previous = await attempt();
         if (previous.state === "open") {
           startUnknown = false;
+          originalStartFailure = undefined;
           return opened(previous);
         }
-        if (startUnknown)
-          throw new Error(
-            "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
-          );
+        if (startUnknown) throw unknownStart();
         try {
           const issued = await request<{
             ticket: { body: { ticketId: string } };
@@ -131,14 +147,25 @@ export function createOperatorKaraokePort(options: {
           )
             throw error;
           startUnknown = true;
-          const recovered = await attempt().catch(() => null);
+          originalStartFailure ??= error;
+          if (disposed || isLearningAuthorityLoss(error)) throw error;
+          let recovered: KaraokeAttemptView | null = null;
+          try {
+            recovered = await attempt();
+          } catch (recoveryError) {
+            if (isLearningAuthorityLoss(recoveryError)) {
+              // Keep the original POST evidence behind the denied readback.
+              if (recoveryError instanceof Error && !("cause" in recoveryError))
+                Object.assign(recoveryError, { cause: originalStartFailure });
+              throw recoveryError;
+            }
+          }
           if (recovered?.state === "open") {
             startUnknown = false;
+            originalStartFailure = undefined;
             return opened(recovered);
           }
-          throw new Error(
-            "We couldn't confirm this take's start. Check the same take again; a new take has not been opened.",
-          );
+          throw unknownStart();
         }
       };
       inFlight = run().finally(() => {

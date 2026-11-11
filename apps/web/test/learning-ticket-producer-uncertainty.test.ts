@@ -143,7 +143,7 @@ for (const [status, code] of [
   [403, "wrong_host"],
   [403, "cross_site_write"],
 ] as const)
-  test(`traced pre-handler ${status}/${code} permits only a deliberate retry`, async () => {
+  test(`auth headers ${status}/${code} cannot expose a pre-handler body as reservation proof`, async () => {
     const savedFetch = globalThis.fetch;
     let posts = 0;
     globalThis.fetch = (async (path, init) => {
@@ -163,17 +163,19 @@ for (const [status, code] of [
     try {
       await assert.rejects(port.ticket(), {
         status,
-        code,
+        code: "learning_authority_lost",
         evidence: {
-          stage: "endpoint_refusal",
+          stage: "response_uncertain",
           path: "/api/karaoke/tickets",
           method: "POST",
           endpointStatus: status,
         },
       });
       assert.equal(posts, 1); // No automatic create retry.
-      await assert.rejects(port.ticket(), { status, code });
-      assert.equal(posts, 2);
+      // The transport must mask before decoding code. Even a real pre-handler
+      // refusal is conservatively held when only its auth headers are known.
+      await assert.rejects(port.ticket(), /confirm this take/);
+      assert.equal(posts, 1);
     } finally {
       port.dispose();
       globalThis.fetch = savedFetch;

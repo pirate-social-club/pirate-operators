@@ -41,6 +41,27 @@ export class LearningServiceError extends Error {
     this.evidence = evidence ? Object.freeze({ ...evidence }) : undefined;
   }
 }
+/** Presentation denial is independent from whether an earlier write committed. */
+export function isLearningAuthorityLoss(error: unknown): boolean {
+  const value = error as {
+    status?: number;
+    code?: string;
+    evidence?: { endpointStatus?: number };
+  } | null;
+  return (
+    !!value &&
+    (value.status === 401 ||
+      value.status === 403 ||
+      value.code === "study_account_changed" ||
+      value.evidence?.endpointStatus === 401 ||
+      value.evidence?.endpointStatus === 403)
+  );
+}
+export function learningAuthorityMessage(error: unknown): string {
+  return (error as { code?: string } | null)?.code === "study_account_changed"
+    ? "You are signed in with a different account. Reload to continue."
+    : "Sign in again to continue.";
+}
 export async function learningRequest<T>(
   path: string,
   options: {
@@ -84,8 +105,8 @@ export async function learningRequest<T>(
       throw new LearningServiceError(
         response.status,
         "learning_session_unavailable",
-        response.status === 401
-          ? "Sign in to continue."
+        response.status === 401 || response.status === 403
+          ? "Sign in again to continue."
           : "Your account could not be checked. Retry the same step.",
       );
     const session = (await response.json()) as { mossAddress?: string } | null;
@@ -126,6 +147,15 @@ export async function learningRequest<T>(
         ? {}
         : { body: JSON.stringify(options.body) }),
     });
+    // Headers establish presentation authority loss immediately. They do NOT
+    // establish a pre-reservation refusal: keep the original write uncertain.
+    // Never decode an auth-denied body (including malformed/empty/held bodies).
+    if (response.status === 401 || response.status === 403)
+      throw new LearningServiceError(
+        response.status,
+        "learning_authority_lost",
+        "Sign in again to continue.",
+      );
     value = await response.json();
   } catch (error) {
     // Dispatch may already have committed even if the body or transport failed.
