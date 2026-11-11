@@ -250,14 +250,15 @@ for (const status of [401, 403]) {
         identity: () => ({ authorId, csrf: "fixture", scopeKey: "fixture" }),
         changed: () => {},
       });
+      const viewKind = () => controller.state.view.kind;
       await controller.load();
-      assert.equal(controller.state.view.kind, "ready");
+      assert.equal(viewKind(), "ready");
       lost = true;
       const loading = controller.load();
-      assert.equal(controller.state.view.kind, "loading");
+      assert.equal(viewKind(), "loading");
       await loading;
       assert.equal(
-        controller.state.view.kind,
+        viewKind(),
         status === 401 ? "anonymous" : "unavailable",
       );
       assert.equal("owner" in controller.state.view, false);
