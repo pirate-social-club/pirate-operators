@@ -521,13 +521,46 @@ test(
       const scriptedFetch = globalThis.fetch;
       // The existing transaction/data-fee node stays scripted. Source inspection
       // goes unchanged to the real local V4 RPC; it is not an admission proof.
-      globalThis.fetch = (async (
-        input: RequestInfo | URL,
-        init?: RequestInit,
-      ) =>
-        (input instanceof Request ? input.url : String(input)) === evm.rpcUrl
-          ? realFetch(input, init)
-          : scriptedFetch(input, init)) as typeof fetch;
+      const actualEndpoint = new URL(evm.rpcUrl);
+      const scriptedEndpoint = new URL(env.RPC_URL);
+      assert.equal(actualEndpoint.hostname, "127.0.0.1");
+      assert.equal(actualEndpoint.port, "20367");
+      assert.equal(actualEndpoint.pathname, "/");
+      assert.equal(actualEndpoint.search, "");
+      const sameEndpoint = (url: URL, expected: URL) =>
+        url.origin === expected.origin &&
+        url.pathname === expected.pathname &&
+        url.search === expected.search &&
+        url.hash === expected.hash &&
+        url.username === "" &&
+        url.password === "";
+      const route = (input: RequestInfo | URL) => {
+        const url = new URL(
+          input instanceof Request ? input.url : String(input),
+        );
+        if (sameEndpoint(url, actualEndpoint)) return realFetch;
+        if (sameEndpoint(url, scriptedEndpoint)) return scriptedFetch;
+        throw Error("fixture_rpc_outside_owned_endpoints");
+      };
+      // Both URL spellings identify this one owned node. No prefix,
+      // arbitrary-loopback route, query or unknown-selector default is added.
+      assert.equal(route(evm.rpcUrl), realFetch);
+      assert.equal(route(actualEndpoint.href), realFetch);
+      assert.equal(route(scriptedEndpoint.href), scriptedFetch);
+      for (const outside of [
+        "http://127.0.0.1:20368/",
+        "http://localhost:20367/",
+        actualEndpoint.origin + "/other",
+        actualEndpoint.origin + "/?other=1",
+        actualEndpoint.origin + "/#other",
+        "http://user:password@127.0.0.1:20367/",
+      ])
+        assert.throws(
+          () => route(outside),
+          /fixture_rpc_outside_owned_endpoints/,
+        );
+      globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+        route(input)(input, init)) as typeof fetch;
       const authority = currentOperatorAuthorityFixture({
         now: () => 1800000000,
         rpcUrl: evm.rpcUrl,

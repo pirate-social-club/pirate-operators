@@ -54,6 +54,13 @@ import {
 } from "../services/learning-sign-in.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
 import type { Env } from "../services/runtime.ts";
+import {
+  scopeOf,
+  headKey,
+  bootstrapKey,
+  type WithdrawalHead,
+} from "../services/study-linked-withdrawal-contract.ts";
+import { guardLinkedWithdrawal } from "../services/study-linked-withdrawal.ts";
 
 const publisher = privateKeyToAccount(`0x${"12".repeat(32)}`);
 const deployment = JSON.parse(
@@ -513,6 +520,51 @@ test(
       assert.equal(verified.status, 200);
       const session = (await verified.json()) as { csrf: string };
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
+      const scope = scopeOf({
+        communityId: f.operatorEnv.COMMUNITY_ID,
+        learner: learner.address,
+        target: { chainId: 31337, version: 4, contract: f.v4 },
+      });
+      const observe = async (spelling: Address) =>
+        await (
+          await (f.env.KARAOKE_OPERATOR as Fetcher).fetch(
+            `http://service/authorization/${spelling}`,
+          )
+        ).json();
+      // Positive chain withdrawal is still a truthful linked hold until the
+      // actual selected source/Store proof and bounded alarm recovery finish.
+      assert.deepEqual(
+        await observe(learner.address.toLowerCase() as Address),
+        {
+          since: 0,
+          revokedAt: Number(revokedAt),
+          revocationNonce: "1",
+          linkedWithdrawalPending: true,
+        },
+      );
+      assert.equal(f.count("tx:"), 0);
+      assert.equal(f.count("sponsor:reservation:"), 0);
+      await f.advance(6);
+      await f.scheduled();
+      assert.deepEqual(
+        await observe(learner.address.toLowerCase() as Address),
+        {
+          since: 0,
+          revokedAt: Number(revokedAt),
+          revocationNonce: "1",
+        },
+      );
+      const recoveredHead = f.store.get<WithdrawalHead>(headKey(scope))!;
+      assert.equal(recoveredHead.openProofs, 0);
+      assert.equal(recoveredHead.sealed, true);
+      assert.equal(recoveredHead.cutoffS, Number(revokedAt));
+      assert.equal(recoveredHead.nextNonce, "1");
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(s.message.issuedAt)),
+        true,
+      );
+      assert.equal(f.count("tx:"), 0);
+      assert.equal(f.count("sponsor:reservation:"), 0);
       // Only an explicit settings action allows the next login to authorize.
       assert.equal(
         (
@@ -546,6 +598,33 @@ test(
         revokedAt: Number(revokedAt),
         revocationNonce: "1",
       });
+      const retainedOperations = f.store.entries("linkedWithdrawalOperation:");
+      const retainedHead = f.store.get(headKey(scope));
+      const retainedBootstrap = f.store.get(bootstrapKey);
+      const sponsorship = f.store.entries("sponsor:");
+      for (const spelling of [
+        learner.address.toLowerCase() as Address,
+        learner.address,
+      ]) {
+        assert.deepEqual(await observe(spelling), live);
+        assert.deepEqual(
+          f.store.entries("linkedWithdrawalOperation:"),
+          retainedOperations,
+        );
+        assert.deepEqual(f.store.get(headKey(scope)), retainedHead);
+        assert.deepEqual(f.store.get(bootstrapKey), retainedBootstrap);
+        assert.deepEqual(f.store.entries("sponsor:"), sponsorship);
+      }
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(after.message.issuedAt)),
+        false,
+      );
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(s.message.issuedAt)),
+        true,
+      );
+      assert.equal(await f.read("revokedAt", [learner.address]), revokedAt);
+      assert.equal(await f.read("nextNonce", [learner.address]), 1n);
     } finally {
       await f.stop();
     }

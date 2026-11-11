@@ -15,6 +15,7 @@ import {
 } from "../services/study-community.ts";
 import { frozenTelegramStudy } from "../services/telegram-frozen-study.ts";
 import { studyBinding } from "../services/study-operator.ts";
+import { LinkedWithdrawalPending } from "../services/study-linked-withdrawal-contract.ts";
 import { studyPublicationFixtureV4 } from "./study-publication-fixture.ts";
 
 test("a linked draft freezes its original grant before a lost operator response; website and different-grant retries cannot acquire it", async () => {
@@ -156,25 +157,128 @@ test("a linked draft freezes its original grant before a lost operator response;
     const raceAt = f.clock();
     f.advance(1);
     const requestRace = "fixture_linked_concurrent_0001";
-    const raced = await Promise.all(
-      [raceAt, raceAt + 1].map((startedAt) =>
-        frozenTelegramStudy(
-          ports,
-          session,
-          "telegram-linked",
-          {
-            ...race.context,
-            startedAt,
-          },
-          f.db,
-          race.publication,
-        ).start(requestRace, f.song),
+    const raceContexts = [raceAt, raceAt + 1].map((startedAt) => ({
+      ...race.context,
+      startedAt,
+    }));
+    const startRace = (context: (typeof raceContexts)[number]) =>
+      frozenTelegramStudy(
+        ports,
+        session,
+        "telegram-linked",
+        context,
+        f.db,
+        race.publication,
+      ).start(requestRace, f.song);
+    // Keep both starts concurrent. A binding commit can advance bootstrap
+    // after the other call captured it but before that call commits.
+    const outcomes = await Promise.allSettled(raceContexts.map(startRace));
+    const pending = outcomes.flatMap((outcome, index) => {
+      if (outcome.status === "fulfilled") return [];
+      assert.ok(outcome.reason instanceof LinkedWithdrawalPending);
+      assert.equal(outcome.reason.message, "study_linked_withdrawal_pending");
+      assert.equal(outcome.reason.status, 503);
+      assert.equal(outcome.reason.retryable, true);
+      return [index];
+    });
+    // Serialized interleavings may succeed twice; two rejected starts fail.
+    assert.ok(pending.length <= 1);
+    const originalRaceRow = await store.byRequest(owner, requestRace);
+    assert.ok(originalRaceRow);
+    const originalRaceState = store.state(originalRaceRow);
+    const originalRaceBinding = studyBinding(
+      f.store,
+      originalRaceRow.lesson_id,
+    );
+    assert.ok(originalRaceBinding);
+    const originalBindingBytes = JSON.stringify(originalRaceBinding);
+    const publicationBytes = () =>
+      f.db
+        .prepare(
+          "SELECT binding_json FROM study_publications WHERE lesson_id=?",
+        )
+        .bind(originalRaceRow.lesson_id)
+        .first<{ binding_json: string }>();
+    const originalPublication = await publicationBytes();
+    assert.ok(originalPublication);
+    assert.equal(
+      originalRaceState.telegram?.authorizationId,
+      row.authorization_id,
+    );
+    assert.equal(originalRaceBinding.authorization?.id, row.authorization_id);
+    assert.equal(originalRaceBinding.offer.speechChannel, "telegram-linked");
+    assert.equal(
+      originalRaceBinding.offer.telegramFence?.facts.grantId,
+      race.context.grantId,
+    );
+    assert.deepEqual(
+      originalRaceBinding.offer.telegramFence?.facts.actor,
+      race.context.actor,
+    );
+    assert.equal(
+      originalRaceBinding.offer.telegramFence?.facts.accountId,
+      race.context.accountId,
+    );
+    assert.equal(
+      originalRaceBinding.offer.telegramFence?.facts.authorityVersion,
+      race.context.authorityVersion,
+    );
+    assert.equal(
+      originalRaceBinding.offer.telegramFence?.hash,
+      originalRaceState.telegram?.fenceHash,
+    );
+    assert.equal(
+      originalRaceBinding.offer.startedAt,
+      originalRaceState.startedAt,
+    );
+    assert.ok(
+      raceContexts.some(
+        ({ startedAt }) => startedAt === originalRaceState.startedAt,
       ),
     );
+    const snapshotWork = async () => ({
+      operator: f.store.entries(""),
+      provider: f.counts(),
+      rows: await Promise.all(
+        ["study_lessons", "study_attempts", "study_publications"].map((table) =>
+          f.db
+            .prepare(
+              `SELECT count(*) AS count FROM ${table} WHERE account_id=? AND community_id=?`,
+            )
+            .bind(owner.accountId, owner.communityId)
+            .first<{ count: number }>(),
+        ),
+      ),
+    });
+    const beforeRecovery = await snapshotWork();
+    const raced = outcomes.map((outcome) =>
+      outcome.status === "fulfilled" ? outcome.value : undefined,
+    );
+    if (pending.length === 1) {
+      const index = pending[0];
+      // One explicit recovery after the winner has settled, using the exact
+      // losing context/request/grant. Never retry any other error or retime.
+      raced[index] = await startRace(raceContexts[index]);
+    }
+    assert.ok(raced[0]);
+    assert.ok(raced[1]);
     assert.equal(raced[0].lessonId, raced[1].lessonId);
     assert.equal(raced[0].startedAt, raced[1].startedAt);
     const raceRow = await store.byRequest(owner, requestRace);
     assert.ok(raceRow);
+    assert.equal(raced[0].lessonId, originalRaceRow.lesson_id);
+    assert.equal(raced[0].startedAt, originalRaceState.startedAt);
+    assert.deepEqual(raceRow, originalRaceRow);
+    assert.equal(
+      JSON.stringify(studyBinding(f.store, raceRow.lesson_id)),
+      originalBindingBytes,
+    );
+    assert.deepEqual(await publicationBytes(), originalPublication);
+    assert.deepEqual(await snapshotWork(), beforeRecovery);
+    assert.deepEqual(
+      raceContexts.map(({ startedAt }) => startedAt),
+      [raceAt, raceAt + 1],
+    );
     assert.equal(
       studyBinding(f.store, raceRow.lesson_id)?.offer.startedAt,
       raced[0].startedAt,

@@ -3,7 +3,7 @@
 // delays a real pinned eth_call while the original transaction confirms.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { encodeFunctionData, type Address, type Hex } from "viem";
+import { encodeFunctionData, getAddress, type Address, type Hex } from "viem";
 import { chain } from "../harness/chain.ts";
 import { accounts, keys } from "../harness/runtime.ts";
 import { stopChain } from "./payments-fixture.ts";
@@ -18,10 +18,26 @@ import {
   resultsV4Abi,
   signInMessageV4,
 } from "../packages/protocol/learning-results-v4.ts";
-import { revocationKey } from "../services/learning-contract.ts";
-import { guardLinkedWithdrawal } from "../services/study-linked-withdrawal.ts";
-import { intentOf, txRow } from "../services/operator-tx.ts";
+import { revocationKey, resultsTarget } from "../services/learning-contract.ts";
+import {
+  guardLinkedWithdrawal,
+  stageLinkedWithdrawal,
+} from "../services/study-linked-withdrawal.ts";
+import {
+  intentOf,
+  txRow,
+  provenUnsent,
+  refresh as refreshTransaction,
+} from "../services/operator-tx.ts";
 import { digest } from "../packages/protocol/index.ts";
+import {
+  scopeOf,
+  headKey,
+  opKey,
+  bootstrapKey,
+  type WithdrawalOperation,
+  type WithdrawalHead,
+} from "../services/study-linked-withdrawal-contract.ts";
 import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import { firstSong } from "../services/first-song-profile.ts";
 import type { Env } from "../services/runtime.ts";
@@ -151,12 +167,20 @@ test(
       );
       const intent = intentOf(store, "record_revoke", grantId)!;
       const original = txRow(store, intent.nonce!)!;
-      assert.equal(original.broadcast, "none");
+      // Only record_result owns the broadcast marker. An absent marker on
+      // this signed revoke is unknown delivery, never proof of being unsent.
+      assert.equal(original.kind, "record_revoke");
+      assert.equal(original.broadcast, undefined);
+      assert.equal(provenUnsent(original), false);
+      assert.equal(original.cancellation, undefined);
       assert.ok(original.raw && original.hash);
+      assert.equal(original.to.toLowerCase(), target.contract.toLowerCase());
       const originalRaw = original.raw,
         originalHash = original.hash;
       const pinned = await evm.publicClient.getBlockNumber({ cacheTime: 0 });
       const blockTag = "0x" + pinned.toString(16);
+      const ownedRpc = new URL(evm.rpcUrl).href;
+      const originalSends: Hex[] = [];
       const selectors = ["authorizedSince", "revokedAt", "nextNonce"].map(
         (functionName) =>
           encodeFunctionData({
@@ -207,9 +231,17 @@ test(
         const call = rpc?.params?.[0] as
           | { to?: string; data?: string }
           | undefined;
+        const actualRpc =
+          new URL(input instanceof Request ? input.url : String(input)).href ===
+          ownedRpc;
         if (
-          (input instanceof Request ? input.url : String(input)) ===
-            evm.rpcUrl &&
+          actualRpc &&
+          rpc?.method === "eth_sendRawTransaction" &&
+          rpc.params?.[0] === originalRaw
+        )
+          originalSends.push(originalRaw);
+        if (
+          actualRpc &&
           rpc?.method === "eth_call" &&
           call?.to?.toLowerCase() === contract.toLowerCase() &&
           selectors.includes(call.data as Hex) &&
@@ -220,22 +252,34 @@ test(
             fired = true;
             busy = true;
             try {
-              let mined = await acceptRevocationV4(
+              // The controlled local crash did not send the already accepted
+              // raw transaction. Deliver that exact original once while this
+              // old read is held; the journal marker still remains unknown.
+              assert.equal(
+                await evm.rpc("eth_sendRawTransaction", [originalRaw]),
+                originalHash,
+              );
+              const receipt = await evm.publicClient.getTransactionReceipt({
+                hash: originalHash,
+              });
+              assert.equal(receipt.status, "success");
+              // Actual production receipt-only recovery runs BEFORE accepting
+              // the retained job again. It cannot rebroadcast or cancel.
+              const refreshed = await refreshTransaction(
+                env,
+                store,
+                intent.nonce!,
+              );
+              assert.equal(refreshed?.mined?.status, "success");
+              const mined = await acceptRevocationV4(
                 env,
                 store,
                 learner,
                 nonce,
                 revokeSignature,
               );
-              for (let retry = 0; !mined?.mined && retry < 4; retry++)
-                mined = await acceptRevocationV4(
-                  env,
-                  store,
-                  learner,
-                  nonce,
-                  revokeSignature,
-                );
               assert.equal(mined?.mined?.status, "success");
+              assert.deepEqual(originalSends, [originalRaw]);
               now = Number((await evm.publicClient.getBlock()).timestamp);
               assert.equal(
                 store.get<{ pending: boolean }>(key)?.pending,
@@ -263,9 +307,43 @@ test(
         await evm.read(contract, "LearningResultsV4", "revokedAt", [learner]),
       );
       assert.ok(revokedAt > 0);
-      // A current observation stages its own canonical proof hold; only real
-      // recovery may clear it. Keep the original later-ready assertion intact.
-      const observed = await authorizationState(env, learner, store);
+      // Reproduce one retained pre-fix checksum ID through the actual staging
+      // API using the original on-chain cutoff/nonce. It must survive; no proof,
+      // bootstrap/head/ready row is seeded or erased by this fixture.
+      const oldScope = {
+        communityId,
+        target: resultsTarget(env, 4),
+        learner: getAddress(learner),
+      };
+      const canonicalScope = scopeOf(oldScope);
+      const retainedId = digest(["observed", oldScope, String(revokedAt), "1"]);
+      const canonicalId = digest([
+        "observed",
+        canonicalScope,
+        String(revokedAt),
+        "1",
+      ]);
+      assert.notEqual(retainedId, canonicalId);
+      await store.durableStudyWrite(() =>
+        stageLinkedWithdrawal(store, {
+          id: retainedId,
+          scope: oldScope,
+          kind: "observed",
+          identity: { cutoff: String(revokedAt), nonce: "1" },
+        }),
+      );
+      const retainedObservation = store.get<WithdrawalOperation>(
+        opKey(retainedId),
+      )!;
+      assert.equal(retainedObservation.proof, undefined);
+      assert.deepEqual(retainedObservation.scope, canonicalScope);
+      // A current canonical observation also stays held until genuine proof
+      // recovers all retained work. Keep the later-ready assertion intact.
+      const observed = await authorizationState(
+        env,
+        learner.toLowerCase() as Address,
+        store,
+      );
       assert.equal(observed.linkedWithdrawalPending, true);
       assert.equal(observed.revokedAt, revokedAt);
       await recoverReady();
@@ -274,10 +352,78 @@ test(
         revokedAt,
         revocationNonce: "1",
       });
+      const recoveredOld = store.get<WithdrawalOperation>(opKey(retainedId))!;
+      assert.equal(recoveredOld.id, retainedId);
+      assert.deepEqual(recoveredOld.identity, retainedObservation.identity);
+      assert.deepEqual(recoveredOld.scope, retainedObservation.scope);
+      assert.equal(recoveredOld.proof?.kind, "observed");
+      assert.equal(recoveredOld.proof?.revokedAtS, revokedAt);
+      assert.equal(recoveredOld.proof?.nextNonce, "1");
+      assert.ok(store.get<WithdrawalOperation>(opKey(canonicalId))?.proof);
+      const head = store.get<WithdrawalHead>(headKey(canonicalScope))!;
+      assert.equal(head.openProofs, 0);
+      assert.equal(head.sealed, true);
+      assert.equal(head.cutoffS, revokedAt);
+      assert.equal(head.nextNonce, "1");
+      const retainedOperations = store.entries("linkedWithdrawalOperation:");
+      const retainedHeads = store.entries("linkedWithdrawalHead:");
+      const retainedBootstrap = store.get(bootstrapKey);
+      const sponsorship = store.entries("sponsor:");
+      for (const spelling of [
+        learner.toLowerCase() as Address,
+        getAddress(learner),
+      ]) {
+        assert.deepEqual(await authorizationState(env, spelling, store), {
+          since: 0,
+          revokedAt,
+          revocationNonce: "1",
+        });
+        assert.deepEqual(
+          store.entries("linkedWithdrawalOperation:"),
+          retainedOperations,
+        );
+        assert.deepEqual(store.entries("linkedWithdrawalHead:"), retainedHeads);
+        assert.deepEqual(store.get(bootstrapKey), retainedBootstrap);
+        assert.deepEqual(store.entries("sponsor:"), sponsorship);
+      }
+      assert.equal(
+        store.get<{ pending: boolean }>(
+          revocationKey(target, accounts[6].address, 0n),
+        )?.pending,
+        true,
+      );
+      assert.equal(
+        store.get<{ pending: boolean }>(
+          revocationKey(
+            { ...target, contract: accounts[0].address },
+            learner,
+            0n,
+          ),
+        )?.pending,
+        true,
+      );
+      assert.equal(
+        store.get(headKey({ ...canonicalScope, learner: accounts[6].address })),
+        undefined,
+      );
+      assert.throws(
+        () =>
+          guardLinkedWithdrawal(store, {
+            ...canonicalScope,
+            target: { ...target, contract: accounts[0].address },
+          }),
+        /study_linked_withdrawal_pending/,
+      );
+      assert.deepEqual(originalSends, [originalRaw]);
       const retained = txRow(store, intent.nonce!)!;
       assert.equal(retained.raw, originalRaw);
       assert.equal(retained.hash, originalHash);
       assert.equal(retained.nonce, original.nonce);
+      assert.equal(retained.to, original.to);
+      assert.equal(retained.data, original.data);
+      assert.equal(retained.broadcast, undefined);
+      assert.equal(provenUnsent(retained), false);
+      assert.equal(retained.cancellation, undefined);
       assert.equal(store.entries("intent:record_revoke:").length, 1);
     } finally {
       globalThis.fetch = real;

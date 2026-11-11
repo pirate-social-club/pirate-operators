@@ -59,6 +59,7 @@ import {
   sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
+import { scopeOf } from "./study-linked-withdrawal-contract.ts";
 import type { Env } from "./runtime.ts";
 import { body } from "./service-call.ts";
 
@@ -379,7 +380,9 @@ export async function authorizationState(
   // cutoff/nonce is still a withdrawal signal; proof/discovery is independent.
   if (store && revokedAt > 0n) {
     check(store.durableStudyWrite, "study_binding_wake_unconfigured");
-    const scope = { communityId: env.COMMUNITY_ID, target, learner };
+    // The stored scope and observation identity must use the same canonical
+    // addresses. Equivalent read spellings cannot restage a recovered hold.
+    const scope = scopeOf({ communityId: env.COMMUNITY_ID, target, learner });
     await store.durableStudyWrite(() =>
       stageLinkedWithdrawal(store, {
         id: digest(["observed", scope, String(revokedAt), String(nonce)]),
