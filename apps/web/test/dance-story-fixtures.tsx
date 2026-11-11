@@ -178,45 +178,18 @@ export function DanceStory(props: { mode: DanceStoryMode }) {
   };
   if (props.mode === "unknown") {
     f.client.submit = async () => {
-      const retained = {
-        version: 1 as const,
-        scope,
-        commandId: "story_original_submit",
-        subject: "submission:capture",
-        path: "reviews",
-        bodyJson: JSON.stringify({
-          captureId: f.c.captureId,
-          mediaId: "media",
-          recordingSha256: hash(16),
-        }),
+      if (!submitted) {
+        submitted = true;
+        throw new TypeError("Simulated lost accepted acknowledgement");
+      }
+      return {
+        version: "pirate.dance/1",
+        commandId: "fixture_dispatch_rebinds_original",
+        reviewId: f.c.captureId,
+        revision: 1,
+        state: "awaiting_review",
+        intentId: null,
       };
-      f.setRetained(retained);
-      submitted = true;
-      throw new TypeError("Simulated lost accepted acknowledgement");
-    };
-    f.client.recover = async () => {
-      const r = {
-        version: 1 as const,
-        scope,
-        commandId: "story_original_submit",
-        subject: "submission:capture",
-        path: "reviews",
-        bodyJson: JSON.stringify({
-          captureId: f.c.captureId,
-          mediaId: "media",
-          recordingSha256: hash(16),
-        }),
-        receiptJson: JSON.stringify({
-          version: "pirate.dance/1",
-          commandId: "story_original_submit",
-          reviewId: f.c.captureId,
-          revision: 1,
-          state: "awaiting_review",
-          intentId: null,
-        }),
-      };
-      f.setRetained(r);
-      return r;
     };
   }
   if (props.mode === "denied_after_load") {

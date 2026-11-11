@@ -11,8 +11,9 @@ import type {
   MediaStatus,
   ReadyMedia,
 } from "../../../packages/community-media/contracts.ts";
-import type { DanceClient } from "../src/dance/client.ts";
+import { DanceClientError, type DanceClient } from "../src/dance/client.ts";
 import type { DanceJournalEntry } from "../src/dance/journal.ts";
+import { simulatedCommandStorage } from "./dance-command-storage.ts";
 import {
   decodeJourney,
   emptyJourney,
@@ -361,7 +362,84 @@ export function simulatedSource() {
     state: review.state,
     intentId: null,
   });
+  const commands = simulatedCommandStorage().journal();
+  const commandScope = {
+    communityId: scope.communityId,
+    accountId: scope.accountId,
+  };
+  const prepare = async (
+    subject: string,
+    path: string,
+    body: object,
+    targetKey: string,
+  ) => {
+    const commandId = crypto.randomUUID();
+    return commands.reserve({
+      version: 1,
+      scope: commandScope,
+      subject,
+      path,
+      commandId,
+      targetKey,
+      bodyJson: JSON.stringify(body),
+      requestJson: JSON.stringify({ ...body, commandId }),
+    });
+  };
   const client: DanceClient = {
+    prepareCapture: (target, songKey, offerId, referenceId, accepted) =>
+      prepare(
+        "capture",
+        "captures",
+        { songKey, offerId, referenceId, consent: accepted },
+        target,
+      ),
+    prepareSubmission: (target, captureId, mediaId, recordingSha256) =>
+      prepare(
+        "submission:" + captureId,
+        "reviews",
+        { captureId, mediaId, recordingSha256 },
+        target,
+      ),
+    command: async (id) =>
+      retained?.commandId === id
+        ? retained
+        : commands.command!(commandScope, id),
+    acceptedCapture: () => commands.acceptedCapture!(commandScope),
+    releaseCompletedCapture: async () => {
+      throw Error("simulated_source_terminal_proof_unavailable");
+    },
+    dispatchPrepared: async (e) => {
+      const original = await commands.markDispatch!(e);
+      if (original.receiptJson) return JSON.parse(original.receiptJson);
+      const b = JSON.parse(original.bodyJson);
+      let result: DanceCapture | DanceReceipt;
+      if (original.path === "captures") {
+        result = await client.capture(
+          b.songKey,
+          b.offerId,
+          b.referenceId,
+          b.consent,
+        );
+        result.consent = { ...result.consent!, receiptId: original.commandId };
+      } else {
+        try {
+          result = {
+            ...(await client.submit(b.captureId, b.mediaId, b.recordingSha256)),
+            commandId: original.commandId,
+          };
+        } catch (error) {
+          if (
+            error instanceof DanceClientError &&
+            error.status === 410 &&
+            error.code === "dance_capture_expired"
+          )
+            await commands.rejectExpired(original);
+          throw error;
+        }
+      }
+      await commands.accept(original, JSON.stringify(result));
+      return result;
+    },
     capture: async () => {
       calls.push("capture");
       return c;
@@ -390,11 +468,31 @@ export function simulatedSource() {
     },
     recover: async () => {
       calls.push("recover");
+      if (retained?.path === "reviews" && !retained.receiptJson)
+        retained = {
+          ...retained,
+          receiptJson: JSON.stringify({
+            ...receipt(),
+            commandId: retained.commandId,
+          }),
+        };
       return retained;
     },
-    retained: async () => retained,
-    acknowledgeRecovery: async () => {},
-    resetDefiniteCapture: async () => {
+    retained: async () =>
+      retained ??
+      (await commands.active(commandScope)) ??
+      (await commands.latest(commandScope)),
+    acknowledgeRecovery: async (id) => {
+      await commands.acknowledge(commandScope, id);
+    },
+    resetDefiniteCapture: async (captureId) => {
+      const accepted = await commands.acceptedCapture!(commandScope);
+      await commands.definiteCaptureReset(
+        commandScope,
+        accepted && captureId
+          ? { commandId: accepted.commandId, captureId }
+          : undefined,
+      );
       calls.push("reset");
     },
     dispose: () => {},
@@ -484,6 +582,12 @@ export function simulatedSource() {
     },
     setRetained: (r: DanceJournalEntry | null) => {
       retained = r;
+    },
+    acceptOriginalCapture: async () => {
+      const original = await commands.active(commandScope);
+      if (!original) throw Error("simulated_original_missing");
+      c.consent = { ...c.consent!, receiptId: original.commandId };
+      await commands.accept(original, JSON.stringify(c));
     },
   };
 }

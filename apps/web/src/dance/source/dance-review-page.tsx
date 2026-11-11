@@ -21,6 +21,7 @@ import {
   Type,
 } from "../design-system.ts";
 import { privateAccessLost } from "../client.ts";
+import { assertRequestedReview, originalHoldCopy } from "./command-ordering.ts";
 import {
   createDanceJourneyActor,
   type DanceJourneyActor,
@@ -75,6 +76,7 @@ export function DanceReviewPage(props: {
     observationTimer: ReturnType<typeof setTimeout> | undefined;
   let video: HTMLVideoElement | undefined,
     observations = 0;
+  let ownedPreview: string | undefined;
   const controller = createDanceReviewController({
     ...provided.source,
     reviewId: provided.reviewId,
@@ -93,6 +95,8 @@ export function DanceReviewPage(props: {
       video.load();
     }
     setPreview(undefined);
+    if (ownedPreview) URL.revokeObjectURL(ownedPreview);
+    ownedPreview = undefined;
     setPreviewStatus("idle");
   };
   const stopObservation = () => {
@@ -106,6 +110,7 @@ export function DanceReviewPage(props: {
     stopPreview();
     setConfirmCancel(false);
     setNotice("");
+    setFailedLocalPreview(undefined);
     journey.send({ type: "ACCESS_LOST" });
     setPhase("loading");
   };
@@ -136,6 +141,7 @@ export function DanceReviewPage(props: {
     }
   }
   function apply(view: DanceReviewView) {
+    assertRequestedReview(view.result, provided.reviewId);
     journey.send({ type: "REVIEW_FACT", view });
     setPhase("ready");
     if (!danceReviewEditable(view.result)) stopPreview();
@@ -162,7 +168,7 @@ export function DanceReviewPage(props: {
     }, 2000);
   }
   async function load(recover = false) {
-    if (!active) return;
+    if (!active || phase() === "anonymous") return;
     stopObservation();
     request?.abort();
     const attempt = ++revision,
@@ -194,11 +200,15 @@ export function DanceReviewPage(props: {
       else if (ready()) {
         journey.send({ type: "REVIEW_ERROR", error });
         setNotice(
-          "Your request could not be confirmed. Resume it without making a new submission.",
+          originalHoldCopy(error) ??
+            "Your request could not be confirmed. Resume it without making a new submission.",
         );
       } else {
         setPhase("error");
-        setNotice("We couldn’t confirm your recording’s status.");
+        setNotice(
+          originalHoldCopy(error) ??
+            "We couldn’t confirm your recording’s status.",
+        );
       }
     }
   }
@@ -235,25 +245,40 @@ export function DanceReviewPage(props: {
           setNotice("This recording session has finished.");
         } else
           setNotice(
-            "Your request could not be confirmed. Resume it without making a new submission.",
+            originalHoldCopy(error) ??
+              "Your request could not be confirmed. Resume it without making a new submission.",
           );
       }
     }
   }
   async function play() {
     const view = ready();
-    if (
-      !view ||
-      view.result.kind !== "review" ||
-      !danceReviewEditable(view.result)
-    )
-      return;
+    if (!view || !danceReviewEditable(view.result)) return;
     stopPreview();
     setPreviewStatus("loading");
     const pending = new AbortController();
     previewRequest = pending;
     const attempt = revision;
     try {
+      if (view.result.kind === "local_recording") {
+        const original = await controller.localPreview(pending.signal);
+        if (!current(attempt, pending.signal)) return;
+        if (
+          !Number.isSafeInteger(original.expiresAtMs) ||
+          original.expiresAtMs <= Date.now()
+        )
+          throw Error("dance_local_preview_unavailable");
+        ownedPreview = URL.createObjectURL(original.blob);
+        setPreview(ownedPreview);
+        setPreviewStatus("idle");
+        previewTimer = setTimeout(
+          stopPreview,
+          original.expiresAtMs - Date.now(),
+        );
+        return;
+      }
+      if (view.result.kind !== "review")
+        throw Error("dance_local_preview_unavailable");
       const review = view.result.review;
       const grant = await provided.source.media.playback(
         review,
@@ -299,6 +324,9 @@ export function DanceReviewPage(props: {
     observations = 0;
     void load(false);
   };
+  const unsubscribeDenial = provided.source.client.onAccessLost?.((error) => {
+    if (active) failure(error);
+  });
   onSettled(() => {
     if (!active) return;
     void load(false);
@@ -321,6 +349,7 @@ export function DanceReviewPage(props: {
   );
   onCleanup(() => {
     active = false;
+    unsubscribeDenial?.();
     clear();
     controller.dispose();
     subscription.unsubscribe();

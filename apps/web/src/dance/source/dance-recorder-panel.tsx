@@ -15,6 +15,7 @@ import {
   type DanceSourcePorts,
 } from "./ports.ts";
 import { privateAccessLost } from "../client.ts";
+import { originalHoldCopy } from "./command-ordering.ts";
 import { createDanceRecorder } from "./dance-recorder.ts";
 import {
   createDanceJourneyActor,
@@ -197,6 +198,8 @@ export function DanceRecorderPanel(props: {
         return "This recording is unavailable.";
     }
     const error = state()?.context.error;
+    const held = originalHoldCopy(error);
+    if (held) return held;
     if (error instanceof VideoCaptureError && error.reason === "camera_denied")
       return "Camera or microphone access is off. Allow access in your browser, then retry.";
     if (
@@ -241,6 +244,10 @@ export function DanceRecorderPanel(props: {
     setState(null);
     options.onAccessLost();
   }
+  const unsubscribeDenial = options.source.client.onAccessLost?.(() => {
+    if (alive) deny();
+  });
+  onCleanup(() => unsubscribeDenial?.());
   createEffect(
     () => props.source.currentScope(),
     (value) => {
@@ -448,7 +455,6 @@ export function DanceRecorderPanel(props: {
           {(value) => (
             <DanceReviewPage
               source={options.source}
-              reviewId={value.session_id}
               localPreview={preview()}
               journey={journey}
               onBack={options.onBack}

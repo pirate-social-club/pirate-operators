@@ -37,6 +37,7 @@ export function DanceResultPage(props: {
   >("loading");
   const [result, setResult] = createSignal<DanceResult | null>(null);
   let active = true,
+    accessDenied = false,
     generation = 0,
     request: AbortController | undefined;
   const initialReviewId = props.reviewId;
@@ -50,7 +51,16 @@ export function DanceResultPage(props: {
     setResult(null);
     setPhase("loading");
   };
+  const unsubscribeDenial = props.source.client.onAccessLost?.(() => {
+    if (!active) return;
+    accessDenied = true;
+    clear();
+    controller.dispose();
+    setPhase("anonymous");
+    props.onAccessLost();
+  });
   async function load() {
+    if (accessDenied || !active) return;
     clear();
     const attempt = generation,
       id = props.reviewId,
@@ -68,6 +78,7 @@ export function DanceResultPage(props: {
       if (!active || attempt !== generation || pending.signal.aborted) return;
       setResult(null);
       if (privateAccessLost(error)) {
+        accessDenied = true;
         controller.dispose();
         setPhase("anonymous");
         props.onAccessLost();
@@ -79,6 +90,7 @@ export function DanceResultPage(props: {
     ([scope]) => {
       clear();
       if (
+        accessDenied ||
         !scope ||
         props.reviewId !== initialReviewId ||
         danceScopeKey(scope) !== danceScopeKey(props.source.scope)
@@ -94,6 +106,7 @@ export function DanceResultPage(props: {
   });
   onCleanup(() => {
     active = false;
+    unsubscribeDenial?.();
     clear();
     controller.dispose();
   });

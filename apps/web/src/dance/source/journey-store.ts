@@ -1,6 +1,7 @@
 import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
 import type { MediaStatus } from "../../../../../packages/community-media/contracts.ts";
 import { danceTargetKey, type DanceScope } from "./ports.ts";
+import { sameOriginalCommand, type DanceJournalEntry } from "../journal.ts";
 
 export interface DanceUploadEntry {
   readonly requestId: string;
@@ -20,6 +21,10 @@ export interface DanceJourneyEntry {
   readonly captureUnknown: boolean;
   readonly submission: "none" | "unknown" | "accepted";
   readonly terminal: null | "canceled" | "expired";
+  readonly commands?: {
+    readonly capture?: DanceJournalEntry;
+    readonly submit?: DanceJournalEntry;
+  };
 }
 export interface DanceJourneyHandle {
   read(): DanceJourneyEntry;
@@ -56,7 +61,21 @@ export function decodeJourney(
   if (!v || typeof v !== "object") throw Error("dance_journal_corrupt");
   const r = v as DanceJourneyEntry;
   if (
-    Object.keys(r).length !== 8 ||
+    (Object.keys(r).length !== 8 && Object.keys(r).length !== 9) ||
+    Object.keys(r).some(
+      (k) =>
+        ![
+          "version",
+          "revision",
+          "targetKey",
+          "capture",
+          "upload",
+          "captureUnknown",
+          "submission",
+          "terminal",
+          "commands",
+        ].includes(k),
+    ) ||
     r.version !== 1 ||
     r.targetKey !== danceTargetKey(scope) ||
     !Number.isSafeInteger(r.revision) ||
@@ -66,6 +85,28 @@ export function decodeJourney(
     ![null, "canceled", "expired"].includes(r.terminal)
   )
     throw Error("dance_journal_corrupt");
+  if (r.commands)
+    for (const [kind, command] of Object.entries(r.commands)) {
+      if (
+        !command ||
+        !["capture", "submit"].includes(kind) ||
+        command.version !== 1 ||
+        command.scope.accountId !== scope.accountId ||
+        command.scope.communityId !== scope.communityId ||
+        command.targetKey !== r.targetKey ||
+        !command.requestJson ||
+        command.requestJson !==
+          JSON.stringify({
+            ...JSON.parse(command.bodyJson),
+            commandId: command.commandId,
+          }) ||
+        (kind === "capture"
+          ? command.path !== "captures"
+          : command.path !== "reviews" ||
+            JSON.parse(command.bodyJson).captureId !== r.capture?.captureId)
+      )
+        throw Error("dance_journal_corrupt");
+    }
   if (
     r.upload &&
     (typeof r.upload.requestId !== "string" ||
@@ -214,6 +255,20 @@ export function createBrowserDanceJourneyStore(
                   { ...value, ...patch, revision: value.revision + 1 },
                   scope,
                 );
+                for (const kind of ["capture", "submit"] as const) {
+                  const before = value.commands?.[kind],
+                    after = next.commands?.[kind];
+                  if (before && after && !sameOriginalCommand(before, after))
+                    throw Error("dance_original_command_changed");
+                  if (
+                    before &&
+                    !after &&
+                    (next.capture ||
+                      next.captureUnknown ||
+                      next.submission !== "none")
+                  )
+                    throw Error("dance_original_command_changed");
+                }
                 const saved = await transaction<DanceJourneyEntry>(
                   danceTargetKey(scope),
                   live,

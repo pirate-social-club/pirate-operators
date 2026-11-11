@@ -81,15 +81,7 @@ test("unknown reservation survives reload, blocks retarget/reset, and recovers t
     /response_unknown/,
   );
   await assert.rejects(reload.closeTerminal(signal()), /resolution_unproven/);
-  f.setRetained({
-    version: 1,
-    scope: { accountId: scope.accountId, communityId: scope.communityId },
-    commandId: "original_capture_command",
-    path: "captures",
-    subject: "capture",
-    bodyJson: "{}",
-    receiptJson: JSON.stringify(f.c),
-  });
+  await f.acceptOriginalCapture();
   const restored = await reload.recover(consent.termsHash, signal());
   assert.equal(restored.kind, "objectives");
   assert.equal(
@@ -122,7 +114,10 @@ test("late native camera permission after disposal/account change cannot return 
   const recorder = createDanceRecorder({
     ...f.ports,
     storage: simulatedRecordingStorage().storage,
-    claimCapture: async () => ({ assertCurrent: () => {}, release: () => {} }),
+    claimCapture: async () => ({
+      assertCurrent: () => {},
+      release: async () => {},
+    }),
     openCamera: async () => {
       announce();
       return new Promise((r) => {
@@ -279,7 +274,11 @@ test("old unknown submit recovers before opposite withdrawal; D1 decision is not
     commandId: "old_submit",
     subject: "submission:capture",
     path: "reviews",
-    bodyJson: "{}",
+    bodyJson: JSON.stringify({
+      captureId: f.c.captureId,
+      mediaId: "media",
+      recordingSha256: hash(16),
+    }),
   });
   const c = createDanceReviewController(f.ports),
     v = await c.observe(signal());

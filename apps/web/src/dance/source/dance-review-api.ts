@@ -4,7 +4,7 @@ import type {
   DanceReview,
 } from "../../../../../packages/dance/contracts.ts";
 import type { ReadyMedia } from "../../../../../packages/community-media/contracts.ts";
-import { assertCapture, type DanceScope } from "./ports.ts";
+import { assertCapture, type DanceCaptureTarget } from "./ports.ts";
 
 export type DanceResult =
   | {
@@ -44,7 +44,7 @@ export function danceReviewEditable(result: DanceResult) {
 }
 export function assertDanceReview(
   review: DanceReview,
-  scope: DanceScope,
+  scope: DanceCaptureTarget,
   capture?: DanceCapture,
 ) {
   assertCapture(review.capture, scope);

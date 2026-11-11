@@ -1,11 +1,12 @@
 // Adapted from c7 dance-preparation-controller: original prepare/start/reconcile
 // and closeTerminal ownership, with V5's combined reservation/consent boundary.
 import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
-import { DanceClientError } from "../client.ts";
+import { DanceClientError, privateAccessLost } from "../client.ts";
 import {
   assertCapture,
   assertCurrent,
   type DanceSourcePorts,
+  danceTargetKey,
 } from "./ports.ts";
 import {
   danceSession,
@@ -14,6 +15,13 @@ import {
   type DanceObjectivesContext,
 } from "./dance-preparation-api.ts";
 import { assertDanceReview } from "./dance-review-api.ts";
+import {
+  acceptedCaptureMatches,
+  assertCaptureCommand,
+  requireCommandPorts,
+  DanceOriginalHeldError,
+} from "./command-ordering.ts";
+import { sameOriginalCommand, type DanceJournalEntry } from "../journal.ts";
 
 export type DancePreparationView =
   | {
@@ -108,30 +116,6 @@ export function createDancePreparationController(options: DanceSourcePorts) {
             context: null,
           };
         }
-        if (
-          !entry.capture &&
-          original?.path.startsWith("reviews") &&
-          original.receiptJson
-        ) {
-          const receipt = JSON.parse(original.receiptJson) as {
-            reviewId?: string;
-          };
-          if (!receipt.reviewId || !options.client.observe)
-            throw Error("dance_original_command_missing");
-          const review = await options.client.observe(receipt.reviewId);
-          guard();
-          assertDanceReview(review, options.scope);
-          await handle.save({
-            capture: review.capture,
-            submission: "accepted",
-          });
-          guard();
-          return {
-            kind: "upload_recovery",
-            session: danceSession(review.capture, options.media.maximumBytes),
-            context: null,
-          };
-        }
         if (entry.submission !== "none" || entry.upload) {
           if (!entry.capture) throw Error("dance_original_command_missing");
           if (entry.submission === "accepted" && options.client.observe) {
@@ -162,14 +146,23 @@ export function createDancePreparationController(options: DanceSourcePorts) {
         }
         // Loading never replays an unknown reservation. Explicit Retry must
         // recover the old durable client command, before any different action.
+        if (
+          original &&
+          !original.receiptJson &&
+          original.targetKey !== danceTargetKey(options.scope)
+        )
+          throw new DanceOriginalHeldError(original);
         if (entry.captureUnknown || (original && !original.receiptJson))
           throw Error("dance_response_unknown");
         let capture = entry.capture;
-        if (!capture && original?.path === "captures" && original.receiptJson) {
-          capture = JSON.parse(original.receiptJson) as DanceCapture;
-          assertCapture(capture, options.scope);
-          await handle.save({ capture, captureUnknown: false });
+        if (!capture) {
+          const accepted = await requireCommandPorts(options).acceptedCapture();
           guard();
+          capture = accepted ? acceptedCaptureMatches(accepted, options) : null;
+          if (capture) {
+            await handle.save({ capture, captureUnknown: false });
+            guard();
+          }
         }
         if (capture) {
           assertCapture(capture, options.scope);
@@ -202,6 +195,12 @@ export function createDancePreparationController(options: DanceSourcePorts) {
         let entry = handle.read();
         const original = await retained(guard);
         if (
+          original &&
+          !original.receiptJson &&
+          original.targetKey !== danceTargetKey(options.scope)
+        )
+          throw new DanceOriginalHeldError(original);
+        if (
           entry.captureUnknown ||
           entry.upload ||
           entry.submission !== "none" ||
@@ -210,27 +209,65 @@ export function createDancePreparationController(options: DanceSourcePorts) {
         )
           throw Error("dance_response_unknown");
         let capture = entry.capture;
+        const client = requireCommandPorts(options);
         if (!capture) {
-          // This commit finishes before dispatch. The client additionally
-          // reserves its exact consent/selection command ID/body durably.
-          await handle.save({ captureUnknown: true });
+          const accepted = await client.acceptedCapture();
+          guard();
+          capture = accepted ? acceptedCaptureMatches(accepted, options) : null;
+          if (capture) {
+            entry = await handle.save({ capture });
+            guard();
+          }
+        }
+        if (!capture) {
+          const previous = await client.acceptedCapture();
+          guard();
+          if (previous && !acceptedCaptureMatches(previous, options)) {
+            if (!previous.receiptJson)
+              throw Error("dance_other_original_pending");
+            const old = JSON.parse(previous.receiptJson) as DanceCapture;
+            try {
+              await client.releaseCompletedCapture(
+                previous.commandId,
+                old.captureId,
+                signal,
+              );
+            } catch (error) {
+              guard();
+              if (privateAccessLost(error)) throw error;
+              throw new DanceOriginalHeldError(previous, error);
+            }
+            guard();
+          }
+          const command = await client.prepareCapture(
+            danceTargetKey(options.scope),
+            options.scope.songKey,
+            options.scope.offerId,
+            options.scope.reference?.id ?? null,
+            {
+              accepted: true,
+              version: p.version,
+              termsHash: p.termsHash,
+              publicityPolicyHash: p.publicityPolicyHash,
+            },
+          );
+          guard();
+          assertCaptureCommand(command, options);
+          await handle.save({
+            captureUnknown: true,
+            commands: { ...entry.commands, capture: command },
+          });
           guard();
           try {
-            capture = await options.client.capture(
-              options.scope.songKey,
-              options.scope.offerId,
-              options.scope.reference?.id ?? null,
-              {
-                accepted: true,
-                version: p.version,
-                termsHash: p.termsHash,
-                publicityPolicyHash: p.publicityPolicyHash,
-              },
+            capture = (await client.dispatchPrepared(
+              command,
               signal,
-            );
+            )) as DanceCapture;
             guard();
             assertCapture(capture, options.scope);
             entry = await handle.save({ capture, captureUnknown: false });
+            guard();
+            await options.client.acknowledgeRecovery(command.commandId);
             guard();
           } catch (e) {
             // A definite server expiry is distinguishable; auth/transport
@@ -240,7 +277,9 @@ export function createDancePreparationController(options: DanceSourcePorts) {
               e.status === 410 &&
               e.code === "dance_capture_expired"
             ) {
-              await handle.save({ captureUnknown: false });
+              // The server explicitly rejected this original reservation;
+              // its command remains in command history, not as the next take.
+              await handle.save({ captureUnknown: false, commands: undefined });
               guard();
             }
             throw e;
@@ -261,24 +300,56 @@ export function createDancePreparationController(options: DanceSourcePorts) {
       signal: AbortSignal,
     ): Promise<DancePreparationView> {
       const guard = begin(signal);
-      await options.client.recover(signal);
-      guard();
       return options.journal.exclusive(options.scope, guard, async (handle) => {
-        const original = await retained(guard),
-          entry = handle.read();
+        const entry = handle.read(),
+          client = requireCommandPorts(options);
         let capture = entry.capture;
-        if (original?.path === "captures" && original.receiptJson)
-          capture = JSON.parse(original.receiptJson) as DanceCapture;
-        if (!capture) throw Error("dance_original_command_missing");
-        assertCapture(capture, options.scope);
-        await handle.save({ capture, captureUnknown: false });
-        guard();
-        if (entry.upload || entry.submission !== "none")
+        if (capture && (entry.upload || entry.submission !== "none"))
           return {
             kind: "upload_recovery",
             session: danceSession(capture, options.media.maximumBytes),
             context: null,
           };
+        let command: DanceJournalEntry | null = entry.commands?.capture
+          ? await client.command(entry.commands.capture.commandId)
+          : await retained(guard);
+        guard();
+        if (
+          entry.commands?.capture &&
+          (!command || !sameOriginalCommand(command, entry.commands.capture))
+        )
+          throw Error("dance_original_command_changed");
+        if (!command) command = await client.acceptedCapture();
+        guard();
+        if (!capture && command?.path === "captures") {
+          if (command.receiptJson && !command.targetKey) {
+            capture = acceptedCaptureMatches(command, options);
+            if (!capture) throw Error("dance_other_original_pending");
+          } else {
+            assertCaptureCommand(command, options);
+            await handle.save({
+              captureUnknown: true,
+              commands: { ...entry.commands, capture: command },
+            });
+            guard();
+            capture = (await client.dispatchPrepared(
+              command,
+              signal,
+            )) as DanceCapture;
+            guard();
+          }
+        }
+        if (!capture) throw Error("dance_legacy_original_missing");
+        assertCapture(capture, options.scope);
+        await handle.save({ capture, captureUnknown: false });
+        guard();
+        if (
+          command?.path === "captures" &&
+          (command.receiptJson || command.targetKey)
+        ) {
+          await options.client.acknowledgeRecovery(command!.commandId);
+          guard();
+        }
         if (capture.termsHash !== expectedTerms)
           throw Error("dance_preparation_objectives_changed");
         return {
@@ -294,6 +365,8 @@ export function createDancePreparationController(options: DanceSourcePorts) {
       await options.journal.exclusive(options.scope, guard, async (handle) => {
         const entry = handle.read(),
           original = await retained(guard);
+        if (!entry.capture)
+          throw Error("dance_preparation_resolution_unproven");
         if (
           entry.captureUnknown ||
           entry.submission === "unknown" ||
@@ -339,13 +412,14 @@ export function createDancePreparationController(options: DanceSourcePorts) {
           await handle.archive();
           guard();
         }
-        await options.client.resetDefiniteCapture();
+        await options.client.resetDefiniteCapture(entry.capture?.captureId);
         guard();
         await handle.save({
           capture: null,
           upload: null,
           terminal: null,
           submission: "none",
+          commands: undefined,
         });
         guard();
       });

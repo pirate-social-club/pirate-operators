@@ -11,6 +11,7 @@ import type { DanceClient } from "../client.ts";
 import type { DanceJourneyStore } from "./journey-store.ts";
 import type { BufferedGuideSource } from "./platform/buffered-guide.ts";
 import { producerDigest } from "./digests.ts";
+import type { DanceRecordingStorage } from "./dance-recording.ts";
 
 /** Private accountId must be the authenticated owner producer's value. Public
  * author/wallet/profile IDs have no authority here. Session key fences awaits. */
@@ -33,6 +34,20 @@ export interface DanceTarget {
   readonly offerId: string | null;
 }
 export interface DanceScope extends DanceTarget, DanceAccount {}
+export type DanceCaptureTarget = DanceTarget & { accountId: string };
+export function captureTarget(c: DanceCapture): DanceCaptureTarget {
+  return {
+    accountId: c.learner.accountId,
+    communityId: c.communityId,
+    songKey: c.songKey,
+    songRevision: c.songRevision,
+    audioSha256: c.audioSha256,
+    reference: c.reference
+      ? { id: c.reference.id, revision: c.reference.revision }
+      : null,
+    offerId: c.offer?.offerId ?? null,
+  };
+}
 /** Session lifetime is intentionally excluded from durable resource identity.
  * Same-account recovery revalidates fresh HTTP access; old command bytes stay. */
 export const danceTargetKey = (s: DanceTarget & { accountId: string }) =>
@@ -48,7 +63,7 @@ export const danceTargetKey = (s: DanceTarget & { accountId: string }) =>
   ]);
 export const danceScopeKey = (s: DanceScope) =>
   JSON.stringify([danceTargetKey(s), s.sessionKey]);
-export function assertCapture(c: DanceCapture, s: DanceScope) {
+export function assertCapture(c: DanceCapture, s: DanceCaptureTarget) {
   producerDigest(c.audioSha256);
   const durationMs = c.durationSamples / 48;
   if (
@@ -158,6 +173,7 @@ export interface DanceSourcePorts {
   readonly media: DancePrivateMediaPort;
   readonly playback: DancePlaybackPort;
   readonly journal: DanceJourneyStore;
+  readonly recordingStorage?: DanceRecordingStorage;
   /** Fresh server check of the EXACT captured authorization before accepting
    * camera/guide; concrete backend route/assembly is a coordinator proposal. */
   readonly captureAccess: (

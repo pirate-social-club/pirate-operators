@@ -87,9 +87,13 @@ export function createDanceRecorder(
   let uploadSession: string | null = null,
     busy = false;
   let lease: DanceCaptureLease | null = null;
+  let leaseReleased: Promise<void> = Promise.resolve();
   const releaseLease = () => {
-    lease?.release();
+    if (lease) leaseReleased = lease.release();
     lease = null;
+    // Cleanup may be synchronous, but a later claim must observe real release.
+    void leaseReleased.catch(() => {});
+    return leaseReleased;
   };
   const current = (signal: AbortSignal) => {
     assertCurrent(options, signal);
@@ -97,6 +101,8 @@ export function createDanceRecorder(
   };
   const ensureLease = async (signal: AbortSignal) => {
     try {
+      await leaseReleased;
+      current(signal);
       if (!lease)
         lease = await (options.claimCapture ?? claimBrowserDanceCapture)(
           scope,
@@ -159,7 +165,8 @@ export function createDanceRecorder(
     stage("saving");
     await recordings.retain(original.ready, original.take, signal);
     current(signal);
-    releaseLease();
+    await releaseLease();
+    current(signal);
     uploadSession = original.take.sessionId;
     original = null;
     ready = null;
