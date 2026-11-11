@@ -32,6 +32,7 @@ import { closeWithdrawnStudyLessons } from "../services/learning-public-results.
 import { releasePostsFixture } from "./fixtures/release-posts.ts";
 import { communityRuntime } from "./community-runtime.ts";
 import { authorityD1Fixture } from "./learning-authority-d1-fixture.ts";
+import { CommunityAuthorityPending } from "../packages/community-setup/authority-ledger.ts";
 import type { PublicReadPorts } from "../services/community-public.ts";
 import type { OperatorQuote } from "../packages/protocol/payments.ts";
 
@@ -309,8 +310,8 @@ for (const path of [
           generation: 1,
           startedAtMs: 110000,
         };
-        assert.deepEqual(
-          await connectedPracticeAuthorization(
+        await assert.rejects(
+          connectedPracticeAuthorization(
             f.env,
             f.db,
             context,
@@ -324,7 +325,16 @@ for (const path of [
             }),
             110000,
           ),
-          { id: null, pending: false },
+          (error: unknown) => {
+            // The observed withdrawal dirties current authority during this
+            // admission. It must hold connected work until recovery, after
+            // closing the lesson; the former clean denial is no longer valid.
+            assert.ok(error instanceof CommunityAuthorityPending);
+            assert.equal(error.message, "community_authority_pending");
+            assert.equal(error.status, 503);
+            assert.equal(error.retryable, true);
+            return true;
+          },
         );
       }
       assert.equal(await publicResults(f.db, "a", true), "off");
