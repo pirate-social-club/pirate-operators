@@ -1,3 +1,4 @@
+import { communityProfilesApi } from "./community-profiles.ts";
 import { connectedPublicResultsAction } from "./learning-public-results.ts";
 import {
   fenceAuthorityRelay,
@@ -509,6 +510,28 @@ export async function communityFetch(
         statusText: asset.statusText,
         headers: assetHeaders,
       });
+    }
+    const profileResponse = await communityProfilesApi(request, {
+      db: env.DB,
+      context,
+      publicPosts: async () => {
+        const current = await configuration();
+        return {
+          communityId: current.communityId,
+          posts: await publicSongViews(env.DB, current, publicReads),
+        };
+      },
+      now: ports.now,
+      // No publicMediaExists default: no admitted public profile-media service.
+    });
+    if (profileResponse) {
+      for (const [name, value] of security)
+        profileResponse.headers.set(name, value);
+      profileResponse.headers.set("cache-control", "no-store");
+      if (url.pathname.startsWith("/api/profile/"))
+        profileResponse.headers.set("vary", "Cookie");
+      profileResponse.headers.set("server-timing", timing.header());
+      return profileResponse;
     }
     if (request.method === "GET" && url.pathname === "/api/session") {
       const session = await accountSession(request, env.DB, context),

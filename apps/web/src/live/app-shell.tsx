@@ -30,6 +30,8 @@ import type { AppView } from "../shell/routing.ts";
 export function CommunityAppShell(props: {
   name: string;
   communityId: string;
+  publicProfileAuthor?: string;
+  ownPublicProfile?: boolean;
   view: AppView;
   walletPage: boolean;
   rewards: boolean;
@@ -74,6 +76,8 @@ export function CommunityAppShell(props: {
       location.pathname,
       props.practiceOpen,
       props.communityId,
+      props.publicProfileAuthor,
+      props.ownPublicProfile,
     );
   // ApplicationChrome highlights Home for the community's own home route.
   // All other routes keep the exact copied policy (including no active song tab).

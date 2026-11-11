@@ -1,3 +1,4 @@
+import { SongContentFrame } from "../player/song-content-frame.tsx";
 // Independently owned presentation from src/features/community/page-shell/page-shell.tsx @ c7cb87835a1858a1955c820b03d566365e6d42db
 // Exact extraction/adapter boundaries: docs/v1-shell-owner-correction-20261111.md.
 import { Show } from "solid-js";
@@ -19,56 +20,21 @@ function SongPost(props: {
   isolatePlayback?: boolean;
 }) {
   return (
-    <div class="flex flex-wrap items-center gap-3 rounded-xl border border-border-soft bg-muted p-3">
-      <div class="relative size-14 shrink-0 overflow-hidden rounded-lg bg-secondary">
-        <Show
-          when={props.post.mediaSrc}
-          fallback={
-            <div class="grid size-full place-items-center">
-              <IconMusicNote class="size-7 text-muted-foreground" />
-            </div>
-          }
-        >
-          {(src) => <img alt="" class="size-full object-cover" src={src()} />}
-        </Show>
-      </div>
-      <div class="min-w-0 flex-1">
-        <Type class="block truncate" variant="body-strong">
-          <Show
-            when={props.titleHref}
-            fallback={props.post.mediaTitle ?? props.post.title}
-          >
-            {(href) => (
-              <a
-                href={href()}
-                rel={props.nativeNavigation ? "external" : undefined}
-                class="hover:underline after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-ring"
-              >
-                {props.post.mediaTitle ?? props.post.title}
-              </a>
-            )}
-          </Show>
-        </Type>
-        {/* An unknown artist is left unsaid. The placeholder here named a
-            real recording artist who has nothing to do with the post. */}
-        <Show when={props.post.mediaArtist}>
-          {(artist) => (
-            <Type class="block truncate text-sm" variant="caption">
-              {artist()}
-            </Type>
-          )}
-        </Show>
-      </div>
-      <div class="relative z-10 shrink-0 has-[audio]:basis-full">
-        <SongPlayer
-          compact
-          postId={props.post.id}
-          title={props.post.mediaTitle ?? props.post.title}
-          cacheAccess={false}
-          readAccess={props.post.readPlayback}
-        />
-      </div>
-    </div>
+    <SongContentFrame
+      title={props.post.mediaTitle ?? props.post.title}
+      artworkSrc={props.post.mediaSrc}
+      artist={props.post.mediaArtist}
+      titleHref={props.titleHref}
+      nativeNavigation={props.nativeNavigation}
+    >
+      <SongPlayer
+        compact
+        postId={props.post.id}
+        title={props.post.mediaTitle ?? props.post.title}
+        cacheAccess={false}
+        readAccess={props.post.readPlayback}
+      />
+    </SongContentFrame>
   );
 }
 

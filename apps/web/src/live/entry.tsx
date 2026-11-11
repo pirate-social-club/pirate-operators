@@ -1,3 +1,6 @@
+import { createCommunityProfileIntegration } from "../shell/profiles/integration.ts";
+import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
+import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
@@ -378,10 +381,47 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     }
     setStatus("");
   });
+  const profileIntegration = createCommunityProfileIntegration({
+    communityId: () => boot()?.communityId ?? "",
+    identity: () =>
+      !settling() && session()
+        ? {
+            authorId: session()!.authorId,
+            csrf: session()!.csrf,
+            scopeKey: session()!.csrf,
+          }
+        : null,
+    ready: () => !walletPage && !!boot() && !settling(),
+  });
+  const profileSignIn = async () => {
+    await run(signIn);
+    if (!session()) throw new Error("Sign in was not completed.");
+    await profileIntegration.controller()?.load();
+  };
+  const profileLogout = async () => {
+    const current = session();
+    if (!current || busy() || settling())
+      throw new Error("Sign out is unavailable.");
+    setBusy(true);
+    profileIntegration.controller()?.clear();
+    try {
+      await post("/api/logout", {}, current.csrf);
+      setSession(null);
+      setLearningActions(null);
+      setStatus("Signed out.");
+    } finally {
+      setBusy(false);
+      // The private owner controller resolves a lost response on its next read;
+      // no account/wallet is inferred from the transport outcome.
+      await profileIntegration.controller()?.load();
+    }
+  };
   return (
     <CommunityAppShell
       name={name()}
       communityId={boot()?.communityId ?? ""}
+      publicProfileAuthor={publicProfileAuthor(fragment())}
+      ownPublicProfile={publicProfileAuthor(fragment()) === session()?.authorId}
       view={view()}
       walletPage={walletPage}
       rewards={capabilities()?.rewards === true}
@@ -496,83 +536,118 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
             </a>
           </p>
         </Show>
-        <CommunityPages
+        <MountedCommunityProfiles
+          integration={profileIntegration}
           view={view()}
           hash={fragment()}
-          name={name()}
           communityId={boot()?.communityId ?? ""}
-          feed={feed()}
-          session={session()}
-          settling={settling()}
-          busy={busy()}
-          error={error()}
-          study={capabilities()?.study === true}
-          publisher={session()?.publisher === true}
+          authorityKey={session()?.csrf ?? "anonymous"}
+          authorIds={feed()?.posts.map((song) => song.manifest.authorId) ?? []}
+          navigate={(href) => location.assign(href)}
+          signIn={profileSignIn}
+          logout={profileLogout}
           canSignIn={capabilities()?.signIn === true}
-          rewards={capabilities()?.rewards === true}
-          offers={rewardOffers()}
-          integrations={props.integrations}
-          context={featureContext}
-          onNavigate={(href) => location.assign(href)}
-          onLearningLink={navigateLearning}
-          onSignIn={() => void run(signIn)}
-          onSignOut={() =>
-            void run(async () => {
-              const current = session();
-              if (!current) return;
-              await post("/api/logout", {}, current.csrf);
-              setSession(null);
-              setLearningActions(null);
-              setStatus("Signed out.");
-            })
-          }
-          onRefresh={() => void run(refresh)}
-          onDownload={
-            learningActions()
-              ? () =>
-                  void run(async () => {
-                    await learningActions()!.download();
-                    setStatus("Private history downloaded.");
-                  })
+          canSignOut={!!session() && !settling()}
+          walletAvailable={capabilities()?.rewards === true}
+          services={{
+            privateHistory: learningActions()
+              ? () => learningActions()!.download()
+              : undefined,
+            publicResults: props.integrations?.accountSettings
+              ? () => props.integrations!.accountSettings!(featureContext())
+              : undefined,
+            // No default recording deletion or Telegram management port.
+          }}
+          privateDance={() =>
+            session() && !settling()
+              ? props.integrations?.privateDance?.(featureContext())
               : undefined
           }
-          composer={() => (
-            <>
-              <Show
-                when={session()?.publisher ? session() : null}
-                fallback={
-                  <p>
-                    Song publishing is available to the authorized community
-                    publisher. Sign in with that account to continue.
-                  </p>
-                }
-              >
-                {(current) => (
-                  <SongUpload
-                    session={current()}
-                    policy={capabilities()?.policyVersion ?? ""}
-                    enabled={capabilities()?.upload === true}
-                    refreshFeed={refresh}
-                  />
-                )}
-              </Show>
-              <Show
-                when={
-                  session() &&
-                  !settling() &&
-                  boot() &&
-                  props.integrations?.publicPosting === "allowed" &&
-                  session()!.mossAddress
-                }
-                keyed
-              >
-                {(_account) =>
-                  props.integrations?.publicComposer?.(featureContext())
-                }
-              </Show>
-            </>
+        >
+          {(authors) => (
+            <CommunityPages
+              view={view()}
+              hash={fragment()}
+              name={name()}
+              communityId={boot()?.communityId ?? ""}
+              feed={feed()}
+              session={session()}
+              settling={settling()}
+              busy={busy()}
+              error={error()}
+              study={capabilities()?.study === true}
+              publisher={session()?.publisher === true}
+              canSignIn={capabilities()?.signIn === true}
+              rewards={capabilities()?.rewards === true}
+              offers={rewardOffers()}
+              integrations={{
+                ...props.integrations,
+                version: 1,
+                postAuthors: authors,
+              }}
+              context={featureContext}
+              onNavigate={(href) => location.assign(href)}
+              onLearningLink={navigateLearning}
+              onSignIn={() => void run(signIn)}
+              onSignOut={() =>
+                void run(async () => {
+                  const current = session();
+                  if (!current) return;
+                  await post("/api/logout", {}, current.csrf);
+                  setSession(null);
+                  setLearningActions(null);
+                  setStatus("Signed out.");
+                })
+              }
+              onRefresh={() => void run(refresh)}
+              onDownload={
+                learningActions()
+                  ? () =>
+                      void run(async () => {
+                        await learningActions()!.download();
+                        setStatus("Private history downloaded.");
+                      })
+                  : undefined
+              }
+              composer={() => (
+                <>
+                  <Show
+                    when={session()?.publisher ? session() : null}
+                    fallback={
+                      <p>
+                        Song publishing is available to the authorized community
+                        publisher. Sign in with that account to continue.
+                      </p>
+                    }
+                  >
+                    {(current) => (
+                      <SongUpload
+                        session={current()}
+                        policy={capabilities()?.policyVersion ?? ""}
+                        enabled={capabilities()?.upload === true}
+                        refreshFeed={refresh}
+                      />
+                    )}
+                  </Show>
+                  <Show
+                    when={
+                      session() &&
+                      !settling() &&
+                      boot() &&
+                      props.integrations?.publicPosting === "allowed" &&
+                      session()!.mossAddress
+                    }
+                    keyed
+                  >
+                    {(_account) =>
+                      props.integrations?.publicComposer?.(featureContext())
+                    }
+                  </Show>
+                </>
+              )}
+            />
           )}
-        />
+        </MountedCommunityProfiles>
       </Show>
       {/* Normal site navigation: the documents stay reachable while signed
           in, outside the Study and Karaoke overlays. */}

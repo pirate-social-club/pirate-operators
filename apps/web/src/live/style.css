@@ -350,3 +350,7 @@ body:has(.live-study-overlay) {
 }
 @source "./reward-payment-panel.tsx";
 @source "./reward-offer-panel.tsx";
+
+/* Newly used existing c7 media controls: source scanning, no new dependency. */
+@source "../../node_modules/@pirate/web-solid-ui/src/components/media/media-control-button/";
+@source "../../node_modules/@pirate/web-solid-ui/src/components/media/scrubber/";

@@ -84,7 +84,9 @@ function SongPlayerInstance(props: SongPlayerProps) {
         : playbackAccess.read(reader, postId, now()),
     ),
   );
-  const canSeek = createMemo(() => duration() !== undefined && grant() !== undefined);
+  const canSeek = createMemo(
+    () => duration() !== undefined && grant() !== undefined,
+  );
   const buffering = createMemo(() => busy() || waiting());
   const clearTimer = () => {
     if (timer !== undefined) clearTimeout(timer);

@@ -7,12 +7,19 @@ export function communityChrome(
   pathname: string,
   practiceOpen: boolean,
   communityId: string,
+  publicAuthor?: string,
+  ownPublicProfile = false,
 ) {
   if (pathname.startsWith("/operator"))
     return resolveApplicationChrome("/c/current/settings/rewards");
   if (practiceOpen) return resolveApplicationChrome("/posts/current/study");
   if (pathname.startsWith("/verify")) return resolveApplicationChrome(pathname);
   if (pathname === "/wallet") return resolveApplicationChrome("/wallet");
+  if (publicAuthor)
+    return resolveApplicationChrome(
+      "/p/" + publicAuthor,
+      ownPublicProfile ? "/p/" + publicAuthor : undefined,
+    );
   const path =
     view === "home" || view === "publish"
       ? `/c/${communityId || "current"}`
