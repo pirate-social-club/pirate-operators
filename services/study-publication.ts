@@ -1,3 +1,4 @@
+import { guardLinkedPublication } from "./study-linked-withdrawal.ts";
 // Durable Study publication. Only the compact public bundle survives validation;
 // private lesson state and transcripts never enter transaction calldata.
 import { encodeFunctionData, zeroHash, type Hex } from "viem";
@@ -482,17 +483,25 @@ export async function resumeStudyPublication(
   // private. Both keep the bounded private-history erasure.
   if (job.target.version === 4 && intent?.nonce == null) {
     const telegram = telegramResultPublication(env, store, ref);
-    if (
-      telegram &&
-      (telegramStudyDenied(store, telegram.fence, telegram.context) ||
-        !(await resolveTelegramStudyFence(
-          env.STUDY_TELEGRAM_AUTHORITY,
-          telegram.fence,
-          telegram.context,
-        )) ||
-        telegramStudyDenied(store, telegram.fence, telegram.context))
-    )
-      return keepPrivate(env, store, id, job, "authorization_withdrawn");
+    if (telegram) {
+      const before = guardLinkedPublication(store, telegram);
+      const allowed =
+        before || telegramStudyDenied(store, telegram.fence, telegram.context)
+          ? false
+          : await resolveTelegramStudyFence(
+              env.STUDY_TELEGRAM_AUTHORITY,
+              telegram.fence,
+              telegram.context,
+            );
+      const after = guardLinkedPublication(store, telegram);
+      if (
+        before ||
+        after ||
+        telegramStudyDenied(store, telegram.fence, telegram.context) ||
+        !allowed
+      )
+        return keepPrivate(env, store, id, job, "authorization_withdrawn");
+    }
     if (Number(job.result.status) !== 1)
       return keepPrivate(env, store, id, job, "unfinished");
     // The contract's publish rule, re-read just before dispatch.

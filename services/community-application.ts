@@ -1,3 +1,12 @@
+import { connectedPublicResultsAction } from "./learning-public-results.ts";
+import {
+  fenceAuthorityRelay,
+  type AuthorityAction,
+} from "../packages/community-setup/authority-ledger.ts";
+import {
+  recoverCommunityAuthority,
+  type AuthorityRecoveryPorts,
+} from "../packages/community-setup/authority-recovery.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import {
@@ -142,6 +151,18 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DANCE_REWARD_SOURCE_SELECTION_HASH?: string;
 }
 export interface CommunityDependencies {
+  /** Required server-side connected composition: authenticate explicit action,
+   * reconstruct account/wallet/scope/cutoff/nonce, compare predecessor, and
+   * retain the same actionId across uncertain retries. Never trust body facts. */
+  linkedAuthority?: {
+    action(
+      session: { account_id: string; wallet: string },
+      body: Record<string, unknown>,
+      kind: "off" | "on",
+      now: number,
+    ): Promise<AuthorityAction>;
+    ports: AuthorityRecoveryPorts;
+  };
   configuration(): Promise<CommunityConfig>;
   verifyLogin: VerifyLogin;
   creatorHealth(): Promise<boolean>;
@@ -817,6 +838,41 @@ export async function communityFetch(
           await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
       };
       // V4 account settings; never reached from an exercise.
+      if (
+        ports.linkedAuthority &&
+        [
+          "/api/learning/public-results/off",
+          "/api/learning/public-results/on",
+        ].includes(url.pathname)
+      ) {
+        if (url.pathname.endsWith("/off") && body.signature === undefined)
+          return reply(
+            await turnOffPublicResults(
+              env,
+              env.DB,
+              config,
+              session,
+              body,
+              (ports.now ?? Date.now)(),
+            ),
+          );
+        const kind = url.pathname.endsWith("/off")
+          ? ("off" as const)
+          : ("on" as const);
+        const action = await ports.linkedAuthority.action(
+          session,
+          body,
+          kind,
+          (ports.now ?? Date.now)(),
+        );
+        return reply(
+          await connectedPublicResultsAction(
+            env.DB,
+            action,
+            ports.linkedAuthority.ports,
+          ),
+        );
+      }
       if (url.pathname === "/api/learning/public-results/off")
         return reply(
           await turnOffPublicResults(
@@ -904,6 +960,13 @@ export async function communityScheduled(
   provided?: CommunityDependencies,
 ) {
   const failures: unknown[] = [];
+  if (provided?.linkedAuthority) {
+    try {
+      await recoverCommunityAuthority(env.DB, provided.linkedAuthority.ports);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   try {
     await deleteExpiredStudyHistory(
       env.DB,
@@ -931,7 +994,15 @@ export async function communityScheduled(
       );
       // Pending sign-ins are relayed even if V4 was since unconfigured: the
       // relay window then closes them as refused.
-      await relayPendingSignIns(env, env.DB, ports.now?.() ?? Date.now());
+      await relayPendingSignIns(
+        env,
+        env.DB,
+        ports.now?.() ?? Date.now(),
+        10,
+        ports.linkedAuthority
+          ? (account, id) => fenceAuthorityRelay(env.DB, account, id)
+          : undefined,
+      );
     } catch (error) {
       failures.push(error);
     }

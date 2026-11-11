@@ -18,9 +18,11 @@ export function telegramAccountPort(options: {
   db: D1Database;
   assertAccountEnabled(accountId: string): Promise<void>;
   /** Coordinator-owned durable epoch and pending transition state. */
-  authorityState(
-    accountId: string,
-  ): Promise<{ revision: string; pending: boolean }>;
+  authorityState(accountId: string): Promise<{
+    revision: string;
+    pending: boolean;
+    permissionRevision: string;
+  }>;
 }): TelegramAccountPort {
   return {
     async current(communityId, accountId, wallet) {
@@ -72,7 +74,12 @@ export function telegramAccountPort(options: {
       telegramCheck(
         after.pending === false &&
           after.revision === before.revision &&
-          digest(again) === digest(row),
+          typeof after.permissionRevision === "string",
+        "telegram_publication_pending",
+        503,
+      );
+      telegramCheck(
+        digest(again) === digest(row),
         "telegram_authority_changed",
         403,
       );
@@ -84,7 +91,7 @@ export function telegramAccountPort(options: {
           row.binding_id,
           row.subject,
           row.last_withdrawn_at,
-          after.revision,
+          after.permissionRevision,
         ]),
       };
     },
