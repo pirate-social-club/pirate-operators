@@ -200,6 +200,7 @@ export function createOperatorStudyingClient(
       ensureCurrent(revision);
       if (
         (error as { status?: number }).status === 401 ||
+        (error as { status?: number }).status === 403 ||
         (error as { code?: string }).code === "study_account_changed"
       )
         throw error;
@@ -333,6 +334,7 @@ export function createOperatorStudyingClient(
           ensureCurrent(revision);
           if (
             (error as { status?: number }).status === 401 ||
+            (error as { status?: number }).status === 403 ||
             (error as { code?: string }).code === "study_account_changed"
           )
             throw error;

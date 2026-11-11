@@ -87,6 +87,8 @@ export interface StudyingAttemptRejection {
   code?: string;
   message?: string;
   details?: unknown;
+  /** Fixed-copy refinement only AFTER private auth masking; never authority. */
+  afterAuthMask?: () => Promise<"study_account_changed" | undefined>;
 }
 
 export function attemptErrorStatus(

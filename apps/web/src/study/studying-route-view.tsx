@@ -658,6 +658,28 @@ export function StudyingRouteView(props: StudyingRouteViewProps) {
     setLoadError(null);
     void props.recorder?.cancel?.();
     props.onAuthRequired?.();
+    const refine = rejection.afterAuthMask,
+      revision = generation;
+    if (refine) {
+      // The private view, capture and actions are already invalidated. Defer
+      // decoding until the next task so body latency can never gate the mask.
+      setTimeout(() => {
+        if (!active || !authRequired() || revision !== generation) return;
+        void refine()
+          .then((code) => {
+            if (
+              active &&
+              authRequired() &&
+              revision === generation &&
+              code === "study_account_changed"
+            )
+              setAuthDescription(
+                "You are signed in with a different account. Reload to continue.",
+              );
+          })
+          .catch(() => {});
+      }, 0);
+    }
   };
   let requestPending = false;
   const load = (restart = false) => {

@@ -29,6 +29,42 @@ export class StudyAccountChangedError extends Error {
     super("You are signed in with a different account. Reload to continue.");
   }
 }
+/** Header authority loss is sufficient to mask. Body classification is a
+ * presentation-only refinement, explicitly deferred until the host has masked.
+ * A post-dispatch denial is not proof that a write never committed. */
+export class StudyAuthorityLostError extends Error {
+  readonly code = "auth_error";
+  readonly status: 401 | 403;
+  readonly evidence: Readonly<{
+    stage: "response_headers";
+    path: string;
+    method: string;
+    writeOutcome: "unknown" | "not_a_write";
+  }>;
+  readonly afterAuthMask: () => Promise<"study_account_changed" | undefined>;
+  constructor(response: Response, path: string, method: string) {
+    super("Sign in again to continue Study.");
+    this.status = response.status as 401 | 403;
+    this.evidence = Object.freeze({
+      stage: "response_headers",
+      path,
+      method,
+      writeOutcome: method === "GET" ? "not_a_write" : "unknown",
+    });
+    let reason: Promise<"study_account_changed" | undefined> | undefined;
+    this.afterAuthMask = () =>
+      (reason ??= response
+        .json()
+        .then((body: unknown) =>
+          body &&
+          typeof body === "object" &&
+          (body as { error?: unknown }).error === "study_account_changed"
+            ? ("study_account_changed" as const)
+            : undefined,
+        )
+        .catch(() => undefined));
+  }
+}
 class StudyLessonNotFoundError extends Error {}
 /** Sign-in permission is still being recorded; starting again shortly works. */
 class StudyAuthorizationPendingError extends Error {}
@@ -60,6 +96,12 @@ export function createStudyClient(
         ...(account ? { "x-study-account": account } : {}),
       },
     });
+    if (response.status === 401 || response.status === 403)
+      throw new StudyAuthorityLostError(
+        response,
+        "/api/study/lessons" + path,
+        init.method ?? "GET",
+      );
     if (!response.ok) {
       const body = await response
         .json()
@@ -125,7 +167,13 @@ export function createStudyClient(
         return started;
       } catch (error) {
         const status = (error as { status?: number }).status;
-        if (status !== undefined && status < 500 && status !== 408)
+        if (
+          status !== undefined &&
+          status < 500 &&
+          status !== 408 &&
+          status !== 401 &&
+          status !== 403
+        )
           unconfirmedStart = false;
         if (
           !(error instanceof StudyAuthorizationPendingError) ||
