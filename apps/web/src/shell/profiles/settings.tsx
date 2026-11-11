@@ -191,17 +191,7 @@ export function CommunityAccountSettings(
               </>
             )}
           </Show>
-          <Show when={!props.authorId && props.canSignOut}>
-            <a
-              class={buttonVariants({
-                variant: "outline",
-                class: "w-full rounded-lg bg-transparent",
-              })}
-              href="/#/settings"
-            >
-              Settings
-            </a>
-          </Show>
+
           <Show when={error()}>
             <Type role="alert">{error()}</Type>
           </Show>

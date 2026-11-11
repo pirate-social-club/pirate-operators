@@ -202,6 +202,17 @@ export function CommunityProfilePage(
                 Try again
               </Button>
             </Show>
+            <Show when={!props.authorId && props.canSignOut}>
+              <a
+                class={buttonVariants({
+                  variant: "outline",
+                  class: "w-full rounded-lg bg-transparent",
+                })}
+                href="/#/settings"
+              >
+                Settings
+              </a>
+            </Show>
           </main>
         </Show>
       }
