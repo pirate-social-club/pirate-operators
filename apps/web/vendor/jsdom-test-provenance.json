@@ -1,0 +1,20 @@
+{
+  "schema": "pirate.jsdom-test-provenance/1",
+  "package": "jsdom",
+  "version": "30.0.0",
+  "upstream": "https://registry.npmjs.org/jsdom/-/jsdom-30.0.0.tgz",
+  "upstreamIntegrity": "sha512-JQHfRGmmKmaZoUAvIgff5jjG/0SzTQlGz8c7t72KzBzo8ZULEjAjnYE0sNwBOUA4QtWwYE2xoYitg8NFsmiYxA==",
+  "sourcePatch": {
+    "repository": "pirate-web-solid",
+    "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
+    "path": "packages/solid-ui/patches/jsdom@30.0.0.patch",
+    "sha256": "f92be811869d46e169024500681471fc16ae64b95a77270b2d3490b3ea455016"
+  },
+  "changedFiles": ["package/lib/jsdom/living/css/helpers/font-sizes.js"],
+  "originalFileSha256": "dfc1b0dfa26ad165cbbbe58c354390675b3ab2e86919cc43fb3e4c4c81ee4cd1",
+  "patchedFileSha256": "ddf3e86b367d0ab14fc11450faa2a32d42316ba57576400dd0dba02c11b8856c",
+  "fileCount": 657,
+  "vendorSha512": "sha512-4eTscnWT5ISW9xMK0zvakLhCJu7sT8sV9tQswlh4KXCVzIg8dgNY5RUtDSQHGXmLiiBinVlqwHx6STPEyySszA==",
+  "packaging": "Sorted USTAR regular files, mode0644, uid/gid0, mtime499162500, gzip level9 mtime0. Every other upstream file is byte-identical.",
+  "scope": "Development DOM harness only; same font-size guard as the pinned source. Nested undici override matches the source lock."
+}
