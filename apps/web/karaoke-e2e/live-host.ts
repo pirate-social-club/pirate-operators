@@ -154,11 +154,11 @@ const send = (
 };
 const learnerOf = (value: unknown) => {
   const index = Number(value);
-  if (!Number.isSafeInteger(index) || index < 5 || index > 9)
-    throw new Error("fixture learners are 5 to 9");
-  // A separate public local key isolates the outro case; learners need no gas.
-  return index === 9
-    ? privateKeyToAccount(`0x${"a".padStart(64, "0")}`)
+  if (!Number.isSafeInteger(index) || index < 5 || index > 10)
+    throw new Error("fixture learners are 5 to 10");
+  // A separate public local key isolates the outro and refresh cases; learners need no gas.
+  return index >= 9
+    ? privateKeyToAccount(`0x${(index + 1).toString(16).padStart(64, "0")}`)
     : accounts[index]!;
 };
 
