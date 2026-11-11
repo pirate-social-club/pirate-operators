@@ -15,6 +15,7 @@ import {
 import { karaokeAttempt } from "../services/karaoke-community.ts";
 import { KaraokeRequestSession } from "../services/karaoke-request-session.ts";
 import { createOperatorKaraokePort } from "../apps/web/src/karaoke/operator-karaoke-adapter.ts";
+import { LearningServiceError } from "../apps/web/src/karaoke/operator-learning-http.ts";
 import { readRecoveryFixture } from "./karaoke-reservation-read-fixture.ts";
 
 type Fixture = Awaited<ReturnType<typeof readRecoveryFixture>>;
@@ -359,6 +360,12 @@ for (const mode of ["ack", "body"] as const)
           });
         }),
       ]);
+      const preparedAtGate = {
+        prepareDispatches: f.counts.prepareDispatches,
+        realPrepares: f.counts.realPrepares,
+      };
+      assert.ok(preparedAtGate.prepareDispatches > 0);
+      assert.ok(preparedAtGate.realPrepares > 0);
       const state = await f.walletState();
       assert.ok(state.open);
       const ticketHash = digest(await f.row(`ticket:${state.open.ticketId}`)),
@@ -367,12 +374,36 @@ for (const mode of ["ack", "body"] as const)
       gate.release();
       const rejected = await outcome;
       assert.equal(rejected.fulfilled, false);
-      if (!rejected.fulfilled)
-        assert.match(String(rejected.error), /confirm this take/);
+      if (!rejected.fulfilled) {
+        const error = rejected.error;
+        assert.ok(error instanceof LearningServiceError);
+        assert.equal(error.status, 401);
+        assert.equal(error.code, "learning_session_unavailable");
+        assert.deepEqual(error.evidence, {
+          stage: "before_dispatch",
+          method: "GET",
+          path: `/api/karaoke/attempt?postId=${encodeURIComponent(f.postId)}`,
+        });
+        assert.equal(Object.hasOwn(error.evidence!, "endpointStatus"), false);
+        const cause = error.cause;
+        assert.ok(cause instanceof LearningServiceError);
+        assert.equal(cause.status, 409);
+        assert.equal(cause.code, "karaoke_session_changed");
+        assert.deepEqual(cause.evidence, {
+          stage: "response_uncertain",
+          method: "POST",
+          path: "/api/karaoke/tickets",
+          endpointStatus: 409,
+        });
+      }
       assert.deepEqual(f.responses, [
         { status: 409, value: { error: "karaoke_session_changed" } },
       ]);
+      assert.equal(f.counts.prepareDispatches, preparedAtGate.prepareDispatches);
+      assert.equal(f.counts.realPrepares, preparedAtGate.realPrepares);
       await assert.rejects(port.ticket());
+      assert.equal(f.counts.prepareDispatches, preparedAtGate.prepareDispatches);
+      assert.equal(f.counts.realPrepares, preparedAtGate.realPrepares);
       await unchanged(f, state, ticketHash, sponsorHash);
     } finally {
       gate.release();
