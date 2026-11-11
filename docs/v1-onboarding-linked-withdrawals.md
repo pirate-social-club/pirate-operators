@@ -1,3 +1,53 @@
+# Linked withdrawal repair4 — credential witness ordering
+
+Exact source base is `484ae13187cfc3bbb5ef511ed3c2261b6516a630`.
+Its runtime/migration source equals the reviewed32958cb tree. Coordinator root
+and web types plus66 cases belong to32958cb; root types and four actual pinned
+Alchemy/workerd D1 migration cases passed at484ae131. Those are dated predecessor
+receipts, not repair4 verification. The coordinator's actual migration tests and
+fixtures remain byte-for-byte unchanged. All repair4 tests/types are UNRUN.
+
+Policy2 captures the account credential revision BEFORE the captured-wallet
+lookup. The atomic validation upsert takes that exact captured number as a
+value and requires the current revision still match; it cannot silently adopt
+a newer revision after the lookup. The returned row must match the captured
+policy/revision, the cursor CAS includes it, and both cached-completion and
+empty/full scan paths retain it through readiness checks. ABA mutation changes
+the monotonic counter even if all credential row bytes return to their old value.
+
+Managed delivery carries this private witness to its final post-sign/pre-fetch
+validation. A concurrent retry completing a newer valid certificate cannot
+rescue an older caller: that caller still requires its own captured revision.
+Existing public validation/recovery signatures remain intact. Policy1 cursor
+and completion provenance is never grandfathered; a safe retry resets and
+revalidates using policy2, preserving retained requests, queued children and
+historical ACKs. The existing50-member keyset bound and durable generation/
+progress remain. No original signed proof/raw transaction or target is rewritten.
+
+The only protected proposal updates authority-recovery's hardcoded policy1 SQL
+reference to the exported policy constant so settings/completion CAS use the
+same repaired policy. It is pinned to exact484ae131, is not applied here, and
+must compose before the queued completion tests. No schema/SQL18 edit, ordinal,
+installed/live SQL execution, factory or runtime selection is introduced.
+
+New deterministic cases use the actual DB validator and real managed bridge
+with a captured grant and zero frozen members. They pause exactly after wallet
+lookup and before upsert, after upsert, and after a completed readiness read;
+mutate the real fixture credential binding/counters; and require no denial fetch
+or permanent ACK on stale calls. Stable binding, ABA/retry, newer completed
+provenance, old completion/retained ACK, and persisted cursor restart cases are
+prepared. Existing witness/assertion files and coordinator Alchemy cases are
+read-only and retained. No always-allow validation stub is added.
+
+The local four-case migration result does not establish installed/live SQL,
+selected producer/factory/startup/alarm, original-target source/issuer assembly,
+connected capability or full/provider/device/fresh-account/second-community
+acceptance. Those remain held. No UI work or transfer/Send was performed.
+New source/evidence/proposal hashes and queued gates are sealed only in
+`.local/onboarding-linked-withdrawals-repair4` and its new root handback.
+
+---
+
 # Linked withdrawal repair3 — retained credential-validation provenance
 
 Exact source base is `fe385519aef10fe4d2cf5ce1e73f4486fdbafff4`.

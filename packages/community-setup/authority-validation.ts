@@ -15,7 +15,10 @@ import {
   type RetainedAuthorityOriginal,
 } from "./authority-originals.ts";
 
-const policy = 1;
+/** Policy2 requires the wallet lookup to be witnessed by a prior revision
+ * capture. Policy1 completions/cursors cannot establish that provenance. */
+export const AUTHORITY_VALIDATION_POLICY = 2;
+const policy = AUTHORITY_VALIDATION_POLICY;
 interface Validation {
   operation_id: string;
   policy: number;
@@ -32,19 +35,42 @@ const current = `EXISTS(SELECT 1 FROM learning_authority_operations o
  WHERE o.operation_id=v.operation_id AND o.complete=0 AND h.pending_operation=o.operation_id AND h.revision=o.epoch
  AND o.original_revision=v.original_revision AND o.member_revision=v.member_revision
  AND v.credential_revision=COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=o.account_id),0))`;
-export async function requireAuthorityValidation(
+async function requireValidationAtRevision(
   db: D1Database,
   op: AuthorityOperation,
+  credentialRevision?: number,
 ) {
   await assertAuthorityOriginalsUnchanged(db, op);
   authorityReady(
     await db
       .prepare(
-        `SELECT 1 FROM learning_authority_validation v WHERE v.operation_id=? AND v.policy=? AND v.complete=1 AND ${current}`,
+        `SELECT 1 FROM learning_authority_validation v WHERE v.operation_id=? AND v.policy=? AND v.complete=1 AND (?3 IS NULL OR v.credential_revision=?3) AND ${current}`,
       )
-      .bind(op.operation_id, policy)
+      .bind(op.operation_id, policy, credentialRevision ?? null)
       .first(),
   );
+}
+/** The public readiness check accepts only the repaired policy's completed
+ * provenance. Delivery additionally pins the revision captured by that call. */
+export async function requireAuthorityValidation(
+  db: D1Database,
+  op: AuthorityOperation,
+) {
+  await requireValidationAtRevision(db, op);
+}
+async function captureCredentialRevision(db: D1Database, accountId: string) {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=?),0) AS captured_revision`,
+    )
+    .bind(accountId)
+    .first<{ captured_revision: number }>();
+  authorityReady(
+    row &&
+      Number.isSafeInteger(row.captured_revision) &&
+      row.captured_revision >= 0,
+  );
+  return row.captured_revision;
 }
 async function originalContext(db: D1Database) {
   const identity = await db
@@ -79,7 +105,7 @@ async function validateMember(
 /** At most50 frozen members per call, including already-ACKed/advanced pages.
  * Cursor/provenance survive restart. Failed or stale validation advances nothing.
  * Identity/credential/membership revisions are compared inside the durable CAS. */
-export async function revalidateAuthorityMembers(
+async function revalidateWithCredentialWitness(
   db: D1Database,
   op: AuthorityOperation,
 ) {
@@ -91,6 +117,9 @@ export async function revalidateAuthorityMembers(
       action.actionId === op.action_id &&
       Number(action.expectedRevision) + 1 === op.epoch,
   );
+  // Capture BEFORE the wallet lookup. A changed/ABA revision cannot be
+  // certified by a later upsert, even when there are no frozen members.
+  const credentialRevision = await captureCredentialRevision(db, op.account_id);
   // An absent revision row means counter0, never credential authority. Check
   // the captured action wallet even when retained membership is empty.
   try {
@@ -104,24 +133,28 @@ export async function revalidateAuthorityMembers(
   await db
     .prepare(
       `INSERT INTO learning_authority_validation(operation_id,policy,original_revision,credential_revision,member_revision)
- SELECT o.operation_id,?2,o.original_revision,COALESCE(c.revision,0),o.member_revision FROM learning_authority_operations o
+ SELECT o.operation_id,?2,o.original_revision,?3,o.member_revision FROM learning_authority_operations o
  LEFT JOIN learning_authority_credentials c ON c.account_id=o.account_id
- WHERE o.operation_id=?1 AND o.complete=0
+ WHERE o.operation_id=?1 AND o.complete=0 AND COALESCE(c.revision,0)=?3
  ON CONFLICT(operation_id) DO UPDATE SET policy=excluded.policy,original_revision=excluded.original_revision,
  credential_revision=excluded.credential_revision,member_revision=excluded.member_revision,
  cursor='',complete=0,generation=generation+1
  WHERE policy!=excluded.policy OR original_revision!=excluded.original_revision OR credential_revision!=excluded.credential_revision OR member_revision!=excluded.member_revision`,
     )
-    .bind(op.operation_id, policy)
+    .bind(op.operation_id, policy, credentialRevision)
     .run();
   const validation = await db
     .prepare("SELECT * FROM learning_authority_validation WHERE operation_id=?")
     .bind(op.operation_id)
     .first<Validation>();
-  authorityReady(validation);
+  authorityReady(
+    validation &&
+      validation.policy === policy &&
+      validation.credential_revision === credentialRevision,
+  );
   if (validation.complete) {
-    await requireAuthorityValidation(db, op);
-    return true;
+    await requireValidationAtRevision(db, op, credentialRevision);
+    return { ready: true, credentialRevision };
   }
   const rows = await db
     .prepare(
@@ -146,7 +179,7 @@ export async function revalidateAuthorityMembers(
   const changed = await db
     .prepare(
       `UPDATE learning_authority_validation AS v SET cursor=?2,complete=?3
- WHERE operation_id=?1 AND generation=?4 AND cursor=?5 AND policy=?6 AND complete=0 AND ${current}`,
+ WHERE operation_id=?1 AND generation=?4 AND cursor=?5 AND policy=?6 AND credential_revision=?7 AND complete=0 AND ${current}`,
     )
     .bind(
       op.operation_id,
@@ -155,12 +188,22 @@ export async function revalidateAuthorityMembers(
       validation.generation,
       validation.cursor,
       policy,
+      credentialRevision,
     )
     .run();
   authorityReady(changed.meta.changes === 1);
   await assertAuthorityOriginalsUnchanged(db, op);
-  if (!more) await requireAuthorityValidation(db, op);
-  return !more;
+  if (!more) await requireValidationAtRevision(db, op, credentialRevision);
+  return { ready: !more, credentialRevision };
+}
+
+/** Existing recovery API: partial validation remains a durable continuation,
+ * never permanent denial. The delivery path retains the private witness too. */
+export async function revalidateAuthorityMembers(
+  db: D1Database,
+  op: AuthorityOperation,
+) {
+  return (await revalidateWithCredentialWitness(db, op)).ready;
 }
 
 /** Required structural port for the coordinator's managed Telegram assembly.
@@ -212,7 +255,8 @@ export async function validateManagedAuthorityDelivery(
           expectedGrantId: action.expectedGrantId,
         }),
   );
-  authorityReady(await revalidateAuthorityMembers(db, op));
+  const witness = await revalidateWithCredentialWitness(db, op);
+  authorityReady(witness.ready);
   const denial = request.denial;
   if (denial) {
     authorityReady(denial.communityId === action.scope.communityId);
@@ -233,5 +277,5 @@ export async function validateManagedAuthorityDelivery(
           denial.grantId === action.expectedGrantId,
       );
   }
-  await requireAuthorityValidation(db, op);
+  await requireValidationAtRevision(db, op, witness.credentialRevision);
 }
