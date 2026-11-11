@@ -522,7 +522,7 @@ test(
       // The existing transaction/data-fee node stays scripted. Source inspection
       // goes unchanged to the real local V4 RPC; it is not an admission proof.
       const actualEndpoint = new URL(evm.rpcUrl);
-      const scriptedEndpoint = new URL(env.RPC_URL);
+      const scriptedEndpoint = new URL(env.RPC_URL!);
       assert.equal(actualEndpoint.hostname, "127.0.0.1");
       assert.equal(actualEndpoint.port, "20367");
       assert.equal(actualEndpoint.pathname, "/");
