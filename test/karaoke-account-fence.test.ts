@@ -234,7 +234,7 @@ test("matching expected account reaches the actual private handler, but cannot r
 test("legacy Study enrollment helper sends the same captured account on both real fenced requests", async () => {
   const f = await fixture(true),
     savedFetch = globalThis.fetch;
-  const sent: Request[] = [];
+  const sent: Array<{ json(): Promise<unknown> }> = [];
   globalThis.fetch = (async (input, init) => {
     const request = new Request(new URL(String(input), firstSong.origin), init);
     assert.equal(request.credentials, "same-origin");
