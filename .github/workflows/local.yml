@@ -17,6 +17,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/web/package-lock.json
+            apps/community-wizard/package-lock.json
       - uses: foundry-rs/foundry-toolchain@v1
         id: foundry
         continue-on-error: true
@@ -31,6 +32,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm ci --ignore-scripts --prefix apps/web
+          npm ci --ignore-scripts --prefix apps/community-wizard
           forge build
       - name: Validate Worker packaging
         run: npm run build

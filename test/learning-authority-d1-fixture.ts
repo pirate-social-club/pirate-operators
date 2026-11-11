@@ -44,7 +44,8 @@ const directory = new URL(
 );
 export const sha = (value: string) =>
   createHash("sha256").update(value).digest("hex");
-export async function authorityD1Fixture() {
+export async function authorityD1Fixture(through = 18) {
+  assert.ok(through === 18 || through === 19);
   const runtime = new Miniflare({
     modules: true,
     script:
@@ -55,11 +56,14 @@ export async function authorityD1Fixture() {
   try {
     const db = await runtime.getD1Database("DB");
     const names = (await readdir(directory))
-      .filter((name) => /^\d{4}_.+\.sql$/.test(name))
+      .filter(
+        (name) =>
+          /^\d{4}_.+\.sql$/.test(name) && Number(name.slice(0, 4)) <= through,
+      )
       .sort();
     assert.deepEqual(
       names.map((name) => Number(name.slice(0, 4))),
-      Array.from({ length: 18 }, (_, index) => index + 1),
+      Array.from({ length: through }, (_, index) => index + 1),
     );
     const records: AuthorityMigrationRecord[] = await Promise.all(
       names.map(async (name) => {
