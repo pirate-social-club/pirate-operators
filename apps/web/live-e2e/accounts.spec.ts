@@ -50,7 +50,15 @@ test("another tab signing in as another account clears the open lesson; reload s
   await expect(
     studyOverlay(page).getByRole("button", { name: "Record", exact: true }),
   ).toHaveCount(0);
-  await expect(heading(page)).toHaveCount(0);
+  await expect(
+    studyOverlay(page).getByRole("heading", {
+      name: "Stay with me",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    studyOverlay(page).getByRole("heading", { name: "Sign in", exact: true }),
+  ).toBeVisible();
   expect(state.counts.refusedAccount).toBeGreaterThan(0);
   // Nothing happened to the first account's lesson.
   expect(state.lessonsOf("first")).toEqual([state.firstLesson]);
