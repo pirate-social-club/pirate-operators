@@ -22,7 +22,8 @@
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
     "@solidjs/web": "2.0.0-rc.0",
     "qrcode": "1.5.4",
-    "solid-js": "2.0.0-rc.0"
+    "solid-js": "2.0.0-rc.0",
+    "viem": "2.57.16"
   },
   "devDependencies": {
     "@ipld/car": "5.4.7",
