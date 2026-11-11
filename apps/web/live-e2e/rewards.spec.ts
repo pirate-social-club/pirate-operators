@@ -47,7 +47,7 @@ async function fixture(
   const credit = () => ({
     credit_id: "credit_0001",
     offer_id: "offer_0001",
-    account_id: "learner_01",
+    account_id: "11111111-1111-4111-8111-111111111111",
     chain_id: 6343,
     token_address: token,
     token_decimals: 6,
@@ -127,6 +127,7 @@ async function fixture(
     if (path === "/api/rewards/wallet")
       return json({
         schema: "pirate.learner-wallet/1",
+        accountId: "11111111-1111-4111-8111-111111111111",
         address,
         chainId: 6343,
         token,
@@ -154,6 +155,7 @@ async function fixture(
     if (path === "/api/rewards/credits")
       return json({
         object: "reward_credit_list",
+        accountId: "11111111-1111-4111-8111-111111111111",
         items: [credit()],
         next_cursor: null,
       });

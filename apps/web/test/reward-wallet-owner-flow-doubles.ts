@@ -15,7 +15,8 @@ import { rewardWalletIdentity } from "../src/wallet/hosted-send.ts";
 export const sourceSender = "0x1111111111111111111111111111111111111111";
 export const sourceRecipient = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd";
 export const sourceToken = "0x3333333333333333333333333333333333333333";
-export const sourceWalletView: RewardWalletView = {
+export const sourceWalletView: RewardWalletView & { accountId: string } = {
+  accountId: "11111111-1111-4111-8111-111111111111",
   schema: "pirate.learner-wallet/1",
   address: sourceSender,
   token: sourceToken,

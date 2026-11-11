@@ -73,12 +73,17 @@ export function LiveRewardWallet(props: LiveRewardWalletProps) {
                       <Type role="alert">
                         Your wallets could not be loaded.
                       </Type>
-                      <Button
-                        variant="outline"
-                        onClick={() => void wallet.run(wallet.refresh)}
+                      <Show
+                        when={!wallet.authorityLost()}
+                        fallback={<a href="/wallet">Sign in again</a>}
                       >
-                        Try again
-                      </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => void wallet.run(wallet.refresh)}
+                        >
+                          Try again
+                        </Button>
+                      </Show>
                     </CardContent>
                   </Card>
                 }

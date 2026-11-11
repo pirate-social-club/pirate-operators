@@ -1,3 +1,4 @@
+import { currentAuthoritySchema } from "./learning-current-authority-fixture.ts";
 import { TelegramManagedPublication } from "../services/telegram-managed-publication.ts";
 import { managedFixture } from "./telegram-managed-fixture.ts";
 import assert from "node:assert/strict";
@@ -184,6 +185,7 @@ test("the internal resolver accepts only the current grant and exact original V4
   const linked = await linkFixture(),
     f = await communityRuntime({ v4: true });
   try {
+    await currentAuthoritySchema(f.db);
     const flow = await linked.begin(),
       grant = await linked.complete(flow, await linked.verify(flow));
     linked.advance(3000);
@@ -222,7 +224,7 @@ test("the internal resolver accepts only the current grant and exact original V4
     const handler = telegramPublicationAuthority({
       db: f.db,
       grants: linked.grants,
-      publication: managedFixture(linked.grants, undefined, { contract })
+      publication: managedFixture(linked.grants, undefined, { contract }, f.db)
         .publication,
       communityId,
       contract,

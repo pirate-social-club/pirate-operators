@@ -50,7 +50,11 @@ function verificationPorts() {
   const walletReplies: Deferred<RewardWalletView>[] = [];
   const initialPoll = new Set<string>();
   const token = "0x" + "33".repeat(20);
-  const wallet = (): RewardWalletView => ({
+  const wallet = (): RewardWalletView & { accountId: string } => ({
+    accountId:
+      owner === "original"
+        ? "11111111-1111-4111-8111-111111111111"
+        : "22222222-2222-4222-8222-222222222222",
     schema: "pirate.learner-wallet/1",
     chainId: 6343,
     token,
@@ -64,7 +68,7 @@ function verificationPorts() {
   const credit = (): RewardCredit => ({
     credit_id: verificationCreditId,
     offer_id: "offer_0001",
-    account_id: "account_0001",
+    account_id: "11111111-1111-4111-8111-111111111111",
     chain_id: 6343,
     token_address: token,
     token_decimals: 18,

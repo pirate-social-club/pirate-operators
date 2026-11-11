@@ -1,7 +1,18 @@
 // Existing decentralized claim/session controller retained from reviewed af714492; composition port owns no economic authority.
-import { createMemo, createSignal, onCleanup, onSettled } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onSettled,
+} from "solid-js";
 import QRCode from "qrcode";
 import { rewardsData } from "../live/rewards-data.ts";
+import {
+  rewardAuthorityLost,
+  rewardWalletOwner,
+  assertRewardCreditOwner,
+} from "./private-reward-scope.ts";
 import { rewardSummary } from "./reward-status.ts";
 import { rewardWalletIdentity } from "./hosted-send.ts";
 import type {
@@ -12,33 +23,73 @@ import type {
 import type { LiveRewardWalletProps } from "./wallet-page-ports.ts";
 
 export function useRewardWalletController(props: LiveRewardWalletProps) {
-  const data = props.data ?? rewardsData(props.csrf);
+  const capturedSession = props.csrf;
+  const data = props.data ?? rewardsData(capturedSession);
   const [view, setView] = createSignal<RewardWalletView | null>(null),
     [credits, setCredits] = createSignal<RewardCredit[]>([]),
     [busy, setBusy] = createSignal(false),
     [notice, setNotice] = createSignal("Loading wallet…"),
     [intent, setIntent] = createSignal<VerificationIntent | null>(null),
     [qr, setQr] = createSignal(""),
-    [failedPolls, setFailedPolls] = createSignal(0);
+    [failedPolls, setFailedPolls] = createSignal(0),
+    [authorityLost, setAuthorityLost] = createSignal(false);
   let refreshSerial = 0,
     verificationSerial = 0,
     busySerial = 0,
     reloadingAccount = false,
     stopped = false,
+    readRequest: AbortController | undefined,
     timer: ReturnType<typeof setTimeout> | undefined;
   const summary = createMemo(() =>
-    view() ? rewardSummary(view()!, credits()) : null,
+    active() && view() ? rewardSummary(view()!, credits()) : null,
   );
   onCleanup(() => {
     stopped = true;
     invalidateVerification();
     ++busySerial;
   });
-  const active = () => !stopped && !reloadingAccount;
+  function active() {
+    return (
+      !stopped &&
+      !reloadingAccount &&
+      !authorityLost() &&
+      !!capturedSession &&
+      props.csrf === capturedSession
+    );
+  }
+  function loseAuthority() {
+    if (stopped || authorityLost()) return;
+    // Mask accessors first, before clearing the cached private projections.
+    setAuthorityLost(true);
+    ++refreshSerial;
+    invalidateVerification();
+    ++busySerial;
+    setBusy(false);
+    setIntent(null);
+    setQr("");
+    setFailedPolls(0);
+    setView(null);
+    setCredits([]);
+    setNotice("Sign in again to view your wallet.");
+    // Keep original server intents/receipts; remove automatic URL resume on reauthentication.
+    history.replaceState(null, "", "/wallet");
+  }
+  async function privateRequest<T>(
+    action: () => Promise<T>,
+    current = active,
+  ): Promise<T> {
+    try {
+      return await action();
+    } catch (error) {
+      if (current() && rewardAuthorityLost(error)) loseAuthority();
+      throw error;
+    }
+  }
   const currentVerification = (serial: number) =>
     active() && serial === verificationSerial;
   function invalidateVerification() {
     ++verificationSerial;
+    readRequest?.abort();
     clearTimeout(timer);
     timer = undefined;
     return verificationSerial;
@@ -46,8 +97,26 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
   async function refreshWallet(current = active) {
     if (!current()) return;
     const serial = ++refreshSerial;
-    const [wallet, rows] = await Promise.all([data.wallet(), data.credits()]);
-    if (!active() || !current() || serial !== refreshSerial) return;
+    const belongs = () => active() && current() && serial === refreshSerial;
+    readRequest?.abort();
+    const request = new AbortController();
+    readRequest = request;
+    const lifetime = { signal: request.signal, current: belongs };
+    const wallet = await privateRequest(() => data.wallet(lifetime), belongs);
+    if (!belongs()) return;
+    const owner = rewardWalletOwner(wallet);
+    const previousOwner = view() ? rewardWalletOwner(view()!) : null;
+    if (previousOwner !== null && previousOwner !== owner) {
+      loseAuthority();
+      if (props.onAccountChanged) props.onAccountChanged();
+      else location.replace("/wallet");
+      return;
+    }
+    const rows = await privateRequest(
+      () => data.credits(owner, lifetime),
+      belongs,
+    );
+    if (!belongs()) return;
     rewardSummary(wallet, rows);
     const previous = view();
     if (
@@ -85,7 +154,8 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
     try {
       await action();
     } catch (error) {
-      if (ownsBusy())
+      if (ownsBusy() && rewardAuthorityLost(error)) loseAuthority();
+      else if (ownsBusy())
         setNotice(
           error instanceof Error
             ? error.message
@@ -154,7 +224,11 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
         history.replaceState(null, "", "/wallet");
         return;
       }
-    } catch {
+    } catch (error) {
+      if (currentVerification(serial) && rewardAuthorityLost(error)) {
+        loseAuthority();
+        return;
+      }
       if (currentVerification(serial)) {
         const failures = failedPolls() + 1;
         setFailedPolls(failures);
@@ -221,8 +295,18 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
   async function claim(id: string, resumed = false) {
     if (!active()) return;
     const serial = verificationSerial;
-    const outcome = await data.claim(id);
+    const outcome = await privateRequest(
+      () => data.claim(id),
+      () => currentVerification(serial),
+    );
     if (!currentVerification(serial)) return;
+    try {
+      if (!view()) throw Error("Reopen your wallet to continue.");
+      assertRewardCreditOwner([outcome.credit], rewardWalletOwner(view()!));
+    } catch (error) {
+      loseAuthority();
+      throw error;
+    }
     if (
       outcome.outcome === "verification_missing" ||
       outcome.outcome === "verification_stale"
@@ -242,7 +326,18 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
     if (outcome.outcome === "subject_conflict")
       setNotice("Your amount stays held; contact support.");
   }
+  // Solid 2 tracks only the compute phase. Scope loss permanently closes this
+  // controller even if a later prop returns to the captured session value.
+  createEffect(
+    () => props.csrf,
+    (session) => {
+      if (session !== capturedSession || !session) loseAuthority();
+    },
+  );
+  let initialized = false;
   onSettled(() => {
+    if (initialized) return;
+    initialized = true;
     void Promise.resolve().then(() =>
       run(async () => {
         const serial = verificationSerial;
@@ -256,14 +351,16 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
     );
   });
   return {
-    view,
-    credits,
-    busy,
+    view: () => (active() ? view() : null),
+    credits: () => (active() ? credits() : []),
+    busy: () => active() && busy(),
+    authorityLost: () =>
+      authorityLost() || props.csrf !== capturedSession || !capturedSession,
     notice,
-    intent,
-    qr,
+    intent: () => (active() ? intent() : null),
+    qr: () => (active() ? qr() : ""),
     failedPolls,
-    summary,
+    summary: () => (active() ? summary() : null),
     refresh,
     run,
     claim,
@@ -277,7 +374,23 @@ export function useRewardWalletController(props: LiveRewardWalletProps) {
       if (!active())
         throw Error("The account or wallet changed. Reopen your wallet.");
       const serial = verificationSerial;
-      const result = await data.claim(id);
+      const result = await privateRequest(
+        () => data.claim(id),
+        () => currentVerification(serial),
+      );
+      if (currentVerification(serial)) {
+        const owner = view() ? rewardWalletOwner(view()!) : null;
+        if (!owner) {
+          loseAuthority();
+          throw Error("Reopen your wallet to continue.");
+        }
+        try {
+          assertRewardCreditOwner([result.credit], owner);
+        } catch (error) {
+          loseAuthority();
+          throw error;
+        }
+      }
       if (currentVerification(serial))
         await refreshWallet(() => currentVerification(serial));
       if (!currentVerification(serial))

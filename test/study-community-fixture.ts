@@ -40,9 +40,18 @@ import type {
 
 export async function studyCommunityFixture(
   port: number,
-  options: { v4?: boolean; linkedOperator?: boolean } = {},
+  options: {
+    v4?: boolean;
+    linkedOperator?: boolean;
+    operatorAuthorityStore?: boolean;
+  } = {},
 ) {
-  const f = await learningBindingFixture(port, firstSongFixture.communityId);
+  const f = await learningBindingFixture(
+    port,
+    firstSongFixture.communityId,
+    undefined,
+    { operatorAuthorityStore: options.operatorAuthorityStore },
+  );
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
   let linkedOperator:
     | ReturnType<typeof telegramAuthorityStoreFixture>
@@ -107,6 +116,8 @@ export async function studyCommunityFixture(
     });
     posts.mine();
     let now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
+    if (options.operatorAuthorityStore)
+      f.setOperatorClock(() => Math.floor(now / 1000));
     let calls = 0,
       observations = 0;
     let heard = "",
@@ -142,6 +153,7 @@ export async function studyCommunityFixture(
         3,
       );
     }
+    if (v4 && options.operatorAuthorityStore) await f.enableV4Authority(v4);
     let authorizationDown = false;
     f.env.ISSUER = accounts[1].address;
     f.env.SPEECH_BUDGET = {
@@ -181,12 +193,16 @@ export async function studyCommunityFixture(
       });
       await linkedOperator.initialize();
     }
-    const store = linkedOperator?.store ?? {
-      ...f.store,
-      now: () => Math.floor(now / 1000),
-      durableStudyWrite: async <T>(operation: () => T) =>
-        f.store.transaction(operation),
-    };
+    const store =
+      linkedOperator?.store ??
+      (options.operatorAuthorityStore
+        ? f.store
+        : {
+            ...f.store,
+            now: () => Math.floor(now / 1000),
+            durableStudyWrite: async <T>(operation: () => T) =>
+              f.store.transaction(operation),
+          });
     const binding = {
       async fetch(input: RequestInfo | URL, init?: RequestInit) {
         const request = new Request(input, init);
@@ -307,12 +323,15 @@ export async function studyCommunityFixture(
         now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
       },
       /** The release step that selects V4: its sign-in schema, migration 0013. */
-      applyV4Migration: () => runtime!.applyV4(),
+      applyV4Migration: async () => {
+        await runtime!.applyV4();
+      },
       /**
        * V4: each pending sign-in is relayed as a learner's first Study or
        * Karaoke start requests it, and the scheduled relay settles the rest.
        */
       async recordSignIns() {
+        if (options.operatorAuthorityStore) await f.recoverAuthority();
         const pending = await runtime!.db
           .prepare(
             "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
@@ -321,6 +340,7 @@ export async function studyCommunityFixture(
         for (const { account_id } of pending.results)
           await requestSignInRelay(env, runtime!.db, account_id, now);
         await relayPendingSignIns(env, runtime!.db, now);
+        if (options.operatorAuthorityStore) await f.recoverAuthority();
       },
       authorizationDown: (value: boolean) => {
         authorizationDown = value;

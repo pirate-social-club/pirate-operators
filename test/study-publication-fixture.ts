@@ -38,7 +38,7 @@ export const lessonPath = (id: string) => "/api/study/lessons/" + id;
  */
 export async function studyPublicationFixture(
   port: number,
-  options: { v4?: boolean } = {},
+  options: { v4?: boolean; operatorAuthorityStore?: boolean } = {},
 ) {
   const f = await studyCommunityFixture(port, options);
   try {
@@ -199,4 +199,4 @@ export async function studyPublicationFixture(
 }
 /** The V4 variant: sign-in is the publication permission. */
 export const studyPublicationFixtureV4 = (port: number) =>
-  studyPublicationFixture(port, { v4: true });
+  studyPublicationFixture(port, { v4: true, operatorAuthorityStore: true });

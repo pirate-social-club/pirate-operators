@@ -1,3 +1,4 @@
+import { currentOperatorAuthorityFixture } from "./learning-current-authority-fixture.ts";
 // The V4 sign-in relay on a local chain: the application issues the V4 SIWE
 // challenge, a real viem personal-sign signature signs in, and the operator's
 // acceptAuthorization records it with LearningResultsV4.authorize. Explicit
@@ -91,30 +92,12 @@ async function fixture(port: number) {
     await sync();
   };
   await sync();
-  let rows = new Map<string, unknown>();
-  const store: ResultStore = {
-    get: <T>(key: string) => rows.get(key) as T | undefined,
-    set: (key, value) => {
-      rows.set(key, JSON.parse(JSON.stringify(value)));
-    },
-    delete: (key) => {
-      rows.delete(key);
-    },
-    entries: (prefix) =>
-      [...rows]
-        .filter(([key]) => key.startsWith(prefix))
-        .map(([key, value]) => ({ key, value })),
-    transaction: <T>(fn: () => T) => {
-      const prior = new Map(rows);
-      try {
-        return fn();
-      } catch (error) {
-        rows = prior;
-        throw error;
-      }
-    },
+  const authority = currentOperatorAuthorityFixture({
     now: () => now + skew,
-  };
+    rpcUrl: evm.rpcUrl,
+  });
+  await authority.selectV4(communityId, v4);
+  const store = authority.store;
   const operatorEnv = {
     RPC_URL: evm.rpcUrl,
     PAYMENT_CHAIN_ID: "31337",
@@ -272,9 +255,14 @@ async function fixture(port: number) {
     practise,
     authorization,
     session,
-    scheduled: () => communityScheduled(env, ports),
+    scheduled: async () => {
+      await authority.recover();
+      await communityScheduled(env, ports);
+      await authority.recover();
+    },
     count: (prefix: string) => store.entries(prefix).length,
     async stop() {
+      authority.close();
       await runtime.dispose();
       await stopChain(evm);
     },
@@ -435,7 +423,13 @@ test(
       f.setOperatorDown(false);
       await f.advance(AUTHORIZATION_RELAY_WINDOW_S + 60);
       // The chain refuses it even when the operator's clock lags behind.
-      const lagging = { ...f.store, now: () => Number(s.message.issuedAt) };
+      const lagging = new Proxy(f.store, {
+        get(target, key) {
+          if (key === "now") return () => Number(s.message.issuedAt);
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
       await assert.rejects(
         acceptAuthorization(f.operatorEnv, lagging, s.message, s.signature),
         /^Error: stale_sign_in$/,

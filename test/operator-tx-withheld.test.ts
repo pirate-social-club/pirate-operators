@@ -1,3 +1,9 @@
+import { currentOperatorAuthorityFixture } from "./learning-current-authority-fixture.ts";
+import { studyExercisesHash } from "../packages/protocol/learning-results-v3.ts";
+import { chain } from "../harness/chain.ts";
+import { stopChain } from "./payments-fixture.ts";
+import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
+import { firstSong } from "../services/first-song-profile.ts";
 // The operator journal's withheld-row rules against a scripted JSON-RPC
 // endpoint, on a chain id that prices the data fee: a row still "none" never
 // gives its signed bytes to any RPC before its send, a withheld row is
@@ -493,91 +499,206 @@ test("a consumed nonce whose receipt lags but whose transaction the node knows i
   }
 });
 
-test("persisted Telegram grant denial wins during an awaited resolver after a signed restart", async () => {
-  const n = node();
-  try {
-    const initial = { ...journal(), now: () => 1800000000 };
-    const lessonId = "linked_lesson_fixture_1";
-    const ref = `study:${lessonId}:1`;
-    const communityId = `0x${"66".repeat(32)}` as Hex;
-    const authorizationId = `0x${"33".repeat(32)}` as Hex;
-    const facts: TelegramStudyFacts = {
-      schema: "pirate.study.telegram-publication-fence/1",
-      version: 1,
-      grantId: "grant_fixture",
-      accountId: "account_fixture",
-      authorityVersion: "version_1",
-      actor: { communityId, botId: "50", generation: 1, userId: "60", chatId: "60" },
-    };
-    const telegramFence = { facts, hash: digest(facts) as Hex };
-    const target = { version: 4, chainId: 6343, contract: results };
-    const learner = accounts[1]!.address.toLowerCase();
-    const startedAt = 1_799_999_999_500;
-    initial.set(`studyBinding:${lessonId}`, {
-      offer: { lessonId, speechChannel: "telegram-linked", telegramFence, authorizationId, learner, startedAt },
-      target,
-    });
-    initial.set(`studyPublication:${lessonId}`, {
-      telegramFence, target, result: { learner, enrollmentId: authorizationId, startedAt: "1799999999" },
-    });
-    const waiting = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    let calls = 0;
-    const scoped = {
-      ...env,
-      COMMUNITY_ID: communityId,
-      STUDY_TELEGRAM_AUTHORITY: {
-        async fetch(url: string, init?: RequestInit) {
-          calls++;
-          assert.equal(url, "https://study-telegram.internal/check");
-          const { fence, context } = JSON.parse(String(init?.body));
-          assert.deepEqual(fence, telegramFence);
-          assert.deepEqual(context, { communityId, lessonId, learner, startedAt, authorizationId, contract: results });
-          waiting.resolve();
-          await release.promise;
-          return Response.json({
-            schema: "pirate.study.telegram-fence-observation/1",
-            hash: fence.hash,
-            contextHash: digest(context),
-            allowed: true,
-          });
+test(
+  "persisted Telegram grant denial wins during an awaited resolver after a signed restart",
+  { timeout: 120000 },
+  async () => {
+    const evm = await chain(20367, 6343);
+    const realFetch = globalThis.fetch;
+    const owned: ReturnType<typeof currentOperatorAuthorityFixture>[] = [];
+    let n: ReturnType<typeof node> | undefined;
+    try {
+      const communityId = `0x${"66".repeat(32)}` as Hex;
+      const results = (
+        await evm.deploy("LearningResultsV4", [
+          accounts[3].address,
+          communityId,
+          learningV4PublicityPolicy,
+          firstSong.origin,
+        ])
+      ).toLowerCase() as Hex;
+      n = node();
+      const scriptedFetch = globalThis.fetch;
+      // The existing transaction/data-fee node stays scripted. Source inspection
+      // goes unchanged to the real local V4 RPC; it is not an admission proof.
+      globalThis.fetch = (async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) =>
+        (input instanceof Request ? input.url : String(input)) === evm.rpcUrl
+          ? realFetch(input, init)
+          : scriptedFetch(input, init)) as typeof fetch;
+      const authority = currentOperatorAuthorityFixture({
+        now: () => 1800000000,
+        rpcUrl: evm.rpcUrl,
+      });
+      owned.push(authority);
+      const initial = authority.store;
+      const lessonId = "linked_lesson_fixture_1";
+      const ref = `study:${lessonId}:1`;
+      // This transaction-journal race retains the original captured binding ID.
+      // The remote resolver is deliberately stale below. It is not a chain
+      // authorization proof; real signed admission is covered by route fixtures.
+      const authorizationId = `0x${"33".repeat(32)}` as Hex;
+      const facts: TelegramStudyFacts = {
+        schema: "pirate.study.telegram-publication-fence/1",
+        version: 1,
+        grantId: "grant_fixture",
+        accountId: "account_fixture",
+        authorityVersion: "version_1",
+        actor: {
+          communityId,
+          botId: "50",
+          generation: 1,
+          userId: "60",
+          chatId: "60",
         },
-      },
-    } as Env;
-    enqueue(initial, "record_result", ref, results, "0x1234", 21000n);
-    initial.set("fault:crash-before-broadcast", true);
-    await assert.rejects(
-      dispatch(scoped, initial, "record_result", ref, limits, legacyResultGate(scoped, initial)),
-      /simulated_crash_before_broadcast/,
-    );
-    const nonce = intentOf(initial, "record_result", ref)!.nonce!;
-    assert.equal(txRow(initial, nonce)?.broadcast, "none");
-    const raw = txRow(initial, nonce)?.raw;
-    const persisted: ResultStore = { ...journal(), now: initial.now };
-    for (const row of initial.entries("")) persisted.set(row.key, row.value);
-    assert.equal(calls, 0);
-    assert.deepEqual(n.state.sent, []);
-    await assert.rejects(
-      dispatch(scoped, persisted, "record_result", ref, limits, legacyResultGate(
-        { ...scoped, STUDY_TELEGRAM_AUTHORITY: undefined }, persisted,
-      )),
-      /study_telegram_fence_unavailable/,
-    );
-    assert.deepEqual(n.state.sent, []);
-    const retry = dispatch(scoped, persisted, "record_result", ref, limits, legacyResultGate(scoped, persisted));
-    await waiting.promise;
-    recordTelegramStudyDenial(persisted, telegramFence);
-    release.resolve();
-    const row = await retry;
-    assert.equal(row?.broadcast, "none");
-    assert.ok(row?.withheld);
-    assert.equal(row?.raw, raw);
-    assert.deepEqual(n.state.sent, []);
-    assert.equal(calls, 1);
-    await recoverTransactions(scoped, persisted, async () => true, legacyResultGate(scoped, persisted));
-    assert.deepEqual(n.state.sent, []);
-    assert.equal(calls, 1);
-  } finally {
-    n.restore();
-  }
-});
+      };
+      const telegramFence = { facts, hash: digest(facts) as Hex };
+      const target = { version: 4, chainId: 6343, contract: results };
+      const learner = accounts[1]!.address.toLowerCase();
+      const startedAt = 1_799_999_999_500;
+      const offer = {
+        lessonId,
+        speechChannel: "telegram-linked" as const,
+        telegramFence,
+        authorizationId,
+        learner,
+        startedAt,
+        sourceDigest: digest("signed-restart-source"),
+        expiresAt: Number.MAX_SAFE_INTEGER,
+        exercises: [1, 2, 3, 4].map((ordinal) => ({
+          ordinal,
+          lineId: digest(["signed-restart-line", ordinal]),
+          language: "en",
+        })),
+      };
+      initial.set(`studyBinding:${lessonId}`, {
+        offer,
+        offerHash: digest(offer),
+        exercisesHash: studyExercisesHash([1, 2, 3, 4]),
+        target,
+        authorization: { id: authorizationId, issuedAt: 1799999999, target },
+      });
+      initial.set(`studyPublication:${lessonId}`, {
+        telegramFence,
+        target,
+        result: {
+          learner,
+          enrollmentId: authorizationId,
+          startedAt: "1799999999",
+        },
+      });
+      await authority.selectV4(communityId, results, 6343);
+      assert.ok(authority.alarm() !== null);
+      assert.equal(initial.linkedStudyBindings.hasUnclassified(), false);
+      const waiting = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      let calls = 0;
+      const scoped = {
+        ...env,
+        COMMUNITY_ID: communityId,
+        STUDY_TELEGRAM_AUTHORITY: {
+          async fetch(url: string, init?: RequestInit) {
+            calls++;
+            assert.equal(url, "https://study-telegram.internal/check");
+            const { fence, context } = JSON.parse(String(init?.body));
+            assert.deepEqual(fence, telegramFence);
+            assert.deepEqual(context, {
+              communityId,
+              lessonId,
+              learner,
+              startedAt,
+              authorizationId,
+              contract: results,
+            });
+            waiting.resolve();
+            await release.promise;
+            return Response.json({
+              schema: "pirate.study.telegram-fence-observation/1",
+              hash: fence.hash,
+              contextHash: digest(context),
+              allowed: true,
+            });
+          },
+        },
+      } as Env;
+      enqueue(initial, "record_result", ref, results, "0x1234", 21000n);
+      initial.set("fault:crash-before-broadcast", true);
+      await assert.rejects(
+        dispatch(
+          scoped,
+          initial,
+          "record_result",
+          ref,
+          limits,
+          legacyResultGate(scoped, initial),
+        ),
+        /simulated_crash_before_broadcast/,
+      );
+      const nonce = intentOf(initial, "record_result", ref)!.nonce!;
+      assert.equal(txRow(initial, nonce)?.broadcast, "none");
+      const raw = txRow(initial, nonce)?.raw;
+      const restarted = currentOperatorAuthorityFixture({
+        now: initial.now,
+        rpcUrl: evm.rpcUrl,
+        sources: authority.sources,
+        original: initial,
+      });
+      owned.push(restarted);
+      await restarted.initialize();
+      const persisted: ResultStore = restarted.store;
+      assert.deepEqual(
+        persisted.get(`studyBinding:${lessonId}`),
+        initial.get(`studyBinding:${lessonId}`),
+      );
+      assert.equal(calls, 0);
+      assert.deepEqual(n.state.sent, []);
+      await assert.rejects(
+        dispatch(
+          scoped,
+          persisted,
+          "record_result",
+          ref,
+          limits,
+          legacyResultGate(
+            { ...scoped, STUDY_TELEGRAM_AUTHORITY: undefined },
+            persisted,
+          ),
+        ),
+        /study_telegram_fence_unavailable/,
+      );
+      assert.deepEqual(n.state.sent, []);
+      const retry = dispatch(
+        scoped,
+        persisted,
+        "record_result",
+        ref,
+        limits,
+        legacyResultGate(scoped, persisted),
+      );
+      await waiting.promise;
+      recordTelegramStudyDenial(persisted, telegramFence);
+      release.resolve();
+      const row = await retry;
+      assert.equal(row?.broadcast, "none");
+      assert.ok(row?.withheld);
+      assert.equal(row?.raw, raw);
+      assert.deepEqual(n.state.sent, []);
+      assert.equal(calls, 1);
+      await recoverTransactions(
+        scoped,
+        persisted,
+        async () => true,
+        legacyResultGate(scoped, persisted),
+      );
+      assert.deepEqual(n.state.sent, []);
+      assert.equal(calls, 1);
+    } finally {
+      for (const fixture of owned) fixture.close();
+      n?.restore();
+      globalThis.fetch = realFetch;
+      await stopChain(evm);
+    }
+  },
+);

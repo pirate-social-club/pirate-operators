@@ -1,3 +1,4 @@
+import { currentAuthoritySchema } from "./learning-current-authority-fixture.ts";
 // Real local D1; the explicitly simulated operator supplies authority facts.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -20,8 +21,9 @@ const operator = (fetch: () => Promise<Response>) => ({
     },
   } satisfies Fetcher,
 });
-async function fixture() {
+async function fixture(currentAuthority = false) {
   const f = await communityRuntime({ v4: true });
+  if (currentAuthority) await currentAuthoritySchema(f.db);
   await f.db
     .prepare(
       "INSERT INTO application_identity(id,community_id,community_origin) VALUES(1,?,'https://community.example')",
@@ -157,7 +159,7 @@ test("unlink during live admission refuses connected learning without importing 
   const { connectedPracticeAuthorization } = await import(
     "../services/learning-sign-in.ts"
   );
-  const f = await fixture();
+  const f = await fixture(true);
   try {
     const context = {
       communityId: id,
@@ -211,7 +213,7 @@ test("unlink during live admission refuses connected learning without importing 
 test("a captured connected authorization survives same-second later sign-ins and never relays a substitute", async () => {
   const { connectedPracticeAuthorization, recordedAuthorization } =
     await import("../services/learning-sign-in.ts");
-  const f = await fixture();
+  const f = await fixture(true);
   try {
     const newer = `0x${"ff".repeat(32)}` as const;
     await f.db
@@ -285,6 +287,51 @@ test("a captured connected authorization survives same-second later sign-ins and
     assert.deepEqual(await recordedAuthorization(f.db, "a", subject, 110), {
       id: newer,
     });
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("connected admission retains a retryable hold when the actual authority schema is missing", async () => {
+  const { connectedPracticeAuthorization } = await import(
+    "../services/learning-sign-in.ts"
+  );
+  const f = await fixture(true);
+  try {
+    // Explicit incomplete-migration negative; the positive branches above use
+    // the genuine complete numbered schema, never a fabricated ready head.
+    await f.db.prepare("DROP TABLE learning_authority_heads").run();
+    let calls = 0;
+    await assert.rejects(
+      connectedPracticeAuthorization(
+        operator(async () => {
+          calls++;
+          return Response.json(live);
+        }),
+        f.db,
+        { communityId: id, botId: "123", generation: 1, startedAtMs: 110000 },
+        async () => ({
+          version: 1,
+          communityId: id,
+          botId: "123",
+          generation: 1,
+          accountId: "a",
+          wallet: subject,
+          linkedAtMs: 109000,
+          revokedAtMs: null,
+        }),
+        110000,
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message === "community_authority_pending" &&
+        (error as { status?: number }).status === 503,
+    );
+    assert.equal(
+      calls,
+      0,
+      "missing authority cannot reach the simulated live admission read",
+    );
   } finally {
     await f.dispose();
   }

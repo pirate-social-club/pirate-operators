@@ -32,7 +32,7 @@ import {
 const closedCredit: RewardCredit = {
   credit_id: "credit_closed_001",
   offer_id: "offer_closed_001",
-  account_id: "account_fixture",
+  account_id: "11111111-1111-4111-8111-111111111111",
   chain_id: 6343,
   token_address: sourceToken,
   token_decimals: 18,
@@ -42,7 +42,11 @@ const closedCredit: RewardCredit = {
   claim: { status: "accepted", payout_status: "confirmed" },
 };
 test("coordinator's fully paid 0.03 credit is earned, pending zero and never claimable again", () => {
-  const view = { ...sourceWalletView, balanceAtomic: "23204550198600016" };
+  const view = {
+    ...sourceWalletView,
+    accountId: "11111111-1111-4111-8111-111111111111",
+    balanceAtomic: "23204550198600016",
+  };
   const port = walletPortfolioView(view, [closedCredit]);
   assert.equal(port.summary.earned, "30000000000000000");
   assert.equal(port.summary.pending, "0");

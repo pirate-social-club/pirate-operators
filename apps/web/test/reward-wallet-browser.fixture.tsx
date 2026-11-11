@@ -33,7 +33,8 @@ import "./reward-wallet.fixture.css";
 
 const address = `0x${"11".repeat(20)}`,
   token = `0x${"33".repeat(20)}`;
-const view: RewardWalletView = {
+const view: RewardWalletView & { accountId: string } = {
+  accountId: "11111111-1111-4111-8111-111111111111",
   schema: "pirate.learner-wallet/1",
   address,
   chainId: 6343,
@@ -52,7 +53,7 @@ const increment = (key: string) =>
 const credit = (): RewardCredit => ({
   credit_id: "credit_0001",
   offer_id: "offer_0001",
-  account_id: "account_0001",
+  account_id: "11111111-1111-4111-8111-111111111111",
   chain_id: 6343,
   token_address: token,
   token_decimals: 18,
@@ -157,7 +158,7 @@ const adapter: WalletSendAdapterV1 = {
       quote,
       payment: {
         paymentId: "send_0001",
-        accountId: "account_0001",
+        accountId: "11111111-1111-4111-8111-111111111111",
         sender: address,
         recipient: quote.recipient,
         token,
