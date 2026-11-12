@@ -47,12 +47,21 @@ export class DancePermissions {
   async reviewer(
     f: DanceAuthority,
     excludeSelf = true,
+    sourceHash?: string,
   ): Promise<ReviewerContext> {
     if (excludeSelf)
       insist(!sameKnownIdentity(f.actor, f.learner), "dance_self_review", 403);
     insist(f.owner.canonicalAccepted, "dance_owner_operation_pending", 409);
     const now = await this.store.now();
     insist(now < f.owner.expiresAtMs, "dance_owner_expired", 403);
+    insist(
+      Number.isSafeInteger(f.owner.epoch) &&
+        f.owner.epoch > 0 &&
+        Number.isSafeInteger(f.epochs.configurationRevision) &&
+        f.epochs.configurationRevision > 0,
+      "dance_owner_epoch_invalid",
+      403,
+    );
     let authority: string, roleEpoch: number;
     if (
       f.actor.accountId === f.owner.accountId &&
@@ -70,10 +79,38 @@ export class DancePermissions {
         403,
       );
       insist(
+        Number.isSafeInteger(r.roleEpoch) &&
+          r.roleEpoch > 0 &&
+          Number.isSafeInteger(r.ownerEpoch) &&
+          r.ownerEpoch > 0,
+        "dance_review_epoch_invalid",
+        403,
+      );
+      const stamp = f.canonicalRoleProjection;
+      if (stamp)
+        insist(
+          stamp.wallet.toLowerCase() === wallet(f.actor.wallet) &&
+            Number.isSafeInteger(stamp.revision) &&
+            stamp.revision > 0 &&
+            Number.isSafeInteger(stamp.blockNumber) &&
+            stamp.blockNumber >= 0 &&
+            /^0x[\da-f]{64}$/.test(stamp.blockHash) &&
+            (!sourceHash || stamp.sourceHash === sourceHash),
+          "dance_role_projection_changed",
+          403,
+        );
+      insist(
         !(await this.store.locallyRevoked(
           this.communityId,
           f.actor.accountId,
           wallet(f.actor.wallet),
+          {
+            sourceHash: sourceHash ?? stamp?.sourceHash,
+            roleEpoch: r.roleEpoch,
+            ownerEpoch: f.owner.epoch,
+            configurationRevision: f.epochs.configurationRevision,
+            observation: stamp,
+          },
         )),
         "dance_review_locally_revoked",
         403,
@@ -82,6 +119,9 @@ export class DancePermissions {
       roleEpoch = r.roleEpoch;
     }
     return {
+      ...(f.canonicalRoleProjection
+        ? { roleProjection: f.canonicalRoleProjection }
+        : {}),
       accountId: f.actor.accountId,
       wallet: wallet(f.actor.wallet),
       identityEpoch: f.actor.identityEpoch,
@@ -110,13 +150,17 @@ export class DancePermissions {
       sameCapturedPrincipal(f.actor, r.capture.learner);
       return { facts: f, fences: [f.fence, originalAuthorization] };
     }
-    const reviewer = await this.reviewer(f);
+    const reviewer = await this.reviewer(f, true, r.capture.source.sourceHash);
     return {
       facts: f,
       fences: [
         f.fence,
         originalAuthorization,
-        ...localReviewerFences(this.communityId, reviewer),
+        ...localReviewerFences(
+          this.communityId,
+          reviewer,
+          r.capture.source.sourceHash,
+        ),
       ],
     };
   }
@@ -208,10 +252,9 @@ export class DancePermissions {
       status: "pending_canonical" as const,
     };
     try {
-      return await this.store.control(
-        { ...body, localIntegrityHash: hashJson(body) },
-        [f.fence],
-      );
+      const intent = { ...body, localIntegrityHash: hashJson(body) };
+      const binding = await this.ports.controlBinding?.(intent, f.owner.wallet);
+      return await this.store.control(intent, [f.fence], binding);
     } catch (error) {
       const accepted = await this.store.controlIntent(commandId);
       if (accepted) return recover(accepted);

@@ -59,10 +59,17 @@ import {
 
 type Route = "settings" | "direct";
 /** Private and withheld; a re-checked state also carries when it was read. */
-function assertPrivateState(store: Parameters<typeof publicationV2>[0], id: string) {
+function assertPrivateState(
+  store: Parameters<typeof publicationV2>[0],
+  id: string,
+) {
   const state = publicationV2(store, id)!;
   assert.deepEqual(
-    { state: state.state, revision: state.revision, reason: (state as { reason?: string }).reason },
+    {
+      state: state.state,
+      revision: state.revision,
+      reason: (state as { reason?: string }).reason,
+    },
     { state: "private", revision: 1, reason: "authorization_withdrawn" },
   );
 }
@@ -71,12 +78,24 @@ let port = 19800;
 /** A finished, enrollment-bound V3 run and a V4 contract for the community. */
 async function karaoke(fill: string) {
   const communityId = `0x${fill.repeat(32)}` as Hex;
-  const k = await learningBindingFixture(port++, communityId);
+  const k = await learningBindingFixture(port++, communityId, undefined, {
+    operatorAuthorityStore: true,
+  });
   k.env.RESULTS_V3_CONTRACT = k.v3;
   const enrollment = await k.enrollment(3);
-  let enrolled = await acceptEnrollment(k.env, k.store, enrollment.e, enrollment.signature);
+  let enrolled = await acceptEnrollment(
+    k.env,
+    k.store,
+    enrollment.e,
+    enrollment.signature,
+  );
   for (let i = 0; !enrolled?.mined && i < 5; i++)
-    enrolled = await acceptEnrollment(k.env, k.store, enrollment.e, enrollment.signature);
+    enrolled = await acceptEnrollment(
+      k.env,
+      k.store,
+      enrollment.e,
+      enrollment.signature,
+    );
   assert.equal(enrolled?.mined?.status, "success");
   const run = await k.prepare(`withheld-run-${fill}`);
   const result = await k.finish(run);
@@ -86,6 +105,7 @@ async function karaoke(fill: string) {
     learningV4PublicityPolicy,
     firstSong.origin,
   ]);
+  await k.enableV4Authority(v4);
   k.env.RESULTS_V4_CONTRACT = v4;
   const id = run.ticket.ticketId;
   return { k, v4, id, ref: `${id}:1`, session: result.attemptId as Hex };
@@ -93,7 +113,12 @@ async function karaoke(fill: string) {
 type Karaoke = Awaited<ReturnType<typeof karaoke>>;
 const withdraw = (c: Karaoke, route: Route) =>
   route === "settings"
-    ? revokeThroughOperator(c.k.env, c.k.store, acceptRevocationV4, revocationRequestV4)
+    ? revokeThroughOperator(
+        c.k.env,
+        c.k.store,
+        acceptRevocationV4,
+        revocationRequestV4,
+      )
     : revokeDirectly(c.k.evm as never, c.v4);
 const retry = async (c: Karaoke) => {
   for (let i = 0; i < 3; i++) await publishV2(c.k.env, c.k.store, c.id);
@@ -123,8 +148,12 @@ for (const fault of faults)
           const c = await karaoke((fill++).toString(16));
           const watch = rpcWatch();
           try {
-            const allocated = await injectFault(fault as Fault, c.k.env, c.k.store, c.ref, () =>
-              publishV2(c.k.env, c.k.store, c.id),
+            const allocated = await injectFault(
+              fault as Fault,
+              c.k.env,
+              c.k.store,
+              c.ref,
+              () => publishV2(c.k.env, c.k.store, c.id),
             );
             await withdraw(c, route);
             if (first === "retry") {
@@ -137,8 +166,17 @@ for (const fault of faults)
             await recover(c);
             assertPrivateState(c.k.store, c.id);
             await nothingOnV3(c);
-            await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, allocated, watch.sent);
-            await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
+            await assertWithheldJournal(
+              c.k.store,
+              c.k.evm.publicClient as never,
+              c.ref,
+              allocated,
+              watch.sent,
+            );
+            await assertNonceAccounting(
+              c.k.store,
+              c.k.evm.publicClient as never,
+            );
           } finally {
             watch.restore();
             await c.k.stop();
@@ -155,7 +193,10 @@ test(
     const realFetch = globalThis.fetch;
     let fired = false,
       busy = false;
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    globalThis.fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
       const body = typeof init?.body === "string" ? init.body : "";
       if (!busy && !fired && body.includes('"eth_gasPrice"')) {
         fired = busy = true;
@@ -196,15 +237,23 @@ test(
     const c = await karaoke("e2");
     const watch = rpcWatch();
     try {
-      const allocated = (await injectFault("crash", c.k.env, c.k.store, c.ref, () =>
-        publishV2(c.k.env, c.k.store, c.id),
+      const allocated = (await injectFault(
+        "crash",
+        c.k.env,
+        c.k.store,
+        c.ref,
+        () => publishV2(c.k.env, c.k.store, c.id),
       ))!;
       await revokeDirectly(c.k.evm as never, c.v4);
-      const above = "0x" + (BigInt(c.k.env.SPONSOR_GAS_PRICE_WEI!) * 10n).toString(16);
+      const above =
+        "0x" + (BigInt(c.k.env.SPONSOR_GAS_PRICE_WEI!) * 10n).toString(16);
       watch.on("eth_gasPrice", () => above, 1000);
       const before = watch.sent.length;
       const logged = await warnings(async () => {
-        await assert.rejects(publishV2(c.k.env, c.k.store, c.id), /gas_price_above_limit/);
+        await assert.rejects(
+          publishV2(c.k.env, c.k.store, c.id),
+          /gas_price_above_limit/,
+        );
         await recover(c);
         await retry(c);
       });
@@ -213,7 +262,9 @@ test(
       assert.equal(row.withheld?.reason, "authorization_withdrawn");
       assert.equal(row.cancellation, undefined);
       assert.equal(row.mined, null);
-      assert.ok(logged.some((line) => line.includes("operator_cancellation_waiting")));
+      assert.ok(
+        logged.some((line) => line.includes("operator_cancellation_waiting")),
+      );
       // Proven never sent, it can never publish, even while the nonce waits.
       assert.equal(publicationV2(c.k.store, c.id)?.state, "private");
       // The fee comes back within the limit; the regular alarm's tick, not
@@ -222,7 +273,13 @@ test(
       await alarm(c as never); // sends the cancellation
       await alarm(c as never); // settles it once deep enough
       await nothingOnV3(c);
-      await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, allocated, watch.sent);
+      await assertWithheldJournal(
+        c.k.store,
+        c.k.evm.publicClient as never,
+        c.ref,
+        allocated,
+        watch.sent,
+      );
     } finally {
       watch.restore();
       await c.k.stop();
@@ -243,8 +300,12 @@ for (const origin of ["historical", "attempted"] as const)
         let original: Hex;
         let nonce: number;
         if (origin === "historical") {
-          const allocated = (await injectFault("crash", c.k.env, c.k.store, c.ref, () =>
-            publishV2(c.k.env, c.k.store, c.id),
+          const allocated = (await injectFault(
+            "crash",
+            c.k.env,
+            c.k.store,
+            c.ref,
+            () => publishV2(c.k.env, c.k.store, c.id),
           ))!;
           // As the journal held it before this change: no broadcast field.
           const row = txRow(c.k.store, allocated.nonce)!;
@@ -278,12 +339,20 @@ for (const origin of ["historical", "attempted"] as const)
         assert.equal(row.cancellation, undefined);
         assert.equal(row.mined, null);
         assert.equal(publicationV2(c.k.store, c.id)?.state, "pending");
-        const stuck = logged.find((line) => line.includes("operator_nonce_withheld"));
+        const stuck = logged.find((line) =>
+          line.includes("operator_nonce_withheld"),
+        );
         assert.ok(stuck);
         assert.equal(JSON.parse(stuck).nonce, nonce);
         // Later operator work waits behind the open nonce.
         assert.ok(
-          c.k.store.entries("tx:").some(({ value }) => (value as { nonce: number; mined: unknown }).nonce > nonce && !(value as { mined: unknown }).mined),
+          c.k.store
+            .entries("tx:")
+            .some(
+              ({ value }) =>
+                (value as { nonce: number; mined: unknown }).nonce > nonce &&
+                !(value as { mined: unknown }).mined,
+            ),
         );
         await nothingOnV3(c);
         // The earlier send reaches the chain after all: the receipt is
@@ -314,7 +383,9 @@ for (const [route, at] of [
     `Karaoke: a ${route} withdrawal during the pre-send ${at} read keeps the original bytes from being sent`,
     { timeout: 180000 },
     async () => {
-      const c = await karaoke(route === "direct" ? "f2" : at === "receipt" ? "f1" : "f3");
+      const c = await karaoke(
+        route === "direct" ? "f2" : at === "receipt" ? "f1" : "f3",
+      );
       let snapshot: ReturnType<typeof unsentRow>;
       // The settings Revocation is relayed behind the result's unsent nonce,
       // so the chain shows no withdrawal; only the operator's record does.
@@ -345,7 +416,13 @@ for (const [route, at] of [
         }
         assertPrivateState(c.k.store, c.id);
         await nothingOnV3(c);
-        await assertWithheldJournal(c.k.store, c.k.evm.publicClient as never, c.ref, snapshot!, [...watch.sent, ...all.sent]);
+        await assertWithheldJournal(
+          c.k.store,
+          c.k.evm.publicClient as never,
+          c.ref,
+          snapshot!,
+          [...watch.sent, ...all.sent],
+        );
         await assertNonceAccounting(c.k.store, c.k.evm.publicClient as never);
       } finally {
         await c.k.stop();
@@ -364,12 +441,20 @@ test(
         throw new TypeError("fixture send outage");
       });
       await publishV2(c.k.env, c.k.store, c.id);
-      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      const own = txRow(
+        c.k.store,
+        intentOf(c.k.store, "record_result", c.ref)!.nonce!,
+      )!;
       assert.equal(own.broadcast, "attempted");
       await withdraw(c, "settings");
       // A payment behind it.
       enqueue(c.k.store, "close", "fixture-close", operator, "0x", 30000n);
-      const close = (await dispatch(c.k.env, c.k.store, "close", "fixture-close"))!;
+      const close = (await dispatch(
+        c.k.env,
+        c.k.store,
+        "close",
+        "fixture-close",
+      ))!;
       const stalled = await warnings(async () => {
         await recover(c);
         await retry(c);
@@ -379,13 +464,25 @@ test(
         .entries("tx:")
         .map(({ value }) => value as TxRow)
         .filter((row) => row.nonce > own.nonce);
-      assert.ok(later.length >= 2 && later.every((row) => !row.mined), "every later nonce waits");
+      assert.ok(
+        later.length >= 2 && later.every((row) => !row.mined),
+        "every later nonce waits",
+      );
       assert.ok(later.some((row) => row.nonce === close.nonce));
-      assert.ok(stalled.some((line) => line.includes("operator_nonce_withheld") && JSON.parse(line).nonce === own.nonce));
+      assert.ok(
+        stalled.some(
+          (line) =>
+            line.includes("operator_nonce_withheld") &&
+            JSON.parse(line).nonce === own.nonce,
+        ),
+      );
       assert.equal(txRow(c.k.store, own.nonce)!.mined, null);
       assert.equal(publicationV2(c.k.store, c.id)?.state, "pending");
       assert.equal(
-        await c.k.evm.publicClient.getTransactionCount({ address: operator, blockTag: "latest" }),
+        await c.k.evm.publicClient.getTransactionCount({
+          address: operator,
+          blockTag: "latest",
+        }),
         own.nonce,
       );
       // Another transaction at that nonce consumes it on chain.
@@ -393,10 +490,14 @@ test(
       const external = watch.sent.length;
       // One read finding nothing is not enough; a read the depth later is.
       const first = await warnings(() => alarm(c as never));
-      assert.ok(first.some((line) => line.includes("operator_nonce_unexplained")));
+      assert.ok(
+        first.some((line) => line.includes("operator_nonce_unexplained")),
+      );
       assert.equal(txRow(c.k.store, own.nonce)!.mined, null);
       const reconciled = await warnings(() => alarm(c as never));
-      assert.ok(reconciled.some((line) => line.includes("operator_nonce_superseded")));
+      assert.ok(
+        reconciled.some((line) => line.includes("operator_nonce_superseded")),
+      );
       const row = txRow(c.k.store, own.nonce)!;
       assert.equal(row.mined?.status, "superseded");
       for (const field of ["raw", "hash", "data", "to", "kind", "ref"] as const)
@@ -422,8 +523,12 @@ test(
     const c = await karaoke("f5");
     const watch = rpcWatch();
     try {
-      const allocated = (await injectFault("crash", c.k.env, c.k.store, c.ref, () =>
-        publishV2(c.k.env, c.k.store, c.id),
+      const allocated = (await injectFault(
+        "crash",
+        c.k.env,
+        c.k.store,
+        c.ref,
+        () => publishV2(c.k.env, c.k.store, c.id),
       ))!;
       // As an older journal left it: allocated, never signed, no marker.
       const row = txRow(c.k.store, allocated.nonce)!;
@@ -451,13 +556,28 @@ test(
 test("the operator's regular tick settles withheld result transactions", async () => {
   // services/karaoke.ts imports the Durable Object runtime, which node cannot
   // load; this checks the wiring the alarm relies on.
-  const source = await readFile(new URL("../services/karaoke.ts", import.meta.url), "utf8");
-  const body = source.slice(source.indexOf("export async function tick("), source.indexOf("export async function recover("));
+  const source = await readFile(
+    new URL("../services/karaoke.ts", import.meta.url),
+    "utf8",
+  );
+  const body = source.slice(
+    source.indexOf("export async function tick("),
+    source.indexOf("export async function recover("),
+  );
   assert.match(body, /await settleWithheldLearningTransactions\(env, store\);/);
-  const runtime = await readFile(new URL("../services/runtime.ts", import.meta.url), "utf8");
+  const runtime = await readFile(
+    new URL("../services/runtime.ts", import.meta.url),
+    "utf8",
+  );
   const compact = runtime.replace(/\s+/g, "");
-  assert.match(compact, /asyncalarm\(\)\{try\{awaittick\(this\.env,this\.store\);\}/);
-  assert.match(compact, /constunsettled=this\.store\.entries\("tx:"\)\.some\(\(\{value\}\)=>!\(valueas\{mined:unknown\}\)\.mined,?\);/);
+  assert.match(
+    compact,
+    /asyncalarm\(\)\{try\{awaittick\(this\.env,this\.store\);\}/,
+  );
+  assert.match(
+    compact,
+    /constunsettled=this\.store\.entries\("tx:"\)\.some\(\(\{value\}\)=>!\(valueas\{mined:unknown\}\)\.mined,?\);/,
+  );
 });
 
 test(
@@ -471,7 +591,10 @@ test(
         throw new TypeError("fixture send outage");
       });
       await publishV2(c.k.env, c.k.store, c.id);
-      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      const own = txRow(
+        c.k.store,
+        intentOf(c.k.store, "record_result", c.ref)!.nonce!,
+      )!;
       assert.equal(own.broadcast, "attempted");
       await withdraw(c, "settings");
       await warnings(() => publishV2(c.k.env, c.k.store, c.id));
@@ -480,7 +603,9 @@ test(
       await c.k.evm.rpc("eth_sendRawTransaction", [own.raw]);
       await c.k.evm.rpc("evm_mine", []);
       assert.notEqual(
-        await c.k.evm.read(c.k.v3, "LearningResultsV3", "commitments", [c.session]),
+        await c.k.evm.read(c.k.v3, "LearningResultsV3", "commitments", [
+          c.session,
+        ]),
         zeroHash,
       );
       // A lagging replica answers null once for its receipt and for the
@@ -518,7 +643,10 @@ test(
         throw new TypeError("fixture send outage");
       });
       await publishV2(c.k.env, c.k.store, c.id);
-      const own = txRow(c.k.store, intentOf(c.k.store, "record_result", c.ref)!.nonce!)!;
+      const own = txRow(
+        c.k.store,
+        intentOf(c.k.store, "record_result", c.ref)!.nonce!,
+      )!;
       await withdraw(c, "settings");
       await warnings(() => publishV2(c.k.env, c.k.store, c.id));
       // The original mines, but every read of it answers null long enough
@@ -535,10 +663,16 @@ test(
       watch.clear();
       // The view reads the commitment on V3 and reports it published; the
       // receipt corrects the row.
-      const corrected = await warnings(() => publishV2(c.k.env, c.k.store, c.id));
+      const corrected = await warnings(() =>
+        publishV2(c.k.env, c.k.store, c.id),
+      );
       assert.equal(publicationV2(c.k.store, c.id)?.state, "published");
       assert.equal(txRow(c.k.store, own.nonce)!.mined?.status, "success");
-      assert.ok(corrected.some((line) => line.includes("operator_nonce_superseded_corrected")));
+      assert.ok(
+        corrected.some((line) =>
+          line.includes("operator_nonce_superseded_corrected"),
+        ),
+      );
     } finally {
       watch.restore();
       await c.k.stop();

@@ -1,5 +1,118 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const learnerScopes = new WeakMap<Page, { learner: number; wallet: string }>();
+async function assertLearnerSession(page: Page) {
+  const expected = learnerScopes.get(page);
+  expect(expected).toBeTruthy();
+  expect(new URL(page.url()).searchParams.get("learner")).toBe(
+    String(expected!.learner),
+  );
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get("/api/session");
+        const value = await response.json();
+        return {
+          status: response.status(),
+          authenticated: value.authenticated,
+          wallet: value.mossAddress?.toLowerCase(),
+        };
+      },
+      { timeout: 20000 },
+    )
+    .toEqual({
+      status: 200,
+      authenticated: true,
+      wallet: expected!.wallet,
+    });
+}
+async function connectLearner(page: Page, learner: number) {
+  expect(new URL(page.url()).searchParams.get("learner")).toBe(String(learner));
+  const connected = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/__fixture/sign" &&
+      response.request().postDataJSON()?.kind === "address",
+  );
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const response = await connected;
+  expect(response.request().postDataJSON()).toEqual({
+    learner: String(learner),
+    kind: "address",
+  });
+  const { address } = await response.json();
+  expect(address).toMatch(/^0x[0-9a-f]{40}$/i);
+  learnerScopes.set(page, { learner, wallet: address.toLowerCase() });
+  await expect(
+    page.getByText("Signed in. Choose a song to study or sing.", {
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 20000 });
+  await assertLearnerSession(page);
+}
+async function rawFragmentContext(page: Page) {
+  const owner = await documentOwner(page);
+  const search = await page.evaluate(() => {
+    // Seed literal encoded bytes without URLSearchParams normalization. Keep
+    // every other query value, hash and history state in the same document.
+    const current = location.search;
+    const next = /[?&]filter=/.test(current)
+      ? current.replace(/([?&])filter=[^&]*/, "$1filter=a%20b")
+      : current + (current ? "&" : "?") + "filter=a%20b";
+    history.replaceState(
+      history.state,
+      "",
+      location.pathname + next + location.hash,
+    );
+    return location.search;
+  });
+  expect(search).toMatch(/[?&]filter=a%20b(?:&|$)/);
+  expect(search).not.toContain("filter=a+b");
+  expect(await documentOwner(page)).toBe(owner);
+  return search;
+}
+async function documentOwner(page: Page) {
+  return page.evaluate(() => {
+    const value = window as unknown as { __karaokeDocument?: string };
+    return (value.__karaokeDocument ??= crypto.randomUUID());
+  });
+}
+async function openPublishedKaraoke(page: Page) {
+  await assertLearnerSession(page);
+  const document = await documentOwner(page);
+  const rawSearch = await rawFragmentContext(page);
+  const manifest = await (await page.request.get("/__fixture/manifest")).json();
+  const postId = manifest.song.postId;
+  expect(postId).toMatch(/^0x[0-9a-f]{64}$/i);
+  if (new URL(page.url()).hash !== `#song-${postId}`) {
+    if (new URL(page.url()).hash && new URL(page.url()).hash !== "#/")
+      await page.getByRole("link", { name: "Home", exact: true }).click();
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    expect(await documentOwner(page)).toBe(document);
+    const feed = await (await page.request.get("/api/feed")).json();
+    const selected = feed.posts.find(
+      (post: { manifest: { postId: string } }) =>
+        post.manifest.postId === postId,
+    );
+    expect(selected).toBeTruthy();
+    const link = page
+      .getByRole("link", { name: selected.manifest.title, exact: true })
+      .and(page.locator(`a[href="/#song-${postId}"]`));
+    await expect(link).toHaveCount(1);
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    await link.click();
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    expect(await documentOwner(page)).toBe(document);
+  }
+  const karaoke = page
+    .getByRole("link", { name: "Karaoke", exact: true })
+    .and(page.locator(`a[href="/?sing=${postId}"]`));
+  await expect(karaoke).toHaveCount(1);
+  await karaoke.click();
+  expect(new URL(page.url()).searchParams.get("sing")).toBe(postId);
+  expect(await documentOwner(page)).toBe(document);
+  await assertLearnerSession(page);
+}
+
 // The live community page, its Sing screen and the real application, operator,
 // simulated provider and local chain behind it (karaoke-e2e/live-host.ts).
 test.describe.configure({ mode: "serial" });
@@ -36,13 +149,10 @@ async function signIn(page: Page, learner: number) {
       );
   });
   await page.goto(`/?learner=${learner}`);
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
+  await connectLearner(page, learner);
 }
 async function openSong(page: Page) {
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await openPublishedKaraoke(page);
   await expect(page.getByRole("button", { name: "Start karaoke" })).toBeVisible(
     { timeout: 30000 },
   );
@@ -103,7 +213,7 @@ test("leaving while the wallet signs never submits enrollment or starts Karaoke"
     await signIn(page, 7);
     await openSong(page);
     // No policy links on the exercise surface; the documents stay in the
-    // header's sign-in area.
+    // normal Community documents navigation.
     const surface = page.locator(".live-karaoke-overlay");
     await expect(
       page.getByRole("navigation", { name: "Karaoke policies" }),
@@ -130,7 +240,7 @@ test("leaving while the wallet signs never submits enrollment or starts Karaoke"
     );
     expect(submissions).toBe(0);
     expect(tickets).toBe(0);
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await assertLearnerSession(page);
   } finally {
     release();
   }
@@ -178,9 +288,7 @@ test("a reload resumes the open take where the song is and still scores it", asy
     .poll(() => songMs(page), { timeout: 30000 })
     .toBeGreaterThan(6500);
   await page.reload();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
+  await assertLearnerSession(page);
   // The shell restores the direct Karaoke route on reload. Its overlay already
   // covers the background song action; resume this take instead of opening it again.
   await expect(

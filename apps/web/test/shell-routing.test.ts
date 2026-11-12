@@ -8,9 +8,9 @@ import {
 } from "../src/shell/routing.ts";
 
 test("native fragment views preserve song permalinks and refuse unknown destinations", () => {
-  for (const hash of ["", "#/", "#song-0x123"])
-    assert.equal(appView(hash), "home");
-  for (const view of ["songs", "account", "publish"] as const)
+  for (const hash of ["", "#/"]) assert.equal(appView(hash), "home");
+  assert.equal(appView("#song-0x123"), "song");
+  for (const view of ["songs", "account", "settings", "publish"] as const)
     assert.equal(appView(`#/${view}`), view);
   for (const hash of [
     "#account",
@@ -76,4 +76,27 @@ test("exiting clears only practice identity, preserving other query state and cu
     "https://community.example/?learner=8#/songs",
   );
   assert.equal(current.searchParams.get("sing"), "song");
+});
+
+test("Study links carry one explicit lesson identity and refuse ambiguous private selectors", () => {
+  assert.deepEqual(
+    activityRoute(
+      new URL("https://community.example/?study=song-a&lesson=lesson-a"),
+    ),
+    { kind: "study", postId: "song-a", lessonId: "lesson-a" },
+  );
+  for (const query of [
+    "lesson=",
+    "lesson=a&lesson=b",
+    "lesson=a&lesson=a",
+    "lesson=%00a",
+    "lesson=%0aa",
+    `lesson=${"a".repeat(1025)}`,
+  ])
+    assert.deepEqual(
+      activityRoute(
+        new URL(`https://community.example/?study=song-a&${query}`),
+      ),
+      { kind: "invalid" },
+    );
 });

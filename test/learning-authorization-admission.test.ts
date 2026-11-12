@@ -1,3 +1,6 @@
+import { CommunityError } from "../packages/community/common.ts";
+import type { WalletState } from "../services/community-purchases.ts";
+import { createOperatorKaraokePort } from "../apps/web/src/karaoke/operator-karaoke-adapter.ts";
 // Actual Study start, new Karaoke ticket and connected admission, with real D1
 // lesson/attempt CAS. Quote, posts RPC, IPFS and chain observation are explicit
 // local fixtures. Fixed existing fixture keys only; no provider or new key.
@@ -16,7 +19,10 @@ import { newLesson, songOf } from "../packages/study/lesson.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 import { StudyAttemptStore } from "../packages/study/attempt-store.ts";
 import { liveStudy, type StudyEnv } from "../services/study-community.ts";
-import { karaokeTicket } from "../services/karaoke-community.ts";
+import {
+  karaokeTicket,
+  karaokeAttempt,
+} from "../services/karaoke-community.ts";
 import {
   connectedPracticeAuthorization,
   practiceAuthorization,
@@ -25,14 +31,25 @@ import {
 import { closeWithdrawnStudyLessons } from "../services/learning-public-results.ts";
 import { releasePostsFixture } from "./fixtures/release-posts.ts";
 import { communityRuntime } from "./community-runtime.ts";
+import { authorityD1Fixture } from "./learning-authority-d1-fixture.ts";
+import { CommunityAuthorityPending } from "../packages/community-setup/authority-ledger.ts";
 import type { PublicReadPorts } from "../services/community-public.ts";
 import type { OperatorQuote } from "../packages/protocol/payments.ts";
 
 const id = `0x${"ab".repeat(32)}` as Hex,
   wallet = accounts[5].address.toLowerCase();
-async function fixture() {
+async function fixture(currentAuthority = false) {
   const f = await communityRuntime({ v4: true });
+  let authority: Awaited<ReturnType<typeof authorityD1Fixture>> | undefined;
   try {
+    if (currentAuthority) {
+      // Connected admission requires the current authority schema. Use the
+      // installed Alchemy parser/engine over real workerd D1, preserving its
+      // triggers and guards rather than inventing an always-ready authority.
+      authority = await authorityD1Fixture();
+      await authority.apply();
+      f.db = authority.db;
+    }
     const communityId = firstSongFixture.communityId;
     await f.db
       .prepare(
@@ -237,6 +254,10 @@ async function fixture() {
     );
     return {
       ...f,
+      dispose: async () => {
+        await authority?.dispose();
+        await f.dispose();
+      },
       env,
       config,
       reads,
@@ -251,6 +272,7 @@ async function fixture() {
       ports: { env, config, reads, db: f.db, now: () => 110000 },
     };
   } catch (e) {
+    await authority?.dispose();
     await f.dispose();
     throw e;
   }
@@ -261,7 +283,7 @@ for (const path of [
   "connected learning",
 ] as const)
   test(`${path} records early revocation and closes existing lessons before refusing`, async () => {
-    const f = await fixture();
+    const f = await fixture(path === "connected learning");
     try {
       assert.equal(await publicResults(f.db, "a", true), "on");
       if (path === "Study start")
@@ -288,8 +310,8 @@ for (const path of [
           generation: 1,
           startedAtMs: 110000,
         };
-        assert.deepEqual(
-          await connectedPracticeAuthorization(
+        await assert.rejects(
+          connectedPracticeAuthorization(
             f.env,
             f.db,
             context,
@@ -303,7 +325,16 @@ for (const path of [
             }),
             110000,
           ),
-          { id: null, pending: false },
+          (error: unknown) => {
+            // The observed withdrawal dirties current authority during this
+            // admission. It must hold connected work until recovery, after
+            // closing the lesson; the former clean denial is no longer valid.
+            assert.ok(error instanceof CommunityAuthorityPending);
+            assert.equal(error.message, "community_authority_pending");
+            assert.equal(error.status, 503);
+            assert.equal(error.retryable, true);
+            return true;
+          },
         );
       }
       assert.equal(await publicResults(f.db, "a", true), "off");
@@ -372,3 +403,166 @@ test("a prior cleanup interruption is retried when admission already sees the lo
     await f.dispose();
   }
 });
+
+// Proposed addition to test/learning-authorization-admission.test.ts. UNRUN.
+// Uses its actual handler/D1 fixture, with a lost acknowledgement AFTER .run().
+test(
+  "committed reservation with lost D1 acknowledgement returns409 yet never authorizes another browser ticket POST",
+  { timeout: 30000 },
+  async () => {
+    const f = await fixture(),
+      savedFetch = globalThis.fetch;
+    let releaseAck!: () => void,
+      committed!: () => void,
+      faulted = false;
+    const ack = new Promise<void>((resolve) => {
+      releaseAck = resolve;
+    });
+    const commit = new Promise<void>((resolve) => {
+      committed = resolve;
+    });
+    const db = new Proxy(f.db, {
+      get(target, property) {
+        if (property !== "prepare") {
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+        return (sql: string) => {
+          const wrap = (
+            statement: D1PreparedStatement,
+            values: unknown[] = [],
+          ): D1PreparedStatement =>
+            new Proxy(statement, {
+              get(st, key) {
+                if (key === "bind")
+                  return (...next: unknown[]) => wrap(st.bind(...next), next);
+                if (key === "run")
+                  return async () => {
+                    const result = await st.run(); // The real D1 write has committed.
+                    if (
+                      !faulted &&
+                      /^(INSERT INTO|UPDATE) karaoke_state/.test(sql) &&
+                      values.includes(`wallet:${wallet}`) &&
+                      result.meta.changes === 1
+                    ) {
+                      faulted = true;
+                      committed();
+                      await ack;
+                      throw new Error("fixture_reservation_ack_lost");
+                    }
+                    return result;
+                  };
+                const value = Reflect.get(st, key);
+                return typeof value === "function" ? value.bind(st) : value;
+              },
+            });
+          return wrap(target.prepare(sql));
+        };
+      },
+    });
+    const originalOperator = f.env.KARAOKE_OPERATOR!;
+    const env = {
+      ...f.env,
+      STUDY_RESULTS_V4_CONTRACT: undefined,
+      KARAOKE_OPERATOR: {
+        ...originalOperator,
+        async fetch(input: RequestInfo | URL, init?: RequestInit) {
+          const path = new URL(
+            input instanceof Request ? input.url : String(input),
+          ).pathname;
+          if (path === "/prepare") return Response.json({ prepared: true });
+          if (path === "/result")
+            return Response.json(
+              { error: "result_not_final" },
+              { status: 409 },
+            );
+          if (path === "/attempt-start") return Response.json(null);
+          return originalOperator.fetch(input, init);
+        },
+      },
+    };
+    let posts = 0,
+      observation: "none" | "finished" | "recover" = "none";
+    const serialized: unknown[] = [];
+    globalThis.fetch = (async (path, init) => {
+      if (path === "/api/session")
+        return Response.json({ mossAddress: wallet });
+      if (init?.method === "POST") {
+        posts++;
+        try {
+          return Response.json(
+            await karaokeTicket(
+              { ...f.ports, env, db },
+              { account_id: "a", wallet },
+              { postId: firstSongFixture.postId },
+            ),
+          );
+        } catch (error) {
+          assert.ok(error instanceof CommunityError);
+          assert.equal(error.status, 409);
+          serialized.push({ error: error.code, status: error.status });
+          return Response.json({ error: error.code }, { status: error.status });
+        }
+      }
+      return Response.json(
+        observation === "recover"
+          ? await karaokeAttempt(
+              { ...f.ports, env },
+              { account_id: "a", wallet },
+              firstSongFixture.postId as Hex,
+            )
+          : { state: observation },
+      );
+    }) as typeof fetch;
+    const client = createOperatorKaraokePort({
+      account: wallet,
+      postId: firstSongFixture.postId,
+      csrf: () => "fixture-csrf",
+    });
+    try {
+      const pending = client.ticket();
+      const rejected = assert.rejects(pending, /confirm this take/);
+      await commit;
+      const first = JSON.parse(
+        (await f.db
+          .prepare("SELECT value FROM karaoke_state WHERE key=?")
+          .bind(`wallet:${wallet}`)
+          .first<{ value: string }>())!.value,
+      ) as WalletState;
+      assert.equal(first.sequence, 1);
+      assert.ok(first.open);
+      releaseAck();
+      await rejected;
+      await assert.rejects(client.ticket(), /confirm this take/);
+      observation = "finished";
+      await assert.rejects(client.ticket(), /confirm this take/);
+      assert.equal(posts, 1);
+      assert.deepEqual(serialized, [
+        { error: "fixture_reservation_ack_lost", status: 409 },
+      ]);
+      // Explicit backend reconciliation, not an automatic browser POST. The
+      // existing handler rebuilds the same reservation; its sequence cannot grow.
+      const recovered = await karaokeTicket(
+        { ...f.ports, env },
+        { account_id: "a", wallet },
+        { postId: firstSongFixture.postId },
+      );
+      assert.equal(recovered.ticket.body.ticketId, first.open.ticketId);
+      observation = "recover";
+      assert.equal((await client.ticket()).ticketId, first.open.ticketId);
+      const last = JSON.parse(
+        (await f.db
+          .prepare("SELECT value FROM karaoke_state WHERE key=?")
+          .bind(`wallet:${wallet}`)
+          .first<{ value: string }>())!.value,
+      ) as WalletState;
+      assert.deepEqual(last, first);
+      assert.equal(posts, 1);
+    } finally {
+      releaseAck();
+      client.dispose();
+      globalThis.fetch = savedFetch;
+      await f.dispose();
+    }
+  },
+);

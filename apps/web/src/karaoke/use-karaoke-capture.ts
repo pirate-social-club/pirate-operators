@@ -4,7 +4,11 @@
 // bundled as a module URL, context suspension pauses capture and latches a
 // tap-to-continue recovery, and a closed context aborts the take. The take
 // opens the operator's ticket socket instead of a centralized session.
-// See docs/karaoke-capture-handoff.md.
+// Reconciled against selected c7cb87835a1858a1955c820b03d566365e6d42db
+// scoring/use-karaoke-scoring-session.ts: the same lifecycle edge and recovery
+// generation guards, with operator-ticket identity replacing central sessions.
+// The protected capture-controller retains the independently owned orchestrator.
+// See docs/karaoke-capture-handoff.md and docs/v1-learning-surface-correction-20261111.md.
 import {
   createEffect,
   createMemo,
@@ -62,8 +66,22 @@ export interface UseKaraokeCaptureResult {
   controls: KaraokeCaptureControls;
 }
 
+/** The c7 scoring hook's construction seam, retained for actual controller doubles. */
+export interface KaraokeCaptureConstruction {
+  createController: typeof createKaraokeCaptureController;
+  createPlaybackGraph: (
+    onInterrupted: KaraokePlaybackInterruption,
+  ) => KaraokePlaybackGraph;
+}
+const browserConstruction: KaraokeCaptureConstruction = {
+  createController: createKaraokeCaptureController,
+  createPlaybackGraph: (onInterrupted) =>
+    new KaraokePlaybackGraph(undefined, onInterrupted),
+};
+
 export function useKaraokeCapture(
   options: UseKaraokeCaptureOptions,
+  construction: KaraokeCaptureConstruction = browserConstruction,
 ): UseKaraokeCaptureResult {
   const [state, setState] = createSignal<KaraokeCaptureState | null>(null);
   const [playbackInterrupted, setPlaybackInterrupted] = createSignal(false);
@@ -88,7 +106,7 @@ export function useKaraokeCapture(
       setPlaybackInterrupted(true);
     }
   };
-  const playbackGraph = new KaraokePlaybackGraph(undefined, onInterrupted);
+  const playbackGraph = construction.createPlaybackGraph(onInterrupted);
   onCleanup(() => {
     recoveryGeneration += 1;
     playbackGraph.dispose();
@@ -107,7 +125,7 @@ export function useKaraokeCapture(
       setState(null);
       return;
     }
-    const controller = createKaraokeCaptureController({
+    const controller = construction.createController({
       createCaptureEngine: ({ onChunk, onError }) =>
         new KaraokeMicCapture({
           deps: createBrowserMicCaptureDeps(
@@ -203,7 +221,12 @@ export function useKaraokeCapture(
     start: (songMs) => {
       recoveryGeneration += 1;
       setPlaybackInterrupted(false);
-      return currentController?.start(songMs) ?? Promise.resolve();
+      return (
+        currentController?.start(songMs) ??
+        Promise.reject(
+          new Error("The microphone connection is not prepared. Try again."),
+        )
+      );
     },
     stop: () => {
       recoveryGeneration += 1;

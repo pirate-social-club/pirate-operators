@@ -54,12 +54,14 @@ export function storedDanceVerdictJournal(
     async attempts(commandId) {
       const rows = await db
         .prepare(
-          `SELECT a.transaction_hash FROM dance_transaction_attempts a
+          `SELECT transaction_hash FROM (SELECT a.attempt_id,a.transaction_hash FROM dance_transaction_attempts a
          JOIN dance_outbox b ON b.command_id=a.command_id
          WHERE a.command_id=? AND b.community_id=? AND b.kind='decision'
-         ORDER BY a.attempt_id LIMIT 33`,
+         UNION ALL SELECT a.attempt_id,a.transaction_hash FROM dance_recovered_attempts a
+         JOIN dance_outbox b ON b.command_id=a.command_id
+         WHERE a.command_id=? AND b.community_id=? AND b.kind='decision') ORDER BY attempt_id LIMIT 33`,
         )
-        .bind(commandId, communityId)
+        .bind(commandId, communityId, commandId, communityId)
         .all<{ transaction_hash: string }>();
       return rows.results.map((row) => bytes32(row.transaction_hash));
     },
@@ -153,7 +155,8 @@ export async function observeDanceIntent(
       // evidence that the stored verdict was replaced.
       insist(
         number !== safe.number ||
-          (observed.hash === safe.hash && observed.timestamp === safe.timestamp),
+          (observed.hash === safe.hash &&
+            observed.timestamp === safe.timestamp),
         "dance_observation_anchor_changed",
         503,
       );

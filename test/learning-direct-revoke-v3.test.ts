@@ -10,12 +10,7 @@
 // provider are the fixture's simulations.
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  toFunctionSelector,
-  zeroHash,
-  type Address,
-  type Hex,
-} from "viem";
+import { toFunctionSelector, zeroHash, type Address, type Hex } from "viem";
 import { accounts } from "../harness/runtime.ts";
 import type { StudyLesson } from "../packages/study/lesson.ts";
 import type { StudyAttempt } from "../packages/study/contracts.ts";
@@ -65,6 +60,7 @@ async function becomeV4(f: Fixture) {
     3,
   );
   await f.applyV4Migration();
+  await f.enableV4Authority(v4);
   f.operatorEnv.RESULTS_V4_CONTRACT = v4;
   (f.env as { STUDY_RESULTS_V4_CONTRACT?: string }).STUDY_RESULTS_V4_CONTRACT =
     v4;
@@ -148,7 +144,9 @@ async function answerAs(
             "content-type": "audio/webm",
             "x-study-duration-ms": "1000",
           },
-          body: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 1]),
+          body: new Uint8Array([
+            0x1a, 0x45, 0xdf, 0xa3, 0, 0, 0, 0, 0, 0, 0, 1,
+          ]),
         },
       ),
     )
@@ -278,7 +276,9 @@ test(
   "a direct V4 revoke keeps a held V3 result private and never sent; the application then closes the open V3 and V4 lessons",
   { timeout: 300000 },
   async () => {
-    const f = await studyPublicationFixture(19721);
+    const f = await studyPublicationFixture(19721, {
+      operatorAuthorityStore: true,
+    });
     try {
       // A V3 result held at the operator, and a V3 lesson still open.
       f.advance(3600_000);
@@ -346,7 +346,9 @@ test(
   "a direct V4 revoke followed by a new sign-in before dispatch still keeps the held V3 result and the open V3 lesson's later result private",
   { timeout: 300000 },
   async () => {
-    const f = await studyPublicationFixture(19722);
+    const f = await studyPublicationFixture(19722, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.advance(3600_000);
       const held = await heldAtOperator(f);
@@ -420,7 +422,9 @@ test(
   "a failed V4 read during the check sends nothing; the held V3 result stays pending and the retry keeps it private",
   { timeout: 300000 },
   async () => {
-    const f = await studyPublicationFixture(19723);
+    const f = await studyPublicationFixture(19723, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.advance(3600_000);
       const held = await heldAtOperator(f);
@@ -468,7 +472,9 @@ test(
   "another learner's direct V4 revoke never withholds this learner's V3 result",
   { timeout: 300000 },
   async () => {
-    const f = await studyPublicationFixture(19724);
+    const f = await studyPublicationFixture(19724, {
+      operatorAuthorityStore: true,
+    });
     try {
       await f.enroll(6);
       const other = await f.login(6);
@@ -542,7 +548,9 @@ test(
   { timeout: 180000 },
   async () => {
     const communityId = `0x${"5e".repeat(32)}` as const;
-    const f = await learningBindingFixture(19726, communityId);
+    const f = await learningBindingFixture(19726, communityId, undefined, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.env.RESULTS_V3_CONTRACT = f.v3;
       const learner = accounts[5]!.address as Address;
@@ -570,12 +578,22 @@ test(
         learningV4PublicityPolicy,
         firstSong.origin,
       ]);
+      await f.enableV4Authority(v4);
       f.env.RESULTS_V4_CONTRACT = v4;
       // The learner revokes on V4 directly, then signs in again.
-      await f.evm.write(v4, "LearningResultsV4", "revoke", [learner, 0n, "0x"], 5);
-      const revokedAt = (await f.evm.read(v4, "LearningResultsV4", "revokedAt", [
-        learner,
-      ])) as bigint;
+      await f.evm.write(
+        v4,
+        "LearningResultsV4",
+        "revoke",
+        [learner, 0n, "0x"],
+        5,
+      );
+      const revokedAt = (await f.evm.read(
+        v4,
+        "LearningResultsV4",
+        "revokedAt",
+        [learner],
+      )) as bigint;
       await f.evm.rpc("evm_setNextBlockTimestamp", [Number(revokedAt) + 2]);
       await f.evm.rpc("evm_mine", []);
       const signIn: SignIn = {
@@ -595,7 +613,13 @@ test(
           signIn,
         ),
       });
-      await f.evm.write(v4, "LearningResultsV4", "authorize", [signIn, signature], 2);
+      await f.evm.write(
+        v4,
+        "LearningResultsV4",
+        "authorize",
+        [signIn, signature],
+        2,
+      );
       assert.equal(
         await f.evm.read(v4, "LearningResultsV4", "authorizedSince", [learner]),
         revokedAt + 2n,
@@ -640,7 +664,9 @@ test(
   "a direct V4 revoke mined during the dispatch's reads is caught by the pre-send check, for Study and Karaoke",
   { timeout: 300000 },
   async () => {
-    const f = await studyPublicationFixture(19727);
+    const f = await studyPublicationFixture(19727, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.advance(3600_000);
       const held = await heldAtOperator(f);
@@ -662,7 +688,9 @@ test(
       await f.dispose();
     }
     const communityId = `0x${"5f".repeat(32)}` as const;
-    const k = await learningBindingFixture(19728, communityId);
+    const k = await learningBindingFixture(19728, communityId, undefined, {
+      operatorAuthorityStore: true,
+    });
     try {
       k.env.RESULTS_V3_CONTRACT = k.v3;
       const learner = accounts[5]!.address as Address;
@@ -689,6 +717,7 @@ test(
         learningV4PublicityPolicy,
         firstSong.origin,
       ]);
+      await k.enableV4Authority(v4);
       k.env.RESULTS_V4_CONTRACT = v4;
       const hook = beforeEnrollmentRead(() =>
         k.evm.write(v4, "LearningResultsV4", "revoke", [learner, 0n, "0x"], 5),

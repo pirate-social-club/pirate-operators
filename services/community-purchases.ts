@@ -5,7 +5,14 @@
 // inserted by one statement that also enforces the ticket's purchase count.
 import type { Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { check, sign, verify, type Signed, type Ticket } from "../packages/protocol/index.ts";
+import {
+  check,
+  digest,
+  sign,
+  verify,
+  type Signed,
+  type Ticket,
+} from "../packages/protocol/index.ts";
 import {
   admissionUnit,
   paymentWindow,
@@ -28,6 +35,11 @@ import { readPayments } from "./chain.ts";
 import type { Env } from "./runtime.ts";
 import { call, signatureChainId } from "./service-call.ts";
 import type { AsyncStore } from "./storage.ts";
+import {
+  verifyPrepared,
+  type KaraokePrepared,
+  type KaraokeRecoveryScope,
+} from "./karaoke-preparation.ts";
 
 /** Per-wallet sponsorship allowance. The contract deposit caps the community. */
 export const WALLET_ALLOWANCE = 100_000n;
@@ -47,6 +59,8 @@ export interface Reservation {
   startedAt: number | null;
   /** V4: the sign-in authorization chosen when the ticket opened. */
   authorizationId?: Hex;
+  /** Only server-derived metadata; committed in the same wallet CAS. */
+  recoveryScope?: KaraokeRecoveryScope;
 }
 export interface WalletState {
   usage: string;
@@ -67,20 +81,26 @@ export async function openTicket(
   spec: Omit<Reservation, "ticketId" | "startedAt">,
   ticketIdFor: (sequence: number) => Hex,
 ) {
-  const state = await store.update<WalletState>(walletKey(wallet), (current) => {
-    const w = current ?? { usage: "0", sequence: 0, open: null };
-    if (w.open) {
-      check(w.open.songHash === spec.songHash, "open_ticket_exists");
-      check(w.open.sessionKey === spec.sessionKey, "different_session_key");
-      return w;
-    }
-    check(BigInt(w.usage) + BigInt(spec.maxAmount) <= WALLET_ALLOWANCE, "wallet_allowance_exhausted");
-    return {
-      usage: add(w.usage, BigInt(spec.maxAmount)),
-      sequence: w.sequence + 1,
-      open: { ...spec, ticketId: ticketIdFor(w.sequence), startedAt: null },
-    };
-  });
+  const state = await store.update<WalletState>(
+    walletKey(wallet),
+    (current) => {
+      const w = current ?? { usage: "0", sequence: 0, open: null };
+      if (w.open) {
+        check(w.open.songHash === spec.songHash, "open_ticket_exists");
+        check(w.open.sessionKey === spec.sessionKey, "different_session_key");
+        return w;
+      }
+      check(
+        BigInt(w.usage) + BigInt(spec.maxAmount) <= WALLET_ALLOWANCE,
+        "wallet_allowance_exhausted",
+      );
+      return {
+        usage: add(w.usage, BigInt(spec.maxAmount)),
+        sequence: w.sequence + 1,
+        open: { ...spec, ticketId: ticketIdFor(w.sequence), startedAt: null },
+      };
+    },
+  );
   return state.open!;
 }
 
@@ -90,8 +110,13 @@ export async function ensureTicket(
   store: AsyncStore,
   wallet: Address,
   open: Reservation,
+  fence?: () => Promise<void>,
 ) {
-  const manifest = (await store.get<KaraokeManifest>(`manifest:${open.manifestSha256}`))!;
+  check(!open.recoveryScope || fence, "karaoke_recovery_fence_required");
+  if (open.recoveryScope) await fence!();
+  const manifest = (await store.get<KaraokeManifest>(
+    `manifest:${open.manifestSha256}`,
+  ))!;
   const body: Ticket = {
     ticketId: open.ticketId,
     communityId: env.COMMUNITY_ID,
@@ -110,9 +135,72 @@ export async function ensureTicket(
     // Present only on a V4 ticket, so V2/V3 ticket bytes are unchanged.
     ...(open.authorizationId ? { authorizationId: open.authorizationId } : {}),
   };
-  const ticket = await sign("ticket", body, env.PRIVATE_KEY, signatureChainId(env));
-  await store.set(`ticket:${open.ticketId}`, ticket);
-  await call(env.OPERATOR, "/prepare", { ticket, manifest });
+  const ticket = await sign(
+    "ticket",
+    body,
+    env.PRIVATE_KEY,
+    signatureChainId(env),
+  );
+  if (!open.recoveryScope) {
+    await store.set(`ticket:${open.ticketId}`, ticket);
+    await call(env.OPERATOR, "/prepare", { ticket, manifest });
+    return ticket;
+  }
+  const scope = open.recoveryScope,
+    preparation = scope.preparation;
+  // Insert-if-absent never overwrites different retained ticket bytes.
+  await store.insertIfAbsent(`ticket:${open.ticketId}`, ticket);
+  const saved = await store.get<Signed<Ticket>>(`ticket:${open.ticketId}`);
+  check(digest(saved) === digest(ticket), "ticket_conflict");
+  const key = `karaokePreparedV1:${open.ticketId}`;
+  type Marker = { scopeHash: string; acknowledgement: Signed<KaraokePrepared> };
+  const prior = await store.get<Marker>(key);
+  if (prior) {
+    check(
+      prior.scopeHash === digest(scope),
+      "karaoke_preparation_ack_mismatch",
+    );
+    await verifyPrepared(
+      prior.acknowledgement,
+      ticket,
+      preparation,
+      env.OPERATOR_ADDRESS,
+      signatureChainId(env),
+    );
+  }
+  await fence!();
+  // Always inspect current permission through the actual idempotent operator
+  // prepare protocol. A prior marker never skips live permission checks.
+  const reply = await call<{
+    prepared: true;
+    acknowledgement: Signed<KaraokePrepared>;
+  }>(env.OPERATOR, "/prepare", { ticket, manifest, preparation });
+  check(
+    reply.prepared === true && reply.acknowledgement,
+    "karaoke_preparation_ack_required",
+  );
+  await verifyPrepared(
+    reply.acknowledgement,
+    ticket,
+    preparation,
+    env.OPERATOR_ADDRESS,
+    signatureChainId(env),
+  );
+  check(
+    !prior || digest(prior.acknowledgement) === digest(reply.acknowledgement),
+    "karaoke_preparation_ack_mismatch",
+  );
+  await fence!();
+  const marker: Marker = {
+    scopeHash: digest(scope),
+    acknowledgement: reply.acknowledgement,
+  };
+  await store.insertIfAbsent(key, marker);
+  check(
+    digest(await store.get(key)) === digest(marker),
+    "karaoke_preparation_ack_not_durable",
+  );
+  await fence!();
   return ticket;
 }
 
@@ -133,7 +221,12 @@ export async function signSegmentPurchase(
   env: Env,
   store: AsyncStore,
   wallet: Address,
-  input: { ticketId: Hex; segmentId: string; take: number; attemptStart?: Signed<AttemptStart> },
+  input: {
+    ticketId: Hex;
+    segmentId: string;
+    take: number;
+    attemptStart?: Signed<AttemptStart>;
+  },
 ): Promise<SignedPurchase> {
   check(Number.isSafeInteger(input.take) && input.take >= 0, "unknown_segment");
   const key = `${purchasePrefix(input.ticketId)}${unitHash(segmentUnit(input.ticketId, input.segmentId, input.take))}`;
@@ -145,9 +238,13 @@ export async function signSegmentPurchase(
   }
   let open = (await store.get<WalletState>(walletKey(wallet)))?.open;
   check(open && open.ticketId === input.ticketId, "ticket_closed");
-  const manifest = (await store.get<KaraokeManifest>(`manifest:${open.manifestSha256}`))!;
+  const manifest = (await store.get<KaraokeManifest>(
+    `manifest:${open.manifestSha256}`,
+  ))!;
   const quote = (await store.get<OperatorQuote>(`quote:${open.quoteId}`))!;
-  const segment = manifest.segments.find((s) => s.segmentId === input.segmentId);
+  const segment = manifest.segments.find(
+    (s) => s.segmentId === input.segmentId,
+  );
   check(segment, "unknown_segment");
   if (input.attemptStart && open.startedAt === null) {
     const start = await verify(
@@ -185,8 +282,18 @@ export async function signSegmentPurchase(
     validAfter: open.issuedAt - CLOCK_SKEW_S,
     expiresAt: open.expiresAt,
   };
-  const signed = { purchase, signature: await signPurchase(env, quote, purchase) };
-  if (await store.insertIfCountBelow(key, signed, purchasePrefix(open.ticketId), open.maxPaidSegments))
+  const signed = {
+    purchase,
+    signature: await signPurchase(env, quote, purchase),
+  };
+  if (
+    await store.insertIfCountBelow(
+      key,
+      signed,
+      purchasePrefix(open.ticketId),
+      open.maxPaidSegments,
+    )
+  )
     return signed;
   const raced = await store.get<SignedPurchase>(key);
   check(raced, "purchase_limit_reached");
@@ -217,7 +324,10 @@ export async function signAdmissionPurchase(
     validAfter: now - CLOCK_SKEW_S,
     expiresAt: now + 600,
   };
-  const signed = { purchase, signature: await signPurchase(env, quote, purchase) };
+  const signed = {
+    purchase,
+    signature: await signPurchase(env, quote, purchase),
+  };
   if (await store.insertIfAbsent(key, signed)) return signed;
   return (await store.get<SignedPurchase>(key))!;
 }
@@ -237,21 +347,33 @@ export async function settleTicket(
 ) {
   const open = (await store.get<WalletState>(walletKey(wallet)))?.open;
   if (!open || open.ticketId !== ticketId) return;
+  // Scoped recovery cannot infer a terminal result from elapsed time. Keep
+  // its original finite reservation held until an authoritative result exists.
+  if ((open.recoveryScope || open.authorizationId) && !ended) return;
   if (!ended && (await store.now()) < open.expiresAt) return;
   const quote = (await store.get<OperatorQuote>(`quote:${open.quoteId}`))!;
   let paid = 0n;
   for (const { value } of await store.entries(purchasePrefix(ticketId))) {
     const signed = value as SignedPurchase;
-    const onChain = await readPayments<Hex>(env.RPC_URL, quote.payments, "redemption", [
-      signed.purchase.community,
-      signed.purchase.unit,
-    ]);
-    if (onChain === purchaseDigestOf(signed.purchase, quote.chainId, quote.payments))
+    const onChain = await readPayments<Hex>(
+      env.RPC_URL,
+      quote.payments,
+      "redemption",
+      [signed.purchase.community, signed.purchase.unit],
+    );
+    if (
+      onChain ===
+      purchaseDigestOf(signed.purchase, quote.chainId, quote.payments)
+    )
       paid += BigInt(signed.purchase.amount);
   }
   await store.update<WalletState>(walletKey(wallet), (w) =>
     w?.open?.ticketId === ticketId
-      ? { ...w, usage: add(w.usage, paid - BigInt(w.open.maxAmount)), open: null }
+      ? {
+          ...w,
+          usage: add(w.usage, paid - BigInt(w.open.maxAmount)),
+          open: null,
+        }
       : w!,
   );
 }
@@ -260,20 +382,37 @@ export async function communityTick(env: Env, store: AsyncStore) {
   const now = await store.now();
   for (const { key, value } of await store.entries("wallet:")) {
     const open = (value as WalletState).open;
-    if (open && now >= open.expiresAt)
-      await settleTicket(env, store, key.slice("wallet:".length) as Address, open.ticketId, false);
+    if (
+      open &&
+      !open.recoveryScope &&
+      !open.authorizationId &&
+      now >= open.expiresAt
+    )
+      await settleTicket(
+        env,
+        store,
+        key.slice("wallet:".length) as Address,
+        open.ticketId,
+        false,
+      );
   }
 }
 
 /** Fetches and checks the operator's quote against the community's payment profile. */
 export async function trustedQuote(env: Env, store: AsyncStore) {
   const signed = await call<Signed<OperatorQuote>>(env.OPERATOR, "/quote", {});
-  const quote = await verify(signed, "quote", env.OPERATOR_ADDRESS, signatureChainId(env));
+  const quote = await verify(
+    signed,
+    "quote",
+    env.OPERATOR_ADDRESS,
+    signatureChainId(env),
+  );
   const now = await store.now();
   check(
     quote.operator.toLowerCase() === env.OPERATOR_ADDRESS.toLowerCase() &&
       quote.chainId === Number(env.PAYMENT_CHAIN_ID) &&
-      (quote.serviceMode === "internal") === (env.SERVICE_MODE === "internal") &&
+      (quote.serviceMode === "internal") ===
+        (env.SERVICE_MODE === "internal") &&
       quote.token.toLowerCase() === env.PAYMENT_TOKEN?.toLowerCase() &&
       quote.payments.toLowerCase() === env.PAYMENTS_CONTRACT?.toLowerCase() &&
       quote.validFrom <= now &&

@@ -1,3 +1,4 @@
+import { frozenLifecycleFixture } from "./telegram-frozen-lifecycle-fixture.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Hex } from "viem";
@@ -12,6 +13,7 @@ import { studyPublicationFixtureV4 } from "./study-publication-fixture.ts";
 
 test("actual V4 linked speech recovers a lost reply using a minimal operator receipt, with no raw D1/operator write or redispatch", async () => {
   const f = await studyPublicationFixtureV4(20173);
+  let lifecycle: Awaited<ReturnType<typeof frozenLifecycleFixture>> | undefined;
   try {
     const wallet = accounts[5].address.toLowerCase();
     const row = await f.db
@@ -74,15 +76,15 @@ test("actual V4 linked speech recovers a lost reply using a minimal operator rec
         return typeof value === "function" ? value.bind(db) : value;
       },
     });
-    const api = frozenTelegramStudy(
+    lifecycle = await frozenLifecycleFixture(
       {
         env: f.env,
         config: f.config,
         reads: f.ports.publicReads!,
         now: f.clock,
+        db: checkedDb,
       },
       { account_id: row.account_id, wallet },
-      "telegram-linked",
       {
         version: 1,
         grantId: "fixture_private_grant",
@@ -99,7 +101,19 @@ test("actual V4 linked speech recovers a lost reply using a minimal operator rec
         startedAt: f.clock(),
         async check() {},
       },
+    );
+    const api = frozenTelegramStudy(
+      {
+        env: f.env,
+        config: f.config,
+        reads: f.ports.publicReads!,
+        now: f.clock,
+      },
+      { account_id: row.account_id, wallet },
+      "telegram-linked",
+      lifecycle.context,
       checkedDb,
+      lifecycle.publication,
     );
     const lesson = await api.start("fixture_private_roundtrip_0001", f.song);
     const opened = await api.open(lesson.lessonId, 1, 1);
@@ -139,6 +153,7 @@ test("actual V4 linked speech recovers a lost reply using a minimal operator rec
       );
     assert.equal("telegramGrantFenceVersion" in api, false);
   } finally {
+    lifecycle?.close();
     await f.dispose();
   }
 });

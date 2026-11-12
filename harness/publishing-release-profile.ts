@@ -24,6 +24,9 @@ import {
   OWNER_PUBLISHING_MIGRATION,
 } from "./package-migrations.ts";
 
+/** Shared account profile schema; this is not an optional publishing right. */
+export const COMMUNITY_PROFILE_MIGRATION = "0019_community_profiles.sql";
+
 /**
  * The reviewed owner publishing inputs for a release: the owner budget grant
  * both services hold, and the controller-signed owner authorization the
@@ -195,7 +198,8 @@ function assertSameOwnerScope(
 
 /**
  * Publishing successor of a deployed Study and rewards application. It
- * appends only migration 0012, adds the reviewed owner selection and removes
+ * adds only owner migration0012 and optional shared profile0019, adds the
+ * reviewed owner selection and removes
  * the registered release fields and registration bounds. The rewards program,
  * the Study deployment and every other field must be unchanged; that part is
  * delegated to the existing rewards and Study gates. A publishing profile may
@@ -231,23 +235,39 @@ export function assertPublishingApplicationUpgrade(
     return p.migrations as string[];
   };
   const before = migrations(previous),
-    after = migrations(next);
+    after = migrations(next),
+    core = (names: string[]) =>
+      names.filter((m) => m !== COMMUNITY_PROFILE_MIGRATION),
+    beforeCore = core(before),
+    afterCore = core(after);
+  // Alchemy detects applied records by name/hash, not by ordinal prefix.
+  // Only this exact shared schema may be inserted alongside the owner step;
+  // every existing migration, including profile19, must remain in order.
+  insist(
+    canonical(before) === canonical([...before].sort()) &&
+      canonical(after) === canonical([...after].sort()) &&
+      (!before.includes(COMMUNITY_PROFILE_MIGRATION) ||
+        after.includes(COMMUNITY_PROFILE_MIGRATION)),
+    "owner_publishing_migrations_changed",
+    409,
+  );
   if (previous.ownerPublishing) {
     assertSameOwnerScope(
       publishingReleaseSelection(previous.ownerPublishing).ownerGrant,
       selection.ownerGrant,
     );
     insist(
-      before.at(-1) === OWNER_PUBLISHING_MIGRATION &&
-        canonical(after) === canonical(before),
+      beforeCore.at(-1) === OWNER_PUBLISHING_MIGRATION &&
+        canonical(afterCore) === canonical(beforeCore),
       "owner_publishing_migrations_changed",
       409,
     );
   } else
     insist(
-      before.at(-1) === "0011_manual_rewards.sql" &&
-        !before.includes(OWNER_PUBLISHING_MIGRATION) &&
-        canonical(after) === canonical([...before, OWNER_PUBLISHING_MIGRATION]),
+      beforeCore.at(-1) === "0011_manual_rewards.sql" &&
+        !beforeCore.includes(OWNER_PUBLISHING_MIGRATION) &&
+        canonical(afterCore) ===
+          canonical([...beforeCore, OWNER_PUBLISHING_MIGRATION]),
       "owner_publishing_migrations_changed",
       409,
     );
@@ -265,7 +285,8 @@ export function assertPublishingApplicationUpgrade(
     rest.bounds = withoutRegistrationBounds(p.bounds);
     rest.managedProfileHash = "publishing";
     rest.migrations = migrations(p).filter(
-      (m) => m !== OWNER_PUBLISHING_MIGRATION,
+      (m) =>
+        m !== OWNER_PUBLISHING_MIGRATION && m !== COMMUNITY_PROFILE_MIGRATION,
     );
     return rest;
   };

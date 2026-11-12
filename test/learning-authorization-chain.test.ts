@@ -1,3 +1,4 @@
+import { currentOperatorAuthorityFixture } from "./learning-current-authority-fixture.ts";
 // The V4 sign-in relay on a local chain: the application issues the V4 SIWE
 // challenge, a real viem personal-sign signature signs in, and the operator's
 // acceptAuthorization records it with LearningResultsV4.authorize. Explicit
@@ -53,6 +54,13 @@ import {
 } from "../services/learning-sign-in.ts";
 import type { ResultStore } from "../services/learning-transactions.ts";
 import type { Env } from "../services/runtime.ts";
+import {
+  scopeOf,
+  headKey,
+  bootstrapKey,
+  type WithdrawalHead,
+} from "../services/study-linked-withdrawal-contract.ts";
+import { guardLinkedWithdrawal } from "../services/study-linked-withdrawal.ts";
 
 const publisher = privateKeyToAccount(`0x${"12".repeat(32)}`);
 const deployment = JSON.parse(
@@ -91,30 +99,12 @@ async function fixture(port: number) {
     await sync();
   };
   await sync();
-  let rows = new Map<string, unknown>();
-  const store: ResultStore = {
-    get: <T>(key: string) => rows.get(key) as T | undefined,
-    set: (key, value) => {
-      rows.set(key, JSON.parse(JSON.stringify(value)));
-    },
-    delete: (key) => {
-      rows.delete(key);
-    },
-    entries: (prefix) =>
-      [...rows]
-        .filter(([key]) => key.startsWith(prefix))
-        .map(([key, value]) => ({ key, value })),
-    transaction: <T>(fn: () => T) => {
-      const prior = new Map(rows);
-      try {
-        return fn();
-      } catch (error) {
-        rows = prior;
-        throw error;
-      }
-    },
+  const authority = currentOperatorAuthorityFixture({
     now: () => now + skew,
-  };
+    rpcUrl: evm.rpcUrl,
+  });
+  await authority.selectV4(communityId, v4);
+  const store = authority.store;
   const operatorEnv = {
     RPC_URL: evm.rpcUrl,
     PAYMENT_CHAIN_ID: "31337",
@@ -272,9 +262,14 @@ async function fixture(port: number) {
     practise,
     authorization,
     session,
-    scheduled: () => communityScheduled(env, ports),
+    scheduled: async () => {
+      await authority.recover();
+      await communityScheduled(env, ports);
+      await authority.recover();
+    },
     count: (prefix: string) => store.entries(prefix).length,
     async stop() {
+      authority.close();
       await runtime.dispose();
       await stopChain(evm);
     },
@@ -435,7 +430,13 @@ test(
       f.setOperatorDown(false);
       await f.advance(AUTHORIZATION_RELAY_WINDOW_S + 60);
       // The chain refuses it even when the operator's clock lags behind.
-      const lagging = { ...f.store, now: () => Number(s.message.issuedAt) };
+      const lagging = new Proxy(f.store, {
+        get(target, key) {
+          if (key === "now") return () => Number(s.message.issuedAt);
+          const value = Reflect.get(target, key);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
       await assert.rejects(
         acceptAuthorization(f.operatorEnv, lagging, s.message, s.signature),
         /^Error: stale_sign_in$/,
@@ -482,7 +483,7 @@ test(
       const s = await f.signIn(learner);
       // The learner withdraws directly on chain after signing in.
       await f.advance(1);
-      await f.evm.write(
+      const withdrawalReceipt = await f.evm.write(
         f.v4,
         "LearningResultsV4",
         "revoke",
@@ -519,6 +520,66 @@ test(
       assert.equal(verified.status, 200);
       const session = (await verified.json()) as { csrf: string };
       assert.equal(await f.read("authorizedSince", [learner.address]), 0n);
+      const scope = scopeOf({
+        communityId: f.operatorEnv.COMMUNITY_ID,
+        learner: learner.address,
+        target: { chainId: 31337, version: 4, contract: f.v4 },
+      });
+      const observe = async (spelling: Address) =>
+        await (
+          await (f.env.KARAOKE_OPERATOR as Fetcher).fetch(
+            `http://service/authorization/${spelling}`,
+          )
+        ).json();
+      // Positive chain withdrawal is still a truthful linked hold until the
+      // actual selected source/Store proof and bounded alarm recovery finish.
+      assert.deepEqual(
+        await observe(learner.address.toLowerCase() as Address),
+        {
+          since: 0,
+          revokedAt: Number(revokedAt),
+          revocationNonce: "1",
+          linkedWithdrawalPending: true,
+        },
+      );
+      assert.equal(f.count("tx:"), 0);
+      assert.equal(f.count("sponsor:reservation:"), 0);
+      const safeBefore = await f.evm.publicClient.getBlock({ blockTag: "safe" });
+      assert.ok(safeBefore.number < withdrawalReceipt.blockNumber);
+      assert.ok(safeBefore.timestamp < revokedAt);
+      // Anvil's unchanged default safe anchor trails by 32 blocks. Time alone
+      // does not mature it: mine real descendants of the original withdrawal.
+      await f.evm.rpc("anvil_mine", ["0x20"]);
+      await f.sync();
+      await f.advance(6);
+      const safeAfter = await f.evm.publicClient.getBlock({ blockTag: "safe" });
+      assert.ok(safeAfter.number >= withdrawalReceipt.blockNumber);
+      assert.ok(safeAfter.timestamp >= revokedAt);
+      const dueWork = f.store.entries("linkedWithdrawalWork:");
+      assert.ok(dueWork.length > 0);
+      assert.ok(
+        dueWork.every(({ value }) => (value as { due: number }).due <= f.now()),
+      );
+      await f.scheduled();
+      assert.deepEqual(
+        await observe(learner.address.toLowerCase() as Address),
+        {
+          since: 0,
+          revokedAt: Number(revokedAt),
+          revocationNonce: "1",
+        },
+      );
+      const recoveredHead = f.store.get<WithdrawalHead>(headKey(scope))!;
+      assert.equal(recoveredHead.openProofs, 0);
+      assert.equal(recoveredHead.sealed, true);
+      assert.equal(recoveredHead.cutoffS, Number(revokedAt));
+      assert.equal(recoveredHead.nextNonce, "1");
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(s.message.issuedAt)),
+        true,
+      );
+      assert.equal(f.count("tx:"), 0);
+      assert.equal(f.count("sponsor:reservation:"), 0);
       // Only an explicit settings action allows the next login to authorize.
       assert.equal(
         (
@@ -552,6 +613,33 @@ test(
         revokedAt: Number(revokedAt),
         revocationNonce: "1",
       });
+      const retainedOperations = f.store.entries("linkedWithdrawalOperation:");
+      const retainedHead = f.store.get(headKey(scope));
+      const retainedBootstrap = f.store.get(bootstrapKey);
+      const sponsorship = f.store.entries("sponsor:");
+      for (const spelling of [
+        learner.address.toLowerCase() as Address,
+        learner.address,
+      ]) {
+        assert.deepEqual(await observe(spelling), live);
+        assert.deepEqual(
+          f.store.entries("linkedWithdrawalOperation:"),
+          retainedOperations,
+        );
+        assert.deepEqual(f.store.get(headKey(scope)), retainedHead);
+        assert.deepEqual(f.store.get(bootstrapKey), retainedBootstrap);
+        assert.deepEqual(f.store.entries("sponsor:"), sponsorship);
+      }
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(after.message.issuedAt)),
+        false,
+      );
+      assert.equal(
+        guardLinkedWithdrawal(f.store, scope, Number(s.message.issuedAt)),
+        true,
+      );
+      assert.equal(await f.read("revokedAt", [learner.address]), revokedAt);
+      assert.equal(await f.read("nextNonce", [learner.address]), 1n);
     } finally {
       await f.stop();
     }

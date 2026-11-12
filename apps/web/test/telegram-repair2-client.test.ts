@@ -46,6 +46,7 @@ for (const mode of [
     const delayed = delayedResponse(mode === "server-error" ? 403 : 200);
     const client = telegramConnectionClient({
       account: () => account,
+      generation: () => 0,
       csrf: () => "csrf",
       fetch: (async () => delayed.response) as typeof fetch,
     });
@@ -87,6 +88,7 @@ test("delayed completion body cannot acknowledge another account or consume its 
   const delayed = delayedResponse();
   const client = telegramConnectionClient({
     account: () => account,
+    generation: () => 0,
     csrf: () => "csrf",
     fetch: (async () =>
       ++calls === 1
@@ -113,6 +115,7 @@ test("a delayed body still returns to its unchanged account", async () => {
   const delayed = delayedResponse(),
     client = telegramConnectionClient({
       account: () => "account-a",
+      generation: () => 0,
       csrf: () => "csrf",
       fetch: (async () => delayed.response) as typeof fetch,
     });

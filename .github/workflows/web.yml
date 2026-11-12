@@ -45,6 +45,7 @@ jobs:
           npm ci --ignore-scripts --prefix apps/web
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:components
       - run: npm run build
       - run: npm run build:live
       - run: npx playwright install --with-deps chromium
@@ -52,6 +53,8 @@ jobs:
       - run: npm run test:e2e:live
       - name: Wallet identity and Send recovery browser regressions
         run: npm run test:e2e:wallet
+      - name: Profile, player and browser storage regressions
+        run: npm run test:e2e:owner-ui
       - name: Reproduce the release from two clean builds
         run: node scripts/reproducible.ts "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4

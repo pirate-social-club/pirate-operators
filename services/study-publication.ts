@@ -1,3 +1,4 @@
+import { guardLinkedPublication } from "./study-linked-withdrawal.ts";
 // Durable Study publication. Only the compact public bundle survives validation;
 // private lesson state and transcripts never enter transaction calldata.
 import { encodeFunctionData, zeroHash, type Hex } from "viem";
@@ -102,6 +103,13 @@ const durable = <T>(value: T): T =>
   );
 export const studyPublication = (store: ResultStore, id: string) =>
   store.get<PublicationJob>(key(id))?.receipt ?? closedStudyReceipt(store, id);
+
+/** Pending must throw before permanent closure; true permanent denial still
+ * permits private closure. Malformed binding errors are never swallowed. */
+function guardPrivateState(env: Env, store: ResultStore, id: string) {
+  const linked = telegramResultPublication(env, store, reference(id));
+  if (linked) guardLinkedPublication(store, linked);
+}
 
 export function saveReceipt(
   store: ResultStore,
@@ -482,17 +490,25 @@ export async function resumeStudyPublication(
   // private. Both keep the bounded private-history erasure.
   if (job.target.version === 4 && intent?.nonce == null) {
     const telegram = telegramResultPublication(env, store, ref);
-    if (
-      telegram &&
-      (telegramStudyDenied(store, telegram.fence, telegram.context) ||
-        !(await resolveTelegramStudyFence(
-          env.STUDY_TELEGRAM_AUTHORITY,
-          telegram.fence,
-          telegram.context,
-        )) ||
-        telegramStudyDenied(store, telegram.fence, telegram.context))
-    )
-      return keepPrivate(env, store, id, job, "authorization_withdrawn");
+    if (telegram) {
+      const before = guardLinkedPublication(store, telegram);
+      const allowed =
+        before || telegramStudyDenied(store, telegram.fence, telegram.context)
+          ? false
+          : await resolveTelegramStudyFence(
+              env.STUDY_TELEGRAM_AUTHORITY,
+              telegram.fence,
+              telegram.context,
+            );
+      const after = guardLinkedPublication(store, telegram);
+      if (
+        before ||
+        after ||
+        telegramStudyDenied(store, telegram.fence, telegram.context) ||
+        !allowed
+      )
+        return keepPrivate(env, store, id, job, "authorization_withdrawn");
+    }
     if (Number(job.result.status) !== 1)
       return keepPrivate(env, store, id, job, "unfinished");
     // The contract's publish rule, re-read just before dispatch.
@@ -502,6 +518,7 @@ export async function resumeStudyPublication(
       job.result.learner,
       job.result.enrollmentId,
     );
+    guardPrivateState(env, store, id);
     if (
       !permission.ownedBy ||
       !permission.unbroken ||
@@ -617,6 +634,7 @@ async function keepCancelled(
   job: PublicationJob,
   row: TxRow,
 ) {
+  guardPrivateState(env, store, id);
   const unsent = provenUnsent(row);
   const receipt = saveReceipt(store, id, job, {
     ...job.receipt,
@@ -643,35 +661,53 @@ async function keepPrivate(
   job: PublicationJob,
   reason: "enrollment_inactive" | "unfinished" | "authorization_withdrawn",
 ) {
-  // Every caller decided before a nonce was allocated. Withdraw the result's
-  // own transaction if it is queued without one, so nothing can send it
-  // later; if a nonce was allocated meanwhile, it may be on its way.
-  if (!withdrawUnsentResult(env, store, "record_result", reference(id)))
-    return job.receipt;
-  // Re-check after asynchronous grant reads. A competing queued native
-  // operation is recovery evidence, even before it receives a nonce.
-  if (
-    !(await proveNeverSubmittedStudy(env, store, id, job)) ||
-    studyNativeEvidence(store, id)
-  )
-    return job.receipt;
-  releaseSponsorship(
-    store,
-    sponsorLimits(env),
-    "record_result:" + reference(id),
-  );
-  releaseSponsorship(
-    store,
-    sponsorLimits(env),
-    "record_result:study:" + id + ":2",
-  );
-  const receipt = saveReceipt(store, id, job, {
-    ...job.receipt,
-    state: "private",
-    confirmed: false,
-    reason,
-    neverSubmitted: true,
-    checkedAt: store.now(),
+  guardPrivateState(env, store, id);
+  // Observe absence while retaining the exact queued first intent and charge.
+  // Only that still-unallocated intent may be excluded from cleanup evidence;
+  // any nonce, orphan/native row or other charged work remains a veto.
+  const absent = await proveNeverSubmittedStudy(env, store, id, job, true);
+  guardPrivateState(env, store, id);
+  if (!absent || studyNativeEvidence(store, id, true)) return job.receipt;
+  const receipt = store.transaction(() => {
+    guardPrivateState(env, store, id);
+    const current = store.get<PublicationJob>(key(id));
+    if (
+      !current ||
+      current.requestHash !== job.requestHash ||
+      (current.observationRevision ?? 0) !== (job.observationRevision ?? 0) ||
+      canonical(current.receipt) !== canonical(job.receipt)
+    )
+      return current?.receipt ?? job.receipt;
+    const queued = intentOf(store, "record_result", reference(id));
+    check(
+      !queued ||
+        (queued.to.toLowerCase() === job.target.contract.toLowerCase() &&
+          queued.data === job.data),
+      "result_transaction_changed",
+    );
+    if (!withdrawUnsentResult(env, store, "record_result", reference(id)))
+      return current.receipt;
+    // No await occurs between these guards, native retirement and receipt CAS.
+    guardPrivateState(env, store, id);
+    releaseSponsorship(
+      store,
+      sponsorLimits(env),
+      "record_result:" + reference(id),
+    );
+    releaseSponsorship(
+      store,
+      sponsorLimits(env),
+      "record_result:study:" + id + ":2",
+    );
+    guardPrivateState(env, store, id);
+    return saveReceipt(store, id, job, {
+      ...job.receipt,
+      state: "private",
+      confirmed: false,
+      reason,
+      neverSubmitted: true,
+      checkedAt: store.now(),
+    });
   });
   return (
     (await eraseNeverSubmittedStudy(env, store, id, { ...job, receipt })) ??

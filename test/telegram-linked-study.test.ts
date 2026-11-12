@@ -1,3 +1,6 @@
+import { telegramLinkedStudy } from "../services/telegram-linked-study.ts";
+import { TelegramGrants } from "../services/telegram-grants.ts";
+import { managedFixture } from "./telegram-managed-fixture.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { botFixture } from "./telegram-bot-fixture.ts";
@@ -239,7 +242,7 @@ test("unlink before queued connected speech prevents grading and publication", a
   await f.webhook(update);
   for (const row of f.store.entries<string>("update-ready:"))
     await f.bot.processUpdate(row.value);
-  f.grants.unlink(actor, account.accountId);
+  await linked.unlink();
   await f.bot.tick();
   assert.equal(linked.calls(), 0);
   assert.equal(linked.entries(), 0);
@@ -278,17 +281,24 @@ test("returning linked learner resumes in chat without using a browser session",
   assert.ok(linked.authorityCalls() > 0);
 });
 
-test("a legacy Study factory without the durable Telegram publication fence is held before speech", async (t) => {
+test("missing or foreign managed lifecycle is held before connected speech", async (t) => {
   const f = await botFixture();
   t.after(f.dispose);
   const linked = await linkedStudyFixture(f);
   await connect(f);
-  linked.fenceVersion(0);
-  const grant = await f.grants.assert(actor),
-    song = await f.catalog.song(actor, "song-one", grant);
-  await assert.rejects(
-    linked.adapter.start(actor, grant, song, "telegram_fence_fixture_123"),
-    /publication_fence_required/,
+  assert.throws(
+    () =>
+      telegramLinkedStudy({
+        ...linked.options,
+        publication: undefined as unknown as typeof linked.publication,
+      }),
+    /managed_publication_required/,
+  );
+  const otherGrants = new TelegramGrants(f.store, f.grants.accounts, f.now);
+  const foreign = managedFixture(otherGrants).publication;
+  assert.throws(
+    () => telegramLinkedStudy({ ...linked.options, publication: foreign }),
+    /managed_publication_required/,
   );
   assert.equal(linked.calls(), 0);
   assert.equal(linked.entries(), 0);

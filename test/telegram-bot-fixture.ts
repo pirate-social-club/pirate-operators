@@ -1,3 +1,4 @@
+import type { TelegramManagedPublication } from "../services/telegram-managed-publication.ts";
 import { sha256 } from "viem";
 import { actor, linkFixture } from "./telegram-fixture.ts";
 import { TelegramTrialLessons } from "../services/telegram-trial.ts";
@@ -246,15 +247,15 @@ export async function botFixture(
     },
     recover: async (id) => deliveryReceipts.get(id) ?? null,
   } satisfies import("../packages/telegram/messages.ts").TelegramDeliveryPort;
-  const outbox = new TelegramOutbox(grants, delivery),
-    views = new TelegramBotViews({
-      linking: f.linking,
-      study,
-      catalog,
-      linked,
-      origin: "https://community.example",
-    });
-  const botOptions = {
+  let outbox = new TelegramOutbox(grants, delivery);
+  const views = new TelegramBotViews({
+    linking: f.linking,
+    study,
+    catalog,
+    linked,
+    origin: "https://community.example",
+  });
+  let botOptions = {
       views,
       outbox,
       scope: actor,
@@ -348,8 +349,17 @@ export async function botFixture(
   }
   return {
     ...f,
-    bot,
-    botOptions,
+    get bot() {
+      return bot;
+    },
+    get botOptions() {
+      return botOptions;
+    },
+    mountPublication(publication: TelegramManagedPublication) {
+      outbox = new TelegramOutbox(grants, delivery, undefined, publication);
+      botOptions = { ...botOptions, outbox };
+      bot = new TelegramBot(botOptions);
+    },
     study,
     trial,
     speech,
@@ -357,7 +367,9 @@ export async function botFixture(
     catalog,
     linked,
     views,
-    outbox,
+    get outbox() {
+      return outbox;
+    },
     sent,
     reservations,
     providerReceipts,

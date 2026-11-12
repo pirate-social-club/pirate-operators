@@ -1,3 +1,5 @@
+import { guardLinkedPublication } from "./study-linked-withdrawal.ts";
+import { telegramResultPublication } from "./study-telegram-publication.ts";
 // A private/failed label is not proof that transaction recovery can be erased.
 import { zeroHash } from "viem";
 import { check } from "../packages/protocol/index.ts";
@@ -70,12 +72,17 @@ export function closeOrphanStudyBinding(
  * or another transaction: that intent, row and charge prove the result can
  * never be published. A cancellation not yet mined is not enough.
  */
-export function studyNativeEvidence(store: ResultStore, id: string) {
+export function studyNativeEvidence(
+  store: ResultStore,
+  id: string,
+  allowUnallocatedFirst = false,
+) {
   const ref = "study:" + id + ":",
     first = ref + "1";
   const nonce = store.get<{ nonce: number | null }>(
     "intent:record_result:" + first,
   )?.nonce;
+  const unallocatedFirst = allowUnallocatedFirst && nonce === null;
   const own =
     nonce == null
       ? undefined
@@ -90,7 +97,11 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
     store
       .entries("intent:record_result:" + ref)
       .some(
-        ({ key }) => !(cancelled && key === "intent:record_result:" + first),
+        ({ key }) =>
+          !(
+            (cancelled || unallocatedFirst) &&
+            key === "intent:record_result:" + first
+          ),
       ) ||
     store.entries("tx:").some(({ value }) => {
       const row = value as TxRow;
@@ -101,7 +112,8 @@ export function studyNativeEvidence(store: ResultStore, id: string) {
       .some(
         ({ key, value }) =>
           !(
-            cancelled && key === "sponsor:reservation:record_result:" + first
+            (cancelled || unallocatedFirst) &&
+            key === "sponsor:reservation:record_result:" + first
           ) &&
           !["reserved", "released"].includes(
             (value as { state: string }).state,
@@ -143,11 +155,18 @@ export const proveNeverSubmittedStudy = (
   store: ResultStore,
   id: string,
   job: PublicationJob,
+  allowUnallocatedFirst = false,
 ) =>
-  proveStudyCleanupIdentity(env, store, id, {
-    target: job.target,
-    sessionId: job.result.sessionId,
-  });
+  proveStudyCleanupIdentity(
+    env,
+    store,
+    id,
+    {
+      target: job.target,
+      sessionId: job.result.sessionId,
+    },
+    () => studyNativeEvidence(store, id, allowUnallocatedFirst),
+  );
 
 export async function eraseNeverSubmittedStudy(
   env: Env,
@@ -157,14 +176,22 @@ export async function eraseNeverSubmittedStudy(
 ) {
   const closed = closedStudyPublication(store, id);
   if (closed) return closedStudyReceipt(store, id)!;
+  const guard = () => {
+    const linked = telegramResultPublication(env, store, "study:" + id + ":1");
+    if (linked) guardLinkedPublication(store, linked);
+  };
+  guard();
   if (
     !["private", "failed"].includes(job.receipt.state) ||
     !Number.isSafeInteger(job.privateHistoryExpiresAt) ||
-    job.privateHistoryExpiresAt > store.now() * 1000 ||
-    !(await proveNeverSubmittedStudy(env, store, id, job))
+    job.privateHistoryExpiresAt > store.now() * 1000
   )
     return null;
+  const absent = await proveNeverSubmittedStudy(env, store, id, job);
+  guard();
+  if (!absent) return null;
   return store.transaction(() => {
+    guard();
     const current = store.get<PublicationJob>("studyPublication:" + id);
     if (
       !current ||

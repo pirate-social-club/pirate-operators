@@ -2,7 +2,27 @@
 // nothing here deploys, binds credentials or publishes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import {
+  readFile,
+  readdir,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { join } from "node:path";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { Miniflare } from "miniflare";
+import { communityMigrations } from "../harness/package-migrations.ts";
+import { reviewedPredecessor } from "../harness/reviewed-update.ts";
+import { durableJson, digest } from "../harness/private-json.ts";
+import {
+  ownerMigrationRecords,
+  applyOwnerMigrationRecords,
+  ownerMigrationLedger,
+  migrationSha,
+} from "./owner-publishing-migration-fixture.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { hashJson } from "../packages/community/common.ts";
 import {
@@ -12,6 +32,7 @@ import {
 import {
   ownerGrantDigest,
   validateOwnerGrant,
+  reserveOwnerBudget,
 } from "../packages/release/owner-grant.ts";
 import { learningCommunityProfile } from "../harness/learning-community-profile.ts";
 import { studyReleaseSelection } from "../harness/study-release-profile.ts";
@@ -19,6 +40,7 @@ import { selectionFixture } from "./fixtures/study-release.ts";
 import { rewardHash, rewardTestProfile } from "./manual-rewards-fixture.ts";
 import {
   assertRewardsApplicationUpgrade,
+  assertRewardsFollowLearningV4,
   rewardsReleaseSelection,
 } from "../harness/rewards-release-profile.ts";
 import {
@@ -570,4 +592,495 @@ test("infrastructure binds the owner values or the registered values, never both
       }),
     /owner_publishing_binding_invalid/,
   );
+});
+
+// Current selector -> actual reviewed-update router -> pinned Alchemy/D1.
+// The legacy profiles below are existing signed fixture scope, not new admitted
+// deployment baselines. Nothing invokes a build, provider or deployment runner.
+const migrationDirectory = "apps/community-wizard/infra/migrations";
+const wizardMigrationRequire = createRequire(
+  new URL("../apps/community-wizard/package.json", import.meta.url),
+);
+const sqlMigrationRequire = createRequire(
+  wizardMigrationRequire.resolve("@alchemy.run/cloudflare/D1/Database"),
+);
+const migrationRegistry = await import(
+  pathToFileURL(sqlMigrationRequire.resolve("@alchemy.run/sql/Migrations")).href
+);
+async function selectedUpgradeProfiles() {
+  const names = await readdir(migrationDirectory);
+  const legacy = await rewardsApplication();
+  const chosen = await selection();
+  const currentBase: Record<string, any> = {
+    ...structuredClone(legacy),
+    migrations: communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: false,
+      v4: false,
+    }),
+  };
+  const ownerProfile = (previous: Record<string, any>, migrations: string[]) =>
+    communityPublishingProfile(
+      {
+        ...structuredClone(previous),
+        migrations,
+        managedProfileHash: "0x" + "5".repeat(64),
+      },
+      chosen,
+    ) as Record<string, any>;
+  const legacyOwner = ownerProfile(legacy, [
+    ...legacy.migrations,
+    "0012_owner_budget_windows.sql",
+  ]);
+  const owner = ownerProfile(
+    currentBase,
+    communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: false,
+    }),
+  );
+  const v4 = learningV4ReleaseSelection({
+    schema: "pirate.learning-v4-release-selection/1",
+    chainId: 6343,
+    contract: "0x" + "c4".repeat(20),
+    codeHash: "0x" + "4c".repeat(32),
+    controller: "0x" + "c7".repeat(20),
+    publicationPolicy: learningV4PublicityPolicy,
+    policyVersion: 4,
+    communityOrigin: owner.origin,
+  });
+  const withV4 = (
+    previous: Record<string, any>,
+    migrations: string[],
+  ): Record<string, any> => ({
+    ...structuredClone(previous),
+    migrations,
+    learningV4: v4,
+    rewards: rewardsReleaseSelection({
+      ...previous.rewards,
+      successors: [
+        {
+          ...previous.rewards.source,
+          schema: "pirate.reward-result-source/2",
+          version: 4,
+          contract: v4.contract,
+          codeHash: v4.codeHash,
+          fromBlock: "2",
+        },
+      ],
+    }),
+  });
+  const legacyV4 = withV4(legacyOwner, [
+    ...legacyOwner.migrations,
+    "0013_learning_authorization.sql",
+  ]);
+  const currentV4 = withV4(
+    owner,
+    communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: true,
+    }),
+  );
+  const retained: Record<string, any>[] = [
+    { rewardClosure: true },
+    { media: true },
+    { rewardClosure: true, media: true, dance: true },
+  ].map((optional) => ({
+    ...structuredClone(currentV4),
+    migrations: communityMigrations(names, {
+      rewards: true,
+      ownerPublishing: true,
+      v4: true,
+      ...optional,
+    }),
+  }));
+  return {
+    legacy,
+    currentBase,
+    legacyOwner,
+    owner,
+    legacyV4,
+    currentV4,
+    retained,
+  };
+}
+async function reviewedSchemaPair(
+  previous: Record<string, any>,
+  next: Record<string, any>,
+) {
+  await mkdir(".local", { recursive: true });
+  const directory = await mkdtemp(
+    join(process.cwd(), ".local/owner-schema-upgrade-"),
+  );
+  const previousProfileHash = hashJson(previous);
+  const previousPlanPath = join(directory, "previous-plan.json");
+  await durableJson(previousPlanPath, {
+    profile: previous,
+    profileHash: previousProfileHash,
+  });
+  await durableJson(join(directory, "execution.json"), {
+    profileHash: previousProfileHash,
+  });
+  await durableJson(join(directory, "deployment-result.json"), {
+    profileHash: previousProfileHash,
+    fixture: "retained predecessor receipt",
+  });
+  const profile = {
+    ...structuredClone(next),
+    reviewedUpdate: {
+      previousPlanPath,
+      previousProfileHash,
+      expectedExecutionSha256: digest(
+        await readFile(join(directory, "execution.json")),
+      ),
+      expectedResultSha256: digest(
+        await readFile(join(directory, "deployment-result.json")),
+      ),
+    },
+  };
+  return {
+    directory,
+    packaged: { profile, profileHash: hashJson(profile) },
+    dispose: () => rm(directory, { recursive: true, force: true }),
+  };
+}
+async function assertReviewedSchemaPair(
+  previous: Record<string, any>,
+  next: Record<string, any>,
+) {
+  assertRewardsFollowLearningV4(next.rewards, next.learningV4);
+  const f = await reviewedSchemaPair(previous, next);
+  try {
+    assert.equal(
+      (await reviewedPredecessor(f.directory, f.packaged)).adopted,
+      false,
+    );
+  } finally {
+    await f.dispose();
+  }
+}
+
+test("selector-produced current publishing and V4 histories pass the actual reviewed-update chain with predecessor pins intact", async () => {
+  const p = await selectedUpgradeProfiles();
+  for (const [previous, next] of [
+    [p.legacy, p.owner],
+    [p.currentBase, p.owner],
+    [p.owner, structuredClone(p.owner)],
+    [p.legacyOwner, p.currentV4],
+    [p.owner, p.currentV4],
+    [p.legacyV4, p.currentV4],
+    [p.currentV4, structuredClone(p.currentV4)],
+    ...p.retained.map((profile) => [profile, structuredClone(profile)]),
+  ])
+    await assertReviewedSchemaPair(previous!, next!);
+  for (const receipt of [
+    "execution.json",
+    "deployment-result.json",
+    "previous-plan.json",
+  ]) {
+    const f = await reviewedSchemaPair(p.owner, p.currentV4);
+    try {
+      await writeFile(
+        join(f.directory, receipt),
+        JSON.stringify({ profileHash: hashJson({ changed: receipt }) }),
+        { mode: 0o600 },
+      );
+      await assert.rejects(
+        reviewedPredecessor(f.directory, f.packaged),
+        /reviewed_update_(plan|execution|result)_changed/,
+      );
+    } finally {
+      await f.dispose();
+    }
+  }
+});
+
+test("current selected schemas refuse unknown or removed history and cannot activate optional features or change rights", async () => {
+  const p = await selectedUpgradeProfiles();
+  for (const mutate of [
+    (profile: any) => {
+      profile.migrations = profile.migrations.filter(
+        (m: string) => m !== "0019_community_profiles.sql",
+      );
+    },
+    (profile: any) => {
+      profile.migrations = profile.migrations.filter(
+        (m: string) => m !== "0018_learning_authority.sql",
+      );
+    },
+    (profile: any) => profile.migrations.push("0020_unknown.sql"),
+    (profile: any) => profile.migrations.reverse(),
+    (profile: any) =>
+      profile.migrations.push("0013_learning_authorization.sql"),
+    (profile: any) => {
+      profile.resources = [];
+    },
+    (profile: any) => profile.bounds.providerRequests++,
+    (profile: any) => {
+      profile.publisher = "0x" + "77".repeat(20);
+    },
+    (profile: any) => {
+      profile.credentialBinding = { changed: true };
+    },
+    (profile: any) => {
+      profile.learning.issuer = "0x" + "77".repeat(20);
+    },
+    (profile: any) => {
+      profile.learningV4.codeHash = "0x" + "77".repeat(32);
+    },
+    (profile: any) => {
+      profile.rewards.source.fromBlock = "3";
+    },
+  ]) {
+    const altered = structuredClone(p.currentV4);
+    mutate(altered);
+    const f = await reviewedSchemaPair(p.currentV4, altered);
+    try {
+      await assert.rejects(reviewedPredecessor(f.directory, f.packaged), Error);
+    } finally {
+      await f.dispose();
+    }
+  }
+  for (const profile of p.retained) {
+    assert.throws(
+      () => assertLearningV4ApplicationUpgrade(p.currentV4, profile),
+      /learning_v4_migrations_changed/,
+    );
+    assert.throws(
+      () => assertLearningV4ApplicationUpgrade(profile, p.currentV4),
+      /learning_v4_migrations_changed/,
+    );
+  }
+  for (const missing of [
+    "0014_reward_closure_snapshots.sql",
+    "0015_community_media.sql",
+    "0016_dance.sql",
+  ]) {
+    const incomplete = structuredClone(p.retained[2]!);
+    incomplete.migrations = incomplete.migrations.filter(
+      (m: string) => m !== missing,
+    );
+    assert.throws(
+      () =>
+        assertLearningV4ApplicationUpgrade(
+          incomplete,
+          structuredClone(incomplete),
+        ),
+      /learning_v4_migrations_changed/,
+    );
+  }
+  const changedOwner = communityPublishingProfile(
+    structuredClone(p.currentV4),
+    await selection(undefined, { ownerWallet: "0x" + "cd".repeat(20) }),
+  );
+  assert.throws(
+    () => assertLearningV4ApplicationUpgrade(p.currentV4, changedOwner),
+    /owner_publishing_scope_changed/,
+  );
+  for (const migrations of [
+    p.owner.migrations.filter(
+      (m: string) => m !== "0019_community_profiles.sql",
+    ),
+    [...p.owner.migrations, "0020_unknown.sql"],
+  ])
+    assert.throws(
+      () =>
+        assertPublishingApplicationUpgrade(p.currentBase, {
+          ...p.owner,
+          migrations,
+        }),
+      /owner_publishing_migrations_changed/,
+    );
+});
+
+test("actual Alchemy upgrades insert owner and V4 ordinals behind recorded19 without rewriting ledger rows or retained data", async () => {
+  const p = await selectedUpgradeProfiles();
+  const scenarios = [
+    [p.legacy, p.owner, p.currentV4, structuredClone(p.currentV4)],
+    [p.currentBase, p.owner, p.currentV4, structuredClone(p.currentV4)],
+    [p.legacyV4, p.currentV4, structuredClone(p.currentV4)],
+    ...p.retained.map((profile) => [profile, structuredClone(profile)]),
+  ];
+  for (const profiles of scenarios) {
+    const runtime = new Miniflare({
+      modules: true,
+      script:
+        "export default {fetch(){return new Response('local migration fixture')}}",
+      compatibilityDate: "2026-08-06",
+      d1Databases: ["DB"],
+    });
+    try {
+      const db = await runtime.getD1Database("DB");
+      let ledger: Awaited<ReturnType<typeof ownerMigrationLedger>> = [];
+      let retainedLedgerRows: Record<string, unknown>[] = [];
+      const fullLedger = async () =>
+        (
+          await db
+            .prepare("SELECT * FROM __alchemy_migrations ORDER BY id")
+            .all<Record<string, unknown>>()
+        ).results;
+      let seeded = false,
+        profileSeeded = false,
+        charged = false;
+      let spending: unknown = null;
+      const storedProfile = () =>
+        db
+          .prepare(
+            "SELECT * FROM community_profiles WHERE account_id='upgrade-account'",
+          )
+          .first();
+      const budgets = async () =>
+        (
+          await db.batch([
+            db.prepare("SELECT * FROM owner_budget_windows ORDER BY scope"),
+            db.prepare(
+              "SELECT * FROM spending_budgets ORDER BY scope,period,asset",
+            ),
+            db.prepare(
+              "SELECT * FROM spending_reservations ORDER BY reservation_id,scope,period,asset",
+            ),
+          ])
+        ).map((r) => r.results);
+      let retainedProfile: unknown = null;
+      for (let index = 0; index < profiles.length; index++) {
+        const profile = profiles[index]!;
+        if (index)
+          await assertReviewedSchemaPair(profiles[index - 1]!, profile);
+        const records = await ownerMigrationRecords(
+          profile.migrations.map(
+            (name: string) => `${migrationDirectory}/${name}`,
+          ),
+        );
+        assert.equal(
+          migrationRegistry.rewrittenMigrationHistory(
+            Object.fromEntries(ledger.map(({ name, hash }) => [name, hash])),
+            Object.fromEntries(records.map(({ name, hash }) => [name, hash])),
+          ),
+          undefined,
+        );
+        await applyOwnerMigrationRecords(db, records);
+        const known = new Set(ledger.map((row) => row.name));
+        // Ledger IDs preserve actual application order. Newly selected12/13/18
+        // append their rows after the original19; the file list stays sorted.
+        ledger = [
+          ...ledger,
+          ...records
+            .filter((record) => !known.has(record.name))
+            .map(({ name, hash }) => ({ name, hash })),
+        ];
+        assert.deepEqual(await ownerMigrationLedger(db), ledger);
+        const newLedgerRows = await fullLedger();
+        assert.deepEqual(
+          newLedgerRows.slice(0, retainedLedgerRows.length),
+          retainedLedgerRows,
+        );
+        retainedLedgerRows = newLedgerRows;
+        if (!seeded) {
+          await db
+            .prepare(
+              "INSERT INTO community_accounts VALUES('upgrade-account','upgrade-author',1)",
+            )
+            .run();
+          seeded = true;
+        }
+        if (
+          profile.migrations.includes("0019_community_profiles.sql") &&
+          !profileSeeded
+        ) {
+          await db
+            .prepare(
+              "INSERT INTO community_profiles(community_id,account_id,revision,display_name,bio) VALUES(?,'upgrade-account',1,'learner','retained profile')",
+            )
+            .bind(
+              profile.ownerPublishing?.ownerGrant.communityId ??
+                p.owner.ownerPublishing.ownerGrant.communityId,
+            )
+            .run();
+          retainedProfile = await storedProfile();
+          profileSeeded = true;
+        }
+        if (profileSeeded)
+          assert.deepEqual(await storedProfile(), retainedProfile);
+        if (profile.ownerPublishing && !charged) {
+          await reserveOwnerBudget(
+            db,
+            profile.ownerPublishing.ownerGrant,
+            "songs",
+            "owner-song:upgrade-preserved",
+            hashJson({ job: "upgrade-preserved" }),
+            "1",
+            2000000001,
+          );
+          spending = await budgets();
+          charged = true;
+        }
+        if (charged) {
+          await reserveOwnerBudget(
+            db,
+            profile.ownerPublishing.ownerGrant,
+            "songs",
+            "owner-song:upgrade-preserved",
+            hashJson({ job: "upgrade-preserved" }),
+            "1",
+            2000086401,
+          );
+          assert.deepEqual(await budgets(), spending);
+        }
+        assert.deepEqual(
+          (await db.prepare("PRAGMA foreign_key_check").all()).results,
+          [],
+        );
+      }
+      const final = profiles.at(-1)!;
+      const records = await ownerMigrationRecords(
+        final.migrations.map((name: string) => `${migrationDirectory}/${name}`),
+      );
+      const target = records.findIndex(
+        (record) => record.name === "0019_community_profiles.sql",
+      );
+      const changed = structuredClone(records);
+      changed[target]!.hash = migrationSha(
+        changed[target]!.sql + "\n-- altered applied source\n",
+      );
+      assert.deepEqual(
+        migrationRegistry.rewrittenMigrationHistory(
+          Object.fromEntries(records.map(({ name, hash }) => [name, hash])),
+          Object.fromEntries(changed.map(({ name, hash }) => [name, hash])),
+        ),
+        { changed: ["0019_community_profiles.sql"], removed: [] },
+      );
+      await assert.rejects(
+        applyOwnerMigrationRecords(db, changed),
+        /does not match the local files/,
+      );
+      assert.deepEqual(
+        migrationRegistry.rewrittenMigrationHistory(
+          Object.fromEntries(records.map(({ name, hash }) => [name, hash])),
+          Object.fromEntries(
+            records
+              .filter((record) => record.name !== "0019_community_profiles.sql")
+              .map(({ name, hash }) => [name, hash]),
+          ),
+        ),
+        { changed: [], removed: ["0019_community_profiles.sql"] },
+      );
+      await assert.rejects(
+        applyOwnerMigrationRecords(
+          db,
+          records.filter(
+            (record) => record.name !== "0019_community_profiles.sql",
+          ),
+        ),
+        /does not match the local files/,
+      );
+      assert.deepEqual(await ownerMigrationLedger(db), ledger);
+      assert.deepEqual(await fullLedger(), retainedLedgerRows);
+      assert.deepEqual(await storedProfile(), retainedProfile);
+      assert.deepEqual(await budgets(), spending);
+    } finally {
+      await runtime.dispose();
+    }
+  }
 });

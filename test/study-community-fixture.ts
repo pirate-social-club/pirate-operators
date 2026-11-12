@@ -3,7 +3,8 @@
 // With `v4`, a LearningResultsV4 contract is also deployed and is the
 // directory's learning records; V3 stays configured for historical lessons.
 import { readFile } from "node:fs/promises";
-import { encodeFunctionData } from "viem";
+import { encodeFunctionData, keccak256 } from "viem";
+import { telegramAuthorityStoreFixture } from "./telegram-authority-store-fixture.ts";
 import { verifyLoginOffline } from "../harness/login-verifier.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "./community-runtime.ts";
@@ -39,10 +40,22 @@ import type {
 
 export async function studyCommunityFixture(
   port: number,
-  options: { v4?: boolean } = {},
+  options: {
+    v4?: boolean;
+    linkedOperator?: boolean;
+    operatorAuthorityStore?: boolean;
+  } = {},
 ) {
-  const f = await learningBindingFixture(port, firstSongFixture.communityId);
+  const f = await learningBindingFixture(
+    port,
+    firstSongFixture.communityId,
+    undefined,
+    { operatorAuthorityStore: options.operatorAuthorityStore },
+  );
   let runtime: Awaited<ReturnType<typeof communityRuntime>> | undefined;
+  let linkedOperator:
+    | ReturnType<typeof telegramAuthorityStoreFixture>
+    | undefined;
   try {
     runtime = await communityRuntime({ v4: options.v4 });
     const v4: Address | undefined = options.v4
@@ -103,6 +116,8 @@ export async function studyCommunityFixture(
     });
     posts.mine();
     let now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
+    if (options.operatorAuthorityStore)
+      f.setOperatorClock(() => Math.floor(now / 1000));
     let calls = 0,
       observations = 0;
     let heard = "",
@@ -138,6 +153,7 @@ export async function studyCommunityFixture(
         3,
       );
     }
+    if (v4 && options.operatorAuthorityStore) await f.enableV4Authority(v4);
     let authorizationDown = false;
     f.env.ISSUER = accounts[1].address;
     f.env.SPEECH_BUDGET = {
@@ -151,12 +167,42 @@ export async function studyCommunityFixture(
         };
       },
     } as never;
-    const store = {
-      ...f.store,
-      now: () => Math.floor(now / 1000),
-      durableStudyWrite: async <T>(operation: () => T) =>
-        f.store.transaction(operation),
-    };
+    if (options.linkedOperator) {
+      if (!v4) throw Error("fixture_linked_v4_required");
+      const code = await f.evm.publicClient.getCode({ address: v4 });
+      if (!code || code === "0x") throw Error("fixture_linked_runtime_missing");
+      linkedOperator = telegramAuthorityStoreFixture({
+        now: () => Math.floor(now / 1000),
+        rpcUrl: f.evm.rpcUrl,
+        sources: [
+          {
+            communityId: config.communityId,
+            target: {
+              chainId: 31337,
+              version: 4,
+              contract: v4.toLowerCase() as Address,
+            },
+            runtimeCodeHash: keccak256(code),
+          },
+        ],
+      });
+      // Preserve any existing original rows before actual indexed discovery.
+      linkedOperator.store.transaction(() => {
+        for (const { key, value } of f.store.entries(""))
+          linkedOperator!.store.set(key, value);
+      });
+      await linkedOperator.initialize();
+    }
+    const store =
+      linkedOperator?.store ??
+      (options.operatorAuthorityStore
+        ? f.store
+        : {
+            ...f.store,
+            now: () => Math.floor(now / 1000),
+            durableStudyWrite: async <T>(operation: () => T) =>
+              f.store.transaction(operation),
+          });
     const binding = {
       async fetch(input: RequestInfo | URL, init?: RequestInit) {
         const request = new Request(input, init);
@@ -244,6 +290,7 @@ export async function studyCommunityFixture(
       call,
       post,
       store,
+      linkedOperator,
       async login(index = 5) {
         const challenge = (await (
           await post("/api/auth/challenge", {
@@ -262,6 +309,7 @@ export async function studyCommunityFixture(
         return {
           cookie: response.headers.get("set-cookie")!.split(";")[0],
           "x-csrf-token": session.csrf,
+          "x-study-account": accounts[index].address,
         };
       },
       async enroll(index = 5) {
@@ -275,12 +323,15 @@ export async function studyCommunityFixture(
         now = Number((await f.evm.publicClient.getBlock()).timestamp) * 1000;
       },
       /** The release step that selects V4: its sign-in schema, migration 0013. */
-      applyV4Migration: () => runtime!.applyV4(),
+      applyV4Migration: async () => {
+        await runtime!.applyV4();
+      },
       /**
        * V4: each pending sign-in is relayed as a learner's first Study or
        * Karaoke start requests it, and the scheduled relay settles the rest.
        */
       async recordSignIns() {
+        if (options.operatorAuthorityStore) await f.recoverAuthority();
         const pending = await runtime!.db
           .prepare(
             "SELECT DISTINCT account_id FROM learning_authorizations WHERE state='pending'",
@@ -289,6 +340,7 @@ export async function studyCommunityFixture(
         for (const { account_id } of pending.results)
           await requestSignInRelay(env, runtime!.db, account_id, now);
         await relayPendingSignIns(env, runtime!.db, now);
+        if (options.operatorAuthorityStore) await f.recoverAuthority();
       },
       authorizationDown: (value: boolean) => {
         authorizationDown = value;
@@ -321,11 +373,13 @@ export async function studyCommunityFixture(
       },
       async dispose() {
         await runtime!.dispose();
+        linkedOperator?.close();
         await f.stop();
       },
     };
   } catch (error) {
     await runtime?.dispose();
+    linkedOperator?.close();
     await f.stop();
     throw error;
   }

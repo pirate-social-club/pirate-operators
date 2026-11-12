@@ -97,8 +97,8 @@ for (const change of ["bot-rotation", "unlink"])
       f.store.get<TelegramStudyWork>(`speech-job:${job.id}`)?.submissionStarted,
       false,
     );
-    if (change === "unlink") f.grants.unlink(actor, account.accountId);
-    else f.grants.configure({ ...actor, generation: 2, enabled: true });
+    if (change === "unlink") await linked.unlink();
+    else await linked.rotate(2);
     paused.release();
     await work;
     assert.equal(linked.calls(), 0);

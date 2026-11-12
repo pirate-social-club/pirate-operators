@@ -61,18 +61,55 @@ export interface RewardOperatorView {
   observedBalanceAtomic: string | null;
   closeReadiness?: RewardCloseReadinessV1;
 }
+import {
+  assertRewardCreditOwner,
+  rewardAccountId,
+  RewardScopeError,
+  assertRewardReadCurrent,
+  type RewardReadLifetime,
+} from "../wallet/private-reward-scope.ts";
+
 export function rewardsData(csrf: string) {
   return {
-    wallet: () => get<RewardWalletView>("/api/rewards/wallet"),
-    async credits() {
+    async wallet(lifetime?: RewardReadLifetime) {
+      assertRewardReadCurrent(lifetime);
+      const value = await get<RewardWalletView>("/api/rewards/wallet", {
+        headers: { "x-csrf-token": csrf },
+        signal: lifetime?.signal,
+      });
+      assertRewardReadCurrent(lifetime);
+      return value;
+    },
+    async credits(expectedAccountId?: string, lifetime?: RewardReadLifetime) {
+      const accountId = rewardAccountId(expectedAccountId);
       const items: RewardCredit[] = [],
         seen = new Set<string>(),
         ids = new Set<string>();
       let cursor: string | null = null;
       for (let page = 0; page < 100; page++) {
-        const value: RewardCreditList = await get<RewardCreditList>(
+        assertRewardReadCurrent(lifetime);
+        const value: RewardCreditList & { accountId?: unknown } = await get<
+          RewardCreditList & { accountId?: unknown }
+        >(
           `/api/rewards/credits?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          {
+            signal: lifetime?.signal,
+            headers: {
+              "x-csrf-token": csrf,
+              "x-pirate-reward-owner": accountId,
+            },
+          },
         );
+        assertRewardReadCurrent(lifetime);
+        if (
+          !value ||
+          typeof value !== "object" ||
+          value.object !== "reward_credit_list" ||
+          rewardAccountId(value.accountId) !== accountId ||
+          !Array.isArray(value.items)
+        )
+          throw new RewardScopeError();
+        assertRewardCreditOwner(value.items, accountId);
         for (const item of value.items) {
           if (ids.has(item.credit_id))
             throw Error(

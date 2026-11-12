@@ -14,7 +14,8 @@ export default mergeConfig(
       },
     },
     build: {
-      outDir: "../../../.local/wallet-browser-dist",
+      outDir:
+        "../../../.local/owner-wallet-verification-cancel-repair-20261111/browser-dist",
       rollupOptions: { input: resolve("test/reward-wallet.fixture.html") },
     },
   }),

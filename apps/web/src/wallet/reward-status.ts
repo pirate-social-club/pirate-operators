@@ -3,7 +3,13 @@ import type {
   RewardWalletView,
 } from "../../../../packages/rewards/contracts.ts";
 
+import {
+  assertRewardCreditOwner,
+  rewardWalletOwner,
+} from "./private-reward-scope.ts";
+
 export function rewardSummary(view: RewardWalletView, credits: RewardCredit[]) {
+  assertRewardCreditOwner(credits, rewardWalletOwner(view));
   let earned = 0n,
     pending = 0n,
     claimable = 0n,

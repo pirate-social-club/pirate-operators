@@ -1,6 +1,7 @@
 // Public configuration only. Reading or validating this input never deploys
 // the V4 contract, grants a grader role or changes the directory; release
-// custody does those. Selecting V4 adds migration 0013 after the deployed 0012.
+// custody does those. V4 requires owner0012, authorization0013 and current
+// authority0018; shared profile0019 remains in the selected package history.
 import { open } from "node:fs/promises";
 import {
   canonical,
@@ -12,9 +13,16 @@ import { learningV4PublicityPolicy } from "../services/learning-policy-v4.ts";
 import { canonicalOriginV4 } from "../packages/protocol/learning-results-v4.ts";
 import {
   LEARNING_AUTHORIZATION_MIGRATION,
-  OWNER_PUBLISHING_MIGRATION,
+  LEARNING_AUTHORITY_MIGRATION,
+  REWARD_CLOSURE_MIGRATION,
+  COMMUNITY_MEDIA_MIGRATION,
+  DANCE_MIGRATION,
+  DANCE_CANONICAL_MIGRATION,
 } from "./package-migrations.ts";
-import { assertPublishingApplicationUpgrade } from "./publishing-release-profile.ts";
+import {
+  assertPublishingApplicationUpgrade,
+  COMMUNITY_PROFILE_MIGRATION,
+} from "./publishing-release-profile.ts";
 
 /** The reviewed LearningResultsV4 deployment a release binds for new work. */
 export interface LearningV4ReleaseSelection {
@@ -101,10 +109,13 @@ export async function readLearningV4ReleaseSelection(path: string) {
 
 /**
  * V4 successor of a deployed Study, rewards and owner publishing application.
- * It appends only migration 0013 after the deployed 0012 and adds the reviewed
- * V4 selection. Once those are stripped, the rest is delegated to the
- * publishing gate, which delegates to the rewards and Study gates. A V4
- * profile may succeed another only with the same selection and migrations.
+ * It adds the reviewed V4 selection and its exact authorization/authority
+ * schema, retaining shared profile19 and any previously selected features.
+ * Historical13-only profiles still reconcile under their original contract.
+ * Current packages carry13/18/19. A retained optional feature is never
+ * activated, removed or rewritten by this gate. After checking this exact
+ * schema transition, delegate unchanged financial/resource/identity intent to
+ * the publishing, rewards and Study gates.
  */
 export function assertLearningV4ApplicationUpgrade(
   previous: Record<string, unknown>,
@@ -141,6 +152,23 @@ export function assertLearningV4ApplicationUpgrade(
   };
   const before = migrations(previous),
     after = migrations(next);
+  const retainedFeatures = [
+    REWARD_CLOSURE_MIGRATION,
+    COMMUNITY_MEDIA_MIGRATION,
+    DANCE_MIGRATION,
+    DANCE_CANONICAL_MIGRATION,
+  ];
+  const features = (names: string[]) =>
+    names.filter((m) => retainedFeatures.includes(m));
+  const dependencies = (names: string[]) =>
+    (features(names).length === 0 ||
+      names.includes(LEARNING_AUTHORIZATION_MIGRATION)) &&
+    (!names.includes(DANCE_MIGRATION) ||
+      (names.includes(REWARD_CLOSURE_MIGRATION) &&
+        names.includes(COMMUNITY_MEDIA_MIGRATION))) &&
+    (!names.includes(DANCE_CANONICAL_MIGRATION) ||
+      names.includes(DANCE_MIGRATION));
+  const additions: string[] = [];
   if (previous.learningV4) {
     insist(
       canonical(learningV4ReleaseSelection(previous.learningV4)) ===
@@ -149,26 +177,52 @@ export function assertLearningV4ApplicationUpgrade(
       409,
     );
     insist(
-      before.at(-1) === LEARNING_AUTHORIZATION_MIGRATION &&
-        canonical(after) === canonical(before),
+      before.includes(LEARNING_AUTHORIZATION_MIGRATION),
       "learning_v4_migrations_changed",
       409,
     );
-  } else
+  } else {
     insist(
-      before.at(-1) === OWNER_PUBLISHING_MIGRATION &&
-        !before.includes(LEARNING_AUTHORIZATION_MIGRATION) &&
-        canonical(after) ===
-          canonical([...before, LEARNING_AUTHORIZATION_MIGRATION]),
+      !before.includes(LEARNING_AUTHORIZATION_MIGRATION) &&
+        !before.includes(LEARNING_AUTHORITY_MIGRATION),
       "learning_v4_migrations_changed",
       409,
     );
+    additions.push(LEARNING_AUTHORIZATION_MIGRATION);
+  }
+  // The current selector adds the authority/profile pair. Name/hash history
+  // is preserved even when those ordinals precede an already-applied19.
+  for (const migration of [
+    LEARNING_AUTHORITY_MIGRATION,
+    COMMUNITY_PROFILE_MIGRATION,
+  ])
+    if (!before.includes(migration) && after.includes(migration))
+      additions.push(migration);
+  insist(
+    canonical(before) === canonical([...before].sort()) &&
+      canonical(after) === canonical([...before, ...additions].sort()) &&
+      canonical(features(after)) === canonical(features(before)) &&
+      dependencies(before) &&
+      dependencies(after) &&
+      (!(
+        after.includes(LEARNING_AUTHORITY_MIGRATION) ||
+        after.includes(COMMUNITY_PROFILE_MIGRATION)
+      ) ||
+        (after.includes(LEARNING_AUTHORITY_MIGRATION) &&
+          after.includes(COMMUNITY_PROFILE_MIGRATION))),
+    "learning_v4_migrations_changed",
+    409,
+  );
   const strip = (p: Record<string, unknown>) => {
     const { learningV4: _, ...rest } = p;
     return {
       ...rest,
       migrations: migrations(p).filter(
-        (m) => m !== LEARNING_AUTHORIZATION_MIGRATION,
+        (m) =>
+          m !== LEARNING_AUTHORIZATION_MIGRATION &&
+          m !== LEARNING_AUTHORITY_MIGRATION &&
+          m !== COMMUNITY_PROFILE_MIGRATION &&
+          !retainedFeatures.includes(m),
       ),
     };
   };

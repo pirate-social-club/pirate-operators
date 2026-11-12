@@ -45,7 +45,8 @@ import {
 import { acceptedByAccount, activationOf, checkActivation, codeOf, designatorOf, nonceOf } from "./accounts.ts";
 import { dispatch, enqueue, intentOf, type TxKind } from "./operator-tx.ts";
 import { operatorQuote } from "./purchases.ts";
-import { signatureChainId, type Env, type Store } from "./runtime.ts";
+import type { Env, Store } from "./runtime.ts";
+import { signatureChainId } from "./service-call.ts";
 
 /**
  * Gas limits with headroom over MegaETH testnet measurements
