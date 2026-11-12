@@ -13,7 +13,11 @@ import {
   type SignIn,
 } from "../packages/protocol/learning-results-v4.ts";
 import { revocationTypes } from "../packages/protocol/learning-results.ts";
-import { check } from "../packages/protocol/index.ts";
+import { check, digest } from "../packages/protocol/index.ts";
+import {
+  stageLinkedWithdrawal,
+  guardLinkedWithdrawal,
+} from "./study-linked-withdrawal.ts";
 import {
   acceptedByAccount,
   activationOf,
@@ -55,6 +59,7 @@ import {
   sameResultsTarget,
   type ResultsTarget,
 } from "./learning-contract.ts";
+import { scopeOf } from "./study-linked-withdrawal-contract.ts";
 import type { Env } from "./runtime.ts";
 import { body } from "./service-call.ts";
 
@@ -339,6 +344,7 @@ export async function resumeAuthorizations(env: Env, store: ResultStore) {
         job.learner,
         BigInt(job.nonce),
         job.signature,
+        job.target,
       );
     } catch {
       /* Retained: an authenticated withdrawal is retried until mined. */
@@ -370,6 +376,22 @@ export async function authorizationState(
     readAt("revokedAt"),
     readAt("nextNonce"),
   ]);
+  // Current readiness may be restored by a later sign-in. The historical
+  // cutoff/nonce is still a withdrawal signal; proof/discovery is independent.
+  if (store && revokedAt > 0n) {
+    check(store.durableStudyWrite, "study_binding_wake_unconfigured");
+    // The stored scope and observation identity must use the same canonical
+    // addresses. Equivalent read spellings cannot restage a recovered hold.
+    const scope = scopeOf({ communityId: env.COMMUNITY_ID, target, learner });
+    await store.durableStudyWrite(() =>
+      stageLinkedWithdrawal(store, {
+        id: digest(["observed", scope, String(revokedAt), String(nonce)]),
+        scope,
+        kind: "observed",
+        identity: { cutoff: String(revokedAt), nonce: String(nonce) },
+      }),
+    );
+  }
   const revocations = `revocationIntent:4:${target.contract.toLowerCase()}:${learner.toLowerCase()}:`;
   const pending = store
     // Durable Object SQLite limits LIKE patterns to 50 bytes. The full
@@ -386,11 +408,24 @@ export async function authorizationState(
       // older snapshot as ready for turn-on until it includes that receipt.
       return row?.mined?.status === "success" && nonce <= BigInt(job.nonce);
     });
+  let linkedPending = false;
+  if (store) {
+    try {
+      guardLinkedWithdrawal(store, {
+        communityId: env.COMMUNITY_ID,
+        target,
+        learner,
+      });
+    } catch {
+      linkedPending = true;
+    }
+  }
   return {
     since: Number(since),
     revokedAt: Number(revokedAt),
     revocationNonce: String(nonce),
     ...(pending ? { pendingWithdrawal: true } : {}),
+    ...(linkedPending ? { linkedWithdrawalPending: true } : {}),
   };
 }
 
@@ -443,8 +478,19 @@ export async function acceptRevocationV4(
   learner: Address,
   nonce: bigint,
   signature: Hex,
+  destination: ResultsTarget = resultsTarget(env, 4),
 ) {
-  const target = resultsTarget(env, 4);
+  // This optional destination is internal recovery input. Public requests use
+  // resultsTarget above; a retained job must never inherit a newer default.
+  const target = destination;
+  check(
+    target.version === 4 &&
+      target.chainId === Number(env.PAYMENT_CHAIN_ID) &&
+      [31337, 6343].includes(target.chainId) &&
+      /^0x[0-9a-f]{40}$/i.test(target.contract) &&
+      BigInt(target.contract) > 0n,
+    "unsupported_results_version",
+  );
   const data = encodeFunctionData({
     abi: resultsV4Abi,
     functionName: "revoke",
@@ -455,7 +501,12 @@ export async function acceptRevocationV4(
   if (!job) {
     // Simulation applies the nonce and signature rules before anything is reserved.
     await client(env).call({ to: target.contract, data });
-    job = {
+  }
+  check(store.durableStudyWrite, "study_binding_wake_unconfigured");
+  // The simulation awaited above is not a lock. Reread the immutable job in
+  // the same durable transaction as the temporary linked fence and wake.
+  job = await store.durableStudyWrite(() => {
+    const candidate: RevocationJobV4 = {
       target,
       learner,
       nonce: String(nonce),
@@ -464,20 +515,45 @@ export async function acceptRevocationV4(
       grantId: revocationIdV4(target, learner, nonce),
       pending: true,
     };
-    store.set(key, job);
-  }
-  check(
-    job.data === data &&
-      sameResultsTarget(retainedTarget(env, job.target), target),
-    "revocation_payload_changed",
-  );
-  // The withdrawal also stops this learner's earlier-version results that
-  // are not yet sent, before the revoke is even mined.
-  if (!legacyResultsWithheld(store, learner))
-    store.set(legacyResultsWithheldKey(learner), {
-      at: store.now(),
-      nonce: job.nonce,
+    const retained = store.get<RevocationJobV4>(key);
+    check(
+      !retained ||
+        (retained.data === data &&
+          retained.signature === signature &&
+          retained.learner.toLowerCase() === learner.toLowerCase() &&
+          retained.nonce === String(nonce) &&
+          retained.grantId === candidate.grantId &&
+          sameResultsTarget(retained.target, target)),
+      "revocation_payload_changed",
+    );
+    const original = retained ?? candidate;
+    if (!retained) store.set(key, original);
+    stageLinkedWithdrawal(store, {
+      id: "signed:" + original.grantId,
+      scope: {
+        communityId: env.COMMUNITY_ID,
+        learner: original.learner,
+        target: original.target,
+      },
+      kind: "signed",
+      identity: {
+        target: original.target,
+        learner: original.learner,
+        nonce: original.nonce,
+        signature: original.signature,
+        data: original.data,
+        grantId: original.grantId,
+      },
     });
+    // The withdrawal also stops this learner's earlier-version results that
+    // are not yet sent, before the revoke is even mined.
+    if (!legacyResultsWithheld(store, learner))
+      store.set(legacyResultsWithheldKey(learner), {
+        at: store.now(),
+        nonce: original.nonce,
+      });
+    return original;
+  });
   const row = await submitResultTransaction(
     env,
     store,

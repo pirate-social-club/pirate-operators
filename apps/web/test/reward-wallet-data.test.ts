@@ -55,11 +55,25 @@ test("a changing paginated credit list refuses duplicate accounting instead of d
   globalThis.fetch = async () =>
     Response.json({
       object: "reward_credit_list",
-      items: [{ credit_id: "credit_0001" }],
+      accountId: "11111111-1111-4111-8111-111111111111",
+      items: [
+        {
+          credit_id: "credit_0001",
+          account_id: "11111111-1111-4111-8111-111111111111",
+          offer_id: "offer_0001",
+          chain_id: 6343,
+          token_address: "0x" + "33".repeat(20),
+          token_decimals: 18,
+          amount_atomic: "30000000000000000",
+          paid_atomic: "0",
+          payment_id: null,
+          claim: { status: "unclaimed", payout_status: "awaiting_payment" },
+        },
+      ],
       next_cursor: pages++ === 0 ? "page_two" : null,
     });
   await assert.rejects(
-    rewardsData("fixture-csrf").credits(),
+    rewardsData("fixture-csrf").credits("11111111-1111-4111-8111-111111111111"),
     /reward list changed/,
   );
   assert.equal(pages, 2);

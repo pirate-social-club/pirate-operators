@@ -1,5 +1,9 @@
 /** Proposed admission-v5 local implementation. Runtime and final ABI held. */
 import type { D1PreparedStatement } from "@cloudflare/workers-types";
+import type {
+  DanceControlBinding,
+  DanceRoleStamp,
+} from "./control-contracts.ts";
 export const DANCE_VERSION = "pirate.dance/1" as const;
 export const DANCE_SOURCE = "pirate.dance-verdict/1" as const;
 export const REVIEW_WINDOW_MS = 604800000;
@@ -35,6 +39,8 @@ export interface DanceOwner {
   canonicalAccepted: boolean;
 }
 export interface DanceAuthority {
+  /** Set only by the reconciler's durable, exact-anchor role projection. */
+  canonicalRoleProjection?: DanceRoleStamp;
   actor: DancePrincipal;
   learner: DancePrincipal;
   owner: DanceOwner;
@@ -228,6 +234,7 @@ export type DanceState =
   | "expired"
   | "canonical";
 export interface ReviewerContext {
+  roleProjection?: DanceRoleStamp;
   accountId: string;
   wallet: string;
   identityEpoch: number;
@@ -402,6 +409,11 @@ export interface DancePorts {
     recordingSha256: string;
   }): Promise<string>;
   reviewerRoleEpoch(wallet: string): Promise<number>;
+  /** Missing original binding never clears a revoke. Runtime composition held. */
+  controlBinding?(
+    intent: DanceControlIntent,
+    originalCaller: string,
+  ): Promise<DanceControlBinding>;
   reviewerAuthorization(
     context: ReviewerContext,
     intentAcceptedAtMs: number,

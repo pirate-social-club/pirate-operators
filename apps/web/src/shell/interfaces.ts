@@ -1,5 +1,6 @@
 import type { JSX } from "@solidjs/web";
 import type { CommunityFeed, CommunitySessionView } from "../api-contract.ts";
+import type { ProfileActivityDependencies } from "./reference/profile-activity.tsx";
 
 /** Mount contract v1. Renderers own their requests, errors and permission checks. */
 export interface ShellFeatureContext {
@@ -15,4 +16,37 @@ export interface ShellIntegrations {
   publicComposer?: (context: ShellFeatureContext) => JSX.Element;
   privateDance?: (context: ShellFeatureContext) => JSX.Element;
   accountSettings?: (context: ShellFeatureContext) => JSX.Element;
+  /** Public identities projected by a real community producer. Opaque author
+   * commitments remain lookup keys and never become names or handles. */
+  postAuthors?: {
+    readonly communityId: string;
+    readonly rows: readonly {
+      readonly authorId: string;
+      readonly publicHandle?: string;
+      readonly displayName?: string;
+      readonly avatarRef?: string;
+      readonly profileHref?: string;
+    }[];
+  };
+  /** Optional authoritative projections. The shell never derives profile or
+   * streak facts from a wallet balance, an offer or a recently opened song. */
+  profile?: {
+    readonly communityId: string;
+    readonly account: string;
+    readonly name: string;
+    readonly handle?: string;
+    readonly avatarRef?: string;
+    readonly coverRef?: string;
+    readonly bio?: string;
+    readonly activity?: (context: ShellFeatureContext) => JSX.Element;
+    readonly activitySource?: ProfileActivityDependencies;
+  };
+  songProgress?: {
+    readonly communityId: string;
+    readonly account: string;
+    readonly rows: readonly { postId: string; currentStreak: number }[];
+  };
+  /** One server-authoritative draw projection supplied by the payment lane.
+   * This is rendered once at page level, never once per song. */
+  drawSummary?: (context: ShellFeatureContext) => JSX.Element;
 }

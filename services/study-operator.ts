@@ -1,3 +1,7 @@
+import {
+  prepareLinkedBind,
+  commitLinkedBind,
+} from "./study-linked-withdrawal.ts";
 // The public operator accepts Study work only from its existing community issuer.
 import { sha256, type Hex } from "viem";
 import { canonical, check, digest } from "../packages/protocol/index.ts";
@@ -81,10 +85,21 @@ async function bindStudyLesson(
     !closedStudyPublication(store, offer.lessonId),
     "study_history_expired",
   );
+  if (offer.speechChannel === "telegram-linked")
+    validateStudyOffer(offer, store.now(), 4);
+  const linkedCapture =
+    offer.speechChannel === "telegram-linked"
+      ? await prepareLinkedBind(store, {
+          communityId: env.COMMUNITY_ID,
+          learner: offer.learner,
+          target,
+        })
+      : undefined;
   await checkTelegramStudyPublication(
     env,
     store,
     studyTelegramPublication(offer, target, env.COMMUNITY_ID),
+    target,
   );
   if (offer.privateSpeechSource) privateStudySource(offer, env.COMMUNITY_ID);
   const key = `studyBinding:${offer.lessonId}`;
@@ -96,10 +111,17 @@ async function bindStudyLesson(
       old.offerHash === hash && sameResultsTarget(old.target, target),
       "study_lesson_binding_changed",
     );
+    if (linkedCapture) {
+      check(store.durableStudyWrite, "study_binding_wake_unconfigured");
+      return store.durableStudyWrite(() => {
+        commitLinkedBind(store, linkedCapture, old.authorization!.issuedAt);
+        return old;
+      });
+    }
     return old;
   }
   if (target.version === 4)
-    return bindAuthorizedLesson(env, store, offer, target, hash);
+    return bindAuthorizedLesson(env, store, offer, target, hash, linkedCapture);
   check(target.version === 3, "unsupported_results_version");
   const exercisesHash = validateStudyOffer(offer, store.now(), 3);
   await checkLearningDisclosure(env, target);

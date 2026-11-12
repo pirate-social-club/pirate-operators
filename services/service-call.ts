@@ -12,8 +12,8 @@ export async function call<T>(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  const value = (await response.json()) as { error?: string };
-  check(response.ok, value.error ?? `upstream_${response.status}`);
+  const value = (await response.json()) as { error?: string } | null;
+  check(response.ok, value?.error ?? `upstream_${response.status}`);
   return value as T;
 }
 export async function body<T>(request: Request): Promise<T> {

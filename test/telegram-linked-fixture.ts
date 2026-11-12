@@ -1,3 +1,7 @@
+import assert from "node:assert/strict";
+import { TelegramManagedPublication } from "../services/telegram-managed-publication.ts";
+import { validateManagedAuthorityDelivery } from "../packages/community-setup/authority-validation.ts";
+import { managedFixture } from "./telegram-managed-fixture.ts";
 import { digest } from "../packages/protocol/index.ts";
 import { telegramStudyFacts } from "../packages/study/telegram-publication.ts";
 import { readFileSync } from "node:fs";
@@ -81,7 +85,6 @@ export async function linkedStudyFixture(
   let calls = 0,
     lostResponse = false,
     bindChannel = "telegram-linked",
-    fenceVersion = 1,
     authorityCalls = 0,
     publicationEntries = 0;
   const receipts = new Map<string, { text: string; language: string }>();
@@ -117,8 +120,22 @@ export async function linkedStudyFixture(
             : null,
       },
     });
-  const adapter = telegramLinkedStudy({
+  const model = managedFixture(f.grants);
+  const createPublication = (generation: number) =>
+    TelegramManagedPublication.create({
+      grants: f.grants,
+      registration: { ...actor, generation, enabled: true },
+      ports: model.ports,
+      scheduleWork: model.scheduleWork,
+      authorityValidation: (request) =>
+        validateManagedAuthorityDelivery(db, request),
+    });
+  const publication = createPublication(actor.generation);
+  await publication.ready();
+  f.mountPublication(publication);
+  const options: Parameters<typeof telegramLinkedStudy>[0] = {
     grants: f.grants,
+    publication,
     db,
     createStudy(session, channel, fence, db) {
       if (
@@ -134,7 +151,6 @@ export async function linkedStudyFixture(
         now: f.now,
       });
       return {
-        telegramGrantFenceVersion: fenceVersion,
         latest: (song) => lessons.latest(principal, song),
         async start(requestId, song) {
           const facts = telegramStudyFacts({
@@ -196,7 +212,7 @@ export async function linkedStudyFixture(
           }
           return result;
         },
-      } as ReturnType<typeof liveStudy> & { telegramGrantFenceVersion: 1 };
+      } as ReturnType<typeof liveStudy>;
     },
     async authorize(context, resolve) {
       authorityCalls++;
@@ -218,7 +234,8 @@ export async function linkedStudyFixture(
         claimable: false,
       };
     },
-  });
+  };
+  const adapter = telegramLinkedStudy(options);
   Object.assign(f.linked, adapter);
   return {
     db,
@@ -232,8 +249,30 @@ export async function linkedStudyFixture(
     bindChannel: (value: string) => {
       bindChannel = value;
     },
-    fenceVersion: (value: number) => {
-      fenceVersion = value;
+    options,
+    publication,
+    async unlink() {
+      const grant = f.grants.read(actor);
+      return publication.unlink(actor, account.accountId, {
+        operationId: "fixture_linked_unlink_0001",
+        expectedGrantId: grant?.id ?? null,
+      });
+    },
+    async rotate(generation: number) {
+      const next = createPublication(generation);
+      for (let n = 0; n < 3; n++) {
+        try {
+          await next.ready();
+          f.mountPublication(next);
+          return;
+        } catch (error) {
+          assert.match(String(error), /telegram_publication_pending/);
+          await next.recover();
+        }
+      }
+      assert.fail(
+        "managed fixture rotation did not acknowledge its exact scope denial",
+      );
     },
     entries: () => publicationEntries,
   };

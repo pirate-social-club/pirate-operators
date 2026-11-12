@@ -4,6 +4,8 @@ import { insist } from "../packages/community/common.ts";
 
 export const COMMUNITY_MEDIA_MIGRATION = "0015_community_media.sql";
 export const DANCE_MIGRATION = "0016_dance.sql";
+export const DANCE_CANONICAL_MIGRATION = "0017_dance_canonical_controls.sql";
+export const LEARNING_AUTHORITY_MIGRATION = "0018_learning_authority.sql";
 export const REWARD_CLOSURE_MIGRATION = "0014_reward_closure_snapshots.sql";
 export const OWNER_PUBLISHING_MIGRATION = "0012_owner_budget_windows.sql";
 export const LEARNING_AUTHORIZATION_MIGRATION =
@@ -57,6 +59,8 @@ export function communityMigrations(
     .filter((p) => p !== REWARD_CLOSURE_MIGRATION || selected.rewardClosure)
     .filter((p) => p !== COMMUNITY_MEDIA_MIGRATION || selected.media)
     .filter((p) => p !== DANCE_MIGRATION || selected.dance)
+    .filter((p) => p !== DANCE_CANONICAL_MIGRATION || selected.dance)
+    .filter((p) => p !== LEARNING_AUTHORITY_MIGRATION || selected.v4)
     .sort();
 }
 export const MANAGED_MIGRATIONS = [

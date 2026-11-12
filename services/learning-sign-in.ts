@@ -18,6 +18,13 @@ import {
   noteChainWithdrawal,
 } from "./learning-public-results.ts";
 import { assertConnectedLearningLink } from "../packages/community-setup/connected-learning.ts";
+import {
+  captureAuthority,
+  compareAuthority,
+  CommunityAuthorityPending,
+  authorityOriginalDenied,
+  fenceAuthorityRelay,
+} from "../packages/community-setup/authority-ledger.ts";
 
 export const SIGN_IN_RELAY_WINDOW_S = 30 * 86400;
 export type PublicResults = "on" | "pending" | "off" | "unavailable";
@@ -121,6 +128,7 @@ export async function recordedAuthorization(
 }
 
 interface PendingRow {
+  account_id: string;
   authorization_id: Hex;
   sign_in_json: string;
   signature: Hex;
@@ -148,7 +156,7 @@ const refusals = new Set([
   "account_activation_not_approved",
   "authorization_not_learners",
 ]);
-const pendingRows = `SELECT a.authorization_id,a.sign_in_json,a.signature,a.issued_at,
+const pendingRows = `SELECT a.account_id,a.authorization_id,a.sign_in_json,a.signature,a.issued_at,
   s.public_results_withdrawn_at AS withdrawn,s.last_withdrawn_at AS last_withdrawn
   FROM learning_authorizations a LEFT JOIN learning_settings s ON s.account_id=a.account_id
   WHERE a.state='pending'`;
@@ -173,7 +181,17 @@ async function relay(
   db: D1Database,
   row: PendingRow,
   now: number,
+  beforeRelay?: (accountId: string, authorizationId: string) => Promise<void>,
 ) {
+  if (beforeRelay) {
+    await db
+      .prepare(
+        "UPDATE learning_authorizations SET updated_at=? WHERE authorization_id=?",
+      )
+      .bind(now, row.authorization_id)
+      .run();
+    await beforeRelay(row.account_id, row.authorization_id);
+  }
   // A withdrawal stops relaying, and a sign-in made at or before the last
   // withdrawal is never relayed, even after public results are turned on.
   if (
@@ -193,6 +211,7 @@ async function relay(
   let receipt: OperatorReceipt;
   try {
     if (!env.KARAOKE_OPERATOR) throw new Error("operator_unavailable");
+    if (beforeRelay) await beforeRelay(row.account_id, row.authorization_id);
     receipt = await call<OperatorReceipt>(
       env.KARAOKE_OPERATOR,
       "/authorization",
@@ -243,6 +262,7 @@ export async function relayPendingSignIns(
   db: D1Database,
   now = Date.now(),
   limit = 10,
+  beforeRelay?: (accountId: string, authorizationId: string) => Promise<void>,
 ) {
   const rows = await db
     .prepare(
@@ -250,7 +270,13 @@ export async function relayPendingSignIns(
     )
     .bind(limit)
     .all<PendingRow>();
-  for (const row of rows.results) await relay(env, db, row, now);
+  for (const row of rows.results) {
+    try {
+      await relay(env, db, row, now, beforeRelay);
+    } catch (error) {
+      if (!beforeRelay) throw error;
+    }
+  }
   return rows.results.length;
 }
 
@@ -267,7 +293,10 @@ export async function requestSignInRelay(
   accountId: string,
   now: number,
   waitMs = 10_000,
+  connectedRevision?: string,
 ) {
+  if (connectedRevision !== undefined)
+    await compareAuthority(db, accountId, connectedRevision);
   await db
     .prepare(
       `UPDATE learning_authorizations AS a SET relay_requested_at=?2,updated_at=?2
@@ -284,8 +313,22 @@ export async function requestSignInRelay(
   let timer: ReturnType<typeof setTimeout> | undefined;
   await Promise.race([
     (async () => {
-      for (const row of rows.results)
-        await relay(env as StudyEnv, db, row, now).catch(() => undefined);
+      for (const row of rows.results) {
+        if (connectedRevision !== undefined)
+          await compareAuthority(db, accountId, connectedRevision);
+        await relay(
+          env as StudyEnv,
+          db,
+          row,
+          now,
+          connectedRevision === undefined
+            ? undefined
+            : async (account, id) => {
+                await compareAuthority(db, account, connectedRevision);
+                await fenceAuthorityRelay(db, account, id);
+              },
+        ).catch(() => undefined);
+      }
     })(),
     new Promise((resolve) => (timer = setTimeout(resolve, waitMs))),
   ]);
@@ -305,7 +348,10 @@ export async function practiceAuthorization(
   atS: number,
   now: number,
   capturedId?: Hex,
+  connectedRevision?: string,
 ) {
+  if (connectedRevision !== undefined)
+    await compareAuthority(db, accountId, connectedRevision);
   // Central cleanup also runs on retries that find the local off flag before
   // there is any selected authorization. All admission consumers share it.
   await closeWithdrawnStudyLessons(db, accountId, now);
@@ -317,7 +363,14 @@ export async function practiceAuthorization(
     capturedId,
   );
   if (!chosen.id && chosen.pending && capturedId === undefined) {
-    await requestSignInRelay(env, db, accountId, now);
+    await requestSignInRelay(
+      env,
+      db,
+      accountId,
+      now,
+      10_000,
+      connectedRevision,
+    );
     chosen = await recordedAuthorization(
       db,
       accountId,
@@ -327,7 +380,18 @@ export async function practiceAuthorization(
     );
   }
   if (!chosen.id) return chosen;
+  if (
+    connectedRevision !== undefined &&
+    (await authorityOriginalDenied(db, accountId, chosen.id))
+  )
+    return { id: null, pending: false } as const;
   const live = await liveAccountAuthorization(env, subject);
+  if (connectedRevision !== undefined) {
+    await compareAuthority(db, accountId, connectedRevision);
+    // This must never become resolver allowed:false and permanent withholding.
+    if (live?.pendingWithdrawal || live?.linkedWithdrawalPending)
+      throw new CommunityAuthorityPending();
+  }
   if (!live) return { id: null, pending: true } as const;
   if (live.pendingWithdrawal || live.since === 0) {
     await noteChainWithdrawal(
@@ -386,6 +450,7 @@ export async function liveAccountAuthorization(
       revokedAt: number;
       revocationNonce: string;
       pendingWithdrawal: boolean;
+      linkedWithdrawalPending?: true;
     }
   | undefined
 > {
@@ -417,7 +482,9 @@ export async function liveAccountAuthorization(
           !/^(0|[1-9][0-9]{0,19})$/.test(live.revocationNonce) ||
           BigInt(live.revocationNonce) > (1n << 64n) - 1n ||
           (live.pendingWithdrawal !== undefined &&
-            typeof live.pendingWithdrawal !== "boolean")
+            typeof live.pendingWithdrawal !== "boolean") ||
+          (live.linkedWithdrawalPending !== undefined &&
+            typeof live.linkedWithdrawalPending !== "boolean")
         )
           return undefined;
         return {
@@ -425,6 +492,9 @@ export async function liveAccountAuthorization(
           revokedAt: live.revokedAt,
           revocationNonce: live.revocationNonce,
           pendingWithdrawal: live.pendingWithdrawal === true,
+          ...(live.linkedWithdrawalPending === true
+            ? { linkedWithdrawalPending: true as const }
+            : {}),
         };
       })(),
       new Promise<undefined>((resolve) => {
@@ -465,6 +535,7 @@ export async function connectedPracticeAuthorization(
     throw new Error("connected_learning_not_prospective");
   const link = await resolveLink();
   assertConnectedLearningLink(link, context);
+  const revision = await captureAuthority(db, link.accountId);
   if (
     context.authorizationId !== undefined &&
     (!/^0x[0-9a-f]{64}$/.test(context.authorizationId) ||
@@ -479,8 +550,10 @@ export async function connectedPracticeAuthorization(
     Math.floor(context.startedAtMs / 1000),
     now,
     context.authorizationId as Hex | undefined,
+    revision,
   );
   const current = await resolveLink();
+  await compareAuthority(db, link.accountId, revision);
   assertConnectedLearningLink(current, context);
   if (
     current.accountId !== link.accountId ||

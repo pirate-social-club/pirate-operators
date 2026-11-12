@@ -1,3 +1,5 @@
+import { linkedWithdrawalNeedsWake } from "./study-linked-withdrawal-recovery.ts";
+import { parseWithdrawalSources } from "./study-linked-withdrawal-ports.ts";
 import { DurableObject } from "cloudflare:workers";
 import type { Address, Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
@@ -26,6 +28,8 @@ export interface Env {
   /** Successor default; V2 remains configured for historical pending work. */
   RESULTS_V3_CONTRACT?: string;
   RESULTS_V4_CONTRACT?: string;
+  /** Exact admitted original V4 runtime/source pins; absence admits no linked source. */
+  STUDY_WITHDRAWAL_SOURCES_JSON?: string;
   SERVICE_MODE?: "internal";
   SPONSOR_CAP_WEI?: string;
   SPONSOR_GAS_PRICE_WEI?: string;
@@ -86,10 +90,14 @@ export class ServiceState extends DurableObject<Env> {
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
       isLearningProfile(env),
+      parseWithdrawalSources(env.STUDY_WITHDRAWAL_SOURCES_JSON),
     );
     ctx.blockConcurrencyWhile(async () => {
       if (
-        this.store.hasLinkedStudyBinding() &&
+        (this.store.hasLinkedStudyBinding() ||
+          (env.ROLE === "operator" &&
+            !!env.RESULTS_V4_CONTRACT &&
+            linkedWithdrawalNeedsWake(this.store))) &&
         (await ctx.storage.getAlarm()) === null
       )
         await ctx.storage.setAlarm(Date.now() + 5000);
@@ -130,7 +138,14 @@ export class ServiceState extends DurableObject<Env> {
     } catch (error) {
       return Response.json(
         { error: error instanceof Error ? error.message : "internal_error" },
-        { status: 400 },
+        {
+          status:
+            error instanceof Error &&
+            "retryable" in error &&
+            error.retryable === true
+              ? 503
+              : 400,
+        },
       );
     }
   }
@@ -209,6 +224,9 @@ export class ServiceState extends DurableObject<Env> {
         ...audits,
         ...studyPublicationAlarm(this.store),
         linkedBindingCleanupAlarm(this.store),
+        this.env.RESULTS_V4_CONTRACT && linkedWithdrawalNeedsWake(this.store)
+          ? Date.now() + 5000
+          : Infinity,
         pending
           ? Date.now() + 5000
           : unsettled || authorizations

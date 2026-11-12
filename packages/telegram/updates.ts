@@ -1,6 +1,7 @@
 import {
   telegramCheck,
   telegramId,
+  validateScope,
   type BotScope,
   type ChatActor,
 } from "./contracts.ts";
@@ -76,7 +77,7 @@ export function parseTelegramUpdate(
     "telegram_forwarded_message_refused",
     403,
   );
-  const actor: ChatActor = { ...scope, userId, chatId },
+  const actor: ChatActor = { ...validateScope(scope), userId, chatId },
     messageId = integer(message.message_id);
   if (callback) {
     telegramCheck(

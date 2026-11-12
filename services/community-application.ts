@@ -1,3 +1,14 @@
+import { withKaraokeRequestSession } from "./karaoke-request-session.ts";
+import { communityProfilesApi } from "./community-profiles.ts";
+import { connectedPublicResultsAction } from "./learning-public-results.ts";
+import {
+  fenceAuthorityRelay,
+  type AuthorityAction,
+} from "../packages/community-setup/authority-ledger.ts";
+import {
+  recoverCommunityAuthority,
+  type AuthorityRecoveryPorts,
+} from "../packages/community-setup/authority-recovery.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex } from "viem";
 import {
@@ -142,6 +153,18 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DANCE_REWARD_SOURCE_SELECTION_HASH?: string;
 }
 export interface CommunityDependencies {
+  /** Required server-side connected composition: authenticate explicit action,
+   * reconstruct account/wallet/scope/cutoff/nonce, compare predecessor, and
+   * retain the same actionId across uncertain retries. Never trust body facts. */
+  linkedAuthority?: {
+    action(
+      session: { account_id: string; wallet: string },
+      body: Record<string, unknown>,
+      kind: "off" | "on",
+      now: number,
+    ): Promise<AuthorityAction>;
+    ports: AuthorityRecoveryPorts;
+  };
   configuration(): Promise<CommunityConfig>;
   verifyLogin: VerifyLogin;
   creatorHealth(): Promise<boolean>;
@@ -489,6 +512,28 @@ export async function communityFetch(
         headers: assetHeaders,
       });
     }
+    const profileResponse = await communityProfilesApi(request, {
+      db: env.DB,
+      context,
+      publicPosts: async () => {
+        const current = await configuration();
+        return {
+          communityId: current.communityId,
+          posts: await publicSongViews(env.DB, current, publicReads),
+        };
+      },
+      now: ports.now,
+      // No publicMediaExists default: no admitted public profile-media service.
+    });
+    if (profileResponse) {
+      for (const [name, value] of security)
+        profileResponse.headers.set(name, value);
+      profileResponse.headers.set("cache-control", "no-store");
+      if (url.pathname.startsWith("/api/profile/"))
+        profileResponse.headers.set("vary", "Cookie");
+      profileResponse.headers.set("server-timing", timing.header());
+      return profileResponse;
+    }
     if (request.method === "GET" && url.pathname === "/api/session") {
       const session = await accountSession(request, env.DB, context),
         creator = await env.DB.prepare(
@@ -540,7 +585,12 @@ export async function communityFetch(
     )
       return reply({ gateways: await configurationHealth() });
     if (url.pathname.startsWith("/api/moderation/inputs/"))
-      return serveInputCapability(request, env.DB, env.MEDIA, context.origin);
+      return await serveInputCapability(
+        request,
+        env.DB,
+        env.MEDIA,
+        context.origin,
+      );
     if (url.pathname === "/api/operator/owner-curated") {
       insist(request.method === "POST" && !url.search, "not_found", 404);
       requestOrigin(request, context.origin);
@@ -745,13 +795,34 @@ export async function communityFetch(
     if (url.pathname === "/api/karaoke/attempt") {
       insist(request.method === "GET", "method_not_allowed", 405);
       const session = await accountSession(request, env.DB, context);
-      return reply(
-        await karaokeAttempt(
-          karaokePorts,
-          session,
-          bytes32(url.searchParams.get("postId")),
-        ),
+      insist(
+        request.headers.get("x-study-account")?.toLowerCase() ===
+          session.wallet.toLowerCase(),
+        "study_account_changed",
+        409,
       );
+      const requestPorts = withKaraokeRequestSession(
+        karaokePorts,
+        request,
+        context,
+        session,
+      );
+      await requestPorts.requestSession.check(session);
+      const view = await karaokeAttempt(
+        requestPorts,
+        session,
+        bytes32(url.searchParams.get("postId")),
+      );
+      return await requestPorts.requestSession.expose(session, () => {
+        if (view.state === "open")
+          insist(
+            Math.floor((ports.now ?? Date.now)() / 1000) <
+              view.ticket.body.expiresAt,
+            "karaoke_reservation_expired",
+            409,
+          );
+        return reply(view);
+      });
     }
     const study = await studyCommunityApi(
       request,
@@ -788,6 +859,7 @@ export async function communityFetch(
           text(body.id, 64),
           text(body.signature, 32768),
           ports.verifyLogin,
+          (ports.now ?? Date.now)(),
         );
         // The V4 sign-in is only stored: it is relayed when the learner
         // first starts Study or Karaoke work, never at login.
@@ -795,6 +867,13 @@ export async function communityFetch(
         return reply({ authenticated: true, csrf: verified.csrf });
       }
       const session = await authenticatedWrite(request, env.DB, context);
+      if (url.pathname.startsWith("/api/karaoke/"))
+        insist(
+          request.headers.get("x-study-account")?.toLowerCase() ===
+            session.wallet.toLowerCase(),
+          "study_account_changed",
+          409,
+        );
       if (url.pathname === "/api/karaoke/history")
         return reply(await karaokeHistory(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/enrollments")
@@ -817,6 +896,41 @@ export async function communityFetch(
           await liveStudy({ ...karaokePorts, env }, session).endForWithdrawal();
       };
       // V4 account settings; never reached from an exercise.
+      if (
+        ports.linkedAuthority &&
+        [
+          "/api/learning/public-results/off",
+          "/api/learning/public-results/on",
+        ].includes(url.pathname)
+      ) {
+        if (url.pathname.endsWith("/off") && body.signature === undefined)
+          return reply(
+            await turnOffPublicResults(
+              env,
+              env.DB,
+              config,
+              session,
+              body,
+              (ports.now ?? Date.now)(),
+            ),
+          );
+        const kind = url.pathname.endsWith("/off")
+          ? ("off" as const)
+          : ("on" as const);
+        const action = await ports.linkedAuthority.action(
+          session,
+          body,
+          kind,
+          (ports.now ?? Date.now)(),
+        );
+        return reply(
+          await connectedPublicResultsAction(
+            env.DB,
+            action,
+            ports.linkedAuthority.ports,
+          ),
+        );
+      }
       if (url.pathname === "/api/learning/public-results/off")
         return reply(
           await turnOffPublicResults(
@@ -830,10 +944,30 @@ export async function communityFetch(
         );
       if (url.pathname === "/api/learning/public-results/on")
         return reply(await turnOnPublicResults(env, env.DB, config, session));
-      if (url.pathname === "/api/karaoke/tickets")
-        return reply(
-          await karaokeTicket(karaokePorts, session, body, endStudyLessons),
+      if (url.pathname === "/api/karaoke/tickets") {
+        const requestPorts = withKaraokeRequestSession(
+          karaokePorts,
+          request,
+          context,
+          session,
         );
+        await requestPorts.requestSession.check(session);
+        const issued = await karaokeTicket(
+          requestPorts,
+          session,
+          body,
+          endStudyLessons,
+        );
+        return await requestPorts.requestSession.expose(session, () => {
+          insist(
+            Math.floor((ports.now ?? Date.now)() / 1000) <
+              issued.ticket.body.expiresAt,
+            "karaoke_reservation_expired",
+            409,
+          );
+          return reply(issued);
+        });
+      }
       if (url.pathname === "/api/karaoke/purchases")
         return reply(await karaokePurchase(karaokePorts, session, body));
       if (url.pathname === "/api/karaoke/consent")
@@ -904,6 +1038,13 @@ export async function communityScheduled(
   provided?: CommunityDependencies,
 ) {
   const failures: unknown[] = [];
+  if (provided?.linkedAuthority) {
+    try {
+      await recoverCommunityAuthority(env.DB, provided.linkedAuthority.ports);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   try {
     await deleteExpiredStudyHistory(
       env.DB,
@@ -931,7 +1072,15 @@ export async function communityScheduled(
       );
       // Pending sign-ins are relayed even if V4 was since unconfigured: the
       // relay window then closes them as refused.
-      await relayPendingSignIns(env, env.DB, ports.now?.() ?? Date.now());
+      await relayPendingSignIns(
+        env,
+        env.DB,
+        ports.now?.() ?? Date.now(),
+        10,
+        ports.linkedAuthority
+          ? (account, id) => fenceAuthorityRelay(env.DB, account, id)
+          : undefined,
+      );
     } catch (error) {
       failures.push(error);
     }

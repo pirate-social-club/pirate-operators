@@ -32,7 +32,9 @@ test(
   { timeout: 120000 },
   async () => {
     const communityId = `0x${"5c".repeat(32)}` as const;
-    const f = await learningBindingFixture(19992, communityId);
+    const f = await learningBindingFixture(19992, communityId, undefined, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.env.RESULTS_V3_CONTRACT = f.v3;
       const learner = accounts[5]!.address as Address;
@@ -66,6 +68,7 @@ test(
         [accounts[2].address, 1, true],
         3,
       );
+      await f.enableV4Authority(v4);
       f.env.RESULTS_V4_CONTRACT = v4;
       // A new run without a sign-in authorization is a V3 run as before.
       const fresh = await f.prepare("v3-run-after-v4");
@@ -103,8 +106,7 @@ test(
       // Enrollment work never moves onto V4, which has no enrollments. The
       // operator's Karaoke enrollment routes use this same default.
       assert.equal(
-        (await enrollmentRequest(f.env, learner, f.store.now())).domain
-          .version,
+        (await enrollmentRequest(f.env, learner, f.store.now())).domain.version,
         "3",
       );
       assert.equal((await activeEnrollment(f.env, learner)).target?.version, 3);
@@ -123,7 +125,9 @@ test(
   { timeout: 120000 },
   async () => {
     const communityId = `0x${"5d".repeat(32)}` as const;
-    const f = await learningBindingFixture(19704, communityId);
+    const f = await learningBindingFixture(19704, communityId, undefined, {
+      operatorAuthorityStore: true,
+    });
     try {
       f.env.RESULTS_V3_CONTRACT = f.v3;
       const learner = accounts[5]!.address as Address;
@@ -161,6 +165,7 @@ test(
         [accounts[2].address, 1, true],
         3,
       );
+      await f.enableV4Authority(v4);
       f.env.RESULTS_V4_CONTRACT = v4;
       const request = await revocationRequestV4(f.env, learner);
       const signature = await accounts[5]!.signTypedData(request as never);

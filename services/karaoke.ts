@@ -1,3 +1,8 @@
+import { prepareRecovery } from "./karaoke-prepare-recovery.ts";
+import type { KaraokePreparation } from "./karaoke-preparation.ts";
+import { recoverLinkedWithdrawals } from "./study-linked-withdrawal-recovery.ts";
+import { configuredWithdrawalPorts } from "./study-linked-withdrawal-ports.ts";
+import type { LinkedStore } from "./study-linked-withdrawal-contract.ts";
 // Operator side of per-line karaoke billing (docs/operator-payments.md 5).
 import { verifyMessage, type Hex, type Address } from "viem";
 import {
@@ -282,6 +287,11 @@ async function advance(env: Env, store: Store, ticketId: string) {
   });
 }
 export async function tick(env: Env, store: Store) {
+  if (env.RESULTS_V4_CONTRACT)
+    await recoverLinkedWithdrawals(
+      store,
+      configuredWithdrawalPorts(env, store as LinkedStore),
+    );
   expireLearnerHistory(store);
   expireStudySpeech(store);
   await sweepLinkedStudyBindings(env, store).catch(() => undefined);
@@ -306,6 +316,11 @@ export async function tick(env: Env, store: Store) {
 }
 /** Recovers unresolved nonces first, so closures behind them can execute. */
 export async function recover(env: Env, store: Store) {
+  if (env.RESULTS_V4_CONTRACT)
+    await recoverLinkedWithdrawals(
+      store,
+      configuredWithdrawalPorts(env, store as LinkedStore),
+    );
   const transactions = await recoverLearningTransactions(env, store);
   await tick(env, store);
   return transactions;
@@ -455,7 +470,15 @@ export async function karaokeRoute(
     const input = await body<{
       ticket: Signed<Ticket>;
       manifest: KaraokeManifest;
+      preparation?: KaraokePreparation;
     }>(request);
+    if (input.preparation)
+      return Response.json(
+        await prepareRecovery(env, store, {
+          ...input,
+          preparation: input.preparation,
+        }),
+      );
     const ticket = await verify(
       input.ticket,
       "ticket",

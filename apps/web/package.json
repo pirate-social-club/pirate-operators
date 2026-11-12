@@ -12,17 +12,22 @@
     "test": "node --test test/*.test.ts",
     "test:e2e": "playwright test",
     "check:reproducible": "node scripts/reproducible.ts",
-    "check": "npm run typecheck && npm test && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet",
+    "check": "npm run typecheck && npm test && npm run test:components && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet && npm run test:e2e:owner-ui",
     "build:live": "vite build --config vite.live.config.ts",
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
-    "test:e2e:wallet": "vite build --config test/reward-wallet.vite.config.ts && playwright test --config test/reward-wallet.playwright.config.ts"
+    "test:e2e:wallet": "vite build --config test/reward-wallet.vite.config.ts && playwright test --config test/reward-wallet.playwright.config.ts",
+    "test:e2e:owner-ui": "vite build --config test/owner-ui.vite.config.ts && playwright test --config test/owner-ui.playwright.config.ts",
+    "test:components": "vitest run --config test/components.vitest.config.ts"
   },
   "dependencies": {
     "@megaeth-labs/wallet-sdk": "1.0.8",
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.tgz",
     "@solidjs/web": "2.0.0-rc.0",
+    "mediabunny": "1.55.5",
     "qrcode": "1.5.4",
-    "solid-js": "2.0.0-rc.0"
+    "solid-js": "2.0.0-rc.0",
+    "xstate": "5.33.2",
+    "viem": "2.57.16"
   },
   "devDependencies": {
     "@ipld/car": "5.4.7",
@@ -32,11 +37,15 @@
     "@types/node": "24.3.0",
     "@types/qrcode": "1.5.6",
     "ipfs-unixfs-importer": "17.1.1",
+    "jsdom": "file:vendor/jsdom-30.0.0-source-c7-font-patch.tgz",
     "multiformats": "14.0.5",
+    "storybook": "10.6.0",
+    "storybook-solidjs-vite": "10.6.0",
     "tailwindcss": "4.3.3",
     "typescript": "5.9.3",
     "vite": "8.3.6",
-    "vite-plugin-solid": "3.0.0-next.27"
+    "vite-plugin-solid": "3.0.0-next.27",
+    "vitest": "4.1.11"
   },
   "overrides": {
     "@floating-ui/core": "1.8.0",
@@ -79,6 +88,10 @@
     "seroval": "1.6.11",
     "seroval-plugins": "1.5.6",
     "tailwind-merge": "3.6.0",
-    "tslib": "2.8.1"
+    "tslib": "2.8.1",
+    "jsdom": {
+      "undici": "8.10.2"
+    },
+    "@storybook/builder-vite": "10.6.0"
   }
 }

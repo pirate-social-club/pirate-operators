@@ -86,6 +86,14 @@ test("reload replays original uncertain Pass before opposite/different command; 
     b.decide("review_1", 1, "not_passed", "reviewer-policy-v5"),
     /dance_original_command_recovered/,
   );
+  assert.equal(
+    bodies.length,
+    1,
+    "an opposite command never implicitly retries the original",
+  );
+  const original = journal.pending!;
+  const recovered = await b.recover();
+  assert.equal(recovered?.commandId, original.commandId);
   assert.equal(bodies[0], bodies[1]);
   assert.equal(JSON.parse(bodies[1]).verdict, "pass");
   await assert.rejects(
@@ -109,7 +117,15 @@ test("uncertain submission cannot retarget across reload or reset; storage failu
   const b = createDanceClient(options(j, fetcher));
   await assert.rejects(
     b.submit("capture_b", "media_b", dh(3)),
-    /dance_response_unknown/,
+    /dance_original_command_recovered/,
+  );
+  assert.equal(fetches, 1, "the replacement capture is never dispatched");
+  const original = structuredClone(j.pending);
+  await assert.rejects(b.recover(), /dance_response_unknown/);
+  assert.deepEqual(
+    j.pending,
+    original,
+    "explicit recovery retains the same unknown original",
   );
   assert.equal(JSON.parse(j.pending!.bodyJson).captureId, "capture_a");
   await assert.rejects(b.resetDefiniteCapture(), /dance_response_unknown/);

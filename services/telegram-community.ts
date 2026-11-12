@@ -37,6 +37,8 @@ import { telegramLinkRetention } from "./telegram-link-retention.ts";
 import type { TelegramStudyWork } from "../packages/telegram/work.ts";
 import type { TelegramTrialGradingPort } from "../packages/telegram/grading.ts";
 import { telegramRuntime } from "./telegram-runtime.ts";
+import { TelegramManagedPublication } from "./telegram-managed-publication.ts";
+import type { StudyOperatorPorts } from "./study-operator-client.ts";
 
 /** Mountable source module. No exported Worker/deployment config, new managed
  * resource or live provider is created. Coordinator-owned mounts supply every
@@ -45,13 +47,24 @@ export function telegramCommunity(options: {
   storage: Pick<DurableObjectStorage, "sql" | "transactionSync">;
   registration: BotRegistration;
   accounts: TelegramAccountPort;
+  /** Existing signed operator target. Required even while activation is held. */
+  publication: StudyOperatorPorts;
+  /** Required actual-D1 delivery validation, derived by the concrete factory. */
+  authorityValidation: NonNullable<
+    Parameters<
+      typeof TelegramManagedPublication.create
+    >[0]["authorityValidation"]
+  >;
   web: Omit<TelegramWebPorts, "scope" | "origin">;
   origin: string;
   broker: TelegramBrokerPort;
   brokerClientId: string;
   webhookSecret: string;
   catalog: TelegramCatalogPort;
-  createLinkedStudy(grants: TelegramGrants): TelegramLinkedStudyPort;
+  createLinkedStudy(
+    grants: TelegramGrants,
+    publication: TelegramManagedPublication,
+  ): TelegramLinkedStudyPort;
   speech: {
     admission: TelegramSpeechAdmission;
     keyGeneration: string;
@@ -70,7 +83,13 @@ export function telegramCommunity(options: {
   const journal = new TelegramSqlJournal(options.storage),
     scope = options.registration;
   const grants = new TelegramGrants(journal, options.accounts, options.now);
-  grants.configure(scope);
+  const publication = TelegramManagedPublication.create({
+    grants,
+    registration: scope,
+    ports: options.publication,
+    authorityValidation: options.authorityValidation,
+    scheduleWork: options.scheduleWork,
+  });
   const linking = new TelegramLinking(
     grants,
     options.broker,
@@ -78,12 +97,23 @@ export function telegramCommunity(options: {
     options.origin + "/telegram/connect/return",
   );
   const trial = new TelegramTrialLessons(
-      grants,
-      options.catalog,
-      options.trialLimits,
-      options.trialGrading,
-    ),
-    linked = options.createLinkedStudy(grants);
+    grants,
+    options.catalog,
+    options.trialLimits,
+    options.trialGrading,
+  );
+  let connected: TelegramLinkedStudyPort | undefined;
+  const connectedStudy = async () => {
+    await publication.ready();
+    return (connected ??= options.createLinkedStudy(grants, publication));
+  };
+  const linked: TelegramLinkedStudyPort = {
+    start: async (...args) => (await connectedStudy()).start(...args),
+    get: async (...args) => (await connectedStudy()).get(...args),
+    answer: async (...args) => (await connectedStudy()).answer(...args),
+    recover: async (...args) => (await connectedStudy()).recover(...args),
+    personal: async (...args) => (await connectedStudy()).personal(...args),
+  };
   let study: TelegramStudyService;
   const speech = new TelegramTrialSpeech({
     store: journal,
@@ -107,8 +137,12 @@ export function telegramCommunity(options: {
     files: options.files,
     catalog: options.catalog,
   });
-  const outbox = new TelegramOutbox(grants, options.delivery, (actor, guard) =>
-    telegramNoticePermitted(grants, options.notices, actor, guard),
+  const outbox = new TelegramOutbox(
+    grants,
+    options.delivery,
+    (actor, guard) =>
+      telegramNoticePermitted(grants, options.notices, actor, guard),
+    publication,
   );
   const views = new TelegramBotViews({
     linking,
@@ -129,14 +163,18 @@ export function telegramCommunity(options: {
     outbox,
     options.notices,
   );
-  const runtime = telegramRuntime(bot, options.scheduleWork, grants.now);
-  return {
+  const runtime = telegramRuntime(
     bot,
-    grants,
-    linking,
-    study,
+    options.scheduleWork,
+    grants.now,
+    publication,
+  );
+  return {
+    ready: () => publication.ready(),
+    transitions: publication,
     notifications: {
       async account(...args: Parameters<TelegramNotifications["account"]>) {
+        await publication.ready();
         // A durable wake before enqueue also recovers a crash just after enqueue.
         await options.scheduleWork(grants.now() + 1000);
         const result = await notifications.account(...args);
@@ -144,21 +182,29 @@ export function telegramCommunity(options: {
         return result;
       },
       async reminder(...args: Parameters<TelegramNotifications["reminder"]>) {
+        await publication.ready();
         await options.scheduleWork(grants.now() + 1000);
         await notifications.reminder(...args);
         await runtime.wake();
       },
     },
     webhook: runtime.webhook,
-    routes: telegramCommunityRoutes(linking, {
-      ...options.web,
-      origin: options.origin,
-      scope,
-    }),
+    routes: telegramCommunityRoutes(
+      linking,
+      {
+        ...options.web,
+        origin: options.origin,
+        scope,
+      },
+      publication,
+    ),
     tick: runtime.tick,
-    retention: async () => ({
-      trial: telegramTrialRetention(trial, scope.communityId),
-      links: await telegramLinkRetention(journal, grants.now()),
-    }),
+    retention: async () => {
+      await publication.ready();
+      return {
+        trial: telegramTrialRetention(trial, scope.communityId),
+        links: await telegramLinkRetention(journal, grants.now()),
+      };
+    },
   };
 }

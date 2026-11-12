@@ -1,4 +1,4 @@
-import { hashJson, insist, token } from "../community/common.ts";
+import { canonical, hashJson, insist, token } from "../community/common.ts";
 import {
   DANCE_VERSION,
   type DanceCapture,
@@ -12,7 +12,17 @@ import {
   type DanceAttempt,
   type DanceControlIntent,
 } from "./contracts.ts";
-import { dispatchFence, localReviewerFences } from "./local-guards.ts";
+import {
+  dispatchFence,
+  localReviewerFences,
+  localReviewerFence,
+} from "./local-guards.ts";
+import type {
+  DanceControlBinding,
+  DanceRevokeContext,
+} from "./control-contracts.ts";
+import { verifyControlBinding } from "../dance-chain/control-command.ts";
+import { verifyRetainedAttempt } from "../dance-chain/control-reader.ts";
 import type { DanceRepository } from "./repository.ts";
 import { validateFence } from "./validation.ts";
 import {
@@ -351,6 +361,8 @@ export class DanceStore implements DanceRepository {
         ...localReviewerFences(
           i.review.capture.communityId,
           i.intent.preimage.reviewer,
+          i.review.capture.source.sourceHash,
+          true,
         ),
       ],
       decisionStatements(this, i),
@@ -383,7 +395,11 @@ export class DanceStore implements DanceRepository {
     insist(r, "dance_delegation_not_found", 404);
     return r;
   }
-  async control(i: Parameters<DanceRepository["control"]>[0], f: DanceFence[]) {
+  async control(
+    i: Parameters<DanceRepository["control"]>[0],
+    f: DanceFence[],
+    binding?: DanceControlBinding,
+  ) {
     const prior = await this.controlIntent(i.commandId);
     if (prior) {
       insist(
@@ -394,7 +410,21 @@ export class DanceStore implements DanceRepository {
       await this.assert(f);
       return prior;
     }
-    await this.atomic(f, controlStatements(this, i));
+    if (binding) verifyControlBinding(i, binding);
+    const rows = controlStatements(this, i);
+    if (binding)
+      rows.push(
+        this.stmt(
+          "INSERT INTO dance_control_bindings VALUES(?,?,?,?,?,?)",
+          i.commandId,
+          binding.bindingHash,
+          binding.intentHash,
+          binding.sourceHash,
+          binding.wallet,
+          JSON.stringify(binding),
+        ),
+      );
+    await this.atomic(f, rows);
     return i;
   }
   async controlIntent(k: string) {
@@ -414,14 +444,18 @@ export class DanceStore implements DanceRepository {
     );
     return intent;
   }
-  async locallyRevoked(c: string, a: string, w: string) {
-    const r = await this.stmt(
-      "SELECT 1 n FROM dance_control_intents WHERE community_id=? AND operation='revoke' AND (account_id=? OR wallet=?) LIMIT 1",
-      c,
-      a,
-      w.toLowerCase(),
-    ).first();
-    return !!r;
+  async locallyRevoked(
+    c: string,
+    a: string,
+    w: string,
+    context?: DanceRevokeContext,
+  ) {
+    const fence = localReviewerFence(c, a, w, context);
+    const row = await this.stmt(
+      "SELECT " + fence.sql + " allowed",
+      ...fence.values,
+    ).first<{ allowed: number }>();
+    return row?.allowed !== 1;
   }
   async observe(id: string, i: DanceDecisionIntent, e: DanceCanonicalEvidence) {
     await this.atomic(
@@ -464,20 +498,99 @@ export class DanceStore implements DanceRepository {
   }
   async attempt(a: DanceAttempt, fences: DanceFence[]) {
     insist(fences.length > 0, "dance_dispatch_fence_required", 503);
+    const box = await this.outbox(a.commandId);
+    let binding: DanceControlBinding | null = null;
+    if (box.kind === "grant" || box.kind === "revoke") {
+      const row = await this.stmt(
+        "SELECT binding_json FROM dance_control_bindings WHERE command_id=?",
+        a.commandId,
+      ).first<{ binding_json: string }>();
+      const intent = await this.controlIntent(a.commandId);
+      insist(row && intent, "dance_control_original_binding_missing", 503);
+      insist(
+        box.kind === intent.operation &&
+          box.communityId === intent.communityId &&
+          box.subjectId === intent.delegationId &&
+          box.localIntegrityHash === intent.localIntegrityHash &&
+          canonical(JSON.parse(box.payloadJson)) === canonical(intent),
+        "dance_control_outbox_changed",
+        503,
+      );
+      binding = JSON.parse(row.binding_json);
+      verifyControlBinding(intent, binding!);
+      verifyRetainedAttempt({ ...a, guardedBindingHash: binding!.bindingHash });
+    }
+    const statements = [
+      this.stmt(
+        "INSERT INTO dance_transaction_attempts VALUES(?,?,?,?,?)",
+        a.attemptId,
+        a.commandId,
+        a.nonce,
+        a.rawTransaction,
+        a.transactionHash,
+      ),
+      this.stmt(
+        "UPDATE dance_outbox SET status='unknown' WHERE command_id=?",
+        a.commandId,
+      ),
+    ];
+    if (binding)
+      statements.push(
+        this.stmt(
+          "INSERT INTO dance_attempt_admissions VALUES(?,?,?,'guarded_before_broadcast')",
+          a.attemptId,
+          a.commandId,
+          binding.bindingHash,
+        ),
+      );
+    await this.atomic([...fences, dispatchFence(a.commandId)], statements);
+  }
+  /** Evidence retention only: no dispatch admission/status change or send. */
+  async retainAttemptEvidence(a: DanceAttempt) {
+    verifyRetainedAttempt({ ...a, guardedBindingHash: null });
+    const old = await this.stmt(
+      "SELECT command_id,nonce,raw_transaction,transaction_hash FROM dance_transaction_attempts WHERE attempt_id=? OR (command_id=? AND transaction_hash=?) UNION ALL SELECT command_id,nonce,raw_transaction,transaction_hash FROM dance_recovered_attempts WHERE attempt_id=? OR (command_id=? AND transaction_hash=?)",
+      a.attemptId,
+      a.commandId,
+      a.transactionHash,
+      a.attemptId,
+      a.commandId,
+      a.transactionHash,
+    ).all<{
+      command_id: string;
+      nonce: string;
+      raw_transaction: string;
+      transaction_hash: string;
+    }>();
+    if (old.results.length) {
+      insist(
+        old.results.every(
+          (r) =>
+            r.command_id === a.commandId &&
+            r.nonce === a.nonce &&
+            r.raw_transaction === a.rawTransaction &&
+            r.transaction_hash === a.transactionHash,
+        ),
+        "dance_attempt_identity_changed",
+        503,
+      );
+      return;
+    }
     await this.atomic(
-      [...fences, dispatchFence(a.commandId)],
+      [
+        {
+          sql: "EXISTS(SELECT 1 FROM dance_outbox WHERE command_id=?)",
+          values: [a.commandId],
+        },
+      ],
       [
         this.stmt(
-          "INSERT INTO dance_transaction_attempts VALUES(?,?,?,?,?)",
+          "INSERT INTO dance_recovered_attempts VALUES(?,?,?,?,?)",
           a.attemptId,
           a.commandId,
           a.nonce,
           a.rawTransaction,
           a.transactionHash,
-        ),
-        this.stmt(
-          "UPDATE dance_outbox SET status='unknown' WHERE command_id=?",
-          a.commandId,
         ),
       ],
     );

@@ -31,6 +31,7 @@ import {
   rewardId,
   rewardAmount,
 } from "../packages/rewards/validation.ts";
+import { equalTokens } from "../packages/community/token-comparison.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
 import { rehearsalTerms } from "../packages/rewards/rehearsal.ts";
 import { rewardCloseReadiness } from "../packages/rewards/close-readiness.ts";
@@ -64,6 +65,23 @@ export async function rewardsCommunityApi(
     request.method === "GET"
       ? await accountSession(request, ports.db, context)
       : await authenticatedWrite(request, ports.db, context);
+  // Optional captured-session guards for private paginated reads. Existing single-read
+  // clients stay compatible; the wallet adapter always supplies the session guard.
+  if (
+    request.method === "GET" &&
+    (path === "/api/rewards/wallet" || path === "/api/rewards/credits")
+  ) {
+    const csrf = request.headers.get("x-csrf-token");
+    const owner = request.headers.get("x-pirate-reward-owner");
+    if (csrf !== null || owner !== null)
+      insist(
+        csrf !== null &&
+          equalTokens(csrf, session.csrf_token) &&
+          (owner === null || owner === session.account_id),
+        "reward_session_changed",
+        403,
+      );
+  }
   const principal = {
       accountId: session.account_id,
       wallet: rewardAddress(session.wallet),
@@ -135,7 +153,7 @@ export async function rewardsCommunityApi(
               ),
       })),
     };
-    return reply(value);
+    return reply({ ...value, accountId: principal.accountId });
   }
   if (path === "/api/rewards/credits") {
     get();
@@ -148,6 +166,7 @@ export async function rewardsCommunityApi(
       items = rows.slice(0, limit);
     return reply({
       object: "reward_credit_list",
+      accountId: principal.accountId,
       items: items.map((r) => store.creditView(r)),
       next_cursor: rows.length > limit ? items.at(-1)!.credit_id : null,
     });

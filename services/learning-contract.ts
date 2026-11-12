@@ -1,3 +1,5 @@
+import { bumpBootstrap } from "./study-linked-withdrawal-contract.ts";
+import type { ResultStore } from "./learning-transactions.ts";
 import { createPublicClient, http, type Address, type Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
 import {
@@ -167,20 +169,44 @@ export async function legacyResultsWithdrawn(
   if (legacyResultsWithheld(store, learner)) return true;
   if (!env.RESULTS_V4_CONTRACT) return false;
   const target = resultsTarget(env, 4);
-  const revokedAt = (await resultClient(env).readContract({
+  const chain = resultClient(env),
+    observedBlock =
+      blockNumber ?? (await chain.getBlockNumber({ cacheTime: 0 }));
+  const at = {
     address: target.contract,
     abi: resultsV4Abi,
-    functionName: "revokedAt",
     args: [learner],
-    ...(blockNumber === undefined ? {} : { blockNumber }),
-  })) as bigint;
+    blockNumber: observedBlock,
+  } as const;
+  const [revokedAt, revocationNonce] = await Promise.all([
+    chain.readContract({ ...at, functionName: "revokedAt" }),
+    chain.readContract({ ...at, functionName: "nextNonce" }),
+  ]);
+  check(
+    typeof revokedAt === "bigint" &&
+      revokedAt >= 0n &&
+      typeof revocationNonce === "bigint" &&
+      revocationNonce >= 0n &&
+      revocationNonce < 1n << 64n &&
+      (revokedAt === 0n ? revocationNonce === 0n : revocationNonce > 0n),
+    "study_withdrawal_signal_unavailable",
+  );
   if (revokedAt === 0n) return false;
-  if (!legacyResultsWithheld(store, learner))
-    store.set(legacyResultsWithheldKey(learner), {
-      at: store.now(),
-      revokedAt: String(revokedAt),
-      source: "chain",
+  if (!legacyResultsWithheld(store, learner)) {
+    const journal = store as ResultStore;
+    check(journal.durableStudyWrite, "study_binding_wake_unconfigured");
+    await journal.durableStudyWrite(() => {
+      if (!legacyResultsWithheld(journal, learner)) {
+        journal.set(legacyResultsWithheldKey(learner), {
+          at: journal.now(),
+          revokedAt: String(revokedAt),
+          revocationNonce: String(revocationNonce),
+          source: "chain",
+        });
+        bumpBootstrap(journal);
+      }
     });
+  }
   return true;
 }
 export const revocationKey = (

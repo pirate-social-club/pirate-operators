@@ -9,10 +9,7 @@ import { StudyScreen, StudyLoading } from "../study/screen.tsx";
 import { StudyRouteLoadFailureState } from "../study/presentation/studying-route-states.tsx";
 import { get, post } from "./api.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
-import {
-  ensureStudyEnrollment,
-  type StudyEnrollmentView,
-} from "./study-enrollment.ts";
+import { enrollStudyForAccount } from "../study/enrollment-intent.ts";
 
 interface Publication {
   state: "unbound" | "bound" | StudyPublicationReceipt["state"];
@@ -28,7 +25,9 @@ export function LiveStudy(props: {
   /** V4: signing in is the publication permission; no enrollment step. */
   signInPermission?: boolean;
   onExit(): void;
-  onLearningActions?: (actions: { download: () => Promise<void> }) => void;
+  onLearningActions?: (
+    actions: { download: () => Promise<void> } | null,
+  ) => void;
 }) {
   // Every Study request names the account this page belongs to.
   const owner = () => ({ "x-study-account": props.account });
@@ -43,29 +42,16 @@ export function LiveStudy(props: {
   onCleanup(() => {
     active = false;
     clearTimeout(timer);
+    props.onLearningActions?.(null);
   });
   // A V3 community keeps its enrollment step before a new lesson. In a V4
   // community a lesson binds the sign-in; the client retries briefly while
   // that sign-in is still being recorded.
   const enroll = () =>
-    ensureStudyEnrollment({
+    enrollStudyForAccount({
+      account: () => props.account,
+      csrf: () => props.csrf,
       active: () => active,
-      request: () =>
-        post<StudyEnrollmentView>(
-          "/api/karaoke/enrollment",
-          { activity: "study" },
-          props.csrf,
-        ),
-      submit: (request, signature) =>
-        post<{ state: string }>(
-          "/api/karaoke/enrollment",
-          {
-            enrollment: request.message,
-            target: request.target,
-            signature,
-          },
-          props.csrf,
-        ),
       wallet: props.wallet,
     });
   async function load() {
@@ -140,6 +126,7 @@ export function LiveStudy(props: {
     }
   }
   function observe(lesson: StudyLesson) {
+    if (!active) return;
     props.onLearningActions?.({
       download: () => downloadHistory(lesson.lessonId),
     });
@@ -157,12 +144,14 @@ export function LiveStudy(props: {
     void checkPublication(lesson.lessonId);
   }
   async function downloadHistory(id: string) {
+    if (!active) throw new Error("This Study was closed.");
     const value = await post(
       `/api/study/lessons/${encodeURIComponent(id)}/history`,
       {},
       props.csrf,
       owner(),
     );
+    if (!active) return;
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
     );
@@ -193,6 +182,9 @@ export function LiveStudy(props: {
         {(current) => (
           <StudyScreen
             client={current()}
+            account={props.account}
+            postId={props.postId}
+            onLessonCleared={() => props.onLearningActions?.(null)}
             onLesson={observe}
             onExit={props.onExit}
           />

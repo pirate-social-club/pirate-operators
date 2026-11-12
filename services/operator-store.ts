@@ -4,18 +4,27 @@ import {
   type LinkedStudyBindingIndex,
 } from "./study-linked-binding-index.ts";
 
+import type {
+  LinkedScope,
+  WithdrawalSource,
+} from "./study-linked-withdrawal-contract.ts";
+import { checkSource } from "./study-linked-withdrawal-contract.ts";
+
 export class Store {
   readonly sql: SqlStorage;
   readonly linkedStudyBindings: LinkedStudyBindingIndex;
   private readonly storage: DurableObjectStorage;
+  readonly withdrawalSources: readonly WithdrawalSource[];
   readonly initialNow: number;
   private readonly liveClock: boolean;
   constructor(
     storage: DurableObjectStorage,
     initialNow = 1800000000,
     liveClock = false,
+    withdrawalSources: readonly WithdrawalSource[] = [],
   ) {
     this.storage = storage;
+    this.withdrawalSources = withdrawalSources;
     this.initialNow = initialNow;
     this.liveClock = liveClock;
     this.sql = storage.sql;
@@ -23,6 +32,9 @@ export class Store {
       "CREATE TABLE IF NOT EXISTS records (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
     );
     this.linkedStudyBindings = linkedStudyBindingIndex(this.sql);
+    this.sql.exec(
+      `CREATE INDEX IF NOT EXISTS records_unclassified_linked_withdrawal_legacy_v1 ON records(key) WHERE key>='legacyResultsWithheld:' AND key<'legacyResultsWithheld;' AND COALESCE((length(key)=64 AND substr(key,23,2)='0x' AND substr(key,25) NOT GLOB '*[^0-9a-f]*' AND json_type(value,'$.at')='integer' AND json_extract(value,'$.at')>=0 AND ((json_type(value,'$.nonce')='text' AND length(json_extract(value,'$.nonce')) BETWEEN 1 AND 20 AND json_extract(value,'$.nonce') NOT GLOB '*[^0-9]*') OR (json_type(value,'$.revokedAt')='text' AND length(json_extract(value,'$.revokedAt')) BETWEEN 1 AND 20 AND json_extract(value,'$.revokedAt') NOT GLOB '*[^0-9]*' AND json_extract(value,'$.revokedAt')!='0'))),0)=0`,
+    );
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_transaction_ref
       ON records(json_extract(value,'$.ref')) WHERE key>='tx:' AND key<'tx;'`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_speech_lesson
@@ -36,6 +48,28 @@ export class Store {
     this.sql.exec(`CREATE INDEX IF NOT EXISTS records_unclassified_speech_lesson
       ON records(key) WHERE key>='studySpeech:' AND key<'studySpeech;'
         AND COALESCE(json_type(value,'$.parameters.lessonId'),'')!='text'`);
+  }
+  linkedWithdrawalSource(scope: LinkedScope): WithdrawalSource {
+    const selected = this.withdrawalSources.filter(
+      (source) =>
+        source.communityId.toLowerCase() === scope.communityId.toLowerCase() &&
+        source.target.chainId === scope.target.chainId &&
+        source.target.version === scope.target.version &&
+        source.target.contract.toLowerCase() ===
+          scope.target.contract.toLowerCase(),
+    );
+    check(selected.length === 1, "study_withdrawal_source_unconfigured");
+    checkSource(scope, selected[0]);
+    return selected[0];
+  }
+  hasUnclassifiedLegacyWithdrawal() {
+    return (
+      this.sql
+        .exec(
+          `SELECT 1 FROM records INDEXED BY records_unclassified_linked_withdrawal_legacy_v1 WHERE key>='legacyResultsWithheld:' AND key<'legacyResultsWithheld;' AND COALESCE((length(key)=64 AND substr(key,23,2)='0x' AND substr(key,25) NOT GLOB '*[^0-9a-f]*' AND json_type(value,'$.at')='integer' AND json_extract(value,'$.at')>=0 AND ((json_type(value,'$.nonce')='text' AND length(json_extract(value,'$.nonce')) BETWEEN 1 AND 20 AND json_extract(value,'$.nonce') NOT GLOB '*[^0-9]*') OR (json_type(value,'$.revokedAt')='text' AND length(json_extract(value,'$.revokedAt')) BETWEEN 1 AND 20 AND json_extract(value,'$.revokedAt') NOT GLOB '*[^0-9]*' AND json_extract(value,'$.revokedAt')!='0'))),0)=0 LIMIT 1`,
+        )
+        .toArray().length > 0
+    );
   }
   get<T>(key: string): T | undefined {
     const row = this.sql

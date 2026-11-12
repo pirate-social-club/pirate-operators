@@ -9,20 +9,51 @@ import type {
 import {
   createIndexedDanceJournal,
   identicalCommand,
+  sameOriginalCommand,
+  hasDanceExpiredOutcome,
   type DanceJournal,
   type DanceJournalEntry,
 } from "./journal.ts";
+import { assertDanceReview } from "./source/dance-review-api.ts";
+import { captureTarget } from "./source/ports.ts";
 export interface DanceClient {
+  prepareCapture?(
+    targetKey: string,
+    songKey: string,
+    offerId: string | null,
+    referenceId: string | null,
+    consent: DanceConsentAcceptance,
+  ): Promise<DanceJournalEntry>;
+  prepareSubmission?(
+    targetKey: string,
+    captureId: string,
+    mediaId: string,
+    recordingSha256: string,
+  ): Promise<DanceJournalEntry>;
+  dispatchPrepared?(
+    entry: DanceJournalEntry,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
+  command?(commandId: string): Promise<DanceJournalEntry | null>;
+  acceptedCapture?(): Promise<DanceJournalEntry | null>;
+  releaseCompletedCapture?(
+    commandId: string,
+    captureId: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
+  onAccessLost?(listener: (error: DanceClientError) => void): () => void;
   capture(
     songKey: string,
     offerId: string | null,
     referenceId: string | null,
     consent: DanceConsentAcceptance,
+    signal?: AbortSignal,
   ): Promise<DanceCapture>;
   submit(
     captureId: string,
     mediaId: string,
     recordingSha256: string,
+    signal?: AbortSignal,
   ): Promise<DanceReceipt>;
   get(reviewId: string): Promise<DanceReview>;
   queue(cursor?: string | null): Promise<DanceQueue>;
@@ -32,10 +63,18 @@ export interface DanceClient {
     verdict: DanceVerdict,
     consentVersion: string,
   ): Promise<DanceReceipt>;
-  withdraw(reviewId: string, revision: number): Promise<DanceReceipt>;
-  recover(): Promise<DanceJournalEntry | null>;
-  acknowledgeRecovery(): Promise<void>;
-  resetDefiniteCapture(): Promise<void>;
+  withdraw(
+    reviewId: string,
+    revision: number,
+    signal?: AbortSignal,
+  ): Promise<DanceReceipt>;
+  recover(signal?: AbortSignal): Promise<DanceJournalEntry | null>;
+  /** Read-only capabilities used by the original recorder journey. Optional
+   * for historical callers; a source mount requires both explicitly. */
+  retained?(): Promise<DanceJournalEntry | null>;
+  observe?(reviewId: string, signal?: AbortSignal): Promise<DanceReview>;
+  acknowledgeRecovery(commandId?: string): Promise<void>;
+  resetDefiniteCapture(captureId?: string): Promise<void>;
   dispose(): void;
 }
 export class DanceClientError extends Error {
@@ -71,12 +110,42 @@ export function createDanceClient(options: {
     accountId: options.accountId,
   };
   let recovery: Promise<DanceJournalEntry | null> | null = null;
+  let denial: DanceClientError | null = null;
+  const deniedListeners = new Set<(error: DanceClientError) => void>();
   function current() {
+    if (denial) throw denial;
     if (controller.signal.aborted || !options.isCurrent())
       throw new DanceClientError("dance_account_changed");
   }
   async function readResponse(response: Response, write = false) {
     current();
+    if (response.status === 401 || response.status === 403) {
+      const refusal = new DanceClientError(
+        "dance_request_denied",
+        false,
+        response.status,
+      );
+      denial = refusal;
+      for (const listener of [...deniedListeners]) {
+        try {
+          listener(refusal);
+        } catch {
+          /* A consumer cannot suppress the denial for other private surfaces. */
+        }
+      }
+      // Permission is already revoked. Decoding may retain a declared policy
+      // error code, but neither a stalled body nor a late 200 can restore data.
+      try {
+        const body = (await response.json()) as { error?: unknown };
+        throw new DanceClientError(
+          typeof body?.error === "string" ? body.error : refusal.code,
+          false,
+          response.status,
+        );
+      } catch (error) {
+        throw error instanceof DanceClientError ? error : refusal;
+      }
+    }
     let v: unknown;
     try {
       v = await response.json();
@@ -109,29 +178,35 @@ export function createDanceClient(options: {
     }
     return v;
   }
-  async function send(e: DanceJournalEntry) {
+  async function send(e: DanceJournalEntry, signal?: AbortSignal) {
     current();
     if (
       e.scope.communityId !== scope.communityId ||
       e.scope.accountId !== scope.accountId
     )
       throw new DanceClientError("dance_account_changed");
+    if (hasDanceExpiredOutcome(e))
+      throw new DanceClientError("dance_capture_expired", false, 410);
     let response: Response;
     try {
       response = await fetcher("/api/dance/" + e.path, {
         method: "POST",
         credentials: "same-origin",
         cache: "no-store",
-        signal: controller.signal,
+        signal: signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal,
         headers: {
           "x-dance-account": scope.accountId,
           "content-type": "application/json",
           "x-csrf-token": options.csrf,
         },
-        body: JSON.stringify({
-          ...JSON.parse(e.bodyJson),
-          commandId: e.commandId,
-        }),
+        body:
+          e.requestJson ??
+          JSON.stringify({
+            ...JSON.parse(e.bodyJson),
+            commandId: e.commandId,
+          }),
       });
     } catch {
       current();
@@ -144,7 +219,8 @@ export function createDanceClient(options: {
       if (
         error instanceof DanceClientError &&
         error.status === 410 &&
-        error.code === "dance_capture_expired"
+        error.code === "dance_capture_expired" &&
+        ["captures", "reviews"].includes(e.path)
       )
         await journal.rejectExpired(e);
       throw error;
@@ -162,13 +238,14 @@ export function createDanceClient(options: {
     current();
     return value;
   }
-  async function recover() {
+  async function recover(signal?: AbortSignal) {
     current();
     return (recovery ??= (async () => {
       const active = await journal.active(scope);
       if (active) {
-        await send(active);
-        return active;
+        if (active.targetKey) await dispatchPrepared(active, signal);
+        else await send(active, signal);
+        return journal.latest(scope);
       }
       return journal.latest(scope);
     })().finally(() => {
@@ -179,6 +256,7 @@ export function createDanceClient(options: {
     subject: string,
     path: string,
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<T> {
     current();
     const candidate: DanceJournalEntry = {
@@ -192,7 +270,6 @@ export function createDanceClient(options: {
     const retained = await journal.reserve(candidate);
     current();
     if (!identicalCommand(retained, candidate)) {
-      if (!retained.receiptJson) await send(retained);
       throw new DanceClientError(
         "dance_original_command_recovered",
         false,
@@ -200,17 +277,72 @@ export function createDanceClient(options: {
       );
     }
     if (retained.receiptJson) return JSON.parse(retained.receiptJson) as T;
-    return (await send(retained)) as T;
+    return (await send(retained, signal)) as T;
   }
-  async function get<T>(path: string): Promise<T> {
-    await recover();
+  async function prepare(
+    targetKey: string,
+    subject: string,
+    path: string,
+    body: Record<string, unknown>,
+  ) {
+    current();
+    const commandId = crypto.randomUUID(),
+      bodyJson = JSON.stringify(body);
+    const candidate: DanceJournalEntry = {
+      version: 1,
+      scope,
+      commandId,
+      subject,
+      path,
+      bodyJson,
+      targetKey,
+      requestJson: JSON.stringify({ ...body, commandId }),
+    };
+    const original = await journal.reserve(candidate);
+    current();
+    if (!identicalCommand(original, candidate))
+      throw new DanceClientError("dance_other_original_pending", false, 409);
+    return original;
+  }
+  async function dispatchPrepared(e: DanceJournalEntry, signal?: AbortSignal) {
+    current();
+    if (!journal.command || !journal.markDispatch)
+      throw new DanceClientError("dance_preparation_port_unavailable");
+    const original = await journal.command(scope, e.commandId);
+    current();
+    if (!original || !sameOriginalCommand(original, e))
+      throw new DanceClientError("dance_original_command_changed");
+    if (hasDanceExpiredOutcome(original))
+      throw new DanceClientError("dance_capture_expired", false, 410);
+    if (original.receiptJson) return JSON.parse(original.receiptJson);
+    const admitted = await journal.markDispatch(original);
+    current();
+    if (hasDanceExpiredOutcome(admitted))
+      throw new DanceClientError("dance_capture_expired", false, 410);
+    if (admitted.receiptJson) return JSON.parse(admitted.receiptJson);
+    return send(admitted, signal);
+  }
+  async function get<T>(
+    path: string,
+    recoverCommands = true,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    if (recoverCommands) {
+      const active = await journal.active(scope);
+      current();
+      if (active?.targetKey)
+        throw new DanceClientError("dance_original_command_pending", true, 409);
+      await recover(signal);
+    }
     current();
     let response: Response;
     try {
       response = await fetcher("/api/dance/" + path, {
         credentials: "same-origin",
         cache: "no-store",
-        signal: controller.signal,
+        signal: signal
+          ? AbortSignal.any([controller.signal, signal])
+          : controller.signal,
         headers: { "x-dance-account": scope.accountId },
       });
     } catch {
@@ -220,14 +352,89 @@ export function createDanceClient(options: {
     return (await readResponse(response)) as T;
   }
   return {
-    capture: (songKey, offerId, referenceId, consent) =>
-      mutate("capture", "captures", { songKey, offerId, referenceId, consent }),
-    submit: (captureId, mediaId, recordingSha256) =>
-      mutate("submission:" + captureId, "reviews", {
+    prepareCapture: (target, songKey, offerId, referenceId, consent) =>
+      prepare(target, "capture", "captures", {
+        songKey,
+        offerId,
+        referenceId,
+        consent,
+      }),
+    prepareSubmission: (target, captureId, mediaId, recordingSha256) =>
+      prepare(target, "submission:" + captureId, "reviews", {
         captureId,
         mediaId,
         recordingSha256,
       }),
+    dispatchPrepared,
+    command: async (id) => {
+      current();
+      if (!journal.command) throw Error("dance_preparation_port_unavailable");
+      const e = await journal.command(scope, id);
+      current();
+      return e;
+    },
+    acceptedCapture: async () => {
+      current();
+      if (!journal.acceptedCapture)
+        throw Error("dance_preparation_port_unavailable");
+      const e = await journal.acceptedCapture(scope);
+      current();
+      return e;
+    },
+    releaseCompletedCapture: async (commandId, captureId, signal) => {
+      current();
+      if (!journal.acceptedCapture)
+        throw Error("dance_preparation_port_unavailable");
+      const e = await journal.acceptedCapture(scope);
+      current();
+      if (!e?.receiptJson || e.commandId !== commandId)
+        throw Error("dance_capture_reset_changed");
+      const capture = JSON.parse(e.receiptJson) as DanceCapture;
+      if (
+        capture.captureId !== captureId ||
+        capture.learner.accountId !== scope.accountId ||
+        capture.communityId !== scope.communityId
+      )
+        throw Error("dance_capture_reset_changed");
+      const review = await get<DanceReview>(
+        "reviews/" + encodeURIComponent(captureId),
+        false,
+        signal,
+      );
+      current();
+      assertDanceReview(review, captureTarget(capture), capture);
+      if (
+        review.localDenied ||
+        !review.canonical?.canonical ||
+        review.canonical.finality !== "safe"
+      )
+        throw Error("dance_original_not_safely_completed");
+      await journal.definiteCaptureReset(scope, { commandId, captureId });
+      current();
+    },
+    onAccessLost: (listener) => {
+      deniedListeners.add(listener);
+      if (denial) listener(denial);
+      return () => deniedListeners.delete(listener);
+    },
+    capture: (songKey, offerId, referenceId, consent, signal) =>
+      mutate(
+        "capture",
+        "captures",
+        { songKey, offerId, referenceId, consent },
+        signal,
+      ),
+    submit: (captureId, mediaId, recordingSha256, signal) =>
+      mutate(
+        "submission:" + captureId,
+        "reviews",
+        {
+          captureId,
+          mediaId,
+          recordingSha256,
+        },
+        signal,
+      ),
     get: (id) => get("reviews/" + encodeURIComponent(id)),
     queue: (cursor) =>
       get("queue" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "")),
@@ -237,20 +444,36 @@ export function createDanceClient(options: {
         "reviews/" + encodeURIComponent(id) + "/verdict",
         { revision, verdict, consentVersion },
       ),
-    withdraw: (id, revision) =>
+    withdraw: (id, revision, signal) =>
       mutate(
         "withdraw:" + id,
         "reviews/" + encodeURIComponent(id) + "/withdraw",
         { revision },
+        signal,
       ),
     recover,
-    acknowledgeRecovery: async () => {
+    retained: async () => {
       current();
-      await journal.acknowledge(scope);
+      const result =
+        (await journal.active(scope)) ?? (await journal.latest(scope));
+      current();
+      return result;
     },
-    resetDefiniteCapture: async () => {
+    observe: (id, signal) =>
+      get("reviews/" + encodeURIComponent(id), false, signal),
+    acknowledgeRecovery: async (commandId) => {
       current();
-      await journal.definiteCaptureReset(scope);
+      await journal.acknowledge(scope, commandId);
+    },
+    resetDefiniteCapture: async (captureId) => {
+      current();
+      if (captureId)
+        await journal.definiteCaptureReset(scope, {
+          captureId,
+          keepUnrelated: true,
+        });
+      else await journal.definiteCaptureReset(scope);
+      current();
     },
     dispose: () => controller.abort(),
   };

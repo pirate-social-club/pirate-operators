@@ -1,0 +1,202 @@
+/** Owned same-origin operator transport. No central API, auth or persona port. */
+export interface LearningRequestEvidence {
+  readonly stage: "before_dispatch" | "endpoint_refusal" | "response_uncertain";
+  readonly path: string;
+  readonly method: "GET" | "POST";
+  readonly endpointStatus?: number;
+}
+/** Producer trace at 1ff2d5e: these auth/Origin/CSRF failures are returned
+ * before karaokeTicket runs. Its reservation catch maps ANY exception to409,
+ * and authorization may also fail after reservation, so no409 code is proof.
+ * A future refusal protocol needs separate reviewed producer evidence.
+ */
+export function ticketRefusedBeforeReservation(
+  status: number,
+  code: string,
+): boolean {
+  return (
+    (status === 401 && code === "session_required") ||
+    (status === 403 &&
+      [
+        "wrong_host",
+        "wrong_origin",
+        "cross_site_write",
+        "csrf_required",
+      ].includes(code))
+  );
+}
+export class LearningServiceError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly evidence?: Readonly<LearningRequestEvidence>;
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    evidence?: LearningRequestEvidence,
+  ) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.evidence = evidence ? Object.freeze({ ...evidence }) : undefined;
+  }
+}
+/** Presentation denial is independent from whether an earlier write committed. */
+export function isLearningAuthorityLoss(error: unknown): boolean {
+  const value = error as {
+    status?: number;
+    code?: string;
+    evidence?: { endpointStatus?: number };
+  } | null;
+  return (
+    !!value &&
+    (value.status === 401 ||
+      value.status === 403 ||
+      value.code === "study_account_changed" ||
+      value.evidence?.endpointStatus === 401 ||
+      value.evidence?.endpointStatus === 403)
+  );
+}
+export function learningAuthorityMessage(error: unknown): string {
+  return (error as { code?: string } | null)?.code === "study_account_changed"
+    ? "You are signed in with a different account. Reload to continue."
+    : "Sign in again to continue.";
+}
+export async function learningRequest<T>(
+  path: string,
+  options: {
+    account: string;
+    csrf: string;
+    body?: unknown;
+    signal?: AbortSignal;
+  },
+): Promise<T> {
+  if (!path.startsWith("/api/") || path.startsWith("//"))
+    throw new Error("Learning requires the community's own service.");
+  const method = options.body === undefined ? "GET" : "POST";
+  const uncertain = (
+    error: unknown,
+    stage: LearningRequestEvidence["stage"],
+    endpointStatus?: number,
+  ) =>
+    new LearningServiceError(
+      error instanceof LearningServiceError ? error.status : 503,
+      error instanceof LearningServiceError
+        ? error.code
+        : "learning_response_uncertain",
+      error instanceof LearningServiceError
+        ? error.message
+        : "This step's outcome could not be confirmed. Check the same step again.",
+      {
+        stage,
+        path,
+        method,
+        ...(endpointStatus === undefined ? {} : { endpointStatus }),
+      },
+    );
+  async function requireCurrentAccount() {
+    const response = await fetch("/api/session", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: options.signal,
+      headers: { accept: "application/json" },
+    });
+    if (!response.ok)
+      throw new LearningServiceError(
+        response.status,
+        "learning_session_unavailable",
+        response.status === 401 || response.status === 403
+          ? "Sign in again to continue."
+          : "Your account could not be checked. Retry the same step.",
+      );
+    const session = (await response.json()) as { mossAddress?: string } | null;
+    if (session?.mossAddress?.toLowerCase() !== options.account.toLowerCase())
+      throw new LearningServiceError(
+        401,
+        "study_account_changed",
+        "You are signed in with a different account. Reload to continue.",
+      );
+  }
+  // Existing MOSS session, never central auth. The post-read check prevents a
+  // response from another account being installed after a cross-tab sign-in.
+  // The server still owns authorization; this is a presentation lifetime fence.
+  try {
+    await requireCurrentAccount();
+  } catch (error) {
+    throw uncertain(error, "before_dispatch");
+  }
+  let response: Response | undefined;
+  let value: T & { error?: unknown };
+  try {
+    response = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: options.signal,
+      headers: {
+        accept: "application/json",
+        "x-study-account": options.account,
+        ...(options.body === undefined
+          ? {}
+          : {
+              "content-type": "application/json",
+              "x-csrf-token": options.csrf,
+            }),
+      },
+      ...(options.body === undefined
+        ? {}
+        : { body: JSON.stringify(options.body) }),
+    });
+    // Headers establish presentation authority loss immediately. They do NOT
+    // establish a pre-reservation refusal: keep the original write uncertain.
+    // Never decode an auth-denied body (including malformed/empty/held bodies).
+    if (response.status === 401 || response.status === 403)
+      throw new LearningServiceError(
+        response.status,
+        "learning_authority_lost",
+        "Sign in again to continue.",
+      );
+    value = await response.json();
+  } catch (error) {
+    // Dispatch may already have committed even if the body or transport failed.
+    throw uncertain(error, "response_uncertain", response?.status);
+  }
+  if (!response) throw uncertain(undefined, "response_uncertain");
+  if (!response.ok) {
+    const code =
+      value && typeof value.error === "string"
+        ? value.error
+        : "learning_unavailable";
+    const message =
+      response.status === 401
+        ? "Sign in to continue."
+        : code === "karaoke_authorization_pending"
+          ? "Your sign-in is still being confirmed. Try again in a moment."
+          : code === "study_account_changed"
+            ? "You are signed in with a different account. Reload to continue."
+            : code === "speech_budget_exhausted"
+              ? "Speech practice has reached today's community limit."
+              : code === "sponsor_exhausted"
+                ? "Sponsored practice is paused because the community allowance is exhausted."
+                : "This step could not complete. Retry the same step.";
+    throw new LearningServiceError(response.status, code, message, {
+      stage:
+        method === "POST" &&
+        path === "/api/karaoke/tickets" &&
+        ticketRefusedBeforeReservation(response.status, code)
+          ? "endpoint_refusal"
+          : "response_uncertain",
+      path,
+      method,
+      endpointStatus: response.status,
+    });
+  }
+  try {
+    await requireCurrentAccount();
+  } catch (error) {
+    // A successful endpoint response followed by a 401/409 session check is
+    // post-dispatch uncertainty, never evidence that the endpoint refused work.
+    throw uncertain(error, "response_uncertain", response.status);
+  }
+  return value as T;
+}

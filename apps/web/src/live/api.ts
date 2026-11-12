@@ -15,28 +15,60 @@ export type {
   CommunityJobView,
 };
 
+/** Status is available at headers; callers must not wait for an auth error body. */
+export class CommunityRequestError extends Error {
+  readonly status: number;
+  readonly code: string | undefined;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+function rejectAuthentication(response: Response) {
+  if (response.status === 401 || response.status === 403)
+    throw new CommunityRequestError(
+      response.status === 401
+        ? "Sign in to continue."
+        : "The community is temporarily unavailable. Please try again.",
+      response.status,
+    );
+}
+
 export async function get<T>(
   path: string,
-  options: { timeoutMs?: number; headers?: Record<string, string> } = {},
+  options: {
+    timeoutMs?: number;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<T> {
   const response = await fetch(path, {
     credentials: "same-origin",
     headers: { accept: "application/json", ...options.headers },
     cache: "no-store",
-    ...(options.timeoutMs
-      ? { signal: AbortSignal.timeout(options.timeoutMs) }
+    ...(options.timeoutMs || options.signal
+      ? {
+          signal: options.timeoutMs
+            ? options.signal
+              ? AbortSignal.any([
+                  options.signal,
+                  AbortSignal.timeout(options.timeoutMs),
+                ])
+              : AbortSignal.timeout(options.timeoutMs)
+            : options.signal,
+        }
       : {}),
   });
   if (!response.ok) {
+    rejectAuthentication(response);
     const error = (await response.json().catch(() => ({}))) as {
       error?: string;
     };
     throw new Error(
-      response.status === 401
-        ? "Sign in to continue."
-        : error.error === "study_account_changed"
-          ? messages.study_account_changed
-          : "The community is temporarily unavailable. Please try again.",
+      error.error === "study_account_changed"
+        ? messages.study_account_changed
+        : "The community is temporarily unavailable. Please try again.",
     );
   }
   return response.json() as Promise<T>;
@@ -57,15 +89,15 @@ export async function post<T>(
     },
     body: JSON.stringify(body),
   });
+  rejectAuthentication(response);
   const value = (await response.json()) as T & { error?: string };
   if (!response.ok)
     // The server's code stays available to callers that retry on it.
-    throw Object.assign(
-      new Error(
-        messages[value.error ?? ""] ??
-          "This step could not complete. Retry the same step.",
-      ),
-      { code: value.error },
+    throw new CommunityRequestError(
+      messages[value.error ?? ""] ??
+        "This step could not complete. Retry the same step.",
+      response.status,
+      value.error,
     );
   return value;
 }
@@ -88,8 +120,7 @@ const messages: Record<string, string> = {
     "You are signed in with a different account. Reload to continue.",
   karaoke_authorization_pending:
     "Your sign-in is still being confirmed. Try again in a moment.",
-  karaoke_authorization_required:
-    "Sign out, then sign in again to continue.",
+  karaoke_authorization_required: "Sign out, then sign in again to continue.",
   public_results_unavailable: "Public results settings are unavailable here.",
   reward_unmatched_outgoing:
     "Review the unmatched outgoing transfer before preparing another payment.",

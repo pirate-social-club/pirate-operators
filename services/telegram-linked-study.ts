@@ -21,6 +21,7 @@ import type {
 } from "../packages/telegram/study-contracts.ts";
 import type { liveStudy } from "./study-community.ts";
 import type { TelegramGrants } from "./telegram-grants.ts";
+import { TelegramManagedPublication } from "./telegram-managed-publication.ts";
 import {
   scrubLinkedGrades,
   telegramLinkedDatabase,
@@ -44,6 +45,8 @@ export interface TelegramConnectedLink extends TelegramConnectedContext {
   revokedAtMs: number | null;
 }
 export interface TelegramPublicationFence {
+  /** Non-serialized reference to the exact managed lifecycle, never a capability marker. */
+  readonly publication: TelegramManagedPublication;
   version: 1;
   grantId: string;
   actor: ChatActor;
@@ -92,6 +95,7 @@ export function linkedLessonView(
 }
 export function telegramLinkedStudy(options: {
   grants: TelegramGrants;
+  publication: TelegramManagedPublication;
   db: D1Database;
   /** Coordinator/lane5 factory binds the trusted channel into the frozen offer. */
   /** Shared publisher must persist the fence metadata and recheck it at
@@ -101,13 +105,20 @@ export function telegramLinkedStudy(options: {
     channel: "telegram-linked",
     fence: TelegramPublicationFence,
     db: D1Database,
-  ): ReturnType<typeof liveStudy> & { telegramGrantFenceVersion: 1 };
+  ): ReturnType<typeof liveStudy>;
   authorize(
     context: TelegramConnectedContext,
     resolve: () => Promise<TelegramConnectedLink | null>,
   ): Promise<{ id: string | null; pending?: boolean }>;
   personal: TelegramLinkedStudyPort["personal"];
 }): TelegramLinkedStudyPort {
+  const publication = options.publication;
+  telegramCheck(
+    publication instanceof TelegramManagedPublication &&
+      publication.grants === options.grants,
+    "telegram_managed_publication_required",
+    503,
+  );
   const linkedDb = telegramLinkedDatabase(options.db);
   async function authority(
     actor: ChatActor,
@@ -115,6 +126,7 @@ export function telegramLinkedStudy(options: {
     startedAtMs: number,
     capturedId?: Hex,
   ) {
+    await publication.ready();
     const current = await options.grants.assert(actor, expected.id);
     telegramCheck(
       current.accountId === expected.accountId &&
@@ -154,6 +166,7 @@ export function telegramLinkedStudy(options: {
       "telegram_authorization_changed",
       403,
     );
+    await publication.ready();
     const after = await options.grants.assert(actor, expected.id);
     telegramCheck(
       after.authorityVersion === expected.authorityVersion,
@@ -161,6 +174,7 @@ export function telegramLinkedStudy(options: {
       403,
     );
     const fence: TelegramPublicationFence = {
+      publication,
       version: 1,
       grantId: expected.id,
       actor,
@@ -169,6 +183,7 @@ export function telegramLinkedStudy(options: {
       startedAt: startedAtMs,
       authorizationId: bytes32(admitted.id),
       async check() {
+        await publication.ready();
         const grant = await options.grants.assert(actor, expected.id);
         telegramCheck(
           grant.authorityVersion === expected.authorityVersion,
@@ -194,6 +209,7 @@ export function telegramLinkedStudy(options: {
           "telegram_authorization_changed",
           403,
         );
+        await publication.ready();
         const after = await options.grants.assert(actor, expected.id);
         telegramCheck(
           after.authorityVersion === expected.authorityVersion,
@@ -202,16 +218,12 @@ export function telegramLinkedStudy(options: {
         );
       },
     };
+    await publication.ready();
     const api = options.createStudy(
       { account_id: current.accountId, wallet: current.wallet },
       "telegram-linked",
       fence,
       linkedDb,
-    );
-    telegramCheck(
-      api.telegramGrantFenceVersion === 1,
-      "telegram_publication_fence_required",
-      503,
     );
     return api;
   }
@@ -273,6 +285,7 @@ export function telegramLinkedStudy(options: {
     return bytes32(row.id);
   }
   async function existing(actor: ChatActor, grant: TelegramGrant, id: string) {
+    await publication.ready();
     const row = await options.db
       .prepare(
         "SELECT started_at,json_extract(state_json,'$.telegram.authorizationId') AS authorization_id FROM study_lessons WHERE lesson_id=? AND account_id=? AND community_id=? AND history_deleted_at IS NULL",
@@ -297,6 +310,7 @@ export function telegramLinkedStudy(options: {
   }
   return {
     async start(actor, grant, song, requestId) {
+      await publication.ready();
       const expectedFacts = telegramStudyFacts({
         schema: "pirate.study.telegram-publication-fence/1",
         version: 1,
@@ -447,6 +461,12 @@ export function telegramLinkedStudy(options: {
         attempt.line.lineId === expected.line.lineId,
         "telegram_prompt_changed",
         409,
+      );
+      await authority(
+        actor,
+        grant,
+        lesson.startedAt,
+        await savedAuthorization(actor, grant, lesson.lessonId),
       );
       return { lesson, attempt };
     },

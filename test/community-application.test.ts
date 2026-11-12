@@ -458,3 +458,39 @@ test("admitted private Dance runtime uses real HTTP session, queue isolation and
     await f.dispose();
   }
 });
+
+test("application serializes rejected input capabilities before reading private media", async () => {
+  const f = await fixture();
+  let mediaReads = 0;
+  try {
+    const env = {
+      ...f.env,
+      MEDIA: {
+        get: async (key: string, options?: R2GetOptions) => {
+          mediaReads++;
+          return f.media.get(key, options);
+        },
+      } as unknown as R2Bucket,
+    };
+    const path = `/api/moderation/inputs/${crypto.randomUUID()}/audio`;
+    for (const [query, code] of [
+      [`?cap=${"f".repeat(64)}`, "input_capability_expired_or_invalid"],
+      ["?cap=malformed", "input_capability_required"],
+    ]) {
+      const response = await communityFetch(
+        new Request(firstSong.origin + path + query),
+        env,
+        f.ports,
+      );
+      assert.equal(response.status, 403);
+      assert.match(
+        response.headers.get("content-type") ?? "",
+        /^application\/json/,
+      );
+      assert.deepEqual(await response.json(), { error: code });
+      assert.equal(mediaReads, 0);
+    }
+  } finally {
+    await f.dispose();
+  }
+});

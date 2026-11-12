@@ -23,8 +23,46 @@ export interface StudyClient {
 }
 /** The session now belongs to another account; nothing shown may be kept. */
 export class StudyAccountChangedError extends Error {
+  readonly code = "study_account_changed";
+  readonly status = 401;
   constructor() {
     super("You are signed in with a different account. Reload to continue.");
+  }
+}
+/** Header authority loss is sufficient to mask. Body classification is a
+ * presentation-only refinement, explicitly deferred until the host has masked.
+ * A post-dispatch denial is not proof that a write never committed. */
+export class StudyAuthorityLostError extends Error {
+  readonly code = "auth_error";
+  readonly status: 401 | 403;
+  readonly evidence: Readonly<{
+    stage: "response_headers";
+    path: string;
+    method: string;
+    writeOutcome: "unknown" | "not_a_write";
+  }>;
+  readonly afterAuthMask: () => Promise<"study_account_changed" | undefined>;
+  constructor(response: Response, path: string, method: string) {
+    super("Sign in again to continue Study.");
+    this.status = response.status as 401 | 403;
+    this.evidence = Object.freeze({
+      stage: "response_headers",
+      path,
+      method,
+      writeOutcome: method === "GET" ? "not_a_write" : "unknown",
+    });
+    let reason: Promise<"study_account_changed" | undefined> | undefined;
+    this.afterAuthMask = () =>
+      (reason ??= response
+        .json()
+        .then((body: unknown) =>
+          body &&
+          typeof body === "object" &&
+          (body as { error?: unknown }).error === "study_account_changed"
+            ? ("study_account_changed" as const)
+            : undefined,
+        )
+        .catch(() => undefined));
   }
 }
 class StudyLessonNotFoundError extends Error {}
@@ -44,6 +82,9 @@ export function createStudyClient(
 ): StudyClient {
   let lessonId = initialLessonId,
     startRequestId = crypto.randomUUID();
+  // A transport failure cannot authorize rotation to another start identity.
+  // Explicit retries reconcile/replay this request until its outcome is known.
+  let unconfirmedStart = false;
   async function call(path: string, init: RequestInit = {}) {
     if (active?.() === false) throw new Error("Study was closed.");
     const response = await fetch("/api/study/lessons" + path, {
@@ -55,6 +96,12 @@ export function createStudyClient(
         ...(account ? { "x-study-account": account } : {}),
       },
     });
+    if (response.status === 401 || response.status === 403)
+      throw new StudyAuthorityLostError(
+        response,
+        "/api/study/lessons" + path,
+        init.method ?? "GET",
+      );
     if (!response.ok) {
       const body = await response
         .json()
@@ -71,21 +118,25 @@ export function createStudyClient(
         throw new StudyAuthorizationPendingError(
           "Your answer could not be saved. Try again.",
         );
-      throw new Error(
-        response.status === 401
-          ? "Sign in again to continue Study."
-          : body.error === "study_authorization_required"
-            ? "Sign out, then sign in again to continue."
-            : body.error === "study_speech_retry_later"
-              ? "Speech is busy. Your answer was not counted. Wait a minute, then try again."
-              : body.error === "study_recording_too_short"
-                ? "Record for at least one second, then try again."
-                : "Your answer could not be saved. Try again.",
+      throw Object.assign(
+        new Error(
+          response.status === 401
+            ? "Sign in again to continue Study."
+            : body.error === "study_authorization_required"
+              ? "Sign out, then sign in again to continue."
+              : body.error === "study_speech_retry_later"
+                ? "Speech is busy. Your answer was not counted. Wait a minute, then try again."
+                : body.error === "study_recording_too_short"
+                  ? "Record for at least one second, then try again."
+                  : "Your answer could not be saved. Try again.",
+        ),
+        { status: response.status, code: body.error },
       );
     }
     return response.json();
   }
   function remember(lesson: StudyLesson) {
+    if (active?.() === false) throw new Error("Study was closed.");
     if (
       lesson.schema !== STUDY_LESSON_SCHEMA ||
       lesson.kind !== "say-it-back" ||
@@ -104,14 +155,26 @@ export function createStudyClient(
     // screen keeps its loading state meanwhile.
     for (let retry = 0; ; retry++) {
       try {
-        return remember(
+        unconfirmedStart = true;
+        const started = remember(
           await call("", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ requestId: startRequestId, song }),
           }),
         );
+        unconfirmedStart = false;
+        return started;
       } catch (error) {
+        const status = (error as { status?: number }).status;
+        if (
+          status !== undefined &&
+          status < 500 &&
+          status !== 408 &&
+          status !== 401 &&
+          status !== 403
+        )
+          unconfirmedStart = false;
         if (
           !(error instanceof StudyAuthorizationPendingError) ||
           retry + 1 >= AUTHORIZATION_RETRIES
@@ -155,6 +218,7 @@ export function createStudyClient(
       return remember(await call("/" + encodeURIComponent(lessonId)));
     },
     async restart() {
+      if (unconfirmedStart) return start();
       if (lessonId)
         await call("/" + encodeURIComponent(lessonId) + "/abandon", {
           method: "POST",

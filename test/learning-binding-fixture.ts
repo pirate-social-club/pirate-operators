@@ -1,3 +1,4 @@
+import { currentOperatorAuthorityFixture } from "./learning-current-authority-fixture.ts";
 import { zeroHash, type Hex } from "viem";
 import { chain } from "../harness/chain.ts";
 import { accounts, keys } from "../harness/runtime.ts";
@@ -24,6 +25,7 @@ export async function learningBindingFixture(
   port: number,
   communityId = digest("binding-community"),
   v3PublicityPolicy = learningV3PublicityPolicy,
+  options: { operatorAuthorityStore?: boolean } = {},
 ) {
   const evm = await chain(port);
   const publicityPolicy = digest("binding-publicity");
@@ -53,7 +55,8 @@ export async function learningBindingFixture(
   );
   let now = Number((await evm.publicClient.getBlock()).timestamp);
   let rows = new Map<string, unknown>();
-  const store: ResultStore = {
+  let clock = () => now;
+  const legacyStore: ResultStore = {
     get: <T>(key: string) => rows.get(key) as T | undefined,
     set: (key, value) => {
       rows.set(key, JSON.parse(JSON.stringify(value)));
@@ -74,8 +77,16 @@ export async function learningBindingFixture(
         throw error;
       }
     },
-    now: () => now,
+    now: () => clock(),
   };
+  const authority = options.operatorAuthorityStore
+    ? currentOperatorAuthorityFixture({
+        now: () => clock(),
+        rpcUrl: evm.rpcUrl,
+        original: legacyStore,
+      })
+    : undefined;
+  const store = authority?.store ?? legacyStore;
   const env = {
     RPC_URL: evm.rpcUrl,
     PAYMENT_CHAIN_ID: "31337",
@@ -196,13 +207,33 @@ export async function learningBindingFixture(
     v2,
     v3,
     zeroHash,
+    authority,
+    setOperatorClock: (read: () => number) => {
+      clock = read;
+    },
+    async enableV4Authority(contract: `0x${string}`) {
+      if (!authority) throw Error("fixture_current_operator_store_required");
+      return authority.selectV4(communityId, contract);
+    },
+    recoverAuthority: async () => {
+      if (!authority) throw Error("fixture_current_operator_store_required");
+      await authority.recover();
+    },
     enrollment,
     prepare,
     finish,
     restartJournal: () => {
-      rows = new Map(JSON.parse(JSON.stringify([...rows])));
+      if (authority) {
+        // Explicit JSON journal roundtrip over the real durable records.
+        // This is not a native Durable Object restart qualification.
+        const snapshot = JSON.parse(JSON.stringify(store.entries("")));
+        store.transaction(() => {
+          for (const { key, value } of snapshot) store.set(key, value);
+        });
+      } else rows = new Map(JSON.parse(JSON.stringify([...rows])));
     },
     async stop() {
+      authority?.close();
       evm.child.kill();
       await new Promise<void>((resolve) =>
         evm.child.exitCode !== null

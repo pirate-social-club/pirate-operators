@@ -1,3 +1,8 @@
+import {
+  fixtureOwner,
+  fixtureProfile,
+  historyExport,
+} from "./account-fixture.ts";
 // Built live app in a simulated V4 community: the one sign-in is the
 // publication permission, and account settings turn public results off and
 // on. Modelled on account-fixture.ts and study-fixture.ts. The wallet SDK is
@@ -74,6 +79,8 @@ export async function serveV4(
   const signatures: string[] = [];
   const counts = { enrollment: 0, starts: 0, revocations: 0, turnedOn: 0 };
   const lessons = new Map<string, StudyLesson>();
+  const privateId = crypto.randomUUID();
+  const authorId = `0x${"c".repeat(64)}`;
   const manifest = JSON.parse(
     await readFile("dist/live/.vite/manifest.json", "utf8"),
   ) as Record<string, { file: string }>;
@@ -82,8 +89,7 @@ export async function serveV4(
     Object.entries(manifest).find(([name]) =>
       name.includes("@megaeth-labs/wallet-sdk"),
     )![1].file;
-  const publicResults = () =>
-    withdrawn ? "off" : recorded ? "on" : "off";
+  const publicResults = () => (withdrawn ? "off" : recorded ? "on" : "off");
   // The context, so documents opened in a new tab are served too.
   await page.context().route(`${origin}/**`, async (route) => {
     const request = route.request(),
@@ -127,6 +133,12 @@ export async function serveV4(
       return json({
         schema: "pirate.community-client-config/1",
         canonicalOrigin: origin,
+        communityId: song.communityId,
+        apiBase: "/api",
+        protocolVersions: [1],
+        defaultLanguage: "en",
+        supportedLanguages: ["en"],
+        mirrors: [],
       });
     if (path === "/api/public/community")
       return json({ name: "V4 Study fixture" });
@@ -159,6 +171,26 @@ export async function serveV4(
             publisher: false,
           })
         : json({ error: "session_required" }, 401);
+    if (path === "/api/profile/owner")
+      return signedIn
+        ? json(fixtureOwner(song.communityId, privateId, authorId))
+        : json({ error: "session_required" }, 401);
+    if (path === "/api/public/authors")
+      return json({
+        schema: "pirate.community-profile-list/1",
+        communityId: song.communityId,
+        profiles: (
+          new URL(request.url()).searchParams.get("ids")?.split(",") ?? []
+        ).includes(authorId)
+          ? [fixtureProfile(song.communityId, authorId)]
+          : [],
+      });
+    if (/^\/api\/public\/authors\/[^/]+\/activity$/.test(path))
+      return json({ error: "profile_activity_unavailable" }, 503);
+    if (path.startsWith("/api/public/authors/"))
+      return path.split("/").at(-1) === authorId
+        ? json(fixtureProfile(song.communityId, authorId))
+        : json({ error: "profile_not_found" }, 404);
     if (path === "/api/auth/challenge")
       return json({
         id: "fixture-challenge",
@@ -172,11 +204,17 @@ export async function serveV4(
       return json({ authenticated: true, csrf: "csrf-v4" });
     }
     if (path === "/api/logout") {
+      expect(request.method()).toBe("POST");
+      if (!signedIn) return json({ error: "session_required" }, 401);
+      expect(request.headers()["x-csrf-token"]).toBe("csrf-v4");
       signedIn = false;
       return json({ signedOut: true });
     }
+    if (path === "/api/uploads") return json({ uploads: [] });
     if (path === "/api/feed")
       return json({
+        schema: "pirate.community-feed/1",
+        communityId: song.communityId,
         posts: [
           {
             manifest: {
@@ -226,6 +264,9 @@ export async function serveV4(
     }
     if (path.startsWith("/api/study/")) {
       if (!signedIn) return json({ error: "session_required" }, 401);
+      expect(request.headers()["x-study-account"]).toBe(learner);
+      if (request.method() !== "GET")
+        expect(request.headers()["x-csrf-token"]).toBe("csrf-v4");
       if (path === "/api/study/song") return json(song);
       if (path === "/api/study/lessons") {
         if (request.method() === "GET")
@@ -251,6 +292,7 @@ export async function serveV4(
         lessons.set(id!, left);
         return json(left);
       }
+      if (action === "history") return json(historyExport(found));
       if (action === "publication")
         return json({ state: "bound", receipt: null });
       return json(found);
@@ -278,6 +320,7 @@ export async function serveV4(
   return {
     signatures,
     counts,
+    privateId,
     url: `${origin}/`,
     studyUrl: `${origin}/?study=${song.postId}`,
     publicResults,

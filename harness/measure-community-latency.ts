@@ -84,14 +84,19 @@ const postId =
 try {
   await request(`/api/public/posts/${postId}/karaoke`);
   await request(`/api/karaoke/attempt?postId=${postId}`, {
-    headers: { cookie },
+    headers: { cookie, "x-study-account": learner.address },
   });
   await request(`/api/karaoke/posts/${postId}/instrumental`, {
     headers: { cookie },
   });
   await request("/api/karaoke/enrollment", {
     method: "POST",
-    headers: { ...headers, cookie, "x-csrf-token": csrf },
+    headers: {
+      ...headers,
+      cookie,
+      "x-csrf-token": csrf,
+      "x-study-account": learner.address,
+    },
     body: "{}",
   });
 } finally {
