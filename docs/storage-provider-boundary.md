@@ -52,8 +52,11 @@ constructed client establishes none of those properties.
 
 ## Verification and remaining integration
 
-The native tests and typecheck are pending execution. The focused tests exercise
-profile validation and the real SDK's Effect layer,
+On 2026-11-12, all twelve focused storage tests and root typecheck passed with
+the root and web dependencies installed. The full repository `npm run check`
+remains unrun for this increment and is required before publication.
+
+The focused tests exercise profile validation and the real SDK's Effect layer,
 native adapters, signing, serialization, multipart assembly and body streaming.
 The S3 request handler is replaced with an in-process protocol fixture before
 operations. No network sockets or provider calls are used. This verifies the
