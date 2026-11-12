@@ -2,9 +2,13 @@ import { readFile } from "node:fs/promises";
 import { digest } from "./private-json.ts";
 import { reviewedPredecessor, type ReviewedUpdate } from "./reviewed-update.ts";
 import { join } from "node:path";
-import { insist, object } from "../packages/community/common.ts";
+import { canonical, insist, object } from "../packages/community/common.ts";
 import { communityOwned } from "./community-package.ts";
 import { privateJson } from "./community-state.ts";
+import {
+  verifyCommunityPackage,
+  type AuthenticateState,
+} from "./community-package-custody.ts";
 import type { managedInventory } from "./managed-inventory.ts";
 
 /** Read-only reconciliation of an already completed release. Never reapplies
@@ -24,7 +28,19 @@ export async function completedCommunityRelease(
     modules: Record<string, string>;
     health: Record<string, unknown>;
   },
+  authenticate?: AuthenticateState,
 ) {
+  insist(
+    authenticate && profile.reviewedUpdate,
+    "community_completed_package_binding_required",
+    409,
+  );
+  const current = await verifyCommunityPackage(
+    directory,
+    profileHash,
+    profile.reviewedUpdate,
+    authenticate,
+  );
   const result = await privateJson(join(directory, "deployment-result.json"));
   if (!result) return null;
   if (result.profileHash !== profileHash && profile.reviewedUpdate) {
@@ -42,6 +58,15 @@ export async function completedCommunityRelease(
     });
     return null;
   }
+  insist(
+    result.packageBinding &&
+      result.packageState &&
+      current.binding?.profileHash === profileHash &&
+      canonical(result.packageBinding) === canonical(current.binding) &&
+      canonical(result.packageState) === canonical(current.state),
+    "community_completed_package_or_state_changed",
+    409,
+  );
   if (profile.queueConsumer)
     insist(result.consumer, "community_completed_consumer_missing", 409);
   const savedHealth = object(result.health),

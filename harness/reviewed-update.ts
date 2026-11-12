@@ -376,3 +376,14 @@ export async function finishReviewedUpdate(
   );
   await replacePrivateJson(path, result, expected);
 }
+
+// Community-only atomic adoption. Generic creator-update adoption stays unchanged.
+export async function adoptPreparedCommunityUpdate(
+  directory: string,
+  packaged: Package,
+  binding: import("./community-package-custody.ts").CommunityPackageBinding,
+  authenticate: import("./community-package-custody.ts").AuthenticateState,
+) {
+  const { adoptCommunityPackage } = await import("./community-state.ts");
+  return adoptCommunityPackage(directory, packaged, binding, authenticate);
+}
