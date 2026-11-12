@@ -52,9 +52,10 @@ constructed client establishes none of those properties.
 
 ## Verification and remaining integration
 
-On 2026-11-12, all twelve focused storage tests and root typecheck passed with
-the root and web dependencies installed. The full repository `npm run check`
-remains unrun for this increment and is required before publication.
+On 2026-11-12, the full repository `npm run check` and local Worker packaging
+passed on commit `5662e915`. The run included all twelve storage cases, 1,659
+Node passes with one existing optional skip, 248 Forge passes, and acceptance
+with scope `local-skeleton/1`.
 
 The focused tests exercise profile validation and the real SDK's Effect layer,
 native adapters, signing, serialization, multipart assembly and body streaming.
