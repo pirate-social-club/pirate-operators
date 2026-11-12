@@ -8,6 +8,8 @@ import {
 } from "../src/live/learning-pages.tsx";
 import { createLearningActionOwner } from "../src/live/learning-action-owner.ts";
 import { createSavedKaraokeHistory } from "../src/karaoke/saved-history.ts";
+import * as karaokeAdapter from "../src/karaoke/operator-karaoke-adapter.ts";
+import { LearningServiceError } from "../src/karaoke/operator-learning-http.ts";
 import type { StudyLesson } from "../../../packages/study/lesson.ts";
 
 const disposers: (() => void)[] = [];
@@ -243,9 +245,30 @@ test.each(["closed", "account", "community", "generation"] as const)(
         title: "Original song",
       } as LearningPageRoute | null,
     });
-    let cookie = wallet,
-      released = false,
-      postRead = false;
+    let cookie = wallet;
+    let originalAttempt!: Promise<PromiseSettledResult<unknown>>;
+    let observedOriginalPort = false;
+    const createPort = karaokeAdapter.createOperatorKaraokePort;
+    vi.spyOn(karaokeAdapter, "createOperatorKaraokePort").mockImplementation(
+      (options) => {
+        const port = createPort(options);
+        if (!observedOriginalPort) {
+          observedOriginalPort = true;
+          const attempt = port.attempt;
+          vi.spyOn(port, "attempt").mockImplementation(() => {
+            const request = attempt();
+            // Observe the specific original adapter's guard completion. Return
+            // its exact promise; replacement-owner session reads cannot settle it.
+            originalAttempt = request.then(
+              (value) => ({ status: "fulfilled" as const, value }),
+              (reason: unknown) => ({ status: "rejected" as const, reason }),
+            );
+            return request;
+          });
+        }
+        return port;
+      },
+    );
     const pending: ((response: Response) => void)[] = [],
       paths: string[] = [];
     vi.stubGlobal(
@@ -254,7 +277,6 @@ test.each(["closed", "account", "community", "generation"] as const)(
         const path = String(input);
         paths.push(path);
         if (path === "/api/session") {
-          if (released) postRead = true;
           return Response.json({ mossAddress: cookie });
         }
         if (path === `/api/public/posts/${postId}/karaoke`)
@@ -306,6 +328,7 @@ test.each(["closed", "account", "community", "generation"] as const)(
           onKaraokeHistory={(ticket, generation) => {
             handedOff(ticket);
             if (ticket) history.remember(ticket, generation);
+            else history.clear();
           }}
         />
       );
@@ -315,6 +338,8 @@ test.each(["closed", "account", "community", "generation"] as const)(
     const dispose = render(() => <Owner />, host);
     disposers.push(dispose);
     await vi.waitFor(() => expect(pending).toHaveLength(1));
+    expect(originalAttempt).toBeDefined();
+    const releasedOriginalAttempt = originalAttempt;
     setScope((value) => ({
       ...value,
       route: boundary === "closed" ? null : value.route,
@@ -324,7 +349,6 @@ test.each(["closed", "account", "community", "generation"] as const)(
       generation: boundary === "generation" ? 2 : value.generation,
     }));
     cookie = scope().account;
-    released = true;
     pending[0]!(
       Response.json({
         state: "finished",
@@ -346,8 +370,19 @@ test.each(["closed", "account", "community", "generation"] as const)(
         },
       }),
     );
-    await vi.waitFor(() => expect(postRead).toBe(true));
-    expect(handedOff).not.toHaveBeenCalled();
+    const completion = await releasedOriginalAttempt;
+    expect(completion.status).toBe("rejected");
+    if (boundary === "account" && completion.status === "rejected") {
+      expect(completion.reason).toBeInstanceOf(LearningServiceError);
+      expect(completion.reason.status).toBe(401);
+      expect(completion.reason.code).toBe("study_account_changed");
+    }
+    expect(handedOff.mock.calls.every(([ticket]) => ticket === null)).toBe(
+      true,
+    );
+    expect(
+      handedOff.mock.calls.filter(([ticket]) => ticket !== null),
+    ).toHaveLength(0);
     expect(history.available()).toBe(false);
     expect(paths.some((path) => /tickets|enrollment|history/.test(path))).toBe(
       false,

@@ -7,6 +7,7 @@
 // Local acceptance only; nothing here is packaged or deployed.
 import { build } from "esbuild";
 import { digest } from "../packages/protocol/index.ts";
+import { ensureCommunityIdentity } from "../packages/community/accounts.ts";
 import { Miniflare } from "miniflare";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -158,6 +159,7 @@ async function migrate(db: D1Database, v4: boolean) {
           "0013_learning_authorization.sql",
         ]
       : []),
+    "0019_community_profiles.sql",
   ]) {
     const sql = read(`apps/community-wizard/infra/migrations/${name}`).toString(
       "utf8",
@@ -320,6 +322,10 @@ export async function karaokeLive(
       operatorWorker = (await mf.getWorker("operator")) as unknown as Fetcher,
       simulatorWorker = await mf.getWorker("elevenlabs");
     await migrate(db, !!resultsV4);
+    await ensureCommunityIdentity(db, {
+      communityId: firstSong.directoryProfile.communityId,
+      origin: firstSong.origin,
+    });
     let now = options.now;
     const posts = releasePostsFixture(publisher, config),
       ipfs = new Map<string, Uint8Array>([

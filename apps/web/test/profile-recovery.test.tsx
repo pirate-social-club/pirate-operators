@@ -53,8 +53,21 @@ test.each([401, 403])(
     expect(state().dataset.ownerPresent).toBe("false");
     expect(host.querySelector("[data-profile-layout]")).toBeNull();
     expect(host.textContent).not.toContain("private-fixture-account");
-    if (status === 403)
-      expect(host.querySelector('a[href="/#/settings"]')).not.toBeNull();
+    if (status === 403) {
+      const unavailable = host.querySelector(
+        '[data-persona-profile-state="unavailable"]',
+      );
+      expect(unavailable).not.toBeNull();
+      const settings = [...unavailable!.querySelectorAll("a")].filter(
+        (link) => link.textContent?.trim() === "Settings",
+      );
+      expect(settings).toHaveLength(1);
+      const destination = new URL(settings[0]!.href);
+      expect(destination.origin).toBe(location.origin);
+      expect(destination.pathname).toBe("/");
+      expect(destination.search).toBe(location.search);
+      expect(destination.hash).toBe("#/settings");
+    }
     click("Fixture restore authority");
     await vi.waitFor(() => expect(state().dataset.ownerPresent).toBe("true"));
   },

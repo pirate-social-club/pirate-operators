@@ -380,10 +380,16 @@ test("persistent missing feedback stops after one automatic recovery and can ret
     .toBe(2);
   await page.waitForTimeout(500);
   await page.clock.fastForward(11000);
-  await expect(page.getByRole("alert")).toHaveText(
+  await expect(page.getByRole("alert").locator("p")).toHaveText(
     "Live scoring isn't responding. Playback stopped. Press Start karaoke to try again.",
     { timeout: 35000 },
   );
+  await expect(
+    page.getByRole("alert").getByRole("button", {
+      name: "Check status",
+      exact: true,
+    }),
+  ).toBeVisible();
   expect(
     await page
       .locator(".live-karaoke audio")
@@ -522,10 +528,16 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
   await openPublishedKaraoke(page);
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("alert")).toHaveText(
+  await expect(page.getByRole("alert").locator("p")).toHaveText(
     "Scoring could not connect. Try starting your take again.",
     { timeout: 20000 },
   );
+  await expect(
+    page.getByRole("alert").getByRole("button", {
+      name: "Check status",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Start karaoke" }),
   ).toBeEnabled();
