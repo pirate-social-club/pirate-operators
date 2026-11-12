@@ -11,9 +11,21 @@ export async function assertEmptyProfile(page: Page) {
   await expect(
     page.getByText("No posts to show.", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Settings", exact: true }),
-  ).toHaveAttribute("href", "/#/settings");
+  const current = new URL(page.url());
+  expect(current.search).toBe("?fixture=profile&case=empty");
+  const settings = page
+    .locator("[data-profile-layout]")
+    .getByRole("link", { name: "Settings", exact: true });
+  await expect(settings).toHaveCount(1);
+  await expect(settings).toBeVisible();
+  const href = await settings.getAttribute("href");
+  expect(href).not.toBeNull();
+  expect(href!.trim()).not.toBe("");
+  const destination = new URL(href!, current);
+  expect(destination.origin).toBe(current.origin);
+  expect(destination.pathname).toBe("/");
+  expect(destination.search).toBe(current.search);
+  expect(destination.hash).toBe("#/settings");
 }
 export async function assertProfileReadRetry(page: Page) {
   await expect(page.getByRole("alert")).toHaveText(

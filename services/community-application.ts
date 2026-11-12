@@ -585,7 +585,12 @@ export async function communityFetch(
     )
       return reply({ gateways: await configurationHealth() });
     if (url.pathname.startsWith("/api/moderation/inputs/"))
-      return serveInputCapability(request, env.DB, env.MEDIA, context.origin);
+      return await serveInputCapability(
+        request,
+        env.DB,
+        env.MEDIA,
+        context.origin,
+      );
     if (url.pathname === "/api/operator/owner-curated") {
       insist(request.method === "POST" && !url.search, "not_found", 404);
       requestOrigin(request, context.origin);
