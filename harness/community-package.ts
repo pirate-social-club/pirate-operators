@@ -2,16 +2,7 @@ import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import { ownedModuleGraph } from "./owned-module-graph.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  readFile,
-  readdir,
-  writeFile,
-  mkdir,
-  copyFile,
-  symlink,
-  lstat,
-  realpath,
-} from "node:fs/promises";
+import { readFile, readdir, lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
@@ -28,10 +19,7 @@ import {
   assertRewardsFollowLearningV4,
   type RewardsReleaseSelection,
 } from "./rewards-release-profile.ts";
-import {
-  applicationInfrastructureSources,
-  writeApplicationInfrastructure,
-} from "./community-infrastructure.ts";
+import { applicationInfrastructureSources } from "./community-infrastructure.ts";
 import {
   studyReleaseSelection,
   type StudyReleaseSelection,
@@ -375,48 +363,22 @@ export async function communityPackage(
   const profile = learningV4 ? { ...published, learningV4 } : published;
   return { profile, profileHash: hashJson(profile), bytes };
 }
+import {
+  communityArtifactInputs,
+  prepareCommunityPackage,
+  type AuthenticateState,
+} from "./community-package-custody.ts";
 export async function writeCommunityPackage(
   directory: string,
-  bytes: Uint8Array,
-  migrations: string[],
+  packaged: Awaited<ReturnType<typeof communityPackage>>,
+  authenticate: AuthenticateState,
 ) {
-  const cwd = join(directory, "deployment");
-  for (const path of [
-    cwd,
-    join(cwd, "worker"),
-    join(cwd, "assets"),
-    join(cwd, "migrations"),
-  ])
-    await mkdir(path, { recursive: true, mode: 0o700 });
-  await writeFile(
-    join(cwd, "package.json"),
-    '{"private":true,"type":"module"}\n',
-    { mode: 0o600 },
-  );
-  await writeApplicationInfrastructure(cwd);
-  for (const file of migrations)
-    await copyFile(
-      `apps/community-wizard/infra/migrations/${file}`,
-      join(cwd, "migrations", file),
-    );
-  await writeFile(join(cwd, "worker/worker.mjs"), bytes, { mode: 0o600 });
-  for (const file of await artifactFiles("apps/web/dist/live")) {
-    const target = join(cwd, "assets", file);
-    await mkdir(join(target, ".."), { recursive: true, mode: 0o700 });
-    await copyFile(join("apps/web/dist/live", file), target);
-  }
-  const modules = join(cwd, "node_modules"),
-    expected = communityDependencyModules;
-  try {
-    await symlink(expected, modules, "dir");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  insist(
-    (await lstat(modules)).isSymbolicLink() &&
-      (await realpath(modules)) === (await realpath(expected)),
-    "community_dependencies_changed",
-    409,
-  );
-  return cwd;
+  return prepareCommunityPackage({
+    directory,
+    profileHash: packaged.profileHash,
+    policy: packaged.profile.reviewedUpdate,
+    files: await communityArtifactInputs(packaged.bytes, packaged.profile),
+    modules: communityDependencyModules,
+    authenticate,
+  });
 }
