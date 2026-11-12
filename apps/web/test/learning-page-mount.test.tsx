@@ -9,7 +9,6 @@ import {
 import { createLearningActionOwner } from "../src/live/learning-action-owner.ts";
 import { createSavedKaraokeHistory } from "../src/karaoke/saved-history.ts";
 import * as karaokeAdapter from "../src/karaoke/operator-karaoke-adapter.ts";
-import { LearningServiceError } from "../src/karaoke/operator-learning-http.ts";
 import type { StudyLesson } from "../../../packages/study/lesson.ts";
 
 const disposers: (() => void)[] = [];
@@ -247,6 +246,10 @@ test.each(["closed", "account", "community", "generation"] as const)(
     });
     let cookie = wallet;
     let originalAttempt!: Promise<PromiseSettledResult<unknown>>;
+    let finishOriginalDisposal!: () => void;
+    const originalDisposal = new Promise<void>((resolve) => {
+      finishOriginalDisposal = resolve;
+    });
     let observedOriginalPort = false;
     const createPort = karaokeAdapter.createOperatorKaraokePort;
     vi.spyOn(karaokeAdapter, "createOperatorKaraokePort").mockImplementation(
@@ -254,6 +257,12 @@ test.each(["closed", "account", "community", "generation"] as const)(
         const port = createPort(options);
         if (!observedOriginalPort) {
           observedOriginalPort = true;
+          const dispose = port.dispose;
+          vi.spyOn(port, "dispose").mockImplementation(() => {
+            const result = dispose();
+            finishOriginalDisposal();
+            return result;
+          });
           const attempt = port.attempt;
           vi.spyOn(port, "attempt").mockImplementation(() => {
             const request = attempt();
@@ -349,6 +358,8 @@ test.each(["closed", "account", "community", "generation"] as const)(
       generation: boundary === "generation" ? 2 : value.generation,
     }));
     cookie = scope().account;
+    // Wait for the actual original dispose call, never a timer or replacement read.
+    await originalDisposal;
     pending[0]!(
       Response.json({
         state: "finished",
@@ -372,10 +383,10 @@ test.each(["closed", "account", "community", "generation"] as const)(
     );
     const completion = await releasedOriginalAttempt;
     expect(completion.status).toBe("rejected");
-    if (boundary === "account" && completion.status === "rejected") {
-      expect(completion.reason).toBeInstanceOf(LearningServiceError);
-      expect(completion.reason.status).toBe(401);
-      expect(completion.reason.code).toBe("study_account_changed");
+    if (completion.status === "rejected") {
+      expect(completion.reason).toBeInstanceOf(Error);
+      expect(completion.reason.constructor).toBe(Error);
+      expect(completion.reason.message).toBe("Karaoke was closed.");
     }
     expect(handedOff.mock.calls.every(([ticket]) => ticket === null)).toBe(
       true,
