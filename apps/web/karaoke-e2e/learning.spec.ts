@@ -1,5 +1,135 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+
+const learnerScopes = new WeakMap<Page, { learner: number; wallet: string }>();
+async function assertLearnerSession(page: Page) {
+  const expected = learnerScopes.get(page);
+  expect(expected).toBeTruthy();
+  expect(new URL(page.url()).searchParams.get("learner")).toBe(
+    String(expected!.learner),
+  );
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get("/api/session");
+        const value = await response.json();
+        return {
+          status: response.status(),
+          authenticated: value.authenticated,
+          wallet: value.mossAddress?.toLowerCase(),
+        };
+      },
+      { timeout: 20000 },
+    )
+    .toEqual({
+      status: 200,
+      authenticated: true,
+      wallet: expected!.wallet,
+    });
+}
+async function connectLearner(page: Page, learner: number) {
+  expect(new URL(page.url()).searchParams.get("learner")).toBe(String(learner));
+  const connected = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/__fixture/sign" &&
+      response.request().postDataJSON()?.kind === "address",
+  );
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  const response = await connected;
+  expect(response.request().postDataJSON()).toEqual({
+    learner: String(learner),
+    kind: "address",
+  });
+  const { address } = await response.json();
+  expect(address).toMatch(/^0x[0-9a-f]{40}$/i);
+  learnerScopes.set(page, { learner, wallet: address.toLowerCase() });
+  await expect(
+    page.getByText("Signed in. Choose a song to study or sing.", {
+      exact: true,
+    }),
+  ).toBeVisible({ timeout: 20000 });
+  await assertLearnerSession(page);
+}
+async function rawFragmentContext(page: Page) {
+  const owner = await documentOwner(page);
+  const search = await page.evaluate(() => {
+    // Seed literal encoded bytes without URLSearchParams normalization. Keep
+    // every other query value, hash and history state in the same document.
+    const current = location.search;
+    const next = /[?&]filter=/.test(current)
+      ? current.replace(/([?&])filter=[^&]*/, "$1filter=a%20b")
+      : current + (current ? "&" : "?") + "filter=a%20b";
+    history.replaceState(
+      history.state,
+      "",
+      location.pathname + next + location.hash,
+    );
+    return location.search;
+  });
+  expect(search).toMatch(/[?&]filter=a%20b(?:&|$)/);
+  expect(search).not.toContain("filter=a+b");
+  expect(await documentOwner(page)).toBe(owner);
+  return search;
+}
+async function documentOwner(page: Page) {
+  return page.evaluate(() => {
+    const value = window as unknown as { __karaokeDocument?: string };
+    return (value.__karaokeDocument ??= crypto.randomUUID());
+  });
+}
+async function openPublishedKaraoke(page: Page) {
+  await assertLearnerSession(page);
+  const document = await documentOwner(page);
+  const rawSearch = await rawFragmentContext(page);
+  const manifest = await (await page.request.get("/__fixture/manifest")).json();
+  const postId = manifest.song.postId;
+  expect(postId).toMatch(/^0x[0-9a-f]{64}$/i);
+  if (new URL(page.url()).hash !== `#song-${postId}`) {
+    if (new URL(page.url()).hash && new URL(page.url()).hash !== "#/")
+      await page.getByRole("link", { name: "Home", exact: true }).click();
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    expect(await documentOwner(page)).toBe(document);
+    const feed = await (await page.request.get("/api/feed")).json();
+    const selected = feed.posts.find(
+      (post: { manifest: { postId: string } }) =>
+        post.manifest.postId === postId,
+    );
+    expect(selected).toBeTruthy();
+    const link = page
+      .getByRole("link", { name: selected.manifest.title, exact: true })
+      .and(page.locator(`a[href="/#song-${postId}"]`));
+    await expect(link).toHaveCount(1);
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    await link.click();
+    expect(new URL(page.url()).search).toBe(rawSearch);
+    expect(await documentOwner(page)).toBe(document);
+  }
+  const karaoke = page
+    .getByRole("link", { name: "Karaoke", exact: true })
+    .and(page.locator(`a[href="/?sing=${postId}"]`));
+  await expect(karaoke).toHaveCount(1);
+  await karaoke.click();
+  expect(new URL(page.url()).searchParams.get("sing")).toBe(postId);
+  expect(await documentOwner(page)).toBe(document);
+  await assertLearnerSession(page);
+}
+async function openLearningSettings(page: Page) {
+  await assertLearnerSession(page);
+  const document = await documentOwner(page);
+  const rawSearch = await rawFragmentContext(page);
+  expect(new URL(page.url()).search).toBe(rawSearch);
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  expect(new URL(page.url()).search).toBe(rawSearch);
+  expect(await documentOwner(page)).toBe(document);
+  expect(new URL(page.url()).search).toMatch(/[?&]filter=a%20b(?:&|$)/);
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  expect(new URL(page.url()).search).toBe(rawSearch);
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  expect(await documentOwner(page)).toBe(document);
+  await assertLearnerSession(page);
+}
 test.afterEach(async ({ page }, info) => {
   if (info.status !== info.expectedStatus) {
     console.log(
@@ -22,6 +152,20 @@ test("one enrollment sponsors repeated terminal publications and history export"
   page,
 }) => {
   let approvals = 0;
+  let originalAttemptId: string | undefined;
+  const historyTickets: string[] = [];
+  page.on("websocket", (socket) =>
+    socket.on("framereceived", ({ payload }) => {
+      if (typeof payload === "string") {
+        const frame = JSON.parse(payload);
+        if (frame.type === "ready") originalAttemptId = frame.attemptId;
+      }
+    }),
+  );
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/karaoke/history")
+      historyTickets.push(request.postDataJSON().ticketId);
+  });
   page.on("dialog", () => {
     throw new Error("Native browser alerts are not part of the Karaoke design");
   });
@@ -54,11 +198,8 @@ test("one enrollment sponsors repeated terminal publications and history export"
     await route.continue();
   });
   await page.goto("/?learner=8");
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await connectLearner(page, 8);
+  await openPublishedKaraoke(page);
   await expect(
     page.getByRole("status", { name: "Loading karaoke" }),
   ).toBeVisible();
@@ -75,6 +216,7 @@ test("one enrollment sponsors repeated terminal publications and history export"
       lines: { status: string }[];
     }[];
   for (let run = 1; run <= 2; run++) {
+    const activityDocument = await documentOwner(page);
     await page.getByRole("button", { name: "Start karaoke" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
@@ -93,7 +235,17 @@ test("one enrollment sponsors repeated terminal publications and history export"
       "Timing",
       "Best combo",
     ]);
-    await expect(results.getByRole("button")).toHaveCount(0);
+    await expect(
+      results.getByRole("button", {
+        name: /^(Save your score|Publish score|Save result)$/,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      results.getByRole("button", { name: "Check again", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      results.getByRole("heading", { name: "Result publication", exact: true }),
+    ).toBeVisible();
     if (run === 1) await capture("completion");
     await expect(
       page.getByRole("button", { name: "Sing again", exact: true }),
@@ -109,21 +261,42 @@ test("one enrollment sponsors repeated terminal publications and history export"
     }
     expect(approvals).toBe(1);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
+    expect(await documentOwner(page)).toBe(activityDocument);
     if (run === 1) {
-      await page.getByRole("button", { name: "Learning settings" }).click();
+      await openLearningSettings(page);
       const download = page.waitForEvent("download");
       await page
-        .getByRole("menuitem", { name: "Download private history" })
+        .getByRole("button", { name: "Download private history", exact: true })
         .click();
       const path = await (await download).path();
       const receipt = JSON.parse(await readFile(path!, "utf8"));
       expect(receipt).toBeTruthy();
       expect(JSON.stringify(receipt)).toContain("scribe_v2_realtime");
+      expect(receipt.schema).toBe("pirate.learner-history/1");
+      expect(receipt.activity).toBe("karaoke");
+      expect(receipt.sessionId).toBe(originalAttemptId);
+      const manifest = await (
+        await page.request.get("/__fixture/manifest")
+      ).json();
+      expect(receipt.communityId).toBe(manifest.song.communityId);
+      expect(receipt.source).toEqual(manifest.song);
+      const operator = await (
+        await page.request.get("/__fixture/operator")
+      ).json();
+      const original = operator.attempts.find(
+        (attempt: { attemptId: string }) =>
+          attempt.attemptId === originalAttemptId,
+      );
+      expect(original).toBeTruthy();
+      expect(receipt.completedAt).toBe(original.ended.performanceEndedAt);
+      expect(receipt.expiresAt).toBeGreaterThan(receipt.completedAt);
+      expect(historyTickets).toEqual([original.ticketId]);
+      expect((await download).suggestedFilename()).toBe(
+        `learning-history-${original.ticketId}.json`,
+      );
       await page.reload();
-      await expect(
-        page.getByRole("button", { name: "Sign out" }),
-      ).toBeVisible();
-      await page.getByRole("button", { name: "Sing", exact: true }).click();
+      await assertLearnerSession(page);
+      await openPublishedKaraoke(page);
       await expect(
         page.getByRole("button", { name: "Start karaoke" }),
       ).toBeVisible();
@@ -134,11 +307,15 @@ test("one enrollment sponsors repeated terminal publications and history export"
     }
   }
   // Results are always public: settings offer no way to stop publication.
-  await page.getByRole("button", { name: "Learning settings" }).click();
-  await expect(page.getByRole("menuitem")).toHaveText([
-    "Download private history",
-  ]);
-  await page.keyboard.press("Escape");
+  await openLearningSettings(page);
+  await expect(
+    page.getByRole("button", { name: "Download private history", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    page.getByRole("button", {
+      name: /^(Stop publishing|Turn off public results|Save your score)$/,
+    }),
+  ).toHaveCount(0);
   expect((await records()).length).toBe(2);
 });
 
@@ -178,11 +355,8 @@ test("persistent missing feedback stops after one automatic recovery and can ret
     },
   );
   await page.goto("/?learner=7");
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await connectLearner(page, 7);
+  await openPublishedKaraoke(page);
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect
@@ -288,11 +462,8 @@ test("missing feedback recovers automatically on the same ticket and provider st
     },
   );
   await page.goto("/?learner=5");
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await connectLearner(page, 5);
+  await openPublishedKaraoke(page);
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect.poll(() => connections, { timeout: 20000 }).toBe(2);
@@ -321,6 +492,13 @@ test("missing feedback recovers automatically on the same ticket and provider st
 test("a rejected ready cursor leaves a visible retry instead of a permanent startup spinner", async ({
   page,
 }) => {
+  let rejectedReady = 0,
+    ticketPosts = 0,
+    ticketsAtReady: number | undefined;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/karaoke/tickets")
+      ticketPosts++;
+  });
   await page.routeWebSocket(
     (url) => url.pathname.endsWith("/attempt"),
     (route) => {
@@ -329,6 +507,8 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
         if (typeof message === "string") {
           const frame = JSON.parse(message);
           if (frame.type === "ready") {
+            rejectedReady++;
+            ticketsAtReady ??= ticketPosts;
             route.send(JSON.stringify({ ...frame, audioSequence: -1 }));
             return;
           }
@@ -338,15 +518,12 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
     },
   );
   await page.goto("/?learner=6");
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await connectLearner(page, 6);
+  await openPublishedKaraoke(page);
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveText(
-    "The scoring connection stopped. Press Start karaoke to try again.",
+    "Scoring could not connect. Try starting your take again.",
     { timeout: 20000 },
   );
   await expect(
@@ -355,6 +532,9 @@ test("a rejected ready cursor leaves a visible retry instead of a permanent star
   await expect(page.getByRole("button", { name: "Start singing" })).toHaveCount(
     0,
   );
+  expect(rejectedReady).toBe(1);
+  expect(ticketsAtReady).toBeGreaterThan(0);
+  expect(ticketPosts).toBe(ticketsAtReady);
   expect(
     await page
       .locator(".live-karaoke audio")
@@ -423,11 +603,8 @@ test("reload with delayed audio metadata preserves position and shows fresh late
     }),
   );
   await page.goto("/?learner=8");
-  await page.getByRole("button", { name: "Sign in with MOSS" }).click();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible({
-    timeout: 20000,
-  });
-  await page.getByRole("button", { name: "Sing", exact: true }).click();
+  await connectLearner(page, 8);
+  await openPublishedKaraoke(page);
   await page
     .getByRole("button", { name: "Start karaoke", exact: true })
     .click();
@@ -455,7 +632,7 @@ test("reload with delayed audio metadata preserves position and shows fresh late
     // Install the metadata delay before reload: the shell restores this route
     // immediately, so reopening the covered background song is not a user action.
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    await assertLearnerSession(page);
     await expect(page).toHaveURL(/[?&]sing=/);
     await page
       .getByRole("button", { name: "Start karaoke", exact: true })

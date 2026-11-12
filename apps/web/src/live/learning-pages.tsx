@@ -1,6 +1,7 @@
 import { createMemo, onCleanup, Show } from "solid-js";
 import { StudyPage } from "../study/page.tsx";
 import { KaraokePage } from "../karaoke/page.tsx";
+import type { KaraokeHistoryTicket } from "../karaoke/saved-history.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
 import type { LearningActionOwner } from "./learning-action-owner.ts";
 
@@ -22,6 +23,11 @@ export interface LearningPageMountProps {
   onExit(): void;
   onConnect(): void;
   onLessonOpened(lessonId: string): void;
+  historyGeneration?: number;
+  onKaraokeHistory?: (
+    ticket: KaraokeHistoryTicket | null,
+    generation: number,
+  ) => void;
 }
 
 /** A new URL, session or community disposes the original page/controller. */
@@ -36,6 +42,7 @@ export function LearningPageMount(props: LearningPageMountProps) {
           csrf: props.csrf,
           signInPermission: props.signInPermission,
           serviceMode: props.serviceMode,
+          historyGeneration: props.historyGeneration ?? 0,
         }
       : null;
   });
@@ -59,6 +66,18 @@ export function LearningPageMount(props: LearningPageMountProps) {
               when={owner.route.kind === "study"}
               fallback={
                 <KaraokePage
+                  communityId={owner.communityId}
+                  onHistoryTicket={(ticket) => {
+                    if (!lease.current()) return;
+                    if (
+                      ticket &&
+                      (ticket.communityId !== owner.communityId ||
+                        ticket.postId !== owner.route.postId ||
+                        ticket.wallet !== owner.account?.toLowerCase())
+                    )
+                      return;
+                    props.onKaraokeHistory?.(ticket, owner.historyGeneration);
+                  }}
                   account={owner.account}
                   postId={owner.route.postId}
                   title={owner.route.title}

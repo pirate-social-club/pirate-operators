@@ -1,3 +1,4 @@
+import { fragmentNavigationHref } from "../routing.ts";
 import { CommunityAccountSettings } from "./settings.tsx";
 export { CommunityAccountSettings } from "./settings.tsx";
 import {
@@ -208,7 +209,12 @@ export function CommunityProfilePage(
                   variant: "outline",
                   class: "w-full rounded-lg bg-transparent",
                 })}
-                href="/#/settings"
+                href={fragmentNavigationHref(
+                  "/#/settings",
+                  typeof location === "undefined"
+                    ? undefined
+                    : new URL(location.href),
+                )}
               >
                 Settings
               </a>
@@ -237,7 +243,12 @@ export function CommunityProfilePage(
                     variant: "outline",
                     class: "w-full rounded-lg bg-transparent",
                   })}
-                  href="/#/settings"
+                  href={fragmentNavigationHref(
+                    "/#/settings",
+                    typeof location === "undefined"
+                      ? undefined
+                      : new URL(location.href),
+                  )}
                 >
                   Settings
                 </a>

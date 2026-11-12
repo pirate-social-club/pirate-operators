@@ -1,4 +1,5 @@
 import { createSavedStudyHistory } from "../study/saved-history.ts";
+import { createSavedKaraokeHistory } from "../karaoke/saved-history.ts";
 import { createCommunityProfileIntegration } from "../shell/profiles/integration.ts";
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
@@ -35,6 +36,7 @@ import {
   activityRoute,
   activityUrl,
   withoutActivity,
+  fragmentNavigationHref,
 } from "../shell/routing.ts";
 import { CommunityPages } from "../shell/community-pages.tsx";
 import type {
@@ -101,6 +103,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   // the song and permission. The requested activity stays in the address.
   const [opening, setOpening] = createSignal(initialPractice.kind !== "none");
   const [studyLesson, setStudyLesson] = createSignal<string | undefined>();
+  const [historyGeneration, setHistoryGeneration] = createSignal(0);
   // True while sign-in is settling its permission. The wallet pages and the
   // practice buttons wait, so nothing mounts with the first of two sessions.
   const [settling, setSettling] = createSignal(false);
@@ -251,7 +254,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   function navigateLearning(href: string) {
     const requested = activityRoute(new URL(href, location.origin));
     if (requested.kind !== "study" && requested.kind !== "sing") {
-      location.assign(href);
+      location.assign(fragmentNavigationHref(href, new URL(location.href)));
       return;
     }
     const song = feed()?.posts.find(
@@ -302,6 +305,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     ) {
       composerRuntime.invalidate();
       actionOwner.clear();
+      setHistoryGeneration((value) => value + 1);
     }
     setSession(next);
   }
@@ -321,6 +325,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       throw new Error(
         "This is not the live community. Open its canonical address.",
       );
+    if (boot()?.communityId !== config.communityId)
+      setHistoryGeneration((value) => value + 1);
     setBoot(config);
     setName(community.name);
     document.title = `${community.name} · Pirate`;
@@ -459,6 +465,22 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       ? { ...auth, accountId: state.owner.accountId }
       : null;
   });
+  const savedKaraokeHistory = createSavedKaraokeHistory(() => {
+    const auth = historySession(),
+      state = profileIntegration.state().view;
+    return auth
+      ? {
+          ...auth,
+          generation: historyGeneration(),
+          accountId:
+            state.kind === "ready" &&
+            state.owner.communityId === auth.communityId &&
+            state.owner.profile.authorId === auth.authorId
+              ? state.owner.accountId
+              : null,
+        }
+      : null;
+  });
   let composerScope = "",
     composerGeneration = "";
   const composerContext = (): CommunityHostContext | null => {
@@ -527,6 +549,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setBusy(true);
     composerRuntime.invalidate();
     profileIntegration.controller()?.clear();
+    savedKaraokeHistory.clear();
     try {
       await post("/api/logout", {}, current.csrf);
       setSession(null);
@@ -595,11 +618,18 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         serviceMode={capabilities()?.learningServiceMode}
         signInPermission={learningPermission()}
         actions={actionOwner}
+        historyGeneration={historyGeneration()}
+        onKaraokeHistory={(ticket, generation) => {
+          if (generation !== historyGeneration()) return;
+          if (ticket) savedKaraokeHistory.remember(ticket, generation);
+          else savedKaraokeHistory.clear();
+        }}
         onExit={closeStudy}
         onConnect={() => void run(signIn)}
         onLessonOpened={(lessonId) => {
           const current = studying();
           if (!current) return;
+          savedKaraokeHistory.clear();
           savedStudyHistory.remember(lessonId, current.postId);
           if (studyLesson() === lessonId) return;
           const url = activityUrl(
@@ -663,16 +693,22 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           communityId={boot()?.communityId ?? ""}
           authorityKey={session()?.csrf ?? "anonymous"}
           authorIds={feed()?.posts.map((song) => song.manifest.authorId) ?? []}
-          navigate={(href) => location.assign(href)}
+          navigate={(href) =>
+            location.assign(
+              fragmentNavigationHref(href, new URL(location.href)),
+            )
+          }
           signIn={profileSignIn}
           logout={profileLogout}
           canSignIn={capabilities()?.signIn === true}
           canSignOut={!!session() && !settling()}
           walletAvailable={capabilities()?.rewards === true}
           services={{
-            privateHistory: savedStudyHistory.available()
-              ? savedStudyHistory.download
-              : undefined,
+            privateHistory: savedKaraokeHistory.available()
+              ? savedKaraokeHistory.download
+              : savedStudyHistory.available()
+                ? savedStudyHistory.download
+                : undefined,
             publicResults: props.integrations?.accountSettings
               ? () => props.integrations!.accountSettings!(featureContext())
               : undefined,
@@ -706,7 +742,11 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 postAuthors: authors,
               }}
               context={featureContext}
-              onNavigate={(href) => location.assign(href)}
+              onNavigate={(href) =>
+                location.assign(
+                  fragmentNavigationHref(href, new URL(location.href)),
+                )
+              }
               onLearningLink={navigateLearning}
               onSignIn={() => void run(signIn)}
               onSignOut={() =>
@@ -714,6 +754,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                   const current = session();
                   if (!current) return;
                   composerRuntime.invalidate();
+                  savedKaraokeHistory.clear();
                   await post("/api/logout", {}, current.csrf);
                   setSession(null);
                   actionOwner.clear();

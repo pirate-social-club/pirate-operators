@@ -39,6 +39,10 @@ import {
   learningAuthorityMessage,
 } from "./operator-learning-http.ts";
 import { KaraokeCompletionStatus } from "./completion-status.tsx";
+import {
+  karaokeHistoryTicket,
+  type KaraokeHistoryTicket,
+} from "./saved-history.ts";
 
 import type {
   KaraokeConsentRequest,
@@ -77,6 +81,8 @@ const AUTHORIZATION_RETRIES = 5,
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface KaraokePageProps {
+  communityId?: string;
+  onHistoryTicket?: (ticket: KaraokeHistoryTicket | null) => void;
   account: string | null;
   onConnect?: () => void;
   rewardSlot?: JSX.Element;
@@ -213,6 +219,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
     setFeedback(null);
     setResume(null);
     learningActions?.(null);
+    props.onHistoryTicket?.(null);
   }
   const validateEnrollment = (request: KaraokeConsentRequest) => {
     // The disclosure bound by the signature must be the expected one.
@@ -238,9 +245,17 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       throw error;
     }
   };
-  const retainHistoryDownload = (ticketId: string) => {
-    if (isCurrentOwner())
-      learningActions?.({ download: () => downloadHistory(ticketId) });
+  const retainHistoryDownload = (
+    result: Extract<AttemptView, { state: "finished" }>["result"]["body"],
+  ) => {
+    if (!isCurrentOwner()) return;
+    const metadata = karaokeHistoryTicket(result, {
+      communityId: props.communityId ?? "",
+      postId: owner.postId,
+      wallet: owner.account,
+    });
+    if (metadata) props.onHistoryTicket?.(metadata);
+    learningActions?.({ download: () => downloadHistory(result.ticketId) });
   };
   function apply(view: AttemptView) {
     if (!isCurrentOwner()) return;
@@ -267,7 +282,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         },
         record: view.record,
       });
-      retainHistoryDownload(view.result.body.ticketId);
+      retainHistoryDownload(view.result.body);
     }
   }
   async function loadSong() {
@@ -285,7 +300,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       // A new visit offers a new take. Keep the retained history downloadable;
       // only an open take resumes here. Current-run completion still uses apply.
       if (previous.state === "finished")
-        retainHistoryDownload(previous.result.body.ticketId);
+        retainHistoryDownload(previous.result.body);
       else apply(previous);
     } catch (error) {
       if (!isCurrentOwner()) return;

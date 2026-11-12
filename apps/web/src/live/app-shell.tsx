@@ -21,7 +21,7 @@ import {
 import { MobileFooterNav } from "../shell/reference/mobile-footer-nav.tsx";
 import { communityChrome } from "../shell/chrome-adapter.ts";
 import { NavigationDrawer } from "../shell/reference/navigation-drawer.tsx";
-import type { AppView } from "../shell/routing.ts";
+import { fragmentNavigationHref, type AppView } from "../shell/routing.ts";
 
 /** Assembly of the actual AppSidebar/AppHeader/MobileFooterNav components.
  * Layout and drawer lifecycle: c7cb8783 ApplicationChrome (media-shell.tsx).
@@ -48,7 +48,8 @@ export function CommunityAppShell(props: {
   const [menuOpen, setMenuOpen] = createSignal(false, { ownedWrite: true });
   let menuTrigger: HTMLButtonElement | undefined;
   let pendingNavigation: string | undefined;
-  const navigate = (href: string) => location.assign(href);
+  const navigate = (href: string) =>
+    location.assign(fragmentNavigationHref(href, new URL(location.href)));
   const go = (href: string) => {
     if (menuOpen()) {
       pendingNavigation = href;
@@ -159,6 +160,32 @@ export function CommunityAppShell(props: {
       <div
         class="min-h-screen bg-background text-foreground"
         data-application-chrome
+        onClick={(event) => {
+          if (
+            event.defaultPrevented ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
+          const anchor = (event.target as Element).closest?.(
+            "a[href]",
+          ) as HTMLAnchorElement | null;
+          if (
+            !anchor ||
+            anchor.hasAttribute("download") ||
+            (anchor.target && anchor.target !== "_self")
+          )
+            return;
+          const href = anchor.getAttribute("href")!;
+          const destination = fragmentNavigationHref(
+            href,
+            new URL(location.href),
+          );
+          if (destination !== href) anchor.setAttribute("href", destination);
+        }}
         data-media-shell
         data-shell-mode={policy().mode}
         data-shell-auth={

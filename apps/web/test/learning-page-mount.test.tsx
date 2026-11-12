@@ -7,6 +7,7 @@ import {
   type LearningPageRoute,
 } from "../src/live/learning-pages.tsx";
 import { createLearningActionOwner } from "../src/live/learning-action-owner.ts";
+import { createSavedKaraokeHistory } from "../src/karaoke/saved-history.ts";
 import type { StudyLesson } from "../../../packages/study/lesson.ts";
 
 const disposers: (() => void)[] = [];
@@ -224,3 +225,132 @@ test("switching from Study to the actual Karaoke page clears private Study actio
     ),
   ).toBe(false);
 });
+
+test.each(["closed", "account", "community", "generation"] as const)(
+  "late canonical Karaoke metadata after %s cannot resurrect saved availability",
+  async (boundary) => {
+    const communityId = "0x" + "a".repeat(64),
+      postId = "0x" + "b".repeat(64),
+      wallet = "0x" + "c".repeat(40);
+    const [scope, setScope] = createSignal({
+      communityId,
+      account: wallet,
+      csrf: "fixture-session",
+      generation: 1,
+      route: {
+        kind: "sing",
+        postId,
+        title: "Original song",
+      } as LearningPageRoute | null,
+    });
+    let cookie = wallet,
+      released = false,
+      postRead = false;
+    const pending: ((response: Response) => void)[] = [],
+      paths: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        paths.push(path);
+        if (path === "/api/session") {
+          if (released) postRead = true;
+          return Response.json({ mossAddress: cookie });
+        }
+        if (path === `/api/public/posts/${postId}/karaoke`)
+          return Response.json({
+            lines: [
+              {
+                lineId: "line",
+                ordinal: 0,
+                text: "Original lyric",
+                startMs: 0,
+                endMs: 3000,
+                words: [],
+              },
+            ],
+            segments: [],
+          });
+        expect(path).toBe(`/api/karaoke/attempt?postId=${postId}`);
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      }),
+    );
+    let history!: ReturnType<typeof createSavedKaraokeHistory>;
+    const handedOff = vi.fn();
+    const karaokeActions = createLearningActionOwner(() => {});
+    function Owner() {
+      history = createSavedKaraokeHistory(() => ({
+        communityId: scope().communityId,
+        wallet: scope().account,
+        authorId: "0x" + "d".repeat(64),
+        accountId: "11111111-1111-4111-8111-111111111111",
+        generation: scope().generation,
+        csrf: scope().csrf,
+      }));
+      return (
+        <LearningPageMount
+          {...scope()}
+          historyGeneration={scope().generation}
+          actions={karaokeActions}
+          wallet={{
+            signConsent: async () => {
+              throw new Error("No signing");
+            },
+          }}
+          signInPermission={true}
+          onExit={() => {}}
+          onConnect={() => {}}
+          onLessonOpened={() => {
+            throw new Error("No Study");
+          }}
+          onKaraokeHistory={(ticket, generation) => {
+            handedOff(ticket);
+            if (ticket) history.remember(ticket, generation);
+          }}
+        />
+      );
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const dispose = render(() => <Owner />, host);
+    disposers.push(dispose);
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    setScope((value) => ({
+      ...value,
+      route: boundary === "closed" ? null : value.route,
+      account: boundary === "account" ? "0x" + "e".repeat(40) : value.account,
+      communityId:
+        boundary === "community" ? "0x" + "f".repeat(64) : value.communityId,
+      generation: boundary === "generation" ? 2 : value.generation,
+    }));
+    cookie = scope().account;
+    released = true;
+    pending[0]!(
+      Response.json({
+        state: "finished",
+        result: {
+          body: {
+            ticketId: "0x" + "1".repeat(64),
+            attemptId: "0x" + "2".repeat(64),
+            communityId,
+            status: "completed",
+            summary: { scoreBps: 8000 },
+            lines: [],
+            unmeasuredCount: 0,
+          },
+        },
+        record: {
+          consented: true,
+          consent: null,
+          publication: { state: "recorded" },
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(postRead).toBe(true));
+    expect(handedOff).not.toHaveBeenCalled();
+    expect(history.available()).toBe(false);
+    expect(paths.some((path) => /tickets|enrollment|history/.test(path))).toBe(
+      false,
+    );
+  },
+);

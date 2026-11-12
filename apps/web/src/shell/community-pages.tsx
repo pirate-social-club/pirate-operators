@@ -1,3 +1,4 @@
+import { fragmentNavigationHref } from "./routing.ts";
 import { For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 import type { CommunityFeed, CommunitySessionView } from "../api-contract.ts";
@@ -375,7 +376,12 @@ export function CommunityPages(props: CommunityPagesProps) {
               settingsControl={
                 <a
                   class={buttonVariants({ variant: "outline" })}
-                  href="/#/settings"
+                  href={fragmentNavigationHref(
+                    "/#/settings",
+                    typeof location === "undefined"
+                      ? undefined
+                      : new URL(location.href),
+                  )}
                 >
                   Settings
                 </a>
