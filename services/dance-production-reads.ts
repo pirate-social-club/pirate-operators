@@ -1,6 +1,6 @@
 import { bytes32, insist } from "../packages/community/common.ts";
 import type { DancePorts, DanceReview } from "../packages/dance/contracts.ts";
-import type { DanceProductionTarget } from "../packages/dance/production.ts";
+import type { DanceProductionChoice, DanceProductionTarget } from "../packages/dance/production.ts";
 import { sameDanceTarget, validDanceTarget } from "../packages/dance/production.ts";
 import { DanceStore } from "../packages/dance/store.ts";
 import { danceId, sameCapturedPrincipal, validateCapture, validateFence, wallet } from "../packages/dance/validation.ts";
@@ -42,7 +42,7 @@ export class DanceProductionReads {
       (page.cursor === null || (typeof page.cursor === "string" && page.cursor.length <= 2048)) &&
       page.consent && ["admitted", "review_pending"].includes(page.consent.admission) &&
       typeof page.consent.text === "string" && !!page.consent.version &&
-      page.choices.every(c => validDanceTarget(c) && c.communityId === this.communityId &&
+      page.choices.every((c: DanceProductionChoice) => validDanceTarget(c) && c.communityId === this.communityId &&
         c.songKey === songKey && typeof c.title === "string" && !!c.title &&
         Number.isSafeInteger(c.durationMs) && c.durationMs >= 6000 && c.durationMs <= 30000 &&
         ["ready", "pending", "unavailable"].includes(c.playback) && typeof c.recordingAllowed === "boolean"),
