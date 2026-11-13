@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { sha256 } from "viem";
 import { bytes32, hashText, publicId } from "../packages/community/common.ts";
 import {
@@ -20,9 +20,15 @@ import {
   associationId,
 } from "../packages/recognition/model.ts";
 import { sharedRecognitionService } from "../services/shared-recognition.ts";
+import {
+  recognitionClient,
+  type RecognitionClientPorts,
+} from "../packages/recognition/client.ts";
 
 export const publisherA = privateKeyToAccount(`0x${"11".repeat(32)}`),
   publisherB = privateKeyToAccount(`0x${"22".repeat(32)}`),
+  recognitionSigner = privateKeyToAccount(`0x${"33".repeat(32)}`),
+  profileSha256 = hashText("reviewed-recognition-profile"),
   namespace = hashText("fresh-release-staging"),
   origin = "https://recognition.example",
   communityA = hashText("community-a"),
@@ -97,6 +103,7 @@ export async function recognitionFixture() {
         communityA,
         {
           namespace,
+          profileSha256,
           communityId: communityA,
           communityOrigin: "https://a.example",
           publisher: publisherA.address.toLowerCase(),
@@ -108,6 +115,7 @@ export async function recognitionFixture() {
         communityB,
         {
           namespace,
+          profileSha256,
           communityId: communityB,
           communityOrigin: "https://b.example",
           publisher: publisherB.address.toLowerCase(),
@@ -121,6 +129,16 @@ export async function recognitionFixture() {
       publications.set(`${id}:${p.postId}:${p.publicationRevision}`, p);
     }
     const store = () => new RecognitionStore(db, namespace, () => time);
+    let nextStatusSign: (() => Promise<void>) | null = null;
+    const statusSigner: PrivateKeyAccount = {
+      ...recognitionSigner,
+      async signTypedData(parameters) {
+        const hook = nextStatusSign;
+        nextStatusSign = null;
+        await hook?.();
+        return recognitionSigner.signTypedData(parameters);
+      },
+    };
     let resolve:
       | ((
           p: VerifiedPublication,
@@ -222,7 +240,9 @@ export async function recognitionFixture() {
       sharedRecognitionService({
         db,
         namespace,
+        profileSha256,
         origin,
+        statusSigner,
         now: () => time,
         loadAuthority: async (id) => authorities.get(id) ?? null,
         verifyPublication: async (a, id, revision) =>
@@ -264,6 +284,7 @@ export async function recognitionFixture() {
         account,
         {
           namespace,
+          profileSha256: bytes32(authority.profileSha256),
           action,
           communityId: bytes32(communityId),
           communityOrigin: authority.communityOrigin,
@@ -313,6 +334,29 @@ export async function recognitionFixture() {
       store,
       authorities,
       publications,
+      now: () => time,
+      onNextStatusSign: (hook: () => Promise<void>) => {
+        nextStatusSign = hook;
+      },
+      fetch: (request: Request) => service.fetch(request),
+      client: (
+        communityId: string = communityA,
+        overrides: Partial<RecognitionClientPorts> = {},
+      ) =>
+        recognitionClient({
+          connection: {
+            namespace,
+            profileSha256,
+            origin,
+            signer: recognitionSigner.address.toLowerCase(),
+          },
+          publisher: communityId === communityA ? publisherA : publisherB,
+          currentAuthority: async () => authorities.get(communityId) ?? null,
+          beforeSend: async () => {},
+          transport: (request) => service.fetch(request),
+          now: () => time,
+          ...overrides,
+        }),
       resolveWith: (callback: NonNullable<typeof resolve>) => {
         resolve = callback;
       },

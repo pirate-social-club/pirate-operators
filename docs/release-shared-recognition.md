@@ -44,6 +44,37 @@ request; it cannot itself prove somebody else's creator identity or rights.
 Recognition evidence, community moderation, publication signing and creator
 wallet authority remain separate concerns.
 
+The source successor adds a separately signed catalog-status contract and a
+community server client. Both publisher requests and replies bind the pinned
+service-profile hash. Replies also bind the exact signed request, community,
+configuration, publication facts, association and canonical recording. The
+recognition signing key is an explicit service input; the client obtains its
+public pin from owned deployment/configuration inputs. It never accepts a key
+or profile chosen by a response.
+
+Each status poll uses a fresh signed nonce. A previously ready response cannot
+answer a later request after withdrawal. Status receipts expire within sixty
+seconds, and client.ready performs a new request and requires a verified ready
+state. These receipts are scoped observations, not offline publishing permission
+or an original-work/catalog-completeness proof. The publication driver must
+still recheck its own captured authority and durable obligation before sending.
+
+The service obtains association and recording state in one D1 read, then checks
+current canonical publication facts, pairing, expiry and the retained binding
+after asynchronous signing. It will not expose a ready response if withdrawal,
+terms or authority changes during that signing boundary. The client checks
+authority again after reading and verifying the response. Its required
+beforeSend port is the final durable publication/outbox lease gate immediately
+before HTTP transport, and may retain the scoped signed wire only in private
+job storage. It has no success default. No ACRCloud credentials or bucket choice
+exist in the community client.
+
+Root typecheck and all thirty-four focused service/client tests pass for this
+successor, including eleven new receipt and signing-race cases. Provider and
+publication-authority transport remain explicit simulations. Independent review,
+actual publisher/configuration mounts and live qualification are still required.
+The earlier full check timed out, and no completed full-gate pass is claimed.
+
 ## Required integration before release
 
 The shared publication writer needs a durable intent/outbox and explicit catalog

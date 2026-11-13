@@ -13,6 +13,7 @@ import {
   exactCatalogFile,
   type Association,
   type CatalogFile,
+  type CatalogStatusSnapshot,
   type Recording,
   type RecordingState,
   type VerifiedPublication,
@@ -223,6 +224,21 @@ export class RecognitionStore {
       )
       .bind(id, this.namespace, communityId)
       .first<Association>();
+  }
+  /** One read snapshot: never combine a pre-withdrawal association with a later
+   * recording state into a readiness state that never existed. */
+  async status(id: string, communityId: string) {
+    return this.db
+      .prepare(
+        `SELECT p.association_id,p.recording_id,p.publication_json,
+      p.state AS association_state,r.state AS recording_state,r.audio_sha256 AS canonical_audio_sha256,
+      c.revision AS catalog_revision FROM shared_recognition_publications p
+      JOIN shared_recognition_recordings r ON r.recording_id=p.recording_id AND r.namespace=p.namespace
+      JOIN shared_recognition_catalog_revision c ON c.namespace=p.namespace
+      WHERE p.association_id=? AND p.namespace=? AND p.community_id=?`,
+      )
+      .bind(id, this.namespace, communityId)
+      .first<CatalogStatusSnapshot>();
   }
   async active(id: string, source?: { communityId: string; postId: string }) {
     const row = await this.db

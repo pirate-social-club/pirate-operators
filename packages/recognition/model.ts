@@ -121,6 +121,15 @@ export interface Association {
   publication_json: string;
   state: "active" | "withdrawn";
 }
+export interface CatalogStatusSnapshot {
+  association_id: string;
+  recording_id: string;
+  publication_json: string;
+  association_state: "active" | "withdrawn";
+  recording_state: RecordingState;
+  canonical_audio_sha256: string;
+  catalog_revision: number;
+}
 export interface CatalogFile {
   recordingId: string;
   namespace: string;

@@ -18,6 +18,7 @@ export const recognitionDomain = {
 export const recognitionRequestTypes = {
   RecognitionRequest: [
     { name: "namespace", type: "bytes32" },
+    { name: "profileSha256", type: "bytes32" },
     { name: "action", type: "string" },
     { name: "communityId", type: "bytes32" },
     { name: "communityOrigin", type: "string" },
@@ -36,6 +37,7 @@ export type RecognitionAction =
   | "catalog_withdraw";
 export interface RecognitionAuthorization {
   namespace: Hex;
+  profileSha256: Hex;
   action: RecognitionAction;
   communityId: Hex;
   communityOrigin: string;
@@ -50,11 +52,36 @@ export interface RecognitionAuthorization {
 /** Loaded from Pirate's service profile and fresh verified community authority. */
 export interface RecognitionAuthority {
   namespace: string;
+  profileSha256: string;
   communityId: string;
   communityOrigin: string;
   publisher: string;
   configurationRevision: number;
   enabled: boolean;
+}
+/** Copy validated authority so a reused mutable loader object cannot change the
+ * request's captured authority during a later asynchronous read. */
+export function recognitionAuthority(input: unknown): RecognitionAuthority {
+  const a = object(input);
+  exact(a, [
+    "namespace",
+    "profileSha256",
+    "communityId",
+    "communityOrigin",
+    "publisher",
+    "configurationRevision",
+    "enabled",
+  ]);
+  insist(typeof a.enabled === "boolean", "recognition_authority_invalid", 503);
+  return Object.freeze({
+    namespace: bytes32(a.namespace),
+    profileSha256: bytes32(a.profileSha256),
+    communityId: bytes32(a.communityId),
+    communityOrigin: httpsOrigin(a.communityOrigin),
+    publisher: address(a.publisher),
+    configurationRevision: integer(a.configurationRevision, 1, 2147483647),
+    enabled: a.enabled,
+  });
 }
 const typed = (a: RecognitionAuthorization) => ({
   ...a,
@@ -85,6 +112,7 @@ export async function authorizeRecognitionRequest(
   input: unknown,
   action: RecognitionAction,
   namespace: string,
+  profileSha256: string,
   serviceOrigin: string,
   loadAuthority: (communityId: string) => Promise<RecognitionAuthority | null>,
   now = () => Math.floor(Date.now() / 1000),
@@ -99,12 +127,14 @@ export async function authorizeRecognitionRequest(
   insist(
     a.action === action &&
       a.namespace === namespace &&
+      a.profileSha256 === profileSha256 &&
       a.serviceOrigin === serviceOrigin,
     "recognition_request_scope_mismatch",
     403,
   );
   const auth: RecognitionAuthorization = {
     namespace: bytes32(a.namespace),
+    profileSha256: bytes32(a.profileSha256),
     action,
     communityId: bytes32(a.communityId),
     communityOrigin: httpsOrigin(a.communityOrigin),
@@ -144,10 +174,12 @@ export async function authorizeRecognitionRequest(
     "recognition_signature_invalid",
     403,
   );
-  const current = await loadAuthority(auth.communityId);
+  const loaded = await loadAuthority(auth.communityId),
+    current = loaded ? recognitionAuthority(loaded) : null;
   insist(
     current?.enabled &&
       current.namespace === namespace &&
+      current.profileSha256 === profileSha256 &&
       current.communityId === auth.communityId &&
       current.communityOrigin === auth.communityOrigin &&
       current.publisher === auth.publisher &&
