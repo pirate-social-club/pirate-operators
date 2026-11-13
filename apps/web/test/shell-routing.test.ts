@@ -5,6 +5,8 @@ import {
   activityUrl,
   appView,
   withoutActivity,
+  danceRoute,
+  danceUrl,
 } from "../src/shell/routing.ts";
 
 test("native fragment views preserve song permalinks and refuse unknown destinations", () => {
@@ -99,4 +101,49 @@ test("Study links carry one explicit lesson identity and refuse ambiguous privat
       ),
       { kind: "invalid" },
     );
+});
+
+test("Dance strict post/song/recording/result routes round-trip the opaque selected community", () => {
+  const community = "selected namespace/opaque value", id = "0x" + "a".repeat(64);
+  const current = new URL("https://community.example/?filter=a%20b&learner=8#/songs");
+  for (const route of [
+    { kind: "post", postId: id }, { kind: "song", songKey: id },
+    { kind: "review", reviewId: "recording_role:1" }, { kind: "result", reviewId: "recording_role:1" },
+  ] as const) {
+    const url = danceUrl(current, community, route);
+    assert.deepEqual(danceRoute(new URL(url.href)), { kind: "dance", communityId: community, route });
+    assert.equal(url.search, current.search);
+    assert.equal(url.hash, "#/songs");
+    assert.equal(withoutActivity(url).href, current.href);
+  }
+  assert.deepEqual(danceRoute(new URL("https://community.example/?dance=" + id)), {
+    kind: "dance", route: { kind: "post", postId: id },
+  });
+});
+test("Dance never selects from conflicting/private/duplicate/malformed route identities", () => {
+  const id = "0x" + "a".repeat(64), community = "opaque";
+  for (const path of [
+    "/?dance=", "/?dance=x", "/?dance=" + id + "&dance=" + id,
+    "/?dance=" + id + "&study=song", "/?dance=" + id + "&sing=song",
+    "/?dance=" + id + "&lesson=private", "/dance", "/dance/opaque",
+    "/dance/" + community + "/songs/" + id + "/recording",
+    "/dance/" + community + "/posts/" + id + "/extra",
+    "/dance/" + community + "/reviews/%2Fother", "/dance/%00/reviews/id",
+    "/dance/opaque/reviews/id?dance=" + id, "/dance/opaque/reviews/id?study=other",
+    "/dance/opaque/reviews/id?lesson=other",
+  ]) assert.deepEqual(danceRoute(new URL(path, "https://community.example")), { kind: "invalid" }, path);
+});
+test("Study/Sing replace Dance without carrying recording identities or losing feed context", () => {
+  const id = "0x" + "a".repeat(64);
+  const current = danceUrl(new URL("https://community.example/?language=en#/songs"), "opaque", {
+    kind: "review", reviewId: "recording_role",
+  });
+  for (const kind of ["study", "sing"] as const) {
+    const next = activityUrl(current, kind, id);
+    assert.equal(next.pathname, "/"); assert.equal(next.hash, "#/songs");
+    assert.equal(next.searchParams.get("language"), "en");
+    assert.equal(danceRoute(next).kind, "none");
+    assert.deepEqual(activityRoute(next), { kind, postId: id });
+  }
+  assert.equal(activityRoute(new URL("https://community.example/?dance=" + id + "&sing=other")).kind, "invalid");
 });

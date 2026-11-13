@@ -9,8 +9,14 @@ export interface ShellFeatureContext {
   session: CommunitySessionView | null;
   songs: Readonly<CommunityFeed["posts"]>;
 }
+export interface ShellDanceNavigation {
+  postHref(postId: string): string;
+  open(href: string): void;
+}
 export interface ShellIntegrations {
   version: 1;
+  /** Normal song action, not a declaration of recording readiness. */
+  danceNavigation?: ShellDanceNavigation;
   publicFeed?: (context: ShellFeatureContext) => JSX.Element;
   publicPosting?: "unresolved" | "unavailable" | "allowed";
   publicComposer?: (context: ShellFeatureContext) => JSX.Element;

@@ -302,6 +302,20 @@ export function CommunityPages(props: CommunityPagesProps) {
                     >
                       Karaoke
                     </a>
+                    <Show when={props.integrations?.danceNavigation}>
+                      {(dance) => (
+                        <a
+                          class={buttonVariants({ variant: "secondary", class: "min-w-0 justify-center" })}
+                          href={dance().postHref(song().id)}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            dance().open(event.currentTarget.href);
+                          }}
+                        >
+                          Dance
+                        </a>
+                      )}
+                    </Show>
                   </nav>
                   {/* The reference activity row follows the card/available
                     activity slots. Published lyrics are supplemental API data,

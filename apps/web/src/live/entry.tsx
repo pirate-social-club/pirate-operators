@@ -9,6 +9,8 @@ import { Button } from "../ui.ts";
 import {
   get,
   post,
+  createDanceSessionOwner,
+  selectedDanceCapability,
   type CommunityCapabilities,
   type CommunityClientConfig,
   type CommunityFeed,
@@ -22,6 +24,8 @@ import {
 } from "../media/community-host.tsx";
 import { createCommunityComposerScope } from "../media/community-composer-scope.ts";
 import { LearningPageMount } from "./learning-pages.tsx";
+import { DancePageMount } from "./dance-pages.tsx";
+import type { DanceProductionRoute } from "../dance/production.tsx";
 import { createLearningActionOwner } from "./learning-action-owner.ts";
 import { StudyLoading } from "../study/screen.tsx";
 import { KaraokeRouteLoadingState } from "../karaoke/route-states.tsx";
@@ -37,6 +41,8 @@ import {
   activityUrl,
   withoutActivity,
   fragmentNavigationHref,
+  danceRoute,
+  danceUrl,
 } from "../shell/routing.ts";
 import { CommunityPages } from "../shell/community-pages.tsx";
 import type {
@@ -75,9 +81,11 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     location.pathname,
   );
   const initialPractice = activityRoute(new URL(location.href));
+  const initialDance = danceRoute(new URL(location.href));
   const [name, setName] = createSignal(""),
     [view, setView] = createSignal(appView(location.hash)),
     [fragment, setFragment] = createSignal(location.hash),
+    [dancing, setDancing] = createSignal(initialDance),
     [routeNotice, setRouteNotice] = createSignal(""),
     [boot, setBoot] = createSignal<CommunityClientConfig | null>(null),
     [session, setSession] = createSignal<CommunitySessionView | null>(null),
@@ -101,7 +109,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     [error, setError] = createSignal(false);
   // Practice deep links hold their loading state until the community resolves
   // the song and permission. The requested activity stays in the address.
-  const [opening, setOpening] = createSignal(initialPractice.kind !== "none");
+  const [opening, setOpening] = createSignal(
+    initialPractice.kind !== "none" && initialDance.kind === "none",
+  );
   const [studyLesson, setStudyLesson] = createSignal<string | undefined>();
   const [historyGeneration, setHistoryGeneration] = createSignal(0);
   // True while sign-in is settling its permission. The wallet pages and the
@@ -109,6 +119,23 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   const [settling, setSettling] = createSignal(false);
   const actionOwner = createLearningActionOwner(setLearningActions);
   onCleanup(actionOwner.clear);
+  let sessionRead = 0;
+  const danceAuthority = createDanceSessionOwner();
+  const [danceRevision, setDanceRevision] = createSignal(0);
+  const danceSession = {
+    current: () => { danceRevision(); return danceAuthority.current(); },
+    subscribe: danceAuthority.subscribe,
+  };
+  function invalidateDance() {
+    if (danceAuthority.clear()) setDanceRevision(value => value + 1);
+  }
+  function publishDanceSession() {
+    const current = session(), config = boot();
+    if (danceAuthority.update(!settling() && current && config ? {
+      communityId: config.communityId, authorId: current.authorId, csrf: current.csrf,
+    } : null)) setDanceRevision(value => value + 1);
+  }
+  onCleanup(() => { sessionRead++; danceAuthority.dispose(); });
   const learningRoute = createMemo(() => {
     const study = studying(),
       sing = singing();
@@ -127,7 +154,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       ["on", "pending", "off"].includes(session()?.publicResults ?? ""),
   );
   const practiceOpen = () =>
-    singing() !== null || studying() !== null || opening();
+    singing() !== null || studying() !== null || opening() || dancing().kind !== "none";
   let lastLocation = location.href;
   const featureContext = (): ShellFeatureContext => ({
     version: 1,
@@ -135,6 +162,58 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     session: settling() ? null : session(),
     songs: feed()?.posts ?? [],
   });
+  const danceNavigation = () => boot() ? {
+    postHref: (postId: string) => danceUrl(
+      new URL(location.href), boot()!.communityId, { kind: "post", postId },
+    ).href,
+    open: (href: string) => {
+      const url = new URL(href, location.href), route = danceRoute(url);
+      if (url.origin !== location.origin || route.kind !== "dance" ||
+        (route.communityId !== undefined && route.communityId !== boot()?.communityId)) return;
+      openDance(route.route);
+    },
+  } : undefined;
+  function openDance(route: DanceProductionRoute) {
+    const config = boot();
+    if (!config || settling() || walletPage) return;
+    const previousHref = location.href;
+    const next = danceUrl(new URL(previousHref), config.communityId, route);
+    composerRuntime.viewClosed();
+    actionOwner.clear();
+    pauseFeed();
+    setStudying(null); setSinging(null); setStudyLesson(undefined); setOpening(false);
+    if (next.href !== previousHref) history.pushState({
+      ...(history.state && typeof history.state === "object" ? history.state : {}),
+      pirateDance: { version: 1, previousHref, href: next.href },
+    }, "", next);
+    lastLocation = location.href;
+    setView(appView(location.hash)); setFragment(location.hash);
+    setDancing(danceRoute(next));
+  }
+  function closeDance() {
+    const marker = history.state?.pirateDance;
+    if (marker?.version === 1 && marker.href === location.href &&
+      typeof marker.previousHref === "string") {
+      try {
+        if (new URL(marker.previousHref).origin === location.origin) {
+          history.back(); return;
+        }
+      } catch { /* A malformed public navigation marker grants no authority. */ }
+    }
+    history.replaceState(history.state, "", withoutActivity(new URL(location.href)));
+    lastLocation = "";
+    syncLocation();
+  }
+  function danceAccessLost() {
+    // The mount filters planned teardown/stale callbacks before this boundary.
+    sessionRead++;
+    invalidateDance();
+    composerRuntime.invalidate();
+    actionOwner.clear();
+    setHistoryGeneration(value => value + 1);
+    setSession(null);
+    setStatus("Sign in to do this dance.");
+  }
   function pauseFeed() {
     for (const media of document.querySelectorAll<HTMLMediaElement>(
       "audio, video",
@@ -145,6 +224,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     song: { postId: string; title: string },
     lessonId?: string,
   ) {
+    setDancing({ kind: "none" });
     composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
@@ -158,6 +238,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setStudying(song);
   }
   function openSing(song: { postId: string; title: string }) {
+    setDancing({ kind: "none" });
     composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
@@ -169,6 +250,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setSinging(song);
   }
   function closeStudy() {
+    setDancing({ kind: "none" });
     actionOwner.clear();
     setStudying(null);
     setSinging(null);
@@ -181,12 +263,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     );
   }
   function syncActivity(posts = feed(), caps = capabilities()) {
+    const requestedDance = danceRoute(new URL(location.href));
     const requested = activityRoute(new URL(location.href));
+    setDancing(requestedDance);
     actionOwner.clear();
     setStudying(null);
     setSinging(null);
     setStudyLesson(undefined);
     setRouteNotice("");
+    if (requestedDance.kind !== "none") {
+      composerRuntime.viewClosed(); pauseFeed(); return;
+    }
     if (requested.kind === "none") {
       setStudying(null);
       setSinging(null);
@@ -240,6 +327,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setStudying(null);
     setSinging(null);
     if (boot() && feed()) syncActivity();
+    else setDancing(danceRoute(new URL(location.href)));
     if (!practiceOpen())
       requestAnimationFrame(() =>
         document.getElementById("app-content")?.focus(),
@@ -291,6 +379,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     void run(signIn);
   }
   async function refreshSession() {
+    const request = ++sessionRead;
     const before = session();
     let next: CommunitySessionView | null = null;
     try {
@@ -298,16 +387,19 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     } catch {
       next = null;
     }
+    if (request !== sessionRead) return;
     if (
       before?.mossAddress !== next?.mossAddress ||
       before?.authorId !== next?.authorId ||
       before?.csrf !== next?.csrf
     ) {
+      invalidateDance();
       composerRuntime.invalidate();
       actionOwner.clear();
       setHistoryGeneration((value) => value + 1);
     }
     setSession(next);
+    publishDanceSession();
   }
   async function refresh() {
     await refreshSession();
@@ -325,9 +417,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       throw new Error(
         "This is not the live community. Open its canonical address.",
       );
-    if (boot()?.communityId !== config.communityId)
+    if (boot()?.communityId !== config.communityId) {
+      invalidateDance();
       setHistoryGeneration((value) => value + 1);
+    }
     setBoot(config);
+    publishDanceSession();
     setName(community.name);
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
@@ -388,12 +483,15 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     await refreshSession();
   }
   async function signIn() {
+    sessionRead++;
+    invalidateDance();
     composerRuntime.invalidate();
     setSettling(true);
     try {
       await settleSignIn();
     } finally {
       setSettling(false);
+      publishDanceSession();
     }
   }
   async function settleSignIn() {
@@ -547,6 +645,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     if (!current || busy() || settling())
       throw new Error("Sign out is unavailable.");
     setBusy(true);
+    sessionRead++;
+    invalidateDance();
     composerRuntime.invalidate();
     profileIntegration.controller()?.clear();
     savedKaraokeHistory.clear();
@@ -562,6 +662,18 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       await profileIntegration.controller()?.load();
     }
   };
+  const recheckDanceSession = () => {
+    if (!walletPage && dancing().kind !== "none" && boot() && !busy() &&
+      !settling() && document.visibilityState !== "hidden") void refreshSession();
+  };
+  window.addEventListener("focus", recheckDanceSession);
+  window.addEventListener("pageshow", recheckDanceSession);
+  document.addEventListener("visibilitychange", recheckDanceSession);
+  onCleanup(() => {
+    window.removeEventListener("focus", recheckDanceSession);
+    window.removeEventListener("pageshow", recheckDanceSession);
+    document.removeEventListener("visibilitychange", recheckDanceSession);
+  });
   const pageOwnsLegalLinks = () =>
     !walletPage &&
     !practiceOpen() &&
@@ -609,6 +721,18 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           <p role="status">{status()}</p>
         </main>
       </Show>
+      <DancePageMount
+        communityId={boot()?.communityId ?? ""}
+        route={dancing()}
+        session={danceSession}
+        capability={selectedDanceCapability(capabilities(), boot()?.communityId ?? "")}
+        loading={!boot() || !capabilities()}
+        onBack={closeDance}
+        onSignIn={() => void run(signIn)}
+        onReview={review => openDance({ kind: "review", reviewId: review.reviewId })}
+        onManage={reviewId => openDance({ kind: "review", reviewId })}
+        onAccessLost={danceAccessLost}
+      />
       <LearningPageMount
         communityId={boot()?.communityId ?? ""}
         route={learningRoute()}
@@ -740,6 +864,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 ...props.integrations,
                 version: 1,
                 postAuthors: authors,
+                danceNavigation: danceNavigation(),
               }}
               context={featureContext}
               onNavigate={(href) =>
@@ -753,6 +878,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 void run(async () => {
                   const current = session();
                   if (!current) return;
+                  sessionRead++;
+                  invalidateDance();
                   composerRuntime.invalidate();
                   savedKaraokeHistory.clear();
                   await post("/api/logout", {}, current.csrf);
@@ -830,4 +957,4 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     </CommunityAppShell>
   );
 }
-render(() => <App />, document.getElementById("app")!);
+export const disposeApplication = render(() => <App />, document.getElementById("app")!);

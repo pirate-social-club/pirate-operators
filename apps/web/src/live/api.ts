@@ -1,5 +1,5 @@
 import type {
-  CommunityCapabilities,
+  CommunityCapabilities as BaseCommunityCapabilities,
   CommunityClientConfig,
   CommunityFeed,
   CommunitySessionView,
@@ -7,7 +7,6 @@ import type {
   CommunityJobView,
 } from "../api-contract.ts";
 export type {
-  CommunityCapabilities,
   CommunityClientConfig,
   CommunityFeed,
   CommunitySessionView,
@@ -176,3 +175,76 @@ const messages: Record<string, string> = {
   submission_profile_changed:
     "The operator configuration changed. Your saved release needs operator review.",
 };
+
+/** Required same-origin server projection. Absence is unavailable, never ready.
+ * Upstream owns policy/limit selection; no wallet/author implies private access. */
+export interface CommunityDanceCapability {
+  version: "pirate.dance-capability/1";
+  communityId: string;
+  media: {
+    version: "pirate.community-media/1";
+    purpose: "private-review";
+    policyVersion: "pirate.dance-private/1";
+    maximumBytes: number;
+  };
+}
+export type CommunityCapabilities = BaseCommunityCapabilities & {
+  dance?: CommunityDanceCapability;
+};
+export function selectedDanceCapability(
+  value: CommunityCapabilities | null,
+  communityId: string,
+): CommunityDanceCapability | null {
+  const dance = value?.dance;
+  return value?.schema === "pirate.community-capabilities/1" && communityId && dance?.version === "pirate.dance-capability/1" &&
+    dance.communityId === communityId &&
+    dance.media?.version === "pirate.community-media/1" &&
+    dance.media.purpose === "private-review" &&
+    dance.media.policyVersion === "pirate.dance-private/1" &&
+    Number.isSafeInteger(dance.media.maximumBytes) && dance.media.maximumBytes > 0
+      ? dance : null;
+}
+
+export interface DanceSessionIdentity {
+  communityId: string;
+  authorId: string;
+  csrf: string;
+}
+/** Synchronous mask/notify precedes successor publication. These are session
+ * correlation fields only; the reviewed producer resolves private accountId. */
+export function createDanceSessionOwner() {
+  let value: (DanceSessionIdentity & { generation: string }) | null = null;
+  let generation = 0, changing = false, disposed = false;
+  const listeners = new Set<() => void>();
+  function update(next: DanceSessionIdentity | null): boolean {
+    if (disposed || changing) return false;
+    if (next && (!next.communityId || !next.authorId || !next.csrf)) {
+      update(null);
+      throw Error("dance_session_identity_required");
+    }
+    if ((!value && !next) || (value && next &&
+      value.communityId === next.communityId &&
+      value.authorId === next.authorId && value.csrf === next.csrf)) return false;
+    changing = true;
+    value = null;
+    generation++;
+    try {
+      for (const notify of [...listeners]) {
+        try { notify(); } catch { /* One listener cannot retain another owner. */ }
+      }
+      value = !disposed && next ? Object.freeze({ ...next, generation: String(generation) }) : null;
+    } finally { changing = false; }
+    return true;
+  }
+  return {
+    current: () => value,
+    subscribe(notify: () => void) {
+      if (disposed) return () => {};
+      listeners.add(notify);
+      return () => { listeners.delete(notify); };
+    },
+    update,
+    clear: () => update(null),
+    dispose() { if (disposed) return; update(null); disposed = true; listeners.clear(); },
+  };
+}
