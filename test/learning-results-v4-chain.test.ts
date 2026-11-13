@@ -203,13 +203,15 @@ test(
         assert.equal(deployed, canonicalOriginV4(o), o);
       }
       // The public reader accepts this contract only as version 4.
-      const head = await evm.publicClient.getBlockNumber();
+      // A cached pre-deployment head cannot prove the reader version guard.
+      // Pin both the code hash and reader to one freshly observed block.
+      const head = await evm.publicClient.getBlockNumber({ cacheTime: 0 });
       const source = {
         rpcUrl: evm.rpcUrl,
         chainId: chainId as 31337,
         contract,
         runtimeCodeHash: keccak256(
-          (await evm.publicClient.getCode({ address: contract }))!,
+          (await evm.publicClient.getCode({ address: contract, blockNumber: head }))!,
         ),
         fromBlock: 0n,
         toBlock: head,
