@@ -191,3 +191,37 @@ test("an interrupted backup can finish exact source copies before adoption; a se
     await f.dispose();
   }
 });
+
+// UNRUN community-only guard; generic creator adoption cases above stay intact.
+test("community adoption refuses an unready package without replacing predecessor execution", async () => {
+  const f = await fixture();
+  try {
+    const { adoptPreparedCommunityUpdate } = await import(
+      "../harness/reviewed-update.ts"
+    );
+    const before = await readFile(join(f.directory, "execution.json"));
+    await assert.rejects(
+      adoptPreparedCommunityUpdate(
+        f.directory,
+        f.packaged,
+        {
+          schema: "pirate.community-package-binding/1",
+          profileHash: f.packaged.profileHash,
+          relativePath: `deployment-${f.packaged.profileHash.slice(2)}`,
+          manifestSha256: "0x" + "a".repeat(64),
+        },
+        async () => {
+          throw new Error(
+            "fixture authentication must not run before readiness",
+          );
+        },
+      ),
+    );
+    assert.deepEqual(
+      await readFile(join(f.directory, "execution.json")),
+      before,
+    );
+  } finally {
+    await f.dispose();
+  }
+});

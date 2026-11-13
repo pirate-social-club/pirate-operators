@@ -16,6 +16,7 @@ import { infisicalAuth } from "../apps/community-wizard/server/infisical-auth.ts
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { verifyCommunitySuccessor } from "./community-state.ts";
+import { qualifyCommunityConsumer } from "./community-consumer.ts";
 import { reviewedPredecessor } from "./reviewed-update.ts";
 let phase = "cloudflare";
 
@@ -101,12 +102,30 @@ try {
     ),
   );
   phase = "encrypted_state";
-  await verifyCommunitySuccessor(
+  const currentPackage = await verifyCommunitySuccessor(
     join(communityBase, "application-service"),
     candidate.profile,
     secret.secretValue,
   );
-  console.log({ encryptedState: "authenticated owned identities" });
+  await qualifyCommunityConsumer(
+    join(communityBase, "application-service"),
+    secret.secretValue,
+    {
+      ...safe,
+      CLOUDFLARE_API_TOKEN: token,
+      CLOUDFLARE_ACCOUNT_ID: communityAccount,
+    },
+    true,
+    undefined,
+    {
+      profileHash: candidate.profileHash,
+      policy: candidate.profile.reviewedUpdate,
+    },
+  );
+  console.log({
+    encryptedState: "authenticated current identities",
+    packageBinding: currentPackage.binding,
+  });
   phase = "reviewed_predecessor";
   await reviewedPredecessor(
     join(communityBase, "application-service"),

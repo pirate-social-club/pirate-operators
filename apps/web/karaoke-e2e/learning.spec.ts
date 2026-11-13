@@ -324,18 +324,88 @@ test("persistent missing feedback stops after one automatic recovery and can ret
 }) => {
   let suppressFeedback = true;
   let connections = 0;
-  let latestDeliveredCertain = false;
+  type ScoreEvidence = {
+    lineId: string;
+    scoredLineIndex: number;
+    score: number;
+    uncertain: boolean;
+  };
+  let manualRetry:
+    | {
+        connection: number;
+        ticketId: string;
+        attemptId: string;
+        previousSequence: number;
+        readyWatermark: number | null;
+        latest: ScoreEvidence | null;
+      }
+    | undefined;
   await page.clock.install();
   await page.routeWebSocket(
     (url) => url.pathname.endsWith("/attempt"),
     (route) => {
-      connections++;
+      const connection = ++connections;
+      let readyAttemptId: string | undefined;
       const server = route.connectToServer();
       server.onMessage((message) => {
         if (!suppressFeedback && typeof message === "string") {
           const value = JSON.parse(message);
-          const scores = value.lineScores ?? value.feedback?.lineScores;
-          if (scores?.length) latestDeliveredCertain = !scores.at(-1).uncertain;
+          const retry = manualRetry;
+          if (retry && connection === retry.connection) {
+            if (value.type === "ready") {
+              expect(new URL(route.url()).searchParams.get("ticketId")).toBe(
+                retry.ticketId,
+              );
+              expect(value.attemptId).toBe(retry.attemptId);
+              expect(value.resumed).toBe(true);
+              expect(value.audioSequence).toBeGreaterThanOrEqual(
+                retry.previousSequence,
+              );
+              readyAttemptId = value.attemptId;
+              const cached = (value.feedback?.lineScores ??
+                []) as ScoreEvidence[];
+              expect(Array.isArray(cached)).toBe(true);
+              expect(
+                cached.every(
+                  (line) =>
+                    Number.isInteger(line.scoredLineIndex) &&
+                    line.scoredLineIndex >= 0,
+                ),
+              ).toBe(true);
+              if (cached.length)
+                expect(
+                  cached.some(
+                    (line) => line.lineId === value.feedback.latestLineId,
+                  ),
+                ).toBe(true);
+              // READY is restored evidence, never a fresh/renderable score.
+              retry.readyWatermark = Math.max(
+                -1,
+                ...cached.map((line) => line.scoredLineIndex),
+              );
+              retry.latest = null;
+            } else if (
+              value.type === "line_scores" &&
+              readyAttemptId === retry.attemptId &&
+              retry.readyWatermark !== null
+            ) {
+              const latest = (value.lineScores as ScoreEvidence[]).find(
+                (line) => line.lineId === value.latestLineId,
+              );
+              // This message type can replay READY's cached identity as well.
+              retry.latest =
+                latest &&
+                /^0x[0-9a-f]{64}$/i.test(latest.lineId) &&
+                Number.isInteger(latest.scoredLineIndex) &&
+                latest.scoredLineIndex > retry.readyWatermark &&
+                latest.uncertain === false &&
+                Number.isFinite(latest.score) &&
+                latest.score >= 0 &&
+                latest.score <= 1
+                  ? latest
+                  : null;
+            }
+          }
         }
         if (suppressFeedback && typeof message === "string") {
           const value = JSON.parse(message);
@@ -398,7 +468,12 @@ test("persistent missing feedback stops after one automatic recovery and can ret
   await expect(page.getByRole("region", { name: "Results" })).toHaveCount(0);
   const state = async () =>
     (await (await page.request.get("/__fixture/operator")).json()) as {
-      attempts: { ticketId: string; ended: unknown | null }[];
+      attempts: {
+        ticketId: string;
+        attemptId: string;
+        generation: number;
+        ended: unknown | null;
+      }[];
       audio: { ticketId: string; lastSequence: number }[];
     };
   const before = await state();
@@ -409,6 +484,14 @@ test("persistent missing feedback stops after one automatic recovery and can ret
   const previousSequence = before.audio.find(
     (row) => row.ticketId === ticketId,
   )!.lastSequence;
+  manualRetry = {
+    connection: connections + 1,
+    ticketId,
+    attemptId: open[0].attemptId,
+    previousSequence,
+    readyWatermark: null,
+    latest: null,
+  };
   suppressFeedback = false;
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect
@@ -420,15 +503,39 @@ test("persistent missing feedback stops after one automatic recovery and can ret
     )
     .toBeGreaterThan(previousSequence);
   await expect(page.getByRole("alert")).toHaveCount(0);
-  // A real capture gap can make the cached latest line uncertain. Wait for
-  // the next measured line and its commit before requiring a visible rating.
+  // Correlate fresh protocol identity and actual visible DOM in one existing
+  // ten-second window; cached READY/replayed line_scores cannot start a timer.
   await expect
-    .poll(() => latestDeliveredCertain, { timeout: 10000 })
+    .poll(
+      async () => {
+        const latest = manualRetry?.latest;
+        if (!latest) return false;
+        const key = `${latest.lineId}:${latest.scoredLineIndex}:${latest.score}`;
+        const rating = page.locator(
+          `.karaoke-stage-rating[data-rating-key="${key}"]`,
+        );
+        if (!(await rating.isVisible())) return false;
+        const points = await rating
+          .locator(".karaoke-stage-rating-points")
+          .allTextContents();
+        return (
+          points.length === 1 &&
+          points[0] === `+${Math.round(latest.score * 100)}`
+        );
+      },
+      { timeout: 10000 },
+    )
     .toBe(true);
-  await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
-    timeout: 1000,
+  expect(connections).toBe(manualRetry.connection);
+  const resumed = await state();
+  expect(resumed.attempts).toHaveLength(before.attempts.length);
+  expect(
+    resumed.attempts.find((attempt) => attempt.ticketId === ticketId),
+  ).toMatchObject({
+    ticketId,
+    attemptId: manualRetry.attemptId,
+    generation: open[0].generation + 1,
   });
-  expect((await state()).attempts).toHaveLength(before.attempts.length);
   await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
     timeout: 40000,
   });
@@ -440,8 +547,12 @@ test("missing feedback recovers automatically on the same ticket and provider st
   let connections = 0,
     tickets = 0,
     approvals = 0;
-  const state = async () =>
-    await (await page.request.get("/__fixture/operator")).json();
+  let originalAttemptId: string | undefined;
+  const state = async () => {
+    const response = await page.request.get("/__fixture/operator");
+    expect(response.ok()).toBe(true);
+    return await response.json();
+  };
   const before = await state();
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/api/karaoke/tickets") tickets++;
@@ -457,6 +568,15 @@ test("missing feedback recovers automatically on the same ticket and provider st
       const initial = ++connections === 1;
       const server = route.connectToServer();
       server.onMessage((message) => {
+        if (typeof message === "string") {
+          const value = JSON.parse(message);
+          if (value.type === "ready") {
+            expect(value.attemptId).toMatch(/^0x[0-9a-f]{64}$/i);
+            if (initial) originalAttemptId ??= value.attemptId;
+            expect(value.attemptId).toBe(originalAttemptId);
+            if (!initial) expect(value.resumed).toBe(true);
+          }
+        }
         if (
           initial &&
           typeof message === "string" &&
@@ -490,7 +610,42 @@ test("missing feedback recovers automatically on the same ticket and provider st
   expect(added).toHaveLength(1);
   expect(added[0].generation).toBe(2);
   expect(after.simulator.minted - before.simulator.minted).toBe(1);
-  expect(after.publications.length - before.publications.length).toBe(1);
+  expect(added[0].attemptId).toBe(originalAttemptId);
+  // Results can precede a mined publication. Read fresh ticket state and all
+  // raw events together until this separate milestone, without deduplication.
+  await expect
+    .poll(
+      async () => {
+        const current = await state();
+        const response = await page.request.get(
+          "/__fixture/result-events?learner=5",
+        );
+        expect(response.ok()).toBe(true);
+        const events = (await response.json()) as {
+          sessionId: string;
+          revision: number;
+          verified: boolean;
+        }[];
+        return {
+          publications: current.publications.filter(
+            (row: { key: string }) =>
+              row.key === `publicationV2:${added[0].ticketId}`,
+          ).length,
+          events: events
+            .filter((event) => event.sessionId === originalAttemptId)
+            .map(({ sessionId, revision, verified }) => ({
+              sessionId,
+              revision,
+              verified,
+            })),
+        };
+      },
+      { timeout: 10000 },
+    )
+    .toEqual({
+      publications: 1,
+      events: [{ sessionId: originalAttemptId, revision: 1, verified: true }],
+    });
   expect(tickets).toBe(1);
   expect(approvals).toBe(1);
 });

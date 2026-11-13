@@ -1,56 +1,51 @@
-import { readFile, lstat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { cfJson, rows } from "./managed-inventory.ts";
 import { insist, object } from "../packages/community/common.ts";
 import { unseal } from "../apps/community-wizard/infra/protected-data.ts";
+import { inventoryCommunityState } from "./community-state.ts";
+import { verifyCommunityPackage } from "./community-package-custody.ts";
+import type { ReviewedUpdate } from "./reviewed-update.ts";
 
 const queueId = "fe031cd96fbb47579585eb10154f785d",
   script = "pirate-first-song-20261105";
-/** A first enablement may create only this consumer on this existing Queue.
- * A retry must authenticate its retained encrypted ownership before any apply. */
+/** Current Consumer ownership is mandatory. Missing state never permits replacement. */
 export async function qualifyCommunityConsumer(
   directory: string,
   password: string,
   env: NodeJS.ProcessEnv,
   required = false,
   query = cfJson,
+  custody?: { profileHash: string; policy: ReviewedUpdate },
 ) {
+  insist(custody, "community_consumer_package_binding_required", 409);
+  const location = await verifyCommunityPackage(
+    directory,
+    custody.profileHash,
+    custody.policy,
+    (cwd) => inventoryCommunityState(cwd, password),
+  );
   const consumers = rows(
     await query(["queues", "consumers", "list", "--queue-id", queueId], env),
   );
   insist(consumers.length <= 1, "community_consumer_identity_ambiguous", 409);
   const relative = `${script}/setup/Consumer.json`,
-    path = join(directory, "deployment/.alchemy/state", relative);
-  let state: Record<string, unknown> | null = null;
-  try {
-    const metadata = await lstat(path);
-    insist(
-      metadata.isFile() &&
-        metadata.uid === process.getuid!() &&
-        !(metadata.mode & 0o077),
-      "community_consumer_state_not_private",
-      409,
-    );
-    state = object(
-      JSON.parse(
-        unseal(
-          await readFile(path, "utf8"),
-          password,
-          `alchemy-state:${relative}`,
-        ),
+    path = join(location.cwd, ".alchemy/state", relative);
+  const state = object(
+    JSON.parse(
+      unseal(
+        await readFile(path, "utf8"),
+        password,
+        `alchemy-state:${relative}`,
       ),
-    );
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  if (!consumers.length) {
-    insist(
-      !required && !state,
-      "community_consumer_missing_or_interrupted",
-      409,
-    );
-    return null;
-  }
+    ),
+  );
+  insist(
+    consumers.length === 1,
+    "community_consumer_missing_or_interrupted",
+    409,
+  );
+  void required; // current-state adoption never allows a first-enable fallback
   const consumer = consumers[0]!,
     settings = object(consumer.settings),
     attr = object(

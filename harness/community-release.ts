@@ -1,5 +1,8 @@
 import "./node-network.ts";
-import { communityDependencyModules } from "./community-dependencies.ts";
+import {
+  communityDependencyModules,
+  verifyCommunityDependencies,
+} from "./community-dependencies.ts";
 import { readStudyReleaseSelection } from "./study-release-input.ts";
 import { readRewardsReleaseSelection } from "./rewards-release-profile.ts";
 import { observeStudyRelease } from "./study-release-observation.ts";
@@ -12,7 +15,6 @@ import { qualifyCommunityConsumer } from "./community-consumer.ts";
 import { bindCommunityPublisher } from "./community-credentials.ts";
 import { completedCommunityRelease } from "./community-result.ts";
 import {
-  adoptReviewedUpdate,
   reviewedPredecessor,
   finishReviewedUpdate,
 } from "./reviewed-update.ts";
@@ -49,18 +51,18 @@ import {
 } from "./community-inventory.ts";
 import {
   communityPackage,
-  writeCommunityPackage,
   communityBase,
   communityPrefix,
   communityAccount,
   communityOwned,
 } from "./community-package.ts";
 import {
-  durableJson,
-  restoreCommunityState,
+  inventoryCommunityState,
+  prepareCommunitySuccessor,
   verifyCommunitySuccessor,
 } from "./community-state.ts";
 
+import { runCommunityPackageCommand } from "./community-package-custody.ts";
 const directory = join(communityBase, "application-service");
 async function main() {
   process.umask(0o077);
@@ -216,28 +218,20 @@ async function main() {
     (profile as { ownerPublishing?: { ownerGrant?: unknown } }).ownerPublishing
       ?.ownerGrant,
   );
-  await qualifyCommunityConsumer(directory, password, cloudEnv);
+  await qualifyCommunityConsumer(
+    directory,
+    password,
+    cloudEnv,
+    true,
+    undefined,
+    {
+      profileHash,
+      policy: profile.reviewedUpdate,
+    },
+  );
   await qualifyApplicationPeers(profile, values["reviewed-update"] === true);
   if (!values.execute) {
-    // Read-only ownership check: authenticate original state without restoring it.
-    const { unseal } = await import(
-        "../apps/community-wizard/infra/protected-data.ts"
-      ),
-      { assertCommunityState } = await import("./community-state.ts");
-    for (const relative of Object.keys(profile.predecessorState))
-      assertCommunityState(
-        JSON.parse(
-          unseal(
-            await readFile(
-              join(communityBase, "deployment/.alchemy/state", relative),
-              "utf8",
-            ),
-            password,
-            `alchemy-state:${relative}`,
-          ),
-        ),
-        relative.split("/").at(-1)!.slice(0, -5),
-      );
+    // The same current package/state binding was authenticated above.
     console.log(
       JSON.stringify(
         {
@@ -245,7 +239,8 @@ async function main() {
           before,
           modules,
           health,
-          ownership: "authenticated original encrypted state",
+          ownership:
+            "authenticated current encrypted resource, Consumer and binding state",
           execution: "not started",
         },
         null,
@@ -270,6 +265,7 @@ async function main() {
       profile,
       profileHash,
       { inventory: before, modules, health },
+      (cwd) => inventoryCommunityState(cwd, password),
     );
     if (completed) {
       console.log(
@@ -285,35 +281,13 @@ async function main() {
       );
       return;
     }
-    const executionPath = join(directory, "execution.json");
-    try {
-      const existing = object(
-        JSON.parse(await readFile(executionPath, "utf8")),
-      );
-      if (existing.profileHash !== profileHash) {
-        insist(
-          values["reviewed-update"],
-          "community_reviewed_update_flag_required",
-          409,
-        );
-        await adoptReviewedUpdate(
-          directory,
-          { profile, profileHash },
-          {
-            "deployment/node_modules": communityDependencyModules,
-          },
-        );
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await durableJson(executionPath, {
-        profileHash,
-        before,
-        modules,
-        health,
-        startedAt: new Date().toISOString(),
-      });
-    }
+    const active = await prepareCommunitySuccessor(
+      directory,
+      { profile, profileHash, bytes },
+      values["reviewed-update"] === true,
+      password,
+    );
+    const cwd = active.cwd;
     const deadline = Date.now() + profile.bounds.executionSeconds * 1000,
       keyPath = join(
         homedir(),
@@ -347,13 +321,7 @@ async function main() {
       profile.learning.providerCredential.key,
     );
     await bindCommunityPublisher(sdk, profile, publisherKey, get);
-    await restoreCommunityState(directory, profile, password);
-    const cwd = await writeCommunityPackage(
-        directory,
-        bytes,
-        profile.migrations,
-      ),
-      env = {
+    const env = {
         ...cloudEnv,
         PIRATE_WIZARD_STATE_PASSWORD: password,
         COMMUNITY_PUBLISHER_PRIVATE_KEY: publisherKey,
@@ -411,24 +379,39 @@ async function main() {
       secrets = [password, publisherKey, token, issuerKey, speech],
       logs: string[] = [];
     for (const command of ["plan", "deploy"]) {
-      await inspectPrivateFiles(cwd, secrets);
+      await verifyCommunityDependencies();
       const remaining = Math.floor((deadline - Date.now()) / 1000);
       insist(remaining > 0, "community_execution_window_expired", 409);
       logs.push(
-        await runWithDiagnostics(
-          "/usr/bin/timeout",
-          [
-            "--signal=TERM",
-            "--kill-after=15s",
-            `${remaining}s`,
-            join(communityDependencyModules, ".bin/alchemy"),
-            command,
-            "--stage",
-            "setup",
-            "--no-input",
-            ...(command === "deploy" ? ["--yes"] : []),
-          ],
-          { cwd, env, directory, password, phase: `application-${command}` },
+        await runCommunityPackageCommand(
+          directory,
+          active.binding,
+          profile.reviewedUpdate,
+          (path) => inventoryCommunityState(path, password),
+          async (commandCwd) => {
+            await inspectPrivateFiles(commandCwd, secrets);
+            return runWithDiagnostics(
+              "/usr/bin/timeout",
+              [
+                "--signal=TERM",
+                "--kill-after=15s",
+                `${remaining}s`,
+                join(communityDependencyModules, ".bin/alchemy"),
+                command,
+                "--stage",
+                "setup",
+                "--no-input",
+                ...(command === "deploy" ? ["--yes"] : []),
+              ],
+              {
+                cwd: commandCwd,
+                env,
+                directory,
+                password,
+                phase: `application-${command}`,
+              },
+            );
+          },
         ),
       );
       await inspectPrivateFiles(cwd, secrets);
@@ -455,6 +438,16 @@ async function main() {
       password,
       cloudEnv,
       true,
+      undefined,
+      {
+        profileHash,
+        policy: profile.reviewedUpdate,
+      },
+    );
+    const finished = await verifyCommunitySuccessor(
+      directory,
+      profile,
+      password,
     );
     await finishReviewedUpdate(
       directory,
@@ -462,6 +455,8 @@ async function main() {
       {
         schema: "pirate.community-application-release/1",
         profileHash,
+        packageBinding: finished.binding,
+        packageState: finished.state,
         before,
         after,
         logs,
