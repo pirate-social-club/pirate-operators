@@ -1,235 +1,103 @@
-// Durable evidence cache using the existing public configuration/index tables.
-// Cached bytes never replace current contract, receipt or canonical-block checks.
-import {
-  BlockNotFoundError,
-  decodeEventLog,
-  type Hex,
-  type PublicClient,
-} from "viem";
-import { canonical, hashText, insist, token } from "./common.ts";
-import {
-  directoryAbi,
-  type DirectoryHistoryCache,
-  type DirectoryProfile,
-  type DirectoryCheckpoint,
-  type ConfigurationLog,
-} from "./directory-reader.ts";
+// Proposed paged cache schema; Root must admit the accompanying exact DDL before
+// mounting this adapter. No automatic migration, schema creation or V1-row deletion.
+import { BlockNotFoundError, type Hex, type PublicClient } from "viem";
+import { canonical, exact, hashText, insist, integer, object, token } from "./common.ts";
+import { address, decimal } from "./manifest-core.ts";
+import { sharedBytes32 } from "./shared-identity.ts";
+import { CONFIGURATION_PAGE_SIZE, encodeEvidence, type ConfigurationEvidence,
+  type DirectoryCheckpoint, type DirectoryHistoryCache } from "./directory-checkpoint.ts";
+import type { AnyDirectoryProfile } from "./directory-reader.ts";
 
-interface Cursor {
-  next_block: string;
-  checkpoint_hash: Hex;
-}
-interface Entry {
-  revision: number;
-  publisher: string;
-  manifest_uri: string;
-  manifest_sha256: Hex;
-  manifest_json: string;
-  block_number: string;
-  block_hash: Hex;
-  transaction_hash: Hex;
-}
-async function boundedMap<T, R>(items: T[], fn: (item: T) => Promise<R>) {
-  const result: R[] = [];
-  for (let i = 0; i < items.length; i += 4)
-    result.push(...(await Promise.all(items.slice(i, i + 4).map(fn))));
+interface Head { snapshot: string; next_block: string; block_hash: Hex; revision: number; page_count: number }
+interface Page { page_number: number; page_sha256: string; payload: string }
+const raced = (e: unknown) => e instanceof Error && e.message.includes("CHECK constraint failed: valid = 1");
+export function decodeEvidence(payload: string): ConfigurationEvidence[] {
+  const raw: unknown = JSON.parse(payload);
+  insist(Array.isArray(raw) && raw.length > 0 && raw.length <= CONFIGURATION_PAGE_SIZE, "invalid_checkpoint_page");
+  const result = raw.map((value) => {
+    const o = object(value), a = object(o.args);
+    exact(o, ["args", "blockNumber", "blockHash", "transactionHash", "logIndex", "document"]);
+    exact(a, ["communityId", "revision", "controller", "publisher", "operatorPayments", "learningRecords", "sha256Digest", "uri"]);
+    insist(typeof o.document === "string" && new TextEncoder().encode(o.document).length <= 65536 &&
+      typeof a.uri === "string", "invalid_checkpoint_document");
+    return { document: o.document, log: {
+      args: { communityId: sharedBytes32(a.communityId), revision: BigInt(decimal(a.revision)),
+        controller: address(a.controller), publisher: address(a.publisher), operatorPayments: address(a.operatorPayments, true),
+        learningRecords: address(a.learningRecords, true), sha256Digest: sharedBytes32(a.sha256Digest), uri: a.uri },
+      blockNumber: BigInt(decimal(o.blockNumber)), blockHash: sharedBytes32(o.blockHash),
+      transactionHash: sharedBytes32(o.transactionHash), logIndex: integer(o.logIndex, 0, Number.MAX_SAFE_INTEGER),
+    } };
+  });
+  insist(encodeEvidence(result) === payload, "noncanonical_checkpoint_page");
   return result;
 }
-const raced = (error: unknown) =>
-  error instanceof Error &&
-  error.message.includes("CHECK constraint failed: valid = 1");
-
-export function directoryHistoryCache(
-  db: D1Database,
-  client: PublicClient,
-  profile: DirectoryProfile,
-): DirectoryHistoryCache {
-  const key = `directory/1:${hashText(canonical({ ...profile, deploymentBlock: String(profile.deploymentBlock) }))}`;
-  const identity = [profile.chainId, key];
-  const cursor = () =>
-    db
-      .prepare(
-        "SELECT next_block,checkpoint_hash FROM chain_scan_state WHERE chain_id=? AND contract_address=?",
-      )
-      .bind(...identity)
-      .first<Cursor>();
-  const guard = (previous: DirectoryCheckpoint | undefined) => {
-    const id = token();
-    const condition = previous
-      ? "EXISTS(SELECT 1 FROM chain_scan_state WHERE chain_id=? AND contract_address=? AND next_block=? AND checkpoint_hash=?)"
-      : "NOT EXISTS(SELECT 1 FROM chain_scan_state WHERE chain_id=? AND contract_address=?)";
-    return {
-      id,
-      statement: db
-        .prepare(
-          `INSERT INTO transaction_guards(guard_id,valid) VALUES(?,CASE WHEN ${condition} THEN 1 ELSE 0 END)`,
-        )
-        .bind(
-          id,
-          ...identity,
-          ...(previous ? [String(previous.nextBlock), previous.blockHash] : []),
-        ),
-    };
-  };
+export function directoryHistoryCache(db: D1Database, client: PublicClient, profile: AnyDirectoryProfile): DirectoryHistoryCache {
+  const key = "directory/2:" + hashText(canonical({ ...profile, deploymentBlock: String(profile.deploymentBlock) }));
   return {
-    async load() {
-      const saved = await cursor();
-      if (!saved) return undefined;
-      const nextBlock = BigInt(saved.next_block);
-      insist(
-        nextBlock > profile.deploymentBlock,
-        "directory_cache_cursor_invalid",
-        503,
-      );
-      let canonicalHash: Hex | null = null;
-      try {
-        canonicalHash = (await client.getBlock({ blockNumber: nextBlock - 1n }))
-          .hash;
-      } catch (error) {
-        if (!(error instanceof BlockNotFoundError)) throw error;
+    async load(through) {
+      const row = await db.prepare("SELECT * FROM directory_checkpoint_heads WHERE profile_key=?").bind(key).first<Head>();
+      if (!row) return undefined;
+      insist(/^[0-9a-f]{64}(?![\s\S])/.test(row.snapshot), "invalid_checkpoint_snapshot");
+      const nextBlock = BigInt(decimal(row.next_block));
+      insist(nextBlock > profile.deploymentBlock, "directory_cache_cursor_invalid", 503);
+      const revision = integer(row.revision, 1, Number.MAX_SAFE_INTEGER), pages = integer(row.page_count, 1, Number.MAX_SAFE_INTEGER);
+      insist(pages === Math.ceil(revision / CONFIGURATION_PAGE_SIZE), "directory_cache_history_invalid", 503);
+      let hash: Hex | null = null;
+      if (nextBlock <= through + 1n) {
+        try { hash = (await client.getBlock({ blockNumber: nextBlock - 1n })).hash; }
+        catch (error) { if (!(error instanceof BlockNotFoundError)) throw error; }
       }
-      if (canonicalHash !== saved.checkpoint_hash) {
-        // Public derived cache only. Rebuild from canonical evidence after a reorg.
-        const check = guard({
-          nextBlock,
-          blockHash: saved.checkpoint_hash,
-          logs: [],
-          documents: new Map(),
-        });
-        await db.batch([
-          check.statement,
-          db
-            .prepare("DELETE FROM public_configurations WHERE community_id=?")
-            .bind(profile.communityId),
-          db
-            .prepare(
-              "DELETE FROM chain_scan_state WHERE chain_id=? AND contract_address=?",
-            )
-            .bind(...identity),
-          db
-            .prepare("DELETE FROM transaction_guards WHERE guard_id=?")
-            .bind(check.id),
-        ]);
+      if (hash !== row.block_hash) {
+        // Compare-and-delete only the stale head. Immutable evidence is retained.
+        await db.prepare("DELETE FROM directory_checkpoint_heads WHERE profile_key=? AND snapshot=?").bind(key, row.snapshot).run();
         return undefined;
       }
-      const rows = (
-        await db
-          .prepare(
-            "SELECT * FROM public_configurations WHERE community_id=? ORDER BY revision",
-          )
-          .bind(profile.communityId)
-          .all<Entry>()
-      ).results;
-      insist(
-        rows.length > 0 && rows.length <= 256,
-        "directory_cache_history_invalid",
-        503,
-      );
-      const logs = await boundedMap(rows, async (row) => {
-        const [receipt, block] = await Promise.all([
-          client.getTransactionReceipt({ hash: row.transaction_hash }),
-          client.getBlock({ blockNumber: BigInt(row.block_number) }),
-        ]);
-        insist(
-          receipt.status === "success" &&
-            receipt.transactionHash === row.transaction_hash &&
-            receipt.blockHash === row.block_hash &&
-            block.hash === row.block_hash &&
-            receipt.blockNumber === BigInt(row.block_number),
-          "directory_cache_provenance_changed",
-          503,
-        );
-        const matching: ConfigurationLog[] = [];
-        for (const log of receipt.logs) {
-          if (log.address.toLowerCase() !== profile.directory.toLowerCase())
-            continue;
-          let args;
-          try {
-            args = decodeEventLog({
-              abi: directoryAbi,
-              eventName: "ConfigurationPublished",
-              data: log.data,
-              topics: log.topics,
-              strict: true,
-            }).args;
-          } catch {
-            continue;
-          }
-          if (
-            args.communityId !== profile.communityId ||
-            args.revision !== BigInt(row.revision)
-          )
-            continue;
-          insist(
-            args.publisher.toLowerCase() === row.publisher &&
-              args.uri === row.manifest_uri &&
-              args.sha256Digest === row.manifest_sha256 &&
-              log.blockHash === row.block_hash &&
-              log.blockNumber === receipt.blockNumber &&
-              log.transactionHash === receipt.transactionHash &&
-              log.logIndex !== null,
-            "directory_cache_event_changed",
-            503,
-          );
-          matching.push({
-            args,
-            blockNumber: receipt.blockNumber,
-            blockHash: row.block_hash,
-            transactionHash: receipt.transactionHash,
-            logIndex: log.logIndex,
-          });
-        }
-        insist(matching.length === 1, "directory_cache_event_missing", 503);
-        return matching[0]!;
-      });
-      return {
-        nextBlock,
-        blockHash: saved.checkpoint_hash,
-        logs,
-        documents: new Map(
-          rows.map((row) => [row.manifest_uri, row.manifest_json]),
-        ),
-      };
+      return { snapshot: row.snapshot, nextBlock, blockHash: sharedBytes32(row.block_hash), revision, pages };
     },
-    async save(previous, head, hash, logs, history) {
-      const check = guard(previous);
-      try {
-        await db.batch([
-          check.statement,
-          db
-            .prepare("DELETE FROM public_configurations WHERE community_id=?")
-            .bind(profile.communityId),
-          ...logs.map((log, i) =>
-            db
-              .prepare(
-                `INSERT INTO public_configurations(community_id,revision,publisher,manifest_uri,manifest_sha256,manifest_json,block_number,block_hash,transaction_hash) VALUES(?,?,?,?,?,?,?,?,?)`,
-              )
-              .bind(
-                profile.communityId,
-                Number(log.args.revision),
-                log.args.publisher.toLowerCase(),
-                log.args.uri,
-                log.args.sha256Digest,
-                canonical(history[i]!),
-                String(log.blockNumber),
-                log.blockHash,
-                log.transactionHash,
-              ),
-          ),
-          db
-            .prepare(
-              "INSERT INTO chain_scan_state(chain_id,contract_address,next_block,checkpoint_hash) VALUES(?,?,?,?) ON CONFLICT(chain_id,contract_address) DO UPDATE SET next_block=excluded.next_block,checkpoint_hash=excluded.checkpoint_hash",
-            )
-            .bind(...identity, String(head + 1n), hash),
-          db
-            .prepare("DELETE FROM transaction_guards WHERE guard_id=?")
-            .bind(check.id),
-        ]);
-      } catch (error) {
-        // A concurrent winner is retained. The caller's independently verified
-        // snapshot is still valid; never move the durable cursor backwards.
-        if (!raced(error)) throw error;
+    async *pages(saved) {
+      let count = 0;
+      for (let page = 0; page < saved.pages; page++) {
+        const row = await db.prepare("SELECT page_number,page_sha256,payload FROM directory_checkpoint_pages WHERE snapshot=? AND page_number=?")
+          .bind(saved.snapshot, page).first<Page>();
+        insist(row && row.page_number === page && hashText(row.payload) === row.page_sha256, "directory_cache_page_changed", 503);
+        const entries = decodeEvidence(row.payload);
+        insist(page === saved.pages - 1 || entries.length === CONFIGURATION_PAGE_SIZE, "directory_cache_page_gap", 503);
+        for (const item of entries) insist(item.log.args.revision === BigInt(++count), "directory_cache_page_gap", 503);
+        yield entries;
       }
+      insist(count === saved.revision, "directory_cache_history_invalid", 503);
+    },
+    begin(previous) {
+      const snapshot = token();
+      let pages = 0, revisions = 0, ended = false, partial = false;
+      return {
+        async append(page) {
+          insist(!ended && !partial, "checkpoint_writer_closed");
+          const payload = encodeEvidence(page);
+          for (const item of page) insist(item.log.args.revision === BigInt(++revisions), "directory_cache_page_gap");
+          // Each bounded page is durable before the head can reference it.
+          await db.prepare("INSERT INTO directory_checkpoint_pages(snapshot,page_number,page_sha256,payload) VALUES(?,?,?,?)")
+            .bind(snapshot, pages++, hashText(payload), payload).run();
+          partial = page.length < CONFIGURATION_PAGE_SIZE;
+        },
+        async commit(head, hash, revision) {
+          insist(!ended && pages > 0 && revisions === revision && (!previous || head + 1n >= previous.nextBlock), "invalid_checkpoint_commit");
+          ended = true;
+          const guard = token(), condition = previous
+            ? "EXISTS(SELECT 1 FROM directory_checkpoint_heads WHERE profile_key=? AND snapshot=?)"
+            : "NOT EXISTS(SELECT 1 FROM directory_checkpoint_heads WHERE profile_key=?)";
+          try {
+            await db.batch([
+              db.prepare(`INSERT INTO transaction_guards(guard_id,valid) VALUES(?,CASE WHEN ${condition} THEN 1 ELSE 0 END)`)
+                .bind(guard, key, ...(previous ? [previous.snapshot] : [])),
+              db.prepare("INSERT INTO directory_checkpoint_heads(profile_key,snapshot,next_block,block_hash,revision,page_count) VALUES(?,?,?,?,?,?) ON CONFLICT(profile_key) DO UPDATE SET snapshot=excluded.snapshot,next_block=excluded.next_block,block_hash=excluded.block_hash,revision=excluded.revision,page_count=excluded.page_count")
+                .bind(key, snapshot, String(head + 1n), hash, revision, pages),
+              db.prepare("DELETE FROM transaction_guards WHERE guard_id=?").bind(guard),
+            ]);
+            return true;
+          } catch (error) { if (!raced(error)) throw error; return false; }
+        },
+      };
     },
   };
 }
