@@ -17,10 +17,15 @@ import { danceId } from "../packages/dance/validation.ts";
 import { DanceReviewService } from "./dance-review.ts";
 import { DanceStore } from "../packages/dance/store.ts";
 import { decodeDanceDecision } from "../packages/dance/commands.ts";
+import type { DanceSelectedCatalogue } from "./dance-production.ts";
+import { requireProductionTarget } from "./dance-production.ts";
+import { DanceProductionReads } from "./dance-production-reads.ts";
 
 export interface DanceCommunityPorts {
   db: D1Database;
   dance: DancePorts;
+  /** Required for production catalogue/access routes; no successful fallback. */
+  catalogue?: DanceSelectedCatalogue;
 }
 /** Shared Worker mount is coordinator-owned. This adapter never trusts actor JSON. */
 export async function danceCommunityApi(
@@ -49,6 +54,29 @@ export async function danceCommunityApi(
   privateHeaders.set("cache-control", "no-store, private");
   privateHeaders.set("vary", "Cookie");
   const reply = (v: unknown) => Response.json(v, { headers: privateHeaders });
+  const captureRead = /^\/api\/dance\/captures\/([a-zA-Z0-9_:-]{1,128})\/(access|guide)$/.exec(url.pathname);
+  const songRead = /^\/api\/dance\/songs\/(0x[0-9a-f]{64})$/.exec(url.pathname);
+  if (["/api/dance/catalogue", "/api/dance/latest", "/api/dance/reference"].includes(url.pathname) || captureRead || songRead) {
+    insist(request.method === "GET", "method_not_allowed", 405);
+    insist(ports.catalogue, "dance_production_catalogue_unavailable", 503);
+    const reads = new DanceProductionReads(ports.db, ports.dance, ports.catalogue, context.communityId);
+    if (songRead) return reply(await reads.songKeyForPost(actor, songRead[1]));
+    if (captureRead) return reply(captureRead[2] === "access"
+      ? { version: "pirate.dance-capture-access/1", capture: await reads.captureAccess(actor, captureRead[1]) }
+      : await reads.guide(actor, captureRead[1], context.origin));
+    if (url.pathname === "/api/dance/catalogue") {
+      const cursor = url.searchParams.get("cursor");
+      insist(cursor === null || cursor.length <= 2048, "dance_invalid_cursor");
+      return reply(await reads.cataloguePage(actor, text(url.searchParams.get("songKey"), 128), cursor));
+    }
+    const raw = url.searchParams.get("target");
+    insist(raw && raw.length <= 2048, "dance_invalid_target");
+    let value: unknown;
+    try { value = JSON.parse(raw); } catch { throw new CommunityError("dance_invalid_target"); }
+    const target = requireProductionTarget(value, context.communityId);
+    return reply(url.pathname === "/api/dance/latest"
+      ? await reads.latest(actor, target) : await reads.reference(actor, target));
+  }
   if (url.pathname === "/api/dance/queue") {
     insist(request.method === "GET", "method_not_allowed", 405);
     return reply(await api.queue(actor, url.searchParams.get("cursor")));
