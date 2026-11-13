@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { hashJson, hashText } from "../packages/community/common.ts";
 import { verifyCatalogStatus } from "../packages/recognition/status-receipt.ts";
+import { staleSessionReplica } from "./shared-recognition-replication-fixture.ts";
 import {
   communityA,
   communityB,
@@ -223,6 +224,58 @@ test("a withdrawal during asynchronous status signing cannot expose ready", asyn
     const response = await f.request("catalog_status", {
       associationId: enrolled.payload.associationId,
     });
+    assert.equal(response.status, 409);
+    assert.equal(
+      ((await response.json()) as { error: string }).error,
+      "recognition_status_changed",
+    );
+    assert.equal((await f.client().status(p)).payload.state, "withdrawn");
+  } finally {
+    await f.dispose();
+  }
+});
+
+test("final status fence sees withdrawal even when an older session permits stale replica reads", async () => {
+  let replica: ReturnType<typeof staleSessionReplica> | undefined;
+  const f = await recognitionFixture({
+    serviceDatabase: (database) => {
+      replica = staleSessionReplica(database);
+      return replica.database;
+    },
+  });
+  try {
+    const p = publication(),
+      enrolled = await f.client().enroll(p);
+    await f.run(enrolled.payload.recordingId);
+    await f.run(enrolled.payload.recordingId);
+    const query =
+      "SELECT state FROM shared_recognition_publications WHERE association_id=?";
+    const oldSession = replica!.database.withSession("first-primary");
+    const oldView = oldSession
+      .prepare(query)
+      .bind(enrolled.payload.associationId);
+    assert.equal((await oldView.first<{ state: string }>())!.state, "active");
+    f.onNextStatusSign(async () => {
+      await f
+        .store()
+        .withdraw(p, hashText("withdrawal-committed-during-replica-status"));
+    });
+    const response = await f.request("catalog_status", {
+      associationId: enrolled.payload.associationId,
+    });
+    // Establish that the modeled replica really can retain an older view while
+    // another request's withdrawal is committed in the actual D1 database.
+    assert.equal((await oldView.first<{ state: string }>())!.state, "active");
+    assert.equal(
+      (await f.db
+        .prepare(query)
+        .bind(enrolled.payload.associationId)
+        .first<{ state: string }>())!.state,
+      "withdrawn",
+    );
+    assert.ok(replica!.counts.staleReads > 0);
+    // Reusing the request's old session here would return ready/200. A fresh
+    // primary-anchored joined snapshot must reject that pre-withdrawal receipt.
     assert.equal(response.status, 409);
     assert.equal(
       ((await response.json()) as { error: string }).error,

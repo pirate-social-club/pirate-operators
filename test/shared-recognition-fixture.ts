@@ -59,7 +59,11 @@ export function publication(
   };
 }
 /** Actual D1, HTTP, signing and provider adapters. Provider/chain transport is simulated. */
-export async function recognitionFixture() {
+export async function recognitionFixture(
+  options: {
+    serviceDatabase?: (database: D1Database) => D1Database;
+  } = {},
+) {
   const mf = new Miniflare({
     modules: true,
     script: "export default {fetch(){return new Response('fixture')}}",
@@ -68,6 +72,7 @@ export async function recognitionFixture() {
   });
   try {
     const db = await mf.getD1Database("DB");
+    const serviceDatabase = options.serviceDatabase?.(db) ?? db;
     const sql = await readFile(
       new URL("../packages/recognition/schema.sql", import.meta.url),
       "utf8",
@@ -238,7 +243,7 @@ export async function recognitionFixture() {
     });
     const makeService = () =>
       sharedRecognitionService({
-        db,
+        db: serviceDatabase,
         namespace,
         profileSha256,
         origin,

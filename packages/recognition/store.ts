@@ -21,10 +21,12 @@ import {
 
 /** A request/worker-local primary session; no global mutable database state. */
 export class RecognitionStore {
+  private readonly database: D1Database;
   readonly db: D1DatabaseSession;
   readonly namespace: string;
   readonly now: () => number;
   constructor(db: D1Database, namespace: string, now = Date.now) {
+    this.database = db;
     this.db = db.withSession("first-primary");
     this.namespace = bytes32(namespace);
     this.now = now;
@@ -225,10 +227,13 @@ export class RecognitionStore {
       .bind(id, this.namespace, communityId)
       .first<Association>();
   }
-  /** One read snapshot: never combine a pre-withdrawal association with a later
-   * recording state into a readiness state that never existed. */
+  /** Every status fence is the first query in a fresh primary-anchored session.
+   * Reusing a request session could serve a replica at its older bookmark after
+   * another request withdrew the association during asynchronous signing.
+   * The single joined read also prevents a mixed association/recording state. */
   async status(id: string, communityId: string) {
-    return this.db
+    return this.database
+      .withSession("first-primary")
       .prepare(
         `SELECT p.association_id,p.recording_id,p.publication_json,
       p.state AS association_state,r.state AS recording_state,r.audio_sha256 AS canonical_audio_sha256,
