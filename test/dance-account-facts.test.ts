@@ -302,3 +302,46 @@ test("genuine D1 100/101 canary and ordinary/max-alias combined actor+learner+ow
   }
 });
 
+test("genuine D1 depth-100 canary, balanced nested guards and detached authority wrappers preserve every atomic predicate", async () => {
+  const f = hostSimulation();
+  let engine: Awaited<ReturnType<typeof genuineD1>> | undefined;
+  try {
+    engine = await genuineD1(f.db);
+    const db = engine.db, store = new DanceStore(db);
+    // Independent depth canary: zero bound values, actual native D1, no clamp.
+    // These distinct live-row predicates cannot fail because of the bind limit.
+    const flat = Array.from({ length: 513 }, (_, i) =>
+      "(EXISTS(SELECT 1 FROM community_accounts WHERE account_id='actor' AND " + i + "=" + i + "))").join(" AND ");
+    await assert.rejects(async () => db.prepare("SELECT 1 WHERE " + flat).bind().all(), /expression tree is too large|maximum depth/i);
+    // Stress conjunction association without increasing the supported alias or
+    // page limits. Odd leaf count also exercises an unpaired final branch.
+    const leaves = Array.from({ length: 513 }, (_, i) => ({
+      sql: "EXISTS(SELECT 1 FROM community_accounts WHERE account_id=? AND ?=" + i + ")",
+      values: ["actor", i],
+    }));
+    const combined = joinDanceFences(joinDanceFences(...leaves.slice(0, 200)), joinDanceFences(...leaves.slice(200)));
+    assert.equal(combined.values.length, 1);
+    assert.deepEqual(JSON.parse(String(combined.values[0])), leaves.flatMap(leaf => leaf.values));
+    // The actual authority producer clones local facts, losing private join
+    // metadata, then adds projection/grant guards. Preserve that SQL nesting.
+    const detached = structuredClone(combined);
+    const wrapped = { sql: "(" + detached.sql + ") AND EXISTS(SELECT 1 FROM community_accounts WHERE account_id=?)" +
+      " AND EXISTS(SELECT 1 FROM community_accounts WHERE account_id=?)", values: [...detached.values, "owner", "learner"] };
+    const admitted = joinDanceFences(wrapped, { sql: "? IS NULL", values: [null] });
+    await store.atomic([admitted], [db.prepare("INSERT INTO host_fixture_acceptance VALUES('balanced-accepted')").bind()]);
+    // Reject first, middle and unmatched final positions in the SAME
+    // guard/mutation batch. No leaf may be omitted during grouping or rejoin.
+    for (const index of [0, 256, 512]) {
+      const changed = leaves.map((leaf, i) => i === index ? { ...leaf, values: ["actor", -1] } : leaf);
+      const fence = joinDanceFences(joinDanceFences(...changed.slice(0, 200)), joinDanceFences(...changed.slice(200)));
+      await assert.rejects(store.atomic([fence], [db.prepare("INSERT INTO host_fixture_acceptance VALUES(?)").bind("refused-" + index)]));
+    }
+    const missingGrant = { ...wrapped, values: [...detached.values, "owner", "missing"] };
+    await assert.rejects(store.atomic([joinDanceFences(missingGrant)],
+      [db.prepare("INSERT INTO host_fixture_acceptance VALUES('refused-wrapper')").bind()]));
+    assert.deepEqual((await db.prepare("SELECT id FROM host_fixture_acceptance ORDER BY id").all<{ id: string }>()).results,
+      [{ id: "balanced-accepted" }]);
+    assert.ok(engine.binds.length > 0 && engine.binds.every(n => n <= 100));
+  } finally { await engine?.dispose(); f.close(); }
+});
+

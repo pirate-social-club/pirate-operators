@@ -116,7 +116,9 @@ let fenceAlias = 0;
  * this fence therefore uses two of D1's 100 slots, even for a complete page.
  * Exact duplicate conjuncts alone are idempotent; differing snapshots remain.
  * The private leaf snapshots prevent nested joins from repeatedly packing the
- * same account/rules bytes. No predicate is prechecked outside the transaction. */
+ * same account/rules bytes. Pairwise grouping also bounds the conjunction depth
+ * to ceil(log2(leaves)), rather than growing with aliases/page size. Every leaf
+ * and its value order remain intact. Nothing is prechecked outside the transaction. */
 export function joinDanceFences(...fences: DanceFence[]): DanceFence {
   insist(fences.length > 0, "dance_host_fence_missing", 503);
   const unique = new Map<string, DanceFence>();
@@ -144,9 +146,21 @@ export function joinDanceFences(...fences: DanceFence[]): DanceFence {
     values.push(...leaf.values);
   }
   const payload = JSON.stringify(values);
-  const result = { sql: `EXISTS(SELECT 1 FROM (SELECT ? AS v) AS ${alias} WHERE ${predicates.join(" AND ")})`, values: [payload] };
+  const result = { sql: `EXISTS(SELECT 1 FROM (SELECT ? AS v) AS ${alias} WHERE ${balancedFenceAnd(predicates)})`, values: [payload] };
   joined.set(result, { sql: result.sql, payload, leaves });
   return result;
+}
+/** Only associate these already compiled fence leaves; never parse/rewrite a
+ * leaf's SQL, substitute truth, or split the atomic admission into prechecks. */
+function balancedFenceAnd(predicates: string[]): string {
+  let level = predicates;
+  while (level.length > 1) {
+    const next: string[] = [];
+    for (let i = 0; i < level.length; i += 2)
+      next.push(i + 1 < level.length ? "(" + level[i] + " AND " + level[i + 1] + ")" : level[i]);
+    level = next;
+  }
+  return level[0];
 }
 /** SQLite positional parameter numbering, excluding quoted SQL and comments.
  * D1 guards use anonymous/?NNN binds. Unsupported named binds fail closed;
