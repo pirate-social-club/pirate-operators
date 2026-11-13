@@ -38,6 +38,11 @@ test(
       });
       const source = join(fixture, "contracts/test/PaymentToken.sol");
       const original = readFileSync(source, "utf8");
+      // Own the changed program instead of searching production Solidity text.
+      const sourceWith = (value: string) =>
+        `${original}\ncontract CompilerReceiptFixture { function value() external pure returns (uint256) { return ${value}; } }\n`;
+      const initialSource = sourceWith("6");
+      writeFileSync(source, initialSource);
       const imported = join(fixture, "contracts/interfaces/IMegapot.sol");
       const importedSource = readFileSync(imported, "utf8");
       const timestamp = 1_800_000_000;
@@ -47,13 +52,13 @@ test(
       const originalDigest = createHash("sha256")
         .update(JSON.stringify(first))
         .digest("hex");
-      first.TestPaymentToken.bytecode = "0x00";
-      (first.TestPaymentToken.abi as unknown as unknown[]).length = 0;
+      first.CompilerReceiptFixture.bytecode = "0x00";
+      (first.CompilerReceiptFixture.abi as unknown as unknown[]).length = 0;
       delete first.LearningResultsV4;
       rmSync(join(fixture, ".local/artifacts"), { recursive: true });
       const reused = compile();
       assert.ok(reused.LearningResultsV4);
-      assert.ok(reused.TestPaymentToken.abi.length > 0);
+      assert.ok(reused.CompilerReceiptFixture.abi.length > 0);
       assert.deepEqual(
         JSON.parse(readFileSync(".local/artifacts/contracts.json", "utf8")),
         reused,
@@ -71,7 +76,7 @@ test(
       evm = await chain(port);
       const deployAndRead = async (artifacts: ReturnType<typeof compile>) => {
         const transaction = await evm!.clients[0].deployContract({
-          ...artifacts.TestPaymentToken,
+          ...artifacts.CompilerReceiptFixture,
           args: [],
         });
         const receipt = await evm!.publicClient.waitForTransactionReceipt({
@@ -81,41 +86,41 @@ test(
         assert.ok(receipt.contractAddress);
         return evm!.publicClient.readContract({
           address: receipt.contractAddress,
-          abi: artifacts.TestPaymentToken.abi,
-          functionName: "decimals",
+          abi: artifacts.CompilerReceiptFixture.abi,
+          functionName: "value",
         });
       };
-      assert.equal(await deployAndRead(reused), 6);
+      assert.equal(await deployAndRead(reused), 6n);
 
       const metadata = statSync(source);
-      const changed = original.replace("decimals = 6;", "decimals = 7;");
-      assert.notEqual(changed, original);
+      const changed = sourceWith("7");
+      assert.notEqual(changed, initialSource);
       assert.equal(Buffer.byteLength(changed), metadata.size);
       writeFileSync(source, changed);
       utimesSync(source, metadata.atime, metadata.mtime);
       assert.equal(statSync(source).mtimeMs, metadata.mtimeMs);
       const revised = compile();
-      assert.equal(await deployAndRead(revised), 7);
+      assert.equal(await deployAndRead(revised), 7n);
       const changedDigest = createHash("sha256")
         .update(JSON.stringify(revised))
         .digest("hex");
       assert.notEqual(changedDigest, originalDigest);
 
-      writeFileSync(source, changed.replace("decimals = 7;", "decimals = ;"));
+      writeFileSync(source, sourceWith("("));
       assert.throws(() => compile(), /ParserError|Expected primary expression/);
       writeFileSync(source, changed);
       unlinkSync(imported);
       assert.throws(() => compile(), /ENOENT/);
       writeFileSync(imported, importedSource);
-      assert.equal(await deployAndRead(compile()), 7);
+      assert.equal(await deployAndRead(compile()), 7n);
 
       const proof = {
         schema: "pirate.compiler-artifacts-contract/1",
         status: "passed",
         originalArtifactSha256: originalDigest,
         changedArtifactSha256: changedDigest,
-        originalDecimals: 6,
-        changedDecimals: 7,
+        originalValue: 6,
+        changedValue: 7,
         callerMutationIsolated: true,
         outputRecreated: true,
         invalidSourceRefused: true,

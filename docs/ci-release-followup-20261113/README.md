@@ -56,9 +56,10 @@ cache. This change does not introduce a disk-cache trust path.
 
 compiler-plan.md recorded failure modes and real probes before implementation.
 The new single integration case uses actual solc, the filesystem and Anvil. It
-mutates returned ABI/bytecode, recreates missing output, changes the fixture
-contract from six to seven decimals while preserving byte length and an exact
-fixed mtime, and deploys/readbacks both results. It also rejects syntactically
+mutates returned ABI/bytecode, recreates missing output, appends a test-owned receipt contract with values six and seven while preserving
+byte length and an exact fixed mtime, and deploys/readbacks both results. It does
+not search or replace production Solidity spelling, so harmless formatting and
+getter refactors do not break fault injection. It also rejects syntactically
 invalid and missing inputs and recovers the valid input. It has no compiler mock,
 cache-hit assertion or production test seam. Its repeatable receipt is uploaded
 with the owning shard's JUnit report.
@@ -97,3 +98,27 @@ chain operation is performed.
 
 The workflow structure follows [GitHub reusable workflows](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
 The settings payload follows [GitHub's ruleset API](https://docs.github.com/en/rest/repos/rules#create-a-repository-ruleset).
+
+## Retained withdrawal-race failure
+
+The intermediate head 68e0aea failed one retained fixture on GitHub: its pinned
+RPC-attempt count was four instead of three. Its behavioral state comparison
+had passed, while both aggregate gates correctly failed. The full local check
+of that head passed 1,671 cases with one existing optional skip, all 248 Solidity
+cases and acceptance. These outcomes do not establish the original CI trigger.
+
+The fixture threw assertions inside a fetch hook. Installed viem wraps those
+exceptions as retryable HTTP errors, so a retry can obscure an original hook
+failure and inflate the count. The fixture now preserves and rethrows that
+original error at the test boundary, including the forward/abort path, and logs
+the pinned selectors, phase, elapsed time and abort state. Every old-snapshot,
+exact-three-read, no-resend, identity and recovery assertion remains unchanged.
+
+The hook also performed a one-shot receipt lookup immediately after raw RPC
+acceptance. That API does not wait for mining. The fixture now awaits the same
+original hash with one confirmation, replacement detection disabled, a 25ms
+poll and a five-second bound before receipt-only recovery. No transaction,
+production behavior or broad timeout is changed. This makes the intended mining
+precondition explicit; it is not proof of which original assertion failed.
+Fresh exact-head CI must qualify these stronger diagnostics and the controlled
+compiler fixture before ruleset activation or merge.
