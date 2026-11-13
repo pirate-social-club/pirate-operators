@@ -57,8 +57,9 @@ contract CommunityDirectoryV2Test {
         require(directory.namespaceIdFor("fixture") == keccak256(abi.encode(keccak256("pirate.namespace/1"), keccak256("fixture"))));
         bytes32 second = directory.registerSharedCommunity(registry, "fixture", binding(keccak256("second"), "fixture"), config(CONTROLLER, PUBLISHER));
         require(second != id && directory.getCommunity(second).registry == directory.getCommunity(id).registry);
+        D.Binding memory duplicate = binding(KEY, "other");
         vm.expectRevert(V1.AlreadyRegistered.selector);
-        directory.registerSharedCommunity(registry, "other", binding(KEY, "other"), config(CONTROLLER, PUBLISHER));
+        directory.registerSharedCommunity(registry, "other", duplicate, config(CONTROLLER, PUBLISHER));
     }
     function testRegistrationEventsBindExactIdentityAndConfiguration() public {
         vm.recordLogs();
@@ -71,9 +72,10 @@ contract CommunityDirectoryV2Test {
         require(!directory.isDiscoverable(id));
     }
     function testPublicKeyKnowledgeCannotFrontRunEnrollment() public {
+        D.Binding memory requested = binding(KEY, "fixture");
         vm.prank(OTHER);
         vm.expectRevert(V1.Unauthorized.selector);
-        directory.registerSharedCommunity(registry, "fixture", binding(KEY, "fixture"), config(OTHER, OTHER));
+        directory.registerSharedCommunity(registry, "fixture", requested, config(OTHER, OTHER));
         register();
     }
     function testSourcePinsAndCanonicalTldRefuse() public {
@@ -89,8 +91,9 @@ contract CommunityDirectoryV2Test {
         vm.expectRevert(D.InvalidBinding.selector); directory.namespaceIdFor("Fixture");
         vm.expectRevert(D.InvalidBinding.selector); directory.namespaceIdFor("fixture.");
         vm.etch(registry, hex"60006000fd");
+        b = binding(KEY, "fixture");
         vm.expectRevert(V1.InvalidRegistry.selector);
-        directory.registerSharedCommunity(registry, "fixture", binding(KEY, "fixture"), config(CONTROLLER, PUBLISHER));
+        directory.registerSharedCommunity(registry, "fixture", b, config(CONTROLLER, PUBLISHER));
     }
     function testAdminHandoverIsTwoStepAndCannotSeizeCommunityConfiguration() public {
         bytes32 id = register();

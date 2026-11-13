@@ -7,7 +7,7 @@ import { canonical, insist, object } from "../../packages/community/common.ts";
 
 function parameter(value: unknown, named = true): unknown {
   const p = object(value);
-  insist(typeof p.name === "string" && typeof p.type === "string", "invalid_abi_parameter");
+  insist(typeof p.type === "string" && (!named || typeof p.name === "string"), "invalid_abi_parameter");
   return { ...(named ? { name: p.name } : {}), type: p.type,
     ...(typeof p.indexed === "boolean" ? { indexed: p.indexed } : {}),
     ...(Array.isArray(p.components) ? { components: p.components.map((item) => parameter(item)) } : {}) };
