@@ -1,13 +1,82 @@
 name: Local acceptance
 on:
+  workflow_dispatch:
   push:
+    branches: [main]
   pull_request:
+# PR updates replace obsolete verification; accepted main runs retain evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
-  local:
+  root-tests:
+    name: Root integration tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/web/package-lock.json
+            apps/community-wizard/package-lock.json
+      - uses: foundry-rs/foundry-toolchain@v1
+        id: foundry
+        continue-on-error: true
+        with:
+          version: v1.9.0
+      - name: Retry pinned Foundry installation
+        if: steps.foundry.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+      - name: Bootstrap dependencies and Solidity compiler
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/web
+          npm ci --ignore-scripts --prefix apps/community-wizard
+          forge build
+      - name: Install media test tools
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - name: Run assigned root integration shard without external networking
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/4
+        run: |
+          mkdir -p .local
+          sudo --preserve-env=PATH,HOME,TEST_SHARD unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            node --test --test-concurrency=2 --test-shard="$TEST_SHARD" \
+              --test-reporter=spec --test-reporter-destination=stdout \
+              --test-reporter=junit --test-reporter-destination=".local/root-tests-${TEST_SHARD%/*}.xml" \
+              test/*.test.ts
+          '
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: root-tests-${{ matrix.shard }}
+          path: .local/root-tests-${{ matrix.shard }}.xml
+          include-hidden-files: true
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
+
+  offline-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,12 +113,14 @@ jobs:
           fi
           ffmpeg -version
           ffprobe -version
-      - name: Run with external networking unavailable
+      - name: Type, Solidity and repeatable acceptance without external networking
         run: |
+          mkdir -p .local
           sudo --preserve-env=PATH,HOME unshare --net bash -c '
             set -euo pipefail
             ip link set lo up
-            npm run check
+            npm run typecheck
+            forge test --offline
             node harness/acceptance.ts > .local/trace-first.jsonl
             node harness/acceptance.ts > .local/trace-second.jsonl
             cmp .local/trace-first.jsonl .local/trace-second.jsonl
@@ -58,4 +129,21 @@ jobs:
         if: always()
         with:
           name: acceptance-traces
-          path: .local/trace-*.jsonl
+          path: |
+            .local/trace-first.jsonl
+            .local/trace-second.jsonl
+          include-hidden-files: true
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
+
+  local:
+    if: always()
+    needs: [root-tests, offline-acceptance]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every root shard and offline acceptance
+        env:
+          ROOT_TESTS_RESULT: ${{ needs.root-tests.result }}
+          ACCEPTANCE_RESULT: ${{ needs.offline-acceptance.result }}
+        run: |
+          test "$ROOT_TESTS_RESULT" = success
+          test "$ACCEPTANCE_RESULT" = success

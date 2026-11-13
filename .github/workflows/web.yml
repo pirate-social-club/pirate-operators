@@ -1,12 +1,15 @@
 name: Web client
 on:
+  workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - "apps/web/**"
       - "packages/**"
       - "services/**"
       - "harness/**"
       - "fixtures/**"
+      - "test/karaoke-expect.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/web.yml"
@@ -17,9 +20,14 @@ on:
       - "services/**"
       - "harness/**"
       - "fixtures/**"
+      - "test/karaoke-expect.ts"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/web.yml"
+# PR updates replace obsolete verification; accepted main runs retain evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -56,7 +64,10 @@ jobs:
       - name: Profile, player and browser storage regressions
         run: npm run test:e2e:owner-ui
       - name: Reproduce the release from two clean builds
-        run: node scripts/reproducible.ts "$GITHUB_SHA"
+        run: |
+          set -euo pipefail
+          mkdir -p ../../.local
+          node scripts/reproducible.ts "$GITHUB_SHA" | tee ../../.local/web-reproducibility.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -65,3 +76,6 @@ jobs:
             apps/web/dist/car/car.json
             apps/web/dist/budget.json
             apps/web/dist/site/app/release.json
+            .local/web-reproducibility.json
+          include-hidden-files: true
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}

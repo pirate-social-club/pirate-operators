@@ -1,6 +1,8 @@
 name: Study client
 on:
+  workflow_dispatch:
   push:
+    branches: [main]
     paths:
       - "apps/web/**"
       - "packages/study/**"
@@ -24,6 +26,10 @@ on:
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/study.yml"
+# PR updates replace obsolete verification; accepted main runs retain evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -64,4 +70,8 @@ jobs:
         if: always()
         with:
           name: study-browser-results
-          path: .local/study-browser-results/
+          path: |
+            .local/study-browser-results/
+            .local/study-browser-report.json
+          include-hidden-files: true
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}

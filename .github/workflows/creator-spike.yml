@@ -1,13 +1,25 @@
 name: Creator wallet spike
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - apps/creator-spike/**
+      - packages/community/**
+      - package.json
+      - package-lock.json
       - .github/workflows/creator-spike.yml
   push:
+    branches: [main]
     paths:
       - apps/creator-spike/**
+      - packages/community/**
+      - package.json
+      - package-lock.json
       - .github/workflows/creator-spike.yml
+# PR updates replace obsolete verification; accepted main runs retain evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
