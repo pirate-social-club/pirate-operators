@@ -1,31 +1,7 @@
 name: Community wizard
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/community-wizard/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/community-wizard.yml"
-  pull_request:
-    paths:
-      - "apps/community-wizard/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/community-wizard.yml"
-# PR updates replace obsolete verification; accepted main runs retain evidence.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

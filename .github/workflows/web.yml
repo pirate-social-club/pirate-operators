@@ -1,33 +1,7 @@
 name: Web client
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "test/karaoke-expect.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/web.yml"
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "test/karaoke-expect.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/web.yml"
-# PR updates replace obsolete verification; accepted main runs retain evidence.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

@@ -1,13 +1,7 @@
 name: Local acceptance
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
-# PR updates replace obsolete verification; accepted main runs retain evidence.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -65,12 +59,15 @@ jobs:
               --test-reporter=spec --test-reporter-destination=stdout \
               --test-reporter=junit --test-reporter-destination=".local/root-tests-${TEST_SHARD%/*}.xml" \
               test/*.test.ts
+            test -s ".local/root-tests-${TEST_SHARD%/*}.xml"
           '
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: root-tests-${{ matrix.shard }}
-          path: .local/root-tests-${{ matrix.shard }}.xml
+          path: |
+            .local/root-tests-${{ matrix.shard }}.xml
+            .local/compiler-artifact-contract.json
           include-hidden-files: true
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
 

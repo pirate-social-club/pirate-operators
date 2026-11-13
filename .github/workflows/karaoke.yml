@@ -1,61 +1,7 @@
 name: Karaoke client
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "apps/web/**"
-      - "packages/karaoke/**"
-      - "packages/protocol/**"
-      - "packages/scoring/**"
-      - "services/karaoke*.ts"
-      - "services/runtime.ts"
-      - "services/community*.ts"
-      - "services/records.ts"
-      - "services/storage.ts"
-      - "services/service-call.ts"
-      - "packages/alignment/**"
-      - "packages/community/**"
-      - "packages/records/**"
-      - "apps/community-wizard/infra/migrations/**"
-      - "fixtures/first-song/**"
-      - "harness/karaoke-*.ts"
-      - "harness/runtime.ts"
-      - "harness/chain.ts"
-      - "test/karaoke-*.ts"
-      - "test/song-alignment-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/karaoke.yml"
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - "packages/karaoke/**"
-      - "packages/protocol/**"
-      - "packages/scoring/**"
-      - "services/karaoke*.ts"
-      - "services/runtime.ts"
-      - "services/community*.ts"
-      - "services/records.ts"
-      - "services/storage.ts"
-      - "services/service-call.ts"
-      - "packages/alignment/**"
-      - "packages/community/**"
-      - "packages/records/**"
-      - "apps/community-wizard/infra/migrations/**"
-      - "fixtures/first-song/**"
-      - "harness/karaoke-*.ts"
-      - "harness/runtime.ts"
-      - "harness/chain.ts"
-      - "test/karaoke-*.ts"
-      - "test/song-alignment-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/karaoke.yml"
-# PR updates replace obsolete verification; accepted main runs retain evidence.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:

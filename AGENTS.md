@@ -64,3 +64,17 @@ protect release contracts; do not confuse them with source-format assertions.
 Never delete or weaken a failing test to make the suite pass. Fix the code, or
 ask. Before deleting a test, read it and its production owner, identify the
 retained behavioral coverage, and record any uncertainty.
+
+## Required CI and merge path
+
+The CI caller owns PR and main-push verification. Its release-ready check must
+succeed after Local, Web, Study, Karaoke, Wizard and Creator all succeed. The
+six suite workflows are reusable; manual suite runs provide diagnostics and
+do not replace the required PR gate. Keep concurrency in the caller so reused
+suites cannot cancel one another.
+
+Main uses the reviewed .github/main-ruleset.json policy: require a pull request,
+current-base qualification and release-ready from GitHub Actions, with no bypass
+actors, force pushes or branch deletion. Apply a changed policy only after
+independent review and fresh exact-head CI, and read back the effective rules.
+Advance main through the reviewed PR, never a direct push.
