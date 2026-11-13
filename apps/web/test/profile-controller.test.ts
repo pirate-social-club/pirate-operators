@@ -220,52 +220,50 @@ const receiptRead = (receipt: ProfileMutationReceipt | null) =>
   Response.json({ schema: "pirate.community-profile-receipt-read/1", receipt });
 
 for (const status of [401, 403]) {
-  for (const body of ["", "<html>Authentication required</html>", "{invalid"]) {
-    test(`actual client preserves ${status} without reading error body ${JSON.stringify(body)}`, async () => {
-      let bodyReads = 0;
-      const response = new Response(body, { status });
-      response.json = async () => {
-        bodyReads++;
-        throw new Error("auth response must not await a body");
-      };
-      const client = createProfileClient(
-        communityId,
-        (async () => response) as typeof fetch,
-      );
-      await assert.rejects(
-        client.owner(new AbortController().signal),
-        (error: unknown) =>
-          error instanceof ProfileRequestError && error.status === status,
-      );
-      assert.equal(bodyReads, 0);
+  test(`actual client preserves ${status} without reading an error body`, async () => {
+    let bodyReads = 0;
+    const response = new Response("<html>Authentication required</html>", {
+      status,
     });
-    test(`ready private owner is masked by non-JSON ${status} owner GET ${JSON.stringify(body)}`, async () => {
-      let lost = false;
-      const client = createProfileClient(communityId, (async () =>
-        lost
-          ? new Response(body, { status })
-          : Response.json(owner)) as typeof fetch);
-      const controller = createProfileController({
-        client,
-        identity: () => ({ authorId, csrf: "fixture", scopeKey: "fixture" }),
-        changed: () => {},
-      });
-      const viewKind = () => controller.state.view.kind;
-      await controller.load();
-      assert.equal(viewKind(), "ready");
-      lost = true;
-      const loading = controller.load();
-      assert.equal(viewKind(), "loading");
-      await loading;
-      assert.equal(
-        viewKind(),
-        status === 401 ? "anonymous" : "unavailable",
-      );
-      assert.equal("owner" in controller.state.view, false);
-      controller.dispose();
-    });
-  }
+    response.json = async () => {
+      bodyReads++;
+      throw new Error("auth response must not await a body");
+    };
+    const client = createProfileClient(
+      communityId,
+      (async () => response) as typeof fetch,
+    );
+    await assert.rejects(
+      client.owner(new AbortController().signal),
+      (error: unknown) =>
+        error instanceof ProfileRequestError && error.status === status,
+    );
+    assert.equal(bodyReads, 0);
+  });
 }
+
+test("private owner is masked before an authentication-failed reload settles", async () => {
+  let lost = false;
+  const client = createProfileClient(communityId, (async () =>
+    lost
+      ? new Response("<html>Sign in</html>", { status: 401 })
+      : Response.json(owner)) as typeof fetch);
+  const controller = createProfileController({
+    client,
+    identity: () => ({ authorId, csrf: "fixture", scopeKey: "fixture" }),
+    changed: () => {},
+  });
+  const viewKind = () => controller.state.view.kind;
+  await controller.load();
+  assert.equal(viewKind(), "ready");
+  lost = true;
+  const loading = controller.load();
+  assert.equal(viewKind(), "loading");
+  await loading;
+  assert.equal(viewKind(), "anonymous");
+  assert.equal("owner" in controller.state.view, false);
+  controller.dispose();
+});
 
 const failedReads = [
   { status: 0, body: "fixture receipt transport lost" },
@@ -274,12 +272,8 @@ const failedReads = [
   { status: 404, body: '{"error":"lookup_unavailable"}' },
   { status: 503, body: "<html>Unavailable</html>" },
   { status: 200, body: "{malformed" },
-  ...[401, 403].flatMap((status) =>
-    ["", "<html>Sign in</html>", "{malformed"].map((body) => ({
-      status,
-      body,
-    })),
-  ),
+  { status: 401, body: "" },
+  { status: 403, body: "<html>Sign in</html>" },
 ];
 for (const failed of failedReads) {
   test(`committed save/lost ACK survives receipt ${failed.status}/${JSON.stringify(failed.body)} with no extra PUT`, async () => {

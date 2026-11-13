@@ -1,0 +1,40 @@
+{
+  "baseline": {
+    "files": 40,
+    "totals": {
+      "LF": 8063,
+      "LH": 5665,
+      "FNF": 520,
+      "FNH": 288,
+      "BRF": 910,
+      "BRH": 653
+    },
+    "line_percent": 70.25920873124147,
+    "branch_percent": 71.75824175824175,
+    "function_percent": 55.38461538461539,
+    "tests": 117,
+    "pass": 117,
+    "fail": 0,
+    "duration_ms": 6142.489032
+  },
+  "after": {
+    "files": 40,
+    "totals": {
+      "LF": 8046,
+      "LH": 5642,
+      "FNF": 519,
+      "FNH": 286,
+      "BRF": 906,
+      "BRH": 649
+    },
+    "line_percent": 70.12179965200099,
+    "branch_percent": 71.63355408388522,
+    "function_percent": 55.10597302504817,
+    "tests": 78,
+    "pass": 78,
+    "fail": 0,
+    "duration_ms": 6632.476944
+  },
+  "method": "Node 24.14.0 built-in V8 coverage, same packages/** and apps/web/src/** include globs, audited Node suites plus retained media repair suite. Imported production files only; no whole-suite coverage claim. Dynamic function hook execution is not attributed to original source. Test files excluded. Baseline 117 passing cases; after 78 passing cases. The 17 removed dead production lines change the denominator.",
+  "line_percentage_point_delta": -0.1374090792404843
+}

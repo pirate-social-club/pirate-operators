@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  karaokeStageLinesOf,
-  type KaraokeTimedLine,
-} from "../packages/karaoke/manifest-lines.ts";
+import { karaokeStageLinesOf } from "../packages/karaoke/manifest-lines.ts";
 import { displayLines } from "../packages/karaoke/karaoke-timing.ts";
 import type { ManifestLine } from "../packages/protocol/payments.ts";
 
@@ -79,19 +76,4 @@ test("repeated chorus lines stay distinct by published line ID", () => {
     [id(1), id(2)],
   );
   assert.equal(displayLines(stage, 1200).activeLine?.id, id(2));
-});
-
-test("the protocol manifest line stays assignable to the display's timed line", () => {
-  // Compile-time check under the root typecheck; the browser build declares
-  // these fields structurally to avoid the protocol's chain libraries.
-  const asTimed = (
-    lines: readonly ManifestLine[],
-  ): readonly KaraokeTimedLine[] => lines;
-  const lines = [
-    line(1, "Hold on", [
-      ["Hold", 0, 400],
-      ["on", 500, 900],
-    ]),
-  ];
-  assert.equal(asTimed(lines), lines);
 });

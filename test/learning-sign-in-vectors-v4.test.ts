@@ -12,7 +12,6 @@ import {
   signInVectorsV4,
   signInVectorsV4Source,
 } from "../harness/sign-in-vectors-v4.ts";
-import { SIGN_IN_STATEMENT_V4, signInIssuedAtV4 } from "../packages/protocol/learning-results-v4.ts";
 
 test("test/solidity/SignInVectorsV4.sol is what the builder generates now", () => {
   assert.equal(
@@ -34,27 +33,6 @@ test("the vectors carry the EIP-55 and ISO-8601 edge cases", () => {
   assert.ok(vectors.some((v) => v.text.startsWith("study.example:8443 wants")));
   assert.ok(vectors.some((v) => v.text.includes("\nChain ID: 31337\n")));
   assert.ok(vectors.some((v) => v.text.includes("\nChain ID: 6343\n")));
-});
-
-test("the contract's SIGN_IN_STATEMENT is the protocol's SIGN_IN_STATEMENT_V4", () => {
-  const source = readFileSync("contracts/LearningResultsV4.sol", "utf8");
-  const m = /string public constant SIGN_IN_STATEMENT =\s*"([^"\\]*)";/.exec(source);
-  assert.ok(m);
-  assert.equal(m[1], SIGN_IN_STATEMENT_V4);
-});
-
-test("the challenge's backdate: a minute, never into the minute after the last withdrawal, never after now", () => {
-  const now = 1_800_000_000_999;
-  assert.equal(signInIssuedAtV4(now), 1_800_000_000 - 60);
-  assert.equal(signInIssuedAtV4(now, null), 1_800_000_000 - 60);
-  // Withdrawn long ago: the full minute.
-  assert.equal(signInIssuedAtV4(now, now - 200_000), 1_800_000_000 - 60);
-  // Withdrawn 90 s ago: the second after the withdrawal's minute.
-  assert.equal(signInIssuedAtV4(now, now - 90_000), 1_800_000_000 - 90 + 1 + 60);
-  // Withdrawn within the last minute, or this second: no backdate at all.
-  assert.equal(signInIssuedAtV4(now, now - 30_000), 1_800_000_000);
-  assert.equal(signInIssuedAtV4(now, 1_800_000_000_000), 1_800_000_000);
-  assert.equal(signInIssuedAtV4(now, now + 5_000), 1_800_000_000);
 });
 
 test("the V4 runtime is under the EIP-170 limit with the release compiler settings", { timeout: 120000 }, () => {

@@ -1,29 +1,7 @@
 name: Study client
 on:
-  push:
-    paths:
-      - "apps/web/**"
-      - "packages/study/**"
-      - "packages/scoring/english-phonetics.ts"
-      - "services/study-*.ts"
-      - "services/community-application.ts"
-      - "apps/community-wizard/infra/migrations/**"
-      - "test/study-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/study.yml"
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - "packages/study/**"
-      - "packages/scoring/english-phonetics.ts"
-      - "services/study-*.ts"
-      - "services/community-application.ts"
-      - "apps/community-wizard/infra/migrations/**"
-      - "test/study-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/study.yml"
+  workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -64,4 +42,8 @@ jobs:
         if: always()
         with:
           name: study-browser-results
-          path: .local/study-browser-results/
+          path: |
+            .local/study-browser-results/
+            .local/study-browser-report.json
+          include-hidden-files: true
+          if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}
