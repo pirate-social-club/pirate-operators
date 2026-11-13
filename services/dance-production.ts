@@ -1,4 +1,9 @@
 import type { PublicClient, Hex } from "viem";
+import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import type { PublicReadPorts } from "./community-public.ts";
+import { createDanceAccountFacts } from "./dance-account-facts.ts";
+import { createDanceSelectedCatalogue, type DanceReferenceAccess } from "./dance-selected-catalogue.ts";
+import { createProductionDanceAuthority } from "./dance-production-authority.ts";
 import { insist } from "../packages/community/common.ts";
 import type { DanceCanonicalSource } from "../packages/dance-chain/reader.ts";
 import { danceReadPort } from "../packages/dance-chain/rpc.ts";
@@ -125,4 +130,24 @@ export function requireProductionTarget(value: unknown, communityId: string): Da
 }
 export function requireSameProductionTarget(c: DanceCapture, target: DanceProductionTarget) {
   insist(sameDanceTarget(captureProductionTarget(c), target), "dance_preparation_target_changed", 409);
+}
+
+
+/** Real host-input join. All selection/config/source/consent and source3 access
+ * inputs come from Root's admitted composition. This does not mount a runtime,
+ * apply the schema, provision resources, populate projections or send commands. */
+export function createDanceRealHostInputs(input: {
+  db: D1Database;
+  source: DanceCanonicalSource;
+  config: CommunityConfig;
+  client: PublicClient;
+  reads: PublicReadPorts;
+  referenceAccess: DanceReferenceAccess;
+  reviewerConsent: DancePorts["reviewerConsent"];
+}) {
+  const accounts = createDanceAccountFacts(input);
+  const catalogue = createDanceSelectedCatalogue({ ...input, accounts });
+  const authority = createProductionDanceAuthority({ ...input, accounts });
+  const dance = createProductionDancePorts({ ...input, catalogue, authority: authority.authority });
+  return { accounts, catalogue, dance };
 }
