@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-model.ts; only imports changed.
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-model.ts; independently owned, including the 2026-11-12 explicit-Next correction.
 // Framework-pure studying lesson model, ported from the legacy React app
 // (`web/src/app/authenticated-routes/study-route.tsx` and
 // `web/src/components/compositions/song-study/song-study-surface.tsx`, source
@@ -216,12 +216,10 @@ export function primaryActionLabel(
       if (state.phase === "blocked") return "Recording paused";
       return state.phase === "listening" ? "Stop" : sayItBackIdleLabel ?? "Record";
     case "multiple_choice":
-      if (state.submitting) return "Checking…";
-      // Paper (owner, 2026-10-12): a correct answer moves on by itself, so
-      // it has no button; an incorrect one pauses on Continue. When the
-      // server keeps the same card for another attempt, Continue shows it
-      // again, as its next card.
-      return state.result === "wrong" ? "Continue" : undefined;
+      // Owner correction, 2026-11-12: retain the selected card while grading,
+      // then require an explicit Next for either authoritative outcome.
+      if (state.submitting) return undefined;
+      return state.result ? "Next" : undefined;
     case "complete":
       return undefined;
   }

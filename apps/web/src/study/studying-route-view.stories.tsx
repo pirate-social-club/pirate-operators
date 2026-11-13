@@ -29,7 +29,7 @@ const meta = {
       description: {
         component:
           "The studying route driven through its injected seams: a mocked lesson client and a fake recorder. " +
-          "No network, microphone, or module-scope timers — the multiple-choice auto-advance runs immediately in these stories.",
+          "No network or microphone: answers wait for the injected grading response, retain feedback, and advance only through explicit Next.",
       },
     },
   },
@@ -40,11 +40,6 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const noop = () => {};
-// Advances as soon as the correct result is on screen, like the route's own
-// 700 ms timer but without the wait. A synchronous call would run before the
-// result is stored and never advance.
-const immediateAdvance = (run: () => void) => queueMicrotask(run);
-
 export const RecordingOutcomeUnknown: Story = {
   render: () => (
     <StudyingRouteView
@@ -120,14 +115,13 @@ export const LessonFlow: Story = {
       onStudyAgain={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   parameters: {
     docs: {
       description: {
         story:
-          "Happy path: record the say-it-back card (Stop submits a correct attempt, the server advances to its current card), then answer the multiple-choice card to reach the streak-qualified completion.",
+          "Happy path: record the say-it-back card (Stop submits a correct attempt and the server advances to its current card), then answer the multiple-choice card, inspect feedback and press Next to reach streak-qualified completion.",
       },
     },
   },
@@ -142,7 +136,6 @@ export const MissedAttempts: Story = {
       onExit={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   parameters: {
@@ -219,7 +212,6 @@ export const Recording: Story = {
       onExit={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   play: async ({ canvasElement }) => {
@@ -244,7 +236,6 @@ export const Grading: Story = {
       onExit={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   play: async ({ canvasElement }) => {
@@ -271,7 +262,6 @@ export const Completion: Story = {
       onStudyAgain={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   parameters: {
@@ -288,12 +278,15 @@ export const Completion: Story = {
       await canvas.findByRole("button", { name: "Record" }),
     );
     await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
-    // A correct choice moves on by itself (Paper): no Continue.
+    // Owner correction: genuine grading feedback remains until explicit Next.
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "I don't know why you left so early",
       }),
     );
+    await expect(await canvas.findByText("Correct", { exact: true })).toBeVisible();
+    await expect(canvas.queryByText("day streak")).toBeNull();
+    await userEvent.click(await canvas.findByRole("button", { name: "Next" }));
     await waitFor(() =>
       expect(canvas.getByText("day streak")).toBeInTheDocument(),
     );
@@ -325,7 +318,6 @@ export const QualificationNotAchieved: Story = {
       onStudyAgain={noop}
       postId={storyPostId}
       recorder={createStoryRecorder()}
-      scheduleAdvance={immediateAdvance}
     />
   ),
   parameters: {
@@ -342,12 +334,15 @@ export const QualificationNotAchieved: Story = {
       await canvas.findByRole("button", { name: "Record" }),
     );
     await userEvent.click(await canvas.findByRole("button", { name: "Stop" }));
-    // A correct choice moves on by itself (Paper): no Continue.
+    // Feedback must be inspected before explicit Next applies server progress.
     await userEvent.click(
       await canvas.findByRole("button", {
         name: "I don't know why you left so early",
       }),
     );
+    await expect(await canvas.findByText("Correct", { exact: true })).toBeVisible();
+    await expect(canvasElement.querySelector("[data-activity-results]")).toBeNull();
+    await userEvent.click(await canvas.findByRole("button", { name: "Next" }));
     await waitFor(() =>
       expect(
         canvasElement.querySelector("[data-activity-results]"),

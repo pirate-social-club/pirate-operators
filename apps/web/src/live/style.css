@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "@pirate/web-solid-ui/styles/tokens.css";
+@import "../styles/fonts.css";
 @import "./app-shell.css";
 @source "./app-shell.tsx";
 @source "../shell/";
@@ -19,6 +20,7 @@
 @source "./rewards.tsx";
 @source "./reward-operator.tsx";
 @source "../study/";
+@source "../dance/";
 @source "../karaoke/";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog";
 @source "../../node_modules/@pirate/web-solid-ui/src/components/overlays/dialog-presentation.tsx";

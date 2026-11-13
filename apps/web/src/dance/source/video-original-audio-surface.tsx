@@ -39,6 +39,7 @@ export interface OriginalVideoCaptureSurfaceProps {
   readonly recordActionLabel?: string;
   readonly allowUpload?: boolean;
   readonly timerClass?: string;
+  readonly timerElapsedOnly?: boolean;
   readonly onClose?: () => void;
   readonly onBack?: () => void;
   readonly onRecordToggle?: () => void;
@@ -74,7 +75,7 @@ export function OriginalVideoCaptureSurface(
         <section class="relative h-dvh overflow-hidden bg-black text-white">
           <div class="absolute inset-0 flex items-center justify-center">
             <div
-              class="relative aspect-[9/16] w-full max-w-[56.25dvh] overflow-hidden bg-gradient-to-b from-[#262a30] to-[#0d0f12]"
+              class="absolute inset-0 overflow-hidden bg-[#171B1F]"
               data-video-viewfinder
             >
               {props.preview}
@@ -132,14 +133,14 @@ export function OriginalVideoCaptureSurface(
             </div>
           </div>
 
-          <header class="absolute inset-x-0 top-0 z-10 flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <header class="absolute inset-x-0 top-2 z-10 flex h-14 items-center gap-0 px-4">
             <IconButton
               aria-label="Close video capture"
-              class="size-10 bg-black/45 backdrop-blur-sm"
+              class="size-11 bg-transparent"
               onClick={() => props.onClose?.()}
               variant="secondary"
             >
-              <IconX class="size-5" />
+              <IconX class="size-[22px]" />
             </IconButton>
             <div class="flex min-w-0 flex-1 justify-center">
               <Show
@@ -159,7 +160,7 @@ export function OriginalVideoCaptureSurface(
                   >
                     <button
                       aria-label="Add song"
-                      class="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full bg-black/45 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      class="inline-flex min-w-0 max-w-full cursor-pointer items-center h-9 gap-2 rounded-full bg-black/55 px-3.5 text-sm font-semibold text-white backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => props.onSongTap?.()}
                       type="button"
                     >
@@ -174,8 +175,8 @@ export function OriginalVideoCaptureSurface(
               >
                 {(label) => (
                   <button
-                    aria-label={`Song: ${label()}. Adjust the part of the song`}
-                    class="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-full bg-black/45 px-3 py-2 text-sm font-medium text-white backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                    aria-label={props.onSongTap ? `Song: ${label()}. Adjust the part of the song` : `Song: ${label()}`}
+                    class="inline-flex min-w-0 max-w-full cursor-pointer items-center h-9 gap-2 rounded-full bg-black/55 px-3.5 text-sm font-semibold text-white backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
                     disabled={!props.onSongTap || recording()}
                     onClick={() => props.onSongTap?.()}
                     type="button"
@@ -186,7 +187,7 @@ export function OriginalVideoCaptureSurface(
                 )}
               </Show>
             </div>
-            <span aria-hidden="true" class="size-10" />
+            <span aria-hidden="true" class="size-11" />
           </header>
 
           <Show when={props.notice}>
@@ -196,7 +197,7 @@ export function OriginalVideoCaptureSurface(
           </Show>
 
           <Show when={cameraControls()}>
-            <div class="absolute inset-x-0 bottom-0 z-10 px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <div class="absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(2rem,env(safe-area-inset-bottom))]">
               <Show when={props.elapsedLabel && props.durationLabel}>
                 <div class="mb-5 flex justify-center">
                   <span
@@ -213,14 +214,14 @@ export function OriginalVideoCaptureSurface(
                         recording() ? "bg-destructive" : "bg-white/45",
                       )}
                     />
-                    {`${props.elapsedLabel} / ${props.durationLabel}`}
+                    {props.timerElapsedOnly ? props.elapsedLabel : `${props.elapsedLabel} / ${props.durationLabel}`}
                   </span>
                 </div>
               </Show>
-              <div class="grid grid-cols-3 items-center justify-items-center">
+              <div class="flex items-center justify-between">
                 <Show
                   when={props.allowUpload !== false}
-                  fallback={<span aria-hidden="true" />}
+                  fallback={<span aria-hidden="true" class="w-[72px]" />}
                 >
                   <CaptureSideAction
                     disabled={recording()}
@@ -236,20 +237,20 @@ export function OriginalVideoCaptureSurface(
                   }
                   aria-pressed={recording() ? "true" : "false"}
                   disabled={props.recordDisabled}
-                  class="grid size-[74px] cursor-pointer place-items-center rounded-full border-4 border-white outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-black"
+                  class="grid size-[76px] cursor-pointer place-items-center rounded-full border-4 border-white outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-black"
                   onClick={() => props.onRecordToggle?.()}
                   type="button"
                 >
                   <span
                     class={cn(
-                      "bg-[#f0453a] transition-[border-radius,width,height] duration-200 motion-reduce:transition-none",
+                      "bg-[oklch(58%_0.210_25)] transition-[border-radius,width,height] duration-200 motion-reduce:transition-none",
                       recording()
                         ? "size-6 rounded-[6px]"
                         : "size-[58px] rounded-full",
                     )}
                   />
                 </button>
-                <Show when={props.onFlipCamera && !recording()}>
+                <Show when={props.onFlipCamera && !recording()} fallback={<span aria-hidden="true" class="w-[72px]" />}>
                   <CaptureSideAction
                     icon={<IconArrowsClockwise class="size-5" />}
                     label="Flip"

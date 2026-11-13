@@ -1,11 +1,12 @@
 // Additional UNRUN assertions; original c7 stories/assertions remain intact.
+import { within } from "storybook/test";
 import {
   DanceRepairStory,
   type RepairStoryMode,
 } from "../../../test/dance-repair-story-fixtures.tsx";
 export default {
   title: "Flows/Dance/Recovery repair",
-  parameters: { layout: "fullscreen" },
+  parameters: { layout: "fullscreen", docs: { description: { component: "Engineering recovery/denial extensions have no exact Paper frame. Hidden fixture diagnostics are programmatic regression ports, not product controls. Real native video fixture, explicit A endpoint, denial and Blob URL assertions remain. Phone390x844 and exact desktop1280x800 captures require separate review." } } },
 };
 const render = (mode: RepairStoryMode) => () => (
   <DanceRepairStory mode={mode} />
@@ -31,16 +32,20 @@ const explicitPlay = async ({
   canvasElement: HTMLElement;
 }) => {
   await until(root, () => !!findButton(root, "Cancel review"));
-  [...root.querySelectorAll("summary")]
-    .find((s) => s.textContent?.trim() === "Recording options")
-    ?.click();
+  if (root.querySelector("details") || root.querySelector("summary"))
+    throw new globalThis.Error("Cancel review must be directly visible");
   if (findButton(root, "Submit for review"))
     throw new globalThis.Error("Explicit review A exposed local B submit");
   findButton(root, "Cancel review")!.click();
-  await until(root, () => !!findButton(root, "Keep waiting"));
-  const confirm = [...root.querySelectorAll<HTMLButtonElement>("button")]
-    .filter((b) => b.textContent?.trim() === "Cancel review")
-    .at(-1)!;
+  const confirmation = () =>
+    within(root.ownerDocument.body).queryByRole("dialog", {
+      name: "Cancel review of this recording?",
+    });
+  await until(root, () => {
+    const dialog = confirmation();
+    return dialog !== null && !!findButton(dialog, "Keep waiting");
+  });
+  const confirm = findButton(confirmation()!, "Cancel review")!;
   confirm.click();
   await until(
     root,
@@ -103,6 +108,13 @@ export const MissingOriginal = {
     );
     if (root.querySelector("video"))
       throw new globalThis.Error("Missing original produced a preview");
+    const exit = root.querySelector<HTMLButtonElement>('button[aria-label="Back to dance"]');
+    if (!exit) throw new globalThis.Error("Missing original has no direct exit");
+    // The normal visual story ends on the actual recovery surface. The same
+    // Back/unmount regression runs in dance-missing-original-exit.browser.tsx.
+    if (!root.querySelector('[data-dance-review="ready"]') ||
+        root.querySelector("[data-fixture-exited]")?.textContent !== "false")
+      throw new globalThis.Error("Missing original recovery must remain available");
   },
 };
 export const PermissionRefused = { render: render("local_permission_refused") };
