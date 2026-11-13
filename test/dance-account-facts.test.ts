@@ -373,3 +373,44 @@ test("genuine D1 depth-100 canary, balanced nested guards and detached authority
   } finally { await engine?.dispose(); f.close(); }
 });
 
+test("independent genuine D1 disjoint maximum-alias full-account deep guards retain predicates and atomic rollback", async () => {
+  const f = hostSimulation();
+  let engine: Awaited<ReturnType<typeof genuineD1>> | undefined;
+  try {
+    // Independent top-level case: still exercises the maximum if the earlier
+    // ordinary iteration fails. Disjoint sets retain all256 alias predicates.
+    for (const [accountIndex, id] of ["actor", "learner"].entries()) {
+      const aliases = Array.from({ length: 127 }, (_, i) => "independent_" + id + "_" + String(i).padStart(3, "0"));
+      for (const [i, alias] of aliases.entries())
+        f.db.sqlite.prepare("INSERT INTO community_accounts VALUES(?,?,?)").run(alias, dh(7000 + accountIndex * 127 + i), Date.now());
+      f.change("dance_host_accounts", id, body => { body.knownAliases = [id, ...aliases].sort(); });
+    }
+    engine = await genuineD1(f.db);
+    const accounts = createDanceAccountFacts({ db: engine.db, source: f.source, config: f.config });
+    const facts = await accounts(f.source.domain.communityId, "actor", "learner"), store = new DanceStore(engine.db);
+    assert.equal(facts.actor.knownAliases.length, 128);
+    assert.equal(facts.learner.knownAliases.length, 128);
+    assert.equal(facts.actor.authorizationId, f.originals.get("actor"));
+    assert.equal(facts.learner.authorizationId, f.originals.get("learner"));
+    const detached = structuredClone(facts.fence);
+    const wrap = (right: number) => {
+      const inner = joinDanceFences({ sql: "(" + detached.sql + ") AND ?=?", values: [...detached.values, 7, right] });
+      return joinDanceFences({ sql: "(" + inner.sql + ") AND ? IS NULL", values: [...inner.values, null] });
+    };
+    const deep = wrap(7);
+    assert.equal(deep.values.length, 1);
+    await store.atomic([deep], [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('independent-max')").bind()]);
+    await assert.rejects(store.atomic([wrap(8)],
+      [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('refused-deep-wrapper')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+    // This is the exact retained original's field, not a newer authorization
+    // or a simulated precheck. The same deep atomic guard must veto it.
+    await engine.db.prepare("UPDATE learning_authorizations SET signature=? WHERE authorization_id=?")
+      .bind("0x" + "22".repeat(65), f.originals.get("learner")!).run();
+    await assert.rejects(store.atomic([deep],
+      [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('refused-original')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+    assert.deepEqual((await engine.db.prepare("SELECT id FROM host_fixture_acceptance ORDER BY id").all<{ id: string }>()).results,
+      [{ id: "independent-max" }]);
+    assert.ok(engine.binds.length > 0 && engine.binds.every(n => n <= 100));
+  } finally { await engine?.dispose(); f.close(); }
+});
+

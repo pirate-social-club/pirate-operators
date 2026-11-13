@@ -47,11 +47,21 @@ export function createDanceAccountFacts(input: {
     insist(conflicts.results.length === 1 && conflicts.results[0].account_id === accountId,
       "dance_account_binding_ambiguous", 403);
     return { account, binding: b, fence: {
-      sql: `EXISTS(SELECT 1 FROM community_accounts WHERE account_id=? AND author_id=? AND created_at=?)
-        AND EXISTS(SELECT 1 FROM credential_bindings WHERE binding_id=? AND account_id=? AND subject=?
-          AND namespace='moss' AND network=6343 AND created_at=?)
-        AND (SELECT count(*) FROM credential_bindings WHERE namespace='moss' AND network=6343 AND subject=? COLLATE NOCASE)=1
-        AND (SELECT count(*) FROM credential_bindings WHERE account_id=? AND namespace='moss' AND network=6343)=?`,
+      sql: `(((EXISTS(SELECT 1 FROM community_accounts WHERE (((account_id=?)
+        AND (author_id=?))
+        AND (created_at=?))))
+        AND (EXISTS(SELECT 1 FROM credential_bindings WHERE ((((binding_id=?)
+        AND (account_id=?))
+        AND ((subject=?)
+        AND (namespace='moss')))
+        AND ((network=6343)
+        AND (created_at=?))))))
+        AND (((SELECT count(*) FROM credential_bindings WHERE (((namespace='moss')
+        AND (network=6343))
+        AND (subject=? COLLATE NOCASE)))=1)
+        AND ((SELECT count(*) FROM credential_bindings WHERE (((account_id=?)
+        AND (namespace='moss'))
+        AND (network=6343)))=?)))`,
       values: [accountId, account.author_id, account.created_at, b.binding_id, accountId, b.subject,
         b.created_at, b.subject, accountId, rows.results.length],
     } satisfies DanceFence };
@@ -114,17 +124,30 @@ export function createDanceAccountFacts(input: {
     hostCount(readiness.original_revision); hostCount(readiness.credential_revision);
     if (readiness.last_withdrawn_at !== null) hostCount(readiness.last_withdrawn_at);
     const originalFence: DanceFence = {
-      sql: `EXISTS(SELECT 1 FROM learning_authorizations WHERE authorization_id=? AND account_id=? AND subject=?
-        AND issued_at=? AND authority_epoch=? AND message=? AND sign_in_json=? AND signature=? AND policy_hash=?
-        AND policy_version=4 AND state='recorded' AND tx_hash=? AND updated_at=? AND issued_at*1000<=${DANCE_DB_NOW})
-        AND NOT EXISTS(SELECT 1 FROM learning_authority_dirty WHERE account_id=?)
-        AND NOT EXISTS(SELECT 1 FROM learning_authority_heads WHERE account_id=? AND pending_operation IS NOT NULL)
-        AND COALESCE((SELECT revision FROM learning_authority_heads WHERE account_id=?),0)=?
-        AND COALESCE((SELECT permission_revision FROM learning_authority_heads WHERE account_id=?),0)=?
-        AND COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?),0)=?
-        AND COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=?),0)=?
-        AND NOT EXISTS(SELECT 1 FROM learning_settings WHERE account_id=? AND public_results_withdrawn_at IS NOT NULL)
-        AND COALESCE((SELECT last_withdrawn_at FROM learning_settings WHERE account_id=?),-1)=?`,
+      sql: `(((((EXISTS(SELECT 1 FROM learning_authorizations WHERE (((((authorization_id=?)
+        AND (account_id=?))
+        AND ((subject=?)
+        AND (issued_at=?)))
+        AND (((authority_epoch=?)
+        AND (message=?))
+        AND ((sign_in_json=?)
+        AND (signature=?))))
+        AND ((((policy_hash=?)
+        AND (policy_version=4))
+        AND ((state='recorded')
+        AND (tx_hash=?)))
+        AND ((updated_at=?)
+        AND (issued_at*1000<=${DANCE_DB_NOW}))))))
+        AND (NOT EXISTS(SELECT 1 FROM learning_authority_dirty WHERE (account_id=?))))
+        AND ((NOT EXISTS(SELECT 1 FROM learning_authority_heads WHERE ((account_id=?)
+        AND (pending_operation IS NOT NULL))))
+        AND (COALESCE((SELECT revision FROM learning_authority_heads WHERE account_id=?),0)=?)))
+        AND (((COALESCE((SELECT permission_revision FROM learning_authority_heads WHERE account_id=?),0)=?)
+        AND (COALESCE((SELECT revision FROM learning_authority_original_heads WHERE account_id=?),0)=?))
+        AND ((COALESCE((SELECT revision FROM learning_authority_credentials WHERE account_id=?),0)=?)
+        AND (NOT EXISTS(SELECT 1 FROM learning_settings WHERE ((account_id=?)
+        AND (public_results_withdrawn_at IS NOT NULL)))))))
+        AND (COALESCE((SELECT last_withdrawn_at FROM learning_settings WHERE account_id=?),-1)=?))`,
       values: [a.authorization_id, accountId, a.subject, a.issued_at, a.authority_epoch, a.message, a.sign_in_json,
         a.signature, a.policy_hash, a.tx_hash, a.updated_at, accountId, accountId, accountId, readiness.revision,
         accountId, readiness.permission_revision, accountId, readiness.original_revision, accountId, readiness.credential_revision,

@@ -209,7 +209,7 @@ function bindFenceSql(f: DanceFence, value: (index: number) => string) {
 }
 export function hostRowFence(table: "dance_host_context" | "dance_host_accounts" | "dance_host_selections",
   where: string, keys: (string | number)[], row: HostRow): DanceFence {
-  return { sql: `EXISTS(SELECT 1 FROM ${table} WHERE ${where} AND revision=? AND body_json=?)`,
+  return { sql: `EXISTS(SELECT 1 FROM ${table} WHERE ((${where}) AND (revision=? AND body_json=?)))`,
     values: [...keys, row.revision, row.body_json] };
 }
 export async function readDanceHostContext(input: {
@@ -244,13 +244,24 @@ export async function readDanceHostContext(input: {
     hashText(configuration.manifest_json) === configuration.manifest_sha256 && configuration.publisher === config.publisher,
     "dance_host_configuration_projection_missing", 503);
   const fence = joinDanceFences(hostRowFence("dance_host_context", "community_id=?", [community], row), {
-    sql: `EXISTS(SELECT 1 FROM application_identity WHERE id=1 AND community_id=? AND community_origin=?)
-      AND ${DANCE_DB_NOW}>=? AND ${DANCE_DB_NOW}<?`,
+    sql: `(((EXISTS(SELECT 1 FROM application_identity WHERE (((id=1)
+        AND (community_id=?))
+        AND (community_origin=?))))
+        AND (${DANCE_DB_NOW}>=?))
+        AND (${DANCE_DB_NOW}<?))`,
     values: [community, config.app.origin, c.owner.validFromMs, c.owner.expiresAtMs],
   }, {
-    sql: `EXISTS(SELECT 1 FROM public_configurations WHERE community_id=? AND revision=? AND manifest_sha256=?
-      AND manifest_json=? AND publisher=? AND block_hash=? AND manifest_uri=? AND block_number=? AND transaction_hash=?)
-      AND NOT EXISTS(SELECT 1 FROM public_configurations WHERE community_id=? AND revision>?)`,
+    sql: `((EXISTS(SELECT 1 FROM public_configurations WHERE (((((community_id=?)
+        AND (revision=?))
+        AND ((manifest_sha256=?)
+        AND (manifest_json=?)))
+        AND (((publisher=?)
+        AND (block_hash=?))
+        AND ((manifest_uri=?)
+        AND (block_number=?))))
+        AND (transaction_hash=?))))
+        AND (NOT EXISTS(SELECT 1 FROM public_configurations WHERE ((community_id=?)
+        AND (revision>?)))))`,
     values: [community, config.configurationRevision, configuration.manifest_sha256, configuration.manifest_json,
       configuration.publisher, configuration.block_hash, configuration.manifest_uri, configuration.block_number,
       configuration.transaction_hash, community, config.configurationRevision],

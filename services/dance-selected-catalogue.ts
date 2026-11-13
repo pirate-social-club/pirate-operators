@@ -68,7 +68,7 @@ export function createDanceSelectedCatalogue(input: {
     const row = await db.prepare("SELECT post_id FROM dance_host_song_keys WHERE community_id=? AND song_key=?")
       .bind(community, bytes32(songKey)).first<{ post_id: Hex }>();
     insist(row && songKeyForPost(row.post_id) === songKey, "dance_song_mapping_missing", 503);
-    return { postId: row.post_id, fence: { sql: "EXISTS(SELECT 1 FROM dance_host_song_keys WHERE community_id=? AND song_key=? AND post_id=?)",
+    return { postId: row.post_id, fence: { sql: "EXISTS(SELECT 1 FROM dance_host_song_keys WHERE (((community_id=?)\n        AND (song_key=?))\n        AND (post_id=?)))",
       values: [community, songKey, row.post_id] } satisfies DanceFence };
   }
   async function context() {
@@ -118,11 +118,14 @@ export function createDanceSelectedCatalogue(input: {
     insist(probe && probe.samples === s.songDurationSamples &&
       typeof probe.receipt_bytes === "string" && probe.receipt_bytes.length <= 128 * 1024 &&
       hashText(probe.receipt_bytes) === s.probeEvidenceSha256, "dance_canonical_probe_missing", 503);
-    const probeFence: DanceFence = { sql: `EXISTS(SELECT 1 FROM dance_host_audio_probes
-      WHERE community_id=? AND audio_sha256=? AND evidence_sha256=? AND samples=? AND receipt_bytes=?)`,
+    const probeFence: DanceFence = { sql: `EXISTS(SELECT 1 FROM dance_host_audio_probes WHERE ((((community_id=?)
+        AND (audio_sha256=?))
+        AND ((evidence_sha256=?)
+        AND (samples=?)))
+        AND (receipt_bytes=?)))`,
       values: [community, s.audioSha256, s.probeEvidenceSha256, probe.samples, probe.receipt_bytes] };
     return { song: s, fence: joinDanceFences(mapped.fence, probeFence,
-      hostRowFence("dance_host_selections", "community_id=? AND song_key=? AND reference_id=? AND offer_id=?", keys, row)) };
+      hostRowFence("dance_host_selections", "(((community_id=?)\n        AND (song_key=?))\n        AND ((reference_id=?)\n        AND (offer_id=?)))", keys, row)) };
   }
   async function publication(songKey: string, s: DanceSelectedSong) {
     insist(reads.profile.address === source.pin.posts && reads.profile.runtimeCodeHash === source.pin.postsRuntimeHash,
@@ -175,11 +178,26 @@ export function createDanceSelectedCatalogue(input: {
     insist(row.manifest_sha256 === s.manifestSha256 &&
       canonical(JSON.parse(row.manifest_json)) === canonical(post), "dance_publication_changed", 409);
     return { title: post.title, fence: {
-      sql: `EXISTS(SELECT 1 FROM public_post_revisions WHERE community_id=? AND post_id=? AND revision=?
-        AND author_id=? AND manifest_uri=? AND manifest_sha256=? AND manifest_json=? AND configuration_revision=? AND block_number=? AND block_hash=?
-        AND transaction_hash=? AND log_index=? AND quarantined=0)
-        AND NOT EXISTS(SELECT 1 FROM public_post_revisions WHERE community_id=? AND post_id=? AND revision>?)
-        AND EXISTS(SELECT 1 FROM chain_scan_state WHERE chain_id=6343 AND contract_address=? AND next_block=? AND checkpoint_hash=?)`,
+      sql: `(((EXISTS(SELECT 1 FROM public_post_revisions WHERE (((((community_id=?)
+        AND (post_id=?))
+        AND ((revision=?)
+        AND (author_id=?)))
+        AND (((manifest_uri=?)
+        AND (manifest_sha256=?))
+        AND ((manifest_json=?)
+        AND (configuration_revision=?))))
+        AND ((((block_number=?)
+        AND (block_hash=?))
+        AND ((transaction_hash=?)
+        AND (log_index=?)))
+        AND (quarantined=0)))))
+        AND (NOT EXISTS(SELECT 1 FROM public_post_revisions WHERE (((community_id=?)
+        AND (post_id=?))
+        AND (revision>?)))))
+        AND (EXISTS(SELECT 1 FROM chain_scan_state WHERE (((chain_id=6343)
+        AND (contract_address=?))
+        AND ((next_block=?)
+        AND (checkpoint_hash=?))))))`,
       values: [community, s.postId, s.songRevision, row.author_id, row.manifest_uri, row.manifest_sha256, row.manifest_json, row.configuration_revision,
         row.block_number, row.block_hash, row.transaction_hash, row.log_index, community, s.postId, s.songRevision,
         source.pin.posts, scan.next_block, scan.checkpoint_hash],
@@ -196,9 +214,19 @@ export function createDanceSelectedCatalogue(input: {
     insist(row && row.state === "open" && row.song_key === songKey && row.input_hash === o.inputHash &&
       hashJson(offerInput(offerView(row))) === row.input_hash && row.opens_at === o.opensAtMs && row.cutoff_at === o.cutoffAtMs &&
       offerView(row).resultSources?.includes(source.sourceHash), "dance_offer_changed", 409);
-    return { sql: `EXISTS(SELECT 1 FROM reward_offers WHERE program_id=? AND offer_id=? AND song_key=?
-      AND state='open' AND input_hash=? AND drawing_id=? AND opens_at=? AND cutoff_at=? AND purchase_hash=? AND ticket_ids_json=? AND purchase_evidence=?
-      AND opens_at<=${DANCE_DB_NOW} AND cutoff_at>${DANCE_DB_NOW})`,
+    return { sql: `EXISTS(SELECT 1 FROM reward_offers WHERE (((((program_id=?)
+        AND (offer_id=?))
+        AND ((song_key=?)
+        AND (state='open')))
+        AND (((input_hash=?)
+        AND (drawing_id=?))
+        AND ((opens_at=?)
+        AND (cutoff_at=?))))
+        AND ((((purchase_hash=?)
+        AND (ticket_ids_json=?))
+        AND ((purchase_evidence=?)
+        AND (opens_at<=${DANCE_DB_NOW})))
+        AND (cutoff_at>${DANCE_DB_NOW}))))`,
       values: [s.offerProgramId, o.offerId, songKey, row.input_hash, row.drawing_id, row.opens_at, row.cutoff_at, row.purchase_hash,
         row.ticket_ids_json, row.purchase_evidence] };
   }
