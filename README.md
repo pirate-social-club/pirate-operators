@@ -1,11 +1,13 @@
 # Pirate operators
 
-The [compact public results amendment](docs/learning-results-v2.md) sets the
-next recording/payment direction: one terminal result per lesson or run,
-internal usage accounting for Pirate's own service and guaranteed coverage for
-independent providers. [Learner-held history](docs/learner-history.md) defines
-the private tutoring/export boundary. These specifications do not change the
-current v1 runtime or resolve the MOSS consent release gate.
+The [application contract inventory](docs/contracts/inventory.md) identifies the
+current target, historical implementations, Dance contracts, reward experiment
+and testnet helpers. New learning integrations use LearningResultsV4 and its
+[V4 rollout](docs/learning-v4-rollout.md). SharedNameRegistryV3 is the naming
+target; its verification and caller migration are still required before source
+selection. Existing deployment manifests keep their pinned identities.
+[Learner-held history](docs/learner-history.md) defines the private tutoring and
+export boundary. Earlier learning specifications remain historical references.
 
 For launch, the workspace owner is the only song publisher.
 [Owner-only MegaETH song publication](docs/megaeth-song-publication.md) is the
@@ -43,10 +45,11 @@ are later work under the [namespace scope](docs/decentralized-setup.md#mvp-names
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits
-and signed purchases for admission jobs and karaoke segment takes. Payments
-and [LearningRecords](docs/learning-records-contract.md) are merged from PRs 14
-and 18, with separate [testnet evidence](docs/megaeth-testnet.md). This does not
-establish completed first-song acceptance. The
+and signed purchases for admission jobs and karaoke segment takes. The original payments and LearningRecords implementations were merged in
+PRs 14 and 18, with [historical testnet evidence](docs/megaeth-testnet.md).
+LearningRecords is retained for that history; LearningResultsV4 is the current
+learning target. Deployment and acceptance claims require their own exact-source
+evidence. The
 payment signer can choose any recipient and amount within its community/token
 deposit; admin-controlled recipient and spending limits are not implemented.
 OperatorPayments is optional for the disposable first-song path.
