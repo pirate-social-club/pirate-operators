@@ -118,7 +118,10 @@ let fenceAlias = 0;
  * The private leaf snapshots prevent nested joins from repeatedly packing the
  * same account/rules bytes. Pairwise grouping also bounds the conjunction depth
  * to ceil(log2(leaves)), rather than growing with aliases/page size. Every leaf
- * and its value order remain intact. Nothing is prechecked outside the transaction. */
+ * and its value order remain intact. The one-row JSON carrier is materialized
+ * inside this expression so a detached/repacked fence does not expose its
+ * scalar projection to flattening into every inner predicate. This is still
+ * one guard statement, with no check outside the accepting atomic batch. */
 export function joinDanceFences(...fences: DanceFence[]): DanceFence {
   insist(fences.length > 0, "dance_host_fence_missing", 503);
   const unique = new Map<string, DanceFence>();
@@ -146,7 +149,7 @@ export function joinDanceFences(...fences: DanceFence[]): DanceFence {
     values.push(...leaf.values);
   }
   const payload = JSON.stringify(values);
-  const result = { sql: `EXISTS(SELECT 1 FROM (SELECT ? AS v) AS ${alias} WHERE ${balancedFenceAnd(predicates)})`, values: [payload] };
+  const result = { sql: `EXISTS(WITH ${alias}(v) AS MATERIALIZED (SELECT ?) SELECT 1 FROM ${alias} WHERE ${balancedFenceAnd(predicates)})`, values: [payload] };
   joined.set(result, { sql: result.sql, payload, leaves });
   return result;
 }

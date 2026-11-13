@@ -288,7 +288,35 @@ test("genuine D1 100/101 canary and ordinary/max-alias combined actor+learner+ow
       assert.equal(facts.learner.knownAliases.length, maximum ? 128 : 1);
       assert.equal(facts.fence.values.length, 1);
       const wrapped = { sql: "(" + facts.fence.sql + ") AND ?=?", values: [...facts.fence.values, 7, 7] };
-      await store.atomic([joinDanceFences(wrapped)], [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('accepted')").bind()]);
+      const joinedWrapped = joinDanceFences(wrapped);
+      try {
+        await store.atomic([joinedWrapped], [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('accepted')").bind()]);
+      } catch (error) {
+        // Bounded, controlled hostSimulation fixture only. Never log bound
+        // account/signature/JSON values, or add a production SQL logger.
+        const guardSql = "INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" + joinedWrapped.sql + ") THEN 1 ELSE 0 END";
+        const bytes = (s: string) => new TextEncoder().encode(s).byteLength;
+        console.error("DANCE_ACCOUNT_D1_FIXTURE_BOUNDARY " + JSON.stringify({
+          version: 1, fixture: "hostSimulation", maximum,
+          actorAliases: facts.actor.knownAliases.length, learnerAliases: facts.learner.knownAliases.length,
+          originalFenceSqlBytes: bytes(facts.fence.sql), wrapperSqlBytes: bytes(wrapped.sql),
+          joinedFenceSqlBytes: bytes(joinedWrapped.sql), guardSqlBytes: bytes(guardSql),
+          originalBindCount: facts.fence.values.length, wrapperBindCount: wrapped.values.length,
+          joinedBindCount: joinedWrapped.values.length, guardBindCount: 1 + joinedWrapped.values.length,
+          joinedValueTypes: joinedWrapped.values.map(value => value === null ? "null" : typeof value),
+          encodedBindingsBytes: bytes(JSON.stringify(joinedWrapped.values)), guardSqlTemplate: guardSql,
+        }));
+        throw error;
+      }
+      assert.deepEqual(JSON.parse(String(joinedWrapped.values[0])), [...facts.fence.values, 7, 7]);
+      const detached = structuredClone(facts.fence);
+      const unequal = { sql: "(" + detached.sql + ") AND ?=?", values: [...detached.values, 7, 8] };
+      await assert.rejects(store.atomic([joinDanceFences(unequal)],
+        [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('refused-wrapper')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+      const literal = "fixture '?' and 'quoted' -- ?";
+      const typed = { sql: "(" + detached.sql + ") AND ? IS NULL AND ?=? AND typeof(?)='integer'",
+        values: [...detached.values, null, literal, literal, 7] };
+      await store.assert([joinDanceFences(typed)]);
       const row = await engine.db.prepare("SELECT revision,body_json FROM dance_host_accounts WHERE community_id=? AND account_id='learner'")
         .bind(f.source.domain.communityId).first<{ revision: number; body_json: string }>();
       const changed = JSON.parse(row!.body_json); changed.active = false;
