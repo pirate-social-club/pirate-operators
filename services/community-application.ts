@@ -130,6 +130,7 @@ import {
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
 import { confirmedRewardTimestamp } from "./reward-close-clock.ts";
 import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
+import { createDanceProductionDefaults, type DanceProductionRuntimeInputs } from "./dance-production-defaults.ts";
 
 export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DB: D1Database;
@@ -151,6 +152,9 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   /** Set only by an admitted categorical release; the base rewards release has neither. */
   DANCE_REWARD_SOURCE_JSON?: string;
   DANCE_REWARD_SOURCE_SELECTION_HASH?: string;
+  /** In-process Root composition only: NOT a deployable JSON/env permission.
+   * Root must bind the reviewed actual producers after independent admission. */
+  DANCE_PRODUCTION_INPUTS?: DanceProductionRuntimeInputs;
 }
 export interface CommunityDependencies {
   /** Required server-side connected composition: authenticate explicit action,
@@ -175,7 +179,22 @@ export interface CommunityDependencies {
   now?: () => number;
   rewards?: Omit<RewardsApiPorts, "db" | "profile" | "now">;
   /** Admitted private Dance runtime. Absent until source, authority and renderer are selected. */
-  privateDance?(config: CommunityConfig): CommunityPrivateDance;
+  privateDance?(config: CommunityConfig): CommunityPrivateDance | Promise<CommunityPrivateDance>;
+}
+export function communityPrivateDanceDefaults(env: CommunityEnv) {
+  const factory = createDanceProductionDefaults({
+    db: env.DB, bucket: env.MEDIA, enqueue: job => env.JOBS.send(job),
+    selected: env.DANCE_PRODUCTION_INPUTS,
+  });
+  return async (config: CommunityConfig) => {
+    if (env.DANCE_REWARD_SOURCE_JSON || env.DANCE_REWARD_SOURCE_SELECTION_HASH) {
+      insist(env.DANCE_REWARD_SOURCE_JSON && env.DANCE_REWARD_SOURCE_SELECTION_HASH &&
+        env.DANCE_PRODUCTION_INPUTS?.selectionHash === env.DANCE_REWARD_SOURCE_SELECTION_HASH,
+        "dance_production_source_selection_changed", 503);
+      selectedDanceRewardSource(env.DANCE_REWARD_SOURCE_JSON, env.DANCE_REWARD_SOURCE_SELECTION_HASH);
+    }
+    return factory(config);
+  };
 }
 function dependencies(
   env: CommunityEnv,
@@ -201,6 +220,7 @@ function dependencies(
       ),
     ));
   return {
+    privateDance: communityPrivateDanceDefaults(env),
     async configuration() {
       return (await configurationHistory()).at(-1)!;
     },
@@ -305,7 +325,7 @@ export async function communityFetch(
         url.pathname.startsWith("/api/media/") ||
         url.pathname.startsWith("/api/dance/"))
     ) {
-      const runtime = ports.privateDance(await configuration());
+      const runtime = await ports.privateDance(await configuration());
       const response = await runtime.fetch(request, context, security);
       if (response) return response;
     }
@@ -1110,16 +1130,19 @@ export async function communityScheduled(
       failures.push(error);
     }
   }
-  if (provided?.privateDance) {
+  if (provided?.privateDance || env.DANCE_PRODUCTION_INPUTS || env.DANCE_REWARD_SOURCE_JSON ||
+    env.DANCE_REWARD_SOURCE_SELECTION_HASH) {
     try {
-      const config = await provided.configuration();
+      ports ??= provided ?? dependencies(env);
+      const config = await ports.configuration();
       insist(
         config.communityId === firstSong.directoryProfile.communityId &&
           config.app.origin === firstSong.origin,
         "community_configuration_changed",
         503,
       );
-      const runtime = provided.privateDance(config);
+      insist(ports.privateDance, "dance_production_inputs_unavailable", 503);
+      const runtime = await ports.privateDance(config);
       insist(
         runtime.communityId === config.communityId,
         "media_wrong_community",
@@ -1169,7 +1192,7 @@ export async function communityQueue(
     try {
       const job = message.body;
       if (job.kind === "community-media/1") {
-        privateDance ??= ports.privateDance?.(config);
+        privateDance ??= await ports.privateDance?.(config);
         insist(
           privateDance && privateDance.communityId === config.communityId,
           "media_processor_unavailable",

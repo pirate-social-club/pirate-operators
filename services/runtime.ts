@@ -1,4 +1,7 @@
 import { linkedWithdrawalNeedsWake } from "./study-linked-withdrawal-recovery.ts";
+// Type-only Root composition seam. The legacy local skeleton below does not
+// supply private Dance authority; community-application owns all three defaults.
+export type { DanceProductionRuntimeInputs } from "./dance-production-defaults.ts";
 import { parseWithdrawalSources } from "./study-linked-withdrawal-ports.ts";
 import { DurableObject } from "cloudflare:workers";
 import type { Address, Hex } from "viem";

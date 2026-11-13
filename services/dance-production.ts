@@ -4,7 +4,9 @@ import type { PublicReadPorts } from "./community-public.ts";
 import { createDanceAccountFacts } from "./dance-account-facts.ts";
 import { createDanceSelectedCatalogue, type DanceReferenceAccess } from "./dance-selected-catalogue.ts";
 import { createProductionDanceAuthority } from "./dance-production-authority.ts";
-import { insist } from "../packages/community/common.ts";
+import { canonical, insist } from "../packages/community/common.ts";
+import { selectedDanceRewardSource } from "../packages/dance-chain/source-selection.ts";
+import { DanceHostProjectionWriter } from "./dance-host-projections.ts";
 import type { DanceCanonicalSource } from "../packages/dance-chain/reader.ts";
 import { danceReadPort } from "../packages/dance-chain/rpc.ts";
 import { verifyDanceSourceAt } from "../packages/dance-chain/reader.ts";
@@ -20,6 +22,28 @@ import { DanceStore } from "../packages/dance/store.ts";
 import { sameCapturedPrincipal, validateAuthority, validateFence } from "../packages/dance/validation.ts";
 import { canonicalDanceBindings, storedDanceVerdictJournal } from "./dance-canonical-ports.ts";
 import { danceV4AuthorizationPorts } from "./dance-v4-authorization.ts";
+
+/** Root supplies the exact admitted intake; absence or review-pending consent
+ * never selects an environment, Naming/W6 identity, policy or canonical source. */
+export function requireDanceProductionSelection(input: {
+  selectionJson: string;
+  selectionHash: string;
+  config: CommunityConfig;
+  reviewerConsent: DancePorts["reviewerConsent"];
+}): DanceCanonicalSource {
+  const source = selectedDanceRewardSource(input.selectionJson, input.selectionHash);
+  const c = input.config;
+  insist(c.communityId === source.domain.communityId && c.chainId === 6343 &&
+    c.directory === source.pin.directory && c.postsContract === source.pin.posts &&
+    c.learningRecords === source.pin.v4 && c.publisher === source.pin.fixedPublisher &&
+    Number.isSafeInteger(c.configurationRevision) && c.configurationRevision > 0,
+    "dance_production_configuration_changed", 503);
+  insist(input.reviewerConsent?.admission === "admitted" &&
+    typeof input.reviewerConsent.version === "string" && !!input.reviewerConsent.version &&
+    input.reviewerConsent.publicityPolicyHash === source.pin.publicityPolicyHash,
+    "dance_reviewer_consent_admission_held", 503);
+  return source;
+}
 
 /** Selected community metadata/rules producer. Its SQL fence must guard the
  * exact song/revision/reference/offer/config epochs in the accepting D1 batch.
@@ -61,6 +85,8 @@ export function createProductionDancePorts(input: {
   authority: DancePorts["authority"];
   reviewerConsent: DancePorts["reviewerConsent"];
 }): Omit<DancePorts, "media"> {
+  input = { ...input, source: structuredClone(input.source),
+    reviewerConsent: structuredClone(input.reviewerConsent), catalogue: { ...input.catalogue } };
   const store = new DanceStore(input.db), communityId = input.source.domain.communityId;
   const canonical = canonicalDanceBindings({
     source: input.source, rpc: danceReadPort(input.client),
@@ -92,10 +118,11 @@ export function createProductionDancePorts(input: {
     reviewerConsent: Object.freeze({ ...input.reviewerConsent }),
     rules: c => input.catalogue.rules(c),
     async admitCapture(community, actor, selection) {
+      selection = structuredClone(selection);
       insist(community === communityId, "dance_wrong_community", 403);
-      const f = await input.authority(community, actor, actor);
+      const f = structuredClone(await input.authority(community, actor, actor));
       validateAuthority(f, actor, actor);
-      const admitted = await input.catalogue.select(community, actor, selection);
+      const admitted = structuredClone(await input.catalogue.select(community, actor, structuredClone(selection)));
       const c = admitted.capture;
       sameCapturedPrincipal(f.actor, c.learner);
       insist(c.communityId === community && c.songKey === selection.songKey &&
@@ -144,10 +171,33 @@ export function createDanceRealHostInputs(input: {
   reads: PublicReadPorts;
   referenceAccess: DanceReferenceAccess;
   reviewerConsent: DancePorts["reviewerConsent"];
+  /** Actual writer over these SAME selected resources; no fallback song port. */
+  writer: DanceHostProjectionWriter;
 }) {
+  const writer = input.writer;
+  insist(writer instanceof DanceHostProjectionWriter && writer.input.db === input.db &&
+    writer.input.client === input.client && writer.input.reads.client === input.reads.client &&
+    writer.input.reads.transport === input.reads.transport &&
+    writer.input.reads.contentCache === input.reads.contentCache &&
+    writer.input.reads.configurationHistory === input.reads.configurationHistory &&
+    writer.input.reads.profile.address === input.reads.profile.address &&
+    writer.input.reads.profile.runtimeCodeHash === input.reads.profile.runtimeCodeHash &&
+    writer.input.reads.profile.deploymentBlock === input.reads.profile.deploymentBlock &&
+    canonical(writer.input.config) === canonical(input.config) &&
+    writer.input.source.sourceHash === input.source.sourceHash &&
+    writer.input.source.domain.chainId === input.source.domain.chainId &&
+    writer.input.source.domain.communityId === input.source.domain.communityId &&
+    writer.input.source.domain.verifier === input.source.domain.verifier &&
+    writer.input.source.capturePolicy === input.source.capturePolicy &&
+    writer.input.source.capturePolicyRuntimeHash === input.source.capturePolicyRuntimeHash,
+    "dance_host_writer_resources_changed", 503);
+  input = { ...input, source: structuredClone(input.source), config: structuredClone(input.config),
+    reads: { ...input.reads, profile: structuredClone(input.reads.profile) },
+    reviewerConsent: structuredClone(input.reviewerConsent) };
   const accounts = createDanceAccountFacts(input);
   const catalogue = createDanceSelectedCatalogue({ ...input, accounts });
   const authority = createProductionDanceAuthority({ ...input, accounts });
   const dance = createProductionDancePorts({ ...input, catalogue, authority: authority.authority });
-  return { accounts, catalogue, dance };
+  return { accounts, catalogue, dance,
+    song: (key: string, revision: number) => writer.publishedSong(key, revision) };
 }
