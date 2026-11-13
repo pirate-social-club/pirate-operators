@@ -114,12 +114,12 @@ export function createDancePrivateMediaPort(input: {
       const url = `/api/media/${encodeURIComponent(review.receipt.mediaId)}/playback`;
       if (!status.ready || status.playbackUrl !== url)
         throw Error("dance_review_media_unavailable");
+      const expiresAtMs = Math.min(status.ready.expiresAt, review.receipt.reviewDeadlineMs);
+      if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now())
+        throw new DanceClientError("dance_review_media_unavailable", false, 410);
       return {
         url,
-        expiresAtMs: Math.min(
-          status.ready.expiresAt,
-          review.receipt.reviewDeadlineMs,
-        ),
+        expiresAtMs,
       };
     },
   };
