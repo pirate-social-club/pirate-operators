@@ -2,7 +2,7 @@ import { firstSongGrant, releaseGrantPath } from "./first-song-upgrade.ts";
 import { ownedModuleGraph } from "./owned-module-graph.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFile, readdir, lstat } from "node:fs/promises";
+import { readFile, lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { build } from "esbuild";
@@ -60,25 +60,8 @@ export const communityOwned = [
     attributes: { queueId: "fe031cd96fbb47579585eb10154f785d" },
   },
 ] as const;
-export async function artifactFiles(
-  directory: string,
-  relative = "",
-): Promise<string[]> {
-  const found: string[] = [];
-  for (const entry of await readdir(join(directory, relative), {
-    withFileTypes: true,
-  })) {
-    const path = join(relative, entry.name);
-    insist(!entry.isSymbolicLink(), "community_artifact_symlink", 409);
-    if (entry.isDirectory())
-      found.push(...(await artifactFiles(directory, path)));
-    else {
-      insist(entry.isFile(), "community_artifact_invalid", 409);
-      found.push(path);
-    }
-  }
-  return found.sort();
-}
+export { artifactFiles } from "./community-artifacts.ts";
+import { buildCommunityArtifacts, communityBuildEnvironment } from "./community-artifacts.ts";
 import {
   communityMigrations,
   OWNER_PUBLISHING_MIGRATION,
@@ -131,14 +114,8 @@ export async function communityPackage(
   assertRewardsFollowLearningV4(rewardSelection, learningV4);
   await verifyCommunityDependencies();
   const learning = await learningCommunityProfile(selection);
-  const run = promisify(execFile),
-    clean = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      CI: "true",
-      DO_NOT_TRACK: "1",
-      NO_COLOR: "1",
-    };
+  const run = promisify(execFile);
+  const clean = await communityBuildEnvironment();
   const cli = await run(
     join(communityDependencyModules, ".bin/alchemy"),
     ["--version"],
@@ -149,26 +126,21 @@ export async function communityPackage(
     "community_alchemy_version_changed",
     409,
   );
-  await run("npm", ["run", "build:live"], {
+  await run("npm", [
+    "--userconfig", clean.npm_config_userconfig!,
+    "--globalconfig", clean.npm_config_globalconfig!, "run", "build:live",
+  ], {
     cwd: resolve("apps/web"),
     env: clean,
     timeout: 120000,
     maxBuffer: 1024 * 1024,
   });
-  const bundle = await build({
-      entryPoints: ["services/community-application.ts"],
-      bundle: true,
-      write: false,
-      platform: "browser",
-      format: "esm",
-      target: "es2024",
-      external: ["node:*"],
-      minify: true,
-      metafile: true,
-      logLevel: "silent",
-      legalComments: "none",
-    }),
-    bytes = bundle.outputFiles![0]!.contents;
+  const artifacts = await buildCommunityArtifacts({
+    sourceRoot: process.cwd(),
+    assetDirectory: resolve("apps/web/dist/live"),
+    migrations: { rewards: !!rewardSelection, ownerPublishing: !!publishing, v4: !!learningV4 },
+  });
+  const { bytes } = artifacts;
   const graph = await build({
     entryPoints: ["harness/community-release.ts"],
     bundle: true,
@@ -178,39 +150,13 @@ export async function communityPackage(
     metafile: true,
     logLevel: "silent",
   });
-  const tracked = await run(
-    "git",
-    [
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--",
-      // Feature imports now include shell and wallet; bind every owned client source.
-      "apps/web/src",
-      "apps/web/tsconfig.json",
-      "apps/web/vite.live.config.ts",
-      "apps/web/vite.shared.ts",
-      "apps/web/package.json",
-      "apps/web/package-lock.json",
-    ],
-    { maxBuffer: 1024 * 1024 },
-  );
-  const migrations = communityMigrations(
-    await readdir("apps/community-wizard/infra/migrations"),
-    {
-      rewards: !!rewardSelection,
-      ownerPublishing: !!publishing,
-      v4: !!learningV4,
-    },
-  );
+  const migrations = artifacts.migrations;
   const sourcePaths = [
     ...new Set(
       [
-        ...Object.keys(bundle.metafile!.inputs),
+        ...artifacts.sourcePaths,
         ...Object.keys(graph.metafile!.inputs),
         ...(await ownedModuleGraph("harness/published-replay.ts")),
-        ...tracked.stdout.trim().split("\n"),
         ...migrations.map((p) => `apps/community-wizard/infra/migrations/${p}`),
         ...applicationInfrastructureSources,
         "docs/deployments/learning-results-testnet-20261106.contract.json",
@@ -239,15 +185,7 @@ export async function communityPackage(
         ]),
       ),
     ),
-    assetFiles = await artifactFiles("apps/web/dist/live"),
-    assets = Object.fromEntries(
-      await Promise.all(
-        assetFiles.map(async (p) => [
-          p,
-          fileDigest(await readFile(join("apps/web/dist/live", p))),
-        ]),
-      ),
-    ),
+    assets = artifacts.assets,
     stateFiles = [...communityOwned.map((r) => r.logical), "__stack_output__"],
     predecessor = Object.fromEntries(
       await Promise.all(

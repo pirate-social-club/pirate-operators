@@ -64,7 +64,7 @@ The current wizard's provisioner copies a setup-only worker and migration `0001`
 
 A Linux package must use the actual application and selected services. Renaming existing resources, serving the setup placeholder, or constructing a storage client cannot establish successful community deployment.
 
-The current application packager also combines bundle construction with Alchemy checks, fixed resource identities, predecessor deployment state and release-plan construction. Extract a reusable artifact boundary before reusing it for Linux. Preserve the existing Cloudflare release wrapper and its authorization checks.
+The application artifact boundary is `harness/community-artifacts.ts`. It bundles the real current application and inventories supplied live assets, selected migrations and owned-source provenance without predecessor deployment state or provider commands. The caller must first produce the real live assets. The source root must be the approved canonical Git worktree with a complete owned client inventory; archive copies, ancestor repositories and ambient Git redirection cannot supply provenance. The manifest also binds the migration-selection implementation. `harness/community-package.ts` retains Cloudflare release selections, Alchemy checks, fixed resources, provider state and authenticated prepared-package custody. Private temp and distinct empty npm configurations must be supplied to its genuine child build commands with HOME unchanged; actual toolchain and child behavior still require qualification.
 
 ## Profile selection and dependencies
 
@@ -88,4 +88,4 @@ Investigate the real workerd app/operator graph on a supported Linux host, with 
 
 Earlier native workerd/localDisk and development-derived backend probes establish limited component behavior. Production-supported storage/runtime pairing, upgrades, complete feature compositions and second-machine recovery remain open. Select actual supported Linux architectures and versions from evidence; Akash is a separate later qualification.
 
-The first increment records this graph, contract and acceptance boundary. The next code increment separates real app artifacts from provider-state lookup. Validated community composition and complete runtime, wizard and recovery integration follow. Documentation and adapter tests do not complete the delivery.
+Artifact extraction still bundles the existing fixed community composition. It does not supply a fresh-community recipe, a supported Linux runtime or backend, or actual live-asset equivalence evidence. Validated community composition and complete runtime, wizard and recovery integration follow. Documentation and adapter tests do not complete the delivery.
