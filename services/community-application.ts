@@ -40,7 +40,6 @@ import {
   pendingCreatorConnection,
   type CreatorConnectionService,
 } from "../packages/community/creator-connections.ts";
-import { creatorServiceOrigin } from "../packages/community/creator-receipt.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type {
   CommunityCapabilities,
@@ -50,6 +49,7 @@ import type {
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
 import { firstSong } from "./first-song-profile.ts";
+import { communityIpfsTransport, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
 import { learningV3Disclosure } from "./learning-policy-v3.ts";
 import { learningV4Disclosure } from "./learning-policy-v4.ts";
@@ -180,15 +180,17 @@ export interface CommunityDependencies {
 function dependencies(
   env: CommunityEnv,
   timing = new RequestTiming(),
+  deployment: CommunityDeploymentProfile = firstSong,
 ): CommunityDependencies {
   const client = megaethReadClient((method, ms) =>
-    timing.record(`rpc_${method}`, ms),
+    timing.record(`rpc_${method}`, ms), deployment.rpcUrl,
   );
+  const configuredContent = communityIpfsTransport(deployment);
   const transport = (request: Request) =>
-    timing.measure("ipfs", () => fetch(request));
+    timing.measure("ipfs", () => configuredContent(request));
   const directory = {
-    ...firstSong.directoryProfile,
-    deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
+    ...deployment.directoryProfile,
+    deploymentBlock: BigInt(deployment.directoryProfile.deploymentBlock),
   };
   let history: ReturnType<typeof readConfigurationHistory> | undefined;
   const configurationHistory = () =>
@@ -207,13 +209,13 @@ function dependencies(
     publicReads: {
       client,
       transport,
-      profile: publicPostsProfile(),
+      profile: publicPostsProfile(deployment),
       contentCache: publicIpfsCache(env.MEDIA),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
     async verifyLogin(address, proof, signature) {
-      const client = megaethReadClient();
+      const client = megaethReadClient(undefined, deployment.rpcUrl);
       insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
       // The plain and the V4 sign-in are both personal-sign texts; this
       // covers EOAs and ERC-1271/6492 smart accounts such as MOSS.
@@ -222,7 +224,7 @@ function dependencies(
     async creatorHealth() {
       try {
         const response = await timing.measure("creator", () =>
-            fetch(creatorServiceOrigin + "/api/health", {
+            fetch(deployment.creatorOrigin + "/api/health", {
               redirect: "manual",
               signal: AbortSignal.timeout(15000),
             }),
@@ -265,9 +267,10 @@ export async function communityFetch(
   request: Request,
   env: CommunityEnv,
   ports?: CommunityDependencies,
+  deployment: CommunityDeploymentProfile = firstSong,
 ): Promise<Response> {
   const timing = new RequestTiming();
-  ports ??= dependencies(env, timing);
+  ports ??= dependencies(env, timing, deployment);
   const url = new URL(request.url),
     security = headers(env),
     reply = (value: unknown, status = 200) => {
@@ -275,19 +278,19 @@ export async function communityFetch(
       return Response.json(value, { status, headers: security });
     };
   try {
-    insist(url.origin === firstSong.origin, "wrong_community_host", 403);
+    insist(url.origin === deployment.origin, "wrong_community_host", 403);
     const policy = learningPolicyPage(
       url.pathname,
       !!env.STUDY_RESULTS_V4_CONTRACT,
     );
     if (policy) return policy;
     const context = {
-      communityId: firstSong.directoryProfile.communityId,
-      origin: firstSong.origin,
+      communityId: deployment.directoryProfile.communityId,
+      origin: deployment.origin,
     };
     const publicReads = ports.publicReads ?? {
-      client: megaethReadClient(),
-      profile: publicPostsProfile(),
+      client: megaethReadClient(undefined, deployment.rpcUrl),
+      profile: publicPostsProfile(deployment),
     };
     const configuration = async () => {
       const config = await ports.configuration();
@@ -332,7 +335,7 @@ export async function communityFetch(
       const config = await configuration();
       const runtime =
         ports.releaseRuntime?.(config) ??
-        firstSongRuntime(env, config, configuration);
+        firstSongRuntime(env, config, configuration, deployment);
       await runtime.checkServices();
       return { config, ports: runtime };
     };
@@ -344,7 +347,7 @@ export async function communityFetch(
         if (unregisteredOwner(config.policies.admission)) {
           const runtime =
             ports.releaseRuntime?.(config) ??
-            firstSongRuntime(env, config, configuration);
+            firstSongRuntime(env, config, configuration, deployment);
           await requireAuthorizedOwner(
             runtime.ownerAuthorization,
             config,
@@ -1036,6 +1039,7 @@ export async function communityFetch(
 export async function communityScheduled(
   env: CommunityEnv,
   provided?: CommunityDependencies,
+  deployment: CommunityDeploymentProfile = firstSong,
 ) {
   const failures: unknown[] = [];
   if (provided?.linkedAuthority) {
@@ -1048,7 +1052,7 @@ export async function communityScheduled(
   try {
     await deleteExpiredStudyHistory(
       env.DB,
-      firstSong.directoryProfile.communityId,
+      deployment.directoryProfile.communityId,
       provided?.now,
     );
   } catch (error) {
@@ -1062,11 +1066,11 @@ export async function communityScheduled(
   let ports: CommunityDependencies | undefined;
   if (env.STUDY_RESULTS_V4_CONTRACT) {
     try {
-      ports ??= provided ?? dependencies(env);
+      ports ??= provided ?? dependencies(env, undefined, deployment);
       const config = await ports.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1088,11 +1092,11 @@ export async function communityScheduled(
   // Study recovery covers V3 lessons and, when configured, V4 lessons.
   if (env.STUDY_RESULTS_V3_CONTRACT || env.STUDY_RESULTS_V4_CONTRACT) {
     try {
-      ports ??= provided ?? dependencies(env);
+      ports ??= provided ?? dependencies(env, undefined, deployment);
       const config = await ports.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1101,8 +1105,8 @@ export async function communityScheduled(
         db: env.DB,
         config,
         reads: ports.publicReads ?? {
-          client: megaethReadClient(),
-          profile: publicPostsProfile(),
+          client: megaethReadClient(undefined, deployment.rpcUrl),
+          profile: publicPostsProfile(deployment),
         },
         now: ports.now,
       });
@@ -1114,8 +1118,8 @@ export async function communityScheduled(
     try {
       const config = await provided.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1154,12 +1158,13 @@ export async function communityQueue(
   batch: Pick<MessageBatch<CommunityQueueJob>, "messages">,
   env: CommunityEnv,
   provided?: CommunityDependencies,
+  deployment: CommunityDeploymentProfile = firstSong,
 ) {
-  const ports = provided ?? dependencies(env),
+  const ports = provided ?? dependencies(env, undefined, deployment),
     config = await ports.configuration();
   insist(
-    config.communityId === firstSong.directoryProfile.communityId &&
-      config.app.origin === firstSong.origin,
+    config.communityId === deployment.directoryProfile.communityId &&
+      config.app.origin === deployment.origin,
     "community_configuration_changed",
     503,
   );
@@ -1179,7 +1184,7 @@ export async function communityQueue(
       } else {
         publication ??=
           ports.releaseRuntime?.(config) ??
-          firstSongRuntime(env, config, ports.configuration);
+          firstSongRuntime(env, config, ports.configuration, deployment);
         await runCommunityJob(publication, env.JOBS, job.jobId);
       }
       message.ack();

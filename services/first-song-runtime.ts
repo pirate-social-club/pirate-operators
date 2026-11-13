@@ -3,7 +3,6 @@ import { insist, jsonBody } from "../packages/community/common.ts";
 import { address } from "../packages/community/manifest-core.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { storyReadClient } from "../packages/community/registration-chain.ts";
-import { creatorServiceOrigin } from "../packages/community/creator-receipt.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 import { unregisteredOwner } from "../packages/community/owner-policy.ts";
@@ -13,6 +12,7 @@ import {
 } from "../packages/release/owner-grant.ts";
 import { requireOwnerGrantScope } from "../packages/release/owner-release.ts";
 import { firstSong } from "./first-song-profile.ts";
+import type { CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 
 export interface FirstSongRuntimeEnv {
   DB: D1Database;
@@ -32,9 +32,11 @@ export interface FirstSongRuntimeEnv {
   OWNER_GRANT_JSON?: string;
   OWNER_AUTHORIZATION_JSON?: string;
 }
-export async function managedReleaseConfigured(env: FirstSongRuntimeEnv) {
+export async function managedReleaseConfigured(
+  env: FirstSongRuntimeEnv, deployment: CommunityDeploymentProfile = firstSong,
+) {
   try {
-    const response = await fetch(firstSong.managedOrigin + "/health", {
+    const response = await fetch(deployment.managedOrigin + "/health", {
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
       }),
@@ -55,9 +57,10 @@ export async function managedReleaseConfigured(env: FirstSongRuntimeEnv) {
 export async function managedOwnerReleaseConfigured(
   env: FirstSongRuntimeEnv,
   grant: OwnerBudgetGrant,
+  deployment: CommunityDeploymentProfile = firstSong,
 ) {
   try {
-    const response = await fetch(firstSong.managedOrigin + "/health", {
+    const response = await fetch(deployment.managedOrigin + "/health", {
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
       }),
@@ -73,10 +76,10 @@ export async function managedOwnerReleaseConfigured(
     return false;
   }
 }
-export function publicPostsProfile() {
+export function publicPostsProfile(deployment: CommunityDeploymentProfile = firstSong) {
   return {
-    ...firstSong.posts,
-    deploymentBlock: BigInt(firstSong.posts.deploymentBlock),
+    ...deployment.posts,
+    deploymentBlock: BigInt(deployment.posts.deploymentBlock),
   };
 }
 const postingLimits = {
@@ -95,7 +98,8 @@ export function ownerSongRuntime(
   configuration: CommunityConfig,
   currentConfiguration: () => Promise<CommunityConfig>,
   managedReady: (grant: OwnerBudgetGrant) => Promise<boolean> = (grant) =>
-    managedOwnerReleaseConfigured(env, grant),
+    managedOwnerReleaseConfigured(env, grant, deployment),
+  deployment: CommunityDeploymentProfile = firstSong,
 ): FirstSongDriverPorts {
   insist(
     /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&
@@ -115,7 +119,7 @@ export function ownerSongRuntime(
   const publisher = privateKeyToAccount(
       env.COMMUNITY_PUBLISHER_PRIVATE_KEY as `0x${string}`,
     ),
-    managed = { origin: firstSong.managedOrigin, publisher, configuration };
+    managed = { origin: deployment.managedOrigin, publisher, configuration };
   return {
     db: env.DB,
     media: env.MEDIA,
@@ -123,9 +127,9 @@ export function ownerSongRuntime(
     release: { client: managed, grantHash: grant!.sha256, ownerGrant: grant! },
     posting: {
       db: env.DB,
-      client: megaethReadClient(),
+      client: megaethReadClient(undefined, deployment.rpcUrl),
       publisher,
-      profile: publicPostsProfile(),
+      profile: publicPostsProfile(deployment),
       config: configuration,
       currentConfiguration,
       bounds: {
@@ -146,9 +150,10 @@ export function firstSongRuntime(
   env: FirstSongRuntimeEnv,
   configuration: CommunityConfig,
   currentConfiguration: () => Promise<CommunityConfig>,
+  deployment: CommunityDeploymentProfile = firstSong,
 ): FirstSongDriverPorts {
   if (unregisteredOwner(configuration.policies.admission))
-    return ownerSongRuntime(env, configuration, currentConfiguration);
+    return ownerSongRuntime(env, configuration, currentConfiguration, undefined, deployment);
   insist(
     /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&
       /^0x[0-9a-f]{64}$/.test(env.RELEASE_GRANT_HASH ?? ""),
@@ -158,9 +163,9 @@ export function firstSongRuntime(
   const publisher = privateKeyToAccount(
       env.COMMUNITY_PUBLISHER_PRIVATE_KEY as `0x${string}`,
     ),
-    client = megaethReadClient(),
+    client = megaethReadClient(undefined, deployment.rpcUrl),
     story = storyReadClient(),
-    managed = { origin: firstSong.managedOrigin, publisher, configuration },
+    managed = { origin: deployment.managedOrigin, publisher, configuration },
     expiresAt = Number(env.POSTING_EXPIRES_AT);
   insist(
     Number.isSafeInteger(expiresAt) && expiresAt > 0,
@@ -181,18 +186,18 @@ export function firstSongRuntime(
       db: env.DB,
       client,
       publisher,
-      profile: publicPostsProfile(),
+      profile: publicPostsProfile(deployment),
       config: configuration,
       currentConfiguration,
       bounds: {
-        period: "first-song-20261105-v1",
+        period: deployment.postingPeriod,
         ...postingLimits,
         expiresAt,
       },
     },
     acrEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
     async checkServices() {
-      const native = await fetch(creatorServiceOrigin + "/api/health", {
+      const native = await fetch(deployment.creatorOrigin + "/api/health", {
           redirect: "manual",
           signal: AbortSignal.timeout(15000),
         }),
@@ -201,7 +206,7 @@ export function firstSongRuntime(
         native.ok &&
           status.profileHash === env.CREATOR_PROFILE_HASH &&
           status.testnet === true &&
-          (await managedReleaseConfigured(env)),
+          (await managedReleaseConfigured(env, deployment)),
         "release_service_unavailable",
         503,
       );

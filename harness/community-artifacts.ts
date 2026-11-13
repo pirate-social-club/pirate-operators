@@ -117,10 +117,14 @@ export async function artifactFiles(directoryInput: string, relativeInput = "") 
 export interface CommunityArtifactOptions {
   sourceRoot: string;
   assetDirectory: string;
+  /** Explicit target; Linux requires its validated server deployment profile. */
+  target?: "first-song" | "linux";
   migrations: Parameters<typeof communityMigrations>[1];
 }
-/** Actual fixed-community artifacts only; this does not build the web assets. */
+/** Actual selected community entrypoint; this does not build the web assets. */
 export async function buildCommunityArtifacts(options: CommunityArtifactOptions) {
+  insist(options.target === undefined || options.target === "first-song" || options.target === "linux",
+    "community_artifact_target_invalid", 409);
   const root = await directory(options.sourceRoot);
   const assetsRoot = await directory(resolve(root, options.assetDirectory));
   const clientSources = await communityClientInventory(root);
@@ -130,9 +134,11 @@ export async function buildCommunityArtifacts(options: CommunityArtifactOptions)
   );
   const names = await artifactFiles(assetsRoot);
   insist(names.includes("index.html"), "community_artifact_entry_missing", 409);
+  const entrypoint = options.target === "linux"
+    ? "services/linux-community.ts" : "services/community-application.ts";
   const bundle = await build({
     absWorkingDir: root,
-    entryPoints: ["services/community-application.ts"],
+    entryPoints: [entrypoint],
     bundle: true, write: false, platform: "browser", format: "esm",
     target: "es2024", external: ["node:*"], minify: true, metafile: true,
     logLevel: "silent", legalComments: "none",
@@ -155,7 +161,7 @@ export async function buildCommunityArtifacts(options: CommunityArtifactOptions)
   const assets = Object.fromEntries(await Promise.all(names.map(async (name) =>
     [name, digest(await regularBytes(join(assetsRoot, name)))])));
   const bytes = bundle.outputFiles![0]!.contents;
-  return { bytes, bundleSha256: digest(bytes), assets, migrations, sourcePaths, sourceHashes };
+  return { bytes, entrypoint, bundleSha256: digest(bytes), assets, migrations, sourcePaths, sourceHashes };
 }
 
 /** Validates inputs; Root still qualifies the actual executables and children. */

@@ -84,15 +84,16 @@ export function readRetryingFetch(
 }
 
 /**
- * The fixed application endpoint. Reads are retried a bounded number of times;
+ * The selected application endpoint. Reads are retried a bounded number of times;
  * a transaction submission is never retried. Callers still verify chain 6343.
  */
 export function megaethReadClient(
   observe?: (method: string, ms: number) => void,
+  rpcUrl = "https://carrot.megaeth.com/rpc",
 ): PublicClient {
   const reads = readRetryingFetch();
   return createPublicClient({
-    transport: http("https://carrot.megaeth.com/rpc", {
+    transport: http(rpcUrl, {
       // viem's own retry would also resend submissions; it stays disabled.
       retryCount: 0,
       timeout: 15000,

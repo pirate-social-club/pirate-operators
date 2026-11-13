@@ -1,0 +1,48 @@
+{
+  "schema": "pirate.linux-foundation-backend/1",
+  "qualificationOnly": true,
+  "nativeWorkerd": {
+    "version": "1.20261110.1",
+    "sha256": "620d9f7e5eb461067e08af17316aaa087445b4232e0e98e3dd146763bd9ab394",
+    "bytes": 159033728,
+    "localDiskExperimental": true
+  },
+  "miniflareVersion": "4.20260730.0",
+  "miniflareDeclaredWorkerd": "1.20260730.1",
+  "modules": {
+    "database.worker.js": {
+      "path": "d1/database.worker.js",
+      "sha256": "09057e4126d263c38bfcde59dfaeccafdf29176a1ff4d77fb1bc762c7354a4e4",
+      "bytes": 9780
+    },
+    "bucket.worker.js": {
+      "path": "r2/bucket.worker.js",
+      "sha256": "f5caff60cc61e542254d502ea05b275b552eaf6ae897547e04dd2776db690432",
+      "bytes": 43956
+    },
+    "object-entry.worker.js": {
+      "path": "shared/object-entry.worker.js",
+      "sha256": "f31c83a9585113462fd902929c235342674cf4009b68886d3f7151055c1cf3ec",
+      "bytes": 1060
+    },
+    "shared.worker.js": {
+      "path": "shared/index.worker.js",
+      "sha256": "ee1bca410a2ae149c8fda8941fdf239c7f5563087151935c1c47275ba0cbc859",
+      "bytes": 26487
+    },
+    "zod.worker.js": {
+      "path": "shared/zod.worker.js",
+      "sha256": "6807178a44f8be563d6b60019779e377763e1a9185dfa1250ac063eeefa8b58f",
+      "bytes": 109025
+    }
+  },
+  "backendLicenseSha256": "9bb3b077cc8628334bab25961223dd8207252c8a56aa054195be38f1c042aaf4",
+  "workerdLicenseSha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+  "imageBase": "docker.io/library/node:24.18.1-bookworm-slim@sha256:a09aabc645e86e81e23dab78e0c0f2eaa233cab4277c7188232181a1a8bd5d39",
+  "productionSelected": false,
+  "limits": [
+    "Development-derived D1/R2 modules with newer native workerd; previous native component results do not qualify this container or storage upgrades.",
+    "No Miniflare supervisor, in-memory queue, fake verifier, HTTP invocation envelope or fixed-response peer is used.",
+    "Queues, scheduling, operator and managed services are not delivered by this foundation."
+  ]
+}
