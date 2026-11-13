@@ -68,7 +68,7 @@ export function createProductionDanceApi(input: {
         !/^0x[0-9a-f]{64}$/.test(page.consent.termsHash) ||
         !/^0x[0-9a-f]{64}$/.test(page.consent.publicityPolicyHash) ||
         !["admitted", "review_pending"].includes(page.consent.admission) ||
-        page.choices.some(c => !validDanceTarget(c) || c.communityId !== query.communityId ||
+        page.choices.some((c: DanceCataloguePage["choices"][number]) => !validDanceTarget(c) || c.communityId !== query.communityId ||
           c.songKey !== query.songKey || typeof c.title !== "string" || !c.title ||
           !Number.isSafeInteger(c.durationMs) || c.durationMs < 6000 || c.durationMs > 30000 ||
           !["ready", "pending", "unavailable"].includes(c.playback) || typeof c.recordingAllowed !== "boolean"))

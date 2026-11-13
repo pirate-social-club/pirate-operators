@@ -12,8 +12,16 @@ import { requireProductionTarget, requireSameProductionTarget, type DanceSelecte
 export class DanceProductionReads {
   readonly store: DanceStore;
   readonly api: DanceReviewService;
-  constructor(readonly db: D1Database, readonly ports: DancePorts,
-    readonly catalogue: DanceSelectedCatalogue, readonly communityId: string) {
+  readonly db: D1Database;
+  readonly ports: DancePorts;
+  readonly catalogue: DanceSelectedCatalogue;
+  readonly communityId: string;
+  constructor(db: D1Database, ports: DancePorts,
+    catalogue: DanceSelectedCatalogue, communityId: string) {
+    this.db = db;
+    this.ports = ports;
+    this.catalogue = catalogue;
+    this.communityId = communityId;
     this.store = new DanceStore(db);
     this.api = new DanceReviewService(this.store, ports, communityId);
   }
