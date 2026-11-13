@@ -55,10 +55,10 @@ test("confirmed registration is recovered from the original successful canonical
   const logs = [
     { address: f.profile.directory, blockHash: hash, blockNumber: 51n, transactionHash: tx, logIndex: 0, transactionIndex: 0, removed: false,
       topics: encodeEventTopics({ abi: sharedDirectoryAbi, eventName: "CommunityBound", args: { communityId: f.profile.communityId } }),
-      data: encodeAbiParameters(boundEvent.inputs.filter((i) => !i.indexed), [sharedBinding(f.profile)]) },
+      data: encodeAbiParameters(boundEvent.inputs.filter((i) => !("indexed" in i && i.indexed)), [sharedBinding(f.profile)]) },
     { address: f.profile.directory, blockHash: hash, blockNumber: 51n, transactionHash: tx, logIndex: 1, transactionIndex: 0, removed: false,
       topics: encodeEventTopics({ abi: sharedDirectoryAbi, eventName: "ConfigurationPublished", args: { communityId: f.profile.communityId } }),
-      data: encodeAbiParameters(configEvent.inputs.filter((i) => !i.indexed), [1n, plan.config.controller, plan.config.publisher,
+      data: encodeAbiParameters(configEvent.inputs.filter((i) => !("indexed" in i && i.indexed)), [1n, plan.config.controller, plan.config.publisher,
         plan.config.operatorPayments, plan.config.learningRecords, hashText(canonical(plan.config)), plan.uri]) },
   ];
   let status = "success", receiptHash = hash;
@@ -87,10 +87,10 @@ function matchingEnrollmentReceipt(fixture: Awaited<ReturnType<typeof prepared>>
     logs: [
       { ...common, logIndex: 0,
         topics: encodeEventTopics({ abi: sharedDirectoryAbi, eventName: "CommunityBound", args: { communityId: f.profile.communityId } }),
-        data: encodeAbiParameters(boundEvent.inputs.filter((i) => !i.indexed), [sharedBinding(f.profile)]) },
+        data: encodeAbiParameters(boundEvent.inputs.filter((i) => !("indexed" in i && i.indexed)), [sharedBinding(f.profile)]) },
       { ...common, logIndex: 1,
         topics: encodeEventTopics({ abi: sharedDirectoryAbi, eventName: "ConfigurationPublished", args: { communityId: f.profile.communityId } }),
-        data: encodeAbiParameters(configEvent.inputs.filter((i) => !i.indexed), [1n, plan.config.controller, plan.config.publisher,
+        data: encodeAbiParameters(configEvent.inputs.filter((i) => !("indexed" in i && i.indexed)), [1n, plan.config.controller, plan.config.publisher,
           plan.config.operatorPayments, plan.config.learningRecords, hashText(canonical(plan.config)), plan.uri]) },
     ],
   };

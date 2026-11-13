@@ -1,7 +1,7 @@
 // Directory enrollment only. Member issuance remains the Naming lane and uses
 // the accepted registry SDK/ABI; Story root registration stays in its own module.
 import { decodeEventLog, encodeFunctionData, keccak256, parseTransaction, recoverTransactionAddress,
-  TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient } from "viem";
+  TransactionReceiptNotFoundError, type Address, type Hex, type PublicClient, type TransactionSerializedEIP1559 } from "viem";
 import { canonical, hashText, insist } from "./common.ts";
 import { address, ipfsUri } from "./manifest-core.ts";
 import { sharedBinding, sharedDirectoryAbi, validateSharedProfile, type SharedDirectoryProfile } from "./shared-directory.ts";
@@ -66,7 +66,7 @@ export async function bindSharedRegistrationTransaction(plan: SharedRegistration
   insist(parsed.type === "eip1559" && parsed.chainId === exact.profile.chainId && parsed.to?.toLowerCase() === exact.profile.directory &&
     parsed.data === exact.data && (parsed.value ?? 0n) === 0n && parsed.nonce === nonce && parsed.gas === gas &&
     parsed.maxFeePerGas === maxFeePerGas && parsed.maxPriorityFeePerGas === maxPriorityFeePerGas &&
-    (await recoverTransactionAddress({ serializedTransaction: rawTransaction })).toLowerCase() === exact.admin,
+    (await recoverTransactionAddress({ serializedTransaction: rawTransaction as TransactionSerializedEIP1559 })).toLowerCase() === exact.admin,
     "original_directory_transaction_mismatch");
   const operation: OriginalDirectoryTransaction = {
     schema: "pirate.shared-directory-original/1", plan: exact, rawTransaction,
