@@ -22,12 +22,12 @@ const config = validateConfig(JSON.parse(readFileSync(new URL(
   "../docs/deployments/first-song-managed-20261105.configuration.json", import.meta.url), "utf8")).configuration);
 const word = (n: number) => `0x${n.toString(16).padStart(64, "0")}` as Hex;
 const address = (n: number) => `0x${n.toString(16).padStart(40, "0")}` as Address;
-function selection() {
+function selection(configuration = config) {
   // Explicit simulation source. No deployment or live readiness is asserted.
-  const domain = { chainId: 6343n, verifier: address(1), communityId: config.communityId };
-  const pin = { directory: config.directory, directoryRuntimeHash: word(10), v4: config.learningRecords!,
-    v4RuntimeHash: word(11), posts: config.postsContract, postsRuntimeHash: word(12),
-    fixedPublisher: config.publisher, publicityPolicyHash: word(13), rulesSha256: word(14),
+  const domain = { chainId: 6343n, verifier: address(1), communityId: configuration.communityId };
+  const pin = { directory: configuration.directory, directoryRuntimeHash: word(10), v4: configuration.learningRecords,
+    v4RuntimeHash: word(11), posts: configuration.postsContract, postsRuntimeHash: word(12),
+    fixedPublisher: configuration.publisher, publicityPolicyHash: word(13), rulesSha256: word(14),
     termsSha256: word(15), rubricSha256: word(16), mediaPolicySha256: word(17),
     runtimeCodeHash: word(18), deploymentBlock: 1n };
   const source: DanceCanonicalSource = { schema: "pirate.dance-verdict/1", domain, pin,
@@ -36,6 +36,13 @@ function selection() {
   return { source, selectionJson: JSON.stringify(json), selectionHash: hashJson(json),
     reviewerConsent: { version: "explicit-constructor-simulation/1", publicityPolicyHash: pin.publicityPolicyHash,
       admission: "admitted" as const } };
+}
+function modeledRequiredV4Configuration() {
+  // General CommunityConfig permits disabled learning records; selected Dance
+  // sources require a nonzero V4. This is the named local address(3) used by
+  // the canonical-role simulation, not a deployment or live configuration.
+  // Keep the optional OperatorPayments/RewardPool setting unchanged.
+  return validateConfig({ ...structuredClone(config), learningRecords: address(3) });
 }
 const unavailable = async (): Promise<never> => { throw Error("required actual producer unavailable in constructor simulation"); };
 function heldHost(): DanceVerifiedHostInputs {
@@ -46,7 +53,8 @@ function heldHost(): DanceVerifiedHostInputs {
 }
 
 test("selected source/config/reviewer consent are required; no policy or community fallback", () => {
-  const selected = selection();
+  const config = modeledRequiredV4Configuration();
+  const selected = selection(config);
   assert.equal(requireDanceProductionSelection({ ...selected, config }).sourceHash, selected.source.sourceHash);
   assert.throws(() => requireDanceProductionSelection({ ...selected,
     config: { ...config, communityId: word(999) } }), /configuration_changed/);
@@ -59,7 +67,8 @@ test("selected source/config/reviewer consent are required; no policy or communi
 
 test("actual factory constructs once from explicit host ports, then generation loss holds every entry before work", async t => {
   const db = new MemorySqliteD1(); t.after(() => db.close());
-  const selected = selection(); let current = true, hosts = 0, renders = 0, sends = 0;
+  const config = modeledRequiredV4Configuration();
+  const selected = selection(config); let current = true, hosts = 0, renders = 0, sends = 0;
   const inputs: DanceProductionRuntimeInputs = { ...selected,
     client: {} as PublicClient,
     renderer: { async fetch() { renders++; throw Error("renderer must not execute"); } },
@@ -83,7 +92,8 @@ test("actual factory constructs once from explicit host ports, then generation l
 
 test("missing host, consent or changed config during intake refuses construction before any renderer/queue work", async t => {
   const db = new MemorySqliteD1(); t.after(() => db.close());
-  const selected = selection();
+  const config = modeledRequiredV4Configuration();
+  const selected = selection(config);
   const inputs: DanceProductionRuntimeInputs = { ...selected, client: {} as PublicClient,
     renderer: { fetch: unavailable }, current: async () => { throw Error("actual intake not supplied"); }, host: unavailable };
   const base = { db: db.asD1(), bucket: {} as R2Bucket, enqueue: unavailable };
@@ -150,10 +160,10 @@ async function projectionSimulation(t: { after(fn: () => void): void }) {
   db.sqlite.exec(readFileSync(new URL("../packages/dance/schema.sql", import.meta.url), "utf8"));
   db.sqlite.exec(DANCE_HOST_INPUTS_SCHEMA_PROPOSAL);
   db.sqlite.exec("CREATE TABLE media2_producer_generation(revision INTEGER); INSERT INTO media2_producer_generation VALUES(1)");
-  const cfg = structuredClone(config); cfg.app.origin = "https://community.invalid";
+  const cfg = modeledRequiredV4Configuration(); cfg.app.origin = "https://community.invalid";
   cfg.feed.endpoint = cfg.app.origin + "/feed";
   cfg.policies.admission = { version: UNREGISTERED_OWNER_POLICY_VERSION, sha256: UNREGISTERED_OWNER_POLICY_HASH };
-  const source = selection().source, code = "0x6000" as Hex, codeHash = keccak256(code);
+  const source = selection(cfg).source, code = "0x6000" as Hex, codeHash = keccak256(code);
   source.pin = { ...source.pin, directoryRuntimeHash: codeHash, v4RuntimeHash: codeHash,
     postsRuntimeHash: codeHash, runtimeCodeHash: codeHash };
   source.capturePolicyRuntimeHash = codeHash;
@@ -388,4 +398,63 @@ test("Media2 ordinary unconfigured community schedules no private factory or con
     verifyLogin: async () => false, creatorHealth: async () => false };
   await communityScheduled(env, ports);
   assert.equal(configurations, 0); assert.equal(sends, 0);
+});
+
+test("Media3 required V4 simulation leaves disabled general configuration and optional payments unchanged", () => {
+  const disabled = selection(config);
+  assert.equal(config.learningRecords, "0x" + "0".repeat(40));
+  assert.throws(() => requireDanceProductionSelection({ ...disabled, config }), /zero_address/);
+  const modeled = modeledRequiredV4Configuration(), selected = selection(modeled);
+  assert.equal(modeled.learningRecords, address(3));
+  assert.equal(modeled.operatorPayments, config.operatorPayments);
+  assert.equal(config.learningRecords, "0x" + "0".repeat(40));
+  assert.equal(requireDanceProductionSelection({ ...selected, config: modeled }).pin.v4, address(3));
+});
+
+function queueAdapterSimulation(t: { after(fn: () => void): void },
+  send: (job: CommunityQueueJob) => Promise<QueueSendResponse>) {
+  // Constructor-only modeled intake: private facts and rendering still refuse.
+  // Only the actual community default enqueue adapter is exercised by these
+  // prospective cases; this is not Cloudflare queue/provider acceptance.
+  const db = new MemorySqliteD1(); t.after(() => db.close());
+  const cfg = modeledRequiredV4Configuration(), selected = selection(cfg);
+  const inputs: DanceProductionRuntimeInputs = { ...selected, client: {} as PublicClient,
+    renderer: { fetch: unavailable }, host: async () => heldHost(),
+    async current(c, source) {
+      assert.equal(c.communityId, cfg.communityId);
+      assert.equal(c.learningRecords, cfg.learningRecords);
+      assert.equal(source.sourceHash, selected.source.sourceHash);
+    } };
+  const env = { DB: db.asD1(), MEDIA: {} as R2Bucket, JOBS: { send },
+    DANCE_PRODUCTION_INPUTS: inputs } as unknown as CommunityEnv;
+  return { cfg, runtime: () => communityPrivateDanceDefaults(env)(cfg) };
+}
+
+test("Media3 default queue adapter waits for send acknowledgement and resolves void with the exact private job", async t => {
+  let enter!: () => void, acknowledge!: (response: QueueSendResponse) => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const acknowledgement = new Promise<QueueSendResponse>(resolve => { acknowledge = resolve; });
+  const sent: CommunityQueueJob[] = [];
+  const f = queueAdapterSimulation(t, async job => { sent.push(job); enter(); return acknowledgement; });
+  const runtime = await f.runtime(), id = "00000000-0000-4000-8000-000000000001";
+  let completed = false;
+  const pending = runtime.media.ports.enqueue(id).then(value => { completed = true; return value; });
+  await entered;
+  assert.equal(completed, false);
+  assert.deepEqual(sent, [{ kind: "community-media/1", communityId: f.cfg.communityId, mediaId: id }]);
+  acknowledge({ metadata: { metrics: { backlogCount: 1, backlogBytes: 4 } } });
+  assert.equal(await pending, undefined);
+  assert.equal(completed, true); assert.equal(sent.length, 1);
+});
+
+test("Media3 default queue adapter propagates the original rejected acknowledgement without retry or false completion", async t => {
+  let enter!: () => void, reject!: (error: Error) => void, sends = 0;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const acknowledgement = new Promise<QueueSendResponse>((_resolve, rejectAck) => { reject = rejectAck; });
+  const f = queueAdapterSimulation(t, async () => { sends++; enter(); return acknowledgement; });
+  const runtime = await f.runtime(), failure = Error("modeled queue acknowledgement rejected");
+  const pending = runtime.media.ports.enqueue("00000000-0000-4000-8000-000000000001");
+  const denied = assert.rejects(pending, error => error === failure);
+  await entered; reject(failure); await denied;
+  assert.equal(sends, 1);
 });

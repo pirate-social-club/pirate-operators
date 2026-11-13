@@ -20,6 +20,19 @@ async function fixture(t: { after(fn: () => void): void }) {
   db.sqlite.exec(readFileSync(new URL("../packages/community-media/schema.sql", import.meta.url), "utf8"));
   db.sqlite.exec(DANCE_SOURCE3_BINDINGS_SCHEMA_PROPOSAL);
   const model = danceFixture(); model.store.time = Date.now();
+  // The shared generic model emits expected.mediaEpoch=0 while its authority
+  // reports mediaEpoch=1. This exact-admission fixture must capture the actual
+  // modeled current epochs BEFORE capture commitment and consent are created.
+  // Do not alter that shared model or make the production equality permissive.
+  const modeledAdmission = model.ports.admitCapture;
+  model.ports.admitCapture = async (community, actor, selection) => {
+    const admitted = await modeledAdmission(community, actor, selection);
+    const current = await model.ports.authority(community, actor, actor);
+    assert.equal(current.owner.canonicalAccepted, true);
+    return { ...admitted, capture: { ...admitted.capture, expected: {
+      ownerEpoch: current.owner.epoch, ...structuredClone(current.epochs),
+    } } };
+  };
   db.sqlite.function("model_guard", key => Number(model.store.checks.get(String(key))?.() ?? false));
   const convert = (f: DanceFence): DanceFence => ({ sql: "model_guard(?)", values: [f.sql] });
   const ports = { ...model.ports,
@@ -31,6 +44,12 @@ async function fixture(t: { after(fn: () => void): void }) {
   };
   const template = await model.service.capture("learner", "source3_original_capture",
     { songKey: dh(10), referenceId: null, offerId: null }, model.consent);
+  const current = await model.ports.authority(template.communityId, "learner", "learner");
+  assert.equal(current.owner.canonicalAccepted, true);
+  assert.deepEqual(template.expected, { ownerEpoch: current.owner.epoch, ...current.epochs });
+  const { captureHash, consent, ...committed } = template;
+  assert.equal(captureHash, await model.ports.captureCommitment(committed));
+  assert.equal(consent!.captureHash, captureHash);
   const store = new DanceStore(db.asD1());
   await store.reserveCapture({ ...template, consent: null }, "learner", "original", dh(90), []);
   const capture = await store.acceptConsent({ ...template, consent: null }, model.consent, "original", []);
@@ -178,4 +197,25 @@ test("Media2 original recording/request/account survive a capture-read await and
   assert.deepEqual(JSON.parse(String(saved.intent_json)), intent);
   assert.equal(f.db.count("dance_source3_requests"), 1);
   assert.equal(f.db.count("community_media"), 0); // No upload/new attempt inferred from recovery.
+});
+
+test("Media3 source3 still requires canonical owner acceptance and every exact captured epoch", async t => {
+  const f = await fixture(t), authority = f.model.ports.authority;
+  for (const mismatch of ["accepted", "ownerEpoch", "configurationRevision", "rulesEpoch", "mediaEpoch"] as const) {
+    f.model.ports.authority = async (...args) => {
+      const facts = await authority(...args);
+      if (mismatch === "accepted") facts.owner.canonicalAccepted = false;
+      else if (mismatch === "ownerEpoch") facts.owner.epoch++;
+      else facts.epochs[mismatch]++;
+      return facts;
+    };
+    await assert.rejects(f.bindings.bindIntent(f.actor, f.capture.captureId, f.capture.captureHash, f.intent),
+      /dance_source3_authority_changed/);
+    assert.equal(f.db.count("dance_source3_requests"), 0);
+  }
+  f.model.ports.authority = authority;
+  await f.bindings.bindIntent(f.actor, f.capture.captureId, f.capture.captureHash, f.intent);
+  assert.equal(f.db.count("dance_source3_requests"), 1);
+  const original = JSON.parse(String(f.db.sqlite.prepare("SELECT intent_json FROM dance_source3_requests").get()!.intent_json));
+  assert.deepEqual(original, f.intent);
 });

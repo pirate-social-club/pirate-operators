@@ -183,7 +183,7 @@ export interface CommunityDependencies {
 }
 export function communityPrivateDanceDefaults(env: CommunityEnv) {
   const factory = createDanceProductionDefaults({
-    db: env.DB, bucket: env.MEDIA, enqueue: job => env.JOBS.send(job),
+    db: env.DB, bucket: env.MEDIA, enqueue: async job => { await env.JOBS.send(job); },
     selected: env.DANCE_PRODUCTION_INPUTS,
   });
   return async (config: CommunityConfig) => {
