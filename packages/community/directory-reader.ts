@@ -31,10 +31,24 @@ export interface ConfigurationLog {
   transactionHash: Hex;
   logIndex: number;
 }
-const comparable = (log: ConfigurationLog) => canonical({ ...log,
-  args: { ...log.args, controller: log.args.controller.toLowerCase(), publisher: log.args.publisher.toLowerCase(),
-    operatorPayments: log.args.operatorPayments.toLowerCase(), learningRecords: log.args.learningRecords.toLowerCase(),
-    revision: String(log.args.revision) }, blockNumber: String(log.blockNumber) });
+// RPC event objects contain transport metadata beyond the authenticated log.
+// Compare every declared event/provenance field in an owned canonical shape.
+const comparable = (log: ConfigurationLog) => canonical({
+  args: {
+    communityId: log.args.communityId,
+    revision: String(log.args.revision),
+    controller: log.args.controller.toLowerCase(),
+    publisher: log.args.publisher.toLowerCase(),
+    operatorPayments: log.args.operatorPayments.toLowerCase(),
+    learningRecords: log.args.learningRecords.toLowerCase(),
+    sha256Digest: log.args.sha256Digest,
+    uri: log.args.uri,
+  },
+  blockNumber: String(log.blockNumber),
+  blockHash: log.blockHash,
+  transactionHash: log.transactionHash,
+  logIndex: log.logIndex,
+});
 
 export async function authenticateConfigurationLog(client: PublicClient, profile: AnyDirectoryProfile, log: ConfigurationLog) {
   const [receipt, block] = await Promise.all([
