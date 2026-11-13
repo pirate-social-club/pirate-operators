@@ -14,6 +14,7 @@ const supportPaths = [
   "src/karaoke/story-fixtures.ts",
   "test/dance-story-fixtures.tsx",
   "test/dance-repair-story-fixtures.tsx",
+  "test/dance-async-resize-story-fixtures.tsx",
   "test/dance-source-fixtures.ts",
   "test/dance-command-storage.ts",
 ];

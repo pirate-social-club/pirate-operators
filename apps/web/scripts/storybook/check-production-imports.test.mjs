@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   auditGraph,
+  checkApp,
   runtimeSpecifiers,
 } from "./check-production-imports.mjs";
 
@@ -66,6 +70,42 @@ test("handles fixture cycles without exempting their dependencies", () => {
       fixtureImports: ["fixture.tsx", "substitute.tsx"],
     }).some((message) => message.includes("substitute.tsx")),
   );
+});
+
+test("audits async resize fixture dependencies through the app support configuration", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "pirate-storybook-imports-"));
+  const write = (file, text) => {
+    const target = path.join(root, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, text);
+  };
+  const fixture = "test/dance-async-resize-story-fixtures.tsx";
+  try {
+    write("tsconfig.json", JSON.stringify({
+      compilerOptions: { jsx: "preserve", module: "esnext", moduleResolution: "bundler" },
+      include: ["src", "test"],
+    }));
+    write("src/client/entry.tsx", 'import "../dance/real";');
+    write("src/live/entry.tsx", 'import "../dance/real";');
+    write("src/dance/real.tsx", "export const Dance = () => <div />;");
+    write("src/dance/resize.stories.tsx", `import "../../${fixture}";`);
+    write(fixture, 'import "../src/dance/real";');
+    assert.deepEqual(checkApp(root).violations, []);
+
+    write("src/dance/unmounted.tsx", "export const Unmounted = () => <div />;");
+    write(fixture, 'import "../src/dance/real"; import "../src/dance/unmounted";');
+    assert.ok(checkApp(root).violations.some((message) =>
+      message.endsWith(`unreachable module: ${path.join(root, "src/dance/unmounted.tsx")}`),
+    ));
+
+    write(fixture, 'import "../src/dance/real";');
+    write("src/client/entry.tsx", `import "../../${fixture}";`);
+    assert.ok(checkApp(root).violations.includes(
+      `Production imports story/test support: ${path.join(root, fixture)}`,
+    ));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("excludes type-only edges and includes literal lazy imports", () => {
