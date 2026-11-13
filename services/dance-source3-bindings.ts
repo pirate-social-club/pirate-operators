@@ -103,10 +103,16 @@ export class DanceSource3Bindings {
     this.sourceHash = bytes32(input.sourceHash);
     this.ports = Object.freeze({ ...input.dance });
   }
-  private original(actor: MediaActor, requestId: string) {
-    return this.store.db.prepare(`SELECT capture_id,capture_hash,intent_json
+  private async original(actor: MediaActor, requestId: string) {
+    const row = await this.store.db.prepare(`SELECT capture_id,capture_hash,intent_json
       FROM dance_source3_requests WHERE community_id=? AND account_id=? AND request_id=?`)
       .bind(this.communityId, danceId(actor.accountId), danceId(requestId)).first<Original>();
+    // Keep the database row container outside the canonical original value.
+    return row === null ? null : {
+      capture_id: row.capture_id,
+      capture_hash: row.capture_hash,
+      intent_json: row.intent_json,
+    };
   }
   private async access(actor: MediaActor, id: string, expectedHash: string) {
     actor = structuredClone(actor);
