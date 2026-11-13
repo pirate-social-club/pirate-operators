@@ -5,7 +5,12 @@ import {ICommunityDirectoryV1} from "./ICommunityDirectoryV1.sol";
 /// @notice Explicit shared-directory successor. Inherited read/configuration tuples
 /// retain PostsV1 wire compatibility; inherited V1 registration/ID selectors refuse.
 interface ICommunityDirectoryV2 is ICommunityDirectoryV1 {
-    struct RegistrySource { bytes32 runtimeCodeHash; bytes20 sourceCommit; bytes32 abiSha256; }
+    struct RegistrySource {
+        bytes32 runtimeCodeHash;
+        bytes20 sourceCommit;
+        bytes32 abiSha256;
+    }
+
     struct Binding {
         bytes32 communityKey;
         bytes32 installationId;
@@ -28,8 +33,12 @@ interface ICommunityDirectoryV2 is ICommunityDirectoryV1 {
     function acceptAdmin() external;
     function admitRegistry(address registry, RegistrySource calldata source) external;
     function registrySource(address registry) external view returns (RegistrySource memory);
-    function registerSharedCommunity(address registry, string calldata tld, Binding calldata binding, Configuration calldata configuration)
-        external returns (bytes32 communityId);
+    function registerSharedCommunity(
+        address registry,
+        string calldata tld,
+        Binding calldata binding,
+        Configuration calldata configuration
+    ) external returns (bytes32 communityId);
     function communityIdFor(bytes32 key) external view returns (bytes32);
     function namespaceIdFor(string memory tld) external pure returns (bytes32);
     function getBinding(bytes32 communityId) external view returns (Binding memory);

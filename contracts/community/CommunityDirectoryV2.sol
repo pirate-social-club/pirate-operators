@@ -19,8 +19,10 @@ contract CommunityDirectoryV2 is ICommunityDirectoryV2 {
     mapping(bytes32 => uint64) private proposalCounters;
 
     constructor(address initialAdmin, uint64 maximumAge) {
-        if ((block.chainid != 6343 && block.chainid != 31337) || initialAdmin == address(0)
-            || maximumAge == 0 || maximumAge > 1 days) revert InvalidDeploymentProfile();
+        if (
+            (block.chainid != 6343 && block.chainid != 31337) || initialAdmin == address(0) || maximumAge == 0
+                || maximumAge > 1 days
+        ) revert InvalidDeploymentProfile();
         admin = initialAdmin;
         maxVerificationAge = maximumAge;
     }
@@ -44,14 +46,21 @@ contract CommunityDirectoryV2 is ICommunityDirectoryV2 {
         emit AdminAccepted(previous, msg.sender);
     }
 
-    function namespaceVerifier() external view override returns (address) { return admin; }
-    function listingAuthority() external view override returns (address) { return admin; }
+    function namespaceVerifier() external view override returns (address) {
+        return admin;
+    }
+
+    function listingAuthority() external view override returns (address) {
+        return admin;
+    }
 
     // Source admission is not an HNS ownership observation or issuance grant.
     function admitRegistry(address registry, RegistrySource calldata source) external override onlyAdmin {
-        if (registry.code.length == 0 || registry.codehash != source.runtimeCodeHash
-            || source.sourceCommit == bytes20(0) || source.abiSha256 == bytes32(0)
-            || sources[registry].runtimeCodeHash != bytes32(0)) revert InvalidRegistry();
+        if (
+            registry.code.length == 0 || registry.codehash != source.runtimeCodeHash
+                || source.sourceCommit == bytes20(0) || source.abiSha256 == bytes32(0)
+                || sources[registry].runtimeCodeHash != bytes32(0)
+        ) revert InvalidRegistry();
         sources[registry] = source;
         emit RegistryAdmitted(registry, source);
     }
@@ -61,14 +70,21 @@ contract CommunityDirectoryV2 is ICommunityDirectoryV2 {
     }
 
     function registerSharedCommunity(
-        address registry, string calldata tld, Binding calldata binding, Configuration calldata configuration
+        address registry,
+        string calldata tld,
+        Binding calldata binding,
+        Configuration calldata configuration
     ) external override onlyAdmin returns (bytes32 id) {
         RegistrySource memory source = sources[registry];
-        if (source.runtimeCodeHash == bytes32(0) || registry.codehash != source.runtimeCodeHash
-            || binding.registryCodeHash != source.runtimeCodeHash || binding.sourceCommit != source.sourceCommit
-            || binding.abiSha256 != source.abiSha256) revert InvalidRegistry();
-        if (binding.communityKey == bytes32(0) || binding.installationId == bytes32(0)
-            || binding.originSha256 == bytes32(0) || binding.namespaceId != namespaceIdFor(tld)) {
+        if (
+            source.runtimeCodeHash == bytes32(0) || registry.codehash != source.runtimeCodeHash
+                || binding.registryCodeHash != source.runtimeCodeHash || binding.sourceCommit != source.sourceCommit
+                || binding.abiSha256 != source.abiSha256
+        ) revert InvalidRegistry();
+        if (
+            binding.communityKey == bytes32(0) || binding.installationId == bytes32(0)
+                || binding.originSha256 == bytes32(0) || binding.namespaceId != namespaceIdFor(tld)
+        ) {
             revert InvalidBinding();
         }
         id = communityIdFor(binding.communityKey);
