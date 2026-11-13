@@ -1,4 +1,7 @@
-// The external main-site presentation is pinned independently of the durable adapter.
+// Original central reference: c7cb87835a1858a1955c820b03d566365e6d42db.
+// studying-surface.tsx and studying-model.ts include reviewed local owner/Paper
+// corrections from 93a6134cfe7ca344a61cd81f88da65fe4979be9a. The remaining
+// pin retains the central-reference baseline; durable adapters are separate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -6,11 +9,11 @@ import { createHash } from "node:crypto";
 const files = [
   {
     file: "studying-surface.tsx",
-    sha256: "415cc8caecd53431aa8836a1283e214e8ab16ec68eabba0ba311ed45a865e398",
+    sha256: "31a22d3a2dec7c9b13f75240273a1c47b12c3aee8bb4d252df5bb125ea20bf9d",
   },
   {
     file: "studying-model.ts",
-    sha256: "14d9b595dc40a17077b88ec12a235615d7070c3ef4fd5e77d0fef6d69550a286",
+    sha256: "bfa0720d4fb9b30a25fc66233744b010d9f57bfcd27fe3a5cf35b59a039db815",
   },
   {
     file: "studying-route-states.tsx",
@@ -23,7 +26,7 @@ function presentation(source: string) {
     .replace(/^import\s[^;]+;\n/gm, "")
     .trim();
 }
-test("Study presentation matches pinned central reference c7cb87835a1858a1955c820b03d566365e6d42db", async () => {
+test("Study presentation matches c7 baseline plus reviewed owner/Paper corrections 93a6134", async () => {
   for (const file of files) {
     const source = await readFile(
       new URL(`../src/study/presentation/${file.file}`, import.meta.url),

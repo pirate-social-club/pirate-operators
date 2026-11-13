@@ -1,4 +1,7 @@
-// Centralized presentation pinned independently of the live transport adapter.
+// Original central reference: c7cb87835a1858a1955c820b03d566365e6d42db.
+// activity-progress-header.tsx includes reviewed local owner/Paper corrections
+// from 93a6134cfe7ca344a61cd81f88da65fe4979be9a. The other seven pins retain
+// the central-reference baseline; live transport adapters are separate.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -14,7 +17,7 @@ const files = [
   },
   {
     file: "activity-progress-header.tsx",
-    sha256: "21d8a59d833f2104f4e1681d0927b534866ece71335ec824f2d23487f1e3256a",
+    sha256: "74be224e37fbe6aefd8857aff6f3b1e3ac0166edb3944b8e13d2bf498098aedf",
   },
   {
     file: "activity-results.tsx",
@@ -45,7 +48,7 @@ function presentation(source: string) {
     .replace(/^interface KaraokeScoringState[^\n]*\n/gm, "")
     .trim();
 }
-test("Karaoke presentation matches centralized c7cb87835a1858a1955c820b03d566365e6d42db", async () => {
+test("Karaoke presentation matches c7 baseline plus reviewed owner/Paper correction 93a6134", async () => {
   for (const file of files) {
     const source = await readFile(
       new URL(`../src/karaoke/${file.file}`, import.meta.url),
