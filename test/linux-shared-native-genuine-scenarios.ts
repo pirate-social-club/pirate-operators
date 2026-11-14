@@ -47,6 +47,7 @@ export async function runGenuineSharedNativeScenario(input:LocalTargetInputs,sce
   assert(["operations","results","observations","plans","profiles","inspections","bootstrap"].every(role=>receipt.roles.includes(role)));
   return {kind:scenario.kind,archiveSha256:receipt.archiveSha256,manifestSha256:receipt.manifestSha256,encryptedBytes:receipt.encryptedBytes};
  }
+ assert(scenario.kind==="create" || scenario.kind==="import" || scenario.kind==="restore","genuine_effect_scenario_required");
  const template=await readProfileTemplate(input.profileTemplateFile,input.trust,input.installationId);
  const target=await port.inspectTarget({requestId:scenario.requestId,target:{kind:"local-linux"}});
  assert(target.supported && target.prepared,"genuine_target_preparation_unavailable");

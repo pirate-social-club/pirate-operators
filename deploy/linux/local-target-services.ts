@@ -61,9 +61,14 @@ export interface LocalTargetInputs {
   readbackKeyRef:{keyId:string;generation:number};
   runtimeSecretsDirectory:string;runtimeSecrets:Array<{name:string;credentialId?:string;keyRef?:string;generation:number;encoding:"utf8"|"hex";prefix:string}>;
 }
+interface ColdSessionReadback {
+  observations:[{role:"session-revocation";observed:unknown;responseSHA256:string;certificateFingerprint:"private-native-UDS"}];
+  evidence:Awaited<ReturnType<typeof runActualReadbacks>>["evidence"];
+  checkedAt:number;
+}
 interface OperationContext {
   operation:LinuxOperation;bound:BoundLinuxIntent;lease:OperationLease;controller:Awaited<ReturnType<typeof createLocalController>>;
-  result?:LinuxOperationResult;readback?:Awaited<ReturnType<typeof runActualReadbacks>>;postguard?:{relativePath:string;sha256:string};
+  result?:LinuxOperationResult;readback?:Awaited<ReturnType<typeof runActualReadbacks>>|ColdSessionReadback;postguard?:{relativePath:string;sha256:string};
   runtimeSecrets?:Awaited<ReturnType<typeof materializeRuntimeSecrets>>;
   sharedConfiguration?:Awaited<ReturnType<Awaited<ReturnType<typeof createSharedRuntimeReader>>["read"]>>;
   failure?:unknown;revision?:number;clearanceRequest?:Parameters<typeof readWholeClearance>[0];

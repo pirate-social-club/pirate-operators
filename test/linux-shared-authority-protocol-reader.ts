@@ -40,7 +40,8 @@ export async function sharedAuthorityProtocolReader(input:{root:string;installat
  const sourceSha256=hash(JSON.stringify(source));
  const binding={...p.infrastructure.binding,installationId:f.profile.installationId,communityId:f.profile.communityId,
   hostingOrigin:f.profile.hostingOrigin,namespaceId:f.profile.namespaceId,sourceSha256,deploymentIdentityDigest:namespaceDigest(p.identity)};
- p.infrastructure={...p.infrastructure,directory:sharedProfileDocument(f.profile),configuration:f.config,registrySource:source,sourceSha256,binding,
+ assert(f.config.schema==="pirate.community-config/2","protocol_fixture_schema_changed");
+ p.infrastructure={...p.infrastructure,directory:sharedProfileDocument(f.profile),configuration:{...f.config,schema:f.config.schema},registrySource:source,sourceSha256,binding,
   mapping:{...p.infrastructure.mapping,linuxInstallationId:input.installationId,directoryInstallationId:f.profile.installationId,
    communityKey:f.profile.communityKey,communityId:f.profile.communityId,deploymentIdentityDigest:binding.deploymentIdentityDigest}};
  p.namespace={...p.namespace,binding};

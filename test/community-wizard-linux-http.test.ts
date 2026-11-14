@@ -4,7 +4,7 @@ import test from "node:test";
 import { request } from "node:http";
 import assert from "node:assert/strict";
 import { createWizardServer } from "../apps/community-wizard/server/http.ts";
-import { LinuxInputError } from "../packages/community-setup/shared-linux-profile.ts";
+import { LinuxInputError, record, text } from "../packages/community-setup/shared-linux-profile.ts";
 import { linuxFixture } from "./community-wizard-linux-fixture.ts";
 async function listening(server: ReturnType<typeof createWizardServer>) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -24,7 +24,7 @@ test("an unmounted Linux backend is explicitly unavailable and cannot deploy via
   const origin = await listening(server);
   t.after(() => close(server));
   const response = await fetch(`${origin}/api/linux/state`),
-    state = await response.json();
+    state = record(await response.json());
   assert.equal(state.available, false);
   assert.equal(state.legacyAvailable, false);
   assert.equal("state" in state, false, "no fake ready/deployed state");
@@ -33,7 +33,7 @@ test("an unmounted Linux backend is explicitly unavailable and cannot deploy via
     headers: {
       origin,
       "content-type": "application/json",
-      "x-wizard-token": state.csrf,
+      "x-wizard-token": text(state.csrf,64),
     },
     body: JSON.stringify({ approved: true }),
   });
@@ -71,9 +71,9 @@ test("Linux mounting requires actual operator authentication; loopback and a CSR
   t.after(() => close(server));
   assert.equal((await fetch(`${origin}/api/linux/state`)).status, 401);
   const session = { cookie: "fixture_operator=paired" };
-  const state = await (
+  const state = record(await (
     await fetch(`${origin}/api/linux/state`, { headers: session })
-  ).json();
+  ).json());
   assert.equal(state.available, true);
   const post = (headers: Record<string, string>, body: unknown) =>
     fetch(`${origin}/api/linux/destination`, {
@@ -82,7 +82,7 @@ test("Linux mounting requires actual operator authentication; loopback and a CSR
         ...session,
         origin,
         "content-type": "application/json",
-        "x-wizard-token": state.csrf,
+        "x-wizard-token": text(state.csrf,64),
         ...headers,
       },
       body: JSON.stringify(body),
@@ -124,7 +124,7 @@ test("Linux mounting requires actual operator authentication; loopback and a CSR
     { revision: 0, mode: "restore", target: { kind: "local-linux" } },
   );
   assert.equal(saved.status, 200);
-  assert.equal((await saved.json()).state.destination.mode, "restore");
+  assert.equal(record(record(record(await saved.json()).state).destination).mode, "restore");
   assert.equal(f.facts.nativeIntents.length, 0);
 });
 
@@ -160,9 +160,9 @@ test("actual HTTP ciphertext streaming outlives the metadata bound and keeps an 
   const origin = await listening(server);
   t.after(() => close(server));
   const session = { cookie: "fixture_operator=paired" };
-  const state = await (
+  const state = record(await (
     await fetch(origin + "/api/linux/state", { headers: session })
-  ).json();
+  ).json());
   const bytes = Buffer.from(
     "controlled ciphertext stream fixture; not real encryption",
   );
@@ -175,7 +175,7 @@ test("actual HTTP ciphertext streaming outlives the metadata bound and keeps an 
           ...session,
           origin,
           "content-type": "application/octet-stream",
-          "x-wizard-token": state.csrf,
+          "x-wizard-token": text(state.csrf,64),
           "x-backup-size": String(bytes.length),
         },
       },

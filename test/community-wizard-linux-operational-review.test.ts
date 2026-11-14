@@ -22,8 +22,10 @@ test("actual controller captures restore kind while backend retains original sig
  await f.setup.stageBackup(bytes(),fixtureCiphertext.length);await f.setup.inspectBackup({recoveryKey:fixtureKey});await f.setup.namespace();
  const prepare=f.backend.prepare,original=structuredClone(f.facts.restoreProfile),originalBytes=JSON.stringify(original);
  f.backend.prepare=async input=>{
-  const plan=await prepare(input);plan.profile=structuredClone(original);plan.profileDigest=digestJson(plan.profile);plan.backend.release.selectedProfileDigest=plan.profileDigest;
-  const {digest,...body}=plan;return {...body,digest:digestJson(body)};
+  const plan=await prepare(input),profile=structuredClone(original),profileDigest=digestJson(profile);
+  const {digest,...body}=plan;
+  const selected={...body,profile,profileDigest,backend:{...plan.backend,release:{...plan.backend.release,selectedProfileDigest:profileDigest}}};
+  return {...selected,digest:digestJson(selected)};
  };
  await f.setup.review();const plan=f.setup.snapshot().plan!;
  await f.setup.deploy({revision:f.setup.snapshot().revision,planDigest:plan.digest,targetFingerprint:plan.targetFingerprint,approved:true});

@@ -14,11 +14,11 @@ import {RESULT_MAX_BYTES,INTENT_MAX_BYTES,JOURNAL_MAX_BYTES,JOURNAL_CAPACITY_POL
 import {resultFrom} from "../apps/community-wizard/server/linux-operator-boundary.ts";
 import type {LinuxDeploymentPort,LinuxOperationResult} from "../apps/community-wizard/server/linux-contracts.ts";
 function sizedResult(f:Awaited<ReturnType<typeof linuxFixture>>,id:string,bytes:number,tag:string) {
-  const r=f.result(id);r.lastCompletedPhase=tag;
+  const base={...f.result(id),lastCompletedPhase:tag};
   // Exercise every full result byte, not a small terminal assumption. Native
   // process-rich profiles also remain subject to this whole-encoding bound.
-  const padding=bytes-encodedBytes(r);assert.ok(padding>=0);
-  r.lastCompletedPhase+= "r".repeat(padding);assert.equal(encodedBytes(r),bytes);
+  const padding=bytes-encodedBytes(base);assert.ok(padding>=0);
+  const r={...base,lastCompletedPhase:tag+"r".repeat(padding)};assert.equal(encodedBytes(r),bytes);
   return r;
 }
 test("near byte cap distinct pending results preserve the largest admitted terminal, survive interrupted observation/restart and refuse a new effect",async(t)=>{
@@ -117,7 +117,7 @@ test("encoding bounds cover complete results and intents rather than dropping ev
   const op=f.setup.snapshot().operation!;
   const full=sizedResult(f,op.id,RESULT_MAX_BYTES,"maximum");
   assert.deepEqual(resultFrom(full,op),full);
-  const bigger=structuredClone(full);bigger.lastCompletedPhase+="x";assert.throws(()=>resultFrom(bigger,op),/exceeds|outcome/);
+  const bigger={...full,lastCompletedPhase:full.lastCompletedPhase+"x"};assert.throws(()=>resultFrom(bigger,op),/exceeds|outcome/);
   assert.equal(RESULT_MAX_BYTES,524_288);assert.equal(INTENT_MAX_BYTES,262_144);assert.equal(JOURNAL_MAX_BYTES,2_097_152);
   assert.equal(f.setup.snapshot().capacityPolicy,JOURNAL_CAPACITY_POLICY);
 });

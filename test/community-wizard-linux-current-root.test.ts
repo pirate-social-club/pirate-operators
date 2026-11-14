@@ -26,8 +26,9 @@ async function mounted(t:import("node:test").TestContext){
  return {f,server,origin,seen,client:createLinuxClient(transport)};
 }
 test("typed same-origin transport reaches real authenticated controller routes and preserves CSRF denial",async(t)=>{
- const {f,client,seen}=await mounted(t);const s=await client.state();assert.equal(s.available,true);
+ const {f,client,seen}=await mounted(t);const s=await client.state();
  if(!s.available)throw Error(s.correction);
+ assert.equal(s.available,true);
  await client.send({action:"settings",input:{revision:s.state.revision,draft:f.draft}},s.csrf);
  assert.equal(f.setup.snapshot().draft?.version,2);assert.equal(seen.at(-1)?.path,"/api/linux/settings");
  assert.equal(seen.at(-1)?.credentials,"same-origin");assert.equal(seen.at(-1)?.headers.get("x-wizard-token"),s.csrf);
@@ -36,8 +37,9 @@ test("typed same-origin transport reaches real authenticated controller routes a
  const calls=seen.length;await assert.rejects(client.request("https://foreign.example/other",{},s.csrf),/Unknown/);assert.equal(seen.length,calls);
 });
 test("ciphertext and separate recovery key use distinct actual typed endpoints without key persistence",async(t)=>{
- const {f,client,seen}=await mounted(t);let s=await client.state();assert.ok(s.available);
+ const {f,client,seen}=await mounted(t);let s=await client.state();
  if(!s.available)throw Error(s.correction);
+ assert.ok(s.available);
  s=await client.send({action:"destination",input:{revision:s.state.revision,mode:"restore",target:{kind:"local-linux"}}},s.csrf);
  const file=new File([fixtureCiphertext],"fixture.enc",{type:"application/octet-stream"});
  s=await client.send({action:"backup",input:{},file},s.csrf);

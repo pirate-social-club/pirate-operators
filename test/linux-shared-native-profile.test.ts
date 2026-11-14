@@ -51,7 +51,7 @@ test("source registry resource and Directory mapping mutations are not normalize
  for(const mutate of [
   (x:typeof p)=>{x.infrastructure.mapping.directoryInstallationId="0x"+"a".repeat(64);},
   (x:typeof p)=>{x.infrastructure.binding.sourceSha256="b".repeat(64);},
-  (x:typeof p)=>{x.identity.communityId="0x"+"a".repeat(64);},
+  (x:typeof p)=>{x.identity.communityId="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";},
   (x:typeof p)=>{x.infrastructure.configuration.app.origin="https://other.example";},
  ]){
   const changed=structuredClone(p);mutate(changed);assert.throws(()=>linuxProfileFrom(changed));

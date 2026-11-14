@@ -222,7 +222,7 @@ function dependencies(
     deploymentBlock: BigInt(deployment.directoryProfile.deploymentBlock),
   };
   // Both exact Directory ABIs retain their own closed authenticated reader.
-  const readHistory=()=>{
+  const readHistory=():Promise<CommunityConfig[]>=>{
     if("schema" in directory)return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
     return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
   };
