@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "node scripts/build.ts",
-    "test": "node --test test/*.test.ts",
+    "test": "node --test test/*.test.ts src/shell/community-membership.test.ts",
     "test:e2e": "playwright test",
     "check:reproducible": "node scripts/reproducible.ts",
     "check": "npm run typecheck && npm test && npm run test:components && npm run build && npm run build:live && npm run test:e2e && npm run test:e2e:live && npm run test:e2e:wallet && npm run test:e2e:owner-ui",
