@@ -80,6 +80,22 @@
       "pageUpdated": null,
       "summary": "MegaETH testnet support for Turbo/Subgraphs; project, dataset, costs and destination unconfigured.",
       "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "mega-nonce",
+      "url": "https://docs.megaeth.com/developer-docs/rpc/reference/eth_gettransactioncount",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Account nonce by block; documented gateway treats pending as latest. Supporting observation only, not proof of the transaction that consumed a nonce or current testnet behavior.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "eip-1559",
+      "url": "https://eips.ethereum.org/EIPS/eip-1559",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Ordinary EVM typed transaction and sender-nonce equality; not proof of provider replacement policy or MOSS intent cancellation.",
+      "status": "primary-specification-not-runtime-evidence"
     }
   ]
 }

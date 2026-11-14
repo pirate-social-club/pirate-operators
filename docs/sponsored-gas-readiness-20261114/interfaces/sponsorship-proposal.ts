@@ -38,6 +38,30 @@ export interface ExactCall {
   readonly nativeValueWei: Decimal;
   readonly semanticArgumentsDigest: Hash;
 }
+export interface PilotAdmission {
+  readonly reference: string;
+  readonly revision: Decimal;
+  readonly principal: string;
+  readonly communityId: Hash;
+  readonly installationId: Hash;
+  readonly namespaceId: Hash;
+  readonly operationKind: Operation["operationKind"];
+  readonly constraintsDigest: Hash;
+  readonly expiresAt: Decimal;
+}
+export interface ActionAuthority {
+  readonly kind:
+    | "issuer-grant-and-recipient-consent"
+    | "name-holder" | "name-manager" | "name-approved-operator"
+    | "learner-publication-consent" | "first-learner-consent"
+    | "directory-controller" | "authorized-service-producer";
+  readonly evidenceDigest: Hash;
+  readonly source: SourceBinding;
+  readonly safeBlockNumber: Decimal;
+  readonly safeBlockHash: Hash;
+  readonly exactScopeAndRevisionDigest: Hash;
+  readonly validUntil: Decimal;
+}
 export interface ActorProof {
   readonly kind: "wallet" | "service";
   readonly principal: string;
@@ -46,18 +70,30 @@ export interface ActorProof {
   readonly proofDigest: Hash;
   readonly challengeNonce: Hash;
   readonly expiresAt: Decimal;
-  readonly pirateMembershipReference: string;
-  readonly membershipRevision: Decimal;
+  readonly pilotAdmission: PilotAdmission;
+  readonly actionAuthority: ActionAuthority;
+}
+// These references need independent verification. They are not member records
+// or permission to trust a community Worker. First claim/consent can bootstrap.
+export interface SafeSimulation {
+  readonly callDigest: Hash;
+  readonly authorityEvidenceDigest: Hash;
+  readonly safeBlockNumber: Decimal;
+  readonly safeBlockHash: Hash;
+  readonly result: "success";
+  readonly evidenceReference: string;
+  readonly validUntil: Decimal;
 }
 export interface Operation {
-  readonly schema: "pirate.sponsor-operation-proposal/1";
+  readonly schema: "pirate.sponsor-operation-proposal/2";
   readonly community: CommunityBinding;
   readonly logicalOperationId: Hash;
   readonly operationKind:
     | "free-name-claim" | "name-record" | "name-transfer" | "name-renewal"
     | "directory-enrollment" | "directory-configuration" | "community-post"
-    | "learning-result";
+    | "learning-authorization" | "learning-result";
   readonly actor: ActorProof;
+  readonly simulation: SafeSimulation;
   readonly calls: readonly ExactCall[];
   readonly canonicalBytesDigest: Hash;
   readonly policyEpoch: string;
@@ -74,6 +110,12 @@ export interface FeeBound {
   readonly nativeValueUpperBoundWei: Decimal;
   readonly accountingSemanticsReference: string;
   readonly estimateBlockHash: Hash;
+  readonly pricingPolicyReference: string;
+  readonly observedUnitFeeWei: Decimal;
+  readonly observedAt: string;
+  readonly multiplierNumerator: Decimal;
+  readonly multiplierDenominator: Decimal;
+  readonly absoluteOperationCeilingWei: Decimal;
   readonly expiresAt: Decimal;
 }
 export interface BackendOriginal {
@@ -108,7 +150,7 @@ export interface MossOriginal {
 export type Original = BackendOriginal | MossOriginal;
 
 export interface ReservedAuthority {
-  readonly schema: "pirate.sponsor-reservation-proposal/1";
+  readonly schema: "pirate.sponsor-reservation-proposal/2";
   readonly reservationId: Hash;
   readonly logicalOperationId: Hash;
   readonly operationDigest: Hash;
@@ -141,13 +183,50 @@ export interface SafeReceipt {
   readonly measuredSponsorDebitWei: Decimal | null;
   readonly reconciliationReference: string;
 }
-export type Recovery =
+export type ExactOriginalRecovery =
   | { readonly state: "unknown"; readonly original: Original; readonly reservedWei: Decimal; readonly reason: string }
-  | { readonly state: "safe-consumed" | "safe-reverted"; readonly original: Original; readonly receipt: SafeReceipt; readonly outstandingWei: Decimal }
+  | { readonly state: "safe-consumed"; readonly original: Original; readonly receipt: SafeReceipt & { readonly status: "success"; readonly intendedExecutionProven: true }; readonly outstandingWei: Decimal }
+  | { readonly state: "safe-reverted"; readonly original: Original; readonly receipt: SafeReceipt & { readonly status: "reverted" }; readonly outstandingWei: Decimal }
   | { readonly state: "expired-unconsumed"; readonly original: Original; readonly proofReference: string; readonly outstandingWei: Decimal };
 // A settled transaction may still have unknown fee accounting; outstandingWei
 // must retain the unresolved upper bound. Current owner/eligibility is separate.
 
+export interface ManualBackendAttempt {
+  readonly schema: "pirate.sponsor-backend-attempt-proposal/1";
+  readonly original: BackendOriginal;
+  readonly logicalOperationId: Hash;
+  readonly attemptId: Hash;
+  readonly purpose: "fee-bump" | "cancel";
+  readonly approvalDigest: Hash;
+  readonly approvalExpiresAt: Decimal;
+  readonly priorJournalSequence: Decimal;
+  readonly exactAttempt: BackendOriginal;
+  readonly newReservation: ReservedAuthority;
+  readonly preservedOriginalReservationId: Hash;
+}
+// Runtime rules must enforce identical original/attempt sender, nonce and chain.
+// Fee bump also preserves type/to/data/value/access list; cancellation is not
+// intended operation success. This interface is not a validator or SDK update.
+export interface SafeNonceConsumption {
+  readonly source: SourceBinding;
+  readonly sender: Address;
+  readonly nonce: Decimal;
+  readonly consumingRawTransaction: `0x${string}`;
+  readonly consumingTransactionHash: Hash;
+  readonly receipt: SafeReceipt;
+  readonly canonicalAncestryEvidence: string;
+}
+export type BackendAttemptRecovery =
+  | { readonly state: "replacement-executed"; readonly original: BackendOriginal; readonly attempt: ManualBackendAttempt; readonly proof: SafeNonceConsumption; readonly intendedExecutionEvidence: string; readonly outstandingWei: Decimal }
+  | { readonly state: "nonce-consumed-without-original-success"; readonly original: BackendOriginal; readonly attempt: ManualBackendAttempt | null; readonly proof: SafeNonceConsumption; readonly cause: "cancelled" | "replacement-reverted" | "unrecognized"; readonly outstandingWei: Decimal; readonly custodyPaused: boolean };
+// A different transaction is never returned as exact-original success.
+// The consuming proof must match the recorded attempt or trigger custody pause.
+export type Recovery = ExactOriginalRecovery | BackendAttemptRecovery;
+
+// Expired application intent does not expire an ordinary signed EOA transaction;
+// it can still be mined and revert. Keep its gas liability until excluded by
+// canonical nonce consumption or another actually enforced protocol condition.
+// MOSS expiry/nonce behavior requires its own proof; no backend assumption.
 export interface CostObservation {
   readonly schema: "pirate.sponsor-cost-observation-proposal/1";
   readonly logicalOperationId: Hash;

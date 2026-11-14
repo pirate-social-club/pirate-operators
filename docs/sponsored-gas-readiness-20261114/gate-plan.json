@@ -1,15 +1,15 @@
 {
-  "schema": "pirate.sponsor-readiness-gates/1",
+  "schema": "pirate.sponsor-readiness-gates/2",
   "allProposedCasesUnrun": true,
-  "count": 46,
+  "count": 72,
   "notTestDeclarations": true,
-  "scope": "Future separately allocated compatibility, service and indexer gates. All cases are unrun plans; this file supplies no execution evidence.",
+  "scope": "Design cases only, all UNRUN. No implementation or main operator rollout gate. Attester successor, manual nonce recovery, optional username policy and deferred restore cases require separately scoped qualification.",
   "cases": [
     {
       "id": "AUTH-01",
       "environment": "Workers integration",
-      "scenario": "Admitted wallet and exact Pirate membership authorize only own community/install/namespace operation",
-      "assertion": "Independent signature and authority evidence; no operator-app assertion used",
+      "scenario": "Manually admitted test wallet and existing action-specific authorization permit only its listed community/install/namespace/action",
+      "assertion": "Independent signature, pilot-list revision and actual contract authority verified; no general membership store or operator-app assertion required",
       "status": "UNRUN",
       "evidence": null
     },
@@ -24,7 +24,7 @@
     {
       "id": "AUTH-03",
       "environment": "Workers integration",
-      "scenario": "Expired/revoked membership, role, challenge or admission after an awaited read",
+      "scenario": "Expired/revoked action authorization, role, challenge or pilot admission after an awaited read",
       "assertion": "Revalidation prevents signing; reservation retained/released only under proven no-effect rule",
       "status": "UNRUN",
       "evidence": null
@@ -155,7 +155,8 @@
       "scenario": "Restore journal to before a signed authorization/spend while external signer fence is newer",
       "assertion": "All signing remains paused; reconstruct both spent and unbroadcast liability",
       "status": "UNRUN",
-      "evidence": null
+      "evidence": null,
+      "deliveryScope": "deferred-restore-design-only"
     },
     {
       "id": "REC-08",
@@ -163,7 +164,8 @@
       "scenario": "External outbox missing or old valid MOSS signature has not been broadcast",
       "assertion": "No recovery-complete claim from chain receipts alone; no epoch budget reset",
       "status": "UNRUN",
-      "evidence": null
+      "evidence": null,
+      "deliveryScope": "deferred-restore-design-only"
     },
     {
       "id": "REC-09",
@@ -272,7 +274,7 @@
     {
       "id": "ATT-02",
       "environment": "local controlled time",
-      "scenario": "Configuration changes, stale refresh evidence, authority revision refresh during grant collection",
+      "scenario": "Current immutable registry: configuration changes, stale evidence or authority refresh during grant collection",
       "assertion": "Correct invalidation/refusal; no stale authority acceptance",
       "status": "UNRUN",
       "evidence": null
@@ -372,6 +374,252 @@
       "assertion": "No top-up/key form or invented quota; status reflects actual authoritative readiness",
       "status": "UNRUN",
       "evidence": null
+    },
+    {
+      "id": "ATT-04",
+      "environment": "successor contract design",
+      "scenario": "Pure refresh matches admitted authority identity/epoch and current configuration while a grant is being signed",
+      "assertion": "Freshness sequence changes but claim-bound semantic authority revision does not; otherwise valid original grant survives",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-05",
+      "environment": "successor contract design",
+      "scenario": "Owner/scope/policy transition, suspension or delegated-attester revocation",
+      "assertion": "Semantic revision invalidates old grants; revocation clears usable freshness in the same transition without changing holder rights",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-06",
+      "environment": "successor contract design",
+      "scenario": "Attester tries to revive expired or suspended namespace/community",
+      "assertion": "Refuse; admin revival requires fresh evidence/new semantic revision; monotonic time and bounded lifetime still enforced",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-07",
+      "environment": "successor authority review",
+      "scenario": "Delegated key attempts new admission, issuance enable, policy/cap/treasury/admin change or false in-scope freshness",
+      "assertion": "Forbidden powers refused; in-scope oracle trust explicitly retained and observable until admin revocation",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-01",
+      "environment": "local sender qualification",
+      "scenario": "Lowest backend nonce stalls while several communities request new work",
+      "assertion": "Pause new signing for sender and bound queue; original receipt observation continues; no alternate sender/route/new nonce",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-02",
+      "environment": "local sender and real budget object",
+      "scenario": "Approved same-nonce fee bump competes for last budget headroom",
+      "assertion": "Exact original retained; only approved fee/gas fields change; new full reservation commits before sign; no headroom means refusal",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-03",
+      "environment": "canonical transaction fixture",
+      "scenario": "Cancellation, reverted replacement or foreign transaction consumes original sender nonce at safe block",
+      "assertion": "Never label original consumed/successful; prove bytes/hash/sender/nonce/ancestry, account for fees and pause on unrecognized spend",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-04",
+      "environment": "canonical reorg fixture",
+      "scenario": "Settlement released unused original liability then consuming transaction becomes noncanonical",
+      "assertion": "Invalidate outcome and reinstate liabilities; pause new signing on insufficient headroom; no automatic reissue",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-05",
+      "environment": "canonical transaction fixture",
+      "scenario": "Pending/latest nonce rises, block/transaction missing, or another sender has matching event",
+      "assertion": "No displacement proof or release; retain exact original reservation and unavailable state",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-06",
+      "environment": "local sender qualification",
+      "scenario": "Claim deadline expires before proposed replacement or while original remains signed",
+      "assertion": "Cannot change claim/consent to rescue; application expiry alone does not free gas liability of a still-mineable transaction",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-06",
+      "environment": "gateway qualification",
+      "scenario": "Valid issuer grant and recipient consent for first claim; no existing username or general membership entry",
+      "assertion": "Use exact grant entitlement plus pilot admission and contract checks; no circular name gate or second membership store",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-07",
+      "environment": "gateway qualification",
+      "scenario": "Holder/record manager/NFT operator/controller has some valid rights but wrong action, installation or community attribution",
+      "assertion": "Only actual method permissions and exact pilot constraints qualify; approval for one right is not all rights",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-08",
+      "environment": "gateway qualification",
+      "scenario": "Admitted wallet transfers name to a wallet absent from pilot list",
+      "assertion": "Contract transfer rights unchanged; later sponsorship refused for unlisted wallet without inventing production transfer membership",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-09",
+      "environment": "learning integration qualification",
+      "scenario": "Signed-in learner has pending valid consent but no on-chain authorization yet; withdrawal occurs or signature is replayed",
+      "assertion": "Permit correctly verified first-authorization bootstrap only; wrong community/origin/contract/revocation/replay refused; never call consent joining",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-08",
+      "environment": "safe-state simulation then local race",
+      "scenario": "Known revert at selected safe state versus successful simulation followed by state change before inclusion",
+      "assertion": "Known revert refused before reservation; later actual revert charged; simulation is not final permission or fee success",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-09",
+      "environment": "merchant gateway qualification",
+      "scenario": "Merchant helper succeeds while Pirate RPC holder/controller/role read is missing, stale or mismatched",
+      "assertion": "Pirate performs independent canonical-safe action checks; helper has no authority to bypass them",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-10",
+      "environment": "relay fault injection",
+      "scenario": "Relay outage before/after possible broadcast or payment-authorization response loss",
+      "assertion": "Preserve exact final intent and unknown fee liability; no automatic refund, replacement or cross-route replay",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-11",
+      "environment": "6343 finite cost observation",
+      "scenario": "Actual initialized/fresh MOSS nested consent signatures differ in length and account path",
+      "assertion": "Record actual signature/calldata bytes, estimate, receipt and payer debit; no EOA signature proxy for measured cost",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-12",
+      "environment": "real budget object and local chain",
+      "scenario": "Wallet repeatedly causes preflight failures or included reverts while community has headroom",
+      "assertion": "Atomic configured rate/revert-cost controls apply; included reverts remain charged and cannot be reset by retry/another name",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-05",
+      "environment": "measurement and budget qualification",
+      "scenario": "Observed unit fee changes; generous estimate bounds contend under concurrency",
+      "assertion": "Explicit multiplier/absolute per-flow bound and expiry enforced; no invented default, silent ceiling increase or count-only cap",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-06",
+      "environment": "canonical receipt accounting",
+      "scenario": "Safe settled operation has unused reservation while another has unknown extra fees",
+      "assertion": "Release only proven unused liability promptly; unknown retains bound; no double refund across retries",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UX-01",
+      "environment": "optional username policy review",
+      "scenario": "Member starts without a name or needs original recovery/renewal to repair expiry",
+      "assertion": "Initial claim, authentication, recovery and defined remediation avoid circular gating; fee and action checks still apply",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UX-02",
+      "environment": "optional username policy review",
+      "scenario": "Gated UI/API action after transfer/expiry or unavailable authority",
+      "assertion": "Apply explicit current-holder/community rule consistently; pilot admission stays independent; prior history remains",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UX-03",
+      "environment": "optional multi-name policy review",
+      "scenario": "Wallet holds several names, changes primary display name and later acquires another",
+      "assertion": "Any qualifying name can satisfy selected-feature gate; wallet/history stable; extra names do not multiply gas allowance or free entitlement",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-01",
+      "environment": "successor adoption review",
+      "scenario": "New attester or paid-issuance code proposed against immutable deployed registry",
+      "assertion": "No in-place upgrade claim or silent repointing; new source/ABI and exclusive uniqueness/holder-terms migration required before relied-upon adoption",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-02",
+      "environment": "successor module design review",
+      "scenario": "New or replacement issuer module attempts duplicate active name, cap reset, old-holder overwrite, altered locked terms or unapproved scope",
+      "assertion": "Immutable core enforces shared invariants across every issuer; paid/short-name policy specified separately; no assumed migration freeze or unlimited mint permission",
+      "status": "UNRUN",
+      "evidence": null
     }
-  ]
+  ],
+  "previousPublicCount": 46,
+  "addedCaseIds": [
+    "ATT-04",
+    "ATT-05",
+    "ATT-06",
+    "ATT-07",
+    "SUB-01",
+    "SUB-02",
+    "SUB-03",
+    "SUB-04",
+    "SUB-05",
+    "SUB-06",
+    "AUTH-06",
+    "AUTH-07",
+    "AUTH-08",
+    "AUTH-09",
+    "MOSS-08",
+    "MOSS-09",
+    "MOSS-10",
+    "MOSS-11",
+    "MOSS-12",
+    "COST-05",
+    "COST-06",
+    "UX-01",
+    "UX-02",
+    "UX-03",
+    "UPG-01",
+    "UPG-02"
+  ],
+  "amendedExistingCaseIds": [
+    "AUTH-01",
+    "AUTH-03",
+    "REC-07",
+    "REC-08",
+    "ATT-02"
+  ],
+  "unchangedExistingCaseCount": 41,
+  "deliveryNote": "All original 46 IDs retained. REC-07/08 remain deferred requirements, not pilot restore implementation gates. New successor and optional UX cases do not assert accepted interfaces or selected product policy."
 }

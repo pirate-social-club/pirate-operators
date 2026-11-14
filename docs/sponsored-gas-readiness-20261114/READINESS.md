@@ -31,14 +31,60 @@ Registry SharedNameRegistryV3.attestNamespace is onlyAdmin; MAX_AUTHORITY_LIFETI
 
 Expiry stops fresh resolution/discovery; it does not erase NFT ownership, change locked renewal terms or undo permanent claim consumption. Receipt recovery must continue without fresh HNS authority.
 
-For the first finite rehearsal, prepare hardware-reviewed refresh transactions inside an explicit observation window and stop when it ends. That is not unattended service readiness. A separately scoped successor could delegate refresh of already-admitted namespaces/communities, with revocation, monotonic evidence times, matching authority/configuration revisions and bounded expiry. It must not admit new namespaces, change issuance policy, clear migrations, move treasury, transfer admin, seize names or manufacture HNS authority. Existing attestNamespace includes issuanceEnabled, so a narrow role cannot be a blanket permission to call the current method. Define suspension versus re-enabling and observer trust explicitly before implementing it.
+Decide the attester design BEFORE any deployment that communities or holders will depend on. The accepted registry is immutable: introducing the role requires new bytecode, a generated ABI/hash, source verification, tests, consumer review and explicit adoption/migration. It cannot be installed by changing an admin setting. A disposable finite rehearsal on the current build may use hardware-reviewed manual refreshes in a stated observation window; do not present it as unattended service readiness.
 
-Such a successor requires review, generated ABI/code pins, tests and explicit adoption/migration. This packet proposes no contract edit, new TTL, silent repointing or admin custody change. Zero/paid locked renewal sponsorship remains permissionless in the contract; the sponsor may independently refuse unwanted renewals.
+Proposed successor semantics, still design-only:
+- Separate the claim-bound semantic authority revision from a monotonic observation sequence. A pure freshness refresh for the SAME admitted authority identity, namespace and configuration leaves the semantic revision unchanged, so an otherwise valid in-flight grant survives. Keep evidence hash/time and a refresh event/sequence separately.
+- Bind a delegated refresh to the expected authority/configuration revision, exact scope and current delegation. Require independent current evidence, monotonic observation time and the existing bounded lifetime. A changed owner, authority identity, scope or issuance policy is an admin-controlled semantic transition that invalidates old grants. The exact authority-identity commitment and migration mapping must be specified in the successor; the current evidence hash alone is not such a commitment.
+- The attester may only extend still-live, enabled attestations for its explicitly delegated scopes. It cannot revive lapsed or suspended authority, enable issuance, admit namespaces, change policy/caps/treasury/admin, clear migrations or seize names. Admin revival requires fresh evidence and a new semantic revision. Directory refresh additionally binds the current installation/configuration and controller; a configuration change still needs new matching verification.
+- Admin revocation must atomically remove the delegation, invalidate that scope's freshness and bump the semantic revision, preventing continued use of a compromised attestation. It must not delete names, change locked terms or undo receipts. A subsequent admin re-admission must use fresh evidence.
+- The online attester is still trusted to observe outside TLD ownership accurately. Scope restriction cannot prevent a stolen attester from lying about freshness within its scope before revocation. Monitoring, bounded lifetime and explicit revocation limit exposure; they do not turn an off-chain observation into a trustless proof.
+
+Existing attestNamespace includes issuanceEnabled, so granting the current whole method to an online key would not implement this proposal. On the current build, coordinate manual refresh with the finite signing window; a stale grant is refused and preserved. Do not silently issue a new claim, nonce or consent as a retry. Neither this proposal nor pure refresh changes the 24-hour maximum.
+
+Zero/paid locked renewals remain permissionless in the contract. The sponsor may independently refuse unwanted renewals; no holder-only contract change is proposed.
 
 ## Needed public inputs
 
 All pilot public addresses and custody references are unspecified in this proposal. The rehearsal coordinator needs public addresses and custody references, dedicated test namespace authority, an admitted community/install/origin/namespace binding, supported wallet/account implementation pins, verified RPC/faucet network, safe-lag observations, fee bounds and separate signer scope attestations. Do not request or copy private keys.
 
-Application membership needs an independently authoritative Pirate-owned record or signed entitlement from a trusted issuer. No currently inspected directory record alone proves membership or sponsorship admission. If that join is missing, refuse sponsorship; the operator-owned app's assertion is insufficient.
+## Pilot eligibility: existing action authority plus an explicit test list
+
+For the pilot, Pirate maintains a small versioned allowlist of test wallet/service identities, communities, installations, namespaces and exact allowed actions. This limits pilot exposure; it is not a new membership database or blanket sponsorship of admitted wallets. A valid application session or operator-owned Worker assertion is insufficient. Every request separately proves the action's actual authorization and passes fee/rate limits.
+
+| Action | Existing evidence to verify independently |
+|---|---|
+| Initial free-name claim | Approved issuer's exact scoped grant and recipient consent, live revisions/quote and caps. The grant is the entitlement decision; do not require an existing username or a second general membership record. |
+| Name record/transfer | Current holder, record manager or approved operator as allowed by the exact contract method; verify the namespace/name/generation and admitted community attribution. Pilot policy may be narrower. |
+| Renewal | Contract renewal is permissionless. Pilot sponsorship may require the current holder, admitted name and explicit renewal window; this is a payer rule only. |
+| Learning result | That community's live learner publication consent and authorized grader/result rules. Consent is not general membership or spending permission. |
+| First learner authorization | Verify the exact signed community/origin/contract-bound consent and current withdrawal/replay state; do not require the on-chain authorization that this very operation will establish. |
+| Directory configuration | Current controller and exact configuration/install/source binding. A username alone does not grant controller authority. |
+
+The learning sign-in text explicitly separates publication consent from joining. Its authorization is lazily relayed at first practice, so a signed-in learner can lack an on-chain entry. See [LearningResultsV4 at af70dc7](https://github.com/pirate-social-club/pirate-operators/blob/af70dc7e744c2f4b4886802e4b78125d3eb79444/contracts/LearningResultsV4.sol) and [learning-sign-in service](https://github.com/pirate-social-club/pirate-operators/blob/af70dc7e744c2f4b4886802e4b78125d3eb79444/services/learning-sign-in.ts). These references establish specific relationships, not a complete membership registry or a new contract audit.
+
+A claim event records the originating community/recipient; current NFT ownership may have changed. Neither alone proves general current membership. Transferring a name to an unlisted test wallet does not admit that wallet to this pilot. Production membership and transfer-based sponsorship policy remain undecided. Where an existing action-specific authorization is sufficient, a general member list may never be needed.
+
+An optional selected-feature username gate is described in UI-NOTE.md. It is an app policy proposal, not a universal contract requirement or a live adoption decision.
 
 No fee/currency/renewal amount is selected here. Initial free claim must remain first-year, eligible ordinary label >=8, exact maxCost0/effective price0, genuine reservation/premium checks, separate grant signer/submitter and finite issuance caps. Token renewal charges are separate from sponsored gas. A zero renewal price permits indefinite third-party extensions within the contract's term limits; it is not a reason to sponsor them.
+
+## Upgrade boundary and later paid names
+
+The accepted shared registry has no proxy or in-place upgrade entry point. Admin configuration may change only the parameters the deployed contract explicitly exposes. Multiple NFTs per wallet already work; paid initial purchases and delegated attestations do not become available through an admin configuration change.
+
+Keep the current pilot disposable. Before deploying a version others will rely on, settle the narrow attester change and the future issuance/migration boundary together. Do not add a broad proxy solely to implement an app-level username gate. A successor is possible but requires new reviewed code/generated ABI, exact source/deployment pins and explicit consumer selection. Keeping namespace/label identifiers stable does not migrate ERC-721 ownership or prevent a second contract from issuing a conflicting name.
+
+Preserve holder consent where required, full-name uniqueness across the selected versions, provenance, existing NFT rights and locked renewal terms. Do not silently repoint resolvers or overwrite old deployment manifests. The existing [migration specification](https://github.com/pirate-social-club/pirate-registry/blob/56d63ad2738e0e6816b6157dba7174198700f2fa/docs/SHARED-NAMES-MIGRATION-V1.md) is a boundary, not an implemented automatic migration. Contract upgrades are therefore possible through explicit successors, not easy transparent code replacement.
+
+## Proposed successor scope to settle before real users
+
+The current build is a disposable pilot. Known successor requirements are narrow delegated attestation, a separately specified paid initial purchase path and an explicit renewal policy. Do not market paid/short-name acquisition on the current free-only ABI, or defer the ownership architecture decision until many holders depend on it.
+
+One option to review is an immutable ownership/lifecycle core with admin-approved issuance modules. This is not an accepted or implemented design yet. It is only useful if the CORE enforces canonical full-name uniqueness, existing generation/holder protection, reservations, term/price locks and shared namespace/community lifetime counters across every issuer. Replacing a module cannot reset caps, overwrite an active name, seize a token, alter existing locked terms or bypass required consent. Separate module interfaces and scopes must not provide delegatecall/arbitrary storage access or an unrestricted mint backdoor. Paid issuance pricing, payment/currency/refunds and short-label policy still need an exact specification.
+
+Module approval is a powerful new-admission authority, even without ownership upgrade power. Preserve explicit admin custody, scope revocation, separate operational keys and bounded caps. The alternative of a general upgradeable proxy would give its upgrader power to rewrite holder rules; it is not proposed for a single-admin pilot. Neither architecture is selected by this documentation update.
+
+Stopping attestation or selecting a new resolver source does NOT freeze transfers or renewals in the old registry. A static snapshot can become stale. Migration must establish an exclusive authoritative cutover with continuing reconciliation or a specifically reviewed enforceable holder-authorized mechanism, preserving existing obligations. Resolver control alone is not proof of holder-preserving migration. A locked zero renewal price also has no automatic sunset. No freeze/export/migration capability is invented here.
+
+There is no per-wallet free-name cap in the accepted contract. Namespace and community counters are on-chain backstops; any one-free-name entitlement is an issuer/service policy requiring durable exact grant accounting. Do not infer that policy from token balance or assume a transfer restores an entitlement. No primary-name record exists in the accepted registry; display selection stays in the app.
