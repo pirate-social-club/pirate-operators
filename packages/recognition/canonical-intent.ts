@@ -1,5 +1,5 @@
 import { keccak256, parseTransaction, recoverTransactionAddress, type TransactionSerializedLegacy } from "viem";
-import { canonical, hashJson, insist, object } from "../community/common.ts";
+import { canonical, CommunityError, hashJson, insist, object } from "../community/common.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import { publicationInput } from "../community/publication-input.ts";
 import { requireAuthorizedOwner } from "../community/owner-authorization.ts";
@@ -32,7 +32,11 @@ export async function readCanonicalIntent(ports:CanonicalIntentPorts,jobId:strin
     .bind(jobId).first<Record<string,unknown>>();
   const before=await snapshot(),config=await ports.currentConfiguration();
   insist(before&&catalogOwner(config.policies.admission)&&config.policies.recognition,"recognition_owner_intent_unavailable",403);
-  const input=await publicationInput(ports.db,ports.media,jobId,config),
+  const input=await publicationInput(ports.db,ports.media,jobId,config).catch((error:unknown)=>{
+    if(error instanceof CommunityError&&error.code==="sealed_media_missing_or_changed")
+      throw new CommunityError("recognition_sealed_media_changed",409);
+    throw error;
+  }),
     owner=await requireAuthorizedOwner(await ports.ownerAuthorization(),config,input.row.captured_wallet);
   await ports.currentAccount(input.row.account_id,input.row.captured_wallet,input.row.author_id);
   insist(config.policies.recognition.signer!==owner.ownerWallet,"recognition_signer_role_collision",403);

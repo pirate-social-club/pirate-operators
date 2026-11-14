@@ -6,6 +6,7 @@ import { hashJson } from "../packages/community/common.ts";
 import { catalogObligation } from "../packages/community/catalog-outbox.ts";
 import { loadJob } from "../packages/community/publication-store.ts";
 import { CATALOG_OWNER_POLICY_VERSION } from "../packages/community/owner-policy.ts";
+import type { CommunityFeed } from "../packages/community/application-api.ts";
 import { reservationFixture, otherOwner } from "./recognition-reservation-fixture.ts";
 import { submit,drive,rows } from "./recognition-reservation-helpers.ts";
 
@@ -24,6 +25,11 @@ test('two actual community applications publish restrictive songs into one share
       assert.equal(o.state,'complete');assert.ok(o.posting_json&&o.chain_receipt_json&&o.promotion_receipt_json);
       const operations=await rows(f.apps[i]!.f.community.db,'external_operations');
       assert.deepEqual(operations.map(r=>r.step),['catalog_reserve','pin_audio','pin_lyrics','pin_manifest','publication','catalog_confirm']);
+      const feed=await f.apps[i]!.call('/api/feed');
+      assert.equal(feed.status,200,await feed.clone().text());
+      const body:CommunityFeed=await feed.json();
+      assert.equal(body.schema,'pirate.community-feed/1');assert.equal(body.communityId,song.intent.communityId);
+      assert.equal(body.posts.find(post=>post.manifest.postId===song.intent.postId)?.manifest.schema,'pirate.community-post/4');
       const post=JSON.parse(String((await rows(f.apps[i]!.f.community.db,'public_post_revisions'))[0]!.manifest_json));
       assert.equal(post.schema,'pirate.community-post/4');assert.equal(post.admission.policyVersion,CATALOG_OWNER_POLICY_VERSION);
       assert.equal(post.terms.allowsDerivatives,false);

@@ -2,7 +2,7 @@ import { address } from "../packages/community/manifest-core.ts";
 // UNRUN. Real service/authority/database paths with explicit transport faults.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hashJson, publicId } from "../packages/community/common.ts";
+import { CommunityError, hashJson, publicId } from "../packages/community/common.ts";
 import { signRecognitionRequest, type RecognitionAction } from "../packages/recognition/authorization.ts";
 import { verifyReservation } from "../packages/recognition/reservation-receipt.ts";
 import { ReservationStore } from "../packages/recognition/reservation-store.ts";
@@ -158,4 +158,18 @@ test('sealed private media changed during async signing cannot produce a ready p
     const response=await send(f,'/v1/reservations/status',await wire(f,s.jobId));assert.equal(response.status,409);
     assert.equal(s.app.f.posts.broadcasts(),0);
   }finally{await f.dispose();}
+});
+
+test('private media outage during async signing retains its distinct 503 response',async()=>{
+  const f=await reservationFixture(),ports=f.apps[0]!.f.canonicalPorts,media=ports.media;
+  try {
+    const s=await submit(f);await readyReservation(f,s);
+    f.beforeSign(async()=>{ports.media=new Proxy(media,{get(target,key,receiver){
+      if(key==='head')return async()=>{throw new CommunityError('private_media_unavailable',503);};
+      return Reflect.get(target,key,receiver);
+    }});});
+    const response=await send(f,'/v1/reservations/status',await wire(f,s.jobId));
+    assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'private_media_unavailable'});
+    assert.equal(s.app.f.posts.broadcasts(),0);
+  }finally{ports.media=media;await f.dispose();}
 });

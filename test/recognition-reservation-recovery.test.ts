@@ -9,12 +9,18 @@ import { journalFault } from "./recognition-journal-fault.ts";
 
 for(const boundary of [
   {name:'provider response retained before disposition',sql:/UPDATE shared_recognition_original_calls SET state='received'/},
-  {name:'upload intent before provider send',sql:/UPDATE shared_recognition_recordings SET state=/},
+  {name:'upload intent before provider send',sql:(sql:string,values:unknown[])=>/INSERT INTO shared_recognition_events/.test(sql)&&/UPDATE shared_recognition_recordings SET state=\?/.test(sql)&&values[0]==='upload_unknown'&&values[1]==='{"reason":"upload_intent"}'},
   {name:'verification receipt before ready transition',sql:(sql:string,values:unknown[])=>/INSERT INTO shared_recognition_events/.test(sql)&&values[0]==='receipt:verify'},
 ] as const)test(`shared process death: ${boundary.name}`,async()=>{
   let fault:ReturnType<typeof journalFault>|undefined;
   const f=await reservationFixture({serviceDatabase:db=>{fault??=journalFault(db,boundary.sql);return fault.database;}});try {
     const s=await submit(f);await drive(f,s.jobId,0,8);assert.ok(fault?.fired());
+    if(boundary.name==='upload intent before provider send') {
+      const recording=(await rows(f.db,'shared_recognition_recordings'))[0]!;
+      assert.equal(recording.state,'upload_unknown');assert.equal(f.counts.uploads,0);
+      const events=await rows(f.db,'shared_recognition_events');
+      assert.ok(events.some(row=>row.recording_id===recording.recording_id&&row.kind==='upload_unknown'&&row.evidence_json==='{"reason":"upload_intent"}'));
+    }
     const calls=await rows(f.db,'shared_recognition_original_calls'),before=f.counts.identifies;
     f.restart();await drive(f,s.jobId,0,15);
     assert.equal((await rows(f.db,'shared_recognition_original_calls')).length,1);
