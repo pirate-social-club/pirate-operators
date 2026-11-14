@@ -264,7 +264,13 @@ contract CommunityDirectoryV2Test {
 
     function testRegistryLabelParityCanonicalHyphenPositions() public {
         string[8] memory valid = [
-            string("a"), "0", "a-b", "a--b", "ab-cd", "abc--d", "x-n",
+            string("a"),
+            "0",
+            "a-b",
+            "a--b",
+            "ab-cd",
+            "abc--d",
+            "x-n",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ];
         for (uint256 i; i < valid.length; ++i) {
@@ -274,8 +280,21 @@ contract CommunityDirectoryV2Test {
             );
         }
         string[17] memory invalid = [
-            string(""), "ab--cd", "xn--thing", "a0--b", "12--3", "ab---c", "-a", "a-", "A", "a.b", "a_b",
-            unicode"é", "a\n", "a\r\n", string(bytes.concat(bytes("a"), hex"e280a8")),
+            string(""),
+            "ab--cd",
+            "xn--thing",
+            "a0--b",
+            "12--3",
+            "ab---c",
+            "-a",
+            "a-",
+            "A",
+            "a.b",
+            "a_b",
+            unicode"é",
+            "a\n",
+            "a\r\n",
+            string(bytes.concat(bytes("a"), hex"e280a8")),
             string(bytes.concat(bytes("a"), hex"e280a9")),
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         ];
