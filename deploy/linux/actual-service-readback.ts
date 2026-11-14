@@ -99,7 +99,7 @@ export async function runActualReadbacks(input:{
       }
       observations.push({role:spec.role,observed,responseSHA256:canonicalDigest(response.bytes.toString("base64")),
         certificateFingerprint:response.certificateFingerprint});
-    } finally {body?.fill(0);response.bytes.fill(0);}
+    } finally {for(const bytes of [body,response.bytes])bytes?.fill(0);}
   }
   const evidence=await input.lease.record("actual-selected-handler-readbacks",{profileDigest:input.profileDigest,generation:input.generation,observations});
   assertBinding();await authorize();assertBinding();

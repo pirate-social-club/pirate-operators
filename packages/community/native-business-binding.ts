@@ -1,3 +1,4 @@
+import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { insist, canonical, hashText, exact, object } from "./common.ts";
 import { linuxProfileFrom } from "../community-setup/shared-linux-profile.ts";
 import type { ProfileAdmission,CurrentAdmission } from "../../deploy/linux/full-profile-authority.ts";

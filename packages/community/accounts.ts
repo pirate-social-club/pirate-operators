@@ -1,3 +1,4 @@
+import type { D1Database } from "@cloudflare/workers-types";
 import { captureNativeBusiness } from "./native-business-binding.ts";
 import { createSiweMessage } from "viem/siwe";
 import { getAddress, hashMessage, isAddress, type Address, type Hex } from "viem";

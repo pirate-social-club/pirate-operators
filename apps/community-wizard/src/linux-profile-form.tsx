@@ -203,7 +203,7 @@ export function LinuxProfileForm(props: {
           </select>
         </label>
         <Show when={props.value.target.kind === "ssh-linux"}>
-          {() => (
+          {(_visible) => (
             <>
               {input(
                 "SSH host",
