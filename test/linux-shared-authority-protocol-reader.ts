@@ -13,6 +13,7 @@ import {signRecord,canonicalDigest,type TrustAnchor} from "../deploy/linux/insta
 import {hash,type OperationLease} from "../deploy/linux/backend-state.ts";
 import {namespaceDigest} from "../packages/community-names/namespace-registry-adapter.ts";
 import {sharedProfileDocument} from "../packages/community/shared-directory.ts";
+import {validateSharedConfig} from "../packages/community/shared-config-manifest.ts";
 import {linuxProfileFrom} from "../packages/community-setup/shared-linux-profile.ts";
 export async function sharedAuthorityProtocolReader(input:{root:string;installationId:string;trust:TrustAnchor;privateKey:Uint8Array;lease:OperationLease}){
  const f=await sharedDirectoryFixture();
@@ -41,7 +42,9 @@ export async function sharedAuthorityProtocolReader(input:{root:string;installat
  const binding={...p.infrastructure.binding,installationId:f.profile.installationId,communityId:f.profile.communityId,
   hostingOrigin:f.profile.hostingOrigin,namespaceId:f.profile.namespaceId,sourceSha256,deploymentIdentityDigest:namespaceDigest(p.identity)};
  assert(f.config.schema==="pirate.community-config/2","protocol_fixture_schema_changed");
- p.infrastructure={...p.infrastructure,directory:sharedProfileDocument(f.profile),configuration:{...f.config,schema:f.config.schema},registrySource:source,sourceSha256,binding,
+ const configuration=validateSharedConfig(f.config,f.profile);
+ assert.deepEqual(configuration,f.config,"protocol_fixture_configuration_changed");
+ p.infrastructure={...p.infrastructure,directory:sharedProfileDocument(f.profile),configuration,registrySource:source,sourceSha256,binding,
   mapping:{...p.infrastructure.mapping,linuxInstallationId:input.installationId,directoryInstallationId:f.profile.installationId,
    communityKey:f.profile.communityKey,communityId:f.profile.communityId,deploymentIdentityDigest:binding.deploymentIdentityDigest}};
  p.namespace={...p.namespace,binding};

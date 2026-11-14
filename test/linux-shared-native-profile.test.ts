@@ -49,7 +49,7 @@ test("V1 cannot become V2 through a marker or signature",{timeout:20000},()=>{
 test("source registry resource and Directory mapping mutations are not normalized away",{timeout:20000},()=>{
  const p=fixtureProfile();
  for(const mutate of [
-  (x:typeof p)=>{x.infrastructure.mapping.directoryInstallationId="0x"+"a".repeat(64);},
+  (x:typeof p)=>{x.infrastructure.mapping.directoryInstallationId="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";},
   (x:typeof p)=>{x.infrastructure.binding.sourceSha256="b".repeat(64);},
   (x:typeof p)=>{x.identity.communityId="0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";},
   (x:typeof p)=>{x.infrastructure.configuration.app.origin="https://other.example";},
