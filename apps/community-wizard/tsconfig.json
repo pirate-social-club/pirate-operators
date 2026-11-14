@@ -10,7 +10,7 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "jsx": "preserve",
-    "jsxImportSource": "solid-js"
+    "jsxImportSource": "@solidjs/web"
   },
   "include": ["src", "server", "test", "infra/alchemy.run.ts", "*.ts"]
 }

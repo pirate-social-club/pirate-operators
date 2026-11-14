@@ -186,7 +186,7 @@ async function flowHarness(
       "utf8",
     ),
   );
-  assert.equal(pkg.version, "2.0.0-rc.0");
+  assert.equal(pkg.version, "2.0.0-rc.21");
   const solid = await import(browserEntry.href);
   const actorSource = await readFile(
     new URL(

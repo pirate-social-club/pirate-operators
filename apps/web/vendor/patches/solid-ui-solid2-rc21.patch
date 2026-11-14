@@ -1,0 +1,10 @@
+--- a/src/components/overlays/dialog-presentation.tsx
++++ b/src/components/overlays/dialog-presentation.tsx
+@@ -27,6 +27,7 @@
+ export const dialogDescriptionClass = "text-base leading-6 text-foreground";
+ 
+ interface CloseButtonPartProps {
++  [key: `data-${string}`]: JSX.ButtonHTMLAttributes<HTMLButtonElement>[`data-${string}`];
+   "aria-label"?: string;
+   class?: string;
+   children?: JSX.Element;
