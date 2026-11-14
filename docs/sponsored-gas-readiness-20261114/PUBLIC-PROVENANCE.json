@@ -1,40 +1,38 @@
 {
-  "schema": "pirate.public-readiness-provenance/2",
+  "schema": "pirate.public-readiness-provenance/3",
   "preparedDate": "2026-11-14",
-  "parentReviewCommit": "05e293db2d898ef281c76ed03f7aa8ddf9f301c4",
+  "parentReviewCommit": "bc39fdd15290677261e99b9abad92d42e6d2c799",
   "baseCommit": "c9a969ce02f2af1cc0b76d9b305ecbaedab59f63",
-  "parentProvenanceSha256": "6cfc23db7d436070c871f28c30ee8f47389adbb705b8696e082b03a66c2b0b2a",
+  "parentProvenanceSha256": "863cae3526c25c78a866911324a0bdc8491cf911f2effeb31bdefeca61b3bc6d",
   "sourcePacketManifestSha256": "e6d2f2b1aa3dd3debef77e28ad5b6b5caae722296daea7eb9bd8b6980d4b71c0",
   "sourcePacketSealSha256": "b070c2a5a2f0e1a41e96e4f3ddec42157113f909c544b624c1db18d7abc4fc29",
   "sourcePacketUnchanged": true,
-  "publicationKind": "documentation-only design follow-up",
+  "publicationKind": "documentation-only nonce recovery correction and successor specification proposal",
   "runtimeExecuted": false,
-  "proposedCases": 72,
+  "proposedCases": 84,
   "caseStatus": "ALL_UNRUN",
-  "oldCaseIdsRetained": 46,
-  "newCases": 26,
+  "oldCaseIdsRetained": 72,
+  "newCases": 12,
   "files": [
     {
       "path": "ARCHITECTURE.md",
-      "parentSha256": "1e432bc60ce709a337c3b0c34954ff6e240ec72972c3e06cc3def4b2f322e873",
-      "publicSha256": "812c112af0b8bc4fabe24fff697a7a8433f32bf3da32b85be895b9829a69814e",
-      "publicBytes": 12905,
+      "parentSha256": "812c112af0b8bc4fabe24fff697a7a8433f32bf3da32b85be895b9829a69814e",
+      "publicSha256": "53fdf605b6b8b6e1e7edec65acf9041d2a4d088b3089f258c0ba708a757d966b",
+      "publicBytes": 17739,
       "changed": true,
       "changes": [
-        "Replace general membership requirement with pilot list plus action authority.",
-        "Add safe-state simulation and manual backend nonce recovery with exact-original preservation.",
-        "Defer restore implementation; preserve pause-on-uncertainty safety."
+        "Replace sum-of-attempt liability with qualified backend nonce-group maximum and conditional category exposures.",
+        "Protect Pirate recovery budget and actual sender float; preserve exact original, safe proof and reorg semantics."
       ]
     },
     {
       "path": "COSTS.md",
-      "parentSha256": "9b8369d3f7196fef525f767b68ae6a186f906dbde47abb5dbe843008a0404487",
-      "publicSha256": "3c759641d082d4e19f37241c48ddd4f9d76e84008b98af5427fe08fdacdbed6b",
-      "publicBytes": 7690,
+      "parentSha256": "3c759641d082d4e19f37241c48ddd4f9d76e84008b98af5427fe08fdacdbed6b",
+      "publicSha256": "7b48cc0579ebbe5c1eb2aeb58944e40fe277a960c1d8bef50dbab1c2012d637c",
+      "publicBytes": 8397,
       "changed": true,
       "changes": [
-        "Propose measured price multiple/absolute cap/concurrency bounds without numeric defaults.",
-        "Add passkey payload/revert measurement and safe unused-reservation release."
+        "Attribute fee-bump excess/cancellation to Pirate recovery; exclude independent fees and MOSS from nonce shortcut."
       ]
     },
     {
@@ -47,90 +45,95 @@
     },
     {
       "path": "READINESS.md",
-      "parentSha256": "aff3a178c30a823eeaf4990e7f59f0025a194281e3918e37df9a86ea1b2a6e16",
-      "publicSha256": "ea79e1079e6ee686f13db16cdaed4d352551305b9b3996ed458efd4b064b9145",
-      "publicBytes": 14985,
+      "parentSha256": "ea79e1079e6ee686f13db16cdaed4d352551305b9b3996ed458efd4b064b9145",
+      "publicSha256": "05007b01478382b74f73c096fbe13baf53c7ebe306011cbc0f30d9c31e1e44ec",
+      "publicBytes": 15670,
       "changed": true,
       "changes": [
-        "Specify proposed narrow attester successor and pre-reliance decision.",
-        "Reuse specific contract relationships; document manual pilot list and bootstrap.",
-        "State multi-name/free-only/immutable upgrade facts and evaluate scoped issuance modules without selecting an architecture."
+        "Add atomic admin revoke-and-re-attest with standalone urgent revoke.",
+        "Link separate successor specification proposal."
       ]
     },
     {
       "path": "README.md",
-      "parentSha256": "3ea10afa0f04733f7c6afea09f2f0914945d3ef70e8de4b0f4867550d29a84f1",
-      "publicSha256": "7c92ecee59b5067fdb66363e2bec3c044aba710fd7ac91bdfba6c1b3dd6f7743",
-      "publicBytes": 3922,
+      "parentSha256": "7c92ecee59b5067fdb66363e2bec3c044aba710fd7ac91bdfba6c1b3dd6f7743",
+      "publicSha256": "70bb0a060e98f3d3cb1286ca99b865dcc549a62a2477bcbb2a5a65e4fbc782dc",
+      "publicBytes": 4389,
       "changed": true,
       "changes": [
-        "Update review scope/count and public-parent provenance."
+        "Update exact count and review order; retain immutable source/packet pins.",
+        "Pin provenance parent bc39fdd and mark successor interface/commercial gaps."
       ]
     },
     {
       "path": "REHEARSAL.md",
-      "parentSha256": "ec80396ff540806622886d0c89f6840b210a0b303a57023688cdf344b5118bee",
-      "publicSha256": "86cdfa988d33c501cfb5a46f9dd945cf90c0fea775e58305868ddd3ad7535b03",
-      "publicBytes": 10476,
+      "parentSha256": "86cdfa988d33c501cfb5a46f9dd945cf90c0fea775e58305868ddd3ad7535b03",
+      "publicSha256": "4bb67a3e6905cb023cba94156fcc30f1b3ebce480c59d3b3b32f27d18ff2c4e5",
+      "publicBytes": 11539,
       "changed": true,
       "changes": [
-        "Add independent role/simulation, relay-outage, real signature-cost and manual nonce qualification plans.",
-        "Keep corrected Directory and actual6343 evidence separate; no restores or new rollout gate."
+        "Qualify exhausted-community recovery before a second shared-sender community.",
+        "Add explicit disposable pilot acknowledgement before claim."
       ]
     },
     {
       "path": "REVIEW-DISPOSITIONS.md",
-      "parentSha256": "00c2a18e5193ab30f2f38070a698bfbcb14692ac4101957d77b7d3b3a96d9f13",
-      "publicSha256": "4355ca5ab7d6d161deb717cc08479b821a1f302e3d63d07e56532c4a2e84f6e6",
-      "publicBytes": 4525,
+      "parentSha256": "4355ca5ab7d6d161deb717cc08479b821a1f302e3d63d07e56532c4a2e84f6e6",
+      "publicSha256": "bb176689e43fdcad4ea50d06bf387282f05ef652e41dd9c4cc490585e780e4d0",
+      "publicBytes": 7072,
       "changed": true,
       "changes": [
-        "Record current external-review responses, membership correction and optional username/multi-name/upgrade discussion."
+        "Separate historical dispositions from current nonce-reserve and successor review response."
+      ]
+    },
+    {
+      "path": "SUCCESSOR-SPEC.md",
+      "parentSha256": null,
+      "publicSha256": "7f99d5fbb6c403e07a2f40cb776163b080e309d725f2b66438dce31196104254",
+      "publicBytes": 12906,
+      "changed": true,
+      "changes": [
+        "New proposal0.1: immutable core/scoped module rules, fixed-price exact settlement proposal, uniform consent, renewal/attestation/exit/canonical labels/disposable notices.",
+        "Explicit unresolved commercial values and implementation wire interfaces; no adoption."
       ]
     },
     {
       "path": "UI-NOTE.md",
-      "parentSha256": "0b3b4c764a73ed2c9c95c2b6aec5d4ab2dcb725d2281b9cb817a450917722b38",
-      "publicSha256": "fd0de0cdfcda150c0e252c2831c9bcbe0fa303a67b53f118b409977ed55d7dfc",
-      "publicBytes": 5349,
+      "parentSha256": "fd0de0cdfcda150c0e252c2831c9bcbe0fa303a67b53f118b409977ed55d7dfc",
+      "publicSha256": "a5c9569b5c39ac6fdd6a3ffe1c6575d2679fc2b94875c9d2567d97e9b037df1e",
+      "publicBytes": 5508,
       "changed": true,
       "changes": [
-        "Optional selected-feature username policy with first-claim/recovery/remediation exceptions.",
-        "Separate primary display name and multiple assets from wallet identity and gas/free-name allowance."
+        "Require truthful pilot notice without changing wizard source."
       ]
     },
     {
       "path": "gate-plan.json",
-      "parentSha256": "b5a31b07965158b8387a81afbe795826bfc5a723f9194229f68e90e3c680d507",
-      "publicSha256": "9147bf034e4e4a833d19660033810886ecd9291302afb859fd2f095993a64c8e",
-      "publicBytes": 26380,
+      "parentSha256": "9147bf034e4e4a833d19660033810886ecd9291302afb859fd2f095993a64c8e",
+      "publicSha256": "acbea34fe051fa3881b8abc2ccddffd44a9cfebf5cdc4fdb37a18f43c6e39758",
+      "publicBytes": 31426,
       "changed": true,
       "changes": [
-        "Retain46 original IDs; amend5 scopes/authority phrasings and add26 cases.",
-        "All72 scenarios UNRUN; deferred/optional cases not rollout prerequisites."
+        "Retain72 IDs; amend SUB-02 and add12 cases; total84 ALL_UNRUN."
       ]
     },
     {
       "path": "interfaces/sponsorship-proposal.ts",
-      "parentSha256": "c0fdb4afdea851b601c2d92dbe124db3692e4d32e6065b5e37c2a1f9046af301",
-      "publicSha256": "9b1498dbbdc45bc25850dbc1158ca147969e19f913473a26d95930b64a972740",
-      "publicBytes": 10213,
+      "parentSha256": "9b1498dbbdc45bc25850dbc1158ca147969e19f913473a26d95930b64a972740",
+      "publicSha256": "e9f1198629ae22f93467a6ae8e57f1ddf475ceffb19555e39e843798e15db167",
+      "publicBytes": 11417,
       "changed": true,
       "changes": [
-        "Version operation/reservation sketches to2.",
-        "Add pilot/action proofs, safe simulation and explicit fee-pricing evidence.",
-        "Separate exact-original recovery from proposed manual attempts; no implementation."
+        "Add nonce-group reservation sketch and version manual attempt shape to2; no implementation or ABI."
       ]
     },
     {
       "path": "official-sources.json",
-      "parentSha256": "668c605c8a224114d12d27abd6db7a2ca8827e1dc6f9c1beee23baf5b97f7809",
+      "parentSha256": "803b24f10c61f76a95b18744abef67e02e80a00c3c56ac3bd7e296bd3ed311f0",
       "publicSha256": "803b24f10c61f76a95b18744abef67e02e80a00c3c56ac3bd7e296bd3ed311f0",
       "publicBytes": 4771,
-      "changed": true,
-      "changes": [
-        "Add primary nonce and EIP1559 references, not runtime evidence."
-      ]
+      "changed": false,
+      "changes": []
     }
   ],
   "omitted": [
@@ -140,6 +143,6 @@
     "role-addresses.json",
     "private wallet-device and owner-custody statements"
   ],
-  "scope": "No contract/ABI/runtime/dependency/workflow/policy/deployment change. Successor/username/module designs are proposals, not adopted interfaces.",
-  "hashScope": "Listed files exclude this manifest; Git commit pins complete tree. Parent retains original sealed-to-public mapping."
+  "scope": "No implementation/ABI/dependency/workflow/deployment/funds action. Successor commercial and wire-interface choices are explicitly proposed or open; no rollout gate.",
+  "hashScope": "Listed files exclude this manifest; Git commit pins complete tree. Parent provenance chain preserves original redactions."
 }

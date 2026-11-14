@@ -191,8 +191,32 @@ export type ExactOriginalRecovery =
 // A settled transaction may still have unknown fee accounting; outstandingWei
 // must retain the unresolved upper bound. Current owner/eligibility is separate.
 
+export interface NonceGroupReservation {
+  readonly schema: "pirate.sponsor-nonce-group-proposal/1";
+  readonly chainId: 6343;
+  readonly sender: Address;
+  readonly nonce: Decimal;
+  readonly originalOperationDigest: Hash;
+  readonly originalReservationId: Hash;
+  readonly expectedGroupRevision: Decimal;
+  readonly committedGroupRevision: Decimal;
+  readonly retainedAttemptSetDigest: Hash;
+  readonly originalCommunityBoundWei: Decimal; // B
+  readonly maxOperationAttemptBoundWei: Decimal; // F >= B
+  readonly maxCancellationBoundWei: Decimal; // C
+  readonly globalOutstandingWei: Decimal; // max(F,C), counted once
+  readonly communityAndOrdinaryOutstandingWei: Decimal; // B
+  readonly recoveryOutstandingWei: Decimal; // max(F-B,C)
+  readonly recoveryPolicyReference: string;
+  readonly senderFloatEvidenceReference: string;
+  readonly journalSequence: Decimal;
+  readonly durableBeforeSigning: true;
+}
+// Category exposures are alternative allocations, not additive global costs.
+// Only qualified same-chain/sender/nonce backend inclusion fees may be grouped.
+// Independent fees, other nonces and MOSS intents need separate liabilities.
 export interface ManualBackendAttempt {
-  readonly schema: "pirate.sponsor-backend-attempt-proposal/1";
+  readonly schema: "pirate.sponsor-backend-attempt-proposal/2";
   readonly original: BackendOriginal;
   readonly logicalOperationId: Hash;
   readonly attemptId: Hash;
@@ -201,7 +225,8 @@ export interface ManualBackendAttempt {
   readonly approvalExpiresAt: Decimal;
   readonly priorJournalSequence: Decimal;
   readonly exactAttempt: BackendOriginal;
-  readonly newReservation: ReservedAuthority;
+  readonly exactAttemptFeeBound: FeeBound;
+  readonly nonceGroupReservation: NonceGroupReservation;
   readonly preservedOriginalReservationId: Hash;
 }
 // Runtime rules must enforce identical original/attempt sender, nonce and chain.

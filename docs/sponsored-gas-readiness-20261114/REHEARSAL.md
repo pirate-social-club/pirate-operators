@@ -56,8 +56,14 @@ Draft read requests (placeholders are intentionally not executable): eth_getBala
 
 ## Manual stuck-sender qualification
 
-Before enabling the proposed backend replacement procedure, test the exact procedure in ARCHITECTURE.md on a separately allocated local chain: sender-wide pause, immutable original journal, explicit same-nonce approval, extra reservation before signing, successful replacement versus cancellation/revert/foreign consumption, and reorg reversal. An insufficient budget refuses the replacement. Receipt or nonce ambiguity retains original liability. A stuck transaction must not trigger fresh grants or a second operation.
+Before enabling the proposed backend replacement procedure, test the exact procedure in ARCHITECTURE.md on a separately allocated local chain: sender-wide pause, immutable original journal, explicit same-nonce approval, atomic group-maximum and recovery-allocation updates before signing, successful replacement versus cancellation/revert/foreign consumption, and reorg reversal. Test unblocking with the originating community at its cap while protected recovery headroom remains; unavailable recovery/global headroom still refuses the attempt. Receipt or nonce ambiguity retains original liability. A stuck transaction must not trigger fresh grants or a second operation. Qualify this revised accounting before adding a second community to the shared sender.
 
 The current exact-original SDK is not replaced by this design sketch. Until an attempt-aware implementation is independently qualified, the pilot pauses for manual investigation; it has no automatic unblock guarantee. MOSS relay failures need separate intent/account protocol evidence, not this EOA procedure.
 
 Guided restore, cross-host migration and automated disaster recovery are outside this pilot and the first operator release. Preserve ordinary restart durability and safe uncertainty handling. The deferred restore scenarios in gate-plan.json document future requirements; they are not implementation or release prerequisites here.
+
+## Tester notice before any pilot name claim
+
+Display and require acknowledgement: these are disposable test names on a test deployment, with no production entitlement, guaranteed continuation, paid value or promised automatic migration. A reset or successor may use a different contract and token identity. Keep receipts and experiment history; do not market resets as deleting on-chain assets. Use only test namespaces and TESTETH. This notice does not change contract rights or authorize public deployments/funds. Never silently point real communities at the pilot.
+
+If a later design proposes to carry a pilot asset forward, it must explicitly opt in the holder and preserve uniqueness/terms under the qualified migration mechanism. A tester acknowledgement is not evidence that migration has already been implemented.

@@ -1,6 +1,10 @@
-# Review follow-up dispositions
+# Review history and current dispositions
 
-This documents revisions to public review checkpoint 05e293db2d898ef281c76ed03f7aa8ddf9f301c4. It is a design response, not a claim that a service or contract fix has shipped. All 72 proposed cases are UNRUN.
+This is a design response, not a claim that a service or contract fix has shipped. The current total is84 proposed cases, all UNRUN. The sections distinguish the prior review from the current follow-up.
+
+## Prior review: 05e293d to bc39fdd
+
+The following dispositions describe the prior72-case revision; the next section supersedes its replacement-budget rule.
 
 | Concern | Revised proposal | Evidence still required |
 |---|---|---|
@@ -21,3 +25,21 @@ This documents revisions to public review checkpoint 05e293db2d898ef281c76ed03f7
 The earlier atomic reservation, single coordination object, separate issuer/submitter/payer scopes, full-call/domain validation and measured fee-accounting requirements remain. No authority TTL, locked renewal terms, issuance counters or contract permissions change. The server may restrict what it pays for without changing what a holder or third party may do at their own expense.
 
 The original 46 case IDs remain. AUTH-01/03 replace generic membership wording with exact action authorization and pilot admission; ATT-02 explicitly refers to the current immutable build; REC-07/08 are marked deferred. Twenty-six new cases cover the follow-up. These are planned scenarios, not executable test declarations or passing results.
+
+## Review of bc39fdd: follow-up
+
+The review accepted the prior design direction but identified a shared-sender deadlock in sum-of-attempt reservation. That limit is superseded here before a second community shares the backend sender.
+
+| New concern/input | Disposition | Planned evidence |
+|---|---|---|
+| Attempt reserves exhaust originating community | One nonce-group maximum; retain original identity and all potentially signed attempts. Atomically update conditional community/recovery allocations. | Revised SUB-02, SUB-07/09/10; prior reorg cases retained |
+| Clearing sender is Pirate overhead | Protect recovery budget and real sender native float from normal use. Charge bump excess and cancellation to Pirate recovery. Finite reserve is not a guarantee against arbitrary fee shocks. | SUB-08/11, actual receipt accounting |
+| Revocation causes avoidable outage | Add proposed admin atomic revoke-and-re-attest, one semantic transition, independent fresh proof; retain standalone urgent revoke. | ATT-08 |
+| Successor needs its own exit | Propose holder-initiated atomic export/import, source tombstone and explicit lineage routing. Exact protocol remains open; no retroactive Registry56 freeze. | UPG-05; implementation-level schema/handshake review |
+| Paid purchase details | Propose one explicitly configured ERC-20, exact fixed-price debit, zero native value, atomic rollback, and recipient consent even for self-purchase. No live asset/price or post-sale refund policy chosen. | UPG-03/04 |
+| Renewal decision | Retain permissionless renewal in proposal; zero has no automatic sunset. Decision whether new real zero-price generations are permitted remains explicit. | UPG-06 |
+| Shared module rules and labels | Core owns uniqueness/caps/locked terms; common canonical byte rules across Solidity/TS, paid-short permission separate from syntax. | UPG-02/07 |
+| Pilot names | Notice before claim: disposable test deployment, no promised production entitlement or automatic migration. | PILOT-01 |
+| Corrected Directory publication | Separate coordinator-owned source/gates; no new public successor inferred in this packet. | Actual public commit required before adoption claim |
+
+All prior72 IDs remain; SUB-02 is amended,12 cases added, total84 ALL_UNRUN. Earlier counts in the prior-review section describe that historical revision, not additional execution evidence.

@@ -1,6 +1,6 @@
 # Proposed wizard and usage experience
 
-No wizard source is changed or admitted by this packet.
+No wizard source is changed or admitted by this packet. A disposable test-name warning and acknowledgement belong before pilot claims; see REHEARSAL.md. Do not imply production ownership will be created by a pilot.
 
 During setup show: **Transaction fees — covered by Pirate for approved community actions.** Show status as pending review, active or paused from Pirate's authoritative admission record. Do not show active sponsorship before the service is provisioned and qualified. No wallet funding, crypto purchase, merchant-key entry or invented “N transactions/month.”
 

@@ -1,9 +1,9 @@
 {
-  "schema": "pirate.sponsor-readiness-gates/2",
+  "schema": "pirate.sponsor-readiness-gates/3",
   "allProposedCasesUnrun": true,
-  "count": 72,
+  "count": 84,
   "notTestDeclarations": true,
-  "scope": "Design cases only, all UNRUN. No implementation or main operator rollout gate. Attester successor, manual nonce recovery, optional username policy and deferred restore cases require separately scoped qualification.",
+  "scope": "Design cases only, all UNRUN. Nonce-group recovery accounting qualifies before a second community shares the sender. Successor specification is a separate proposal, not implementation/adoption or a main operator rollout gate.",
   "cases": [
     {
       "id": "AUTH-01",
@@ -418,8 +418,8 @@
     {
       "id": "SUB-02",
       "environment": "local sender and real budget object",
-      "scenario": "Approved same-nonce fee bump competes for last budget headroom",
-      "assertion": "Exact original retained; only approved fee/gas fields change; new full reservation commits before sign; no headroom means refusal",
+      "scenario": "Approved same-nonce fee bump competes for protected recovery headroom",
+      "assertion": "Exact original retained; only approved fee/gas fields change; atomic group maxima/category deltas commit before sign; no normal community refill or unlimited override",
       "status": "UNRUN",
       "evidence": null
     },
@@ -582,44 +582,122 @@
       "assertion": "Immutable core enforces shared invariants across every issuer; paid/short-name policy specified separately; no assumed migration freeze or unlimited mint permission",
       "status": "UNRUN",
       "evidence": null
+    },
+    {
+      "id": "SUB-07",
+      "environment": "real budget object and local chain",
+      "scenario": "Original B10, fee bump12 and cancellation4, then a smaller new attempt",
+      "assertion": "Global reservation12 once, community/ordinary10, recovery4; smaller attempt cannot lower maxima while prior one remains executable; settle actual outcome once",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-08",
+      "environment": "multi-community sender qualification",
+      "scenario": "Community A is at its normal cap and holds a stuck sender nonce while B/C need service",
+      "assertion": "Approved bump/cancel can use protected Pirate recovery headroom without new A allowance; same sender actually has required native balance; bounded unblocking preserves original identity",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-09",
+      "environment": "budget qualification",
+      "scenario": "Different nonce/sender, MOSS intent or independently payable relay fee is offered for maximum grouping",
+      "assertion": "Refuse grouping; additive independent liabilities remain; at most one canonical direct transaction is not a general fee exclusivity claim",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-10",
+      "environment": "real budget object",
+      "scenario": "Two manual approvals race on same group or last global recovery capacity; signer response is lost",
+      "assertion": "Complete prior revision/attempt-set CAS admits compatible serialized state only; all potentially signed attempts remain bounded and journalled",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "SUB-11",
+      "environment": "sender funding qualification",
+      "scenario": "Normal requests attempt to use protected headroom, or recovery budget exists but sender cash is inadequate",
+      "assertion": "Normal request cannot consume recovery partition/float; missing cash/ceiling triggers truthful pause, no automatic treasury transfer",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-08",
+      "environment": "successor local contract qualification",
+      "scenario": "Admin atomically revokes compromised attester and submits fresh evidence; repeat with invalid evidence/configuration",
+      "assertion": "Successful call changes semantic revision once and retains fresh service; invalid combined call reverts entirely; standalone urgent revocation still works",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-03",
+      "environment": "successor paid-settlement qualification",
+      "scenario": "Exact fixed-price purchase versus changed quote, wrong asset/value, fee-on-transfer debit and failed receiver",
+      "assertion": "Only configured exact buyer payment succeeds; protocol payment and mint roll back together on failure; no overpayment escrow or free-path paid fallback",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-04",
+      "environment": "successor consent and wallet qualification",
+      "scenario": "Buyer equals recipient versus gift recipient, with MOSS gas payer distinct or forged buyer identity",
+      "assertion": "Exact recipient consent always required in proposed profile; core caller is buyer, sponsor is not buyer; altering recipient/domain/terms refuses",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-05",
+      "environment": "successor exit qualification",
+      "scenario": "Atomic holder export/import succeeds or fails, while duplicate mint/nonparticipating holder/lineage-loop is attempted",
+      "assertion": "One authoritative name, exact holder/terms/history preserved; failure rolls back; no source re-registration or invented export capability in Registry56",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-06",
+      "environment": "successor renewal qualification",
+      "scenario": "Third party repeatedly renews a locked zero-price generation and policy later changes",
+      "assertion": "No implied sunset or ownership change; existing terms preserved; sponsorship remains separately limited and new zero policy explicit",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "UPG-07",
+      "environment": "cross-language contract/caller qualification",
+      "scenario": "Canonical positive/negative TLD/label vectors including ab--cd, xn--, terminators, single hyphens and1/8/63/64 lengths",
+      "assertion": "Directory/core/modules/SDK agree on common validator; free minimum8 and explicitly configured paid-short policy are distinct",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "PILOT-01",
+      "environment": "pilot onboarding review",
+      "scenario": "Tester starts first claim or someone tries to promote disposable deployment into real community routing",
+      "assertion": "Disposable/no-production-entitlement notice acknowledged before claim; no promised automatic carry-over, asset deletion or silent source adoption",
+      "status": "UNRUN",
+      "evidence": null
     }
   ],
-  "previousPublicCount": 46,
+  "previousPublicCount": 72,
   "addedCaseIds": [
-    "ATT-04",
-    "ATT-05",
-    "ATT-06",
-    "ATT-07",
-    "SUB-01",
-    "SUB-02",
-    "SUB-03",
-    "SUB-04",
-    "SUB-05",
-    "SUB-06",
-    "AUTH-06",
-    "AUTH-07",
-    "AUTH-08",
-    "AUTH-09",
-    "MOSS-08",
-    "MOSS-09",
-    "MOSS-10",
-    "MOSS-11",
-    "MOSS-12",
-    "COST-05",
-    "COST-06",
-    "UX-01",
-    "UX-02",
-    "UX-03",
-    "UPG-01",
-    "UPG-02"
+    "SUB-07",
+    "SUB-08",
+    "SUB-09",
+    "SUB-10",
+    "SUB-11",
+    "ATT-08",
+    "UPG-03",
+    "UPG-04",
+    "UPG-05",
+    "UPG-06",
+    "UPG-07",
+    "PILOT-01"
   ],
   "amendedExistingCaseIds": [
-    "AUTH-01",
-    "AUTH-03",
-    "REC-07",
-    "REC-08",
-    "ATT-02"
+    "SUB-02"
   ],
-  "unchangedExistingCaseCount": 41,
-  "deliveryNote": "All original 46 IDs retained. REC-07/08 remain deferred requirements, not pilot restore implementation gates. New successor and optional UX cases do not assert accepted interfaces or selected product policy."
+  "unchangedExistingCaseCount": 71,
+  "deliveryNote": "All previous72 IDs retained. SUB-02 now tests the revised group/recovery accounting instead of sum-of-attempts. Twelve new cases are UNRUN plans. Earlier restore scenarios remain deferred. Successor/module/exit/purchase behavior is proposed, not present in accepted contracts."
 }
