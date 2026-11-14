@@ -32,7 +32,7 @@ export async function runGenuineLinuxCreateV3(input:LocalTargetCreateBootstrapIn
   let streamed=0,keyReads=0;
   await assert.rejects(port.stageBackup({requestId:"deferred-negative",byteLength:1,
     bytes:{async *[Symbol.asyncIterator](){streamed++;throw Error("deferred_stream_was_consumed");}}}),/create_backup_deferred/);
-  await assert.rejects(port.inspectBackup({backupId:"deferred-negative",get recoveryKey(){keyReads++;throw Error("deferred_key_was_read");}}),/create_restore_deferred/);
+  await assert.rejects(port.inspectBackup({backupId:"deferred-negative",get recoveryKey():string{keyReads++;throw Error("deferred_key_was_read");}}),/create_restore_deferred/);
   assert.equal(streamed,0);assert.equal(keyReads,0);
   const t=await readCreateProfileTemplate(input.backend.profileTemplateFile,input.backend.trust,input.backend.installationId);
   const target=await port.inspectTarget({requestId:original.requestId,target:t.settings.target});

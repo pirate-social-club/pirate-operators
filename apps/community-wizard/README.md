@@ -2,6 +2,11 @@
 
 ## Current delivery contract, 2026-11-14
 
+The browser uses Solid and `@solidjs/web` 2.0.0-rc.21, with the matching signals
+and compiler, `@solidjs/vite-plugin` 3.0.0-next.57 and Vite 8.3.6. Its independent
+manifest and lockfile pin this cohort explicitly. Keep those packages aligned
+when updating the runtime, and run both the package check and browser journey.
+
 The Wizard's v1 target is one fresh supported Linux installation with browser
 setup, a real ordinary HTTPS community, automatic community registration,
 member authentication, optional eligible names, first-song publication/playback

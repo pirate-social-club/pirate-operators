@@ -97,23 +97,6 @@ export async function verify<T>(
   );
   return record.body;
 }
-export type JobState = "new" | "reserved" | "charged" | "delivered";
-export function jobTransition(
-  state: JobState,
-  action: "reserve" | "charge" | "deliver",
-): JobState {
-  const next = {
-    new: { reserve: "reserved" },
-    reserved: { charge: "charged" },
-    charged: { deliver: "delivered" },
-    delivered: {},
-  } as const;
-  const target = (next[state] as Partial<Record<typeof action, JobState>>)[
-    action
-  ];
-  check(target, "invalid_job_transition");
-  return target;
-}
 export interface Song {
   communityId: string;
   audio: string;

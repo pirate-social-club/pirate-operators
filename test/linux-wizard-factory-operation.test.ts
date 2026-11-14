@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { retainLinuxOperation } from "../deploy/linux/wizard-backend.ts";
 import { digestJson } from "../apps/community-wizard/server/linux-journal.ts";
-import { planFrom } from "../apps/community-wizard/server/linux-boundaries.ts";
+import { fullLinuxV2PlanFrom } from "../apps/community-wizard/server/linux-boundaries.ts";
 import { fixtureDraft, fixtureProfile } from "./linux-shared-native-profile-fixture.ts";
 import type { LinuxOperation, LinuxPlan } from "../apps/community-wizard/server/linux-contracts.ts";
 
@@ -27,7 +27,7 @@ function operation(kind: LinuxOperation["kind"], action: LinuxPlan["action"]): L
     predecessorOperationId: action === "upgrade" ? "operation:original" : null,
     sessionPolicy: "revoke-existing",
   };
-  const plan = planFrom({ ...body, digest: digestJson(body) });
+  const plan = fullLinuxV2PlanFrom({ ...body, digest: digestJson(body) });
   return { id: "operation:current", kind, draftRevision: 2, plan, startedAt: 2_000_000_000_000 };
 }
 function rehash(plan: LinuxPlan): LinuxPlan {

@@ -1,3 +1,4 @@
+import {fullLinuxV2PlanFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
 // UNRUN model/controller tests only. Genuine native positive is separately
 // registered by linux-genuine-factory-acceptance with actual installed inputs.
 import test from "node:test";
@@ -38,7 +39,7 @@ test("actual controller captures restore kind while backend retains original sig
 test("retained successor model rejects forged predecessor, unknown native outcome and changed original resources",async(t)=>{
  const f=await linuxFixture();t.after(f.dispose);await f.configure();await f.review();await f.deploy();await f.setup.settled();
  const state=f.setup.snapshot().operation!;
- const requested={id:state.id,kind:state.kind,draftRevision:state.draftRevision,plan:state.plan,startedAt:state.startedAt};
+ const requested={id:state.id,kind:state.kind,draftRevision:state.draftRevision,plan:fullLinuxV2PlanFrom(state.plan),startedAt:state.startedAt};
  const result=f.result(state.id),stored={operation:structuredClone(requested),bound:state.intent!};
  const input={requested,stored,result,retainedIdentity:state.plan.profile.identity,sourceDigest:state.plan.profile.runtime.sourceDigest,
   artifactDigest:state.plan.profile.runtime.artifactDigest,fingerprint:state.plan.targetFingerprint};

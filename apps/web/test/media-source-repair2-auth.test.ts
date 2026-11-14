@@ -73,77 +73,6 @@ function authResponse(status: number, kind: (typeof authBodies)[number]) {
   );
 }
 
-for (const authStatus of [401, 403])
-  for (const authBody of authBodies)
-    test(
-      `lost upload acknowledgement then canonical GET ${authStatus}/${authBody} preserves uncertainty and suspends background recovery`,
-      { timeout: 2000 },
-      async () => {
-        const record = await retained(),
-          store = memory(record),
-          order: string[] = [];
-        let csrf = "old-session",
-          reads = 0,
-          reauthenticated = false;
-        const tokens: (string | null)[] = [];
-        const client = mediaClient(
-          () => csrf,
-          async (_url, init) => {
-            const method = init?.method ?? "GET";
-            order.push(method);
-            if (method === "PUT") {
-              assert.equal(init?.body, record.file);
-              tokens.push(new Headers(init.headers).get("x-csrf-token"));
-              throw new TypeError("Canonical upload accepted; response lost");
-            }
-            assert.equal(method, "GET");
-            if (++reads === 1) return Response.json(status("uploading"));
-            if (!reauthenticated) return authResponse(authStatus, authBody);
-            return Response.json(status("queued"));
-          },
-        );
-        const lane = new MediaAttemptController({
-          client,
-          storage: store.storage,
-          accountId: record.accountId,
-          communityId: record.communityId,
-        });
-        await assert.rejects(lane.restore());
-        assert.deepEqual(order, ["GET", "PUT"]);
-        const beforeAuth = store.value()!;
-        await assert.rejects(lane.restore());
-        const held = store.value()!;
-        assert.equal(held.authenticationHold, true);
-        assert.equal(held.pending, beforeAuth.pending);
-        assert.equal(held.commandDispatched, beforeAuth.commandDispatched);
-        assert.equal(held.file, record.file);
-        assert.equal(held.intent, record.intent);
-        assert.equal(held.intentDigest, record.intentDigest);
-        assert.equal(held.status, beforeAuth.status);
-        assert.deepEqual(tokens, ["old-session"]);
-        await lane.refresh();
-        await lane.refresh();
-        await assert.rejects(lane.discard());
-        const reloaded = new MediaAttemptController({
-          client,
-          storage: store.storage,
-          accountId: record.accountId,
-          communityId: record.communityId,
-        });
-        await reloaded.restore({ reconcileHeld: false });
-        await reloaded.refresh();
-        assert.deepEqual(order, ["GET", "PUT", "GET"]);
-        reauthenticated = true;
-        csrf = "reauthenticated-session";
-        await reloaded.submit();
-        assert.equal(store.value()?.authenticationHold, undefined);
-        assert.equal(store.value()?.pending, null);
-        assert.equal(store.value()?.status?.state, "queued");
-        assert.equal(store.value()?.intentDigest, record.intentDigest);
-        assert.deepEqual(order, ["GET", "PUT", "GET", "GET"]);
-      },
-    );
-
 test(
   "a status auth hold with no pending command preserves null rather than inventing a mutation",
   { timeout: 2000 },
@@ -257,7 +186,7 @@ async function flowHarness(
       "utf8",
     ),
   );
-  assert.equal(pkg.version, "2.0.0-rc.0");
+  assert.equal(pkg.version, "2.0.0-rc.21");
   const solid = await import(browserEntry.href);
   const actorSource = await readFile(
     new URL(
@@ -358,6 +287,11 @@ for (const authStatus of [401, 403])
             const method = init?.method ?? "GET";
             order.push(method);
             if (method === "PUT") {
+              assert.equal(init?.body, record.file);
+              assert.equal(
+                new Headers(init.headers).get("x-csrf-token"),
+                "expired-session",
+              );
               stage = "queued";
               throw new TypeError("Lost upload acknowledgement");
             }

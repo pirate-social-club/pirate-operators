@@ -1,5 +1,5 @@
 import type {OriginalLinuxDraft} from "../../../packages/community-setup/linux-create-profile.ts";
-import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
+import { createSignal, onSettled, Show, For } from "solid-js";
 import {
   linuxRequest,
   sameLinuxSettings,
@@ -113,7 +113,7 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
       setUploading(false);
     }
   }
-  onMount(() => {
+  onSettled(() => {
     void refresh(true).catch((error) =>
       setError(
         error instanceof Error
@@ -124,7 +124,7 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
     const timer = setInterval(() => {
       if (held() && !working()) void action("reconcile");
     }, 3000);
-    onCleanup(() => clearInterval(timer));
+    return () => clearInterval(timer);
   });
   const save = () =>
     draft().mode !== "create" && !retained()?.draft
@@ -205,7 +205,7 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
             >
               {(label, index) => (
                 <button
-                  classList={{ selected: step() === index() }}
+                  class={{ selected: step() === index() }}
                   aria-current={step() === index() ? "step" : undefined}
                   disabled={index() > 0 && dirty()}
                   onClick={() => setStep(index())}

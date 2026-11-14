@@ -1,13 +1,7 @@
 name: Creator wallet spike
 on:
-  pull_request:
-    paths:
-      - apps/creator-spike/**
-      - .github/workflows/creator-spike.yml
-  push:
-    paths:
-      - apps/creator-spike/**
-      - .github/workflows/creator-spike.yml
+  workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

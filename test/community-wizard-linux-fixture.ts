@@ -1,3 +1,4 @@
+import {linuxDraftFrom} from "../packages/community-setup/shared-linux-profile.ts";
 import {fixtureShared} from "./community-wizard-linux-shared-fixture.ts";
 import {exactNamespaceProof} from "../apps/community-wizard/server/shared-namespace-port.ts";
 // Controlled adapter protocol fixture only. This is not encryption, SSH,
@@ -293,7 +294,7 @@ export async function linuxFixture(
         description: "Controlled Linux fixture target",
         corrections: [],
         existing: structuredClone(facts.existing),
-        prepared: (()=>{const profile=fixtureProfile(activeSetup?.snapshot().draft ?? {...draft,target});return {identity:profile.identity,infrastructure:profile.infrastructure,settings:profile.settings};})(),
+        prepared: (()=>{const profile=fixtureProfile(linuxDraftFrom(activeSetup?.snapshot().draft ?? {...draft,target}));return {identity:profile.identity,infrastructure:profile.infrastructure,settings:profile.settings};})(),
       };
     },
     async credentialRequirements({ draft }) {
@@ -493,7 +494,7 @@ export async function linuxFixture(
     async complete(){throw new Error("Actual proof collector is not installed in this fixture.");},
     async recover(){return {state:"pending"};},
     async inspect({ tld }) {
-      const p=fixtureProfile({...activeSetup.snapshot().draft!,namespace:{tld}});return facts.authority==="verified"?{...p.namespace,status:"verified",tld,correction:"Controlled external proof only."}:proof(tld);
+      const p=fixtureProfile({...linuxDraftFrom(activeSetup.snapshot().draft!),namespace:{tld}});return facts.authority==="verified"?{...p.namespace,status:"verified",tld,correction:"Controlled external proof only."}:proof(tld);
     },
     async revalidate({ proof: p }) {
       return facts.authority==="verified"?{...p,status:"verified",tld:p.binding.issuanceTld,correction:"Controlled external proof only."}:proof(p.binding.issuanceTld);

@@ -1,0 +1,230 @@
+{
+  "source": "continuation of 98f854262bfac4881f2062a3c5604dd8a318d5b9",
+  "actual_workflow": ".github/workflows/ci.yml",
+  "cases": 37,
+  "all_expected": true,
+  "checks": [
+    {
+      "boundary": null,
+      "result": "success",
+      "exit_code": 0,
+      "accepted": true
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "LOCAL",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WEB",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "STUDY",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "KARAOKE",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "WIZARD",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "failure",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "cancelled",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "skipped",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "neutral",
+      "exit_code": 1,
+      "accepted": false
+    },
+    {
+      "boundary": "CREATOR",
+      "result": "timed_out",
+      "exit_code": 1,
+      "accepted": false
+    }
+  ]
+}

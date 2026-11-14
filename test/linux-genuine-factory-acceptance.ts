@@ -13,7 +13,7 @@ import {join,dirname} from "node:path";
 import {createLinuxSetup} from "../apps/community-wizard/server/linux-setup.ts";
 import {operationBytes} from "../apps/community-wizard/server/linux-operations.ts";
 import {createLocalTargetImplementation,type LocalTargetInputs} from "../deploy/linux/local-target-services.ts";
-import {planFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
+import {planFrom,fullLinuxV2PlanFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
 import {digestJson} from "../apps/community-wizard/server/linux-journal.ts";
 import type {LinuxOperation} from "../apps/community-wizard/server/linux-contracts.ts";
 import {hash} from "../deploy/linux/backend-state.ts";
@@ -60,7 +60,7 @@ export function registerGenuineFactoryAcceptance(g:GenuineFactoryInputs){
   const controller=await createLinuxSetup(dirname(g.journal.path),port,g.native.namespace);
   assert.deepEqual(controller.snapshot().operation,retained.operation);
   await controller.review(); // Actual W6 -> SAME actual native prepare producer.
-  const snapshot=controller.snapshot(),plan=snapshot.plan!;
+  const snapshot=controller.snapshot(),plan=fullLinuxV2PlanFrom(snapshot.plan);
   const successor:LinuxOperation={id:g.successorOperationId,kind:snapshot.draft!.mode,
     draftRevision:snapshot.revision,startedAt:Date.now(),plan};
   assert.equal(successor.plan.action,"upgrade");

@@ -8,7 +8,7 @@ import {fixtureProfile} from "./linux-shared-native-profile-fixture.ts";
 import {createProfileFixture,createPlanFixture} from "./linux-create-v3-fixture.ts";
 import {linuxProfileFrom,linuxDraftFrom} from "../packages/community-setup/shared-linux-profile.ts";
 import {linuxCreateProfileFrom,linuxCreateDraftFrom,originalLinuxProfileFrom,originalLinuxDraftFrom} from "../packages/community-setup/linux-create-profile.ts";
-import {planFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
+import {planFrom,fullLinuxV2PlanFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
 import {digestJson} from "../apps/community-wizard/server/linux-journal.ts";
 import {sameOperationalSelection} from "../packages/community-setup/operational-selection.ts";
 import {signRecord,canonicalDigest} from "../deploy/linux/installed-records.ts";
@@ -54,13 +54,14 @@ test("V3 cannot adopt a retained mapping or replace original installation or nam
   const p=createProfileFixture();
   assert.throws(()=>linuxCreateProfileFrom({...p,infrastructure:{...p.infrastructure,mapping:{...p.infrastructure.mapping,
     origin:"retained-shared",originalProfileSha256:"3".repeat(64)}}}));
-  const changed=structuredClone(p);changed.infrastructure.mapping.directoryInstallationId="0x"+"f".repeat(64);
+  const changed=structuredClone(p);changed.infrastructure.mapping.directoryInstallationId="0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
   assert.throws(()=>linuxCreateProfileFrom(changed));
-  const proof=structuredClone(p);proof.namespace.binding.hostingOrigin="https://another.example";
+  const proof={...p,namespace:{...p.namespace,binding:{...p.namespace.binding,hostingOrigin:"https://another.example"}}};
   assert.throws(()=>linuxCreateProfileFrom(proof));
 });
 test("V3 plan requires create and all restore predecessor session fields null even when rehashed",()=>{
   const p=createPlanFixture();assert.deepEqual(planFrom(p),p);
+  assert.throws(()=>fullLinuxV2PlanFrom(p)); // No V3-to-V2 narrowing by assertion or cast.
   const mutations=[{action:"upgrade"},{action:"restore"},{action:"adopt"},{sessionPolicy:"revoke-existing"},
     {predecessorOperationId:"operation:old"},{restoreInspectionId:"restore:old"},
     {restoreManifestDigest:"0x"+"3".repeat(64)},{restoreCiphertextDigest:"0x"+"4".repeat(64)}];

@@ -1,55 +1,7 @@
 name: Karaoke client
 on:
-  push:
-    paths:
-      - "apps/web/**"
-      - "packages/karaoke/**"
-      - "packages/protocol/**"
-      - "packages/scoring/**"
-      - "services/karaoke*.ts"
-      - "services/runtime.ts"
-      - "services/community*.ts"
-      - "services/records.ts"
-      - "services/storage.ts"
-      - "services/service-call.ts"
-      - "packages/alignment/**"
-      - "packages/community/**"
-      - "packages/records/**"
-      - "apps/community-wizard/infra/migrations/**"
-      - "fixtures/first-song/**"
-      - "harness/karaoke-*.ts"
-      - "harness/runtime.ts"
-      - "harness/chain.ts"
-      - "test/karaoke-*.ts"
-      - "test/song-alignment-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/karaoke.yml"
-  pull_request:
-    paths:
-      - "apps/web/**"
-      - "packages/karaoke/**"
-      - "packages/protocol/**"
-      - "packages/scoring/**"
-      - "services/karaoke*.ts"
-      - "services/runtime.ts"
-      - "services/community*.ts"
-      - "services/records.ts"
-      - "services/storage.ts"
-      - "services/service-call.ts"
-      - "packages/alignment/**"
-      - "packages/community/**"
-      - "packages/records/**"
-      - "apps/community-wizard/infra/migrations/**"
-      - "fixtures/first-song/**"
-      - "harness/karaoke-*.ts"
-      - "harness/runtime.ts"
-      - "harness/chain.ts"
-      - "test/karaoke-*.ts"
-      - "test/song-alignment-*.ts"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/karaoke.yml"
+  workflow_call:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -80,14 +32,8 @@ jobs:
         run: |
           npm ci --ignore-scripts
           npm ci --ignore-scripts --prefix apps/web
-      - name: Karaoke unit tests, the operator audio transport and the published-song journey
-        run: |
-          sudo --preserve-env=PATH,HOME unshare --net bash -c '
-            set -euo pipefail
-            ip link set lo up
-            node --test --test-concurrency=1 test/karaoke-*.test.ts test/song-alignment-*.test.ts
-            node --test apps/web/test/karaoke-*.test.ts
-          '
+      # Local acceptance owns test/karaoke-* and test/song-alignment-*;
+      # Web client owns apps/web/test/karaoke-*. Keep those gates at release.
       - name: Typecheck the web client
         working-directory: apps/web
         run: npm run typecheck
@@ -115,3 +61,4 @@ jobs:
           path: |
             .local/karaoke-browser-results/
             .local/learning-browser-results/
+          include-hidden-files: true

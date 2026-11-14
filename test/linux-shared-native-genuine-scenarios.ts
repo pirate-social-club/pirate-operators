@@ -1,3 +1,4 @@
+import {fullLinuxV2PlanFrom} from "../apps/community-wizard/server/linux-boundaries.ts";
 /** UNRUN source for Root's genuine host qualification. Inputs are the REAL
  * independently pinned constructor inputs/leases/channels. No mock backend,
  * seeded result, RPC response or successful fallback is implemented here.
@@ -61,8 +62,8 @@ export async function runGenuineSharedNativeScenario(input:LocalTargetInputs,sce
   const staged=await port.stageBackup({requestId:scenario.requestId,bytes:source(),byteLength:bytes.length});
   restore=await port.inspectBackup({backupId:staged.backupId,recoveryKey:separateSecrets.recoveryKey});
  }
- const plan=await port.prepare({requestId:scenario.requestId,draft,target,namespace,restore,
-  imported:scenario.kind==="import"?target.existing[0]??null:null,retainedIdentity:scenario.kind==="import"?target.existing[0]?.identity??null:null,previousOperation:null});
+ const plan=fullLinuxV2PlanFrom(await port.prepare({requestId:scenario.requestId,draft,target,namespace,restore,
+  imported:scenario.kind==="import"?target.existing[0]??null:null,retainedIdentity:scenario.kind==="import"?target.existing[0]?.identity??null:null,previousOperation:null}));
  const operation:LinuxOperation={id:scenario.operationId,kind:scenario.kind,draftRevision:scenario.draftRevision,startedAt:Date.now(),plan};
  const bound=await port.bindOperation(operation);
  const result=bound.kind==="deploy"?await port.operator.deploy(bound.intent,signal):await port.operator.restore(bound.intent,signal);

@@ -98,7 +98,7 @@ test("installed backend symlinks cannot reconnect execution to a checkout",async
   }finally{await f.close();}
 });
 test("ordinary boot allocates new scratch and preserves installation bytes, pending journal and earlier boot evidence",async()=>{
-  const parent=process.env.PIRATE_TEST_RUN_PARENT;assert(parent?.startsWith("/run/"),"Root supplies owned private /run parent");
+  const parent=process.env.PIRATE_TEST_RUN_PARENT;assert(typeof parent==="string"&&parent.startsWith("/run/"),"Root supplies owned private /run parent");
   const root=await mkdtemp(join(parent,"installer-test-"));
   try{
     const identity='{"installationId":"opaque-original","pendingOperation":"unchanged-nonce"}\n';
