@@ -36,6 +36,7 @@ export function linuxPlan(
       target = state.target,
       proof = state.namespace;
     editable(state);
+    if(d.version === 3)requireLinux(!state.operation,"original_create_held","Reconcile the original create; this schema does not authorize a replacement or retry child.");
     requireLinux(
       c.operations.includes(d.mode) &&
         c.targets.includes(d.target.kind) &&
@@ -118,7 +119,7 @@ export function linuxPlan(
         plan.targetFingerprint === target.fingerprint &&
         plan.namespaceProofId === fresh.id &&
         plan.expiresAt > now() &&
-        plan.sessionPolicy === d.recovery.sessionPolicy &&
+        plan.sessionPolicy === (d.version === 3 ? null : d.recovery.sessionPolicy) &&
         plan.restoreInspectionId === (state.restore?.id ?? null) &&
         plan.restoreManifestDigest ===
           (state.restore?.manifestDigest ?? null) &&
@@ -149,10 +150,10 @@ export function linuxPlan(
     );
     requireLinux(
       (d.mode === "create" &&
-        (plan.action === "create" ||
+        (plan.action === "create" || (d.version === 2 &&
           (Boolean(state.identity) &&
             plan.action === "upgrade" &&
-            c.operations.includes("upgrade")))) ||
+            c.operations.includes("upgrade"))))) ||
         (d.mode === "import" && ["adopt", "upgrade"].includes(plan.action)) ||
         (d.mode === "restore" && plan.action === "restore"),
       "plan_action",
@@ -222,7 +223,7 @@ export function linuxPlan(
         state.restore &&
           c.operations.includes("restore") &&
           c.backup.formats.includes(state.restore.format) &&
-          c.backup.sessionPolicies.includes(plan.sessionPolicy),
+          plan.sessionPolicy !== null && c.backup.sessionPolicies.includes(plan.sessionPolicy),
         "restore_capability_changed",
         "The required backup or session recovery capability changed. Refresh the restore plan.",
       );

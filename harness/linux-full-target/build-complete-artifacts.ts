@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {mkdir,writeFile,readFile,realpath,chmod} from "node:fs/promises";
+import {mkdir,writeFile,readFile,realpath,chmod,lstat,readdir} from "node:fs/promises";
 import {join,dirname,extname} from "node:path";
 import {createHash} from "node:crypto";
 import {buildCommunityArtifacts} from "../community-artifacts.ts";
@@ -13,6 +13,10 @@ export async function buildCompleteLinuxArtifacts(input:{
  node:string;nodeSha256:string;esbuildCLI:string;esbuildCLISha256:string;esbuildNative:string;esbuildNativeSha256:string;
  signal:AbortSignal;environment:NodeJS.ProcessEnv;
  backendModules:Array<{source:string;output:string;sha256:string}>;
+ // Complete selected dependency/tsx closure: every file is explicitly pinned,
+ // copied as bytes (never checkout symlinks), and covered by release.files.
+ toolchainModules:Array<{source:string;output:string;sha256:string;executable?:boolean}>;
+ wizardFiles:Array<{source:string;path:string;sha256:string}>;
  actorModules:Array<{source:string;output:string}>;
  migrationPlan:Array<{name:string;sha256:string;sql:string;statements:string[]}>;
  native:{path:string;sha256:string};schema:{path:string;sha256:string};licenses:Array<{path:string;output:string;sha256:string}>;
@@ -27,6 +31,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  await mkdir(input.output,{mode:0o700});
  const files:Record<string,string>={},sourceHashes=Object.fromEntries(Object.entries(owning.sourceHashes).map(([k,v])=>{assert(typeof v==="string","owning_source_hash_type_required");return [k,v.replace(/^0x/,"")];})),write=async(name:string,bytes:Uint8Array)=>{
    assert(!name.startsWith("/") && name.split("/").every(x=>x && x!=="." && x!==".."));
+   assert(!Object.hasOwn(files,name),"duplicate_installed_output");
    await mkdir(dirname(join(input.output,name)),{recursive:true,mode:0o700});
    await writeFile(join(input.output,name),bytes,{flag:"wx",mode:0o444});files[name]=sha(bytes);
  };
@@ -47,12 +52,32 @@ export async function buildCompleteLinuxArtifacts(input:{
    environment:input.environment,cwd:input.sourceRoot,outputDirectory:input.rawOutputDirectory,
    name:"bundle-"+output!.replace(/[^A-Za-z0-9_-]/g,"-"),seconds:90,signal:input.signal});
   files[output!]=sha(await readFile(join(input.output,output!)));
+  await chmod(join(input.output,output!),0o444);
  }
  for(const name of ["full-gateway.worker.mjs","egress-policy.worker.mjs","deny.worker.mjs","assets.worker.mjs"]){
   const body=await readFile(join(input.sourceRoot,"deploy/linux",name));await write(name,body);sourceHashes["deploy/linux/"+name]=sha(body);
  }
- for(const row of [...input.backendModules,...input.licenses]){
-  const source="source" in row?row.source:row.path,body=await readFile(source);assert.equal(sha(body),row.sha256);await write(row.output,body);
+ const sourceInputs=new Map<string,string>();
+ for(const row of input.backendModules){
+  assert(row.output.startsWith("source/"),"backend_must_retain_installed_relative_source_layout");
+  const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write(row.output,body);
+  if(row.output==="source/backend.ts")await chmod(join(input.output,row.output),0o400);
+  const relative=row.output.slice(7);
+  if(!relative.split("/").includes("node_modules")){
+   if(Object.hasOwn(sourceHashes,relative))assert.equal(sourceHashes[relative],row.sha256,"selected_source_collision");
+   sourceHashes[relative]=row.sha256;sourceInputs.set(relative,row.source);
+  }
+ }
+ for(const row of input.licenses){const body=await readFile(row.path);assert.equal(sha(body),row.sha256);await write(row.output,body);}
+ const node=await readFile(input.node);assert.equal(sha(node),input.nodeSha256);
+ await write("toolchain/node",node);await chmod(join(input.output,"toolchain/node"),0o555);
+ for(const row of input.toolchainModules){
+  assert(row.output.startsWith("toolchain/node_modules/"),"pinned_loader_closure_layout_required");
+  const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write(row.output,body);
+  if(row.executable)await chmod(join(input.output,row.output),0o555);
+ }
+ for(const row of input.wizardFiles){
+  const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write("wizard/"+row.path,body);
  }
  const assets:Record<string,unknown>={},mime:Record<string,string>={".html":"text/html; charset=utf-8",".css":"text/css",".js":"text/javascript",".json":"application/json",".svg":"image/svg+xml",".mp3":"audio/mpeg",".png":"image/png",".webp":"image/webp",".woff2":"font/woff2"};
  for(const [name,expected] of Object.entries(owning.assets)){
@@ -70,8 +95,24 @@ export async function buildCompleteLinuxArtifacts(input:{
  const native=await readFile(input.native.path),schema=await readFile(input.schema.path);
  assert(sha(native)===input.native.sha256 && sha(schema)===input.schema.sha256);
  await write("workerd",native);await chmod(join(input.output,"workerd"),0o555);await write("workerd.capnp",schema);
- for(const [relative,digest] of Object.entries(sourceHashes))assert.equal(sha(await readFile(join(input.sourceRoot,relative))),digest.replace(/^0x/,""));
+ for(const [relative,digest] of Object.entries(sourceHashes)){
+  const body=await readFile(sourceInputs.get(relative)??join(input.sourceRoot,relative));
+  assert.equal(sha(body),digest.replace(/^0x/,""));
+  const output="source/"+relative;
+  if(Object.hasOwn(files,output))assert.equal(files[output],sha(body));else await write(output,body);
+ }
+ for(const name of ["source/backend.ts","source/package.json","source/deploy/linux/local-install-main.ts",
+  "source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts",
+  "toolchain/node_modules/tsx/dist/loader.mjs","toolchain/node_modules/tsx/package.json","wizard/index.html"])
+  assert(Object.hasOwn(files,name),"installed_backend_loader_or_asset_closure_missing: "+name);
+ async function seal(path:string){for(const row of await readdir(path,{withFileTypes:true})){
+  const child=join(path,row.name);assert(!row.isSymbolicLink());
+  if(row.isDirectory())await seal(child);else assert(row.isFile() && !((await lstat(child)).mode&0o222));
+ }await chmod(path,0o555);}
+ await seal(input.output);
  return {owning,files,sourceHashes,nativeIdentity,output:input.output,dockerExecuted:false,
-  remainingExecutionInputs:["actual final signed release/image identity and exact installed path/resource mapping","accepted Directory/Naming binding","actual independent source/native/provider/second-host/application qualification"]};
+  execution:{node:"toolchain/node" as const,nodeSha256:input.nodeSha256,nodeVersion:"v24.18.1" as const,
+   loader:"toolchain/node_modules/tsx/dist/loader.mjs" as const,tsxVersion:"4.20.6" as const,backend:"source/backend.ts" as const},
+  remainingExecutionInputs:["actual post-build signed release/image identity and exact installed path/resource mapping","genuine current signed create template/profile and managed key channels","actual one-host create/publication/restart qualification"]};
 }
 

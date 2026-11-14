@@ -1,9 +1,10 @@
+import type {OriginalLinuxDraft} from "../../../packages/community-setup/linux-create-profile.ts";
 // Independently owned pure Solid fields using the existing wizard interaction.
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { LinuxDraftV2 } from "../../../packages/community-setup/shared-linux-profile.ts";
 import type { ObjectStorageProfileV1 } from "../../../packages/community-setup/storage.ts";
 import type { LinuxCapabilities } from "../server/linux-contracts.ts";
-export function LinuxStorageFields(props: {
+function LinuxRecoveryStorageFields(props: {
   value: LinuxDraftV2;
   capabilities: LinuxCapabilities;
   disabled: boolean;
@@ -151,4 +152,15 @@ export function LinuxStorageFields(props: {
       </p>
     </section>
   );
+}
+
+export function LinuxStorageFields(props:{value:OriginalLinuxDraft;capabilities:LinuxCapabilities;disabled:boolean;onChange(value:OriginalLinuxDraft):void}) {
+  const retained=()=>{const d=props.value;if(d.version!==2)throw Error("V2 backup selection required");return d;};
+  return <Show when={props.value.version === 2} fallback={<section class="card">
+    <h2>Public media and private data</h2>
+    <p>Public media uses Filebase IPFS pinning. Private community data stays in this host's persistent private volume.</p>
+    <p>Encrypted backup, guided restore and session recovery are deferred for this create-only profile. Keep the host's persistent data; ordinary restart retains the original installation.</p>
+  </section>}>
+    <LinuxRecoveryStorageFields value={retained()} capabilities={props.capabilities} disabled={props.disabled} onChange={props.onChange}/>
+  </Show>;
 }

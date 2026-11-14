@@ -1,11 +1,12 @@
+import {originalLinuxDraftFrom} from "../../packages/community-setup/linux-create-profile.ts";
 // Explicit shared profile/port v2 successor to the retained v1 proposal. This module does not implement the
 // target, credential, ciphertext-store or complete application lifecycle drivers.
 // All are required owning services; none has an available/success fallback.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { linuxDraftFrom, linuxProfileFrom } from "../../packages/community-setup/shared-linux-profile.ts";
+import { linuxProfileFrom } from "../../packages/community-setup/shared-linux-profile.ts";
 import type {
-  LinuxDeploymentPort, LinuxObservation, LinuxOperation, LinuxPlan,
+  OriginalLinuxDeploymentPort as LinuxDeploymentPort, LinuxObservation, OriginalLinuxOperation as LinuxOperation, OriginalLinuxPlan as LinuxPlan,
   BoundLinuxIntent, LinuxOperatorAdapter, LinuxOperationResult,
 } from "../../apps/community-wizard/server/linux-contracts.ts";
 
@@ -58,7 +59,7 @@ function requireServices(value: LinuxSharedBackendServices) {
   assert(value && typeof value === "object", "linux_backend_services_unavailable");
   assert(typeof value.adapterId === "string" && value.adapterId.length > 0 && digest(value.sourceDigest),
     "linux_backend_source_identity_invalid");
-  assert(Number.isSafeInteger(value.maxStagedCiphertextBytes) && value.maxStagedCiphertextBytes > 0,
+  assert(Number.isSafeInteger(value.maxStagedCiphertextBytes) && value.maxStagedCiphertextBytes >= 0,
     "linux_backend_backup_limit_invalid");
   const groups: [unknown, string[]][] = [
     [value.custody, ["assertHeld"]], [value.catalog, ["capabilities"]], [value.targets, ["inspectTarget"]],
@@ -110,6 +111,26 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
   const journalRecovery=sharedJournalRecoveryForSelectedNative(input);
   recoveryPortFrom({journalRecovery},input.sourceDigest);
   const held = () => input.custody.assertHeld();
+  const createOnly = input.maxStagedCiphertextBytes === 0;
+  async function createCapabilities() {
+    const c=await input.catalog.capabilities();
+    assert.deepEqual(c.targets,["local-linux"],"create_only_local_target_required");
+    assert.deepEqual(c.operations,["create"],"create_only_operations_required");
+    assert.deepEqual(c.backup,{formats:[],maxBytes:0,sessionPolicies:[]},"create_recovery_deferred");
+    assert.deepEqual(c.backupProfiles,[],"create_backup_profiles_deferred");
+    assert.deepEqual(c.sshConnections,[],"create_ssh_deferred");
+    return c;
+  }
+  function selectedDraft(value:unknown) {
+    const draft=originalLinuxDraftFrom(value);
+    assert(createOnly ? draft.version === 3 : draft.version === 2,"selected_profile_schema_required");
+    assert.deepEqual(draft,value,"selected_settings_not_canonical");
+    return draft;
+  }
+  function selectedPlan(plan:LinuxPlan) {
+    if(createOnly)assert(plan.profile.schema === "pirate.community-linux-profile/3","create_profile_required");
+    else assert(plan.profile.schema === "pirate.community-linux-profile/2","full_profile_required");
+  }
   async function readback(operation: LinuxOperation, result: LinuxOperationResult): Promise<LinuxObservation> {
     await held();
     const observed = await input.postReadback.observe({operation: structuredClone(operation), result: structuredClone(result)});
@@ -142,6 +163,7 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       const now = Date.now();
       assert(Number.isSafeInteger(observation.health.checkedAt) && observation.health.checkedAt <= now &&
         now - observation.health.checkedAt <= 60_000, "linux_backend_readback_stale");
+      if(operation.plan.profile.schema === "pirate.community-linux-profile/3")assert.equal(observation.recovery,null,"create_recovery_deferred");
       if (operation.kind === "restore") {
         assert(observation.recovery && observation.recovery.inspectionId === operation.plan.restoreInspectionId &&
           observation.recovery.manifestDigest === operation.plan.restoreManifestDigest &&
@@ -163,6 +185,7 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
         return input.operator.deploy(structuredClone(intent), signal);
       },
       async restore(intent, signal) {
+        assert(!createOnly,"create_restore_deferred");
         await held(); assert(!signal.aborted, "linux_backend_cancelled");
         const value: BoundLinuxIntent = {kind: "restore", intent: structuredClone(intent)};
         await input.intents.assertBound(value); await input.authority.assertCurrentIntent(value); await held();
@@ -175,23 +198,27 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       },
     } satisfies LinuxOperatorAdapter),
     async capabilities() {
-      await held(); const result = await input.catalog.capabilities();
+      await held(); const result = createOnly ? await createCapabilities() : await input.catalog.capabilities();
       assert.equal(result.version, LINUX_SHARED_WIZARD_PORT_VERSION);
       assert.equal(result.adapterId, input.adapterId); assert.equal(result.sourceDigest, input.sourceDigest);
       assert.equal(result.backup.maxBytes, input.maxStagedCiphertextBytes, "linux_backend_backup_limit_mismatch");
       return structuredClone(result);
     },
-    async inspectTarget(request) { await held(); return input.targets.inspectTarget(structuredClone(request)); },
-    async credentialRequirements(request) { await held(); return input.credentials.credentialRequirements(structuredClone(request)); },
-    async verifyCredentials(request) { await held(); return input.credentials.verifyCredentials(structuredClone(request)); },
-    async reconcileCredentials(request) { await held(); return input.credentials.reconcileCredentials(structuredClone(request)); },
+    async inspectTarget(request) {
+      await held(); if(createOnly)assert.equal(request.target.kind,"local-linux","create_only_local_target_required");
+      return input.targets.inspectTarget(structuredClone(request));
+    },
+    async credentialRequirements(request) { await held(); selectedDraft(request.draft); return input.credentials.credentialRequirements(structuredClone(request)); },
+    async verifyCredentials(request) { await held(); selectedDraft(request.draft); return input.credentials.verifyCredentials(structuredClone(request)); },
+    async reconcileCredentials(request) { await held(); selectedDraft(request.draft); return input.credentials.reconcileCredentials(structuredClone(request)); },
     async saveCredentials(request) {
-      await held();
+      await held(); selectedDraft(request.draft);
       // Transient values go only to the required secret owner, never a plan,
       // capability, operation log, receipt or deployment health response here.
       await input.credentials.saveCredentials(request);
     },
     async stageBackup(request) {
+      assert(!createOnly,"create_backup_deferred");
       await held();
       assert(Number.isSafeInteger(request.byteLength) && request.byteLength > 0 &&
         request.byteLength <= input.maxStagedCiphertextBytes, "linux_backend_backup_size_invalid");
@@ -210,6 +237,7 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       return structuredClone(staged);
     },
     async inspectBackup(request) {
+      assert(!createOnly,"create_restore_deferred");
       await held(); const result = await input.backups.inspectBackup(request);
       assert(digest(result.ciphertextDigest) && digest(result.manifestDigest), "linux_backend_backup_digest_invalid");
       assert.deepEqual(linuxProfileFrom(result.profile), result.profile, "linux_backend_backup_profile_invalid");
@@ -217,8 +245,12 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       return structuredClone(result);
     },
     async prepare(request) {
-      await held(); linuxDraftFrom(request.draft);
-      const plan = await input.lifecycle.prepare(structuredClone(request)); validatePlan(plan);
+      await held(); const draft=selectedDraft(request.draft);
+      if(createOnly){
+        assert(draft.version === 3 && request.previousOperation === null && request.imported === null && request.restore === null,"create_only_request_required");
+        await createCapabilities();
+      }else assert(draft.version === 2,"full_profile_required");
+      const plan = await input.lifecycle.prepare(structuredClone(request)); validatePlan(plan); selectedPlan(plan);
       assert.equal(plan.targetInspectionId, request.target.id, "linux_backend_plan_wrong_inspection");
       assert.equal(plan.targetFingerprint, request.target.fingerprint, "linux_backend_plan_wrong_target");
       assert.equal(plan.namespaceProofId, request.namespace.id, "linux_backend_plan_wrong_namespace");
@@ -226,7 +258,8 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       return structuredClone(plan);
     },
     async bindOperation(value) {
-      await held(); const operation = retainLinuxOperation(value);
+      await held(); const operation = retainLinuxOperation(value); selectedPlan(operation.plan);
+      if(createOnly)await createCapabilities();
       assert(operation.plan.expiresAt > Date.now(), "linux_backend_plan_expired");
       await input.authority.assertCurrent(structuredClone(operation.plan));
       const bound = boundIntentFrom(await input.lifecycle.bindOperation(structuredClone(operation)), operation);
@@ -235,7 +268,7 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       return bound;
     },
     async bindReconciliation(request) {
-      await held(); const operation = retainLinuxOperation(request.operation);
+      await held(); const operation = retainLinuxOperation(request.operation); selectedPlan(operation.plan);
       // Original expired intents remain readable; no new effects are authorized.
       const bound = reconciliationFrom(await input.lifecycle.bindReconciliation({
         operation, retainedIntent: structuredClone(request.retainedIntent),
@@ -244,7 +277,7 @@ export function createSharedLinuxDeploymentPort(input: LinuxSharedBackendService
       return bound;
     },
     async observeResult(request) {
-      await held(); const operation = retainLinuxOperation(request.operation);
+      await held(); const operation = retainLinuxOperation(request.operation); selectedPlan(operation.plan);
       const result = resultFrom(request.result, operation);
       return readback(operation, result);
     },

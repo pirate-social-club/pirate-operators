@@ -37,7 +37,7 @@ export function mappingFrom(value: unknown): InstallationMapping {
     deploymentIdentityDigest:hash(m.deploymentIdentityDigest) as Hex,origin:m.origin,
     originalProfileSha256:m.originalProfileSha256===null?null:rawSha(m.originalProfileSha256),evidence:{relativePath:path,sha256:rawSha(e.sha256)}};
 }
-export function infrastructureFrom(value: unknown, identity: DeploymentIdentity, settings: LinuxDraftV2): SharedInfrastructure {
+export function infrastructureFrom(value: unknown, identity: DeploymentIdentity, settings: Pick<LinuxDraftV2, "origin" | "namespace">): SharedInfrastructure {
   const s=fields(value,["schema","directory","configuration","registrySource","sourceSha256","mapping","binding"]);
   requireLinux(s.schema === "pirate.shared-infrastructure/1","shared_selection_required","Select the shared source explicitly.");
   const p=parseSharedProfileDocument(s.directory), mapping=mappingFrom(s.mapping), sourceSha256=rawSha(s.sourceSha256);

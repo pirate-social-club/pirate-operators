@@ -13,6 +13,7 @@ import {verifyInstalledRelease,type FullRelease} from "./installed-release.ts";
 import {readPrivateJSON,type SignedRecord,type TrustAnchor} from "./installed-records.ts";
 import {processIdentity,sameProcess,privateDirectory,syncDirectory} from "./backend-state.ts";
 import {renderFullNativeConfig} from "./full-native-config.ts";
+import {createBootDirectory} from "./local-installation.ts";
 import {assertStartAllowed} from "./maintenance-guard.ts";
 import {validateOriginal, type ProfileAdmission} from "./full-profile-authority.ts";
 import {canonicalDigest} from "./installed-records.ts";
@@ -21,20 +22,24 @@ const args=process.argv.slice(2);assert(args.length===1,"full_launch_exact_insta
 const config=await readPrivateJSON<{
   release:SignedRecord<FullRelease>;trust:TrustAnchor;workerd:string;workerdSha256:string;
   maintenanceDirectory:string;privateRuntimeDirectory:string;expectedInstallationId:string;
-  mode:"initialize"|"serve"|"cold-reconcile";configurationDirectory:string;coldReceiptPath:string;
+  mode:"initialize"|"serve"|"cold-reconcile";configurationDirectory:string;coldReceiptPath?:string;
 }>(args[0]!);
 const release=await verifyInstalledRelease(config.release,config.trust),graph=release.graph;
 assert(["initialize","serve","cold-reconcile"].includes(config.mode));
 assert(graph.installationId===config.expectedInstallationId);
-await privateDirectory(config.privateRuntimeDirectory);assert.deepEqual(await readdir(config.privateRuntimeDirectory),[]);
+// This input is a private /run parent, never a persistent journal/data root.
+// Old boot evidence stays retained; a restart uses a fresh exclusive leaf.
+const runtimeDirectory=await createBootDirectory(config.privateRuntimeDirectory),runtimeSocket=join(runtimeDirectory,"control.sock");
+assert.deepEqual(await readdir(runtimeDirectory),[]);
 if(config.mode!=="cold-reconcile")await assertStartAllowed(config.maintenanceDirectory);
 for(const root of Object.values(graph.stateRoots)){
   await privateDirectory(root);
   try{await lstat(join(root,"restore-fence.json"));if(config.mode!=="cold-reconcile")throw new Error("restore_original_authority_fence_held");}
   catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}
 }
+assert(config.workerd===join(release.root,"workerd") && config.workerdSha256===release.files.workerd,"installed_native_binary_required");
 const native=await readFile(config.workerd);assert.equal(createHash("sha256").update(native).digest("hex"),config.workerdSha256);
-const target=join(config.privateRuntimeDirectory,"full-native.capnp");
+const target=join(runtimeDirectory,"full-native.capnp");
 const bootId=randomBytes(32).toString("hex");
 let nativeOriginalFile:string|undefined;
 if(config.mode!=="cold-reconcile"){
@@ -45,17 +50,17 @@ if(config.mode!=="cold-reconcile"){
     "original_native_profile_release_changed");
   assert(original.profile.settings.origin===JSON.parse(graph.directoryRuntimeBinding).origin,"original_native_origin_changed");
   const body:NativeOriginal={schema:"pirate.native-application-original/1",record:signed,release:config.release,trust:config.trust,durableScope:graph.durableScope};
-  nativeOriginalFile=join(config.privateRuntimeDirectory,"native-application-original.json");
+  nativeOriginalFile=join(runtimeDirectory,"native-application-original.json");
   const originalFile=await open(nativeOriginalFile,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
   try{await originalFile.writeFile(JSON.stringify(body));await originalFile.sync();}finally{await originalFile.close();}
   const readback=await readPrivateJSON(nativeOriginalFile);
   assert.equal(canonicalDigest(readback),canonicalDigest(body),"original_native_binding_readback_changed");
 }
 const file=await open(target,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600);
-try{await file.writeFile(renderFullNativeConfig(graph,config.mode,bootId,nativeOriginalFile));await file.sync();}finally{await file.close();}
-await syncDirectory(config.privateRuntimeDirectory);
+try{await file.writeFile(renderFullNativeConfig(graph,config.mode,bootId,nativeOriginalFile,runtimeSocket));await file.sync();}finally{await file.close();}
+await syncDirectory(runtimeDirectory);
 if(config.mode!=="cold-reconcile")await assertStartAllowed(config.maintenanceDirectory);
-await privateDirectory(dirname(graph.socket));
+await privateDirectory(dirname(runtimeSocket));
 const before=await processIdentity(process.pid);assert(before);
 if(config.mode==="serve") {
   const initialized=await readPrivateJSON<{installationId:string;artifactDigest:string}>(join(config.configurationDirectory,"initialized-native.json"));
@@ -67,7 +72,7 @@ const exited=new Promise<{code:number|null;signal:NodeJS.Signals|null}>((resolve
 });
 const spawned=new Promise<void>((resolve,reject)=>{child.once("spawn",resolve);child.once("error",reject);});
 await spawned;const owned=await processIdentity(child.pid!);assert(owned && owned.hostGroup===child.pid && owned.hostSession===child.pid);
-const witness=await open(join(config.privateRuntimeDirectory,"native-process.json"),"wx",0o600);
+const witness=await open(join(runtimeDirectory,"native-process.json"),"wx",0o600);
 try{await witness.writeFile(JSON.stringify({observer:before,owned,installationId:graph.installationId,scope:"inner-container-frame; host mapping requires independent observer"})+"\n");await witness.sync();}
 finally{await witness.close();}
 let stopping=false,killTimer:ReturnType<typeof setTimeout>|undefined;
@@ -86,7 +91,7 @@ for(const signal of ["SIGTERM","SIGINT"] as const)process.once(signal,()=>{void 
     const reply=await new Promise<any>((resolve,reject)=>{
       const attempt=()=>{
         if(performance.now()>=end){reject(new Error("full_initialize_true_timeout"));return;}
-        const req=request({socketPath:graph.socket,path:config.mode==="cold-reconcile"?"/reconcile":"/initialize",method:"POST",timeout:Math.min(3000,end-performance.now())},res=>{
+        const req=request({socketPath:runtimeSocket,path:config.mode==="cold-reconcile"?"/reconcile":"/initialize",method:"POST",timeout:Math.min(3000,end-performance.now())},res=>{
           let body="";res.on("data",b=>{body+=b;if(body.length>65536)req.destroy(new Error("initialize_response_limit"));});
           res.on("error",reject);res.on("end",()=>{try{assert(performance.now()<end && res.statusCode===200);resolve(JSON.parse(body));}catch(e){reject(e);}});
         });
@@ -98,7 +103,8 @@ for(const signal of ["SIGTERM","SIGINT"] as const)process.once(signal,()=>{void 
     if(config.mode==="serve")assert(reply.bootId===bootId,"actual_current_boot_initialization_required");
     await privateDirectory(config.configurationDirectory);
     const receiptPath=config.mode==="cold-reconcile"?config.coldReceiptPath:config.mode==="serve"?
-      join(config.privateRuntimeDirectory,"actual-startup.json"):join(config.configurationDirectory,"initialized-native.json");
+      join(runtimeDirectory,"actual-startup.json"):join(config.configurationDirectory,"initialized-native.json");
+    assert(receiptPath,"cold_reconciliation_requires_explicit_receipt_path");
     const receipt=await open(receiptPath,"wx",0o600);
     try{await receipt.writeFile(JSON.stringify({installationId:graph.installationId,artifactDigest:release.artifactDigest,reply})+"\n");await receipt.sync();}
     finally{await receipt.close();}await syncDirectory(dirname(receiptPath));

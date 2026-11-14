@@ -10,7 +10,7 @@ export interface NativeGraph {
   secretBindings:Array<{name:string;path:string}>;
   listenAddress:string;tls:{keyFile:string;certificateFile:string};
   migrationPlanFile:string;
-  coldPlanFile:string;
+  coldPlanFile?:string;
   probePlanFile:string;readbackKeyFile:string;
 }
 const q=JSON.stringify;
@@ -23,8 +23,9 @@ const binding=(v:NativeBinding)=>{
 };
 /** Actual native services, not the diagnostic ledger. Unknown selected actors
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
-export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string) {
+export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket) {
   const initialize=mode!=="serve";
+  assert(runtimeSocket===g.socket || runtimeSocket.startsWith("/run/") && !runtimeSocket.split("/").includes(".."),"private_per_boot_control_socket_required");
   assert(initialize || (typeof bootId==="string" && /^[a-f0-9]{64}$/.test(bootId)),"fresh_actual_process_boot_identity_required");
   assert(g.installationId.length>0 && !/[\x00-\x1f\x7f]/.test(g.installationId) && /^[a-f0-9]{64}$/.test(g.durableScope) && g.releaseRoot.startsWith("/") && g.socket.startsWith("/"));
   assert(g.directoryRuntimeBinding.length>0,"accepted_directory_runtime_binding_required");
@@ -99,6 +100,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +'(name="MIGRATION_PLAN_JSON",text=embed '+q(g.migrationPlanFile)+')'
     +(nativeOriginalFile?',(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+')':'')));
   if(mode==="cold-reconcile") {
+    assert(typeof g.coldPlanFile==="string" && g.coldPlanFile.startsWith("/"),"explicit_cold_reconciliation_plan_required");
     assert(g.stateRoots.reconciliation?.startsWith("/"),"reconciliation_durable_root_required");
     services.push(disk("reconciliation-storage",g.stateRoots.reconciliation!));
     services.push(worker("cold-reconcile","cold-reconcile.worker.mjs",
@@ -113,7 +115,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   return 'using Workerd=import '+q(g.schemaPath)+';\nconst config :Workerd.Config=(extensions=[(modules=['
     +'(name="miniflare:shared",esModule=embed '+q(module("shared.worker.js"))+'),'
     +'(name="miniflare:zod",esModule=embed '+q(module("zod.worker.js"))+')])],services=['+selectedServices.join(",\n")
-    +'],sockets=['+(initialize?'(name="initialize",address='+q("unix:"+g.socket)+',http=(),service='+q(mode==="cold-reconcile"?"cold-reconcile":"initialize")+')':
-      '(name="application",address='+q(g.listenAddress)+',https=(options=(),tlsOptions=(keypair=(privateKey=embed '+q(g.tls.keyFile)+',certificateChain=embed '+q(g.tls.certificateFile)+'))),service="gateway"),(name="private-startup",address='+q('unix:'+g.socket)+',http=(),service="startup")')+']);\n';
+    +'],sockets=['+(initialize?'(name="initialize",address='+q("unix:"+runtimeSocket)+',http=(),service='+q(mode==="cold-reconcile"?"cold-reconcile":"initialize")+')':
+      '(name="application",address='+q(g.listenAddress)+',https=(options=(),tlsOptions=(keypair=(privateKey=embed '+q(g.tls.keyFile)+',certificateChain=embed '+q(g.tls.certificateFile)+'))),service="gateway"),(name="private-startup",address='+q('unix:'+runtimeSocket)+',http=(),service="startup")')+']);\n';
 }
 

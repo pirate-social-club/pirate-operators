@@ -2,23 +2,27 @@ import assert from "node:assert/strict";
 import {createServer,request as httpRequest,type IncomingMessage} from "node:http";
 import {randomBytes,createHash,timingSafeEqual} from "node:crypto";
 import {createLinuxWizardRuntime} from "../../apps/community-wizard/server/linux-runtime.ts";
-import {createLocalTargetImplementation,type LocalTargetInputs} from "./local-target-services.ts";
+import {createLocalTargetImplementation,type LocalTargetInputs,type LocalTargetCreateInputs,type LocalTargetFullInputs} from "./local-target-services.ts";
 import {startManagedKeyAgent} from "./managed-key-channel.ts";
 import {releaseClearedOperation,type readWholeClearance} from "./independent-clearance.ts";
 import {createJSON,hash} from "./backend-state.ts";
 /** Ordinary browser -> authenticated loopback proxy -> existing W6 journal
  * runtime. No new wizard HTTP API, bypass of its CSRF/journal or public bind. */
-export async function bootstrapLocalTarget(input:{
+export interface LocalTargetBootstrapInputs {
   backend:LocalTargetInputs;wizardDirectory:string;wizardDist:string;frontPort:number;innerPort:number;
   pairingSecret:Uint8Array;pairingNonceDirectory:string;
   bootstrapClearance:Parameters<typeof readWholeClearance>[0];
   keyAgent:Omit<Parameters<typeof startManagedKeyAgent>[0],"installationId"|"authenticationKey"|"lease"|"capturedRoots">;
-}) {
+}
+export type LocalTargetCreateBootstrapInputs = Omit<LocalTargetBootstrapInputs,"backend"> & {backend:LocalTargetCreateInputs};
+export type LocalTargetFullBootstrapInputs = Omit<LocalTargetBootstrapInputs,"backend"> & {backend:LocalTargetFullInputs};
+export type LocalTargetBootstrapResult = Awaited<ReturnType<typeof bootstrapLocalTarget>>;
+export async function bootstrapLocalTarget(input:LocalTargetBootstrapInputs) {
   assert(input.frontPort!==input.innerPort && input.pairingSecret.length===32);
   const agent=await startManagedKeyAgent({...input.keyAgent,installationId:input.backend.installationId,
     authenticationKey:input.backend.keyChannel.authenticationKey,lease:input.backend.bootstrapLease,capturedRoots:[...Object.values(input.backend.snapshotRoots),input.backend.operationsDirectory,input.backend.resultsDirectory,
       input.backend.observationDirectory,input.backend.plansDirectory,input.backend.profileRecordsDirectory,
-      input.backend.inspectionDirectory,input.backend.bootstrapLease.directory,input.wizardDirectory]});
+      ...(input.backend.runtimeProfile === "full-v2" ? [input.backend.inspectionDirectory] : []),input.backend.bootstrapLease.directory,input.wizardDirectory]});
   let activeImplementation:Awaited<ReturnType<typeof createLocalTargetImplementation>>|undefined;
   let activeRuntime:Awaited<ReturnType<typeof createLinuxWizardRuntime>>|undefined;
   let activeProxy:ReturnType<typeof createServer>|undefined;

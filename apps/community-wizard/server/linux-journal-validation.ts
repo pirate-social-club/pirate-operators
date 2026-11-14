@@ -43,6 +43,8 @@ export function validateLinuxJournal(state: LinuxJournal) {
     "history",
     "message",
   ]);
+  if(state.draft?.version === 3)requireLinux(state.imported === null && state.restore === null && state.backupId === null &&
+    state.backupDigest === null && state.uploadRequest === null && state.history.length === 0,"create_recovery_deferred","Preserve this inconsistent create journal; no recovery state may be reinterpreted.");
   if (state.plan) state.plan = planFrom(state.plan);
   if (state.operation) state.operation.plan = planFrom(state.operation.plan);
   state.requirements = requirementsFrom(state.requirements);

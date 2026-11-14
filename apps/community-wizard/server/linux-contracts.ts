@@ -1,3 +1,4 @@
+import type {OriginalLinuxDraft,OriginalLinuxProfile,LinuxCreateProfileV3} from "../../../packages/community-setup/linux-create-profile.ts";
 import type {OperatorPolicyView} from "../../../packages/community-setup/shared-operator-policy.ts";
 import type {NamespaceAuthorityProof as SharedNamespaceProof, NamespaceChallenge} from "../../../packages/community-names/namespace-import.ts";
 import type {SharedInfrastructure} from "../../../packages/community-setup/shared-linux-infrastructure.ts";
@@ -72,7 +73,7 @@ export interface TargetInspection {
   description: string;
   corrections: string[];
   existing: LinuxCommunityProfileV2[];
-  prepared: {identity:DeploymentIdentity;infrastructure:SharedInfrastructure;settings:LinuxDraftV2} | null;
+  prepared: {identity:DeploymentIdentity;infrastructure:SharedInfrastructure;settings:OriginalLinuxDraft} | null;
 }
 export interface NamespaceProof extends SharedNamespaceProof {
   status: "verified"; tld: string; correction: string;
@@ -103,34 +104,36 @@ export interface RestoreInspection {
   sessionPolicies: SessionPolicy[];
   corrections: string[];
 }
-export interface LinuxPlan {
+export interface LinuxPlan<P extends OriginalLinuxProfile = LinuxCommunityProfileV2> {
   id: string;
   digest: string;
   profileDigest: string;
   expiresAt: number;
   backend: { target: LinuxTargetRef; release: CompleteReleaseRef };
-  profile: LinuxCommunityProfileV2;
+  profile: P;
   operatorPolicy: OperatorPolicyView | null;
   targetInspectionId: string;
   targetFingerprint: string;
   namespaceProofId: string;
-  action: "create" | "adopt" | "restore" | "upgrade";
+  action: P extends LinuxCreateProfileV3 ? "create" : "create" | "adopt" | "restore" | "upgrade";
   changes: string[];
   warnings: string[];
   requirements: CredentialRequirement[];
-  restoreInspectionId: string | null;
-  restoreManifestDigest: string | null;
-  restoreCiphertextDigest: string | null;
-  predecessorOperationId: string | null;
-  sessionPolicy: SessionPolicy;
+  restoreInspectionId: P extends LinuxCreateProfileV3 ? null : string | null;
+  restoreManifestDigest: P extends LinuxCreateProfileV3 ? null : string | null;
+  restoreCiphertextDigest: P extends LinuxCreateProfileV3 ? null : string | null;
+  predecessorOperationId: P extends LinuxCreateProfileV3 ? null : string | null;
+  sessionPolicy: P extends LinuxCreateProfileV3 ? null : SessionPolicy;
 }
-export interface LinuxOperation {
+export type OriginalLinuxPlan = LinuxPlan<OriginalLinuxProfile>;
+export interface LinuxOperation<P extends OriginalLinuxProfile = LinuxCommunityProfileV2> {
   id: string;
-  kind: LinuxDraftV2["mode"];
+  kind: P["settings"]["mode"];
   draftRevision: number;
-  plan: LinuxPlan;
+  plan: LinuxPlan<P>;
   startedAt: number;
 }
+export type OriginalLinuxOperation = LinuxOperation<OriginalLinuxProfile>;
 export type LinuxObservation = {
   revision: number;
   custody: "held" | "cleared";
@@ -177,10 +180,10 @@ export interface LinuxJournalRecoveryPort {
   readonly sourceDigest:string;
   readonly resultMaxBytes:524288;
   readonly intentMaxBytes:262144;
-  terminal(input:{operation:LinuxOperation;retainedIntent:BoundLinuxIntent|null}):Promise<
+  terminal(input:{operation:OriginalLinuxOperation;retainedIntent:BoundLinuxIntent|null}):Promise<
     {state:"pending";operationId:string} | {state:"result";result:LinuxOperationResult}>;
 }
-export interface LinuxDeploymentPort {
+export interface LinuxDeploymentPort<P extends OriginalLinuxProfile = LinuxCommunityProfileV2> {
   readonly journalRecovery:LinuxJournalRecoveryPort;
   readonly version: 2;
   readonly operator: LinuxOperatorAdapter;
@@ -190,24 +193,24 @@ export interface LinuxDeploymentPort {
     target: LinuxTarget;
   }): Promise<TargetInspection>;
   credentialRequirements(input: {
-    draft: LinuxDraftV2;
+    draft: P["settings"];
     target: TargetInspection;
   }): Promise<CredentialRequirement[]>;
   verifyCredentials(input: {
     requestId: string;
-    draft: LinuxDraftV2;
+    draft: P["settings"];
     target: TargetInspection;
   }): Promise<CredentialRequirement[]>;
   reconcileCredentials(input: {
     requestId: string;
-    draft: LinuxDraftV2;
+    draft: P["settings"];
   }): Promise<{
     state: "pending" | "saved" | "not-saved";
     requirements: CredentialRequirement[];
   }>;
   saveCredentials(input: {
     requestId: string;
-    draft: LinuxDraftV2;
+    draft: P["settings"];
     values: Record<string, string>;
   }): Promise<void>;
   // Stage immutable ciphertext only; keep its opaque id recoverable after a lost reply.
@@ -224,30 +227,31 @@ export interface LinuxDeploymentPort {
   }): Promise<RestoreInspection>;
   prepare(input: {
     requestId: string;
-    draft: LinuxDraftV2;
+    draft: P["settings"];
     target: TargetInspection;
     namespace: NamespaceProof;
     retainedIdentity: DeploymentIdentity | null;
-    previousOperation: LinuxOperation | null;
-    imported: LinuxCommunityProfileV2 | null;
-    restore: RestoreInspection | null;
-  }): Promise<LinuxPlan>;
+    previousOperation: P extends LinuxCreateProfileV3 ? null : LinuxOperation<P> | null;
+    imported: P extends LinuxCreateProfileV3 ? null : LinuxCommunityProfileV2 | null;
+    restore: P extends LinuxCreateProfileV3 ? null : RestoreInspection | null;
+  }): Promise<LinuxPlan<P>>;
   // Server-owned binding, never browser-supplied effect/admission evidence.
   // Materialize and verify actual sealed refs, target identity, secret generations,
   // backend journal CAS and fresh complete-profile/authority admission.
-  bindOperation(operation: LinuxOperation): Promise<BoundLinuxIntent>;
+  bindOperation(operation: LinuxOperation<P>): Promise<BoundLinuxIntent>;
   bindReconciliation(input: {
-    operation: LinuxOperation;
+    operation: LinuxOperation<P>;
     retainedIntent: BoundLinuxIntent | null;
   }): Promise<LinuxReconciliationRequest>;
   // Read and validate the real restricted receipt, postguard and cleanup plus
   // complete-profile health/recovery facts. Never infer custody from an empty
   // process list, timeout, denied access or outcome text alone.
   observeResult(input: {
-    operation: LinuxOperation;
+    operation: LinuxOperation<P>;
     result: LinuxOperationResult;
   }): Promise<LinuxObservation>;
 }
+export type OriginalLinuxDeploymentPort = LinuxDeploymentPort<OriginalLinuxProfile>;
 export interface NamespaceAuthorityPort {
   readonly version: 3;
   assertWritable():void;
@@ -264,6 +268,6 @@ export interface NamespaceAuthorityPort {
   // original-target/TLD/SLD rights, including final backend effect fences.
   revalidate(input: {
     proof: NamespaceProof;
-    profile: LinuxCommunityProfileV2;
+    profile: OriginalLinuxProfile;
   }): Promise<NamespaceAuthorityResult>;
 }

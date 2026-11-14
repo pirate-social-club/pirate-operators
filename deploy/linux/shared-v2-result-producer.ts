@@ -1,3 +1,4 @@
+import {originalLinuxProfileFrom} from "../../packages/community-setup/linux-create-profile.ts";
 import assert from "node:assert/strict";
 import {mkdir,lstat,realpath,readFile} from "node:fs/promises";
 import {join,relative} from "node:path";
@@ -14,7 +15,7 @@ export type BoundIntent={kind:"deploy";intent:Parameters<LinuxOperatorAdapter["d
 // authority validates the complete versioned codec. Capacity capture retains
 // ALL original fields/nonce bytes and never substitutes a Directory codec.
 interface Profile {
- schema:"pirate.community-linux-profile/2";
+ schema:"pirate.community-linux-profile/2"|"pirate.community-linux-profile/3";
  identity:{resources:Record<string,string>};runtime:{sourceDigest:string;artifactDigest:string};
  settings:{origin:string};infrastructure:{mapping:{linuxInstallationId:string}};namespace:unknown;
 }
@@ -37,7 +38,7 @@ const instances=new WeakSet<object>();
 export function requireGenuineProducer(value:SharedResultProducer,operator:LinuxOperatorAdapter,sourceDigest:string){
  assert(instances.has(value),"selected_native_producer_required");value.requireAttached(operator,sourceDigest);return value;
 }
-const sourcePaths=["deploy/linux/shared-v2-output-bounds.ts","deploy/linux/shared-v2-result-producer.ts",
+const sourcePaths=["packages/community-setup/linux-create-profile.ts","deploy/linux/shared-v2-output-bounds.ts","deploy/linux/shared-v2-result-producer.ts",
  "deploy/linux/local-target-services.ts","deploy/linux/wizard-backend.ts","deploy/linux/full-profile-authority.ts",
  "deploy/linux/profile-producer.ts","deploy/linux/full-backup-service.ts","deploy/linux/shared-runtime-readback.ts",
  "services/community-deployment-profile.ts","services/community-application.ts","deploy/linux/cohort-archive.ts","deploy/linux/managed-credentials.ts",
@@ -68,7 +69,12 @@ function operation(value:unknown):SharedOperation{
  assert(typeof op.id==="string" && op.id.length>0 && op.id.length<=128 && /^[A-Za-z0-9_-]+$/.test(op.id));
  assert(Number.isSafeInteger(op.draftRevision) && op.draftRevision>=0 && Number.isSafeInteger(op.startedAt));
  assert(["create","import","restore"].includes(op.kind));
- assert.equal(op.plan.profile.schema,"pirate.community-linux-profile/2","legacy_profile_policy_refused");
+ assert.deepEqual(originalLinuxProfileFrom(op.plan.profile),op.plan.profile,"full_original_profile_required");
+ if(op.plan.profile.schema === "pirate.community-linux-profile/3") {
+  const plan=op.plan as SharedOperation["plan"] & {action:unknown;predecessorOperationId:unknown;sessionPolicy:unknown;restoreInspectionId:unknown;restoreManifestDigest:unknown;restoreCiphertextDigest:unknown};
+  assert(op.kind === "create" && plan.action === "create" && plan.predecessorOperationId === null && plan.sessionPolicy === null &&
+   plan.restoreInspectionId === null && plan.restoreManifestDigest === null && plan.restoreCiphertextDigest === null,"create_only_original_required");
+ }
  assert(op.plan.profile.infrastructure?.mapping && op.plan.profile.namespace,"full_shared_profile_binding_required");
  assert.equal(canonicalDigest(op.plan.profile),op.plan.profileDigest,"original_full_profile_digest_changed");return op;
 }

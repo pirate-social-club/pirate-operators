@@ -11,8 +11,8 @@ import {
 import { canonical } from "./linux-journal.ts";
 import type {
   BoundLinuxIntent,
-  LinuxOperation,
-  LinuxPlan,
+  OriginalLinuxOperation as LinuxOperation,
+  OriginalLinuxPlan as LinuxPlan,
   LinuxOperationResult,
   LinuxReconciliationRequest,
 } from "./linux-contracts.ts";

@@ -1,3 +1,4 @@
+import type {OriginalLinuxDraft} from "../../../packages/community-setup/linux-create-profile.ts";
 // One same-origin transport over the actual W6 controller routes. No tokens,
 // keys, backend defaults or authority/readiness inference are stored here.
 import type {LinuxJournal} from "../server/linux-journal.ts";
@@ -7,7 +8,7 @@ export type LinuxSnapshot=
  |{available:false;csrf:string;legacyAvailable:boolean;correction:string}
  |{available:true;csrf:string;legacyAvailable:boolean;state:LinuxJournal;capabilities:LinuxCapabilities};
 export interface LinuxInputs {
- settings:{revision:number;draft:LinuxDraftV2};
+ settings:{revision:number;draft:OriginalLinuxDraft};
  destination:{revision:number;mode:LinuxDraftV2["mode"];target:LinuxDraftV2["target"]};
  inspect:Record<string,never>;namespace:Record<string,never>;
  "namespace/begin":Record<string,never>;"namespace/recover":Record<string,never>;

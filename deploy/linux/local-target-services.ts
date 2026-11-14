@@ -8,7 +8,7 @@ import {SharedResultProducer} from "./shared-v2-result-producer.ts";
 import {boundedIntent} from "./shared-v2-output-bounds.ts";
 import {mkdir,readdir,lstat} from "node:fs/promises";
 import {readFile} from "node:fs/promises";
-import {join} from "node:path";
+import {join,isAbsolute} from "node:path";
 import {fileURLToPath} from "node:url";
 import {realpath} from "node:fs/promises";
 import {createSharedLinuxDeploymentPort,type LinuxSharedBackendServices} from "./wizard-backend.ts";
@@ -20,7 +20,8 @@ import {createManagedKeyClient} from "./managed-key-channel.ts";
 import {createManagedCredentials,type CredentialSelection} from "./managed-credentials.ts";
 import {createManagedRecoveryKeys} from "./managed-recovery-keys.ts";
 import {createProfileAuthority,type ProfileAdmission,type CurrentAdmission} from "./full-profile-authority.ts";
-import {produceOriginalProfile,readProfileTemplate} from "./profile-producer.ts";
+import {produceOriginalProfile,readProfileTemplate,produceCreateOriginalProfile,readCreateProfileTemplate} from "./profile-producer.ts";
+import {originalLinuxDraftFrom,type OriginalLinuxDraft} from "../../packages/community-setup/linux-create-profile.ts";
 import {createFullBackupService} from "./full-backup-service.ts";
 import {runActualReadbacks,type ReadbackSpec} from "./actual-service-readback.ts";
 import {readWholeClearance,type WholeClearance} from "./independent-clearance.ts";
@@ -36,11 +37,12 @@ import {actualLogin,type LoginScope} from "./actual-login-probe.ts";
 import {configuredPublisherVerified} from "./publisher-profile-verification.ts";
 import {boundIntentFrom,reconciliationFrom} from "../../apps/community-wizard/server/linux-operator-boundary.ts";
 import {planFrom} from "../../apps/community-wizard/server/linux-boundaries.ts";
-import type {LinuxCapabilities,LinuxOperation,LinuxPlan,LinuxObservation,BoundLinuxIntent,LinuxOperationResult,
+import type {LinuxCapabilities,OriginalLinuxOperation as LinuxOperation,OriginalLinuxPlan as LinuxPlan,
+ LinuxOperation as FullLinuxOperation,TargetInspection,LinuxObservation,BoundLinuxIntent,LinuxOperationResult,
  NamespaceAuthorityPort,NamespaceProof,LinuxReconciliationRequest} from "../../apps/community-wizard/server/linux-contracts.ts";
-export interface LocalTargetInputs {
+export interface LocalTargetFullFields {
   installationId:string;adapterId:string;trust:TrustAnchor;custodyTrust:TrustAnchor;
-  // Explicit shared-V2 native source path and original-result policy.
+  // Explicit selected native source path and original-result policy.
   // Old V1 profiles/journals are retained or explicitly refused, never relabelled.
   sourceRoot:string;resultsDirectory:string;
   bootstrapLease:OperationLease;keyChannel:{socket:string;authenticationKey:Uint8Array};
@@ -61,6 +63,19 @@ export interface LocalTargetInputs {
   readbackKeyRef:{keyId:string;generation:number};
   runtimeSecretsDirectory:string;runtimeSecrets:Array<{name:string;credentialId?:string;keyRef?:string;generation:number;encoding:"utf8"|"hex";prefix:string}>;
 }
+type DeferredField =
+  | "recoveryKeysDirectory" | "recoveryKeyStoreId" | "vaultKeyRef" | "vaultKeyGeneration"
+  | "stagingDirectory" | "plaintextStagingDirectory" | "inspectionDirectory"
+  | "localStagingCredentialRef" | "coldQueries";
+export type LocalTargetCommonInputs = Omit<LocalTargetFullFields,DeferredField>;
+export type LocalTargetCreateInputs = LocalTargetCommonInputs & {runtimeProfile:"create-v3"} &
+  {[K in DeferredField]?:never};
+export type LocalTargetFullInputs = LocalTargetFullFields & {runtimeProfile:"full-v2"};
+export type LocalTargetInputs = LocalTargetCreateInputs | LocalTargetFullInputs;
+const deferredFields:ReadonlyArray<DeferredField> = [
+  "recoveryKeysDirectory","recoveryKeyStoreId","vaultKeyRef","vaultKeyGeneration",
+  "stagingDirectory","plaintextStagingDirectory","inspectionDirectory","localStagingCredentialRef","coldQueries"
+];
 interface ColdSessionReadback {
   observations:[{role:"session-revocation";observed:unknown;responseSHA256:string;certificateFingerprint:"private-native-UDS"}];
   evidence:Awaited<ReturnType<typeof runActualReadbacks>>["evidence"];
@@ -74,16 +89,57 @@ interface OperationContext {
   failure?:unknown;revision?:number;clearanceRequest?:Parameters<typeof readWholeClearance>[0];
 }
 export async function createLocalTargetImplementation(c:LocalTargetInputs) {
+  assert(c.runtimeProfile==="create-v3" || c.runtimeProfile==="full-v2","explicit_native_runtime_profile_required");
+  const createOnly=c.runtimeProfile==="create-v3";
+  if(createOnly){
+    for(const field of deferredFields)assert(!Object.hasOwn(c,field),"create_recovery_inputs_deferred");
+    assert(!c.credentials.some(x=>x.role==="backup"),"create_backup_credentials_deferred");
+    assert(!Object.hasOwn(c.initializer.template,"coldReceiptPath"),"create_cold_initializer_deferred");
+    assert.deepEqual(c.catalog.targets,["local-linux"],"create_only_local_target_required");
+    assert.deepEqual(c.catalog.operations,["create"],"create_only_operations_required");
+    assert.deepEqual(c.catalog.backup,{formats:[],maxBytes:0,sessionPolicies:[]},"create_recovery_deferred");
+    assert.deepEqual(c.catalog.backupProfiles,[],"create_backup_profiles_deferred");
+    assert.deepEqual(c.catalog.sshConnections,[],"create_ssh_deferred");
+  }
   c={...c,trust:Object.freeze({...c.trust}),custodyTrust:Object.freeze({...c.custodyTrust})};
   {
     const freeze=<T>(v:T):T=>{if(v && typeof v==="object"){for(const x of Object.values(v))freeze(x);Object.freeze(v);}return v;};
     c={...c,target:freeze(structuredClone(c.target)),credentials:freeze(structuredClone(c.credentials)),
       releaseRecord:freeze(structuredClone(c.releaseRecord))};
   }
+  function fullInputs():LocalTargetFullInputs {
+    assert(c.runtimeProfile==="full-v2","create_recovery_or_import_upgrade_deferred");
+    return c;
+  }
+  function selectedDraft(draft:OriginalLinuxDraft){
+    assert(draft.version===(createOnly?3:2),"selected_native_draft_version_required");
+    assert.deepEqual(originalLinuxDraftFrom(draft),draft,"selected_native_draft_not_canonical");
+  }
+  function selectedPlan(plan:LinuxPlan){
+    assert(plan.profile.schema===(createOnly?"pirate.community-linux-profile/3":"pirate.community-linux-profile/2"),
+      "selected_native_profile_version_required");
+    if(createOnly)assert(plan.profile.settings.mode==="create" && plan.action==="create" &&
+      plan.restoreInspectionId===null && plan.restoreManifestDigest===null && plan.restoreCiphertextDigest===null &&
+      plan.predecessorOperationId===null && plan.sessionPolicy===null,"create_only_plan_required");
+    else assert(plan.sessionPolicy==="revoke-existing" || plan.sessionPolicy==="preserve-existing",
+      "original_full_session_policy_required");
+  }
+  function selectedOperation(operation:LinuxOperation){
+    selectedPlan(operation.plan);
+    if(createOnly)assert(operation.kind==="create","create_only_operation_required");
+  }
+  function fullOperation(operation:LinuxOperation):FullLinuxOperation {
+    const profile=operation.plan.profile;
+    assert(profile.schema==="pirate.community-linux-profile/2","original_full_profile_required");
+    const plan=planFrom({...operation.plan,profile});
+    assert.deepEqual(plan,operation.plan,"original_full_plan_not_canonical");
+    return {...operation,plan};
+  }
   assert(c.installationId===c.bootstrapLease.installationId);assertIndependentTrustAnchors(c.trust,c.custodyTrust);
   assert.equal(await realpath(fileURLToPath(import.meta.url)),join(await realpath(c.sourceRoot),"deploy/linux/local-target-services.ts"),
     "executing_native_source_root_changed");
   const release=await verifyInstalledRelease(c.releaseRecord,c.trust);assert(release.graph.installationId===c.installationId);
+  assert(release.graph.migrationPlanFile===join(release.root,"migration-plan.json"));
   const scopeBinding=verifyRecord(await readPrivateJSON<SignedRecord<{installationId:string;durableScope:string;generation:number;directoryMappingRecord:unknown}>>(c.installationScopeBindingFile),c.trust);
   assert(scopeBinding.installationId===c.installationId && scopeBinding.durableScope===release.graph.durableScope && scopeBinding.generation>=c.minimumGeneration,
     "explicit_original_installation_scope_binding_required");
@@ -122,8 +178,9 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     "public_only_original_bootstrap_intent_required");
   assert(Object.keys(c.target.environment).every(name=>["HOME","PATH","XDG_CONFIG_HOME","DOCKER_CONFIG","TMPDIR","LC_ALL","LANG"].includes(name)),
     "managed_secret_values_must_not_use_process_environment");
-  const controlRoots={operations:c.operationsDirectory,results:c.resultsDirectory,observations:c.observationDirectory,
-    plans:c.plansDirectory,profiles:c.profileRecordsDirectory,inspections:c.inspectionDirectory,bootstrap:lease.directory};
+  const controlRoots:Record<string,string>={operations:c.operationsDirectory,results:c.resultsDirectory,observations:c.observationDirectory,
+    plans:c.plansDirectory,profiles:c.profileRecordsDirectory,
+    ...(c.runtimeProfile==="full-v2"?{inspections:c.inspectionDirectory}:{}),bootstrap:lease.directory};
   for(const [role,path] of Object.entries(release.graph.stateRoots))
     assert(c.snapshotRoots[role]===path,"complete_native_state_cohort_required");
   for(const spec of c.target.containers)for(const mount of spec.mounts)if(!mount.readOnly)
@@ -142,20 +199,33 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     releaseRecord:c.releaseRecord,trust:c.trust,custodyTrust:c.custodyTrust,bootstrapLease:lease,
     envelope:{resourceKeys:Object.keys(c.resourceBindings).sort(),requiredServices:release.requiredRoles,
       credentialCount:c.credentials.length,containers:c.target.containers.map(x=>({key:x.key,configurationDigest:x.configurationDigest}))}});
-  for(const p of [c.credentialsDirectory,c.recoveryKeysDirectory,c.runtimeSecretsDirectory])assert(capturedRoots.every(r=>p!==r && !p.startsWith(r+"/") && !r.startsWith(p+"/")),"managed_keys_or_credentials_in_cohort");
-  for(const p of [c.plansDirectory,c.profileRecordsDirectory,c.operationsDirectory,c.observationDirectory,c.inspectionDirectory])await privateDirectory(p);
+  const privateStores=[c.credentialsDirectory,c.runtimeSecretsDirectory,
+    ...(c.runtimeProfile==="full-v2"?[c.recoveryKeysDirectory]:[])];
+  for(const p of privateStores)assert(capturedRoots.every(r=>p!==r && !p.startsWith(r+"/") && !r.startsWith(p+"/")),"managed_keys_or_credentials_in_cohort");
+  for(const p of [c.plansDirectory,c.profileRecordsDirectory,c.operationsDirectory,c.observationDirectory,
+    ...(c.runtimeProfile==="full-v2"?[c.inspectionDirectory]:[])])await privateDirectory(p);
   const channel=await createManagedKeyClient({...c.keyChannel,installationId:c.installationId,lease});
   const credentials=await createManagedCredentials({directory:c.credentialsDirectory,lease,channel,selections:c.credentials,capturedRoots:capturedRoots});
-  const recovery=await createManagedRecoveryKeys({directory:c.recoveryKeysDirectory,capturedRoots:capturedRoots,
-    storeId:c.recoveryKeyStoreId,masterKeyRef:c.vaultKeyRef,masterGeneration:c.vaultKeyGeneration,lease,channel});
   const authority=await createProfileAuthority({installationId:c.installationId,trust:c.trust,currentAdmissionFile:c.currentAdmissionFile,
     minimumGeneration:c.minimumGeneration,hostFingerprint:c.hostFingerprint,lease,namespace:c.namespace,shared});
-  assert(release.graph.migrationPlanFile===join(release.root,"migration-plan.json"));
-  const migrationPlan=JSON.parse(await readFile(release.graph.migrationPlanFile,"utf8"));
-  const compatibleRuntime={sourceDigest:release.sourceDigest,artifactDigest:release.artifactDigest,
-    migrations:Object.fromEntries(migrationPlan.migrations.map((m:{name:string;sha256:string})=>[m.name,"0x"+m.sha256]))};
-  const backups=await createFullBackupService({stagingDirectory:c.stagingDirectory,plaintextStagingDirectory:c.plaintextStagingDirectory,
-    inspectionDirectory:c.inspectionDirectory,proofFile:c.namespaceProofFile,lease,authority,keyStore:recovery,compatibleRuntime,expectedBackendSha256:canonicalDigest(release.files)});
+  async function constructFullServices(){
+    const full=fullInputs(); // Refuse Create before directory/key/staging effects.
+    const recovery=await createManagedRecoveryKeys({directory:full.recoveryKeysDirectory,capturedRoots:capturedRoots,
+      storeId:full.recoveryKeyStoreId,masterKeyRef:full.vaultKeyRef,masterGeneration:full.vaultKeyGeneration,lease,channel});
+    const migrationPlan=JSON.parse(await readFile(release.graph.migrationPlanFile,"utf8"));
+    const compatibleRuntime={sourceDigest:release.sourceDigest,artifactDigest:release.artifactDigest,
+      migrations:Object.fromEntries(migrationPlan.migrations.map((m:{name:string;sha256:string})=>[m.name,"0x"+m.sha256]))};
+    const backups=await createFullBackupService({stagingDirectory:full.stagingDirectory,plaintextStagingDirectory:full.plaintextStagingDirectory,
+      inspectionDirectory:full.inspectionDirectory,proofFile:full.namespaceProofFile,lease,authority,keyStore:recovery,compatibleRuntime,expectedBackendSha256:canonicalDigest(release.files)});
+    return {backups};
+  }
+  let fullServices:ReturnType<typeof constructFullServices>|undefined;
+  function requireFullServices(){
+    fullInputs(); // Do not even create a service promise on the Create branch.
+    return fullServices??=constructFullServices();
+  }
+  // Keep the existing Full V2 construction/failure behavior. Create never enters.
+  if(c.runtimeProfile==="full-v2")await requireFullServices();
   const inspector=await createLocalController(c.target,lease),contexts=new Map<string,OperationContext>();
   const ownedObservations=new Map<string,OperationContext>();
   let stopped=false,serial=Promise.resolve();
@@ -163,27 +233,32 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     try{assert(!stopped);return await action();}finally{releaseLock();}}
   const planName=(id:string)=>"plan-"+evidenceId(id),operationName=(id:string)=>"operation-"+evidenceId(id);
   async function profileFor(plan:LinuxPlan) {
+    selectedPlan(plan);
     const record=await readPrivateJSON<SignedRecord<ProfileAdmission>>(join(c.profileRecordsDirectory,
       "plan-authority-"+evidenceId(plan.id)+".json"));
     const proof=await readPrivateJSON<NamespaceProof>(join(c.profileRecordsDirectory,"plan-namespace-"+evidenceId(plan.id)+".json"));
     const admitted=await authority.admitCurrent(record,proof),original=admitted.original;
-    assert.equal(original.profileDigest,plan.profileDigest);assertGraphForProfile(original.profile);
+    assert.equal(original.profileDigest,plan.profileDigest);
+    assert.equal(original.profile.schema,plan.profile.schema,"original_native_profile_version_changed");
+    assertGraphForProfile(original.profile);
     return {original,namespace:admitted.namespace,record,proof};
   }
   function mutationAuthority(plan:LinuxPlan,signal:AbortSignal,own:OperationLease,requireLivePlan:boolean){
     return createCurrentMutationAuthority({plan,signal,own,requireLivePlan,authority,profileFor:()=>profileFor(plan)});
   }
   async function bind(operation:LinuxOperation):Promise<BoundLinuxIntent> {
+    selectedOperation(operation);
     const stored=await readPrivateJSON<LinuxPlan>(join(c.plansDirectory,planName(operation.plan.id)+".json"));
     assert.deepEqual(planFrom(operation.plan),stored,"original_server_plan_required");await profileFor(stored);
     const config=await immutableRecord(c.plansDirectory,"configuration-"+evidenceId(operation.id),stored.profile,lease);
     const namespaceProof=await immutableRecord(c.plansDirectory,"namespace-"+evidenceId(operation.id),await readPrivateJSON(join(c.profileRecordsDirectory,"plan-namespace-"+evidenceId(stored.id)+".json")),lease);
     let value:BoundLinuxIntent;
     if(operation.kind==="restore"){
-      assert(stored.restoreInspectionId);const inspection=await readPrivateJSON<any>(join(c.inspectionDirectory,stored.restoreInspectionId+".json"));
+      const full=fullInputs();
+      assert(stored.restoreInspectionId);const inspection=await readPrivateJSON<any>(join(full.inspectionDirectory,stored.restoreInspectionId+".json"));
       value={kind:"restore",intent:{operationId:operation.id,journalRevision:operation.draftRevision,
         freshTarget:stored.backend.target,encryptedCohortManifest:inspection.manifestEvidence,
-        transportConfiguration:config,transportCredentialRef:c.localStagingCredentialRef,
+        transportConfiguration:config,transportCredentialRef:full.localStagingCredentialRef,
         recoveryKeyRef:inspection.keyRef,compatibleRelease:stored.backend.release,revocationPolicyDigest:canonicalDigest({policy:stored.sessionPolicy,profileDigest:stored.profileDigest}),
         executionBoundSeconds:900}} as BoundLinuxIntent;
     } else value={kind:"deploy",intent:{operationId:operation.id,journalRevision:operation.draftRevision,target:stored.backend.target,
@@ -229,16 +304,27 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     }finally{for(const value of values)value.bytes.fill(0);}
   }
   async function initialize(ctx:OperationContext,mode:"initialize"|"cold-reconcile",signal:AbortSignal){
+    if(createOnly)assert(mode==="initialize","create_cold_initializer_deferred");
     await mutationAuthority(ctx.operation.plan,signal,ctx.lease,true)();
-    if(mode==="cold-reconcile")await writeColdPlan({path:release.graph.coldPlanFile,capturedRoots:capturedRoots,lease:ctx.lease,
-      generation:c.minimumGeneration,profileDigest:ctx.operation.plan.profileDigest,resourceId:ctx.operation.plan.profile.identity.resources.database!,
-      communityId:ctx.operation.plan.profile.identity.communityId,origin:ctx.operation.plan.profile.settings.origin,
-      owningSourceSHA256:release.sourceHashes["services/community-application.ts"]!,queries:c.coldQueries});
+    if(mode==="cold-reconcile"){
+      const full=fullInputs(),coldPlanFile=release.graph.coldPlanFile;
+      assert(typeof coldPlanFile==="string" && isAbsolute(coldPlanFile),"full_cold_plan_absolute_path_required");
+      await writeColdPlan({path:coldPlanFile,capturedRoots:capturedRoots,lease:ctx.lease,
+        generation:c.minimumGeneration,profileDigest:ctx.operation.plan.profileDigest,resourceId:ctx.operation.plan.profile.identity.resources.database!,
+        communityId:ctx.operation.plan.profile.identity.communityId,origin:ctx.operation.plan.profile.settings.origin,
+        owningSourceSHA256:release.sourceHashes["services/community-application.ts"]!,queries:full.coldQueries});
+    }
     assert.equal(hash(await readFile(c.initializer.script)),c.initializer.scriptSha256,"installed_initializer_bytes_changed");
-    const runtime=join(ctx.lease.directory,"native-"+mode);await mkdir(runtime,{mode:0o700});
+    const runtime=c.initializer.template.privateRuntimeDirectory;
+    assert(typeof runtime==="string" && isAbsolute(runtime) && runtime.startsWith("/run/") &&
+      !runtime.split("/").includes(".."),"explicit_private_run_parent_required");
+    assert(!overlaps(runtime,release.root) && capturedRoots.every(root=>!overlaps(runtime,root)),
+      "native_runtime_parent_inside_persistent_or_release_roots");
+    await privateDirectory(runtime);
     const ref=await createJSON(ctx.lease.directory,"native-request-"+mode,{...c.initializer.template,release:c.releaseRecord,trust:c.trust,
       mode,privateRuntimeDirectory:runtime,expectedInstallationId:c.installationId,
-      configurationDirectory:c.snapshotRoots.configuration,coldReceiptPath:join(ctx.lease.directory,"cold-domain-receipt.json")});
+      configurationDirectory:c.snapshotRoots.configuration,
+      ...(createOnly?{}:{coldReceiptPath:join(ctx.lease.directory,"cold-domain-receipt.json")})});
     return runCurrentAuthorityCommand({lease:ctx.lease,executable:c.initializer.executable,executableSha256:c.initializer.sha256,
       argv:[c.initializer.script,join(ctx.lease.directory,ref.relativePath)],cwd:c.target.cwd,environment:c.target.environment,
       outputDirectory:join(ctx.lease.directory,"raw"),name:"full-"+mode,seconds:300,signal},
@@ -355,7 +441,8 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     signal=AbortSignal.any([signal,AbortSignal.timeout(value.intent.executionBoundSeconds*1000)]);
     boundedIntent(value);
     const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(value.intent.operationId)+".json"));
-    assert.deepEqual(stored.bound,value);
+    assert.deepEqual(stored.bound,value);selectedOperation(stored.operation);
+    if(createOnly)assert(value.kind==="deploy","create_restore_deferred");
     const retained=await boundedResults.terminal({operation:stored.operation,retainedIntent:value});
     if(retained.state==="result")return retained.result;
     try{await lstat(join(c.operationsDirectory,evidenceId(stored.operation.id)));
@@ -366,13 +453,16 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     const ctx=await context(stored.operation,value,signal),phases:string[]=[],resources:any[]=[];let failure:unknown;
     try{
       const actual=await profileFor(stored.operation.plan);assert(!signal.aborted && stored.operation.plan.expiresAt>Date.now(),"original_plan_expired_before_effects");
-      const before=await ctx.controller.inspect(signal);assert.equal(before.fingerprint,stored.operation.plan.targetFingerprint);phases.push("current-target-authority");
+      const before=await ctx.controller.inspect(signal);assert.equal(before.fingerprint,stored.operation.plan.targetFingerprint);
+      if(createOnly)assert(before.resources.every(x=>x.actual===null),"create_existing_resources_require_original_reconciliation");
+      phases.push("current-target-authority");
       assert(!signal.aborted && stored.operation.plan.expiresAt>Date.now(),"original_plan_expired_before_effects");
       await mutationAuthority(stored.operation.plan,signal,ctx.lease,true)();
       await secrets(ctx,signal);phases.push("authenticated-current-runtime-secrets");
       if(value.kind==="restore"){
+        const full=fullInputs(),{backups}=await requireFullServices();
         assert(stored.operation.plan.restoreInspectionId);
-        const inspected=await readPrivateJSON<any>(join(c.inspectionDirectory,stored.operation.plan.restoreInspectionId+".json"));
+        const inspected=await readPrivateJSON<any>(join(full.inspectionDirectory,stored.operation.plan.restoreInspectionId+".json"));
         assert.deepEqual([...Object.keys(c.snapshotRoots),...Object.keys(controlRoots)].sort(),[...inspected.roles].sort(),"complete_restore_roles_required");
         for(const [role,root] of Object.entries(c.snapshotRoots))assert(root===join(c.freshRestoreTarget,role),"fresh_role_mapping_changed");
         await backups.restoreBytes({inspectionId:stored.operation.plan.restoreInspectionId,freshTarget:c.freshRestoreTarget,signal,
@@ -415,9 +505,11 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     return finish(ctx,resources,failure,phases,signal);
   }
   const services:LinuxSharedBackendServices={
-    adapterId:c.adapterId,sourceDigest:release.sourceDigest,maxStagedCiphertextBytes:MAX_CIPHERTEXT_BYTES,boundedResults:boundedResults,
+    adapterId:c.adapterId,sourceDigest:release.sourceDigest,maxStagedCiphertextBytes:createOnly?0:MAX_CIPHERTEXT_BYTES,boundedResults:boundedResults,
     custody:{assertHeld:()=>lease.assertHeld()},catalog:{async capabilities(){await lease.assertHeld();assert(c.catalog.sourceDigest===release.sourceDigest);
-      const actual=structuredClone(c.catalog);actual.targets=["local-linux"];actual.operations=["create","import","restore","upgrade"];
+      const actual=structuredClone(c.catalog);actual.targets=["local-linux"];
+      actual.operations=createOnly?["create"]:["create","import","restore","upgrade"];
+      if(createOnly){actual.backup={formats:[],maxBytes:0,sessionPolicies:[]};actual.backupProfiles=[];actual.sshConnections=[];}
       for(const p of [...actual.publicationProfiles,...actual.learningProfiles])p.verified=await credentials.profileVerified(p.id);
       for(const p of actual.publicationProfiles)if(!p.verified)p.verified=await configuredPublisherVerified({profileId:p.id,installationId:c.installationId,
         admissionFile:c.publisherAdmissionFile,trust:c.directoryTrust,channel});
@@ -425,42 +517,61 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     targets:{async inspectTarget(request){return exclusive(async()=>{
       assert(request.target.kind==="local-linux","ssh_target_not_qualified");const actual=await inspector.inspectHost(AbortSignal.timeout(30000));
       assert.equal(actual.fingerprint,c.hostFingerprint);
-      const existing:LinuxPlan["profile"][]=[];let originalAuthorized=true;
+      const existing:TargetInspection["existing"]=[];let originalAuthorized=true;
       if(actual.resources.some(x=>x.actual)){
         try{const signed=await readPrivateJSON<SignedRecord<ProfileAdmission>>(join(c.snapshotRoots.configuration!,"profile-authority.json"));
-          const admitted=await authority.admit(signed,await readPrivateJSON<NamespaceProof>(c.namespaceProofFile));assertGraphForProfile(admitted.profile);existing.push(admitted.profile);
+          const admitted=await authority.admit(signed,await readPrivateJSON<NamespaceProof>(c.namespaceProofFile));
+          assert(admitted.profile.schema===(createOnly?"pirate.community-linux-profile/3":"pirate.community-linux-profile/2"),
+            "retained_original_profile_needs_its_explicit_runtime");
+          assertGraphForProfile(admitted.profile);
+          if(admitted.profile.schema==="pirate.community-linux-profile/2")existing.push(admitted.profile);
         }catch{originalAuthorized=false;}
       }
       return {id:"target-"+evidenceId(request.requestId),target:request.target,fingerprint:actual.fingerprint,
-        description:"Actual installed local Linux/Docker target",corrections:[...actual.corrections,...(originalAuthorized?[]:["Actual resources exist; authenticate and reconcile their original full profile before creating or adopting anything."])],
-        existing,supported:actual.supported&&originalAuthorized,
+        description:"Actual installed local Linux/Docker target",corrections:[...actual.corrections,...(originalAuthorized?[]:["Actual resources exist; authenticate and reconcile their original full profile before creating or adopting anything."]),
+          ...(createOnly&&actual.resources.some(x=>x.actual)?["Create-only setup cannot adopt, replace or repair existing resources; retain their original operation and custody."]:[])],
+        existing,supported:actual.supported&&originalAuthorized&&(!createOnly||actual.resources.every(x=>x.actual===null)),
         prepared:existing.length?{identity:existing[0]!.identity,infrastructure:existing[0]!.infrastructure,settings:existing[0]!.settings}:
-          await (async()=>{const t=await readProfileTemplate(c.profileTemplateFile,c.trust,c.installationId);
+          await (async()=>{const t=createOnly?await readCreateProfileTemplate(c.profileTemplateFile,c.trust,c.installationId):
+            await readProfileTemplate(c.profileTemplateFile,c.trust,c.installationId);
             assert(t.generation===c.minimumGeneration && t.runtime.sourceDigest===release.sourceDigest &&
               t.runtime.artifactDigest===release.artifactDigest,"signed_template_release_changed");
             return {identity:t.identity,infrastructure:t.infrastructure,settings:t.settings};})()};
     });}},
     credentials:{
-      credentialRequirements:credentials.credentialRequirements,
-      saveCredentials:r=>exclusive(()=>credentials.saveCredentials(r)),
-      verifyCredentials:r=>exclusive(()=>credentials.verifyCredentials(r)),
-      reconcileCredentials:r=>exclusive(()=>credentials.reconcileCredentials(r))
-    },backups:{stageBackup:r=>exclusive(()=>backups.stageBackup(r)),inspectBackup:r=>exclusive(()=>backups.inspectBackup(r))},
+      credentialRequirements:r=>{selectedDraft(r.draft);return credentials.credentialRequirements(r);},
+      saveCredentials:r=>exclusive(()=>{selectedDraft(r.draft);return credentials.saveCredentials(r);}),
+      verifyCredentials:r=>exclusive(()=>{selectedDraft(r.draft);return credentials.verifyCredentials(r);}),
+      reconcileCredentials:r=>exclusive(()=>{selectedDraft(r.draft);return credentials.reconcileCredentials(r);})
+    },backups:{
+      stageBackup:r=>exclusive(async()=>{const {backups}=await requireFullServices();return backups.stageBackup(r);}),
+      inspectBackup:r=>exclusive(async()=>{const {backups}=await requireFullServices();return backups.inspectBackup(r);})
+    },
     lifecycle:{
       async prepare(provided){const request=structuredClone(provided);return exclusive(async()=>{
+        selectedDraft(request.draft);
         assert(request.target.target.kind==="local-linux" && request.target.supported && request.target.fingerprint===c.hostFingerprint);
+        if(createOnly)assert(request.draft.version===3 && request.draft.mode==="create" && request.previousOperation===null &&
+          request.imported===null && request.restore===null,"create_import_restore_upgrade_deferred");
+        let record:SignedRecord<ProfileAdmission>;
+        if(request.draft.version===3){
+          assert(createOnly,"explicit_create_runtime_required");
+          record=await produceCreateOriginalProfile({templateFile:c.profileTemplateFile,trust:c.trust,requestId:request.requestId,draft:request.draft,
+            proof:request.namespace,retainedIdentity:request.retainedIdentity,outputDirectory:c.profileRecordsDirectory,lease,channel,authority});
+        } else {
+        const full=fullInputs();
         let predecessorRecord:SignedRecord<ProfileAdmission>|undefined;
         if(request.previousOperation){
           const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(request.previousOperation.id)+".json"));
           const result=await actualOriginal(stored.operation,stored.bound);
-          retainedReview({requested:request.previousOperation,stored,result,retainedIdentity:request.retainedIdentity,
+          retainedReview({requested:fullOperation(request.previousOperation),
+            stored:{operation:fullOperation(stored.operation),bound:stored.bound},result,retainedIdentity:request.retainedIdentity,
             sourceDigest:release.sourceDigest,artifactDigest:release.artifactDigest,fingerprint:c.hostFingerprint});
           predecessorRecord=(await profileFor(stored.operation.plan)).record; // Actual current signed policy/source/namespace, not a UI predecessor flag.
         }
-        let record:SignedRecord<ProfileAdmission>;
         if(request.draft.mode==="restore") {
           assert(request.restore,"authenticated_original_restore_inspection_required");
-          const inspected=await readPrivateJSON<any>(join(c.inspectionDirectory,request.restore.id+".json"));
+          const inspected=await readPrivateJSON<any>(join(full.inspectionDirectory,request.restore.id+".json"));
           assert.deepEqual(inspected.inspection,request.restore,"original_authenticated_restore_inspection_required");
           assert(inspected.inspection.sessionPolicies.includes(request.draft.recovery.sessionPolicy) &&
             c.catalog.backup.sessionPolicies.includes(request.draft.recovery.sessionPolicy),"actual_restore_policy_required");
@@ -472,6 +583,7 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
            assert(request.imported,"authenticated_original_import_profile_required");
            record=await readPrivateJSON<SignedRecord<ProfileAdmission>>(join(c.snapshotRoots.configuration!,"profile-authority.json"));
            const admitted=await authority.restore(record,request.imported,request.namespace);
+           assert(admitted.profile.schema==="pirate.community-linux-profile/2","original_full_profile_required");
            assert(request.draft.recovery.sessionPolicy===admitted.profile.settings.recovery.sessionPolicy &&
              sameOperationalSelection(admitted.profile.settings,request.draft,request.draft.recovery.sessionPolicy),
              "import_original_settings_or_explicit_migration_required");
@@ -479,6 +591,9 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
           record=predecessorRecord;await authority.admitCurrent(record,request.namespace);
          } else record=await produceOriginalProfile({templateFile:c.profileTemplateFile,trust:c.trust,requestId:request.requestId,draft:request.draft,
           proof:request.namespace,retainedIdentity:request.retainedIdentity,outputDirectory:c.profileRecordsDirectory,lease,channel,authority});
+        }
+        assert(record.body.profile.schema===(createOnly?"pirate.community-linux-profile/3":"pirate.community-linux-profile/2"),
+          "original_native_profile_version_required");
         await immutableRecord(c.profileRecordsDirectory,"plan-authority-"+evidenceId(request.requestId),record,lease);
          await immutableRecord(c.profileRecordsDirectory,"plan-namespace-"+evidenceId(request.requestId),request.namespace,lease);
         const profile=record.body.profile;assert(record.body.generation===c.minimumGeneration,"selected_native_generation_changed");assert(profile.runtime.sourceDigest===release.sourceDigest && profile.runtime.artifactDigest===release.artifactDigest);
@@ -492,7 +607,8 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
           action:request.draft.mode==="restore"?"restore" as const:request.previousOperation?"upgrade" as const:request.draft.mode==="import"?"adopt" as const:"create" as const,
           changes:["Run the actual complete selected local service graph"],warnings:[],requirements,
           restoreInspectionId:request.restore?.id??null,restoreManifestDigest:request.restore?.manifestDigest??null,
-          restoreCiphertextDigest:request.restore?.ciphertextDigest??null,predecessorOperationId:request.previousOperation?.id??null,sessionPolicy:request.draft.recovery.sessionPolicy};
+          restoreCiphertextDigest:request.restore?.ciphertextDigest??null,predecessorOperationId:request.previousOperation?.id??null,
+          sessionPolicy:request.draft.version===3?null:request.draft.recovery.sessionPolicy};
         const plan=planFrom({...preimage,digest:canonicalDigest(preimage)});await immutableRecord(c.plansDirectory,planName(plan.id),plan,lease);
         // Last await is the established fresh current/namespace/lease guard.
         // Every new predecessor/template/credential/plan-write await is before it.
@@ -519,7 +635,7 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     },
     operator:{
       deploy:(intent,signal)=>exclusive(()=>perform({kind:"deploy",intent},signal)),
-      restore:(intent,signal)=>exclusive(()=>perform({kind:"restore",intent},signal)),
+      restore:(intent,signal)=>exclusive(()=>{fullInputs();return perform({kind:"restore",intent},signal);}),
       async reconcile(request,signal){
         await lease.assertHeld();assert(!signal.aborted);
         const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(request.operationId)+".json"));
@@ -556,7 +672,11 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
         assert(!signal.aborted,"current_readback_true_timeout");
         const observation:LinuxObservation=cleared?{state:"succeeded",revision:readbackSequence,custody:"cleared",
           receiptRef:result.rawReceipt.relativePath,identity:operation.plan.profile.identity,profileDigest:operation.plan.profileDigest,
-          recovery:operation.kind==="restore"?{inspectionId:operation.plan.restoreInspectionId!,manifestDigest:operation.plan.restoreManifestDigest!,sessionPolicy:operation.plan.sessionPolicy}:null,
+          recovery:operation.kind==="restore"?(()=>{
+            assert(operation.plan.profile.schema==="pirate.community-linux-profile/2" && operation.plan.sessionPolicy!==null,
+              "original_full_restore_profile_required");
+            return {inspectionId:operation.plan.restoreInspectionId!,manifestDigest:operation.plan.restoreManifestDigest!,sessionPolicy:operation.plan.sessionPolicy};
+          })():null,
           sharedConfiguration:(()=>{const {directory,configuration,evidenceRef,blockNumber,blockHash}=ctx.sharedConfiguration!;
             return {directory,configuration,evidenceRef,blockNumber,blockHash};})(),
           health:{origin:operation.plan.profile.settings.origin,
@@ -599,7 +719,8 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
 
     async stop(operationId:string,signal:AbortSignal){return exclusive(async()=>{
       const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(operationId)+".json"));
-      await actualOriginal(stored.operation,stored.bound);await profileFor(stored.operation.plan);
+      const original=await actualOriginal(stored.operation,stored.bound);await profileFor(stored.operation.plan);
+      if(createOnly)assert(original.outcome==="completed","original_uncertain_effects_remain_held");
       const ctx=await observationContext(stored.operation,"stop");await freshReadbacks(ctx,signal);
       const stopped=await ctx.controller.stop(signal,mutationAuthority(ctx.operation.plan,signal,ctx.lease,false));
       ctx.postguard=await ctx.lease.record("actual-stopped-source-postguard",{profileDigest:stored.operation.plan.profileDigest,barrier:stopped.receipt});
@@ -609,6 +730,7 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
     async restart(operationId:string,signal:AbortSignal){return exclusive(async()=>{
       const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(operationId)+".json"));
       const original=await actualOriginal(stored.operation,stored.bound);await profileFor(stored.operation.plan);
+      if(createOnly)assert(original.outcome==="completed","original_uncertain_effects_remain_held");
       const ctx=await observationContext(stored.operation,"restart");
       await freshReadbacks(ctx,signal);
       const stopped=await ctx.controller.stop(signal,mutationAuthority(ctx.operation.plan,signal,ctx.lease,false));
@@ -628,6 +750,7 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
       return original;
     });},
     async createBackup(request:{operationId:string;requestId:string;operationLease:OperationLease;output:string;recoveryKey:string;controlStaging:string;signal:AbortSignal}){return exclusive(async()=>{
+      const full=fullInputs(),{backups}=await requireFullServices();
       const stored=await readPrivateJSON<{operation:LinuxOperation;bound:BoundLinuxIntent}>(join(c.plansDirectory,operationName(request.operationId)+".json"));
       await actualOriginal(stored.operation,stored.bound);await profileFor(stored.operation.plan);
       const ctx=await observationContext(stored.operation,"backup-read");await freshReadbacks(ctx,request.signal);
@@ -638,7 +761,7 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
       assert.deepEqual(backupIntent.intent,{kind:"full-backup",requestId:request.requestId,predecessorOperationId:request.operationId,
         profileDigest:ctx.operation.plan.profileDigest,output:request.output,controlStaging:request.controlStaging},"original_backup_intent_required");
       assert(capturedRoots.every(root=>!overlaps(request.controlStaging,root) && !overlaps(request.output,root)),"backup_output_inside_captured_cohort");
-      await immutableRecord(c.inspectionDirectory,"backup-intent-"+evidenceId(request.requestId),{requestId:request.requestId,operationId:backupLease.operationId,
+      await immutableRecord(full.inspectionDirectory,"backup-intent-"+evidenceId(request.requestId),{requestId:request.requestId,operationId:backupLease.operationId,
         predecessorOperationId:ctx.operation.id,profileDigest:ctx.operation.plan.profileDigest,output:request.output,controlStaging:request.controlStaging},backupLease);
       const raw=join(backupLease.directory,"raw");await mkdir(raw,{mode:0o700});
       const backupController=await createLocalController({...c.target,outputDirectory:raw},backupLease);
@@ -666,9 +789,12 @@ export async function createLocalTargetImplementation(c:LocalTargetInputs) {
       await backupLease.record("complete-local-backup-created",receipt);await backupController.dispose();return receipt;
     });},
     async exportBackup(request:{operationId:string;receipt:Parameters<typeof exportEncryptedBackup>[0]["receipt"];approvalFile:string;signal:AbortSignal}){return exclusive(async()=>{
-      const ctx=contexts.get(request.operationId);assert(ctx);const selected=c.credentials.find(x=>x.role==="backup");assert(selected);
+      fullInputs();
+      const ctx=contexts.get(request.operationId);assert(ctx);const profile=ctx.operation.plan.profile;
+      assert(profile.schema==="pirate.community-linux-profile/2","original_full_backup_profile_required");
+      const selected=c.credentials.find(x=>x.role==="backup");assert(selected);
       return credentials.use(selected,bytes=>exportEncryptedBackup({lease:ctx.lease,receipt:request.receipt,
-        profile:ctx.operation.plan.profile.settings.storage.backup,credentials:JSON.parse(bytes.toString("utf8")),signal:request.signal,ticketDirectory:ctx.lease.directory,
+        profile:profile.settings.storage.backup,credentials:JSON.parse(bytes.toString("utf8")),signal:request.signal,ticketDirectory:ctx.lease.directory,
         authorizeProviderWrite:async()=>{await profileFor(ctx.operation.plan);const approval=verifyRecord(await readPrivateJSON<SignedRecord<any>>(request.approvalFile),c.trust);
           assert(approval.action==="export-encrypted-backup" && approval.installationId===c.installationId && approval.operationId===request.operationId &&
             approval.archiveSha256===request.receipt.archiveSha256 && approval.expiresAt>Date.now(),"actual_provider_write_approval_required");}}));

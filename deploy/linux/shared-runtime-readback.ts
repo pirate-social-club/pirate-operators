@@ -5,7 +5,7 @@ import {constants} from "node:fs";
 import {createPublicClient,http,keccak256,type PublicClient} from "viem";
 import {readConfiguration} from "../../packages/community/directory-reader.ts";
 import {parseSharedProfileDocument,sharedProfileDocument} from "../../packages/community/shared-directory.ts";
-import {linuxProfileFrom,type LinuxCommunityProfileV2} from "../../packages/community-setup/shared-linux-profile.ts";
+import {originalLinuxProfileFrom,type OriginalLinuxProfile} from "../../packages/community-setup/linux-create-profile.ts";
 import {sameSharedInstallation} from "../../packages/community-setup/shared-linux-infrastructure.ts";
 import {readCommunityDeploymentProfile,communityIpfsTransport} from "../../services/community-deployment-profile.ts";
 import {hash,privateDirectory,privateFile,type OperationLease} from "./backend-state.ts";
@@ -36,8 +36,8 @@ export async function createSharedRuntimeReader(input:{
    assert.equal(hash(await readFile(join(c.sourceRoot,path))),digest,"selected_directory_reader_bytes_changed");
   }
  }
- async function binding(profile:LinuxCommunityProfileV2){
-  await guard();assert.deepEqual(linuxProfileFrom(profile),profile);
+ async function binding(profile:OriginalLinuxProfile){
+  await guard();assert.deepEqual(originalLinuxProfileFrom(profile),profile);
   const file=await readPrivateJSON<SignedRecord<OriginalDirectoryBinding>>(c.bindingFile);
   const original=verifyRecord(file,c.directoryTrust),mapping=profile.infrastructure.mapping;
   assert(original.originalLinuxInstallationId===c.installationId && mapping.linuxInstallationId===c.installationId &&
@@ -58,7 +58,7 @@ export async function createSharedRuntimeReader(input:{
   assert(profile.infrastructure.binding.installationId===mapping.directoryInstallationId);
   await guard();return original;
  }
- async function read(profileValue:LinuxCommunityProfileV2,lease:OperationLease,signal:AbortSignal){
+ async function read(profileValue:OriginalLinuxProfile,lease:OperationLease,signal:AbortSignal){
   const profile=structuredClone(profileValue);await binding(profile);await lease.assertHeld();
   const end=performance.now()+45000;let timedOut=false;
   const deadline=()=>{if(timedOut||signal.aborted||performance.now()>=end){timedOut=true;throw Error("shared_directory_readback_timeout");}};
@@ -89,7 +89,7 @@ export async function createSharedRuntimeReader(input:{
    checkedAt:facts.checkedAt,evidence};
  }
 
- async function retainOriginal(directory:string,profile:LinuxCommunityProfileV2,lease:OperationLease){
+ async function retainOriginal(directory:string,profile:OriginalLinuxProfile,lease:OperationLease){
   await binding(profile);await lease.assertHeld();await privateDirectory(directory);
   const relativePath=profile.infrastructure.mapping.evidence.relativePath;
   assert(!["linux-profile.json","profile-authority.json","restore-fence.json"].includes(relativePath),"mapping_evidence_path_reserved");
@@ -150,7 +150,7 @@ export async function createSharedRuntimeReader(input:{
    return receipt;
   }finally{await destination?.close();await source.close();await parentHandle.close();}
  }
- return Object.freeze({binding,read,retainOriginal,async assertSameOriginal(a:LinuxCommunityProfileV2,b:LinuxCommunityProfileV2){
+ return Object.freeze({binding,read,retainOriginal,async assertSameOriginal(a:OriginalLinuxProfile,b:OriginalLinuxProfile){
   assert(sameSharedInstallation(a.infrastructure,b.infrastructure),"original_shared_installation_changed");await binding(a);await binding(b);
  }});
 }

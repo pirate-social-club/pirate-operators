@@ -6,7 +6,12 @@ export function completeImageRecipe(input:{imageBase:string;uid:number;gid:numbe
  assert(Number.isSafeInteger(input.uid) && input.uid>0 && Number.isSafeInteger(input.gid) && input.gid>0);
  assert(/^\/[A-Za-z0-9_/-]+$/.test(input.installedReleasePath) && !input.installedReleasePath.split("/").includes(".."));
  const path=input.installedReleasePath;
- return "FROM "+input.imageBase+"\nCOPY --chown="+input.uid+":"+input.gid+" release/ "+path+"/\nUSER "+input.uid+":"+input.gid+
-  "\nENTRYPOINT [\"/usr/local/bin/node\",\""+path+"/full-launch.mjs\"]\n";
+ // The external issuer signs the resulting ACTUAL image ID after the build.
+ // That record/configuration is mounted privately outside this release tree.
+ return "FROM "+input.imageBase+"\nCOPY --chown="+input.uid+":"+input.gid+" release/ "+path+"/\n"+
+  "RUN chmod -R a-w "+path+"\nUSER "+input.uid+":"+input.gid+
+  "\nENV NODE_PATH=\"\" NODE_OPTIONS=\"\"\nENTRYPOINT "+JSON.stringify([
+   path+"/toolchain/node","--import",path+"/toolchain/node_modules/tsx/dist/loader.mjs",
+   path+"/source/deploy/linux/local-install-main.ts"])+"\n";
 }
 

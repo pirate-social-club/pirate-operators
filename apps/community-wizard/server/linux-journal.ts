@@ -1,3 +1,4 @@
+import {originalLinuxDraftFrom,originalLinuxProfileFrom,type OriginalLinuxDraft} from "../../../packages/community-setup/linux-create-profile.ts";
 import {JOURNAL_CAPACITY_POLICY,JOURNAL_MAX_BYTES,requireJournalCapacity} from "./linux-journal-capacity.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, rename, unlink } from "node:fs/promises";
@@ -5,7 +6,6 @@ import { join } from "node:path";
 import {
   LinuxInputError,
   requireLinux,
-  linuxDraftFrom,
   linuxProfileFrom,
   identityFrom,
   type DeploymentIdentity,
@@ -16,8 +16,8 @@ import type {
   BoundLinuxIntent,
   LinuxOperationResult,
   CredentialRequirement,
-  LinuxOperation,
-  LinuxPlan,
+  OriginalLinuxOperation as LinuxOperation,
+  OriginalLinuxPlan as LinuxPlan,
   NamespaceAuthorityResult,
   RestoreInspection,
   TargetInspection,
@@ -58,7 +58,7 @@ export interface LinuxJournal {
   version: 2;
   capacityPolicy:typeof JOURNAL_CAPACITY_POLICY;
   revision: number;
-  draft: LinuxDraftV2 | null;
+  draft: OriginalLinuxDraft | null;
   destination: { mode: LinuxDraftV2["mode"]; target: LinuxTarget } | null;
   target: TargetInspection | null;
   namespace: NamespaceAuthorityResult | null;
@@ -142,7 +142,7 @@ export async function linuxJournalStore(directory: string) {
         "Preserve the unsupported setup journal for recovery.",
       );
       requireJournalCapacity(state);
-      if (state.draft) state.draft = linuxDraftFrom(state.draft);
+      if (state.draft) state.draft = originalLinuxDraftFrom(state.draft);
       if (state.imported) state.imported = linuxProfileFrom(state.imported);
       if (state.identity) state.identity = identityFrom(state.identity);
       for (const plan of [
@@ -151,7 +151,7 @@ export async function linuxJournalStore(directory: string) {
         ...state.history.map((op) => op.plan),
       ])
         if (plan) {
-          linuxProfileFrom(plan.profile);
+          originalLinuxProfileFrom(plan.profile);
           const { digest, ...bytes } = plan;
           requireLinux(
             digest === digestJson(bytes) &&

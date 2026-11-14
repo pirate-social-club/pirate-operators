@@ -6,8 +6,9 @@ import {open,lstat,realpath,access} from "node:fs/promises";
 import {resolve,dirname,join} from "node:path";
 import {pathToFileURL} from "node:url";
 import {createHash,randomBytes} from "node:crypto";
-import type {bootstrapLocalTarget} from "../../../deploy/linux/bootstrap-local-target.ts";
-export type InstalledLinuxInputs=Omit<Parameters<typeof bootstrapLocalTarget>[0],"pairingSecret"|"wizardDist">;
+import type {LocalTargetBootstrapInputs,LocalTargetCreateBootstrapInputs} from "../../../deploy/linux/bootstrap-local-target.ts";
+export type InstalledLinuxInputs=Omit<LocalTargetBootstrapInputs,"pairingSecret"|"wizardDist">;
+export type InstalledLinuxCreateInputs=Omit<LocalTargetCreateBootstrapInputs,"pairingSecret"|"wizardDist">;
 export interface InstalledLinuxComposition {createLinuxBootstrapInputs():Promise<InstalledLinuxInputs>}
 export function linuxLaunchOptions(args:readonly string[]){
  const values=new Map<string,string>();

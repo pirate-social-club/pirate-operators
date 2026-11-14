@@ -1,3 +1,4 @@
+import type {OriginalLinuxDraft,LinuxCreateDraftV3} from "../../../packages/community-setup/linux-create-profile.ts";
 // Layout/field interactions independently reuse the existing wizard main.tsx
 // and style.css at a88. This component has no centralized API/auth dependency.
 import { For, Show } from "solid-js";
@@ -45,6 +46,14 @@ export const emptyLinuxDraft = (): LinuxDraftV2 => ({
   },
   recovery: { sessionPolicy: "revoke-existing" },
 });
+export const emptyLinuxCreateDraft = ():LinuxCreateDraftV3 => ({
+  version:3,infrastructure:"pirate.shared-directory/2",mode:"create",name:"",slug:"",origin:"",
+  target:{kind:"local-linux"},namespace:{tld:""},
+  features:{learning:false,karaoke:false,media:false,dance:false,telegram:false},
+  services:{publicationProfile:"",learningProfile:null},
+  storage:{publicMedia:{version:1,role:"public-ipfs",provider:"filebase-ipfs"},privateData:{provider:"local-volume"}},
+  limits:{speechDaily:0,websiteReserved:0,perAccountDaily:0,monthlyUsdCents:0},
+});
 export function linuxIdentifierFromName(name: string) {
   const value = name
     .normalize("NFKD")
@@ -61,14 +70,19 @@ export function linuxIdentifierFromName(name: string) {
       : "";
 }
 export function LinuxProfileForm(props: {
-  value: LinuxDraftV2;
+  value: OriginalLinuxDraft;
   capabilities: LinuxCapabilities;
-  onChange(value: LinuxDraftV2): void;
+  onChange(value: OriginalLinuxDraft): void;
   disabled: boolean;
   resolved: boolean;
 }) {
-  const update = (value: Partial<LinuxDraftV2>) =>
-    props.onChange({ ...props.value, ...value });
+  const update = (value: Partial<Omit<LinuxDraftV2,"version"|"recovery"|"storage">>) => {
+    const original=props.value;
+    if(original.version === 3){
+      if(value.mode && value.mode!=="create" || value.target && value.target.kind!=="local-linux")return;
+      props.onChange({...original,...value,version:3,mode:"create",target:{kind:"local-linux"}});
+    }else props.onChange({...original,...value});
+  };
   const input = (
     label: string,
     value: string,
@@ -121,7 +135,7 @@ export function LinuxProfileForm(props: {
   return (
     <>
       <section class="card">
-        <h2>Create, import or restore</h2>
+        <h2>{props.value.version === 3 ? "Create on this Linux host" : "Create, import or restore"}</h2>
         <label class="field">
           <span>Setup action</span>
           <select
@@ -143,7 +157,7 @@ export function LinuxProfileForm(props: {
             </option>
             <option
               value="import"
-              disabled={!props.capabilities.operations.includes("import")}
+              disabled={props.value.version === 3 || !props.capabilities.operations.includes("import")}
             >
               Import an existing installation
               {props.capabilities.operations.includes("import")
@@ -152,7 +166,7 @@ export function LinuxProfileForm(props: {
             </option>
             <option
               value="restore"
-              disabled={!props.capabilities.operations.includes("restore")}
+              disabled={props.value.version === 3 || !props.capabilities.operations.includes("restore")}
             >
               Restore an encrypted backup
               {props.capabilities.operations.includes("restore")
@@ -161,11 +175,9 @@ export function LinuxProfileForm(props: {
             </option>
           </select>
         </label>
-        <p>
-          Import adopts a discovered installation. Restore needs backup bytes
-          and a separate recovery key; it does not create a different community
-          identity.
-        </p>
+        <Show when={props.value.version === 3} fallback={<p>Import adopts a discovered V2 installation. Restore needs backup bytes and a separate recovery key; it does not create a different community identity.</p>}>
+          <p>This profile creates one fresh local Linux installation. Guided import, restore and automated upgrade are deferred. On a VPS, run setup on that host through the authenticated forwarding connection.</p>
+        </Show>
         <label class="field">
           <span>Linux host</span>
           <select
@@ -196,7 +208,7 @@ export function LinuxProfileForm(props: {
             </option>
             <option
               value="ssh-linux"
-              disabled={!props.capabilities.targets.includes("ssh-linux")}
+              disabled={props.value.version === 3 || !props.capabilities.targets.includes("ssh-linux")}
             >
               A different Linux server over SSH
             </option>

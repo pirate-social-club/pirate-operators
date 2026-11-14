@@ -1,3 +1,4 @@
+import {originalLinuxProfileFrom,type OriginalLinuxProfile} from "../../../packages/community-setup/linux-create-profile.ts";
 import {operatorPolicyFrom} from "../../../packages/community-setup/shared-operator-policy.ts";
 import {preparedSharedTargetFrom} from "./shared-target.ts";
 import {
@@ -21,7 +22,7 @@ import { canonical, digestJson, sameIdentity } from "./linux-journal.ts";
 import type {
   CredentialRequirement,
   LinuxCapabilities,
-  LinuxPlan,
+  OriginalLinuxPlan as LinuxPlan,
   NamespaceProof,
   NamespaceAuthorityResult,
   RestoreInspection,
@@ -284,6 +285,8 @@ export function restoreInspectionFrom(
     corrections: r.corrections as string[],
   };
 }
+export function planFrom<P extends OriginalLinuxProfile>(value:{profile:P}):import("./linux-contracts.ts").LinuxPlan<P>;
+export function planFrom(value:unknown):LinuxPlan;
 export function planFrom(value: unknown): LinuxPlan {
   const p = fields(value, [
     "id",
@@ -305,11 +308,13 @@ export function planFrom(value: unknown): LinuxPlan {
     "predecessorOperationId",
     "sessionPolicy",
   ]);
+  const profile = originalLinuxProfileFrom(p.profile);
   requireLinux(
     ["create", "adopt", "restore", "upgrade"].includes(String(p.action)) &&
-      ["revoke-existing", "preserve-existing"].includes(
-        String(p.sessionPolicy),
-      ),
+      (profile.schema === "pirate.community-linux-profile/3" ?
+        p.action === "create" && p.sessionPolicy === null && p.predecessorOperationId === null &&
+        p.restoreInspectionId === null && p.restoreManifestDigest === null && p.restoreCiphertextDigest === null :
+        ["revoke-existing", "preserve-existing"].includes(String(p.sessionPolicy))),
     "invalid_plan",
     "Prepare a supported whole-application plan.",
   );
@@ -329,7 +334,7 @@ export function planFrom(value: unknown): LinuxPlan {
     profileDigest: sha256From(p.profileDigest),
     expiresAt: natural(p.expiresAt),
     backend: backendPlanFrom(p.backend),
-    profile: linuxProfileFrom(p.profile),
+    profile,
     operatorPolicy: operatorPolicyFrom(p.operatorPolicy),
     targetInspectionId: reference(p.targetInspectionId),
     targetFingerprint: text(p.targetFingerprint),
