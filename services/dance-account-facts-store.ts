@@ -4,6 +4,7 @@ import type { DanceCanonicalSource } from "../packages/dance-chain/reader.ts";
 import type { DanceConsentPolicy, DanceFence } from "../packages/dance/contracts.ts";
 import { danceId, wallet } from "../packages/dance/validation.ts";
 import { DANCE_DB_NOW, DanceStore } from "../packages/dance/store.ts";
+import { joinDanceFences } from "../packages/dance/fence.ts";
 
 /** UNAPPLIED schema proposal; exported for actual SQLite test statements only.
  * No runtime initializer/writer is provided. Root owns verified projection
@@ -109,104 +110,7 @@ export function hostBody(row: HostRow): Record<string, unknown> {
   text(row.body_json, 128 * 1024);
   return object(JSON.parse(row.body_json));
 }
-const joined = new WeakMap<DanceFence, { sql: string; payload: string; leaves: DanceFence[] }>();
-let fenceAlias = 0;
-/** Preserve every leaf predicate in ONE statement/atomic batch while binding
- * its values once as JSON. The existing DanceStore adds one guard-token bind:
- * this fence therefore uses two of D1's 100 slots, even for a complete page.
- * Exact duplicate conjuncts alone are idempotent; differing snapshots remain.
- * The private leaf snapshots prevent nested joins from repeatedly packing the
- * same account/rules bytes. Pairwise grouping also bounds the conjunction depth
- * to ceil(log2(leaves)), rather than growing with aliases/page size. Every leaf
- * and its value order remain intact. The one-row JSON carrier is materialized
- * inside this expression so a detached/repacked fence does not expose its
- * scalar projection to flattening into every inner predicate. This is still
- * one guard statement, with no check outside the accepting atomic batch. */
-export function joinDanceFences(...fences: DanceFence[]): DanceFence {
-  insist(fences.length > 0, "dance_host_fence_missing", 503);
-  const unique = new Map<string, DanceFence>();
-  for (const f of fences) {
-    const prior = joined.get(f);
-    const leaves = prior && f.sql === prior.sql && f.values.length === 1 && f.values[0] === prior.payload ? prior.leaves : [f];
-    for (const leaf of leaves) {
-      insist(typeof leaf.sql === "string" && !!leaf.sql.trim() && Array.isArray(leaf.values) &&
-        Array.from(leaf.values).every(v => v === null || typeof v === "string" || (typeof v === "number" && Number.isFinite(v))),
-        "dance_host_fence_invalid", 503);
-      const copy = { sql: leaf.sql, values: [...leaf.values] };
-      unique.set(JSON.stringify([copy.sql, copy.values]), copy);
-    }
-  }
-  const leaves = [...unique.values()];
-  let alias: string;
-  do {
-    insist(Number.isSafeInteger(++fenceAlias), "dance_host_fence_alias_exhausted", 503);
-    alias = "_dh" + fenceAlias;
-  } while (leaves.some(f => f.sql.includes(alias)));
-  const values: DanceFence["values"] = [], predicates: string[] = [];
-  for (const leaf of leaves) {
-    const offset = values.length;
-    predicates.push("(" + bindFenceSql(leaf, index => `json_extract(${alias}.v,'$[${offset + index}]')`) + ")");
-    values.push(...leaf.values);
-  }
-  const payload = JSON.stringify(values);
-  const result = { sql: `EXISTS(WITH ${alias}(v) AS MATERIALIZED (SELECT ?) SELECT 1 FROM ${alias} WHERE ${balancedFenceAnd(predicates)})`, values: [payload] };
-  joined.set(result, { sql: result.sql, payload, leaves });
-  return result;
-}
-/** Only associate these already compiled fence leaves; never parse/rewrite a
- * leaf's SQL, substitute truth, or split the atomic admission into prechecks. */
-function balancedFenceAnd(predicates: string[]): string {
-  let level = predicates;
-  while (level.length > 1) {
-    const next: string[] = [];
-    for (let i = 0; i < level.length; i += 2)
-      next.push(i + 1 < level.length ? "(" + level[i] + " AND " + level[i + 1] + ")" : level[i]);
-    level = next;
-  }
-  return level[0];
-}
-/** SQLite positional parameter numbering, excluding quoted SQL and comments.
- * D1 guards use anonymous/?NNN binds. Unsupported named binds fail closed;
- * values are never embedded as SQL text, and a literal '?' stays a literal. */
-function bindFenceSql(f: DanceFence, value: (index: number) => string) {
-  let out = "", i = 0, highest = 0;
-  while (i < f.sql.length) {
-    const start = i, c = f.sql[i];
-    if (c === "'" || c === '"' || c === "`" || c === "[") {
-      const end = c === "[" ? "]" : c;
-      let closed = false; i++;
-      while (i < f.sql.length) {
-        if (f.sql[i++] !== end) continue;
-        if (f.sql[i] === end) { i++; continue; }
-        closed = true; break;
-      }
-      insist(closed, "dance_host_fence_sql_invalid", 503);
-      out += f.sql.slice(start, i); continue;
-    }
-    if (f.sql.startsWith("--", i)) {
-      const end = f.sql.indexOf("\n", i); i = end < 0 ? f.sql.length : end + 1;
-      out += f.sql.slice(start, i); continue;
-    }
-    if (f.sql.startsWith("/*", i)) {
-      const end = f.sql.indexOf("*/", i + 2);
-      insist(end >= 0, "dance_host_fence_sql_invalid", 503);
-      i = end + 2; out += f.sql.slice(start, i); continue;
-    }
-    if (c === "?") {
-      i++; const digits = i;
-      while (/[0-9]/.test(f.sql[i] ?? "")) i++;
-      const number = i === digits ? highest + 1 : Number(f.sql.slice(digits, i));
-      insist(Number.isSafeInteger(number) && number > 0 && number <= f.values.length,
-        "dance_host_fence_bind_mismatch", 503);
-      highest = Math.max(highest, number); out += value(number - 1); continue;
-    }
-    insist(!((c === ":" || c === "@" || c === "$") && /[a-zA-Z_]/.test(f.sql[i + 1] ?? "")),
-      "dance_host_named_parameters_unsupported", 503);
-    out += c; i++;
-  }
-  insist(highest === f.values.length, "dance_host_fence_bind_mismatch", 503);
-  return out;
-}
+export { joinDanceFences } from "../packages/dance/fence.ts";
 export function hostRowFence(table: "dance_host_context" | "dance_host_accounts" | "dance_host_selections",
   where: string, keys: (string | number)[], row: HostRow): DanceFence {
   return { sql: `EXISTS(SELECT 1 FROM ${table} WHERE ((${where}) AND (revision=? AND body_json=?)))`,

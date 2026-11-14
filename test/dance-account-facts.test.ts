@@ -414,3 +414,79 @@ test("independent genuine D1 disjoint maximum-alias full-account deep guards ret
   } finally { await engine?.dispose(); f.close(); }
 });
 
+
+import { danceAtomicPredicates } from "../packages/dance/fence.ts";
+
+test("serialized exact fence recovery rejects altered plans and stale values without trusting optional claims", async () => {
+  const f = hostSimulation();
+  try {
+    const packed = joinDanceFences({
+      sql: "?1 IS ?1 AND ? AND '?'='?' -- ?tail\n", values: [42, 1],
+    }, { sql: "? IS NULL", values: [null] });
+    const reloaded: typeof packed = JSON.parse(JSON.stringify(packed));
+    const detached = structuredClone(reloaded);
+    const wrapped = joinDanceFences({ sql: "(" + detached.sql + ") AND ?=?", values: [...detached.values, 7, 7] });
+    assert.deepEqual(JSON.parse(String(wrapped.values[0])), [...detached.values, 7, 7]);
+    await f.store.atomic([wrapped], [f.db.asD1().prepare("INSERT INTO host_fixture_acceptance VALUES('frame-exact')").bind()]);
+    const changed = JSON.parse(String(packed.values[0])); changed[1] = 0;
+    const stale = { sql: packed.sql, values: [JSON.stringify(changed)] };
+    const forged = Object.assign(stale, { atomicPredicates: [{ sql: "1", values: [] }] });
+    await assert.rejects(f.store.atomic([forged],
+      [f.db.asD1().prepare("INSERT INTO host_fixture_acceptance VALUES('must-refuse-stale')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+    const altered = { sql: packed.sql.replace(" WHERE ", " WHERE 0 AND "), values: [...packed.values] };
+    await assert.rejects(f.store.atomic([altered],
+      [f.db.asD1().prepare("INSERT INTO host_fixture_acceptance VALUES('must-refuse-plan')").bind()]), /dance_fence_plan_invalid/);
+    const incomplete = { sql: "(" + packed.sql + ") AND ", values: [...packed.values] };
+    assert.deepEqual(danceAtomicPredicates(incomplete), [incomplete]);
+    // Unknown OR syntax stays one opaque expression; it must not be
+    // misinterpreted as a distributable leading-fence AND composition.
+    const opaque = joinDanceFences({ sql: "(" + stale.sql + ") OR 1=1", values: [...stale.values] });
+    await f.store.atomic([opaque], [f.db.asD1().prepare("INSERT INTO host_fixture_acceptance VALUES('opaque-or')").bind()]);
+    assert.deepEqual(f.db.sqlite.prepare("SELECT id FROM host_fixture_acceptance ORDER BY id").all().map(row => ({ id: String(row.id) })),
+      [{ id: "frame-exact" }, { id: "opaque-or" }]);
+    assert.equal(f.db.count("dance_transaction_guards"), 0);
+  } finally { f.close(); }
+});
+
+test("genuine D1 detached multi-layer frames keep every predicate in bounded same-batch guards below100binds", async () => {
+  const f = hostSimulation();
+  let engine: Awaited<ReturnType<typeof genuineD1>> | undefined;
+  try {
+    engine = await genuineD1(f.db);
+    const leaves = Array.from({ length: 513 }, (_, i) => ({
+      sql: "EXISTS(SELECT 1 FROM community_accounts WHERE account_id=? AND ?=" + i + ")",
+      values: ["actor", i],
+    }));
+    const deep = (parts: typeof leaves, nullValue: number | null = null) => {
+      const generated = joinDanceFences(...parts);
+      const detached = structuredClone({ sql: generated.sql, values: [...generated.values] });
+      const inner = joinDanceFences({ sql: "(" + detached.sql + ") AND ?=?", values: [...detached.values, 7, 7] });
+      return joinDanceFences({ sql: "(" + inner.sql + ") AND ? IS NULL", values: [...inner.values, nullValue] });
+    };
+    const input = deep(leaves), guards = danceAtomicPredicates(input);
+    assert.equal(guards.length, 33);
+    assert.ok(guards.every(g => g.values.length === 1));
+    const store = new DanceStore(engine.db);
+    try {
+      await store.atomic([input], [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('bounded-native')").bind()]);
+    } catch (error) {
+      console.error("DANCE_ATOMIC_FRAME_FIXTURE_BOUNDARY " + JSON.stringify({
+        fixture: "hostSimulation", chunks: guards.length, observedBindCounts: engine.binds,
+        guardTemplates: guards.map(g => ({ sql: g.sql, binds: g.values.length,
+          sqlBytes: new TextEncoder().encode(g.sql).byteLength,
+          encodedBindingBytes: new TextEncoder().encode(JSON.stringify(g.values)).byteLength })),
+      }));
+      throw error;
+    }
+    assert.ok(engine.binds.includes(34));
+    const falseMiddle = leaves.map((leaf, i) => i === 256 ? { ...leaf, values: ["actor", -1] } : leaf);
+    await assert.rejects(store.atomic([deep(falseMiddle)],
+      [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('must-refuse-middle')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+    await assert.rejects(store.atomic([deep(leaves, 0)],
+      [engine.db.prepare("INSERT INTO host_fixture_acceptance VALUES('must-refuse-null')").bind()]), /dance_fence_changed|CHECK constraint failed: valid/);
+    assert.deepEqual((await engine.db.prepare("SELECT id FROM host_fixture_acceptance ORDER BY id").all<{ id: string }>()).results,
+      [{ id: "bounded-native" }]);
+    assert.ok(engine.binds.length > 0 && engine.binds.every(n => n <= 100));
+    assert.equal(await engine.db.prepare("SELECT count(*) AS n FROM dance_transaction_guards").first("n"), 0);
+  } finally { await engine?.dispose(); f.close(); }
+});

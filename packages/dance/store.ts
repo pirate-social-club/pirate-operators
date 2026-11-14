@@ -25,6 +25,7 @@ import { verifyControlBinding } from "../dance-chain/control-command.ts";
 import { verifyRetainedAttempt } from "../dance-chain/control-reader.ts";
 import type { DanceRepository } from "./repository.ts";
 import { validateFence } from "./validation.ts";
+import { danceAtomicPredicates } from "./fence.ts";
 import {
   decisionEvidencePreimage,
   decisionIntegrityHash,
@@ -56,17 +57,37 @@ export class DanceStore implements DanceRepository {
   async atomic(fences: DanceFence[], statements: D1PreparedStatement[]) {
     insist(fences.length > 0, "dance_fence_unavailable", 503);
     try {
-      await this.db.batch([
-        ...fences.map((f) => {
+      // Recover exact generated composition before SQLite resolves nested
+      // SELECTs. Every predicate still runs in the SAME accepting db.batch.
+      // One result row preserves changes()=1 as well as the statement/clock
+      // boundary. UNION ALL only enumerates the bounded predicate cases.
+      const guards: D1PreparedStatement[] = [];
+      let parts: DanceFence[] = [], bindCount = 1;
+      const flush = () => {
+        if (!parts.length) return;
+        let result = "dance_guard_result";
+        while (parts.some(f => f.sql.toLowerCase().includes(result))) result += "_";
+        const condition = parts.length === 1 ? parts[0].sql :
+          "NOT EXISTS(SELECT 1 FROM (" + parts.map(f => "SELECT CASE WHEN (" + f.sql +
+            ") THEN 1 ELSE 0 END AS " + result).join(" UNION ALL ") + ") WHERE " + result + "=0)";
+        guards.push(this.stmt("INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" + condition +
+          ") THEN 1 ELSE 0 END", token(), ...parts.flatMap(f => f.values)));
+        parts = []; bindCount = 1;
+      };
+      for (const original of fences) {
+        validateFence(original);
+        for (const f of danceAtomicPredicates(original)) {
           validateFence(f);
-          return this.stmt(
-            "INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" +
-              f.sql +
-              ") THEN 1 ELSE 0 END",
-            token(),
-            ...f.values,
-          );
-        }),
+          insist(1 + f.values.length <= 100, "dance_fence_bind_budget", 503);
+          if (bindCount + f.values.length > 100) flush();
+          parts.push(f); bindCount += f.values.length;
+        }
+        // Preserve separate original-fence statement/clock boundaries.
+        flush();
+      }
+      flush();
+      await this.db.batch([
+        ...guards,
         ...statements,
         this.stmt("DELETE FROM dance_transaction_guards"),
       ]);

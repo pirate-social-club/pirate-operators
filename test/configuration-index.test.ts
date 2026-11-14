@@ -1,3 +1,5 @@
+import { prepareDirectoryCache } from "./fixtures/directory-checkpoint-schema.ts";
+import { hashText } from "../packages/community/common.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { communityRuntime } from "./community-runtime.ts";
@@ -8,6 +10,7 @@ import { directoryHistoryCache } from "../packages/community/configuration-index
 const hash = (s: string) => `0x${s.repeat(64)}` as const;
 test("directory checkpoints survive new request objects; unchanged revisions scan no history even days later", async () => {
   const runtime = await communityRuntime();
+  await prepareDirectoryCache(runtime.db);
   const f = await directoryFixture();
   const read = () =>
     readConfigurationHistory(
@@ -39,6 +42,7 @@ test("directory checkpoints survive new request objects; unchanged revisions sca
 });
 test("a changed canonical checkpoint discards only the derived cache and reconstructs the new chain", async () => {
   const runtime = await communityRuntime();
+  await prepareDirectoryCache(runtime.db);
   const f = await directoryFixture();
   const read = () =>
     readConfigurationHistory(
@@ -61,6 +65,7 @@ test("a changed canonical checkpoint discards only the derived cache and reconst
 });
 test("cached content remains digest-bound and does not replace publication receipt authentication", async () => {
   const runtime = await communityRuntime();
+  await prepareDirectoryCache(runtime.db);
   const f = await directoryFixture();
   const read = () =>
     readConfigurationHistory(
@@ -71,15 +76,22 @@ test("cached content remains digest-bound and does not replace publication recei
     );
   try {
     await read();
-    await runtime.db
-      .prepare("UPDATE public_configurations SET publisher=?")
-      .bind("0x" + "9".repeat(40))
-      .run();
+    const row = await runtime.db.prepare("SELECT snapshot,page_number,payload FROM directory_checkpoint_pages LIMIT 1")
+      .first<{ snapshot: string; page_number: number; payload: string }>();
+    assert.ok(row);
+    const payload = JSON.parse(row.payload);
+    payload[0].args.publisher = "0x" + "9".repeat(40);
+    // A forged self-hash is insufficient: canonical receipt authentication remains.
+    const { canonical } = await import("../packages/community/common.ts");
+    const forged = canonical(payload);
+    await runtime.db.prepare("UPDATE directory_checkpoint_pages SET payload=?,page_sha256=? WHERE snapshot=? AND page_number=?")
+      .bind(forged, hashText(forged), row.snapshot, row.page_number).run();
     await assert.rejects(read(), /directory_cache_event_changed/);
-    await runtime.db
-      .prepare("UPDATE public_configurations SET publisher=?,manifest_json=?")
-      .bind(f.config.publisher, '{"fabricated":true}')
-      .run();
+    payload[0].args.publisher = f.config.publisher;
+    payload[0].document = '{"fabricated":true}';
+    const bytes = canonical(payload);
+    await runtime.db.prepare("UPDATE directory_checkpoint_pages SET payload=?,page_sha256=? WHERE snapshot=? AND page_number=?")
+      .bind(bytes, hashText(bytes), row.snapshot, row.page_number).run();
     await assert.rejects(read());
   } finally {
     await runtime.dispose();
@@ -87,6 +99,7 @@ test("cached content remains digest-bound and does not replace publication recei
 });
 test("concurrent cold readers cannot replace the winner's newer checkpoint with an older snapshot", async () => {
   const runtime = await communityRuntime();
+  await prepareDirectoryCache(runtime.db);
   const f = await directoryFixture();
   let releaseOld!: () => void, arrived!: () => void;
   const waitOld = new Promise<void>((resolve) => {
@@ -129,13 +142,13 @@ test("concurrent cold readers cannot replace the winner's newer checkpoint with 
     releaseOld();
     assert.deepEqual(await old, [f.config]);
     const cursor = await runtime.db
-      .prepare("SELECT next_block FROM chain_scan_state")
+      .prepare("SELECT next_block FROM directory_checkpoint_heads")
       .first<{ next_block: string }>();
     assert.equal(cursor?.next_block, "200");
     assert.equal(
       (
         await runtime.db
-          .prepare("SELECT COUNT(*) AS n FROM public_configurations")
+          .prepare("SELECT revision AS n FROM directory_checkpoint_heads")
           .first()
       )?.n,
       2,
@@ -156,6 +169,7 @@ test("concurrent cold readers cannot replace the winner's newer checkpoint with 
 
 test("a checkpoint above a regressed chain head is rebuilt without serving future history", async () => {
   const runtime = await communityRuntime();
+  await prepareDirectoryCache(runtime.db);
   const f = await directoryFixture();
   const read = () =>
     readConfigurationHistory(
@@ -172,7 +186,7 @@ test("a checkpoint above a regressed chain head is rebuilt without serving futur
     assert.equal(
       (
         await runtime.db
-          .prepare("SELECT next_block FROM chain_scan_state")
+          .prepare("SELECT next_block FROM directory_checkpoint_heads")
           .first()
       )?.next_block,
       "90",
