@@ -16,6 +16,7 @@ import {
   linuxProfileFrom,
   targetFrom,
   type LinuxDraftV2,
+  type LinuxCommunityProfileV2,
 } from "../../../packages/community-setup/shared-linux-profile.ts";
 import { backendPlanFrom, sha256From } from "./linux-operator-boundary.ts";
 import { canonical, digestJson, sameIdentity } from "./linux-journal.ts";
@@ -365,6 +366,12 @@ export function planFrom(value: unknown): LinuxPlan {
     "The backend plan or full profile changed. Review a fresh plan.",
   );
   return result;
+}
+/** Retained full-V2 work is decoded explicitly, never cast from create V3.
+ * Both the full profile and canonical plan/digests are validated. */
+export function fullLinuxV2PlanFrom(value:unknown):import("./linux-contracts.ts").LinuxPlan<LinuxCommunityProfileV2> {
+  const p=record(value);
+  return planFrom<LinuxCommunityProfileV2>({...p,profile:linuxProfileFrom(p.profile)});
 }
 export function requirePlanIdentity(
   plan: LinuxPlan,

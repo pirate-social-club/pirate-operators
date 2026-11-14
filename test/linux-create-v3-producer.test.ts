@@ -1,3 +1,5 @@
+import {linuxCreateProfileFrom} from "../packages/community-setup/linux-create-profile.ts";
+import {exactNamespaceProof} from "../apps/community-wizard/server/shared-namespace-port.ts";
 // UNRUN. Actual Ed25519 managed UDS, current signed policy and genuine closed
 // Directory reader over controlled protocol transport. No host/provider claim.
 import test from "node:test";
@@ -15,7 +17,10 @@ test("actual managed producer requires fresh exact V3 approval and retains its i
   const f=await fixture(),auth=randomBytes(32);
   let agent:Awaited<ReturnType<typeof startManagedKeyAgent>>|undefined,channel:Awaited<ReturnType<typeof createManagedKeyClient>>|undefined;
   try{
-    const profile=createProfileFixture(f.reader.profile),profileDigest=canonicalDigest(profile),now=Date.now();
+    // Signer permission must bind the actual fresh proof the producer captures,
+    // including its expiry, rather than the retained reader snapshot's lifetime.
+    const profile=linuxCreateProfileFrom({...createProfileFixture(f.reader.profile),namespace:exactNamespaceProof(f.proof)}),
+      profileDigest=canonicalDigest(profile),now=Date.now();
     const template={schema:"pirate.linux-create-template/1",installationId:f.installationId,generation:1,issuedAt:now-1000,expiresAt:now+60000,
       settings:profile.settings,identity:profile.identity,infrastructure:profile.infrastructure,runtime:profile.runtime,learning:profile.learning};
     const templateFile=join(f.root,"configuration","create-template.json"),outputDirectory=join(f.root,"profiles");

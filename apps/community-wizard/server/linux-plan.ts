@@ -11,6 +11,7 @@ import {
 import {
   namespaceProofFrom,
   planFrom,
+  fullLinuxV2PlanFrom,
   requirePlanIdentity,
   requirementsFrom,
 } from "./linux-boundaries.ts";
@@ -105,7 +106,7 @@ export function linuxPlan(
           target,
           namespace: fresh,
           retainedIdentity: state.identity,
-          previousOperation: state.operation ? operationBytes(state) : null,
+          previousOperation: state.operation ? {...operationBytes(state),plan:fullLinuxV2PlanFrom(state.operation.plan)} : null,
           imported: state.imported,
           restore: state.restore,
         }),
