@@ -1,5 +1,11 @@
 # Linux community delivery acceptance
 
+The approved [November 14 checkpoint 1](checkpoint-1-pilot-delivery-20261114.md)
+supersedes this broader checklist for the invited pilot. HNS is separate from
+initial HTTPS setup; automated upgrades and second-host backup/restore remain
+deferred. Retain the scenarios below as historical and later requirements,
+without claiming their completion or adding them back to checkpoint 4.
+
 This maps the required Linux delivery behavior to evidence that implementation must produce. It is not an executed acceptance report. The source baseline is 3d21abf6bc2b0e32b6126fe0aef39faacaf1287d; each later run must bind its exact source, images, configuration and selected feature profile. The [delivery contract](linux-compose-delivery-contract-v1.json) and [service inventory](linux-compose-service-inventory.md) define the composition and remaining choices.
 
 ## Required scenarios

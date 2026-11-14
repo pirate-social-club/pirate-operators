@@ -1,6 +1,7 @@
 {
   "schema": "pirate.linux-compose.delivery-contract/1",
   "status": "implementation-preparation",
+  "pilotScopeSuccessor": "checkpoint-1-pilot-delivery-20261114.md",
   "sourceCommit": "3d21abf6bc2b0e32b6126fe0aef39faacaf1287d",
   "productionQualified": false,
   "ownership": {

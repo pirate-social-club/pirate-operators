@@ -1,5 +1,10 @@
 # Linux Compose service inventory
 
+The approved [November 14 checkpoint 1](checkpoint-1-pilot-delivery-20261114.md)
+governs the narrower invited pilot, selected external-service responsibilities
+and funding path. The graph below is historical source inventory, not a claim
+that every listed service or recovery feature is a pilot prerequisite.
+
 This inventory describes the community implementation at commit `3d21abf6bc2b0e32b6126fe0aef39faacaf1287d`. It prepares Linux delivery; it does not establish a supported image, operating-system matrix or complete deployment. The [versioned delivery contract](linux-compose-delivery-contract-v1.json) records the graph and open choices. The [acceptance map](linux-compose-acceptance.md) defines the required evidence.
 
 ## Application ownership

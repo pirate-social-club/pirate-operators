@@ -3,6 +3,11 @@
 This checkpoint exposes the joined application source and a browser UI preview.
 It is not a release or a proven fresh-server installation.
 
+The subsequent approved [checkpoint 1 delivery plan](../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+records the review decisions and corrected funding path. It changes no executable
+source. The selected results below remain bound to the original `99abc251`
+application checkpoint; its hosted CI failures remain unresolved by documentation.
+
 The public integration review is [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58).
 The independent contract proposal is [Registry PR3](https://github.com/pirate-social-club/pirate-registry/pull/3).
 The HNS state machine is [api-next PR723](https://github.com/pirate-social-club/api-next/pull/723);

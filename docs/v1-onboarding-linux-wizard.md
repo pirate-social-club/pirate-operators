@@ -1,5 +1,11 @@
 # Ordered HTTPS setup and separate HNS onboarding
 
+The later approved [checkpoint 1 delivery decisions](self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+govern the invited pilot's hosting, gas funding, service responsibilities and
+checkpoint order. Pirate funds capped publisher/controller top-ups; those
+community accounts submit their own publications/configuration changes. Pirate
+does not become the community publisher. The runtime gaps below remain open.
+
 ## Status and precedence, 2026-11-14
 
 This is the required onboarding contract and a pending-interface proposal. It

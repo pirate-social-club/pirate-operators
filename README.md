@@ -1,5 +1,11 @@
 # Pirate operators
 
+The approved [checkpoint 1 Linux pilot delivery plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+sets the current six-checkpoint sequence: ordinary HTTPS, pending-community
+registration, Pirate-funded community-owned transactions and a disposable
+invited testnet journey before HNS/names. It supersedes conflicting hosting and
+recovery scope below; it does not claim a working installer or production release.
+
 The [compact public results amendment](docs/learning-results-v2.md) sets the
 next recording/payment direction: one terminal result per lesson or run,
 internal usage accounting for Pirate's own service and guaranteed coverage for
