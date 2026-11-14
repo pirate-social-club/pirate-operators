@@ -21,7 +21,7 @@ async function retainedFiles(root:string){
 }
 export async function runGenuineLinuxCreateV3(input:LocalTargetCreateBootstrapInputs,
   original:{requestId:string;operationId:string;draftRevision:number;signal:AbortSignal}){
-  assert.equal(input.backend.delivery,"create-v3");
+  assert.equal(input.backend.runtimeProfile,"create-v3");
   // SAME production bootstrap/server. No alternative listener or factory.
   const runtime=await bootstrapLocalTarget(input),actual=runtime.implementation,port=actual.complete;
   // On any refusal/uncertainty, keep the runtime/lease with Root for actual
