@@ -14,7 +14,7 @@ test(
         "utf8",
       ),
     );
-    assert.equal(pkg.version, "2.0.0-rc.0");
+    assert.equal(pkg.version, "2.0.0-rc.21");
     // Direct browser entry avoids Node's server export. No browser process or DOM
     // is started: execute the actual component initialization and callback logic.
     const solid = await import(

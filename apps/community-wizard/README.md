@@ -5,6 +5,11 @@ trusted local Node runner. It reviews a fixed resource plan and invokes Alchemy
 for an ordinary HTTPS setup page, D1, private R2 and a queue. It does not yet
 provide the completed login, upload, moderation or first-song application.
 
+The browser uses Solid and `@solidjs/web` 2.0.0-rc.21, with the matching signals
+and compiler, `@solidjs/vite-plugin` 3.0.0-next.57 and Vite 8.3.6. Its independent
+manifest and lockfile pin this cohort explicitly. Keep those packages aligned
+when updating the runtime, and run both the package check and browser journey.
+
 Owner decision, 2026-11-05: the next packaged community setup uses the operator's
 own ACRCloud, OpenAI and Filebase accounts and community-run moderation. Pirate
 supplies shared contracts/discovery and the funded creator service. This is

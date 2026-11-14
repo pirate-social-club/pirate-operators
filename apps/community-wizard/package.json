@@ -21,18 +21,26 @@
     "@infisical/sdk": "5.0.2",
     "alchemy": "2.0.0-beta.85",
     "effect": "4.1.2",
-    "solid-js": "1.9.18",
-    "tsx": "4.20.6"
+    "solid-js": "2.0.0-rc.21",
+    "tsx": "4.20.6",
+    "@solidjs/web": "2.0.0-rc.21"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "24.19.2",
     "typescript": "6.0.3",
-    "vite": "7.3.7",
-    "vite-plugin-solid": "2.11.8"
+    "vite": "8.3.6",
+    "@solidjs/vite-plugin": "3.0.0-next.57"
   },
   "overrides": {
     "@babel/plugin-transform-runtime": "7.29.7",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "solid-js": "$solid-js",
+    "@solidjs/web": "$@solidjs/web",
+    "@solidjs/signals": "2.0.0-rc.21",
+    "@solidjs/compiler": "2.0.0-rc.21",
+    "@solidjs/vite-plugin": "$@solidjs/vite-plugin",
+    "seroval": "1.7.0",
+    "seroval-plugins": "1.7.0"
   }
 }

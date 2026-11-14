@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { alias, dedupe } from "../vite.shared.ts";
 
 export default defineConfig({

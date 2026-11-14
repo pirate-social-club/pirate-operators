@@ -537,21 +537,26 @@ sizes, and no device load times were measured. Foldkit's explicit commands,
 cancellation, resource management and inspectable transitions are real
 strengths. The bundle cost and the existing Solid work decided it.
 
-The client starts on the combination the centralized client already runs and
-tests:
+The community client and setup wizard own their pinned Solid 2 runtime and
+compiler independently of the imported UI source. Their current cohort is:
 
 | Package | Version |
 |---|---|
-| `solid-js` and `@solidjs/web` | 2.0.0-rc.0 |
-| `@solidjs/router` | 2.0.0-next.16 |
-| `@solidjs/vite-plugin` and `vite-plugin-solid` | 3.0.0-next.27 |
-| `vite` | 8.3.1 |
-| `@kobalte/core` | 2.0.0-alpha.0 at a892187, the centralized client's patched vendored tarball |
-| `tailwindcss` | 4.3.3 |
+| `solid-js`, `@solidjs/web`, `@solidjs/signals` and `@solidjs/compiler` | 2.0.0-rc.21 |
+| `@solidjs/vite-plugin` | 3.0.0-next.57 |
+| `vite` | 8.3.6 |
+| `@kobalte/core` in the web client | 2.0.0-alpha.0 at a892187, the retained patched vendored tarball |
+| `tailwindcss` in the web client | 4.3.3 |
 
-Moving to a newer Solid release candidate is a separate change. That change
-must pass the client's checks and the copied components' tests. Nothing
-tracks the newest release candidate automatically.
+The web tooling also declares `vite-plugin-solid` as an npm alias for the same
+renamed plugin and version to satisfy its Storybook peer. The imported UI
+package carries a reproducible type-only patch for the newer native data
+attribute declarations; its source commit and the Kobalte patches stay pinned.
+The package manifests, lockfiles and vendor provenance record the exact inputs.
+
+A runtime update must keep that cohort coherent and pass the client, component
+and browser checks. The wizard also runs its package and browser checks.
+Nothing follows a mutable npm distribution tag automatically.
 
 Boot, session, sign-in, ticket handshake and reward claim are written as plain
 TypeScript state machines, tested without the DOM, like the machines in

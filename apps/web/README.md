@@ -113,12 +113,19 @@ change.
 
 ## Design-system packaging
 
-`@pirate/web-solid-ui` and the patched Kobalte tarball are vendored from
-pirate-web-solid at c7cb8783. [vendor/PROVENANCE.json](vendor/PROVENANCE.json)
-records the sources, digests, the one manifest transformation, what a
-consumer must supply, and why `package.json` overrides align the Solid
-runtime and compiler closure with the upstream lockfile.
-`scripts/vendor-solid-ui.sh` rebuilds the tarballs byte for byte.
+The UI source is vendored from pirate-web-solid at c7cb8783. The consumer
+package adds one type-only patch for Solid rc.21's native data attributes on
+shared dialog close controls and declares the pinned rc.21 peers. The original
+patched Kobalte tarball is unchanged. [vendor/PROVENANCE.json](vendor/PROVENANCE.json)
+records source, patch and package digests and every transformation.
+`scripts/vendor-solid-ui.sh` rebuilds the packages byte for byte.
+
+This application owns its Solid runtime and compiler pins independently of the
+imported UI source. Solid, the web renderer, signals and compiler are rc.21;
+`@solidjs/vite-plugin` is next.57. The old `vite-plugin-solid` dependency name
+is an npm alias for that same implementation and version, required by the
+Storybook peer. The original lock-alignment helper is a source comparison
+diagnostic; its write mode must not replace these reviewed consumer pins.
 
 ## Document versions
 
