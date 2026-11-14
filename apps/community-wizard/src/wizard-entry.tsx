@@ -1,12 +1,13 @@
 // Current Root shell, not the historical whole-file wizard entry.
-import {createSignal,onMount,Show,type JSX} from "solid-js";
+import {createSignal,onSettled,Show} from "solid-js";
+import type {JSX} from "@solidjs/web";
 import {LinuxWizard} from "./linux-wizard.tsx";
 import {linuxRequest,type LinuxSnapshot} from "./linux-api.ts";
 export function WizardEntry(props:{cloudflare:()=>JSX.Element}){
  const [view,setView]=createSignal<LinuxSnapshot>();
  const [error,setError]=createSignal("");
  const [mode,setMode]=createSignal<"linux"|"cloudflare">();
- onMount(()=>{void(async()=>{
+ onSettled(()=>{void(async()=>{
   const requested=new URL(window.location.href).searchParams.get("setup");
   // Authentication/transport errors are not an unavailable capability and
   // never silently select another application/authentication flow.
