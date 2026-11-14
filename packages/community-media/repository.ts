@@ -1,3 +1,4 @@
+import { captureNativeBusiness } from "../community/native-business-binding.ts";
 import type {
   MediaQuota,
   MediaRecord,
@@ -51,7 +52,7 @@ export class MediaRepository {
         "media_reservation_fence_unavailable",
         503,
       );
-    await this.db
+    const insert = this.db
       .prepare(
         `INSERT INTO community_media(id,community_id,account_id,request_id,revision,state,purpose,expires_at,body)
       SELECT ?,?,?,?,?,?,?,?,? WHERE
@@ -80,7 +81,9 @@ export class MediaRepository {
         quota.bytesPerCommunity,
         ...(fence?.values ?? []),
       )
-      .run();
+;
+    const native=await captureNativeBusiness(this.db,"media",record.id,record.accountId,record.requestId);
+    await this.db.batch([insert,...native]);
     const row = await this.db
       .prepare(
         `SELECT body FROM community_media WHERE community_id=? AND account_id=? AND request_id=? ${guard}`,

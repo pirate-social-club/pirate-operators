@@ -19,7 +19,13 @@ test("513 revisions cross 256, checkpoint page boundaries, cold replay and proce
     const read = () => readConfiguration(f.client, f.profile, f.transport, directoryHistoryCache(runtime.db, f.client, f.profile));
     assert.equal((await read()).configurationRevision, 513);
     const downloads = f.state.downloads, scans = f.state.logRanges.length;
+    const retainedPages = (await runtime.db.prepare("SELECT snapshot,page_number,page_sha256,payload FROM directory_checkpoint_pages ORDER BY snapshot,page_number").all()).results;
     assert.equal((await read()).configurationRevision, 513);
+    assert.equal(f.state.downloads, downloads);
+    assert.equal(f.state.logRanges.length, scans);
+    f.state.head += 100n;
+    assert.equal((await read()).configurationRevision, 513);
+    assert.deepEqual((await runtime.db.prepare("SELECT snapshot,page_number,page_sha256,payload FROM directory_checkpoint_pages ORDER BY snapshot,page_number").all()).results, retainedPages);
     assert.equal(f.state.downloads, downloads);
     assert.equal(f.state.logRanges.length, scans);
     f.state.head += 2n; await f.extend();

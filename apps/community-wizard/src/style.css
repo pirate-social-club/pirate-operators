@@ -579,3 +579,22 @@ pre.command {
   overflow-wrap: anywhere;
   font-size: 0.85rem;
 }
+
+
+/* Current Linux entry reuses this Root theme; Cloudflare rules above unchanged. */
+.wizard-modes { max-width:1220px; margin:0 auto; padding:14px 5vw; display:flex; gap:20px; flex-wrap:wrap; border-bottom:1px solid #dedfd3; }
+.wizard-modes a { color:#415c37; font-size:12px; text-decoration:none; padding:8px 0; }
+.wizard-modes a[aria-current="page"] { font-weight:700; border-bottom:2px solid #344f32; }
+.wizard-modes a:focus-visible { outline:2px solid #839b62; outline-offset:4px; }
+.wizard-entry-message { max-width:1120px; margin:24px auto; padding:20px; }
+.linux-setup .field select { width:100%; padding:11px 13px; border:1px solid #daddcf; border-radius:6px; color:#334831; background:#fffefb; font:inherit; }
+.linux-setup .field select:focus-visible { outline:2px solid #839b62; outline-offset:2px; }
+.linux-setup .card details { margin:18px 0; }
+.linux-setup .card summary { cursor:pointer; color:#415c37; }
+.linux-setup .card .check { margin:12px 0; }
+.linux-setup .card button + button { margin-left:8px; }
+.linux-setup .card pre { max-height:28rem; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:680px) {
+ .linux-setup .card button { white-space:normal; margin-top:8px; }
+ .linux-setup .card button + button { margin-left:0; }
+}

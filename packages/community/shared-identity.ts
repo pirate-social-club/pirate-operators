@@ -11,7 +11,7 @@ export function sharedBytes32(value: unknown): Hex {
 export function canonicalTld(value: unknown): string {
   insist(typeof value === "string" && value.length <= 63 &&
     /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?![\s\S])/.test(value) &&
-    !value.startsWith("xn--"), "invalid_shared_tld");
+    !(value[2] === "-" && value[3] === "-"), "invalid_shared_tld");
   return value;
 }
 export function directoryInstanceId(chainId: number, communityKey: Hex): Hex {

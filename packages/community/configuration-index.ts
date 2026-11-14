@@ -11,6 +11,10 @@ import type { AnyDirectoryProfile } from "./directory-reader.ts";
 interface Head { snapshot: string; next_block: string; block_hash: Hex; revision: number; page_count: number }
 interface Page { page_number: number; page_sha256: string; payload: string }
 const raced = (e: unknown) => e instanceof Error && e.message.includes("CHECK constraint failed: valid = 1");
+// Snapshot alone is not a version: unchanged revisions now reuse their pages.
+const priorHead = "profile_key=? AND snapshot=? AND next_block=? AND block_hash=? AND revision=? AND page_count=?";
+const priorValues = (key: string, saved: DirectoryCheckpoint) =>
+  [key, saved.snapshot, String(saved.nextBlock), saved.blockHash, saved.revision, saved.pages];
 export function decodeEvidence(payload: string): ConfigurationEvidence[] {
   const raw: unknown = JSON.parse(payload);
   insist(Array.isArray(raw) && raw.length > 0 && raw.length <= CONFIGURATION_PAGE_SIZE, "invalid_checkpoint_page");
@@ -42,17 +46,25 @@ export function directoryHistoryCache(db: D1Database, client: PublicClient, prof
       insist(nextBlock > profile.deploymentBlock, "directory_cache_cursor_invalid", 503);
       const revision = integer(row.revision, 1, Number.MAX_SAFE_INTEGER), pages = integer(row.page_count, 1, Number.MAX_SAFE_INTEGER);
       insist(pages === Math.ceil(revision / CONFIGURATION_PAGE_SIZE), "directory_cache_history_invalid", 503);
-      let hash: Hex | null = null;
-      if (nextBlock <= through + 1n) {
-        try { hash = (await client.getBlock({ blockNumber: nextBlock - 1n })).hash; }
-        catch (error) { if (!(error instanceof BlockNotFoundError)) throw error; }
+      const saved = Object.freeze({ snapshot: row.snapshot, nextBlock, blockHash: sharedBytes32(row.block_hash), revision, pages });
+      let block;
+      try { block = await client.getBlock({ blockNumber: nextBlock - 1n }); }
+      catch (error) {
+        if (!(error instanceof BlockNotFoundError)) throw error;
+        insist(false, "directory_cache_view_unavailable", 503);
       }
-      if (hash !== row.block_hash) {
-        // Compare-and-delete only the stale head. Immutable evidence is retained.
-        await db.prepare("DELETE FROM directory_checkpoint_heads WHERE profile_key=? AND snapshot=?").bind(key, row.snapshot).run();
+      insist(block.number === nextBlock - 1n && block.hash !== null, "directory_cache_view_unavailable", 503);
+      const canonicalHash = sharedBytes32(block.hash);
+      if (canonicalHash !== saved.blockHash) {
+        // A proven canonical mismatch may evict only the exact observed head.
+        // Retain immutable evidence and never erase a concurrently advanced head.
+        const removed = await db.prepare(`DELETE FROM directory_checkpoint_heads WHERE ${priorHead}`)
+          .bind(...priorValues(key, saved)).run();
+        insist(removed.meta.changes === 1, "directory_cache_cursor_raced", 503);
         return undefined;
       }
-      return { snapshot: row.snapshot, nextBlock, blockHash: sharedBytes32(row.block_hash), revision, pages };
+      insist(nextBlock <= through + 1n, "directory_cache_view_unavailable", 503);
+      return saved;
     },
     async *pages(saved) {
       let count = 0;
@@ -67,7 +79,16 @@ export function directoryHistoryCache(db: D1Database, client: PublicClient, prof
       }
       insist(count === saved.revision, "directory_cache_history_invalid", 503);
     },
+    async advance(previous, head, hash) {
+      // Capture complete scalar bindings before awaiting the engine. No page IO.
+      const expected = priorValues(key, previous);
+      insist(head + 1n >= previous.nextBlock, "invalid_checkpoint_commit");
+      const result = await db.prepare(`UPDATE directory_checkpoint_heads SET next_block=?,block_hash=? WHERE ${priorHead}`)
+        .bind(String(head + 1n), sharedBytes32(hash), ...expected).run();
+      return result.meta.changes === 1;
+    },
     begin(previous) {
+      const expected = previous && priorValues(key, previous), previousNextBlock = previous?.nextBlock;
       const snapshot = token();
       let pages = 0, revisions = 0, ended = false, partial = false;
       return {
@@ -81,15 +102,15 @@ export function directoryHistoryCache(db: D1Database, client: PublicClient, prof
           partial = page.length < CONFIGURATION_PAGE_SIZE;
         },
         async commit(head, hash, revision) {
-          insist(!ended && pages > 0 && revisions === revision && (!previous || head + 1n >= previous.nextBlock), "invalid_checkpoint_commit");
+          insist(!ended && pages > 0 && revisions === revision && (previousNextBlock === undefined || head + 1n >= previousNextBlock), "invalid_checkpoint_commit");
           ended = true;
-          const guard = token(), condition = previous
-            ? "EXISTS(SELECT 1 FROM directory_checkpoint_heads WHERE profile_key=? AND snapshot=?)"
+          const guard = token(), condition = expected
+            ? `EXISTS(SELECT 1 FROM directory_checkpoint_heads WHERE ${priorHead})`
             : "NOT EXISTS(SELECT 1 FROM directory_checkpoint_heads WHERE profile_key=?)";
           try {
             await db.batch([
               db.prepare(`INSERT INTO transaction_guards(guard_id,valid) VALUES(?,CASE WHEN ${condition} THEN 1 ELSE 0 END)`)
-                .bind(guard, key, ...(previous ? [previous.snapshot] : [])),
+                .bind(guard, ...(expected ?? [key])),
               db.prepare("INSERT INTO directory_checkpoint_heads(profile_key,snapshot,next_block,block_hash,revision,page_count) VALUES(?,?,?,?,?,?) ON CONFLICT(profile_key) DO UPDATE SET snapshot=excluded.snapshot,next_block=excluded.next_block,block_hash=excluded.block_hash,revision=excluded.revision,page_count=excluded.page_count")
                 .bind(key, snapshot, String(head + 1n), hash, revision, pages),
               db.prepare("DELETE FROM transaction_guards WHERE guard_id=?").bind(guard),

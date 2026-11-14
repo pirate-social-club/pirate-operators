@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, keccak256, type Hex } from "viem";
+import { BlockNotFoundError, decodeFunctionData, encodeAbiParameters, encodeEventTopics, keccak256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sharedDirectoryFixture } from "./fixtures/shared-directory.ts";
 import { prepareSharedRegistration, bindSharedRegistrationTransaction, observeSharedRegistration } from "../packages/community/shared-registration-chain.ts";
@@ -15,6 +15,13 @@ const account = privateKeyToAccount("0x" + "1".repeat(64) as Hex);
 const limits = { nonce: 7, gas: 900000n, maxFeePerGas: 3n, maxPriorityFeePerGas: 1n };
 async function prepared() {
   const f = await sharedDirectoryFixture(), pin = await preparePin(new TextEncoder().encode(canonical(f.config)), "application/json");
+  // Explicit simulated safe tag for these enrollment cases. Existing numeric
+  // block fixture behavior and every existing assertion remain unchanged.
+  f.client = new Proxy(f.client, { get(target, key) {
+    if (key === "getBlock") return (input: Parameters<typeof target.getBlock>[0]) =>
+      input?.blockTag === "safe" ? target.getBlock({ blockNumber: f.state.head - 1n }) : target.getBlock(input);
+    return Reflect.get(target, key);
+  } });
   const plan = prepareSharedRegistration(f.profile, f.config, pin.uri, account.address.toLowerCase() as Hex);
   const raw = await account.signTransaction({ type: "eip1559", chainId: 31337, to: plan.profile.directory,
     data: plan.data, value: 0n, ...limits });
@@ -224,4 +231,78 @@ test("adjacent verification keeps the verified and returned identity on one snap
   assert.ok(Object.isFrozen(result.profile));
   assert.equal(result.directoryVerified, true);
   assert.equal(result.issuanceAuthorized, false);
+});
+
+test("original recovery waits for the safe block and accepts its exact inclusive boundary for success and revert", async () => {
+  const fixture = await prepared(), { f, operation } = fixture;
+  let safeNumber = 50n, status: "success" | "reverted" = "success", safeReads = 0;
+  const client = new Proxy(f.client, { get(target, key) {
+    if (key === "getBlockNumber") return async () => { throw new Error("latest_must_not_confirm"); };
+    if (key === "getBlock") return (input: Parameters<typeof target.getBlock>[0]) => {
+      if (input?.blockTag === "safe") { safeReads++; return target.getBlock({ blockNumber: safeNumber }); }
+      return target.getBlock(input);
+    };
+    if (key === "getTransactionReceipt") return async (input: Parameters<typeof target.getTransactionReceipt>[0]) => {
+      assert.equal(input.hash, operation.transactionHash);
+      return { ...matchingEnrollmentReceipt(fixture, operation.transactionHash), status };
+    };
+    return Reflect.get(target, key);
+  } });
+  for (const result of ["success", "reverted"] as const) {
+    status = result; safeNumber = 50n;
+    const pending = await observeSharedRegistration(client, operation);
+    assert.equal(pending.status, "pending");
+    assert.deepEqual(pending.original, operation);
+    safeNumber = 51n;
+    const confirmed = await observeSharedRegistration(client, operation);
+    assert.equal(confirmed.status, status === "success" ? "consumed" : "reverted");
+    assert.deepEqual(confirmed.original, operation);
+  }
+  assert.equal(safeReads, 4);
+});
+
+test("missing unsupported or null safe confirmation refuses without latest fallback or a different original", async () => {
+  const fixture = await prepared(), { f, operation } = fixture;
+  for (const fault of ["missing", "unsupported", "null", "missing-number"] as const) {
+    const failure = fault === "missing" ? new BlockNotFoundError({}) : new Error("safe_tag_unsupported");
+    const client = new Proxy(f.client, { get(target, key) {
+      if (key === "getBlockNumber") return async () => { throw new Error("latest_fallback_forbidden"); };
+      if (key === "getBlock") return async (input: Parameters<typeof target.getBlock>[0]) => {
+        if (input?.blockTag === "safe") {
+          if (fault === "missing" || fault === "unsupported") throw failure;
+          if (fault === "missing-number") return { ...await target.getBlock({ blockNumber: 99n }), number: undefined };
+          return { ...await target.getBlock({ blockNumber: 99n }), hash: null };
+        }
+        return target.getBlock(input);
+      };
+      if (key === "getTransactionReceipt") return async (input: Parameters<typeof target.getTransactionReceipt>[0]) => {
+        assert.equal(input.hash, operation.transactionHash);
+        return matchingEnrollmentReceipt(fixture, operation.transactionHash);
+      };
+      return Reflect.get(target, key);
+    } });
+    if (fault === "null" || fault === "missing-number") await assert.rejects(observeSharedRegistration(client, operation), /directory_safe_block_unavailable/);
+    else await assert.rejects(observeSharedRegistration(client, operation), (error) => error === failure);
+    assert.equal(operation.transactionHash, keccak256(operation.rawTransaction));
+  }
+});
+
+test("both original receipt and safe confirmation block must remain canonical before success or revert returns", async () => {
+  const fixture = await prepared(), { f, operation } = fixture;
+  for (const status of ["success", "reverted"] as const) for (const changed of ["receipt", "safe"] as const) {
+    let receiptReads = 0;
+    const client = new Proxy(f.client, { get(target, key) {
+      if (key === "getTransactionReceipt") return async () => ({ ...matchingEnrollmentReceipt(fixture, operation.transactionHash), status });
+      if (key === "getBlock") return async (input: Parameters<typeof target.getBlock>[0]) => {
+        if (input?.blockTag === "safe") return target.getBlock({ blockNumber: 99n });
+        const block = await target.getBlock(input);
+        if (input?.blockNumber === 51n) receiptReads++;
+        if ((changed === "receipt" && input?.blockNumber === 51n && receiptReads > 1) ||
+          (changed === "safe" && input?.blockNumber === 99n)) return { ...block, hash: "0x" + "b".repeat(64) as Hex };
+        return block;
+      };
+      return Reflect.get(target, key);
+    } });
+    await assert.rejects(observeSharedRegistration(client, operation), /directory_chain_reorganized/);
+  }
 });

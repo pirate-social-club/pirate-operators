@@ -57,7 +57,8 @@ export interface PublicSongView {
     schema:
       | "pirate.community-post/1"
       | "pirate.community-post/2"
-      | "pirate.community-post/3";
+      | "pirate.community-post/3"
+      | "pirate.community-post/4";
     postId: string;
     authorId: string;
     title: string;
@@ -89,6 +90,7 @@ export interface CommunityJobView {
   submissionId: string;
   postId: string;
   phase: string;
+  catalog?: {state:"pending"|"complete";stage:string};
   errorCode: string | null;
   resumable: boolean;
 }

@@ -1,3 +1,4 @@
+import { catalogOwner } from "./owner-policy.ts";
 import type { Address, PublicClient } from "viem";
 import {
   bytes32,
@@ -398,12 +399,12 @@ export async function validateReleaseResult(
       owner = !!ports.ownerGrant,
       // Owner jobs never register; publishedAt is the managed admission time.
       registration = owner ? null : object(input.progress.registration),
-      admission = object(input.progress.admission),
+      admission = object(input.progress[catalogOwner(ports.client.configuration.policies.admission) ? "catalog_reserve" : "admission"]),
       decision = object(admission.decision),
       created = Math.floor(input.createdAt / 1000);
     insist(
       owner
-        ? post.schema === "pirate.community-post/3" &&
+        ? (post.schema === (catalogOwner(ports.client.configuration.policies.admission) ? "pirate.community-post/4" : "pirate.community-post/3")) &&
             canonical(post.registration) ===
               canonical({ status: "absent", reason: "deferred_for_launch" }) &&
             post.publishedAt >= created &&
@@ -414,6 +415,12 @@ export async function validateReleaseResult(
       "post_manifest_registration_mismatch",
       503,
     );
+    if (catalogOwner(ports.client.configuration.policies.admission)) {
+      insist(post.terms && "terms" in input.metadata && canonical(post.terms) === canonical(input.metadata.terms) &&
+        post.recognition?.intentSha256 === admission.evidenceSha256 && post.recognition?.reservationId === admission.reservationId &&
+        post.recognition?.recordingId === admission.recordingId && post.recognition?.namespace === ports.client.configuration.policies.recognition?.namespace &&
+        post.recognition?.profileSha256 === ports.client.configuration.policies.recognition?.sha256,"catalog_post_manifest_changed",409);
+    }
     insist(
       post.chainId === 6343 &&
         post.postsContract === ports.client.configuration.postsContract &&

@@ -1,0 +1,375 @@
+{
+  "schema": "pirate.linux-compose.delivery-contract/1",
+  "status": "implementation-preparation",
+  "sourceCommit": "3d21abf6bc2b0e32b6126fe0aef39faacaf1287d",
+  "productionQualified": false,
+  "ownership": {
+    "repository": "pirate-operators",
+    "frontend": "apps/web/src/live; apps/web/dist/live build",
+    "applicationApi": "services/community-application.ts",
+    "sessionIssuer": "packages/community/accounts.ts through community-application challenge/verify routes",
+    "authority": [
+      "docs/community-web-client.md",
+      "docs/community-accounts-portability.md",
+      "docs/v1-shell-interface-v1.md"
+    ],
+    "centralRuntimeRequired": false,
+    "scope": "This contract covers the independently deployed community implementation in pirate-operators: its Solid frontend, decentralized API and community-local cookie-session issuer. The earlier centralized implementations provide behavior and pure-source provenance; they are not runtime containers for this deployment."
+  },
+  "supportedLinux": [],
+  "images": [],
+  "qualificationCandidate": {
+    "description": "A supported Linux host running the real workerd application/operator service graph, persistent SQL/object services, durable queue and scheduler, Node setup/backup runner, and HTTPS ingress.",
+    "decisionStatus": "Candidate for qualification; not a supported release or image graph yet.",
+    "openChoices": [
+      "Production-supported state backend and runtime pairing; previous native localDisk/Miniflare pairing is experimental/development-derived",
+      "Durable queue/scheduler and interrupted-job recovery implementation",
+      "Local object binding versus real remote object transport integration",
+      "HTTPS, secret-store and cross-store backup consistency policy"
+    ]
+  },
+  "services": [
+    {
+      "id": "community-app",
+      "when": "all communities",
+      "entrypoints": [
+        "services/community-application.ts"
+      ],
+      "assets": "apps/web/dist/live",
+      "packagingSource": "harness/community-package.ts",
+      "connections": [
+        "DB",
+        "MEDIA",
+        "JOBS",
+        "ASSETS",
+        "conditional operator/managed/creator bindings"
+      ],
+      "state": [
+        "application identity and configuration history",
+        "accounts/sessions/CSRF/nonces",
+        "feature journals"
+      ]
+    },
+    {
+      "id": "setup-control",
+      "when": "create/restore/upgrade/recovery",
+      "entrypoints": [
+        "apps/community-wizard/server/start.ts",
+        "apps/community-wizard/server/operator.ts"
+      ],
+      "state": [
+        "wizard settings",
+        "deployment identity and journals",
+        "verified service references",
+        "recovery metadata"
+      ],
+      "missing": "Trusted host runner composition, authenticated browser access and complete-app deployment path"
+    },
+    {
+      "id": "database",
+      "when": "all communities",
+      "api": "D1",
+      "selectionSource": "harness/package-migrations.ts",
+      "state": [
+        "all selected profile tables and migration ledger"
+      ],
+      "productionBackend": null
+    },
+    {
+      "id": "objects",
+      "when": "private media and application objects",
+      "api": "R2 binding semantics used by actual handlers",
+      "state": [
+        "object bytes",
+        "metadata/checksum/ETag and capability identity"
+      ],
+      "nodeBoundary": "packages/storage/files.ts is a separate Node SDK transport, not an existing R2 replacement",
+      "endpointConstraint": "HTTPS required except literal loopback/localhost HTTP; http://object-store:9000 is rejected by current profiles"
+    },
+    {
+      "id": "durable-jobs-scheduler",
+      "when": "publication/media/retention/recovery features",
+      "entrypoints": [
+        "services/community-application.ts communityQueue/communityScheduled",
+        "services/managed-moderation.ts queue/scheduled"
+      ],
+      "state": [
+        "delivery intent",
+        "retry/duplicate state",
+        "leases",
+        "outboxes",
+        "uncertain effects"
+      ],
+      "productionImplementation": null
+    },
+    {
+      "id": "learning-operator",
+      "when": "Learning/Karaoke selected",
+      "entrypoints": [
+        "services/karaoke-audio-runtime.ts"
+      ],
+      "packagingSource": "harness/study-operator-package.ts",
+      "state": [
+        "operator SQLite",
+        "namespace metadata/unique keys",
+        "alarms",
+        "budgets",
+        "pending transactions and privacy recovery"
+      ],
+      "connections": [
+        "internal Fetcher",
+        "public WebSocket origin",
+        "speech provider",
+        "selected testnet contracts/RPC"
+      ],
+      "missing": "Fresh-community recipe; learning-bindings.ts explicitly rejects fresh_learning_requires_distinct_resource_recipe",
+      "workerExport": "default",
+      "durableObjectBindings": [
+        {
+          "binding": "STATE",
+          "exportName": "ServiceState",
+          "implementation": "services/karaoke-audio.ts KaraokeAudioState"
+        },
+        {
+          "binding": "SPEECH_BUDGET",
+          "exportName": "SpeechBudget",
+          "implementation": "services/speech-budget.ts SpeechBudget"
+        }
+      ]
+    },
+    {
+      "id": "managed-publication",
+      "when": "selected publication policy requires it",
+      "entrypoints": [
+        "services/managed-moderation.ts"
+      ],
+      "packagingSource": "harness/managed-package.ts",
+      "state": [
+        "separate DB",
+        "MEDIA",
+        "JOBS",
+        "scheduler",
+        "grants",
+        "pairings",
+        "provider journals"
+      ],
+      "externalAlternative": "Existing managed service must be an explicit verified dependency, not silently omitted from the graph"
+    },
+    {
+      "id": "creator",
+      "when": "registered-creator policy selected",
+      "entrypoints": [
+        "apps/creator-spike/src/worker.ts"
+      ],
+      "packagingSource": "harness/creator-package.ts",
+      "state": [
+        "creator DB and binding/activation journals"
+      ],
+      "connections": [
+        "conditional external chain and wallet services"
+      ],
+      "notRequiredFor": "owner-only unregistered publication"
+    },
+    {
+      "id": "private-media-dance",
+      "when": "selected and fully wired",
+      "entrypoints": [
+        "services/community-private-dance.ts"
+      ],
+      "state": [
+        "upload/job/renderer/review state"
+      ],
+      "missing": "Default application dependencies do not inject renderer/authority composition; source existence alone does not activate it"
+    },
+    {
+      "id": "telegram",
+      "when": "selected and composition qualified",
+      "entrypoints": [
+        "services/telegram-connected-community.ts",
+        "services/telegram-connected-mount.ts",
+        "services/telegram-alarm.ts"
+      ],
+      "state": [
+        "native SQL/transactions",
+        "alarms",
+        "authority fences",
+        "outbox",
+        "privacy/retention journals"
+      ],
+      "missing": "Mount remains a proposal with no selected live entrypoint; keep that capability unavailable until connected"
+    },
+    {
+      "id": "https-secrets-backup",
+      "when": "all supported deployments",
+      "entrypoints": [],
+      "state": [
+        "TLS certificate keys",
+        "secret-store recoverability",
+        "runtime/schema/config identity",
+        "encrypted backup and separate recovery key"
+      ],
+      "missing": "Select supported composition and prove second-machine restore"
+    }
+  ],
+  "migrations": {
+    "selector": "harness/package-migrations.ts",
+    "rules": [
+      "ownerPublishing requires rewards",
+      "v4 requires ownerPublishing",
+      "rewardClosure requires v4",
+      "media requires v4",
+      "dance requires media and rewardClosure"
+    ],
+    "priorMediaProbeSelection": "0001-0010 plus0019, optional0011-0018 unselected",
+    "warning": "Earlier probe selection is not a complete feature-enabled migration matrix"
+  },
+  "workflows": {
+    "cloudflareWorkflowBindingObserved": false,
+    "externalRegistrationWorkflowContracts": "Separate conditional chain dependencies"
+  },
+  "storageRoles": {
+    "publicIpfs": "Filebase first, preserving pin token/CID semantics",
+    "privateObjects": "Separate S3 access credentials; Filebase default where appropriate, B2/custom S3 optional; actual runtime binding still needs integration",
+    "encryptedBackups": "Self-contained authenticated encryption before transport, separate recovery key; Files SDK transport does not provide encryption or prove privacy"
+  },
+  "naming": {
+    "primarySetup": "Controlled TLD import with separate authority proof",
+    "hostingOrigin": "Independent of controlled issuance namespace, including SLD hosting",
+    "parentOrSiblingAuthorityInferred": false,
+    "namespaceFreeBootstrapSelected": false,
+    "generalHandshakeAcceptance": "Unqualified and separate from image packaging"
+  },
+  "acceptance": [
+    {
+      "id": "create",
+      "requirement": "Fresh operator completes documented bootstrap and browser create without repository knowledge",
+      "evidence": null
+    },
+    {
+      "id": "restore",
+      "requirement": "Fresh operator completes browser restore on a second machine from bytes and separate key",
+      "evidence": null
+    },
+    {
+      "id": "use",
+      "requirement": "Real HTTPS login, usable community and playable decoded media",
+      "evidence": null
+    },
+    {
+      "id": "restart",
+      "requirement": "Durable application, object, operator and session state survives restart",
+      "evidence": null
+    },
+    {
+      "id": "jobs",
+      "requirement": "Interrupted jobs recover without duplicate external effects or altered identity",
+      "evidence": null
+    },
+    {
+      "id": "upgrade",
+      "requirement": "Supported schema/runtime upgrade and recovery, including uncertain effects",
+      "evidence": null
+    },
+    {
+      "id": "features",
+      "requirement": "Feature-only credentials, saved/verified/ready separation, actionable correction and retry",
+      "evidence": null
+    },
+    {
+      "id": "authority",
+      "requirement": "Hosting origin and controlled-TLD proof stay separate with no inferred authority",
+      "evidence": null
+    }
+  ],
+  "nextSourceIncrement": {
+    "scope": "Separate actual app artifact construction from provider-specific release planning, then introduce validated community composition and qualify the full runtime graph.",
+    "completionClaim": "These documents prepare implementation. No image, supported Linux matrix or complete deployment is established."
+  },
+  "externalDependencies": [
+    {
+      "capability": "Existing Cloudflare provisioning",
+      "provider": "Cloudflare Workers/D1/R2/Queues",
+      "credentialOwner": "Deployment runner",
+      "communityRequirement": "Cloudflare runner access for current recipe; Linux target runner remains to be implemented",
+      "source": "apps/community-wizard/server/provision.ts"
+    },
+    {
+      "capability": "Moderation and managed publication",
+      "providers": [
+        "ACRCloud",
+        "OpenAI",
+        "Filebase IPFS"
+      ],
+      "serverCredentialNames": [
+        "ACRCLOUD_ACCESS_KEY",
+        "ACRCLOUD_ACCESS_SECRET",
+        "OPENAI_API_KEY",
+        "FILEBASE_IPFS_TOKEN",
+        "MODERATION_SIGNER_PRIVATE_KEY"
+      ],
+      "credentialOwner": "Managed service owner; independent community service owner when that mode is selected",
+      "existingVerifiedServiceCommunityRequirement": "Connection/pairing and scoped authorization; no upstream provider keys requested from that community",
+      "source": "apps/managed-moderation/alchemy.run.ts"
+    },
+    {
+      "capability": "Learning/Karaoke",
+      "providers": [
+        "ElevenLabs",
+        "selected chain/RPC"
+      ],
+      "credentialOwner": "Operator owns speech/operator secrets; application owns separate issuer/publisher secrets",
+      "serverCredentialNames": [
+        "LEARNING_OPERATOR_PRIVATE_KEY",
+        "LEARNING_ELEVENLABS_API_KEY"
+      ],
+      "source": "apps/community-wizard/infra/learning-testnet.alchemy.ts"
+    },
+    {
+      "capability": "Setup secret management",
+      "provider": "Selected trusted HTTPS Infisical instance",
+      "credentialOwner": "Setup runner scoped CLI/machine authentication",
+      "source": "apps/community-wizard/server/infisical-auth.ts"
+    },
+    {
+      "capability": "Configuration/public reads/login proof verification",
+      "providers": [
+        "MegaETH RPC",
+        "IPFS transport"
+      ],
+      "credentialOwner": "Access-service operator when authentication is required; baseline public access may need no hosted API key",
+      "source": "services/community-application.ts"
+    },
+    {
+      "capability": "Registered creator publication only",
+      "providers": [
+        "Story Aeneid RPC/workflow",
+        "selected creator wallet service"
+      ],
+      "credentialOwner": "Selected creator/registration service",
+      "excludedFor": "Owner-only unregistered publication",
+      "source": "packages/community/registration-chain.ts"
+    },
+    {
+      "capability": "Private objects and encrypted backup transport",
+      "providers": [
+        "Filebase object storage",
+        "optional B2/custom S3"
+      ],
+      "credentialOwner": "Separate community storage/backup server secret scope; explicit S3 access/secret",
+      "notEquivalentTo": "Public IPFS pinning token",
+      "source": "packages/storage/files.ts"
+    },
+    {
+      "capability": "Optional Telegram",
+      "provider": "Telegram bot/API and OIDC",
+      "credentialOwner": "Selected Telegram service",
+      "compositionStatus": "Unavailable until connected and qualified",
+      "source": "services/telegram-connected-mount.ts"
+    }
+  ],
+  "providerIndependentTarget": {
+    "status": "Not implemented or qualified as a complete profile",
+    "requiredWork": "Qualify replacements for proprietary APIs used by selected features, independently operated protocol/storage access and recoverable secret service; do not hide upstream dependencies behind a managed service",
+    "containerPackagingRemovesVendorDependencies": false
+  }
+}

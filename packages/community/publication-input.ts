@@ -21,6 +21,7 @@ import type {
   SongMetadata,
 } from "./submissions.ts";
 import {
+  CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_VERSION,
 } from "./owner-policy.ts";
@@ -47,7 +48,8 @@ export async function publicationInput(
   insist(row, "sealed_submission_unavailable", 503);
   const raw = object(JSON.parse(row.metadata_json)),
     // The job's own captured policy decides its shape, never the current config.
-    owner = raw.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
+    catalog = raw.acceptedPolicy === CATALOG_OWNER_POLICY_VERSION,
+    owner = catalog || raw.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
   exact(raw, [
     "title",
     "language",
@@ -55,6 +57,7 @@ export async function publicationInput(
     "original",
     "acceptedPolicy",
     ...(owner ? ["rating"] : []),
+    ...(catalog ? ["terms"] : []),
   ]);
   const metadata: SongMetadata | OwnerSongMetadata = owner
     ? {
@@ -62,7 +65,8 @@ export async function publicationInput(
         language: text(raw.language, 35),
         lyrics: validateLyrics(raw.lyrics),
         original: true,
-        acceptedPolicy: UNREGISTERED_OWNER_POLICY_VERSION,
+        acceptedPolicy: catalog ? CATALOG_OWNER_POLICY_VERSION : UNREGISTERED_OWNER_POLICY_VERSION,
+        ...(catalog ? {terms: (() => { const t = object(raw.terms); exact(t, ["revision","allowsDerivatives"]); insist(t.revision === 1 && typeof t.allowsDerivatives === "boolean", "sealed_terms_changed", 409); return {revision:1 as const,allowsDerivatives:t.allowsDerivatives}; })()} : {}),
         rating: raw.rating === "adult" ? "adult" : "general",
       }
     : {
@@ -95,8 +99,8 @@ export async function publicationInput(
       authority.authorId === row.author_id &&
       authority.wallet === row.captured_wallet &&
       (owner
-        ? policy.version === UNREGISTERED_OWNER_POLICY_VERSION &&
-          policy.sha256 === UNREGISTERED_OWNER_POLICY_HASH &&
+        ? policy.version === (catalog ? CATALOG_OWNER_POLICY_VERSION : UNREGISTERED_OWNER_POLICY_VERSION) &&
+          policy.sha256 === (catalog ? CATALOG_OWNER_POLICY_HASH : UNREGISTERED_OWNER_POLICY_HASH) &&
           authority.creator === null &&
           row.creator_json === "null" &&
           typeof authority.ownerAuthorizationSha256 === "string" &&
@@ -107,6 +111,7 @@ export async function publicationInput(
     "publication_authority_changed",
     409,
   );
+  if (catalog) insist(canonical(authority.recognition) === canonical(config.policies.recognition) && authority.communityOrigin === config.app.origin, "recognition_profile_changed", 409);
   insist(
     metadata.lyrics.postId === row.post_id &&
       metadata.lyrics.communityId === config.communityId &&

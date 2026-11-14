@@ -30,7 +30,9 @@ import { storyReadClient } from "../packages/community/registration-chain.ts";
 import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
 import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
 
+import type { CatalogOwnerReleaseInputs } from "../packages/release/catalog-owner-release.ts";
 export interface ManagedEnv {
+  CATALOG_RELEASE_INPUTS?: CatalogOwnerReleaseInputs;
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ admissionId: string }>;
@@ -211,6 +213,7 @@ export default {
           currentConfiguration: config.currentConfiguration,
           filebaseCredential: env.FILEBASE_IPFS_TOKEN,
           acrEndpoint: acrEndpoint(config.acr.host),
+          catalog: env.CATALOG_RELEASE_INPUTS,
         });
       }
       if (url.pathname.startsWith("/v1/releases/")) {

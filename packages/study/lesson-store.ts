@@ -1,3 +1,4 @@
+import { captureNativeBusiness } from "../community/native-business-binding.ts";
 import {
   StudyError,
   studyCheck,
@@ -111,12 +112,13 @@ export class StudyLessonStore {
     return rows.results;
   }
   async create(owner: StudyPrincipal, requestId: string, state: LessonState) {
-    await this.db
+    const id=crypto.randomUUID();
+    const insert=this.db
       .prepare(
         "INSERT INTO study_lessons(lesson_id,account_id,community_id,request_id,song_json,state_json,started_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,community_id,request_id) DO NOTHING",
       )
       .bind(
-        crypto.randomUUID(),
+        id,
         owner.accountId,
         owner.communityId,
         requestId,
@@ -124,7 +126,9 @@ export class StudyLessonStore {
         JSON.stringify(state),
         state.startedAt,
       )
-      .run();
+;
+    const native=await captureNativeBusiness(this.db,"learning",id,owner.accountId,requestId);
+    await this.db.batch([insert,...native]);
     const row = await this.byRequest(owner, requestId);
     studyCheck(
       row && row.song_json === JSON.stringify(state.song),

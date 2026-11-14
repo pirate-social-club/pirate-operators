@@ -1,3 +1,4 @@
+import {WizardEntry} from "./wizard-entry.tsx";
 import { render } from "solid-js/web";
 import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
 import type { Settings, SecretName } from "../server/model.ts";
@@ -614,4 +615,4 @@ function App() {
     </>
   );
 }
-render(() => <App />, document.getElementById("root")!);
+render(() => <WizardEntry cloudflare={()=><App />} />, document.getElementById("root")!);

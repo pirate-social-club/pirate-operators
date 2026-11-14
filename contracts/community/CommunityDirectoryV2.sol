@@ -108,7 +108,7 @@ contract CommunityDirectoryV2 is ICommunityDirectoryV2 {
         bytes memory label = bytes(tld);
         uint256 n = label.length;
         if (n == 0 || n > 63 || label[0] == 0x2d || label[n - 1] == 0x2d) revert InvalidBinding();
-        if (n >= 4 && label[0] == "x" && label[1] == "n" && label[2] == "-" && label[3] == "-") {
+        if (n >= 4 && label[2] == "-" && label[3] == "-") {
             revert InvalidBinding();
         }
         for (uint256 i; i < n; ++i) {

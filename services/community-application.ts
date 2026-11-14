@@ -1,3 +1,4 @@
+import { nativeBusinessResponse } from "./application-native-readback.ts";
 import { withKaraokeRequestSession } from "./karaoke-request-session.ts";
 import { communityProfilesApi } from "./community-profiles.ts";
 import { connectedPublicResultsAction } from "./learning-public-results.ts";
@@ -40,7 +41,6 @@ import {
   pendingCreatorConnection,
   type CreatorConnectionService,
 } from "../packages/community/creator-connections.ts";
-import { creatorServiceOrigin } from "../packages/community/creator-receipt.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type {
   CommunityCapabilities,
@@ -49,6 +49,7 @@ import type {
   CommunitySessionView,
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
+import { readCommunityDeploymentProfile, communityIpfsTransport, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
 import { learningV3Disclosure } from "./learning-policy-v3.ts";
@@ -125,7 +126,7 @@ import { reconcileRewardPayments } from "./reward-payment-recovery.ts";
 import type { FirstSongDriverPorts } from "./first-song-driver.ts";
 import {
   ownerCurated,
-  unregisteredOwner,
+  ownerOnly,
 } from "../packages/community/owner-policy.ts";
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
 import { confirmedRewardTimestamp } from "./reward-close-clock.ts";
@@ -155,8 +156,14 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   /** In-process Root composition only: NOT a deployable JSON/env permission.
    * Root must bind the reviewed actual producers after independent admission. */
   DANCE_PRODUCTION_INPUTS?: DanceProductionRuntimeInputs;
+  COMMUNITY_DEPLOYMENT_PROFILE_JSON?: string;
+  NATIVE_APPLICATION_ORIGINAL_JSON?: string;
+  NATIVE_READBACK_KEY?: string;
 }
 export interface CommunityDependencies {
+  deployment?: CommunityDeploymentProfile;
+  /** Fresh canonical read for asynchronous publication fences; no request memo. */
+  freshConfiguration?():Promise<CommunityConfig>;
   /** Required server-side connected composition: authenticate explicit action,
    * reconstruct account/wallet/scope/cutoff/nonce, compare predecessor, and
    * retain the same actionId across uncertain retries. Never trust body facts. */
@@ -196,30 +203,34 @@ export function communityPrivateDanceDefaults(env: CommunityEnv) {
     return factory(config);
   };
 }
+function deploymentProfile(env:CommunityEnv) {
+  return env.COMMUNITY_DEPLOYMENT_PROFILE_JSON ? readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON) : firstSong;
+}
 function dependencies(
   env: CommunityEnv,
   timing = new RequestTiming(),
 ): CommunityDependencies {
+  const deployment=deploymentProfile(env);
   const client = megaethReadClient((method, ms) =>
-    timing.record(`rpc_${method}`, ms),
+    timing.record(`rpc_${method}`, ms),deployment.rpcUrl
   );
+  const content=communityIpfsTransport(deployment);
   const transport = (request: Request) =>
-    timing.measure("ipfs", () => fetch(request));
+    timing.measure("ipfs", () => content(request));
   const directory = {
-    ...firstSong.directoryProfile,
-    deploymentBlock: BigInt(firstSong.directoryProfile.deploymentBlock),
+    ...deployment.directoryProfile,
+    deploymentBlock: BigInt(deployment.directoryProfile.deploymentBlock),
   };
-  let history: ReturnType<typeof readConfigurationHistory> | undefined;
-  const configurationHistory = () =>
-    (history ??= timing.measure("configuration", () =>
-      readConfigurationHistory(
-        client,
-        directory,
-        transport,
-        directoryHistoryCache(env.DB, client, directory),
-      ),
-    ));
+  // Both exact Directory ABIs retain their own closed authenticated reader.
+  const readHistory=()=>{
+    if("schema" in directory)return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
+    return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
+  };
+  let history:Promise<CommunityConfig[]>|undefined;
+  const configurationHistory=()=>history??=timing.measure("configuration",readHistory);
   return {
+    deployment,
+    freshConfiguration:async()=> (await readHistory()).at(-1)!,
     privateDance: communityPrivateDanceDefaults(env),
     async configuration() {
       return (await configurationHistory()).at(-1)!;
@@ -227,14 +238,14 @@ function dependencies(
     publicReads: {
       client,
       transport,
-      profile: publicPostsProfile(),
+      profile: publicPostsProfile(deployment),
       contentCache: publicIpfsCache(env.MEDIA),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     },
     async verifyLogin(address, proof, signature) {
-      const client = megaethReadClient();
-      insist((await client.getChainId()) === 6343, "wrong_moss_network", 503);
+      const client = megaethReadClient(undefined,deployment.rpcUrl);
+      insist((await client.getChainId()) === deployment.directoryProfile.chainId, "wrong_moss_network", 503);
       // The plain and the V4 sign-in are both personal-sign texts; this
       // covers EOAs and ERC-1271/6492 smart accounts such as MOSS.
       return client.verifyMessage({ address, message: proof, signature });
@@ -242,7 +253,7 @@ function dependencies(
     async creatorHealth() {
       try {
         const response = await timing.measure("creator", () =>
-            fetch(creatorServiceOrigin + "/api/health", {
+            fetch(deployment.creatorOrigin + "/api/health", {
               redirect: "manual",
               signal: AbortSignal.timeout(15000),
             }),
@@ -281,11 +292,24 @@ function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
     "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com${operatorSocket}; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
   });
 }
-export async function communityFetch(
+export async function communityFetch(request:Request,env:CommunityEnv,provided?:CommunityDependencies):Promise<Response>{
+  const actual=provided??dependencies(env);
+  try {
+    return await nativeBusinessResponse({request,env,
+      configuration:actual.freshConfiguration??actual.configuration,
+      privateDance:actual.privateDance,
+      business:()=>communityFetchBusiness(request,env,actual)});
+  } catch(error) {
+    if(error instanceof CommunityError)return Response.json({error:error.code},{status:error.status,headers:{"cache-control":"no-store"}});
+    throw error;
+  }
+}
+async function communityFetchBusiness(
   request: Request,
   env: CommunityEnv,
   ports?: CommunityDependencies,
 ): Promise<Response> {
+  const deployment=ports?.deployment??deploymentProfile(env);
   const timing = new RequestTiming();
   ports ??= dependencies(env, timing);
   const url = new URL(request.url),
@@ -295,19 +319,19 @@ export async function communityFetch(
       return Response.json(value, { status, headers: security });
     };
   try {
-    insist(url.origin === firstSong.origin, "wrong_community_host", 403);
+    insist(url.origin === deployment.origin, "wrong_community_host", 403);
     const policy = learningPolicyPage(
       url.pathname,
       !!env.STUDY_RESULTS_V4_CONTRACT,
     );
     if (policy) return policy;
     const context = {
-      communityId: firstSong.directoryProfile.communityId,
-      origin: firstSong.origin,
+      communityId: deployment.directoryProfile.communityId,
+      origin: deployment.origin,
     };
     const publicReads = ports.publicReads ?? {
       client: megaethReadClient(),
-      profile: publicPostsProfile(),
+      profile: publicPostsProfile(deployment),
     };
     const configuration = async () => {
       const config = await ports.configuration();
@@ -344,7 +368,7 @@ export async function communityFetch(
           // without the policy. Status only.
           return ports.creatorHealth();
         }
-      return unregisteredOwner(config.policies.admission)
+      return ownerOnly(config.policies.admission)
         ? false
         : ports.creatorHealth();
     };
@@ -352,7 +376,7 @@ export async function communityFetch(
       const config = await configuration();
       const runtime =
         ports.releaseRuntime?.(config) ??
-        firstSongRuntime(env, config, configuration);
+        firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
       await runtime.checkServices();
       return { config, ports: runtime };
     };
@@ -361,10 +385,10 @@ export async function communityFetch(
     const sessionPublisher = async (accountId: string, wallet: string) => {
       try {
         const config = await configuration();
-        if (unregisteredOwner(config.policies.admission)) {
+        if (ownerOnly(config.policies.admission)) {
           const runtime =
             ports.releaseRuntime?.(config) ??
-            firstSongRuntime(env, config, configuration);
+            firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
           await requireAuthorizedOwner(
             runtime.ownerAuthorization,
             config,
@@ -1057,6 +1081,7 @@ export async function communityScheduled(
   env: CommunityEnv,
   provided?: CommunityDependencies,
 ) {
+  const deployment=provided?.deployment??deploymentProfile(env);
   const failures: unknown[] = [];
   if (provided?.linkedAuthority) {
     try {
@@ -1068,7 +1093,7 @@ export async function communityScheduled(
   try {
     await deleteExpiredStudyHistory(
       env.DB,
-      firstSong.directoryProfile.communityId,
+      deployment.directoryProfile.communityId,
       provided?.now,
     );
   } catch (error) {
@@ -1085,8 +1110,8 @@ export async function communityScheduled(
       ports ??= provided ?? dependencies(env);
       const config = await ports.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1111,8 +1136,8 @@ export async function communityScheduled(
       ports ??= provided ?? dependencies(env);
       const config = await ports.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1122,7 +1147,7 @@ export async function communityScheduled(
         config,
         reads: ports.publicReads ?? {
           client: megaethReadClient(),
-          profile: publicPostsProfile(),
+          profile: publicPostsProfile(deployment),
         },
         now: ports.now,
       });
@@ -1136,8 +1161,8 @@ export async function communityScheduled(
       ports ??= provided ?? dependencies(env);
       const config = await ports.configuration();
       insist(
-        config.communityId === firstSong.directoryProfile.communityId &&
-          config.app.origin === firstSong.origin,
+        config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin,
         "community_configuration_changed",
         503,
       );
@@ -1178,11 +1203,12 @@ export async function communityQueue(
   env: CommunityEnv,
   provided?: CommunityDependencies,
 ) {
+  const deployment=provided?.deployment??deploymentProfile(env);
   const ports = provided ?? dependencies(env),
     config = await ports.configuration();
   insist(
-    config.communityId === firstSong.directoryProfile.communityId &&
-      config.app.origin === firstSong.origin,
+    config.communityId === deployment.directoryProfile.communityId &&
+      config.app.origin === deployment.origin,
     "community_configuration_changed",
     503,
   );
@@ -1202,7 +1228,7 @@ export async function communityQueue(
       } else {
         publication ??=
           ports.releaseRuntime?.(config) ??
-          firstSongRuntime(env, config, ports.configuration);
+          firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
         await runCommunityJob(publication, env.JOBS, job.jobId);
       }
       message.ack();

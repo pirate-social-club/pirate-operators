@@ -77,3 +77,17 @@ test("more than 256 revisions in one canonical block are processed in log-index 
   assert.equal((await f.read()).configurationRevision, 260);
   assert.ok(f.state.logRanges.some(([first, last]) => first === last));
 });
+
+test("namespace labels match registry Labels exactly at hyphen positions and canonical byte boundaries", () => {
+  // Same explicit cases as the owning Solidity test; no registry source import.
+  for (const value of ["a", "0", "a-b", "a--b", "ab-cd", "abc--d", "x-n", "a".repeat(63)]) {
+    assert.equal(canonicalTld(value), value);
+    assert.equal(sharedNamespaceId(value), keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "bytes32" }],
+      [keccak256(stringToHex("pirate.namespace/1")), keccak256(stringToHex(value))])));
+  }
+  for (const value of ["", "ab--cd", "xn--thing", "a0--b", "12--3", "ab---c", "-a", "a-", "A", "a.b",
+    "a_b", "é", "a\n", "a\r\n", "a\u2028", "a\u2029", "a".repeat(64)]) {
+    assert.throws(() => canonicalTld(value), /invalid_shared_tld/);
+    assert.throws(() => sharedNamespaceId(value), /invalid_shared_tld/);
+  }
+});

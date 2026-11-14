@@ -18,6 +18,8 @@ export interface CheckpointWriter {
 export interface DirectoryHistoryCache {
   load(through: bigint): Promise<DirectoryCheckpoint | undefined>;
   pages(saved: DirectoryCheckpoint): AsyncIterable<readonly ConfigurationEvidence[]>;
+  /** Reuse fully authenticated pages; refuse a changed complete prior cursor. */
+  advance(previous: DirectoryCheckpoint, head: bigint, hash: Hex): Promise<boolean>;
   begin(previous: DirectoryCheckpoint | undefined): CheckpointWriter;
 }
 export function encodeEvidence(page: readonly ConfigurationEvidence[]) {

@@ -1,3 +1,4 @@
+import { captureNativeSubmission } from "./native-business-binding.ts";
 import type { AccountSession } from "./accounts.ts";
 import {
   bytes32,
@@ -22,9 +23,12 @@ import {
 
 import type { PublicationExecutionProfile } from "./publication-profile.ts";
 import {
+  CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_VERSION,
 } from "./owner-policy.ts";
+import { catalogObligationStatement, intentFromSealed } from "./catalog-outbox.ts";
+import { recognitionProfile, type RecognitionProfile } from "../recognition/intent.ts";
 import type { OwnerAuthorization } from "./owner-authorization.ts";
 
 export interface SubmissionProfile extends Omit<PublicationIdentity, "postId"> {
@@ -32,6 +36,8 @@ export interface SubmissionProfile extends Omit<PublicationIdentity, "postId"> {
   publisher: string;
   moderationSigner: string;
   execution?: PublicationExecutionProfile;
+  recognition?: RecognitionProfile;
+  communityOrigin?: string;
 }
 export interface Submission {
   submission_id: string;
@@ -49,6 +55,7 @@ export interface Submission {
   upload_lease: string | null;
   upload_lease_until: number;
   object_etag: string | null;
+  sealed_at?: number | null;
 }
 export interface SongMetadata {
   title: string;
@@ -63,7 +70,8 @@ export interface OwnerSongMetadata {
   language: string;
   lyrics: LyricManifest;
   original: true;
-  acceptedPolicy: typeof UNREGISTERED_OWNER_POLICY_VERSION;
+  acceptedPolicy: typeof UNREGISTERED_OWNER_POLICY_VERSION | typeof CATALOG_OWNER_POLICY_VERSION;
+  terms?: {revision:1;allowsDerivatives:boolean};
   rating: "general" | "adult";
 }
 interface CreatorBinding {
@@ -161,7 +169,7 @@ export async function reserveSubmission(
     original: true,
     acceptedPolicy: RELEASE_POLICY,
   };
-  await db
+  const reservation=db
     .prepare(
       `INSERT INTO media_submissions(submission_id,account_id,author_id,post_id,idempotency_key,request_hash,metadata_json,captured_wallet,creator_json,audio_sha256,audio_bytes,object_key,upload_state,created_at)
     SELECT ?,?,?,?,?,?,?,?,?,?,?,?,'reserved',? WHERE (SELECT COUNT(*) FROM media_submissions WHERE account_id=? AND upload_state!='sealed')<5
@@ -182,8 +190,8 @@ export async function reserveSubmission(
       `staging/${submissionId}/${token()}`,
       time,
       session.account_id,
-    )
-    .run();
+    );
+  await db.batch([reservation,...await captureNativeSubmission(db,submissionId,session.account_id,idempotencyKey,profile)]);
   const saved = await db
     .prepare(
       "SELECT * FROM media_submissions WHERE account_id=? AND idempotency_key=?",
@@ -228,6 +236,7 @@ export async function reserveOwnerSubmission(
     "rating",
     "audioSha256",
     "audioBytes",
+    ...(authorization.policy.version === CATALOG_OWNER_POLICY_VERSION ? ["terms"] : []),
   ]);
   const title = text(body.title, 200),
     lyrics = text(body.lyrics, 32768),
@@ -235,13 +244,21 @@ export async function reserveOwnerSubmission(
   insist(title.trim().length > 0, "title_required");
   insist(
     body.original === true &&
-      body.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION,
+      body.acceptedPolicy === authorization.policy.version,
     "publication_consent_required",
   );
   insist(
     body.rating === "general" || body.rating === "adult",
     "invalid_declared_rating",
   );
+  let terms: OwnerSongMetadata["terms"];
+  if (authorization.policy.version === CATALOG_OWNER_POLICY_VERSION) {
+    const t = object(body.terms); exact(t, ["revision","allowsDerivatives"]);
+    insist(t.revision === 1 && typeof t.allowsDerivatives === "boolean", "publication_terms_required");
+    insist(profile.recognition && profile.communityOrigin, "recognition_profile_required", 503);
+    recognitionProfile(profile.recognition);
+    terms = {revision:1,allowsDerivatives:t.allowsDerivatives};
+  }
   const audioSha256 = bytes32(body.audioSha256),
     audioBytes = integer(body.audioBytes, 1, MAX_AUDIO_BYTES);
   const requestHash = hashJson({ input: body, profile });
@@ -266,10 +283,11 @@ export async function reserveOwnerSubmission(
     language,
     lyrics: createLyrics(identity({ ...profile, postId }), lyrics, language),
     original: true,
-    acceptedPolicy: UNREGISTERED_OWNER_POLICY_VERSION,
+    acceptedPolicy: authorization.policy.version as OwnerSongMetadata["acceptedPolicy"],
+    ...(terms ? {terms} : {}),
     rating: body.rating,
   };
-  await db
+  const reservation=db
     .prepare(
       `INSERT INTO media_submissions(submission_id,account_id,author_id,post_id,idempotency_key,request_hash,metadata_json,captured_wallet,creator_json,audio_sha256,audio_bytes,object_key,upload_state,created_at)
     SELECT ?,?,?,?,?,?,?,?,'null',?,?,?,'reserved',? WHERE (SELECT COUNT(*) FROM media_submissions WHERE account_id=? AND upload_state!='sealed')<5
@@ -289,8 +307,8 @@ export async function reserveOwnerSubmission(
       `staging/${submissionId}/${token()}`,
       time,
       session.account_id,
-    )
-    .run();
+    );
+  await db.batch([reservation,...await captureNativeSubmission(db,submissionId,session.account_id,idempotencyKey,profile)]);
   const saved = await db
     .prepare(
       "SELECT * FROM media_submissions WHERE account_id=? AND idempotency_key=?",
@@ -331,7 +349,8 @@ export async function sealSubmission(
   const metadata = JSON.parse(row.metadata_json) as
     | SongMetadata
     | OwnerSongMetadata;
-  const owner = metadata.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
+  const catalog = metadata.acceptedPolicy === CATALOG_OWNER_POLICY_VERSION;
+  const owner = catalog || metadata.acceptedPolicy === UNREGISTERED_OWNER_POLICY_VERSION;
   insist(owner === !!ownerAuthorization, "submission_policy_mismatch", 409);
   const authority = owner
     ? {
@@ -341,8 +360,8 @@ export async function sealSubmission(
         wallet: row.captured_wallet,
         creator: null,
         policy: {
-          version: UNREGISTERED_OWNER_POLICY_VERSION,
-          sha256: UNREGISTERED_OWNER_POLICY_HASH,
+          version: catalog ? CATALOG_OWNER_POLICY_VERSION : UNREGISTERED_OWNER_POLICY_VERSION,
+          sha256: catalog ? CATALOG_OWNER_POLICY_HASH : UNREGISTERED_OWNER_POLICY_HASH,
         },
         ownerAuthorizationSha256: hashJson(ownerAuthorization),
       }
@@ -361,6 +380,7 @@ export async function sealSubmission(
     original: metadata.original,
     acceptedPolicy: metadata.acceptedPolicy,
     ...("rating" in metadata ? { rating: metadata.rating } : {}),
+    ...("terms" in metadata && metadata.terms ? {terms:metadata.terms} : {}),
     audioSha256: row.audio_sha256,
     audioBytes: row.audio_bytes,
   };
@@ -375,7 +395,7 @@ export async function sealSubmission(
     audioBytes: row.audio_bytes,
     authority,
   });
-  const jobId = `publication:${id}`;
+  const jobId = `publication:${id}`, acceptedAt = row.sealed_at ?? time;
   await db.batch([
     db
       .prepare(
@@ -386,7 +406,7 @@ export async function sealSubmission(
     db
       .prepare(
         `INSERT INTO publication_jobs(job_id,submission_id,input_hash,authority_json,phase,due_at,created_at,updated_at)
-      SELECT ?,?,?,?,'admission',?,?,? FROM media_submissions WHERE submission_id=? AND account_id=? AND upload_state='sealed'
+      SELECT ?,?,?,?,?,?,?,? FROM media_submissions WHERE submission_id=? AND account_id=? AND upload_state='sealed'
       ON CONFLICT(submission_id) DO NOTHING`,
       )
       .bind(
@@ -394,12 +414,16 @@ export async function sealSubmission(
         id,
         inputHash,
         canonical(authority),
+        catalog ? "catalog_reserve" : "admission",
         time,
         time,
         time,
         id,
         session.account_id,
       ),
+    ...(catalog ? [catalogObligationStatement(db, intentFromSealed({jobId,inputHash,authority,row,metadata,acceptedAt})),
+      db.prepare("INSERT INTO transaction_guards(guard_id,valid) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM publication_catalog_obligations o JOIN publication_jobs j ON j.job_id=o.job_id WHERE j.job_id=? AND j.input_hash=? AND o.intent_sha256=?) THEN 1 ELSE 0 END")
+        .bind(token(),jobId,inputHash,hashJson(intentFromSealed({jobId,inputHash,authority,row,metadata,acceptedAt}))) ] : []),
   ]);
   const job = await db
     .prepare(

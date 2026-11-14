@@ -261,4 +261,56 @@ contract CommunityDirectoryV2Test {
             directory.communityIdFor(key) == keccak256(abi.encode(keccak256("pirate.community/2"), block.chainid, key))
         );
     }
+
+    function testRegistryLabelParityCanonicalHyphenPositions() public {
+        string[8] memory valid = [
+            string("a"),
+            "0",
+            "a-b",
+            "a--b",
+            "ab-cd",
+            "abc--d",
+            "x-n",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ];
+        for (uint256 i; i < valid.length; ++i) {
+            require(
+                directory.namespaceIdFor(valid[i])
+                    == keccak256(abi.encode(keccak256("pirate.namespace/1"), keccak256(bytes(valid[i]))))
+            );
+        }
+        string[17] memory invalid = [
+            string(""),
+            "ab--cd",
+            "xn--thing",
+            "a0--b",
+            "12--3",
+            "ab---c",
+            "-a",
+            "a-",
+            "A",
+            "a.b",
+            "a_b",
+            unicode"é",
+            "a\n",
+            "a\r\n",
+            string(bytes.concat(bytes("a"), hex"e280a8")),
+            string(bytes.concat(bytes("a"), hex"e280a9")),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ];
+        for (uint256 i; i < invalid.length; ++i) {
+            vm.expectRevert(D.InvalidBinding.selector);
+            directory.namespaceIdFor(invalid[i]);
+        }
+    }
+
+    function testDisallowedHyphenNamespaceCannotBeImmutablyEnrolled() public {
+        D.Binding memory requested = binding(KEY, "ab--cd");
+        V1.Configuration memory configuration = config(CONTROLLER, PUBLISHER);
+        vm.expectRevert(D.InvalidBinding.selector);
+        directory.registerSharedCommunity(registry, "ab--cd", requested, configuration);
+        // The rejected attempt must not reserve the key or change its binding.
+        bytes32 id = register();
+        require(directory.getBinding(id).namespaceId == directory.namespaceIdFor("fixture"));
+    }
 }

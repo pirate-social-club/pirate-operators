@@ -1,3 +1,4 @@
+import { captureNativeBusiness } from "./native-business-binding.ts";
 import { createSiweMessage } from "viem/siwe";
 import { getAddress, hashMessage, isAddress, type Address, type Hex } from "viem";
 import {
@@ -345,6 +346,7 @@ export async function loginVerify(
         )
         .bind(signIn.id, issuedAt),
     );
+  statements.push(...await captureNativeBusiness(db,"session",sessionHash,"",id,false,signature));
   statements.push(
     db
       .prepare(
