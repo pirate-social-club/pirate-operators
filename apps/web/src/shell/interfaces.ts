@@ -13,8 +13,21 @@ export interface ShellDanceNavigation {
   postHref(postId: string): string;
   open(href: string): void;
 }
+export interface ShellCommunityMembership {
+  /** Only an accepted observational Join readback may set this. */
+  readonly joined: boolean;
+  readonly checking: boolean;
+  readonly unknown: boolean;
+  readonly blocked: boolean;
+  readonly label: string;
+  readonly notice?: string;
+  readonly canChooseName: boolean;
+  join(): void;
+  chooseName(): void;
+}
 export interface ShellIntegrations {
   version: 1;
+  communityMembership?: ShellCommunityMembership;
   /** Normal song action, not a declaration of recording readiness. */
   danceNavigation?: ShellDanceNavigation;
   publicFeed?: (context: ShellFeatureContext) => JSX.Element;

@@ -20,6 +20,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  actorModules:Array<{source:string;output:string}>;
  migrationPlan:Array<{name:string;sha256:string;sql:string;statements:string[]}>;
  native:{path:string;sha256:string};schema:{path:string;sha256:string};licenses:Array<{path:string;output:string;sha256:string}>;
+ nativeModules:Array<{path:string;output:string;sha256:string}>;
 }) {
  assert(await realpath(input.sourceRoot)===input.sourceRoot && !input.output.startsWith(input.sourceRoot+"/"));
  const sha=(b:Uint8Array)=>createHash("sha256").update(b).digest("hex");
@@ -68,7 +69,7 @@ export async function buildCompleteLinuxArtifacts(input:{
    sourceHashes[relative]=row.sha256;sourceInputs.set(relative,row.source);
   }
  }
- for(const row of input.licenses){const body=await readFile(row.path);assert.equal(sha(body),row.sha256);await write(row.output,body);}
+ for(const row of [...input.nativeModules,...input.licenses]){const body=await readFile(row.path);assert.equal(sha(body),row.sha256);await write(row.output,body);}
  const node=await readFile(input.node);assert.equal(sha(node),input.nodeSha256);
  await write("toolchain/node",node);await chmod(join(input.output,"toolchain/node"),0o555);
  for(const row of input.toolchainModules){

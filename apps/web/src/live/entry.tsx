@@ -4,7 +4,7 @@ import { createCommunityProfileIntegration } from "../shell/profiles/integration
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
-import { createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -43,8 +43,14 @@ import {
   fragmentNavigationHref,
   danceRoute,
   danceUrl,
+  memberJoinRoute,
+  memberJoinUrl,
 } from "../shell/routing.ts";
 import { CommunityPages } from "../shell/community-pages.tsx";
+import { ChooseHandle } from "../shell/choose-handle.tsx";
+import {
+  acceptedJoin, createCommunityMembership, MemberActionError, type MembershipState,
+} from "../shell/community-membership.ts";
 import type {
   ShellFeatureContext,
   ShellIntegrations,
@@ -212,6 +218,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     actionOwner.clear();
     setHistoryGeneration(value => value + 1);
     setSession(null);
+    joinIntent++; membership.sync();
     setStatus("Sign in to do this dance.");
   }
   function pauseFeed() {
@@ -320,6 +327,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     // resumed capture never mounts twice for one browser action.
     if (lastLocation === location.href) return;
     lastLocation = location.href;
+    const wasMemberRoute = fragment() === "#/join";
+    memberClosing = false;
     if (view() === "publish") composerRuntime.viewClosed();
     setView(appView(location.hash));
     setFragment(location.hash);
@@ -328,7 +337,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setSinging(null);
     if (boot() && feed()) syncActivity();
     else setDancing(danceRoute(new URL(location.href)));
-    if (!practiceOpen())
+    if (!practiceOpen() && !wasMemberRoute && !memberJoinRoute(new URL(location.href)))
       requestAnimationFrame(() =>
         document.getElementById("app-content")?.focus(),
       );
@@ -398,7 +407,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       actionOwner.clear();
       setHistoryGeneration((value) => value + 1);
     }
+    if (before && (before.mossAddress !== next?.mossAddress || before.csrf !== next?.csrf)) joinIntent++;
     setSession(next);
+    membership.sync();
     publishDanceSession();
   }
   async function refresh() {
@@ -422,6 +433,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       setHistoryGeneration((value) => value + 1);
     }
     setBoot(config);
+    membership.sync();
     publishDanceSession();
     setName(community.name);
     document.title = `${community.name} · Pirate`;
@@ -487,10 +499,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     invalidateDance();
     composerRuntime.invalidate();
     setSettling(true);
+    membership.sync();
     try {
       await settleSignIn();
     } finally {
       setSettling(false);
+      membership.sync();
       publishDanceSession();
     }
   }
@@ -635,6 +649,144 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       setFeed(posts);
     },
   });
+  const [memberState, setMemberState] = createSignal<MembershipState>({
+    ownerKey: null, join: null, name: null, joining: false, naming: false,
+    nameOpen: false, joinUncertain: false, nameUncertain: false, error: null,
+  }, { ownedWrite: true });
+  let joinIntent = 0;
+  let joinReturnFocus: HTMLElement | undefined;
+  let memberClosing = false;
+  const memberIdentity = () => {
+    const config = boot(), current = settling() ? null : session();
+    return !walletPage && config && current ? {
+      key: JSON.stringify([config.communityId, current.authorId, current.csrf, current.mossAddress]),
+      csrf: current.csrf, wallet: current.mossAddress,
+    } : null;
+  };
+  const membership = createCommunityMembership({
+    owner: memberIdentity,
+    fetch: (input, init) => fetch(input, init),
+    newKey: () => crypto.randomUUID(),
+    changed: setMemberState,
+    authLost: () => {
+      joinIntent++; sessionRead++;
+      invalidateDance(); composerRuntime.invalidate(); actionOwner.clear();
+      profileIntegration.controller()?.clear(); savedKaraokeHistory.clear();
+      setHistoryGeneration(value => value + 1);
+      setSession(null); setStatus("Sign in again to check your membership or original name request.");
+    },
+    sign: async (prepared, assertCurrent) => {
+      assertCurrent();
+      if (prepared.consent.typedData.domain.chainId !== 6343)
+        throw new MemberActionError("wallet_network", "This wallet cannot sign the prepared network. No consent was submitted.");
+      const mega = await moss();
+      assertCurrent();
+      const connected = await mega.connect();
+      assertCurrent();
+      const matches = (value: { status: string; address?: string }) =>
+        value.status === "connected" &&
+        value.address?.toLowerCase() === prepared.recipient.toLowerCase();
+      if (!matches(connected)) throw new MemberActionError("wallet_recipient",
+        "Connect the wallet for the prepared recipient. No consent was submitted.");
+      // This is the exact server SDK ClaimAcceptance, not a reconstructed claim.
+      const result = await mega.signData({ data: prepared.consent.typedData });
+      assertCurrent();
+      const stillConnected = await mega.status();
+      assertCurrent();
+      if (!matches(stillConnected)) throw new MemberActionError("wallet_changed",
+        "The connected wallet changed. Check the original request before signing again.");
+      if (result.status === "cancelled") throw new MemberActionError("wallet_cancelled",
+        "Signing was cancelled. Your original request is unchanged.");
+      if (result.status !== "success" || !result.signature) throw new MemberActionError("wallet_signing_unavailable",
+        "The wallet could not sign the original claim acceptance. No consent was submitted.");
+      return result.signature;
+    },
+  });
+  const memberView = () => {
+    const current = memberState(), owner = memberIdentity();
+    return current.ownerKey === owner?.key ? current : {
+      ownerKey: owner?.key ?? null, join: null, name: null, joining: false,
+      naming: false, nameOpen: false, joinUncertain: false, nameUncertain: false, error: null,
+    };
+  };
+  function openMemberRoute() {
+    if (walletPage || practiceOpen()) return;
+    memberClosing = false;
+    if (document.activeElement instanceof HTMLElement) joinReturnFocus = document.activeElement;
+    const previousHref = location.href, next = memberJoinUrl(new URL(previousHref));
+    if (next.href !== previousHref) history.pushState({
+      ...(history.state && typeof history.state === "object" ? history.state : {}),
+      pirateMemberJoin: { version: 1, previousHref, href: next.href },
+    }, "", next);
+    lastLocation = location.href;
+    setFragment(location.hash); setView(appView(location.hash));
+  }
+  function closeMemberRoute() {
+    joinIntent++;
+    memberClosing = true;
+    membership.dismissName();
+    if (!memberJoinRoute(new URL(location.href))) return;
+    const marker = history.state?.pirateMemberJoin;
+    if (marker?.version === 1 && marker.href === location.href &&
+      typeof marker.previousHref === "string") {
+      try {
+        if (new URL(marker.previousHref).origin === location.origin) { history.back(); return; }
+      } catch { /* Navigation history never grants ownership. */ }
+    }
+    const url = new URL(location.href); url.hash = "#/";
+    history.replaceState(history.state, "", url);
+    lastLocation = ""; syncLocation();
+  }
+  async function joinCommunity() {
+    if (walletPage || busy() || settling() || practiceOpen() || !boot()) return;
+    const community = boot()!.communityId, intent = ++joinIntent;
+    openMemberRoute();
+    if (!session()) {
+      if (capabilities()?.signIn !== true) { setStatus("Sign in is unavailable."); return; }
+      await run(signIn);
+    }
+    if (intent !== joinIntent || boot()?.communityId !== community || !session() ||
+      !memberJoinRoute(new URL(location.href))) return;
+    membership.sync();
+    await membership.join();
+    if (intent === joinIntent && memberJoinRoute(new URL(location.href)) &&
+      acceptedJoin(membership.state())) await membership.openName();
+  }
+  const shellMembership = () => {
+    const current = memberView(), joined = acceptedJoin(current);
+    const blocked = current.join?.state === "blocked" ? current.join : undefined;
+    return {
+      joined,
+      checking: current.joining || settling(),
+      unknown: !joined && (current.joinUncertain || (!!session() && !current.join)),
+      blocked: !session() && capabilities()?.signIn !== true,
+      label: !session() && capabilities()?.signIn !== true ? "Unavailable" :
+        blocked || current.joinUncertain ? "Check membership" : "Join",
+      notice: current.error ?? blocked?.correction,
+      canChooseName: joined,
+      join: () => {
+        if (session() && (blocked || current.joinUncertain || !current.join))
+          void membership.loadJoin();
+        else void joinCommunity();
+      },
+      chooseName: () => { openMemberRoute(); void membership.openName(); },
+    };
+  };
+  createEffect(
+    () => memberIdentity()?.key ?? null,
+    () => { membership.sync(); if (memberIdentity()) void membership.loadJoin(); },
+  );
+  createEffect(
+    () => [fragment(), memberIdentity()?.key, acceptedJoin(memberView())] as const,
+    () => {
+      if (!memberJoinRoute(new URL(location.href))) {
+        joinIntent++;
+        if (memberState().nameOpen) membership.dismissName();
+      } else if (!memberClosing && acceptedJoin(memberView())) void membership.openName();
+    },
+  );
+  onCleanup(() => { joinIntent++; membership.dispose(); });
+
   const profileSignIn = async () => {
     await run(signIn);
     if (!session()) throw new Error("Sign in was not completed.");
@@ -648,6 +800,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     sessionRead++;
     invalidateDance();
     composerRuntime.invalidate();
+    joinIntent++; membership.clear();
     profileIntegration.controller()?.clear();
     savedKaraokeHistory.clear();
     try {
@@ -663,7 +816,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     }
   };
   const recheckDanceSession = () => {
-    if (!walletPage && dancing().kind !== "none" && boot() && !busy() &&
+    if (!walletPage && (dancing().kind !== "none" || memberState().nameOpen) && boot() && !busy() &&
       !settling() && document.visibilityState !== "hidden") void refreshSession();
   };
   window.addEventListener("focus", recheckDanceSession);
@@ -699,6 +852,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       composing={view() === "publish"}
       onSignIn={() => void run(signIn)}
     >
+      <ChooseHandle
+        communityName={name()}
+        state={memberView()}
+        returnFocus={() => joinReturnFocus?.isConnected ? joinReturnFocus :
+          document.querySelector<HTMLElement>("[data-community-name-entry]") ?? undefined}
+        onClose={closeMemberRoute}
+        onPrepare={(label) => { void membership.prepareName(label); }}
+        onConsent={() => { void membership.consent(); }}
+        onCheck={() => { void membership.checkName(); }}
+        onReconcile={() => { void membership.reconcile(); }}
+      />
       <Show when={walletPage && session() && !settling()}>
         <Show
           when={location.pathname === "/operator/rewards"}
@@ -865,6 +1029,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 version: 1,
                 postAuthors: authors,
                 danceNavigation: danceNavigation(),
+                communityMembership: shellMembership(),
               }}
               context={featureContext}
               onNavigate={(href) =>
@@ -879,6 +1044,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                   const current = session();
                   if (!current) return;
                   sessionRead++;
+                  joinIntent++; membership.clear();
                   invalidateDance();
                   composerRuntime.invalidate();
                   savedKaraokeHistory.clear();

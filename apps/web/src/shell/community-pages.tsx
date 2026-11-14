@@ -76,6 +76,7 @@ export function CommunityPages(props: CommunityPagesProps) {
     );
   const cardPost = () =>
     posts().find((song) => song.id === props.hash.slice(6));
+  const membership = () => props.integrations?.communityMembership;
   const canPost = () =>
     !props.settling &&
     props.session !== null &&
@@ -92,6 +93,11 @@ export function CommunityPages(props: CommunityPagesProps) {
   };
   const feedLead = () => (
     <>
+      <Show when={membership()?.notice}>
+        <p class="px-4 py-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+          {membership()?.notice}
+        </p>
+      </Show>
       {props.pendingSongs?.()}
       {props.integrations?.drawSummary?.(props.context())}
       {props.integrations?.publicFeed?.(props.context())}
@@ -121,39 +127,54 @@ export function CommunityPages(props: CommunityPagesProps) {
           onRetry={props.onRefresh}
           onBack={back}
           onCreatePost={
-            canPost() ? () => props.onNavigate("/#/publish") : undefined
+            canPost() && (!membership() || membership()!.joined)
+              ? () => props.onNavigate("/#/publish") : undefined
           }
+          onJoin={membership()?.join}
+          joined={membership()?.joined}
+          joinBusy={membership()?.checking}
+          viewerUnknown={membership()?.unknown}
+          joinDisabled={membership()?.blocked}
+          joinLabel={membership()?.label}
+          canJoin={membership() !== undefined}
           createPostBusy={props.busy}
           createPostLabel="Post"
           profileControl={
-            <Show
-              when={props.session}
-              fallback={
-                <Show when={props.canSignIn}>
-                  <Button
-                    class="md:hidden"
-                    size="sm"
-                    variant="ghost"
-                    onClick={props.onSignIn}
-                  >
-                    Sign in
-                  </Button>
-                </Show>
-              }
-            >
-              <IconButton
-                aria-label="Open profile"
-                class="size-10 rounded-full bg-background/75 p-0 text-foreground backdrop-blur-sm"
-                onClick={() => props.onNavigate("/#/account")}
-                variant="ghost"
+            <>
+              <Show when={membership()?.canChooseName}>
+                <Button size="sm" variant="ghost" data-community-name-entry onClick={() => membership()?.chooseName()}>
+                  Get a name
+                </Button>
+              </Show>
+              <Show
+                when={props.session}
+                fallback={
+                  <Show when={props.canSignIn}>
+                    <Button
+                      class="md:hidden"
+                      size="sm"
+                      variant="ghost"
+                      onClick={props.onSignIn}
+                    >
+                      Sign in
+                    </Button>
+                  </Show>
+                }
               >
-                <Avatar
-                  fallback="Profile"
-                  fallbackSeed={props.session?.mossAddress}
-                  size="sm"
-                />
-              </IconButton>
-            </Show>
+                <IconButton
+                  aria-label="Open profile"
+                  class="size-10 rounded-full bg-background/75 p-0 text-foreground backdrop-blur-sm"
+                  onClick={() => props.onNavigate("/#/account")}
+                  variant="ghost"
+                >
+                  <Avatar
+                    fallback="Profile"
+                    fallbackSeed={props.session?.mossAddress}
+                    size="sm"
+                  />
+                </IconButton>
+              </Show>
+            </>
           }
           composer={
             props.view === "publish" && props.session
@@ -164,7 +185,8 @@ export function CommunityPages(props: CommunityPagesProps) {
           feedLead={
             (props.pendingSongCount ?? 0) > 0 ||
             props.integrations?.drawSummary ||
-            props.integrations?.publicFeed
+            props.integrations?.publicFeed ||
+            membership()?.notice
               ? feedLead
               : undefined
           }

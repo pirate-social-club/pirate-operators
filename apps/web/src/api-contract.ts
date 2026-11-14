@@ -117,3 +117,45 @@ export interface KaraokeOperatorResult {
     bestCombo: number;
   };
 }
+
+/** Explicit community admission is independent of optional name issuance. */
+export type CommunityJoinView = {
+  readonly schema: "pirate.community-join/1";
+  readonly ownerScope: string;
+  readonly revision: number;
+} & (
+  | { readonly state: "not_joined" }
+  | { readonly state: "accepted"; readonly receipt: { readonly joinId: string; readonly acceptedAtMs: number } }
+  | { readonly state: "unknown"; readonly retryAfterMs: number }
+  | { readonly state: "blocked"; readonly reason: "admission_refused" | "policy_unavailable" | "service_unavailable"; readonly correction: string }
+);
+
+/** Field-for-field member producer interface snapshot; independent client
+ * ownership. No runtime import into the proposal/reference tree. See packet
+ * wire-interface-provenance.json for exact producer path and source digest. */
+export type MemberNameHex = `0x${string}`;
+export type MemberNameJson = null | boolean | number | string | MemberNameJson[] | { [key: string]: MemberNameJson };
+export interface NameClaimRef { requestId: MemberNameHex; planDigest: MemberNameHex; label: string; name: string }
+export interface MemberNameTerms {
+  initialPriceAtomic: "0"; initialTermDays: 365;
+  annualRenewal: { token: MemberNameHex; amountAtomic: string };
+  gas: { payerAddress: MemberNameHex; maxTotalWei: string };
+}
+/** Exact reviewed successor payload comes from required preparation/verification
+ * ports. Phase1 neither transcribes an unselected V4 tuple nor uses V3 fallback. */
+export interface ClaimAcceptanceWire {
+  domain: { name: string; version: string; chainId: 6343 | 31337; verifyingContract: MemberNameHex };
+  primaryType: "ClaimAcceptance";
+  types: { [name: string]: { name: string; type: string }[] };
+  message: { [key: string]: MemberNameJson };
+}
+export interface NameReceipt { transactionHash: MemberNameHex; tokenId: string; generation: string; expiryMs: number; blockNumber: string; blockHash: MemberNameHex }
+export type NameRefusal = "invalid_label" | "name_taken" | "name_reserved" | "not_free" | "budget_exhausted" |
+  "authority_changed" | "issuer_unavailable" | "recipient_unsupported" | "request_conflict" | "service_unavailable";
+export type MemberNameView = { schema: "pirate.member-name/1"; ownerScope: string; revision: number; recipient: MemberNameHex; tld: string } & (
+  | { state: "idle"; claim: null }
+  | { state: "awaiting_consent"; claim: NameClaimRef; terms: MemberNameTerms; consent: { digest: MemberNameHex; expiresAtMs: number; typedData: ClaimAcceptanceWire } }
+  | { state: "queued" | "pending" | "unknown"; claim: NameClaimRef; terms: MemberNameTerms; retryAfterMs: number }
+  | { state: "blocked" | "expired_unconsumed"; claim: NameClaimRef | null; reason: NameRefusal; correction: string }
+  | { state: "consumed"; claim: NameClaimRef; terms: MemberNameTerms; receipt: NameReceipt; usability: "not_checked" | "usable" | "not_usable" | "unknown" }
+);

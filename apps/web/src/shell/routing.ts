@@ -14,7 +14,7 @@ export type ActivityRoute =
   | { kind: "sing"; postId: string };
 
 export function appView(hash: string): AppView {
-  if (!hash || hash === "#/") return "home";
+  if (!hash || hash === "#/" || hash === "#/join") return "home";
   if (hash.startsWith("#song-")) return "song";
   const view = hash.slice(2);
   return hash.startsWith("#/") &&
@@ -90,7 +90,7 @@ export function fragmentNavigationHref(href: string, current?: URL): string {
     target.origin !== current.origin ||
     target.pathname !== current.pathname ||
     !(
-      /^#\/(?:songs|account|publish|settings)?$/.test(target.hash) ||
+      /^#\/(?:songs|account|publish|settings|join)?$/.test(target.hash) ||
       target.hash.startsWith("#song-") ||
       target.hash.startsWith("#profile-")
     )
@@ -165,4 +165,18 @@ export function danceUrl(current: URL, communityId: string, route: DanceProducti
   url.pathname = "/dance/" + encodeURIComponent(communityId) + "/" + collection + "/" +
     encodeURIComponent(id) + (route.kind === "review" ? "/recording" : "");
   return url;
+}
+
+/** Public navigation only. An open sheet is never evidence of admission or a
+ * claim; no label, signature, operation ID or ownership data enters the URL. */
+export function memberJoinRoute(url: URL): boolean {
+  return url.pathname === "/" && url.hash === "#/join" &&
+    !["study", "sing", "lesson", "dance"].some(key => url.searchParams.has(key));
+}
+export function memberJoinUrl(current: URL): URL {
+  if (current.pathname !== "/" || activityRoute(current).kind !== "none" ||
+    danceRoute(current).kind !== "none") throw Error("join_route_unavailable");
+  const next = new URL(current);
+  next.hash = "#/join";
+  return next;
 }
