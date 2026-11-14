@@ -346,7 +346,7 @@ test("v2 actual full-target factory refuses an equivalent issuer key before any 
  const f=await fixture();try{
   const {createLocalTargetImplementation}=await import("../deploy/linux/local-target-services.ts");
   const custodyTrust={keyId:"aliased-custody",spki:f.trust.spki+"\n"};
-  await assert.rejects(createLocalTargetImplementation({installationId:f.installationId,bootstrapLease:f.lease,trust:f.trust,custodyTrust} as any),
+  await assert.rejects(createLocalTargetImplementation({runtimeProfile:"full-v2",installationId:f.installationId,bootstrapLease:f.lease,trust:f.trust,custodyTrust} as any),
    /separate_independent_custody_key_required/);
  }finally{await f.close();}
 });
