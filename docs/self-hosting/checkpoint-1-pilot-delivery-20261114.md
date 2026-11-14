@@ -160,12 +160,17 @@ owns shared-interface acceptance, independent review and integration merges.
 One writer owns each mutable branch/checkout; this plan creates no new parallel
 roadmap and does not transfer another lane's source custody implicitly.
 
-The Directory interface-design review target is November 16, 2026 at 18:00 UTC.
-Review pending-community identity, constrained registration, revisioned origins,
-controller/publisher authority and the required negative cases. This is not a
-two-day promise of contract implementation, generated ABI or passing tests.
-Record implementation and qualification dates after that review. If the design
-is not ready, record the blocker and revised target rather than claiming a pass.
+The Directory interface-design review has no scheduled date. It is ready when
+the proposal specifies pending-community identity and state transitions,
+constrained registration, revisioned origins, controller/publisher authority and
+the required negative cases, with unresolved decisions clearly identified.
+Implementation, generated interfaces and executed tests follow design review;
+they are not prerequisites for reviewing the interface proposal.
+
+Advance checkpoints when their required outputs and evidence are ready. Report
+remaining work and blockers without inventing completion dates. Use dates for
+actual events or explicitly agreed appointments, not as estimates of unknown
+implementation or qualification effort.
 
 Checkpoint 4 acceptance depends on the reviewed, integrated Directory change,
 qualified hosted enrollment/funding and publication services, and working ingress
