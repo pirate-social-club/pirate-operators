@@ -1,0 +1,85 @@
+{
+  "schema": "pirate.readiness-primary-sources/1",
+  "sources": [
+    {
+      "id": "cloudflare-sqlite",
+      "url": "https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": "2026-09-21",
+      "summary": "Synchronous per-object transactions, durable storage synchronization and PITR; not cross-object atomicity.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "cloudflare-coordination",
+      "url": "https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": "2026-11-05",
+      "summary": "Use bounded coordination atoms; a single pilot budget authority is a scoped tradeoff, not a general scaling claim.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "moss-merchant",
+      "url": "https://moss.megaeth.com/developers/packages/wallet-merchant",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Server policy hook, unsigned/final intent boundary and per-transaction payment cap; durable reservation sequencing and exact SDK semantics still need source/runtime qualification.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "moss-sponsoring",
+      "url": "https://moss.megaeth.com/developers/concepts/sponsoring-gas",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Explicit sponsor mode, native/USDM alternatives and online merchant; pilot permits native TESTETH only and does not execute the installer.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "moss-sign-data",
+      "url": "https://moss.megaeth.com/developers/methods/signing/sign-data",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "EIP-712 and ERC-1271 documented; nested initialized/fresh consent and actual safe mint remain UNRUN.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "mega-faucet",
+      "url": "https://docs.megaeth.com/user-guide/faucet",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Official testnet faucet reference; actual faucet/RPC match to6343 not established by this page.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "mega-gas-model",
+      "url": "https://docs.megaeth.com/developer-docs/overview-3/gas-model",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Total gas includes compute and storage; estimate exact calls on MegaETH.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "mega-limits",
+      "url": "https://docs.megaeth.com/developer-docs/overview-3/resource-limits",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Documented limits include mainnet-configured parameters; not proof of current testnet capacity.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "mega-receipts",
+      "url": "https://docs.megaeth.com/developer-docs/rpc/reference/eth_gettransactionreceipt",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "Receipt gas and optional L1 fee fields, null and unsealed placeholder behavior; canonical safe verification remains required.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    },
+    {
+      "id": "goldsky-megaeth",
+      "url": "https://docs.goldsky.com/chains/megaeth",
+      "retrievedDate": "2026-11-14",
+      "pageUpdated": null,
+      "summary": "MegaETH testnet support for Turbo/Subgraphs; project, dataset, costs and destination unconfigured.",
+      "status": "primary-web-documentation-not-runtime-evidence"
+    }
+  ]
+}

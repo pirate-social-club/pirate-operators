@@ -1,0 +1,377 @@
+{
+  "schema": "pirate.sponsor-readiness-gates/1",
+  "allProposedCasesUnrun": true,
+  "count": 46,
+  "notTestDeclarations": true,
+  "scope": "Future separately allocated compatibility, service and indexer gates. All cases are unrun plans; this file supplies no execution evidence.",
+  "cases": [
+    {
+      "id": "AUTH-01",
+      "environment": "Workers integration",
+      "scenario": "Admitted wallet and exact Pirate membership authorize only own community/install/namespace operation",
+      "assertion": "Independent signature and authority evidence; no operator-app assertion used",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-02",
+      "environment": "Workers integration",
+      "scenario": "Compromised community Worker asserts another community or wallet; valid app credential cannot authorize it",
+      "assertion": "Refusal before reservation/signing; neither budget changes",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-03",
+      "environment": "Workers integration",
+      "scenario": "Expired/revoked membership, role, challenge or admission after an awaited read",
+      "assertion": "Revalidation prevents signing; reservation retained/released only under proven no-effect rule",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-04",
+      "environment": "Workers integration",
+      "scenario": "Extra keys, LF/CRLF/Unicode suffixes, noncanonical decimals/addresses and mutable request during await",
+      "assertion": "Closed immutable reconstruction or refusal; original digest never changes",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "AUTH-05",
+      "environment": "Workers integration",
+      "scenario": "Batch contains permitted call plus disallowed pre-call/fund transfer/delegation/fee recipient/domain",
+      "assertion": "Whole request refused; target allowlist alone never sufficient",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-01",
+      "environment": "real Durable Object",
+      "scenario": "Two users contend for last community fee headroom",
+      "assertion": "Exactly one reservation; global/community/user/journal updated atomically",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-02",
+      "environment": "real Durable Object",
+      "scenario": "Two communities contend for last global fee headroom",
+      "assertion": "Exactly one reservation across both communities in the same object",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-03",
+      "environment": "real Durable Object",
+      "scenario": "Inject throw halfway through transaction and durability failure before signer call",
+      "assertion": "No partial counters; signer and broadcaster invocation count zero",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-04",
+      "environment": "real Durable Object",
+      "scenario": "Duplicate same logical operation/final intent versus same logical ID with changed bytes",
+      "assertion": "Same reservation returned for equal; conflict for altered; no second liability",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-05",
+      "environment": "real Durable Object",
+      "scenario": "Ledger/policy epoch changes or global pause while fee estimation awaits",
+      "assertion": "Stale reservation authority cannot sign; no silently reset outstanding liabilities",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-06",
+      "environment": "real Durable Object",
+      "scenario": "Unknown extra data-fee cap or amount above cap despite low transaction count",
+      "assertion": "Refuse before authorization; count allowance is not fee cap",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "BUD-07",
+      "environment": "real Durable Object",
+      "scenario": "User rate-limit exhaustion with ample fee balance and community fee exhaustion with low count",
+      "assertion": "Each independent restriction enforced without partial updates",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-01",
+      "environment": "signer fault injection",
+      "scenario": "Signer succeeds but reply is lost; gateway retries same operation",
+      "assertion": "Exact original signer journal used; no new nonce/signature identity or optimistic refund",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-02",
+      "environment": "sender fault injection",
+      "scenario": "Broadcast succeeds but RPC times out",
+      "assertion": "Unknown original stays reserved; no automatic resend/new request; exact receipt recovery",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-03",
+      "environment": "sender fault injection",
+      "scenario": "Raw transaction A paired with hash B and matching enrollment/claim",
+      "assertion": "Refuse; recomputed immutable original hash used through all awaits",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-04",
+      "environment": "canonical chain fixture",
+      "scenario": "Receipt missing, safe block lagging or canonical block unavailable",
+      "assertion": "Unknown/unavailable result, retained reservation, no latest fallback",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-05",
+      "environment": "canonical chain fixture",
+      "scenario": "Receipt/event appears then block is orphaned before safe confirmation",
+      "assertion": "No final settlement; orphaned projection invalidated; original operation retained",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-06",
+      "environment": "canonical chain fixture",
+      "scenario": "Safe revert or success with missing fee semantics",
+      "assertion": "Revert gas charged; unresolved fee upper bound retained rather than released",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-07",
+      "environment": "controlled restore drill",
+      "scenario": "Restore journal to before a signed authorization/spend while external signer fence is newer",
+      "assertion": "All signing remains paused; reconstruct both spent and unbroadcast liability",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-08",
+      "environment": "controlled restore drill",
+      "scenario": "External outbox missing or old valid MOSS signature has not been broadcast",
+      "assertion": "No recovery-complete claim from chain receipts alone; no epoch budget reset",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "REC-09",
+      "environment": "Workers integration",
+      "scenario": "Client repeats a renewal through backend and MOSS routes",
+      "assertion": "One logical-operation reservation; unsupported alternate route refused",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-01",
+      "environment": "local then 6343 isolated",
+      "scenario": "Initialized account signs exact nested ClaimAcceptance; actual claimFreeName executes _safeMint",
+      "assertion": "Permanent matching claimReceipt/event, correct holder, ERC1271 and receiver path evidenced",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-02",
+      "environment": "local then 6343 isolated",
+      "scenario": "Fresh no-code account signs same nested consent",
+      "assertion": "Record actual chain result; helper verification alone is failure to establish compatibility; no implicit activation",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-03",
+      "environment": "local then 6343 isolated",
+      "scenario": "Alter each claim field and chain/verifying-contract domain after signing",
+      "assertion": "Every altered claim refused; issuer FreeClaim digest semantics unchanged",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-04",
+      "environment": "6343 isolated",
+      "scenario": "Sponsored holder record/transfer or controller configure",
+      "assertion": "Target sees authorized wallet as msg.sender; exact effects and actual payer debit proven",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-05",
+      "environment": "merchant integration",
+      "scenario": "Merchant defaults, explicit client mode and unsigned intent manipulation",
+      "assertion": "No default sponsor:true; independent actor proof and final payer/domain/fee digest checked",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-06",
+      "environment": "merchant integration",
+      "scenario": "Payer authorization response lost, final user signature never arrives, intent later submitted",
+      "assertion": "Liability held until actual protocol settlement/expiry; no duplicate signature or false refund",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "MOSS-07",
+      "environment": "6343 isolated",
+      "scenario": "Native fee token versus USDm/unexpected token or payment recipient",
+      "assertion": "Native-only accepted after qualification; unsupported alternative refused before signature",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "NAME-01",
+      "environment": "registry compatibility",
+      "scenario": "Safe consumption followed by transfer or namespace authority expiry",
+      "assertion": "Consumed proof persists; holder and resolution eligibility separate",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "NAME-02",
+      "environment": "registry compatibility",
+      "scenario": "Equal grant signer/submitter or exhausted namespace/community lifetime cap",
+      "assertion": "Actual claim rejected; no refill or paid/short-name fallback",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "NAME-03",
+      "environment": "registry compatibility",
+      "scenario": "Reserved/premium/short label, zero quote mismatch or maxCost nonzero",
+      "assertion": "No free grant issued; real reservations preserved",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "NAME-04",
+      "environment": "sponsor integration",
+      "scenario": "Non-holder or repeated out-of-window permissionless renewal request",
+      "assertion": "Sponsor refuses without changing contract's permissionless zero/paid renewal semantics",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-01",
+      "environment": "local controlled time",
+      "scenario": "Admin refresh followed by TTL expiry with no new event",
+      "assertion": "Resolution/discovery changes at evaluation time; ownership/history/consumption unchanged",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-02",
+      "environment": "local controlled time",
+      "scenario": "Configuration changes, stale refresh evidence, authority revision refresh during grant collection",
+      "assertion": "Correct invalidation/refusal; no stale authority acceptance",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "ATT-03",
+      "environment": "custody review",
+      "scenario": "Only offline admin available for daily refresh",
+      "assertion": "Finite manual rehearsal documented; unattended service not marked ready",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-01",
+      "environment": "6343 read-only then finite sends",
+      "scenario": "Deployment and representative exact-call estimates on actual chain6343",
+      "assertion": "Source/tool/runtime/state pins and estimate recorded; mainnet table not assumed",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-02",
+      "environment": "6343 finite receipts",
+      "scenario": "Successful and reverted operations with optional L1 fee fields",
+      "assertion": "Gas component, raw extras, payer payment and net debit reconciled without double count",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-03",
+      "environment": "6343 read-only",
+      "scenario": "Faucet/network mismatch, safe tag unavailable or low pending balance",
+      "assertion": "Refuse funding instructions/signing respectively; no fallback chain or guessed fee",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "COST-04",
+      "environment": "measurement analysis",
+      "scenario": "New/existing storage, max admitted data and recurring attestations",
+      "assertion": "Per-flow sample set, setup/recurring separation; no percentile from one sample",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "IDX-01",
+      "environment": "isolated indexer",
+      "scenario": "Duplicate/out-of-order/backfilled and orphaned logs",
+      "assertion": "Idempotent canonical view with safe cursor; rejected reorg cursor",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "IDX-02",
+      "environment": "isolated indexer",
+      "scenario": "Configuration/publisher revocation and missing manifest/revision",
+      "assertion": "Authenticated complete history or refusal; aggregate excludes ineligible community",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "IDX-03",
+      "environment": "isolated indexer",
+      "scenario": "Attestation/name expiry without logs and holder transfer",
+      "assertion": "Query-time temporal eligibility; ownership and permanent receipts preserved",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "IDX-04",
+      "environment": "isolated reducer comparison",
+      "scenario": "17UTC boundary, gaps, duplicates, corrections/invalidation, ties and eligibility changes",
+      "assertion": "Exact parity with pinned reference semantics at fixed evaluation timestamp",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "OPS-01",
+      "environment": "isolated service qualification",
+      "scenario": "Low float, provider outage, paused community/global policy",
+      "assertion": "No new signatures; alerts and original reconciliation continue safely",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "OPS-02",
+      "environment": "scope/custody inspection",
+      "scenario": "Try each service principal against other two signing secret scopes",
+      "assertion": "Denied access; community Worker has no central signer secret",
+      "status": "UNRUN",
+      "evidence": null
+    },
+    {
+      "id": "OPS-03",
+      "environment": "wizard proposal review",
+      "scenario": "Pending/active/paused eligibility, usage versus reserved fees",
+      "assertion": "No top-up/key form or invented quota; status reflects actual authoritative readiness",
+      "status": "UNRUN",
+      "evidence": null
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "schema": "pirate.public-readiness-provenance/1",
+  "preparedDate": "2026-11-14",
+  "sourcePacketManifestSha256": "e6d2f2b1aa3dd3debef77e28ad5b6b5caae722296daea7eb9bd8b6980d4b71c0",
+  "sourcePacketSealSha256": "b070c2a5a2f0e1a41e96e4f3ddec42157113f909c544b624c1db18d7abc4fc29",
+  "baseCommit": "c9a969ce02f2af1cc0b76d9b305ecbaedab59f63",
+  "sourcePacketUnchanged": true,
+  "publicationKind": "documentation-only review snapshot",
+  "runtimeExecuted": false,
+  "proposedCases": 46,
+  "caseStatus": "ALL_UNRUN",
+  "files": [
+    {
+      "path": "ARCHITECTURE.md",
+      "originalSha256": "1e432bc60ce709a337c3b0c34954ff6e240ec72972c3e06cc3def4b2f322e873",
+      "publicSha256": "1e432bc60ce709a337c3b0c34954ff6e240ec72972c3e06cc3def4b2f322e873",
+      "publicBytes": 7591,
+      "changes": []
+    },
+    {
+      "path": "interfaces/sponsorship-proposal.ts",
+      "originalSha256": "c0fdb4afdea851b601c2d92dbe124db3692e4d32e6065b5e37c2a1f9046af301",
+      "publicSha256": "c0fdb4afdea851b601c2d92dbe124db3692e4d32e6065b5e37c2a1f9046af301",
+      "publicBytes": 6195,
+      "changes": []
+    },
+    {
+      "path": "gate-plan.json",
+      "originalSha256": "0a5493785f9ef6002d8bff42761154e57072b59af32adbbb62e76528455f9ad0",
+      "publicSha256": "b5a31b07965158b8387a81afbe795826bfc5a723f9194229f68e90e3c680d507",
+      "publicBytes": 15043,
+      "changes": [
+        "Remove internal completed native-probe evidence claim; retain all46 case IDs, assertions and UNRUN status."
+      ]
+    },
+    {
+      "path": "READINESS.md",
+      "originalSha256": "b5b0967d195f4ab825ea106cf62993b4a5afcf8b88ae3834ce414dcba2704ee4",
+      "publicSha256": "aff3a178c30a823eeaf4990e7f59f0025a194281e3918e37df9a86ea1b2a6e16",
+      "publicBytes": 6448,
+      "changes": [
+        "Replace private artifact observations and internal shorthand with immutable public source/ABI references and unknown deployment status.",
+        "Remove private tool/Git evidence assertions; retain required source profile.",
+        "Replace private wallet/device statement with generic proposed offline custody.",
+        "Remove private hardware comparison.",
+        "Replace private role inventory reference with explicit missing inputs."
+      ]
+    },
+    {
+      "path": "REHEARSAL.md",
+      "originalSha256": "a4534dfaa49094ad538fb60f00061d07ebfd4c312860595710300d5de0c11894",
+      "publicSha256": "ec80396ff540806622886d0c89f6840b210a0b303a57023688cdf344b5118bee",
+      "publicBytes": 8023,
+      "changes": [
+        "Use public coordinator role.",
+        "Expand internal checkpoint shorthand to public source.",
+        "Remove unexplained abbreviated checkpoint.",
+        "Use public coordinator role."
+      ]
+    },
+    {
+      "path": "COSTS.md",
+      "originalSha256": "bfb9939a3321567aca9e9eaa60426c3d7ccf6ae48e34727ebc1a5922400f7524",
+      "publicSha256": "9b8369d3f7196fef525f767b68ae6a186f906dbde47abb5dbe843008a0404487",
+      "publicBytes": 6196,
+      "changes": [
+        "Pin the existing ledger source reference to a public repository commit."
+      ]
+    },
+    {
+      "path": "UI-NOTE.md",
+      "originalSha256": "0b3b4c764a73ed2c9c95c2b6aec5d4ab2dcb725d2281b9cb817a450917722b38",
+      "publicSha256": "0b3b4c764a73ed2c9c95c2b6aec5d4ab2dcb725d2281b9cb817a450917722b38",
+      "publicBytes": 2222,
+      "changes": []
+    },
+    {
+      "path": "INDEXING.md",
+      "originalSha256": "fc5bba4ee37b19abf20f752f79db367e9a7b63c40ec8ea133bb704144191b83c",
+      "publicSha256": "036cf330ed6e91f87716d657603947eee77917cde54a13910d743a445b2978bd",
+      "publicBytes": 5760,
+      "changes": [
+        "Pin reducer and feed-design references to a public repository commit."
+      ]
+    },
+    {
+      "path": "REVIEW-DISPOSITIONS.md",
+      "originalSha256": "f75cc1d6b443e42723f7caacd26875cd471231a5c279cea362f6dd0ab35f704a",
+      "publicSha256": "00c2a18e5193ab30f2f38070a698bfbcb14692ac4101957d77b7d3b3a96d9f13",
+      "publicBytes": 2354,
+      "changes": [
+        "Replace private owner discussion history with proposed public policy."
+      ]
+    },
+    {
+      "path": "official-sources.json",
+      "originalSha256": "668c605c8a224114d12d27abd6db7a2ca8827e1dc6f9c1beee23baf5b97f7809",
+      "publicSha256": "668c605c8a224114d12d27abd6db7a2ca8827e1dc6f9c1beee23baf5b97f7809",
+      "publicBytes": 3945,
+      "changes": []
+    }
+  ],
+  "additionalFiles": [
+    {
+      "path": "README.md",
+      "sha256": "3ea10afa0f04733f7c6afea09f2f0914945d3ef70e8de4b0f4867550d29a84f1",
+      "purpose": "Public review order, provenance, known public checkpoints and unrun status."
+    }
+  ],
+  "omitted": [
+    "machine-specific evidence and turn records",
+    "local source/device inventories",
+    "local task records and handoff communication",
+    "role-addresses.json",
+    "private wallet-device and owner-custody statements"
+  ],
+  "hashScope": "This manifest maps listed files, not itself. The published Git commit pins the complete tree."
+}
