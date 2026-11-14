@@ -8,7 +8,7 @@ import {actualHTTPS,pointer} from "./actual-service-readback.ts";
 import {createObjectStorage} from "../../packages/storage/files.ts";
 import type {createManagedKeyClient} from "./managed-key-channel.ts";
 import type {CredentialRequirement} from "../../apps/community-wizard/server/linux-contracts.ts";
-import type {LinuxDraftV2} from "../../packages/community-setup/shared-linux-profile.ts";
+import type {OriginalLinuxDraft} from "../../packages/community-setup/linux-create-profile.ts";
 export interface CredentialSelection {
   id:string;label:string;role:CredentialRequirement["role"];scope:string;profileId:string;
   generation:number;keyRef:string;keyGeneration:number;header:string;prefix:string;
@@ -21,9 +21,9 @@ export async function createManagedCredentials(input:{
 }) {
   await privateDirectory(input.directory);let disposed=false;
   assert(input.capturedRoots.every(r=>input.directory!==r && !input.directory.startsWith(r+"/") && !r.startsWith(input.directory+"/")),"credential_store_inside_cohort");
-  const selected=(draft:LinuxDraftV2)=>input.selections.filter(x=>x.role==="speech"?draft.features.learning&&x.profileId===draft.services.learningProfile:
+  const selected=(draft:OriginalLinuxDraft)=>input.selections.filter(x=>x.role==="speech"?draft.features.learning&&x.profileId===draft.services.learningProfile:
     x.role==="publication"?x.profileId===draft.services.publicationProfile:
-    x.role==="backup"?x.profileId===canonicalDigest(draft.storage.backup):
+    x.role==="backup"?draft.version === 2 && x.profileId===canonicalDigest(draft.storage.backup):
     x.role==="public-media"?x.profileId===canonicalDigest(draft.storage.publicMedia):
     draft.target.kind==="ssh-linux"&&x.profileId===draft.target.connectionRef);
   const filename=(s:CredentialSelection)=>join(input.directory,evidenceId(s.id)+"-"+s.generation+".json");
@@ -41,7 +41,7 @@ export async function createManagedCredentials(input:{
       try {return await action(value);} finally {value.fill(0);}
     });
   }
-  async function requirements(draft:LinuxDraftV2):Promise<CredentialRequirement[]> {
+  async function requirements(draft:OriginalLinuxDraft):Promise<CredentialRequirement[]> {
     const result=[];
     for(const s of selected(draft)) {
       let state:CredentialRequirement["state"]="missing";
@@ -64,8 +64,8 @@ export async function createManagedCredentials(input:{
         if(!valid)return false;
       }return true;
     },
-    credentialRequirements:async({draft}:{draft:LinuxDraftV2})=>requirements(draft),
-    async saveCredentials({requestId,draft,values}:{requestId:string;draft:LinuxDraftV2;values:Record<string,string>}) {
+    credentialRequirements:async({draft}:{draft:OriginalLinuxDraft})=>requirements(draft),
+    async saveCredentials({requestId,draft,values}:{requestId:string;draft:OriginalLinuxDraft;values:Record<string,string>}) {
       assert(!disposed);const specs=selected(draft);
       assert(Object.keys(values).length>0 && Object.keys(values).every(id=>specs.some(s=>s.id===id)),"unselected_credential");
       for(const [id,text] of Object.entries(values)){
@@ -81,9 +81,10 @@ export async function createManagedCredentials(input:{
         });}finally{value.fill(0);delete values[id];}
       }
     },
-    async verifyCredentials({requestId,draft}:{requestId:string;draft:LinuxDraftV2}) {
+    async verifyCredentials({requestId,draft}:{requestId:string;draft:OriginalLinuxDraft}) {
       for(const s of selected(draft))await use(s,async bytes=>{
         if(s.role==="backup"){
+          assert(draft.version === 2,"create_backup_deferred");
           const storage=createObjectStorage(draft.storage.backup,JSON.parse(bytes.toString("utf8")));
           try{
             const actual=await storage.client.list({prefix:"backups/",limit:1,signal:AbortSignal.timeout(10000)});
@@ -105,7 +106,7 @@ export async function createManagedCredentials(input:{
         } finally {response.bytes.fill(0);}
       }); return requirements(draft);
     },
-    async reconcileCredentials({requestId,draft}:{requestId:string;draft:LinuxDraftV2}) {
+    async reconcileCredentials({requestId,draft}:{requestId:string;draft:OriginalLinuxDraft}) {
       const requirementsValue=await requirements(draft);const records=await Promise.all(selected(draft).map(async s=>{
         try{return await load(s);}catch(e){if((e as NodeJS.ErrnoException).code==="ENOENT")return null;throw e;}
       }));

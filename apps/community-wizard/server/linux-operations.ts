@@ -15,8 +15,8 @@ import {
   resultFrom,
 } from "./linux-operator-boundary.ts";
 import type {
-  LinuxDeploymentPort,
-  LinuxOperation,
+  OriginalLinuxDeploymentPort as LinuxDeploymentPort,
+  OriginalLinuxOperation as LinuxOperation,
   LinuxObservation,
   LinuxOperationResult,
 } from "./linux-contracts.ts";

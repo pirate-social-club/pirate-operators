@@ -11,4 +11,4 @@ export function preparedSharedTargetFrom(value:unknown, settings:Pick<LinuxDraft
   requireLinux(JSON.stringify(draft.target)===JSON.stringify(settings.target),"target_changed","Use the inspected target.");
   return {identity,infrastructure:infrastructureFrom(p.infrastructure,identity,draft),settings:draft};
 }
-import {linuxDraftFrom as sharedSettings} from "../../../packages/community-setup/shared-linux-profile.ts";
+import {originalLinuxDraftFrom as sharedSettings} from "../../../packages/community-setup/linux-create-profile.ts";

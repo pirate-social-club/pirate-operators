@@ -42,7 +42,7 @@ export function LinuxReview(props: {
             <p class="origin">{p().profile.settings.origin}</p>
             <p>
               Action: {p().action}. Session recovery:{" "}
-              {p().sessionPolicy === "revoke-existing"
+              {p().sessionPolicy === null ? "deferred for this create-only profile" : p().sessionPolicy === "revoke-existing"
                 ? "revoke existing sessions"
                 : "preserve existing sessions under the verified backend policy"}
               .
@@ -144,6 +144,9 @@ export function LinuxReview(props: {
           <div class="note" role="status" aria-live="polite">
             <h3>Deployment · {op().state}</h3>
             <p>{op().message}</p>
+            <Show when={op().plan.profile.schema === "pirate.community-linux-profile/3" && op().state === "failed"}>
+              <p>This original create remains retained. Reconcile it with the owning operator; this profile does not authorize a reset or replacement attempt.</p>
+            </Show>
             <Show when={op().results.at(-1)?.lastCompletedPhase}>
               {(phase) => <p>Last reported completed phase: {phase()}</p>}
             </Show>
@@ -170,8 +173,8 @@ export function LinuxReview(props: {
                 Open the verified application
               </a>
               <p class="fine">
-                Keep this runner’s retained receipt and encrypted recovery
-                backup before changing or moving the installation.
+                Keep this runner’s retained receipt and persistent host data.
+                {op().plan.profile.schema === "pirate.community-linux-profile/3" ? " Guided restore and automated upgrade are deferred for this profile." : " Preserve its encrypted recovery backup before moving the installation."}
               </p>
             </Show>
           </div>

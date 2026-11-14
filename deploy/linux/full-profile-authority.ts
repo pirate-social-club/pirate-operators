@@ -1,6 +1,7 @@
+import {linuxProfileFrom as restorableLinuxProfileFrom} from "../../packages/community-setup/shared-linux-profile.ts";
 import assert from "node:assert/strict";
 import {join} from "node:path";
-import {linuxProfileFrom, type LinuxCommunityProfileV2} from "../../packages/community-setup/shared-linux-profile.ts";
+import {originalLinuxProfileFrom, type OriginalLinuxProfile} from "../../packages/community-setup/linux-create-profile.ts";
 import type {NamespaceAuthorityPort,NamespaceProof} from "../../apps/community-wizard/server/linux-contracts.ts";
 import {canonicalDigest,verifyRecord,readPrivateJSON,immutableRecord,type SignedRecord,type TrustAnchor} from "./installed-records.ts";
 import {sameNamespaceAuthority} from "../../packages/community-setup/shared-namespace-proof.ts";
@@ -11,11 +12,11 @@ export const ORIGINAL_PROFILE_PATH="configuration/linux-profile.json";
 export const ORIGINAL_AUTHORITY_PATH="configuration/profile-authority.json";
 export interface ProfileAdmission {
   installationId:string;requestId:string;generation:number;recordId:string;issuedAt:number;expiresAt:number;
-  profile:LinuxCommunityProfileV2;profileDigest:string;outcome:"authorized-profile";
+  profile:OriginalLinuxProfile;profileDigest:string;outcome:"authorized-profile";
 }
 export interface CurrentAdmission {
   installationId:string;generation:number;issuedAt:number;expiresAt:number;profileDigests:string[];
-  revokedRecordIds:string[];hostFingerprint:string;resourceIdentity:LinuxCommunityProfileV2["identity"];
+  revokedRecordIds:string[];hostFingerprint:string;resourceIdentity:OriginalLinuxProfile["identity"];
 }
 export function decodeRecoveryKey(value:string) {
   assert(typeof value==="string" && /^pirate-key-v1:[A-Za-z0-9_-]{43}(?![\s\S])/.test(value),"recovery_key_encoding");
@@ -29,7 +30,7 @@ export async function withRecoveryKey<T>(value:string,action:(key:Uint8Array)=>P
 export function validateOriginal(record:SignedRecord<ProfileAdmission>,trust:TrustAnchor,installationId:string) {
   const original=verifyRecord(record,trust);assert(original.installationId===installationId && original.outcome==="authorized-profile");
   assert(original.requestId && original.recordId && Number.isSafeInteger(original.generation) && original.generation>0);
-  const profile=linuxProfileFrom(original.profile);assert.deepEqual(profile,original.profile);
+  const profile=originalLinuxProfileFrom(original.profile);assert.deepEqual(profile,original.profile);
   assert(profile.infrastructure.mapping.linuxInstallationId===installationId,"original_profile_installation_mapping_changed");
   assert.equal(canonicalDigest(profile),original.profileDigest);return original;
 }
@@ -94,7 +95,12 @@ export async function createProfileAuthority(input:{
       return (await this.admitCurrent(record,proof)).original;
     },
     async restore(record:SignedRecord<ProfileAdmission>,profile:unknown,proof:NamespaceProof) {
-      const original=await this.admit(record,proof);assert.deepEqual(original.profile,linuxProfileFrom(profile));return original;
+      // Deferred archive/restore remains V2-only. Reject a V3 profile before
+      // any awaited namespace/current-policy lookup or recovery-key owner.
+      const restored=restorableLinuxProfileFrom(profile);
+      assert.deepEqual(restorableLinuxProfileFrom(record.body.profile),restored);
+      const original=await this.admit(record,proof);assert.deepEqual(original.profile,restored);
+      return {...original,profile:restored};
     },
     async commitOriginal(directory:string,record:SignedRecord<ProfileAdmission>,proof:NamespaceProof) {
       const original=await this.admit(record,proof);
@@ -114,7 +120,7 @@ export async function createProfileAuthority(input:{
 }
 
 
-export function assertCompatibleRuntime(profile:LinuxCommunityProfileV2,installed:{
+export function assertCompatibleRuntime(profile:OriginalLinuxProfile,installed:{
  sourceDigest:string;artifactDigest:string;migrations:Record<string,string>;
 }){
  assert(profile.runtime.sourceDigest===installed.sourceDigest && profile.runtime.artifactDigest===installed.artifactDigest,

@@ -1,3 +1,5 @@
+import {fields} from "../../packages/community-setup/linux-input.ts";
+import {linuxCreateDraftFrom,linuxCreateProfileFrom,linuxCreateRuntimeFrom,linuxCreateLearningFrom,type LinuxCreateDraftV3,type LinuxCreateProfileV3} from "../../packages/community-setup/linux-create-profile.ts";
 import assert from "node:assert/strict";
 import {infrastructureFrom} from "../../packages/community-setup/shared-linux-infrastructure.ts";
 import {linuxDraftFrom,identityFrom} from "../../packages/community-setup/shared-linux-profile.ts";
@@ -52,4 +54,49 @@ export async function readProfileTemplate(path:string,trust:TrustAnchor,installa
  assert.deepEqual(infrastructureFrom(t.infrastructure,t.identity,t.settings),t.infrastructure);
  assert(t.infrastructure.mapping.linuxInstallationId===installationId,"original_mapping_required");
  return t;
+}
+
+/** Separate signed create template; no conversion of a retained V2 template. */
+export interface CreateProfileTemplate extends Omit<ProfileTemplate,"settings"> {
+  schema:"pirate.linux-create-template/1";
+  settings:LinuxCreateDraftV3;
+}
+export async function readCreateProfileTemplate(path:string,trust:TrustAnchor,installationId:string):Promise<CreateProfileTemplate>{
+  const t=verifyRecord(await readPrivateJSON<SignedRecord<CreateProfileTemplate>>(path),trust);
+  fields(t,["schema","installationId","generation","issuedAt","expiresAt","settings","identity","infrastructure","runtime","learning"]);
+  assert(t.schema === "pirate.linux-create-template/1" && t.installationId===installationId &&
+    Number.isSafeInteger(t.issuedAt) && Number.isSafeInteger(t.expiresAt) && t.issuedAt<=Date.now() && t.expiresAt>Date.now() &&
+    Number.isSafeInteger(t.generation) && t.generation>0,"signed_create_template_invalid");
+  assert.deepEqual(linuxCreateDraftFrom(t.settings),t.settings);
+  assert.deepEqual(identityFrom(t.identity),t.identity);
+  assert.deepEqual(infrastructureFrom(t.infrastructure,t.identity,t.settings),t.infrastructure);
+  assert.deepEqual(linuxCreateRuntimeFrom(t.runtime),t.runtime);
+  assert.deepEqual(linuxCreateLearningFrom(t.learning,t.settings,t.identity),t.learning);
+  assert(t.infrastructure.mapping.linuxInstallationId===installationId && t.infrastructure.mapping.origin==="new-shared",
+    "fresh_create_mapping_required");
+  return t;
+}
+export async function produceCreateOriginalProfile(input:Omit<Parameters<typeof produceOriginalProfile>[0],"draft"> & {draft:LinuxCreateDraftV3}){
+  const provided=structuredClone(input.draft),proof=structuredClone(input.proof);
+  const template=await readCreateProfileTemplate(input.templateFile,input.trust,input.lease.installationId);
+  assert.deepEqual(input.draft,provided,"selected_signed_settings_changed");
+  assert.deepEqual(provided,template.settings,"selected_signed_settings_changed");
+  if(input.retainedIdentity)assert.deepEqual(input.retainedIdentity,template.identity,"original_resource_identity_required");
+  const profile:LinuxCreateProfileV3=linuxCreateProfileFrom({schema:"pirate.community-linux-profile/3",settings:provided,
+    identity:template.identity,runtime:template.runtime,learning:template.learning,infrastructure:template.infrastructure,
+    namespace:exactNamespaceProof(proof)});
+  const body:ProfileAdmission={installationId:template.installationId,generation:template.generation,issuedAt:template.issuedAt,
+    expiresAt:template.expiresAt,requestId:input.requestId,recordId:"profile-"+canonicalDigest({request:input.requestId,profile}),
+    profile,profileDigest:canonicalDigest(profile),outcome:"authorized-profile"};
+  const signed=await input.channel.signProfile(body,template.generation) as SignedRecord<ProfileAdmission>;
+  assert.deepEqual(verifyRecord(signed,input.trust),body,"profile_signer_replaced_original_body");
+  assert.deepEqual(input.draft,provided,"selected_signed_settings_changed");
+  assert.deepEqual(input.proof,proof,"original_namespace_proof_changed");
+  assert(template.expiresAt>Date.now(),"profile_template_expired_during_signing");
+  await input.authority.admit(signed,proof);
+  await immutableRecord(input.outputDirectory,body.recordId,signed,input.lease);
+  // Retention is another await: current policy and actual namespace/source must
+  // still authorize the same complete original before the producer returns.
+  await input.authority.admit(signed,proof);
+  return signed;
 }

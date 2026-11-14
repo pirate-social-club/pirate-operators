@@ -1,10 +1,10 @@
+import {originalLinuxDraftFrom} from "../../../packages/community-setup/linux-create-profile.ts";
 import { randomUUID } from "node:crypto";
 import {
   fields,
   requireLinux,
   natural,
   targetFrom,
-  linuxDraftFrom,
   linuxProfileFrom,
   type LinuxDraftV2,
 } from "../../../packages/community-setup/shared-linux-profile.ts";
@@ -28,6 +28,9 @@ export function linuxSettings(ctx: LinuxContext) {
       "setup_mode",
       "Choose create, import or restore.",
     );
+    const c=await caps();
+    requireLinux(c.operations.includes(input.mode as LinuxDraftV2["mode"]) && c.targets.includes(target.kind),
+      "setup_mode_unavailable","Select an action and target supported by this installed backend.");
     await change((s) => {
       current(s, natural(input.revision));
       editable(s);
@@ -53,15 +56,17 @@ export function linuxSettings(ctx: LinuxContext) {
   async function configure(value: unknown) {
     const state = ctx.read();
     const input = fields(value, ["revision", "draft"]),
-      parsed = linuxDraftFrom(input.draft);
+      parsed = originalLinuxDraftFrom(input.draft);
     await change((s) => {
       current(s, natural(input.revision));
       editable(s);
+      requireLinux(!s.draft || s.draft.version === parsed.version,"profile_schema_changed",
+        "Keep the saved schema and original installation; no V2/V3 conversion is supported.");
       if (s.operation && s.draft)
         requireLinux(
           canonical(s.draft.target) === canonical(parsed.target) &&
             s.draft.slug === parsed.slug &&
-            s.draft.mode === parsed.mode,
+            s.draft.mode === parsed.mode && s.draft.version === parsed.version,
           "retained_identity",
           "Correct this deployment's settings without changing its retained host, mode or community identifier.",
         );

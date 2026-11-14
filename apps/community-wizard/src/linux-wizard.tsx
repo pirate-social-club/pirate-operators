@@ -1,17 +1,18 @@
+import type {OriginalLinuxDraft} from "../../../packages/community-setup/linux-create-profile.ts";
 import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
 import {
   linuxRequest,
   sameLinuxSettings,
   type LinuxSnapshot,
 } from "./linux-api.ts";
-import { LinuxProfileForm, emptyLinuxDraft } from "./linux-profile-form.tsx";
+import { LinuxProfileForm, emptyLinuxDraft, emptyLinuxCreateDraft } from "./linux-profile-form.tsx";
 import { LinuxReview } from "./linux-review.tsx";
 import { LinuxRecoveryPanel } from "./linux-recovery-panel.tsx";
 import { LinuxCredentialsPanel } from "./linux-credentials-panel.tsx";
 import type { LinuxDraftV2 } from "../../../packages/community-setup/shared-linux-profile.ts";
 export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import("../server/linux-contracts.ts").NamespaceChallenge)=>Promise<unknown>} = {}) {
   const [snapshot, setSnapshot] = createSignal<LinuxSnapshot>();
-  const [draft, setDraft] = createSignal<LinuxDraftV2>(emptyLinuxDraft());
+  const [draft, setDraft] = createSignal<OriginalLinuxDraft>(emptyLinuxDraft());
   const [working, setWorking] = createSignal(false),
     [error, setError] = createSignal("");
   const [approved, setApproved] = createSignal(false),
@@ -46,14 +47,16 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
     const value = await linuxRequest();
     setSnapshot(value);
     if (initial && value.available) {
-      const d = value.state.draft ?? {
-        ...emptyLinuxDraft(),
-        ...(value.state.destination ?? {}),
-      };
+      const createOnly=value.capabilities.operations.length===1 && value.capabilities.operations[0]==="create" &&
+        value.capabilities.backup.maxBytes===0;
+      const empty=createOnly && (!value.state.destination || value.state.destination.mode==="create") ? emptyLinuxCreateDraft() : emptyLinuxDraft();
+      const d:OriginalLinuxDraft = value.state.draft ?? (empty.version === 3 ? empty : {
+        ...empty, ...(value.state.destination ?? {}),
+      });
       if (!value.state.draft) {
         d.services.publicationProfile =
           value.capabilities.publicationSelection ?? "";
-        d.storage.backup =
+        if(d.version === 2)d.storage.backup =
           value.capabilities.backupProfiles.find(
             (p) => p.profile.provider === "filebase-private",
           )?.profile ??
@@ -146,7 +149,12 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
       if(!inspected.available)throw Error(inspected.correction);
       const prepared=inspected.state.target?.prepared;
       if(!prepared)throw Error("This target has no authenticated prepared community profile. Keep its original state and correct the installed inputs.");
-      setDraft({...structuredClone(prepared.settings),mode:"create",target});setStep(0);
+      const preparedDraft=structuredClone(prepared.settings);
+      if(preparedDraft.version===3){
+        if(target.kind!=="local-linux")throw Error("The create-only original requires its local host.");
+        setDraft(preparedDraft);
+      }else setDraft({...preparedDraft,mode:"create",target});
+      setStep(0);
     }catch(error){setError(error instanceof Error?error.message:"Profile discovery did not complete. Reconnect to the same runner.");await refresh().catch(()=>{});}
     finally{setWorking(false);}
   }
@@ -186,7 +194,7 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
             Your Linux host.
           </h1>
           <p class="intro">
-            Create, import or restore on your own Linux server. When setup runs
+            Set up your community on your own Linux server. The installed profile lists its supported actions. When setup runs
             on a VPS, open it from your computer through the bootstrap's
             authenticated SSH tunnel. The public app uses its own HTTPS address
             after deployment.
@@ -446,8 +454,8 @@ export function LinuxWizard(props:{namespaceProofCollector?:(challenge:import(".
                     >
                       <LinuxRecoveryPanel
                         snapshot={s()}
-                        draft={draft}
-                        setDraft={setDraft}
+                        draft={()=>{const d=draft();if(d.version!==2)throw Error("V2 restore profile required");return d;}}
+                        setDraft={(value)=>setDraft(value)}
                         working={busy}
                         pending={pending}
                         backup={backup}

@@ -6,7 +6,7 @@ import { linuxCredentials } from "./linux-credentials.ts";
 import { linuxRecovery } from "./linux-recovery.ts";
 import { linuxPlan } from "./linux-plan.ts";
 import type {
-  LinuxDeploymentPort,
+  OriginalLinuxDeploymentPort as LinuxDeploymentPort,
   NamespaceAuthorityPort,
 } from "./linux-contracts.ts";
 export async function createLinuxSetup(

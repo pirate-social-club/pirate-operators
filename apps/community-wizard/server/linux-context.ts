@@ -8,7 +8,7 @@ import { custodyHeld } from "./linux-operations.ts";
 import { capabilitiesFrom } from "./linux-boundaries.ts";
 import { linuxJournalStore, type LinuxJournal } from "./linux-journal.ts";
 import type {
-  LinuxDeploymentPort,
+  OriginalLinuxDeploymentPort as LinuxDeploymentPort,
   NamespaceAuthorityPort,
 } from "./linux-contracts.ts";
 import { validateLinuxJournal } from "./linux-journal-validation.ts";

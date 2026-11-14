@@ -6,7 +6,7 @@ import type { IncomingMessage } from "node:http";
 import { createLinuxSetup } from "./linux-setup.ts";
 import { createWizardServer } from "./http.ts";
 import type {
-  LinuxDeploymentPort,
+  OriginalLinuxDeploymentPort as LinuxDeploymentPort,
   NamespaceAuthorityPort,
 } from "./linux-contracts.ts";
 export interface LinuxWizardCustody {

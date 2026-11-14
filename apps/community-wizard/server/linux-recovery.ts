@@ -106,9 +106,11 @@ export function linuxRecovery(ctx: LinuxContext) {
   }
   async function inspectBackup(value: unknown) {
     const state = ctx.read();
+    const c = await caps();
+    requireLinux(c.operations.includes("restore") && c.backup.maxBytes > 0 && state.draft?.version !== 3,
+      "backup_unavailable","This installed profile does not support guided restore; no recovery key is consumed.");
     const input = fields(value, ["recoveryKey"]),
       key = text(input.recoveryKey, 4096),
-      c = await caps(),
       revision = state.revision,
       backupId = state.backupId;
     requireLinux(

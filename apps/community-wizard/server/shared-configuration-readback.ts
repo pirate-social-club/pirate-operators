@@ -1,11 +1,12 @@
+import type {OriginalLinuxProfile} from "../../../packages/community-setup/linux-create-profile.ts";
 import {isSharedConfiguration} from "../../../packages/community/config-manifest.ts";
 import {parseSharedProfileDocument,sharedProfileDocument} from "../../../packages/community/shared-directory.ts";
 import {parseConfiguration} from "../../../packages/community/config-manifest.ts";
-import {fields,reference,hash,requireLinux,type LinuxCommunityProfileV2} from "../../../packages/community-setup/shared-linux-profile.ts";
+import {fields,reference,hash,requireLinux} from "../../../packages/community-setup/shared-linux-profile.ts";
 import {canonical} from "./linux-journal.ts";
 // This checks a required actual reader result's context; no RPC/cache authority
 // is synthesized here. Root's postReadback must invoke the qualified core reader.
-export function requireSharedReadback(value:unknown,expected:LinuxCommunityProfileV2) {
+export function requireSharedReadback(value:unknown,expected:OriginalLinuxProfile) {
   const r=fields(value,["directory","configuration","evidenceRef","blockNumber","blockHash"]);
   const p=sharedProfileDocument(parseSharedProfileDocument(r.directory)), config=parseConfiguration(r.configuration);
   requireLinux(isSharedConfiguration(config) && canonical(p)===canonical(expected.infrastructure.directory) &&

@@ -1,6 +1,6 @@
 import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { insist, canonical, hashText, exact, object } from "./common.ts";
-import { linuxProfileFrom } from "../community-setup/shared-linux-profile.ts";
+import { originalLinuxProfileFrom } from "../community-setup/linux-create-profile.ts";
 import type { ProfileAdmission,CurrentAdmission } from "../../deploy/linux/full-profile-authority.ts";
 import type { SignedRecord, TrustAnchor } from "../../deploy/linux/installed-records.ts";
 
@@ -50,7 +50,7 @@ export async function nativeOriginal(raw: string): Promise<NativeOriginal> {
     signed.schema === "pirate.local-signed-record/1" && signed.keyId === input.trust.keyId &&
     /^[a-f0-9]{64}$/.test(input.durableScope), "native_original_required", 503);
   await verifyNativeRecord(signed,input.trust);await verifyNativeRecord(input.release,input.trust);
-  const original = signed.body, profile = linuxProfileFrom(original.profile);
+  const original = signed.body, profile = originalLinuxProfileFrom(original.profile);
   exact(object(original),["installationId","requestId","generation","recordId","issuedAt","expiresAt","profile","profileDigest","outcome"]);
   insist(nativeCanonical(profile) === nativeCanonical(original.profile) &&
     nativeDigest(profile) === original.profileDigest && original.outcome === "authorized-profile" &&
