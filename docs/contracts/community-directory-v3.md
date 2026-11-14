@@ -139,6 +139,42 @@ V3 initially uses cold replay, without applying or silently reusing the proposed
 V2 cache tables. This is bounded-memory processing, not a claim of constant-cost
 reads; a versioned authenticated V3 cache remains separate optimization work.
 
+The reader requires an explicit `Web2EligibilityPolicy` as its third argument:
+`{ now: () => bigint, maxSafeBlockAgeSeconds: bigint }`; optional IPFS transport
+is now fourth. The clock supplies trusted service Unix seconds, not browser
+input. The maximum safe-block age is an explicit nonnegative uint64 service
+policy. No production value or refresh interval is selected by this source.
+Missing/invalid inputs refuse; the clock and age policy are captured before
+awaits, and the clock is sampled again after all reads and the canonical recheck.
+A clock regression during the read refuses the result.
+
+There are no bare `discoverable`, `web2Verified` or `hnsVerified` fields on the
+reader result. `verificationSnapshot` is an immutable, versioned historical fact
+bound to the source profile, safe block number/hash/timestamp, capture time,
+listing state, both verification revisions and the complete Web2/HNS proof
+tuples (including original observation and expiry). `verifiedAtBlock` and
+`discoverableAtBlock` describe that block only. All proof/state reads use the
+same captured block; the final recheck also requires its unchanged timestamp.
+
+`eligibility` is evaluated at completion. When the snapshot age is within the
+explicit maximum (inclusive), each proof requires its original at-block validity
+and `evaluatedAt < validUntil`. Discovery requires listing plus either proof.
+Expiry of one proof leaves the other independently usable; delisting or a false
+at-block verification cannot be undone by a future deadline. A stale safe block
+or a clock behind the snapshot yields `status: "unavailable"` with a reason,
+without eligibility booleans. This is not a revocation or permission to fall back
+to latest. Unsupported/missing safe blocks, inconsistent proof snapshots and
+reorgs still refuse. A bounded safe view does not establish unobserved changes
+after that block; deployment must explicitly select its freshness policy.
+
+Use `evaluateWeb2Eligibility(snapshot, trustedNow, maximumAge)` at every subsequent
+use of a retained in-process snapshot. Eligibility is only a decision at its
+`evaluatedAt`, not a cacheable perpetual badge. Reevaluation neither replaces
+the original block timestamp nor extends a proof's expiry. Rereading a frozen
+safe head also cannot reset its age. The helper does not authenticate serialized
+or untrusted snapshot JSON; persisted evidence needs canonical reauthentication
+before use. This source adds no persistent cache or background refresh service.
+
 The only existing helper changes narrow required profile fields and return the
 already-authenticated receipt. V1/V2 callers keep their existing behavior.
 
@@ -187,3 +223,13 @@ acceptance and live proof/service/funding checks remain required and are not
 claimed here. Earlier V2 full-suite results are predecessor evidence only.
 The transition test publishes a Video manifest commitment to a song tuple through
 PostsV1; it does not execute the separately owned Dance consent/review flow.
+
+The subsequent caller-only expiry repair leaves the contract, interface, generator
+and generated ABI/runtime byte-identical to `e8926ec`. Its focused Web2 suite
+passes all 34 cases (the original 21 plus 13 expiry/freshness/clock cases), with
+no failures, skips or cancellations; root TypeScript and scoped Prettier checks
+pass. Cases include stalled and future snapshots, exact expiry/age boundaries,
+both single-proof directions, both expired, time advancing during async reads,
+policy mutation, clock regression and retained-snapshot reevaluation. Earlier
+Solidity/other suite results remain evidence for their unchanged source; no
+new full application, deployment or live freshness-policy acceptance is claimed.

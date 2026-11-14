@@ -110,6 +110,15 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
   );
   const state = {
     safe: BigInt(60 + count),
+    safeTimestamp: 65536n,
+    now: 65536n,
+    web2VerifiedAtBlock: true,
+    hnsVerifiedAtBlock: false,
+    listed: true,
+    web2ValidUntil: 65536n + 3600n,
+    hnsValidUntil: 0n,
+    blockTags: [] as string[],
+    contractReadBlocks: [] as [string, string][],
     hash: h("a"),
     blockReads: 0,
     originalHash: undefined as Hex | undefined,
@@ -218,6 +227,7 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
         if (method === "eth_getCode")
           return fault === "code" ? "0x6000" : directoryV3Runtime;
         if (method === "eth_getBlockByNumber") {
+          state.blockTags.push(String(params?.[0]));
           if (fault === "safe-missing" && params?.[0] === "safe") return null;
           const number =
             params?.[0] === "safe"
@@ -230,7 +240,10 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
             hash:
               fault === "reorg" && state.blockReads++ > 0 ? h("b") : state.hash,
             parentHash: h("c"),
-            timestamp: "0x10000",
+            timestamp:
+              fault === "timestamp"
+                ? undefined
+                : `0x${state.safeTimestamp.toString(16)}`,
             transactions: [],
           };
         }
@@ -288,6 +301,10 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
           );
           const call = decodeFunctionData({ abi, data: data as Hex }),
             r = records.at(-1)!;
+          state.contractReadBlocks.push([
+            call.functionName,
+            String(params?.[1]),
+          ]);
           if (call.functionName === "getBinding")
             return encodeFunctionResult({
               abi,
@@ -308,7 +325,48 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
             return encodeFunctionResult({
               abi,
               functionName: call.functionName,
-              result: call.functionName !== "isHnsVerified",
+              result:
+                call.functionName === "isWeb2Verified"
+                  ? state.web2VerifiedAtBlock
+                  : call.functionName === "isHnsVerified"
+                    ? state.hnsVerifiedAtBlock
+                    : state.listed &&
+                      (state.web2VerifiedAtBlock || state.hnsVerifiedAtBlock),
+            });
+          if (call.functionName === "getWeb2Verification")
+            return encodeFunctionResult({
+              abi,
+              functionName: "getWeb2Verification",
+              result: [
+                1n,
+                {
+                  originRevision: r.origin.revision,
+                  controllerRevision: r.origin.controllerRevision,
+                  observedAt: 65536n,
+                  validUntil: state.web2ValidUntil,
+                  evidenceSha256: h("7"),
+                },
+              ],
+            });
+          if (call.functionName === "getHnsAttachment")
+            return encodeFunctionResult({
+              abi,
+              functionName: "getHnsAttachment",
+              result: [
+                state.hnsValidUntil === 0n ? 0n : 1n,
+                {
+                  registry: a("2"),
+                  namespaceId: h("8"),
+                  namespaceAuthorizationHash: h("9"),
+                  namespaceAuthorizationRevision: 1n,
+                  controllerRevision: r.origin.controllerRevision,
+                  hnsHeight: 1n,
+                  hnsBlockHash: h("c"),
+                  observedAt: 65536n,
+                  validUntil: state.hnsValidUntil,
+                  evidenceSha256: h("6"),
+                },
+              ],
             });
           if (call.functionName === "getCommunity")
             return encodeFunctionResult({
@@ -329,7 +387,7 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
                   evidenceSha256: h("0"),
                 },
                 listingRevision: 1n,
-                listed: true,
+                listed: state.listed,
               },
             });
         }
@@ -343,6 +401,8 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
     records,
     state,
     client,
+    // Deliberately tiny fixture-only freshness budget, never a live default.
+    policy: { now: () => state.now, maxSafeBlockAgeSeconds: 100n },
     transport: async (request: Request) =>
       new Response(
         records.find((r) => request.url.includes(r.pin.uri.slice(7)))!.bytes,

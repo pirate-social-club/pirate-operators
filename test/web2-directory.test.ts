@@ -15,7 +15,10 @@ import {
   advanceWeb2Configuration,
   web2ConfigurationState,
 } from "../packages/community/web2-config-manifest.ts";
-import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
+import {
+  readWeb2Community,
+  evaluateWeb2Eligibility,
+} from "../packages/community/web2-directory-reader.ts";
 import {
   prepareWeb2Registration,
   bindWeb2RegistrationTransaction,
@@ -142,16 +145,29 @@ test("configuration validates address and rejects unbound HNS fields and alterna
 });
 test("reader authenticates ordinary Web2 community with no HNS and uses safe only", async () => {
   const f = await web2DirectoryFixture(),
-    result = await readWeb2Community(f.client, f.profile, f.transport);
+    result = await readWeb2Community(
+      f.client,
+      f.profile,
+      f.policy,
+      f.transport,
+    );
   assert.equal(result.config.communityId, f.profile.communityId);
   assert.equal(result.config.learningRecords, a("0"));
-  assert.equal(result.discoverable, true);
-  assert.equal(result.hnsVerified, false);
+  assert.equal(result.eligibility.status, "available");
+  if (result.eligibility.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(result.eligibility.discoverable, true);
+  assert.equal(result.eligibility.hnsVerified, false);
   assert.equal(result.blockNumber, f.state.safe);
 });
 test("reader accepts revisioned origin A-B-A while preserving community/posts identity", async () => {
   const f = await web2DirectoryFixture(3),
-    result = await readWeb2Community(f.client, f.profile, f.transport);
+    result = await readWeb2Community(
+      f.client,
+      f.profile,
+      f.policy,
+      f.transport,
+    );
   assert.equal(result.config.configurationRevision, 3);
   assert.equal(result.config.app.origin, f.config.app.origin);
   assert.equal(result.origin.revision, 3n);
@@ -160,13 +176,18 @@ test("reader accepts revisioned origin A-B-A while preserving community/posts id
 test("reader refuses a hidden manifest origin change through ordinary configure or transfer", async () => {
   const f = await web2DirectoryFixture(2, "hidden-origin");
   await assert.rejects(
-    readWeb2Community(f.client, f.profile, f.transport),
+    readWeb2Community(f.client, f.profile, f.policy, f.transport),
     /configuration_origin_mismatch/,
   );
 });
 test("reader crosses revision 256 with bounded pages and authenticated contiguous history", async () => {
   const f = await web2DirectoryFixture(260),
-    result = await readWeb2Community(f.client, f.profile, f.transport);
+    result = await readWeb2Community(
+      f.client,
+      f.profile,
+      f.policy,
+      f.transport,
+    );
   assert.equal(result.config.configurationRevision, 260);
   assert.ok(f.state.logRanges.length > 1);
 });
@@ -181,7 +202,7 @@ for (const [fault, error] of [
   test(`Web2 reader refuses ${fault} without stale/legacy fallback`, async () => {
     const f = await web2DirectoryFixture(2, fault);
     await assert.rejects(
-      readWeb2Community(f.client, f.profile, f.transport),
+      readWeb2Community(f.client, f.profile, f.policy, f.transport),
       new RegExp(error!),
     );
   });
@@ -349,4 +370,346 @@ test("Web2 evidence binds exact address/controller/community with canonical fiel
       web2EvidenceCommitment(f.profile, { ...e, ...patch }).sha256,
       result.sha256,
     );
+});
+
+test("reader exposes immutable same-block leases and labels snapshot booleans as historical", async () => {
+  const f = await web2DirectoryFixture();
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  const snapshot = result.verificationSnapshot;
+  assert.equal(snapshot.blockTimestamp, f.state.safeTimestamp);
+  assert.equal(snapshot.capturedAt, f.state.now);
+  assert.equal(snapshot.web2.proof.validUntil, f.state.web2ValidUntil);
+  assert.equal(snapshot.web2.verifiedAtBlock, true);
+  assert.equal(snapshot.hns.verifiedAtBlock, false);
+  assert.equal("discoverable" in result, false);
+  assert.equal("web2Verified" in result, false);
+  assert.equal("hnsVerified" in result, false);
+  for (const value of [
+    snapshot,
+    snapshot.profile,
+    snapshot.web2,
+    snapshot.web2.proof,
+    snapshot.hns,
+    snapshot.hns.proof,
+  ])
+    assert.equal(Object.isFrozen(value), true);
+  assert.throws(
+    () =>
+      Object.assign(snapshot.web2.proof, { validUntil: f.state.now + 99999n }),
+    TypeError,
+  );
+  for (const [method, block] of f.state.contractReadBlocks) {
+    assert.equal(block, `0x${snapshot.blockNumber.toString(16)}`, method);
+  }
+  assert.ok(
+    f.state.contractReadBlocks.some(
+      ([method]) => method === "getWeb2Verification",
+    ),
+  );
+  assert.ok(
+    f.state.contractReadBlocks.some(
+      ([method]) => method === "getHnsAttachment",
+    ),
+  );
+  assert.ok(f.state.blockTags.includes("safe"));
+  assert.ok(
+    !f.state.blockTags.includes("latest") &&
+      !f.state.blockTags.includes("pending"),
+  );
+});
+
+test("retained snapshot loses Web2 eligibility at exact expiry without refreshing its timestamp or lease", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.web2ValidUntil = f.state.now + 10n;
+  const { verificationSnapshot: snapshot } = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  const before = canonical({
+    blockTimestamp: String(snapshot.blockTimestamp),
+    capturedAt: String(snapshot.capturedAt),
+    validUntil: String(snapshot.web2.proof.validUntil),
+  });
+  const beforeExpiry = evaluateWeb2Eligibility(
+    snapshot,
+    f.state.web2ValidUntil - 1n,
+    100n,
+  );
+  assert.equal(beforeExpiry.status, "available");
+  if (beforeExpiry.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(beforeExpiry.web2Verified, true);
+  const atExpiry = evaluateWeb2Eligibility(
+    snapshot,
+    f.state.web2ValidUntil,
+    100n,
+  );
+  assert.equal(atExpiry.status, "available");
+  if (atExpiry.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(atExpiry.web2Verified, false);
+  assert.equal(atExpiry.discoverable, false);
+  assert.equal(snapshot.web2.verifiedAtBlock, true);
+  assert.equal(
+    canonical({
+      blockTimestamp: String(snapshot.blockTimestamp),
+      capturedAt: String(snapshot.capturedAt),
+      validUntil: String(snapshot.web2.proof.validUntil),
+    }),
+    before,
+  );
+});
+
+for (const expired of ["web2", "hns"] as const) {
+  test(`expired ${expired} proof preserves the other current proof and ordinary discovery`, async () => {
+    const f = await web2DirectoryFixture();
+    f.state.hnsVerifiedAtBlock = true;
+    f.state.web2ValidUntil = f.state.now + (expired === "web2" ? 10n : 20n);
+    f.state.hnsValidUntil = f.state.now + (expired === "hns" ? 10n : 20n);
+    f.state.now += 10n;
+    const result = await readWeb2Community(
+      f.client,
+      f.profile,
+      f.policy,
+      f.transport,
+    );
+    assert.equal(result.eligibility.status, "available");
+    if (result.eligibility.status !== "available")
+      throw new Error("unexpected unavailable eligibility");
+    assert.equal(result.eligibility.web2Verified, expired !== "web2");
+    assert.equal(result.eligibility.hnsVerified, expired !== "hns");
+    assert.equal(result.eligibility.discoverable, true);
+    assert.equal(result.verificationSnapshot.web2.verifiedAtBlock, true);
+    assert.equal(result.verificationSnapshot.hns.verifiedAtBlock, true);
+  });
+}
+
+test("both expired leases remove eligibility although the frozen safe snapshot still says discoverable", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.hnsVerifiedAtBlock = true;
+  f.state.web2ValidUntil = f.state.now + 10n;
+  f.state.hnsValidUntil = f.state.now + 20n;
+  f.state.now += 20n;
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(result.verificationSnapshot.discoverableAtBlock, true);
+  assert.equal(result.eligibility.status, "available");
+  if (result.eligibility.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(result.eligibility.web2Verified, false);
+  assert.equal(result.eligibility.hnsVerified, false);
+  assert.equal(result.eligibility.discoverable, false);
+});
+
+test("stalled safe chain becomes unavailable beyond the explicit maximum age and rereading cannot reset it", async () => {
+  const f = await web2DirectoryFixture();
+  const first = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  const boundary = evaluateWeb2Eligibility(
+    first.verificationSnapshot,
+    f.state.safeTimestamp + 100n,
+    100n,
+  );
+  assert.equal(boundary.status, "available");
+  f.state.now += 101n;
+  const retained = evaluateWeb2Eligibility(
+    first.verificationSnapshot,
+    f.state.now,
+    100n,
+  );
+  assert.equal(retained.status, "unavailable");
+  if (retained.status !== "unavailable")
+    throw new Error("stale chain accepted");
+  assert.equal(retained.reason, "safe_block_stale");
+  assert.equal("discoverable" in retained, false);
+  const reread = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.deepEqual(reread.eligibility, retained);
+  assert.equal(
+    reread.verificationSnapshot.blockTimestamp,
+    first.verificationSnapshot.blockTimestamp,
+  );
+  assert.equal(
+    reread.verificationSnapshot.web2.proof.validUntil,
+    first.verificationSnapshot.web2.proof.validUntil,
+  );
+  assert.ok(!f.state.blockTags.includes("latest"));
+});
+
+test("future safe timestamp is unavailable rather than assumed fresh", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.safeTimestamp += 1n;
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(result.eligibility.status, "unavailable");
+  if (result.eligibility.status !== "unavailable")
+    throw new Error("future block accepted");
+  assert.equal(result.eligibility.reason, "query_clock_behind_snapshot");
+  assert.equal("web2Verified" in result.eligibility, false);
+});
+
+test("expiry during asynchronous history reads is evaluated at completion", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.web2ValidUntil = f.state.now + 10n;
+  f.state.mutate = () => {
+    f.state.now = f.state.web2ValidUntil;
+  };
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(result.eligibility.evaluatedAt, f.state.web2ValidUntil);
+  assert.equal(result.eligibility.status, "available");
+  if (result.eligibility.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(result.eligibility.web2Verified, false);
+  assert.equal(result.eligibility.discoverable, false);
+});
+
+test("chain freshness expiring during a read is unavailable and the captured policy cannot be replaced", async () => {
+  const f = await web2DirectoryFixture();
+  const start = f.state.now;
+  f.state.mutate = () => {
+    f.state.now = start + 101n;
+    f.policy.now = () => start;
+    f.policy.maxSafeBlockAgeSeconds = 100000n;
+  };
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(result.eligibility.status, "unavailable");
+  if (result.eligibility.status !== "unavailable")
+    throw new Error("mutated policy accepted");
+  assert.equal(result.eligibility.reason, "safe_block_stale");
+  assert.equal(result.eligibility.evaluatedAt, start + 101n);
+});
+
+test("invalid or implicit freshness and clock policies refuse before RPC", async () => {
+  const f = await web2DirectoryFixture();
+  for (const policy of [
+    undefined,
+    {},
+    { now: () => 1n },
+    { now: () => 1n, maxSafeBlockAgeSeconds: -1n },
+    { now: () => 1n, maxSafeBlockAgeSeconds: 2n ** 64n },
+    { now: () => -1n, maxSafeBlockAgeSeconds: 0n },
+    { now: () => Number.NaN, maxSafeBlockAgeSeconds: 100n },
+    { now: () => 1n, maxSafeBlockAgeSeconds: Infinity },
+  ]) {
+    await assert.rejects(
+      Reflect.apply(readWeb2Community, undefined, [
+        f.client,
+        f.profile,
+        policy,
+        f.transport,
+      ]),
+      /directory_(query|freshness)/,
+    );
+  }
+  assert.equal(f.state.blockTags.length, 0);
+});
+
+test("clock regression during a read refuses and retained snapshots cannot be evaluated before capture", async () => {
+  const f = await web2DirectoryFixture();
+  const first = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(
+    evaluateWeb2Eligibility(
+      first.verificationSnapshot,
+      first.verificationSnapshot.capturedAt - 1n,
+      100n,
+    ).status,
+    "unavailable",
+  );
+  f.state.mutate = () => {
+    f.state.now -= 1n;
+  };
+  await assert.rejects(
+    readWeb2Community(f.client, f.profile, f.policy, f.transport),
+    /directory_query_clock_regressed/,
+  );
+});
+
+test("a changed safe timestamp or missing timestamp is refused despite an unchanged block hash", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.mutate = () => {
+    f.state.safeTimestamp += 1n;
+  };
+  await assert.rejects(
+    readWeb2Community(f.client, f.profile, f.policy, f.transport),
+    /directory_chain_reorganized/,
+  );
+  const missing = await web2DirectoryFixture(1, "timestamp");
+  await assert.rejects(
+    readWeb2Community(
+      missing.client,
+      missing.profile,
+      missing.policy,
+      missing.transport,
+    ),
+    /directory_not_confirmed/,
+  );
+});
+
+test("future lease deadlines cannot undo delisting or a false verified-at-block result", async () => {
+  const f = await web2DirectoryFixture();
+  f.state.listed = false;
+  const delisted = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(delisted.eligibility.status, "available");
+  if (delisted.eligibility.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(delisted.eligibility.web2Verified, true);
+  assert.equal(delisted.eligibility.discoverable, false);
+  f.state.listed = true;
+  f.state.web2VerifiedAtBlock = false;
+  f.state.hnsValidUntil = f.state.now + 1000n;
+  const revoked = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.equal(revoked.eligibility.status, "available");
+  if (revoked.eligibility.status !== "available")
+    throw new Error("unexpected unavailable eligibility");
+  assert.equal(revoked.eligibility.web2Verified, false);
+  assert.equal(revoked.eligibility.hnsVerified, false);
+  assert.equal(revoked.eligibility.discoverable, false);
 });
