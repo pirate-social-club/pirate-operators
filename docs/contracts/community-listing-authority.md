@@ -1,5 +1,13 @@
 # Community listing authority and emergency delisting
 
+Current delivery decision, November 14: the [Web2 release plan](../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+supersedes HNS-required registration/discovery and combined login/publication
+consent below. Web2 and HNS communities share the same on-chain identities and
+publication/discovery rules. The first-song profile disables learning-results;
+consent redesign starts now before Dance integration. Directory, listing and
+indexer changes remain implementation work; historical source/deployment claims
+below are not acceptance of the new design.
+
 V1 implementation profile, 2026-11-05.
 [CommunityListingAuthorityV1](../../contracts/community/CommunityListingAuthorityV1.sol)
 has local integration tests alongside the

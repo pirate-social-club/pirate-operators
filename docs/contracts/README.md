@@ -1,5 +1,13 @@
 # Decentralized contract boundaries
 
+Current delivery decision, November 14: the [Web2 release plan](../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+supersedes HNS-required registration/discovery and combined login/publication
+consent below. Web2 and HNS communities share the same on-chain identities and
+publication/discovery rules. The first-song profile disables learning-results;
+consent redesign starts now before Dance integration. Directory, listing and
+indexer changes remain implementation work; historical source/deployment claims
+below are not acceptance of the new design.
+
 The 2026-11-06 [compact result amendment](../learning-results-v2.md) supersedes
 the next implementation's per-line recording and payment granularity while
 preserving public grades and independent boards. Its [private history

@@ -1,10 +1,12 @@
 # Pirate operators
 
-The approved [checkpoint 1 Linux pilot delivery plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
-sets the current six-checkpoint sequence: ordinary HTTPS, pending-community
-registration, Pirate-funded community-owned transactions and a disposable
-invited testnet journey before HNS/names. It supersedes conflicting hosting and
-recovery scope below; it does not claim a working installer or production release.
+The approved [Web2 release and optional HNS plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+starts Web2 foundation contracts, consent redesign and integration repair in
+parallel. The first-song pilot uses plain sign-in with learning-results disabled.
+Dance and shared aggregation follow as explicit Web2 release work. HNS is an
+optional later attachment to the same on-chain community and content; it is not
+required for registration, discovery or gas eligibility. The plan supersedes
+conflicting historical scope below and does not claim a qualified release.
 
 The [compact public results amendment](docs/learning-results-v2.md) sets the
 next recording/payment direction: one terminal result per lesson or run,
