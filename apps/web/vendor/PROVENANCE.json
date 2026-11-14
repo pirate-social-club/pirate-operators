@@ -20,7 +20,7 @@
       "consumerRequirements": [
         "The package exports raw TSX source. @solidjs/vite-plugin compiles it from node_modules.",
         "Components import the package's own @/ alias; vite.shared.ts maps @/ to the package src directory.",
-        "Its @kobalte/core dependency is the upstream file:../../vendor specifier; package.json overrides redirect it to the copied Kobalte tarball.",
+        "Its @kobalte/core dependency retains the upstream file:../../vendor specifier. The application directly pins the derived Kobalte archive and overrides the UI dependency with that exact pin, resolving the relative archive from the application root.",
         "Tailwind classes are found by explicit @source paths into the package in src/styles/*.css.",
         "Only the barrel is exported. src/ui.ts imports the three modules used by path through @/, so the barrel's other modules and their assets are never loaded."
       ],
@@ -34,21 +34,35 @@
     },
     {
       "name": "@kobalte/core",
-      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
-      "sha512": "sha512-v9XINIA0drKlKNi31GhTg8NIr9jsyP9txTq0BajSGIplZgvbyAY/CgnrPMe5rKd5CkPxsAgh1Hj9RWsLPinImA==",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
+      "sha512": "sha512-GGuAbIgmPmcr2t5OSsLRypgkuIgZtMgwdFKMObUwKatCDcGae8Ef0zIv8mWP0Ir/7V+70i2A16C7ahTCXXYLIg==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
         "path": "vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
-        "method": "byte copy; its own build provenance is kobalte-core-provenance.json"
+        "method": "derive from the retained original patched archive; its original build provenance is kobalte-core-provenance.json"
       },
-      "transformations": []
+      "transformations": [
+        "Apply vendor/patches/kobalte-solid2-rc21.patch to JSX and compiled JS exports: register dismissable layers reactively when their DOM ref arrives and clean up using the captured node",
+        "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
+      ],
+      "patches": [
+        {
+          "path": "vendor/patches/kobalte-solid2-rc21.patch",
+          "sha512": "sha512-863EGYfsu9DbIeMSQGn4GSATuZUyfmuy2nQk7KHPEkhnoAQ+OtyNV9I1h4hNvmcJ+XnfSZhQwxeHHIohUVzzjQ==",
+          "purpose": "Preserve Escape dismissal and focus return when rc.21 attaches a dialog ref after onSettled."
+        }
+      ],
+      "originalArchive": {
+        "path": "vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
+        "sha512": "sha512-v9XINIA0drKlKNi31GhTg8NIr9jsyP9txTq0BajSGIplZgvbyAY/CgnrPMe5rKd5CkPxsAgh1Hj9RWsLPinImA=="
+      }
     }
   ],
   "dependencyAlignment": {
     "reference": "Original pirate-web-solid bun.lock at c7cb87835a1858a1955c820b03d566365e6d42db; current consumer runtime and compiler pins belong to apps/web/package.json and its lockfile",
     "tool": "scripts/align-upstream-lock.ts remains an original-source comparison diagnostic; its write mode is not the runtime upgrade path",
-    "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; unchanged patched Kobalte and design-system dependencies",
-    "reason": "The consumer upgrades its runtime independently of the imported source commit. Explicit Solid peer overrides select one rc.21 runtime, including the retained patched Kobalte package. The vite-plugin-solid entry is an npm alias for the same renamed compiler package needed by the Storybook peer. Other existing dependency pins stay unchanged unless required by this upgrade."
+    "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; retained Kobalte patch series plus the rc.21 dialog layer fix; other design-system dependencies unchanged",
+    "reason": "The consumer upgrades its runtime independently of the imported source commit. Explicit Solid peer overrides select one rc.21 runtime, including the derived Kobalte package. The vite-plugin-solid entry is an npm alias for the same renamed compiler package needed by the Storybook peer. Other existing dependency pins stay unchanged unless required by this upgrade."
   }
 }

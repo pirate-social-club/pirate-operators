@@ -48,7 +48,18 @@ tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-own
 cp "$work/$kobalte" "$vendor/"
 cp "$work/vendor/kobalte-core-provenance.json" "$vendor/"
 
+# Register dialog layers after their DOM ref arrives. Preserve the original
+# patched archive and derive a separately identified consumer successor.
+mkdir -p "$work/kobalte"
+tar -xzf "$work/$kobalte" -C "$work/kobalte"
+patch --batch --forward --fuzz=0 --strip=1 --directory="$work/kobalte/package" \
+  --input="$vendor/patches/kobalte-solid2-rc21.patch"
+kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz"
+tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-owner \
+  -C "$work/kobalte" -cf - package | gzip -n -9 > "$kobalte_out"
+
 sha512() { openssl dgst -sha512 -binary "$1" | base64 -w0; }
 printf 'solid-ui %s sha512-%s\n' "$(basename "$out")" "$(sha512 "$out")"
 printf 'kobalte  %s sha512-%s\n' "$(basename "$kobalte")" "$(sha512 "$vendor/$(basename "$kobalte")")"
+printf 'kobalte consumer %s sha512-%s\n' "$(basename "$kobalte_out")" "$(sha512 "$kobalte_out")"
 printf 'source   %s\n' "$full"

@@ -545,13 +545,15 @@ compiler independently of the imported UI source. Their current cohort is:
 | `solid-js`, `@solidjs/web`, `@solidjs/signals` and `@solidjs/compiler` | 2.0.0-rc.21 |
 | `@solidjs/vite-plugin` | 3.0.0-next.57 |
 | `vite` | 8.3.6 |
-| `@kobalte/core` in the web client | 2.0.0-alpha.0 at a892187, the retained patched vendored tarball |
+| `@kobalte/core` in the web client | 2.0.0-alpha.0 at a892187, retained patches plus the rc.21 layer-registration fix |
 | `tailwindcss` in the web client | 4.3.3 |
 
 The web tooling also declares `vite-plugin-solid` as an npm alias for the same
 renamed plugin and version to satisfy its Storybook peer. The imported UI
 package carries a reproducible type-only patch for the newer native data
-attribute declarations; its source commit and the Kobalte patches stay pinned.
+attribute declarations. Kobalte retains its original patch series with a
+reproducible fix that registers dialog layers when their DOM refs arrive, so
+Escape dismissal and focus return work with rc.21.
 The package manifests, lockfiles and vendor provenance record the exact inputs.
 
 A runtime update must keep that cohort coherent and pass the client, component

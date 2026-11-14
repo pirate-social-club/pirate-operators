@@ -116,7 +116,9 @@ change.
 The UI source is vendored from pirate-web-solid at c7cb8783. The consumer
 package adds one type-only patch for Solid rc.21's native data attributes on
 shared dialog close controls and declares the pinned rc.21 peers. The original
-patched Kobalte tarball is unchanged. [vendor/PROVENANCE.json](vendor/PROVENANCE.json)
+patched Kobalte archive is retained. A derived archive registers dismissable
+layers when their DOM refs arrive, preserving Escape dismissal and focus return
+on rc.21. Both JSX and compiled JS exports carry the same fix. [vendor/PROVENANCE.json](vendor/PROVENANCE.json)
 records source, patch and package digests and every transformation.
 `scripts/vendor-solid-ui.sh` rebuilds the packages byte for byte.
 

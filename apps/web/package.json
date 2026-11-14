@@ -20,6 +20,7 @@
     "test:components": "vitest run --config test/components.vitest.config.ts"
   },
   "dependencies": {
+    "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
     "@megaeth-labs/wallet-sdk": "1.0.8",
     "@pirate/web-solid-ui": "file:vendor/pirate-web-solid-ui-0.0.0-git.c7cb8783.solid2-rc21.1.tgz",
     "@solidjs/web": "2.0.0-rc.21",
@@ -53,7 +54,7 @@
     "@floating-ui/dom": "1.8.0",
     "@floating-ui/utils": "0.2.12",
     "@internationalized/number": "3.6.7",
-    "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched.tgz",
+    "@kobalte/core": "$@kobalte/core",
     "@kobalte/utils": "2.0.0-alpha.0",
     "@oxc-project/types": "0.127.0",
     "@rolldown/binding-linux-x64-gnu": "1.2.11",
