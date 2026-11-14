@@ -13,7 +13,7 @@ import {
   settleBudget,
   type BudgetKey,
 } from "../community/budgets.ts";
-import { unregisteredOwner } from "../community/owner-policy.ts";
+import { ownerOnly } from "../community/owner-policy.ts";
 
 /**
  * Bounded owner budget for the unregistered owner policy. Reviewed operator
@@ -100,7 +100,7 @@ export function validateOwnerGrant(input: unknown): OwnerBudgetGrant {
   };
   insist(
     g.schema === grant.schema &&
-      unregisteredOwner(grant.policy) &&
+      ownerOnly(grant.policy) &&
       grant.validFrom < grant.expiresAt &&
       grant.sha256 === ownerGrantDigest(grant),
     "owner_grant_binding_invalid",

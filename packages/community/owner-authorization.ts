@@ -2,7 +2,7 @@ import { recoverMessageAddress } from "viem";
 import { bytes32, exact, hashJson, insist, integer, object } from "./common.ts";
 import { address } from "./manifest-core.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
-import { unregisteredOwner } from "./owner-policy.ts";
+import { ownerOnly } from "./owner-policy.ts";
 
 /**
  * Controller-signed authority for owner-only publishing under the unregistered
@@ -51,7 +51,7 @@ export async function validateOwnerAuthorization(
     a.schema === authorization.schema &&
       authorization.communityId === config.communityId &&
       authorization.validFrom < authorization.expiresAt &&
-      unregisteredOwner(authorization.policy) &&
+      ownerOnly(authorization.policy) &&
       authorization.policy.version === config.policies.admission.version &&
       authorization.policy.sha256 === config.policies.admission.sha256,
     "owner_authorization_scope_mismatch",

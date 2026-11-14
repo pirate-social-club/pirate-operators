@@ -87,7 +87,7 @@ function storyPort(
   };
 }
 /** Explicit lifecycle double; never labels a fixture take as graded/paid. */
-export function storyCapture(
+function storyCapture(
   options: UseKaraokeCaptureOptions,
 ): UseKaraokeCaptureResult {
   const [state, setState] = createSignal<KaraokeCaptureState>({

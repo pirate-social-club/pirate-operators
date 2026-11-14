@@ -62,7 +62,9 @@ export interface AdmittedRelease {
   /** True under the unregistered owner policy: no registration artifacts. */
   unregistered?: boolean;
   config: CommunityConfig;
-  prepared: PreparedAdmission;
+  prepared: Pick<PreparedAdmission,"title"|"lyrics">;
+  audioObjectKey?: string;
+  catalog?: {intent:import("../recognition/intent.ts").AcceptedIntent;recordingId:string};
   decision: AdmissionDecision;
   evidenceSha256: string;
   createdAt: number;

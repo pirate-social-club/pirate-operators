@@ -17,7 +17,13 @@
     "test:e2e:live": "playwright test --config playwright.live.config.ts",
     "test:e2e:wallet": "vite build --config test/reward-wallet.vite.config.ts && playwright test --config test/reward-wallet.playwright.config.ts",
     "test:e2e:owner-ui": "vite build --config test/owner-ui.vite.config.ts && playwright test --config test/owner-ui.playwright.config.ts",
-    "test:components": "vitest run --config test/components.vitest.config.ts"
+    "test:components": "vitest run --config test/components.vitest.config.ts",
+    "storybook": "storybook dev -p 6176 --disable-telemetry",
+    "build-storybook": "storybook build --disable-telemetry",
+    "check:storybook:imports": "node scripts/storybook/check-production-imports.mjs",
+    "test:storybook:imports": "node --test scripts/storybook/check-production-imports.test.mjs",
+    "audit:storybook": "node scripts/storybook/audit.mjs",
+    "test:storybook:audit": "node --test scripts/storybook/audit-results.test.mjs scripts/storybook/audit-channel.test.mjs"
   },
   "dependencies": {
     "@kobalte/core": "file:vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
@@ -47,7 +53,8 @@
     "vite": "8.3.6",
     "vite-plugin-solid": "npm:@solidjs/vite-plugin@3.0.0-next.57",
     "vitest": "4.1.11",
-    "@solidjs/vite-plugin": "3.0.0-next.57"
+    "@solidjs/vite-plugin": "3.0.0-next.57",
+    "@storybook/addon-a11y": "10.6.0"
   },
   "overrides": {
     "@floating-ui/core": "1.8.0",

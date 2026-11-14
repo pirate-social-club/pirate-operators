@@ -5,6 +5,7 @@ import type { DanceObjectivesContext } from "./dance-preparation-api.ts";
 export function DanceFundedObjectives(props: {
   readonly context: DanceObjectivesContext;
   readonly onAccept: () => void;
+  readonly disabled?: boolean;
 }) {
   return (
     <section aria-label="Captured Dance terms" class="space-y-4">
@@ -12,10 +13,9 @@ export function DanceFundedObjectives(props: {
         Before you record
       </Type>
       <p>{props.context.consent.text}</p>
-      <p>By continuing, you accept these captured terms for this take.</p>
       <Button
         class="w-full"
-        disabled={props.context.consent.admission !== "admitted"}
+        disabled={props.disabled || props.context.consent.admission !== "admitted"}
         onClick={props.onAccept}
       >
         Accept and continue

@@ -13,6 +13,7 @@ import {
 import {
   loadJob,
   publicationSteps,
+  jobSteps,
   resumeUncertainJob,
   type ExternalOperation,
 } from "../packages/community/publication-store.ts";
@@ -40,12 +41,14 @@ async function fixture() {
   let replayKind: ReplayPolicy["kind"] = "provider_idempotency";
   const driver: PublicationDriver = {
     async request(job, step) {
+      const steps = jobSteps(job);
+      assert.ok(steps.includes(step));
       return {
         input: job.input_hash,
         step,
         previous:
           JSON.parse(job.progress_json)[
-            publicationSteps[publicationSteps.indexOf(step) - 1]!
+            steps[steps.indexOf(step) - 1]!
           ] ?? null,
       };
     },

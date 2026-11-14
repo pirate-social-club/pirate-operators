@@ -1,6 +1,7 @@
 // c7 dance-song-page composition: original grid, selected-reference player,
 // account-private latest attempt and recorder. Authenticated owner producer
 // replaces central session/persona services; shared routing stays host-owned.
+import { createDancePostingViewport, dancePostingAllowed } from "./dance-viewport.ts";
 import { isServer } from "@solidjs/web";
 import {
   createEffect,
@@ -38,6 +39,8 @@ import {
 } from "./ports.ts";
 
 export interface DanceSongPageProps {
+  /** A host may explicitly present reference browsing without posting. */
+  readonly browseOnly?: boolean;
   readonly communityId: string;
   readonly songKey: string;
   readonly account: DanceAccountPort;
@@ -61,6 +64,8 @@ type Ready = {
   cursor: string | null;
 };
 export function DanceSongPage(props: DanceSongPageProps) {
+  const viewportAllowsPosting = createDancePostingViewport();
+  const postingAllowed = () => !props.browseOnly && viewportAllowsPosting();
   const [phase, setPhase] = createSignal<
     "loading" | "anonymous" | "error" | "ready"
   >("loading");
@@ -251,6 +256,7 @@ export function DanceSongPage(props: DanceSongPageProps) {
     setMessage("");
   };
   const begin = () => {
+    if (props.browseOnly || !dancePostingAllowed()) return;
     const shown = value(),
       target = selected(),
       chosen = detail(),
@@ -369,21 +375,23 @@ export function DanceSongPage(props: DanceSongPageProps) {
   return (
     <div
       role={recording() ? undefined : "main"}
-      class="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-5 p-5"
+      class="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-3 px-4 pb-4"
       data-dance-song={phase()}
     >
       <Show when={!recording()}>
-        <div class="flex items-center gap-3">
+        <div class="flex h-14 items-center justify-between">
           <button
-            class="text-sm underline"
+            class="flex size-11 items-center justify-center"
+            aria-label="Back to song"
             type="button"
             onClick={props.onBack}
           >
-            Back to song
+            <IconArrowLeft class="size-5" />
           </button>
-          <Type as="h1" variant="body-strong">
+          <Type as="h1" variant="h3" class="text-lg font-semibold leading-7">
             Dances
           </Type>
+          <span aria-hidden="true" class="size-11" />
         </div>
       </Show>
       <Show when={phase() === "loading"}>
@@ -401,6 +409,7 @@ export function DanceSongPage(props: DanceSongPageProps) {
           Check again
         </Button>
       </Show>
+      <Show when={!postingAllowed() && !selected()}><p class="text-sm text-muted-foreground">Recording is available on mobile.</p></Show>
       <Show when={value()} keyed>
         {(shown) => (
           <>
@@ -410,16 +419,17 @@ export function DanceSongPage(props: DanceSongPageProps) {
                 fallback={<p>No dances are available for this song yet.</p>}
               >
                 <div
-                  class="grid grid-cols-3 gap-2"
+                  class="grid grid-cols-2 gap-1"
+                  role="group"
                   aria-label="Dances for this song"
                 >
                   <For each={shown.choices}>
                     {(target, index) => (
                       <button
                         type="button"
-                        class="relative aspect-[9/16] overflow-hidden rounded-xl bg-card text-foreground"
+                        class="relative aspect-[177/300] overflow-hidden rounded-lg bg-[#171B1F] text-foreground"
                         onClick={() => void choose(target)}
-                        aria-label={`Open dance ${index() + 1}`}
+                        aria-label={`Open Dance ${index() + 1} · ${target.durationMs / 1000} s`}
                       >
                         <Show when={target.posterUrl}>
                           <img
@@ -451,6 +461,7 @@ export function DanceSongPage(props: DanceSongPageProps) {
                   <section
                     class="fixed inset-0 z-30 flex flex-col overflow-y-auto bg-black text-white"
                     aria-label="Selected dance"
+                    data-dance-selection={busy() ? "loading" : detail() ? "ready" : "error"}
                   >
                     <div class="absolute inset-0">
                       <VideoPlayer
@@ -471,20 +482,22 @@ export function DanceSongPage(props: DanceSongPageProps) {
                         }}
                       />
                     </div>
-                    <div class="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between p-4">
+                    <div class="pointer-events-none relative z-10 flex min-h-dvh flex-col justify-between px-4 pb-4 pt-2">
+                      <header class="flex h-14 items-center">
                       <IconButton
-                        class="pointer-events-auto size-11 bg-black/70"
+                        class="pointer-events-auto size-11 bg-transparent"
                         aria-label="Back to dances"
                         variant="secondary"
                         onClick={back}
                       >
                         <IconArrowLeft />
                       </IconButton>
-                      <div class="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-3 rounded-xl bg-black/80 p-4">
-                        <Type as="h2" variant="h3" class="text-white">
+                      </header>
+                      <div class="pointer-events-auto mx-auto flex w-full max-w-md flex-col gap-3">
+                        <Type as="h2" variant="h3" class="sr-only">
                           Dance
                         </Type>
-                        <p>{target.durationMs / 1000} seconds</p>
+                        <Show when={!postingAllowed()}><p class="text-sm">Recording is available on mobile.</p></Show>
                         <Show when={busy()}>
                           <p aria-busy="true">Checking your recording…</p>
                         </Show>
@@ -514,9 +527,6 @@ export function DanceSongPage(props: DanceSongPageProps) {
                                 when={shown.owner}
                                 fallback={
                                   <>
-                                    <p class="text-sm">
-                                      {shown.account.profileLabel}
-                                    </p>
                                     <Show
                                       when={
                                         !target.recordingAllowed ||
@@ -530,8 +540,8 @@ export function DanceSongPage(props: DanceSongPageProps) {
                                     </Show>
                                     <Show
                                       when={
-                                        !latest() ||
-                                        !danceReviewPending(latest()!)
+                                        postingAllowed() && (!latest() ||
+                                        !danceReviewPending(latest()!))
                                       }
                                     >
                                       <Button
@@ -579,6 +589,11 @@ export function DanceSongPage(props: DanceSongPageProps) {
               {(source) => (
                 <DanceRecorderPanel
                   source={source}
+                  assertFreshPosting={() => {
+                    if (props.browseOnly || !dancePostingAllowed())
+                      throw Error("dance_posting_unavailable");
+                  }}
+                  songLabel={selected()?.title}
                   recorder={props.recorder}
                   onSignIn={props.onSignIn}
                   onAccessLost={() => {

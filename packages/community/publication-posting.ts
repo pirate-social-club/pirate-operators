@@ -9,6 +9,7 @@ import {
   type Hex,
   type TransactionSerializedLegacy,
 } from "viem";
+import { catalogOwner } from "./owner-policy.ts";
 import type { PrivateKeyAccount } from "viem/accounts";
 import {
   amount,
@@ -59,6 +60,8 @@ export interface PostingPorts {
   bounds: PostingBounds;
   /** Owner jobs spend post fees from the bounded owner grant. */
   ownerGrant?: OwnerBudgetGrant;
+  /** Mandatory for the new policy, called after all async fee/RPC checks at send. */
+  catalogBeforeBroadcast?():Promise<void>;
 }
 function intent(operation: ExternalOperation): FirstPublication {
   const request = object(JSON.parse(operation.request_json)),
@@ -382,6 +385,10 @@ export async function executePosting(
   const already = await observed(operation, ports);
   if (already) return already;
   await authorize(ports);
+  if (catalogOwner(ports.config.policies.admission)) {
+    insist(ports.catalogBeforeBroadcast,"catalog_pending",503);
+    await ports.catalogBeforeBroadcast();
+  }
   try {
     const hash = await ports.client.sendRawTransaction({
       serializedTransaction: tx.raw,

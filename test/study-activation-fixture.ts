@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   encodeAbiParameters,
+  encodeEventTopics,
   keccak256,
   parseTransaction,
   stringToHex,
   type Hex,
   type PublicClient,
 } from "viem";
+import { directoryAbi } from "../packages/community/directory-wire.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { canonical, hashJson, hashText } from "../packages/community/common.ts";
 import { preparePin } from "../packages/community/ipfs.ts";
@@ -275,7 +277,7 @@ export async function activationFixture(version: 3 | 4 = 3) {
       },
       blockNumber: base + 10n + BigInt(i),
       logIndex: i,
-      blockHash: hashText("log" + i),
+      blockHash: hashText("block" + (base + 10n + BigInt(i))),
       transactionHash: hashText("tx" + i),
     });
   }
@@ -291,7 +293,8 @@ export async function activationFixture(version: 3 | 4 = 3) {
     getBlockNumber: async () => base + 100n,
     getBlock: async ({ blockNumber = base + 100n }: any = {}) => ({
       number: blockNumber,
-      hash: state.canonical ? blockHash(blockNumber) : hashText("orphan"),
+      hash: (state.canonical || logs.some(log => log.blockNumber === blockNumber))
+        ? blockHash(blockNumber) : hashText("orphan"),
       timestamp: 1794042000n,
     }),
     getCode: async ({ address }: any) =>
@@ -354,6 +357,30 @@ export async function activationFixture(version: 3 | 4 = 3) {
           blockNumber: base + 50n,
           blockHash: blockHash(base + 50n),
           status: "success",
+        };
+      const configurationLog = logs.find(log => log.transactionHash === hash && (state.active || log.args.revision <= BigInt(history.length)));
+      if (configurationLog)
+        return {
+          transactionHash: hash,
+          blockNumber: configurationLog.blockNumber,
+          blockHash: configurationLog.blockHash,
+          status: "success",
+          logs: [{
+            address: history[0].directory,
+            blockNumber: configurationLog.blockNumber,
+            blockHash: configurationLog.blockHash,
+            transactionHash: hash,
+            logIndex: configurationLog.logIndex,
+            removed: false,
+            topics: encodeEventTopics({ abi: directoryAbi, eventName: "ConfigurationPublished", args: {
+              communityId: configurationLog.args.communityId,
+            } }),
+            data: encodeAbiParameters(directoryAbi[1].inputs.filter(input => !("indexed" in input && input.indexed)), [
+              configurationLog.args.revision, configurationLog.args.controller,
+              configurationLog.args.publisher, configurationLog.args.operatorPayments,
+              configurationLog.args.learningRecords, configurationLog.args.sha256Digest, configurationLog.args.uri,
+            ]),
+          }],
         };
       const tx = transactions.get(hash);
       if (!tx?.landed) {

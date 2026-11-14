@@ -1,5 +1,10 @@
 // Public, independently verified disposable deployment identities.
 export const firstSong = {
+  schema: "pirate.community-deployment/1",
+  postingPeriod: "first-song-20261105-v1",
+  rpcUrl: "https://carrot.megaeth.com/rpc",
+  ipfsGateways: ["https://gateway.pinata.cloud", "https://ipfs.filebase.io"],
+  creatorOrigin: "https://pirate-wallet-test.piratesocialclub.workers.dev",
   origin: "https://pirate-first-song-20261105.piratesocialclub.workers.dev",
   name: "First Song Managed Test",
   managedOrigin:

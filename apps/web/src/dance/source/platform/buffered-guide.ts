@@ -1,7 +1,7 @@
 export type ReadSongGuideGrant = (
   postId: string,
   signal: AbortSignal,
-) => Promise<{ playback_url: string; expires_at: number }>;
+) => Promise<import("../../../../../../packages/dance/production.ts").DanceGuideAccess>;
 
 /** Full compressed song bound; refused files never start a camera take. */
 export const GUIDE_AUDIO_MAX_BYTES = 32 * 1024 * 1024;

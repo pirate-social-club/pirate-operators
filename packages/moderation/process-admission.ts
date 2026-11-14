@@ -3,6 +3,7 @@ import type { PrivateKeyAccount } from "viem/accounts";
 import { CommunityError, hashText, insist } from "../community/common.ts";
 import { configureBudget } from "../community/budgets.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
+import { catalogOwner } from "../community/owner-policy.ts";
 import { admissionRequest } from "./capabilities.ts";
 import {
   finishAdmission,
@@ -170,6 +171,7 @@ export function processAdmission(
         await authorize();
         // Recognition only under the unregistered owner policy. The captured
         // request's checks must agree; the policy is the pinned one above.
+        insist(!catalogOwner(pinnedPolicy!),"recognition_reservation_path_required",409);
         const recognitionOnly = unregisteredOwner(pinnedPolicy!);
         const request = admissionRequest(
             JSON.parse(row.request_json),

@@ -13,9 +13,11 @@ import { address } from "../community/manifest-core.ts";
 import { validateLyrics } from "../community/lyric-manifest.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import {
-  unregisteredOwner,
+  unregisteredOwner, ownerOnly, catalogOwner,
   UNREGISTERED_OWNER_POLICY,
 } from "../community/owner-policy.ts";
+import { readCanonicalIntent } from "../recognition/canonical-intent.ts";
+import { establishCatalogOwnerRelease, type CatalogOwnerReleaseInputs } from "./catalog-owner-release.ts";
 import { selectedAdmission } from "../moderation/curated-admission.ts";
 import { verifyAdmission } from "../moderation/admission.ts";
 import type { PreparedAdmission } from "../moderation/prepare-admission.ts";
@@ -53,7 +55,7 @@ export function requireOwnerGrantScope(
   config: CommunityConfig,
 ) {
   insist(
-    unregisteredOwner(config.policies.admission) &&
+    ownerOnly(config.policies.admission) &&
       grant.communityId === config.communityId &&
       grant.communityOrigin === config.app.origin &&
       grant.policy.version === config.policies.admission.version &&
@@ -111,6 +113,7 @@ export async function establishOwnerRelease(
   providerEndpoint: string,
   now = Math.floor(Date.now() / 1000),
   mode: "execute" | "reconcile" = "execute",
+  catalog?: CatalogOwnerReleaseInputs,
 ): Promise<AdmittedRelease | null> {
   requireOwnerGrantScope(grant, config);
   const context = ownerContext(input);
@@ -127,6 +130,10 @@ export async function establishOwnerRelease(
     "release_lyrics_identity_mismatch",
     409,
   );
+  if (catalogOwner(config.policies.admission)) {
+    insist(catalog,"recognition_release_unconfigured",503);
+    return establishCatalogOwnerRelease(db,context,grant,config,catalog,now,mode);
+  }
   const key = ownerReleaseKey(grant, context.jobId),
     scope = ownerBudgetKey(grant, "songs").scope;
   const prior = await db
@@ -266,6 +273,7 @@ export interface OwnerReleaseService {
   filebaseCredential: string;
   acrEndpoint: string;
   pinTransport?: IpfsTransport;
+  catalog?: CatalogOwnerReleaseInputs;
 }
 const reply = (body: unknown, status = 200) =>
   Response.json(body, {
@@ -319,6 +327,12 @@ export async function ownerReleaseFetch(
     const capturedConfig = hashJson(current),
       capturedPairing = hashJson(pairing);
     const authorizePurchase = async () => {
+      if (catalogOwner(current.policies.admission)) {
+        insist(service.catalog,"recognition_release_unconfigured",503);
+        const canonicalPorts=await service.catalog.canonical(current.communityId),intent=await readCanonicalIntent(canonicalPorts,String(object(body.context).jobId));
+        await (await service.catalog.recognition(current.communityId)).ready(intent.intent);
+        insist(canonical((await readCanonicalIntent(canonicalPorts,intent.intent.jobId)).intent)===canonical(intent.intent),"catalog_release_changed",409);
+      }
       const fresh = await service.currentConfiguration(pairing),
         active = service.pairings.find(
           (p) => p.communityId === pairing.communityId,
@@ -355,6 +369,7 @@ export async function ownerReleaseFetch(
       service.acrEndpoint,
       Math.floor(Date.now() / 1000),
       route.mode,
+      service.catalog,
     );
     if (!release) return reply({ state: "absent" }, 404);
     const role = text(body.role, 32) as ReleaseRole;
@@ -363,7 +378,8 @@ export async function ownerReleaseFetch(
       "unsupported_release_artifact",
       400,
     );
-    const artifact = await releaseArtifact(db, media, release, role);
+    const artifactMedia = release.catalog ? (await service.catalog!.canonical(current.communityId)).media : media;
+    const artifact = await releaseArtifact(db, artifactMedia, release, role);
     const operationId = pinOperationId(release.grant.sha256, role),
       reservation = hashJson({ operationId, intent: artifact.intent });
     if (route.mode === "execute") {

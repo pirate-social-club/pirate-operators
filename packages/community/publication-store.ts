@@ -1,6 +1,6 @@
 import { canonical, hashJson, insist, object, token } from "./common.ts";
 import {
-  unregisteredOwner,
+  unregisteredOwner, catalogOwner, CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_VERSION,
 } from "./owner-policy.ts";
@@ -13,7 +13,8 @@ export const publicationSteps = [
   "pin_manifest",
   "publication",
 ] as const;
-export type PublicationStep = (typeof publicationSteps)[number];
+export type PublicationStep = (typeof publicationSteps)[number] | "catalog_reserve" | "catalog_confirm";
+export const catalogPublicationSteps: readonly PublicationStep[] = ["catalog_reserve","pin_audio","pin_lyrics","pin_manifest","publication","catalog_confirm"];
 /** Jobs captured under the unregistered owner policy never register. */
 export const unregisteredPublicationSteps: readonly PublicationStep[] =
   publicationSteps.filter((step) => step !== "registration");
@@ -27,6 +28,7 @@ export function jobSteps(
 ): readonly PublicationStep[] {
   const authority = object(JSON.parse(job.authority_json)),
     policy = authority.policy;
+  if (policy && typeof policy === "object" && catalogOwner(policy as {version:string;sha256:string})) return catalogPublicationSteps;
   return policy &&
     typeof policy === "object" &&
     unregisteredOwner(policy as { version: string; sha256: string })
@@ -62,7 +64,7 @@ export interface ExternalOperation {
   provider_id: string | null;
 }
 export const isPublicationStep = (value: string): value is PublicationStep =>
-  publicationSteps.includes(value as PublicationStep);
+  [...publicationSteps,"catalog_reserve","catalog_confirm"].includes(value);
 export async function loadJob(db: D1Database, id: string) {
   const job = await db
     .prepare("SELECT * FROM publication_jobs WHERE job_id=?")
@@ -89,7 +91,9 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
   const job = await db
     .prepare(
       `UPDATE publication_jobs SET lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
-    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication')
+    WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication','catalog_reserve','catalog_confirm')
+    AND (phase NOT IN ('catalog_reserve','catalog_confirm') OR (json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?))
+    AND NOT (phase IN ('admission','registration') AND json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?)
     AND NOT (phase='registration' AND COALESCE(json_extract(authority_json,'$.policy.version'),'')=? AND COALESCE(json_extract(authority_json,'$.policy.sha256'),'')=?)
     RETURNING *`,
     )
@@ -100,6 +104,7 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
       id,
       time,
       time,
+      CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH, CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH,
       UNREGISTERED_OWNER_POLICY_VERSION,
       UNREGISTERED_OWNER_POLICY_HASH,
     )
@@ -291,7 +296,11 @@ export async function advanceJob(
 ) {
   const steps = jobSteps(job);
   insist(steps.includes(step), "step_outside_job_sequence", 409);
-  const next = steps[steps.indexOf(step) + 1] ?? "published";
+  const next = steps.at(steps.indexOf(step) + 1) ?? "published";
+  if (next === "published" && catalogOwner(object(JSON.parse(job.authority_json)).policy as {version:string;sha256:string})) {
+    const obligation = await db.withSession("first-primary").prepare("SELECT state FROM publication_catalog_obligations WHERE job_id=?").bind(job.job_id).first<{state:string}>();
+    insist(obligation?.state === "complete", "catalog_pending", 409);
+  }
   const progress = object(JSON.parse(job.progress_json));
   delete progress.resumePhase;
   const updated = await db
