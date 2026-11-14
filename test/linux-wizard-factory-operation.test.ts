@@ -67,6 +67,13 @@ test("admitted create/import upgrade plans keep original kind predecessor and re
   }
 });
 
+test("create upgrades cannot omit their original predecessor operation", () => {
+  const value = operation("create", "upgrade"); value.plan.predecessorOperationId = null;
+  value.plan = rehash(value.plan); const before = structuredClone(value);
+  assert.throws(() => retainLinuxOperation(value), /upgrade_predecessor_required/);
+  assert.deepEqual(value, before);
+});
+
 test("initial import may carry a reviewed upgrade without inventing a predecessor operation", () => {
   const value = operation("import", "upgrade"); value.plan.predecessorOperationId = null;
   value.plan = rehash(value.plan);

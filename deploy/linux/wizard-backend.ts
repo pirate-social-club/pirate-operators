@@ -90,7 +90,9 @@ export function retainLinuxOperation(value: LinuxOperation) {
   const compatible = operation.kind === "restore" ? action === "restore" :
     action === "upgrade" || (operation.kind === "create" ? action === "create" : action === "adopt");
   assert(compatible, "linux_backend_operation_action_mismatch");
-  if (action === "upgrade") {
+  // Initial import can predate this wizard journal; its exact server-held
+  // plan and current authenticated profile remain required before binding.
+  if (action === "upgrade" && operation.kind !== "import") {
     assert(typeof operation.plan.predecessorOperationId === "string" &&
       operation.plan.predecessorOperationId.length > 0, "upgrade_predecessor_required");
   }
