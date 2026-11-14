@@ -60,7 +60,7 @@ export class DanceStore implements DanceRepository {
       // Recover exact generated composition before SQLite resolves nested
       // SELECTs. Every predicate still runs in the SAME accepting db.batch.
       // One result row preserves changes()=1 as well as the statement/clock
-      // boundary. UNION ALL only enumerates the bounded predicate cases.
+      // boundary. VALUES enumerates cases without compound-SELECT terms.
       const guards: D1PreparedStatement[] = [];
       let parts: DanceFence[] = [], bindCount = 1;
       const flush = () => {
@@ -68,8 +68,9 @@ export class DanceStore implements DanceRepository {
         let result = "dance_guard_result";
         while (parts.some(f => f.sql.toLowerCase().includes(result))) result += "_";
         const condition = parts.length === 1 ? parts[0].sql :
-          "NOT EXISTS(SELECT 1 FROM (" + parts.map(f => "SELECT CASE WHEN (" + f.sql +
-            ") THEN 1 ELSE 0 END AS " + result).join(" UNION ALL ") + ") WHERE " + result + "=0)";
+          "NOT EXISTS(WITH " + result + "(" + result + ") AS (VALUES " +
+            parts.map(f => "(CASE WHEN (" + f.sql + ") THEN 1 ELSE 0 END)").join(",") +
+            ") SELECT 1 FROM " + result + " WHERE " + result + "." + result + "=0)";
         guards.push(this.stmt("INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" + condition +
           ") THEN 1 ELSE 0 END", token(), ...parts.flatMap(f => f.values)));
         parts = []; bindCount = 1;

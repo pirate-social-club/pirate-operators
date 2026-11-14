@@ -490,3 +490,84 @@ test("genuine D1 detached multi-layer frames keep every predicate in bounded sam
     assert.equal(await engine.db.prepare("SELECT count(*) AS n FROM dance_transaction_guards").first("n"), 0);
   } finally { await engine?.dispose(); f.close(); }
 });
+
+test("genuine D1 compound-term boundary and VALUES rowset guards preserve complete truth and same-batch rollback", async () => {
+  const f = hostSimulation();
+  let engine: Awaited<ReturnType<typeof genuineD1>> | undefined;
+  try {
+    engine = await genuineD1(f.db);
+    const db = engine.db;
+    const compound = (n: number) => db.prepare(Array.from({ length: n }, (_, i) =>
+      "SELECT " + i + " AS n").join(" UNION ALL ")).bind().all();
+    // Measure this genuine engine's boundary; 513 is a controlled stress
+    // probe, not a claimed engine limit. No limit/fixture/SQL rewrite.
+    let accepted = 1, refused = 513;
+    await compound(accepted);
+    await assert.rejects(compound(refused), /too many terms in compound SELECT/i);
+    while (accepted + 1 < refused) {
+      const middle = Math.floor((accepted + refused) / 2);
+      try { await compound(middle); accepted = middle; }
+      catch (error) {
+        assert.match(String(error), /too many terms in compound SELECT/i);
+        refused = middle;
+      }
+    }
+    assert.equal(refused, accepted + 1);
+    await compound(accepted);
+    await assert.rejects(compound(refused), /too many terms in compound SELECT/i);
+    // Actual row predicates, not a constant-true replacement. VALUES must
+    // retain every row above the measured compound boundary and at513.
+    const rows = (n: number, falseAt = -1) => Array.from({ length: n }, (_, i) =>
+      "(CASE WHEN EXISTS(SELECT 1 FROM community_accounts WHERE account_id='actor' AND " +
+      i + "<>" + falseAt + ") THEN 1 ELSE 0 END)").join(",");
+    for (const n of new Set([refused, 513])) {
+      const query = (falseAt = -1) => db.prepare("WITH native_rows(valid) AS (VALUES " +
+        rows(n, falseAt) + ") SELECT count(*) AS n,min(valid) AS minimum FROM native_rows").bind()
+        .first<{ n: number; minimum: number }>();
+      assert.deepEqual(await query(), { n, minimum: 1 });
+      for (const index of new Set([0, Math.floor(n / 2), n - 1]))
+        assert.deepEqual(await query(index), { n, minimum: 0 });
+    }
+    // Observe actual accepting SQL while forwarding the genuine D1 API and
+    // results unchanged. This fixture logs no production values/signatures.
+    const prepared: string[] = [];
+    const observed = new Proxy(db, { get(target, property) {
+      if (property === "prepare") return (sql: string) => {
+        prepared.push(sql); return target.prepare(sql);
+      };
+      const member = Reflect.get(target, property);
+      return typeof member === "function" ? member.bind(target) : member;
+    } });
+    const store = new DanceStore(observed);
+    const leaves = Array.from({ length: 513 }, (_, i) => ({
+      sql: "EXISTS(SELECT 1 FROM community_accounts WHERE account_id=? AND ?=" + i + ")",
+      values: ["actor", i],
+    }));
+    const fence = structuredClone(joinDanceFences(...leaves));
+    await store.atomic([fence], [
+      db.prepare("INSERT INTO host_fixture_acceptance VALUES('values-native')").bind(),
+      store.changed(),
+    ]);
+    const guards = prepared.filter(sql => sql.startsWith("INSERT INTO dance_transaction_guards SELECT"));
+    assert.equal(guards.length, 1);
+    assert.equal(guards[0].includes(" UNION ALL "), false);
+    assert.ok(guards[0].includes(" AS (VALUES "));
+    assert.equal((guards[0].match(/CASE WHEN /g) ?? []).length, 34);
+    for (const index of [0, 256, 512]) {
+      const stale = leaves.map((leaf, i) => i === index ? { ...leaf, values: ["actor", -1] } : leaf);
+      await assert.rejects(store.atomic([structuredClone(joinDanceFences(...stale))],
+        [db.prepare("INSERT INTO host_fixture_acceptance VALUES(?)").bind("must-refuse-values-" + index)]),
+        /dance_fence_changed|CHECK constraint failed: valid/);
+    }
+    // A later mutation failure must roll back earlier mutations AND guards
+    // in the same native batch, preserving the accepted row/original facts.
+    await assert.rejects(store.atomic([fence], [
+      db.prepare("INSERT INTO host_fixture_acceptance VALUES('rolled-back-before-failure')").bind(),
+      db.prepare("INSERT INTO host_fixture_acceptance VALUES('values-native')").bind(),
+    ]), /UNIQUE constraint failed/i);
+    assert.deepEqual((await db.prepare("SELECT id FROM host_fixture_acceptance ORDER BY id").bind()
+      .all<{ id: string }>()).results, [{ id: "values-native" }]);
+    assert.equal(await db.prepare("SELECT count(*) AS n FROM dance_transaction_guards").bind().first("n"), 0);
+    assert.ok(engine.binds.length > 0 && engine.binds.every(n => n <= 100));
+  } finally { await engine?.dispose(); f.close(); }
+});
