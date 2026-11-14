@@ -1,0 +1,148 @@
+{
+  "schema": "pirate.public-readiness-provenance/3",
+  "preparedDate": "2026-11-14",
+  "parentReviewCommit": "bc39fdd15290677261e99b9abad92d42e6d2c799",
+  "baseCommit": "c9a969ce02f2af1cc0b76d9b305ecbaedab59f63",
+  "parentProvenanceSha256": "863cae3526c25c78a866911324a0bdc8491cf911f2effeb31bdefeca61b3bc6d",
+  "sourcePacketManifestSha256": "e6d2f2b1aa3dd3debef77e28ad5b6b5caae722296daea7eb9bd8b6980d4b71c0",
+  "sourcePacketSealSha256": "b070c2a5a2f0e1a41e96e4f3ddec42157113f909c544b624c1db18d7abc4fc29",
+  "sourcePacketUnchanged": true,
+  "publicationKind": "documentation-only nonce recovery correction and successor specification proposal",
+  "runtimeExecuted": false,
+  "proposedCases": 84,
+  "caseStatus": "ALL_UNRUN",
+  "oldCaseIdsRetained": 72,
+  "newCases": 12,
+  "files": [
+    {
+      "path": "ARCHITECTURE.md",
+      "parentSha256": "812c112af0b8bc4fabe24fff697a7a8433f32bf3da32b85be895b9829a69814e",
+      "publicSha256": "53fdf605b6b8b6e1e7edec65acf9041d2a4d088b3089f258c0ba708a757d966b",
+      "publicBytes": 17739,
+      "changed": true,
+      "changes": [
+        "Replace sum-of-attempt liability with qualified backend nonce-group maximum and conditional category exposures.",
+        "Protect Pirate recovery budget and actual sender float; preserve exact original, safe proof and reorg semantics."
+      ]
+    },
+    {
+      "path": "COSTS.md",
+      "parentSha256": "3c759641d082d4e19f37241c48ddd4f9d76e84008b98af5427fe08fdacdbed6b",
+      "publicSha256": "7b48cc0579ebbe5c1eb2aeb58944e40fe277a960c1d8bef50dbab1c2012d637c",
+      "publicBytes": 8397,
+      "changed": true,
+      "changes": [
+        "Attribute fee-bump excess/cancellation to Pirate recovery; exclude independent fees and MOSS from nonce shortcut."
+      ]
+    },
+    {
+      "path": "INDEXING.md",
+      "parentSha256": "036cf330ed6e91f87716d657603947eee77917cde54a13910d743a445b2978bd",
+      "publicSha256": "036cf330ed6e91f87716d657603947eee77917cde54a13910d743a445b2978bd",
+      "publicBytes": 5760,
+      "changed": false,
+      "changes": []
+    },
+    {
+      "path": "READINESS.md",
+      "parentSha256": "ea79e1079e6ee686f13db16cdaed4d352551305b9b3996ed458efd4b064b9145",
+      "publicSha256": "05007b01478382b74f73c096fbe13baf53c7ebe306011cbc0f30d9c31e1e44ec",
+      "publicBytes": 15670,
+      "changed": true,
+      "changes": [
+        "Add atomic admin revoke-and-re-attest with standalone urgent revoke.",
+        "Link separate successor specification proposal."
+      ]
+    },
+    {
+      "path": "README.md",
+      "parentSha256": "7c92ecee59b5067fdb66363e2bec3c044aba710fd7ac91bdfba6c1b3dd6f7743",
+      "publicSha256": "70bb0a060e98f3d3cb1286ca99b865dcc549a62a2477bcbb2a5a65e4fbc782dc",
+      "publicBytes": 4389,
+      "changed": true,
+      "changes": [
+        "Update exact count and review order; retain immutable source/packet pins.",
+        "Pin provenance parent bc39fdd and mark successor interface/commercial gaps."
+      ]
+    },
+    {
+      "path": "REHEARSAL.md",
+      "parentSha256": "86cdfa988d33c501cfb5a46f9dd945cf90c0fea775e58305868ddd3ad7535b03",
+      "publicSha256": "4bb67a3e6905cb023cba94156fcc30f1b3ebce480c59d3b3b32f27d18ff2c4e5",
+      "publicBytes": 11539,
+      "changed": true,
+      "changes": [
+        "Qualify exhausted-community recovery before a second shared-sender community.",
+        "Add explicit disposable pilot acknowledgement before claim."
+      ]
+    },
+    {
+      "path": "REVIEW-DISPOSITIONS.md",
+      "parentSha256": "4355ca5ab7d6d161deb717cc08479b821a1f302e3d63d07e56532c4a2e84f6e6",
+      "publicSha256": "bb176689e43fdcad4ea50d06bf387282f05ef652e41dd9c4cc490585e780e4d0",
+      "publicBytes": 7072,
+      "changed": true,
+      "changes": [
+        "Separate historical dispositions from current nonce-reserve and successor review response."
+      ]
+    },
+    {
+      "path": "SUCCESSOR-SPEC.md",
+      "parentSha256": null,
+      "publicSha256": "7f99d5fbb6c403e07a2f40cb776163b080e309d725f2b66438dce31196104254",
+      "publicBytes": 12906,
+      "changed": true,
+      "changes": [
+        "New proposal0.1: immutable core/scoped module rules, fixed-price exact settlement proposal, uniform consent, renewal/attestation/exit/canonical labels/disposable notices.",
+        "Explicit unresolved commercial values and implementation wire interfaces; no adoption."
+      ]
+    },
+    {
+      "path": "UI-NOTE.md",
+      "parentSha256": "fd0de0cdfcda150c0e252c2831c9bcbe0fa303a67b53f118b409977ed55d7dfc",
+      "publicSha256": "a5c9569b5c39ac6fdd6a3ffe1c6575d2679fc2b94875c9d2567d97e9b037df1e",
+      "publicBytes": 5508,
+      "changed": true,
+      "changes": [
+        "Require truthful pilot notice without changing wizard source."
+      ]
+    },
+    {
+      "path": "gate-plan.json",
+      "parentSha256": "9147bf034e4e4a833d19660033810886ecd9291302afb859fd2f095993a64c8e",
+      "publicSha256": "acbea34fe051fa3881b8abc2ccddffd44a9cfebf5cdc4fdb37a18f43c6e39758",
+      "publicBytes": 31426,
+      "changed": true,
+      "changes": [
+        "Retain72 IDs; amend SUB-02 and add12 cases; total84 ALL_UNRUN."
+      ]
+    },
+    {
+      "path": "interfaces/sponsorship-proposal.ts",
+      "parentSha256": "9b1498dbbdc45bc25850dbc1158ca147969e19f913473a26d95930b64a972740",
+      "publicSha256": "e9f1198629ae22f93467a6ae8e57f1ddf475ceffb19555e39e843798e15db167",
+      "publicBytes": 11417,
+      "changed": true,
+      "changes": [
+        "Add nonce-group reservation sketch and version manual attempt shape to2; no implementation or ABI."
+      ]
+    },
+    {
+      "path": "official-sources.json",
+      "parentSha256": "803b24f10c61f76a95b18744abef67e02e80a00c3c56ac3bd7e296bd3ed311f0",
+      "publicSha256": "803b24f10c61f76a95b18744abef67e02e80a00c3c56ac3bd7e296bd3ed311f0",
+      "publicBytes": 4771,
+      "changed": false,
+      "changes": []
+    }
+  ],
+  "omitted": [
+    "machine-specific evidence and turn records",
+    "local source/device inventories",
+    "local task records and handoff communication",
+    "role-addresses.json",
+    "private wallet-device and owner-custody statements"
+  ],
+  "scope": "No implementation/ABI/dependency/workflow/deployment/funds action. Successor commercial and wire-interface choices are explicitly proposed or open; no rollout gate.",
+  "hashScope": "Listed files exclude this manifest; Git commit pins complete tree. Parent provenance chain preserves original redactions."
+}
