@@ -8,6 +8,17 @@ import { communityNamesApi, type CommunityMemberPorts } from "../services/commun
 import type { CommunityJoinPolicy, MemberContext } from "../packages/community-names/member-authorization.ts";
 import { memberContext } from "../packages/community-names/member-authorization.ts";
 import { nativeProfileDigest } from "../packages/community-names/member-api.ts";
+import { decodeJoin } from "../apps/web/src/shell/community-membership.ts";
+
+async function readJoin(response: Response | Promise<Response>) {
+  return decodeJoin(await (await response).json());
+}
+async function readAcceptedJoin(response: Response | Promise<Response>) {
+  const view=await readJoin(response);assert.ok(view.state==="accepted");return view;
+}
+async function readBlockedJoin(response: Response | Promise<Response>) {
+  const view=await readJoin(response);assert.ok(view.state==="blocked");return view;
+}
 
 // SOURCE ONLY / UNRUN. Real pinned Miniflare D1 and real accountSession /
 // authenticatedWrite, with explicitly simulated policy decisions. These
@@ -45,12 +56,12 @@ async function fixture() {
 
 test("Join requires an acknowledged durable acceptance; GET is private and observational",async()=>{
   const f=await fixture();try {
-    const before=await f.request();assert.equal(before.status,200);assert.equal((await before.json()).state,"not_joined");assert.equal(await f.count(),0);
+    const before=await f.request();assert.equal(before.status,200);assert.equal((await readJoin(before)).state,"not_joined");assert.equal(await f.count(),0);
     assert.equal(before.headers.get("cache-control"),"no-store");assert.equal(before.headers.get("vary"),"Cookie");
     const accepted=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(accepted.status,200);
-    const body=await accepted.json();assert.equal(body.state,"accepted");assert.ok(body.receipt.joinId);assert.equal(await f.count(),1);
-    const read=await(await f.request()).json();assert.deepEqual(read,body);
-    const other=await(await f.request(undefined,"GET",undefined,"b")).json();assert.equal(other.state,"not_joined");assert.notEqual(other.ownerScope,read.ownerScope);
+    const body=await readAcceptedJoin(accepted);assert.equal(body.state,"accepted");assert.ok(body.receipt.joinId);assert.equal(await f.count(),1);
+    const read=await readJoin(f.request());assert.deepEqual(read,body);
+    const other=await readJoin(f.request(undefined,"GET",undefined,"b"));assert.equal(other.state,"not_joined");assert.notEqual(other.ownerScope,read.ownerScope);
     assert.equal(await f.count(),1);
   }finally{await f.runtime.dispose();}
 });
@@ -58,20 +69,20 @@ test("missing/rejected actual policy never invents open admission or optimistic 
   const f=await fixture();try {
     f.ports.joinPolicy=undefined;
     const missing=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(missing.status,503);
-    assert.deepEqual((await missing.json()).reason,"policy_unavailable");assert.equal(await f.count(),0);
+    assert.deepEqual((await readBlockedJoin(missing)).reason,"policy_unavailable");assert.equal(await f.count(),0);
     f.ports.joinPolicy={...f.policy,authorize:async()=>null};
-    const refused=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(refused.status,403);assert.equal((await refused.json()).state,"blocked");
-    assert.equal((await(await f.request()).json()).state,"not_joined");assert.equal(await f.count(),0);
+    const refused=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(refused.status,403);assert.equal((await readJoin(refused)).state,"blocked");
+    assert.equal((await readJoin(f.request())).state,"not_joined");assert.equal(await f.count(),0);
   }finally{await f.runtime.dispose();}
 });
 test("same/different Join idempotency keys converge and lost response recovers the accepted original",async()=>{
   const f=await fixture();try {
     const replies=await Promise.all(Array.from({length:4},(_,i)=>f.request(undefined,"POST",{idempotencyKey:i%2?"join-request-00000002":key})));
     for(const r of replies)assert.equal(r.status,200);
-    const bodies=await Promise.all(replies.map(r=>r.json()));assert.equal(new Set(bodies.map(b=>b.receipt.joinId)).size,1);assert.equal(await f.count(),1);
+    const bodies=await Promise.all(replies.map(readAcceptedJoin));assert.equal(new Set(bodies.map(b=>b.receipt.joinId)).size,1);assert.equal(await f.count(),1);
     // Discard every POST response: a subsequent GET still recovers the fact.
     f.ports.joinPolicy=undefined;
-    const recovered=await(await f.request()).json();assert.equal(recovered.receipt.joinId,bodies[0].receipt.joinId);
+    const recovered=await readAcceptedJoin(f.request());assert.equal(recovered.receipt.joinId,bodies[0].receipt.joinId);
     const retry=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(retry.status,200);assert.equal(await f.count(),1);
   }finally{await f.runtime.dispose();}
 });
@@ -91,16 +102,16 @@ test("actual session/Origin/CSRF checks and strict DTOs precede durable writes",
 test("revocation during policy await aborts original and acceptance in the same D1 batch",async()=>{
   const f=await fixture();try {
     f.ports.joinPolicy={...f.policy,revalidate:async()=>{await f.db.prepare("DELETE FROM community_sessions WHERE account_id='account-a'").run();}};
-    const r=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(r.status,503);assert.notEqual((await r.json()).state,"accepted");assert.equal(await f.count(),0);
+    const r=await f.request(undefined,"POST",{idempotencyKey:key});assert.equal(r.status,503);assert.notEqual((await readJoin(r)).state,"accepted");assert.equal(await f.count(),0);
     assert.equal((await f.request()).status,401);
     const guards=await f.db.prepare("SELECT count(*) n FROM transaction_guards").first<{n:number}>();assert.equal(guards?.n,0);
   }finally{await f.runtime.dispose();}
 });
 test("installation/context and credential changes do not silently remap original ownership",async()=>{
   const f=await fixture();try {
-    const original=await(await f.request(undefined,"POST",{idempotencyKey:key})).json();
-    f.context.installationId=h("5");assert.equal((await(await f.request()).json()).state,"not_joined");
-    f.context.installationId=h("2");assert.equal((await(await f.request()).json()).receipt.joinId,original.receipt.joinId);
+    const original=await readAcceptedJoin(f.request(undefined,"POST",{idempotencyKey:key}));
+    f.context.installationId=h("5");assert.equal((await readJoin(f.request())).state,"not_joined");
+    f.context.installationId=h("2");assert.equal((await readAcceptedJoin(f.request())).receipt.joinId,original.receipt.joinId);
     await f.db.batch([
       f.db.prepare("INSERT INTO credential_bindings VALUES('replacement','account-a','moss',6343,?,?)").bind(`0x${"c".repeat(40)}`,Date.now()),
       f.db.prepare("UPDATE community_sessions SET binding_id='replacement' WHERE account_id='account-a'"),
@@ -110,10 +121,13 @@ test("installation/context and credential changes do not silently remap original
 });
 test("a failed/declined optional name step and missing issuer cannot erase accepted Join",async()=>{
   const f=await fixture();try {
-    const joined=await(await f.request(undefined,"POST",{idempotencyKey:key})).json();
+    const joined=await readAcceptedJoin(f.request(undefined,"POST",{idempotencyKey:key}));
     const name=await f.request("/api/member-name/claims","POST",{idempotencyKey:"name-request-00000001",label:"eightaaa"});assert.equal(name.status,503);
-    assert.equal((await name.json()).reason,"issuer_unavailable");
-    assert.deepEqual(await(await f.request()).json(),joined);assert.equal(await f.count(),1);
+    const refusal:unknown=await name.json();
+    assert.ok(refusal!==null && typeof refusal==="object" && "schema" in refusal && refusal.schema==="pirate.member-name/1" &&
+      "state" in refusal && refusal.state==="blocked" && "reason" in refusal);
+    assert.equal(refusal.reason,"issuer_unavailable");
+    assert.deepEqual(await readJoin(f.request()),joined);assert.equal(await f.count(),1);
   }finally{await f.runtime.dispose();}
 });
 test("native closed-schema admission remains explicit, not bypassed for Join",async()=>{
@@ -128,11 +142,11 @@ test("native raw profile digest and Linux reference survive exactly beside Direc
     assert.equal(nativeProfileDigest(raw),raw);assert.equal(memberContext(f.context).profileDigest,raw);
     for(const invalid of ["0x"+raw,"F".repeat(64),raw+"\n","f".repeat(63)]) assert.throws(()=>nativeProfileDigest(invalid));
     assert.throws(()=>memberContext({...f.context,profileDigest:("0x"+raw) as MemberContext["profileDigest"]}));
-    const original=await(await f.request(undefined,"POST",{idempotencyKey:key})).json();
+    const original=await readAcceptedJoin(f.request(undefined,"POST",{idempotencyKey:key}));
     const row=await f.db.prepare("SELECT installation_id,linux_installation_id,original_json FROM community_member_operations").first<{installation_id:string;linux_installation_id:string;original_json:string}>();
     assert.equal(row?.installation_id,h("2"));assert.equal(row?.linux_installation_id,linux);
     assert.equal(JSON.parse(row!.original_json).context.profileDigest,raw);
-    f.context.linuxInstallationId="linux:other/original";assert.equal((await(await f.request()).json()).state,"not_joined");
-    f.context.linuxInstallationId=linux;assert.equal((await(await f.request()).json()).receipt.joinId,original.receipt.joinId);
+    f.context.linuxInstallationId="linux:other/original";assert.equal((await readJoin(f.request())).state,"not_joined");
+    f.context.linuxInstallationId=linux;assert.equal((await readAcceptedJoin(f.request())).receipt.joinId,original.receipt.joinId);
   }finally{await f.runtime.dispose();}
 });

@@ -44,7 +44,12 @@ export interface JournalCustodyVerifiers {
  * broadcaster. All private writes are single primary batches with final fences.
  * Logout removes access, never the original intent/artifacts/budget reservation. */
 export class CommunityMemberJournal {
-  constructor(readonly db: D1Database, readonly verifiers?: JournalCustodyVerifiers) {}
+  readonly db: D1Database;
+  readonly verifiers: JournalCustodyVerifiers | undefined;
+  constructor(db: D1Database, verifiers?: JournalCustodyVerifiers) {
+    this.db=db;
+    this.verifiers=verifiers;
+  }
   #snapshotOperation(value: MemberOperation): MemberOperation {
     const snapshot=structuredClone(value);safeJson(snapshot.original);
     memberRequire(hashJson(snapshot.original)===snapshot.digest,"request_conflict");return snapshot;

@@ -10,6 +10,26 @@ import { communityNamesApi, type CommunityMemberPorts } from "../services/commun
 import { CommunityMemberJournal, type OriginalGrant, type OriginalTransaction } from "../packages/community-names/member-journal.ts";
 import { canonicalMemberLabel, decimal, parseConsent, nativeProfileDigest, type MemberHex } from "../packages/community-names/member-api.ts";
 import type { MemberContext, MemberNamePorts, NameObservation, NamePreparation } from "../packages/community-names/member-authorization.ts";
+import { decodeJoin, decodeName } from "../apps/web/src/shell/community-membership.ts";
+
+async function readJoin(response: Response | Promise<Response>) {
+  return decodeJoin(await (await response).json());
+}
+async function readName(response: Response | Promise<Response>) {
+  return decodeName(await (await response).json());
+}
+async function readPrepared(response: Response | Promise<Response>) {
+  const view=await readName(response);assert.ok(view.state==="awaiting_consent");return view;
+}
+async function readNameRefusal(response: Response | Promise<Response>) {
+  const view=await readName(response);assert.ok(view.state==="blocked" || view.state==="expired_unconsumed");return view;
+}
+async function readConsumed(response: Response | Promise<Response>) {
+  const view=await readName(response);assert.ok(view.state==="consumed");return view;
+}
+async function readUnknown(response: Response | Promise<Response>) {
+  const view=await readName(response);assert.ok(view.state==="unknown");return view;
+}
 
 // ALL UNRUN. Real Miniflare D1/session primitives; policy, preparation,
 // signature, observation and envelope ports below are EXPLICIT SIMULATIONS.
@@ -83,7 +103,7 @@ test("strict unchanged 8+ labels, zero initial price, 365-day term and explicit 
   assert.throws(()=>decimal("0\n"));assert.throws(()=>parseConsent({planDigest:h("1")+"\n",recipientSignature:"0xab"}));
   const f=await fixture();try {
     const noJoin=await f.prepare();assert.equal(noJoin.status,403);assert.equal(f.metrics().preparations,0);
-    await f.join();const p=await f.prepare();assert.equal(p.status,200);const v=await p.json();assert.equal(v.state,"awaiting_consent");
+    await f.join();const p=await f.prepare();assert.equal(p.status,200);const v=await readPrepared(p);assert.equal(v.state,"awaiting_consent");
     assert.equal(v.terms.initialPriceAtomic,"0");assert.equal(v.terms.initialTermDays,365);assert.equal(v.terms.annualRenewal.amountAtomic,"12345");assert.equal(v.terms.gas.maxTotalWei,"1000000");
     assert.equal(Object.hasOwn(v,"joined"),false);assert.equal(Object.hasOwn(v,"membership"),false);
   }finally{await f.runtime.dispose();}
@@ -91,19 +111,19 @@ test("strict unchanged 8+ labels, zero initial price, 365-day term and explicit 
 test("lost prepare ACK and concurrent duplicates recover one exact original and one reservation",async()=>{
   const f=await fixture();try {
     await f.join();const replies=await Promise.all([f.prepare(),f.prepare(),f.prepare()]);
-    for(const r of replies)assert.equal(r.status,200);const bodies=await Promise.all(replies.map(r=>r.json()));
+    for(const r of replies)assert.equal(r.status,200);const bodies=await Promise.all(replies.map(readPrepared));
     assert.equal(new Set(bodies.map(b=>b.claim.requestId)).size,1);assert.equal(new Set(bodies.map(b=>b.claim.planDigest)).size,1);
     assert.equal(await f.count(),2);assert.equal(await f.count("community_member_artifacts"),1);
     const budgets=(await f.db.prepare("SELECT reserved_wei,revision FROM community_member_budgets").all<{reserved_wei:string;revision:number}>()).results;
     assert.equal(budgets.length,2);for(const b of budgets){assert.equal(b.reserved_wei,"1000000");assert.equal(b.revision,1);}
-    const current=await(await f.request("/api/member-name")).json();assert.equal(current.claim.requestId,bodies[0].claim.requestId);
-    const original=await(await f.request(`/api/member-name/claims/${current.claim.requestId}`)).json();assert.deepEqual(original,current);
+    const current=await readPrepared(f.request("/api/member-name"));assert.equal(current.claim.requestId,bodies[0].claim.requestId);
+    const original=await readName(f.request(`/api/member-name/claims/${current.claim.requestId}`));assert.deepEqual(original,current);
     assert.equal((await f.prepare("name-request-00000002","otheraaa")).status,409);assert.equal(await f.count(),2);
   }finally{await f.runtime.dispose();}
 });
 test("private original lookup, installation/account binding and client overrides are refused",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json(),path=`/api/member-name/claims/${v.claim.requestId}`;
+    await f.join();const v=await readPrepared(f.prepare()),path=`/api/member-name/claims/${v.claim.requestId}`;
     assert.equal((await f.request(path,"GET",undefined,"b")).status,404);
     f.context.installationId=h("0").replace(/0$/,"1") as MemberHex;assert.equal((await f.request(path)).status,404);f.context.installationId=h("2");
     assert.equal((await f.request(`/api/member-name/claims/${h("b")}`)).status,404);
@@ -114,58 +134,58 @@ test("private original lookup, installation/account binding and client overrides
 test("missing issuer versus unavailable verifier versus unsupported recipient remain precise",async()=>{
   const f=await fixture();try {
     await f.join();const prep=f.names.preparation;f.names.preparation=undefined;
-    const noIssuer=await f.prepare();assert.equal(noIssuer.status,503);assert.equal((await noIssuer.json()).reason,"issuer_unavailable");assert.equal(await f.count(),1);
+    const noIssuer=await f.prepare();assert.equal(noIssuer.status,503);assert.equal((await readNameRefusal(noIssuer)).reason,"issuer_unavailable");assert.equal(await f.count(),1);
     f.names.preparation=prep;const verifier=f.names.recipientVerifier;f.names.recipientVerifier=undefined;
-    const missing=await f.prepare();assert.equal(missing.status,503);assert.equal((await missing.json()).reason,"service_unavailable");assert.equal(await f.count(),1);
-    f.names.recipientVerifier=verifier;const v=await(await f.prepare()).json(),path=`/api/member-name/claims/${v.claim.requestId}/consent`,input={planDigest:v.claim.planDigest,recipientSignature:"0xab"};
-    f.names.recipientVerifier={verify:async()=>null};const unsupported=await f.request(path,"POST",input);assert.equal(unsupported.status,422);assert.equal((await unsupported.json()).reason,"recipient_unsupported");
-    f.names.recipientVerifier=undefined;const absent=await f.request(path,"POST",input);assert.equal(absent.status,503);assert.equal((await absent.json()).reason,"service_unavailable");assert.equal(await f.count("community_member_artifacts"),1);
+    const missing=await f.prepare();assert.equal(missing.status,503);assert.equal((await readNameRefusal(missing)).reason,"service_unavailable");assert.equal(await f.count(),1);
+    f.names.recipientVerifier=verifier;const v=await readPrepared(f.prepare()),path=`/api/member-name/claims/${v.claim.requestId}/consent`,input={planDigest:v.claim.planDigest,recipientSignature:"0xab"};
+    f.names.recipientVerifier={verify:async()=>null};const unsupported=await f.request(path,"POST",input);assert.equal(unsupported.status,422);assert.equal((await readNameRefusal(unsupported)).reason,"recipient_unsupported");
+    f.names.recipientVerifier=undefined;const absent=await f.request(path,"POST",input);assert.equal(absent.status,503);assert.equal((await readNameRefusal(absent)).reason,"service_unavailable");assert.equal(await f.count("community_member_artifacts"),1);
   }finally{await f.runtime.dispose();}
 });
 test("consent survives response loss/UI abort/logout; membership remains accepted and retry allocates nothing",async()=>{
   const f=await fixture();try {
-    await f.join();const joined=await(await f.request("/api/community/join")).json(),v=await(await f.prepare()).json();
+    await f.join();const joined=await readJoin(f.request("/api/community/join")),v=await readPrepared(f.prepare());
     const path=`/api/member-name/claims/${v.claim.requestId}`,input={planDigest:v.claim.planDigest,recipientSignature:"0xab"};
     const abort=new AbortController();abort.abort();
-    const r=await f.request(path+"/consent","POST",input,"a",{signal:abort.signal});assert.equal(r.status,503);assert.equal((await r.json()).reason,"issuer_unavailable");
+    const r=await f.request(path+"/consent","POST",input,"a",{signal:abort.signal});assert.equal(r.status,503);assert.equal((await readNameRefusal(r)).reason,"issuer_unavailable");
     const saved=(await f.db.prepare("SELECT payload_json FROM community_member_artifacts WHERE kind='consent'").first<{payload_json:string}>())!.payload_json;
     const retry=await f.request(path+"/consent","POST",input);assert.equal(retry.status,503);assert.equal(f.metrics().verifications,1);
     assert.equal((await f.request(path+"/consent","POST",{...input,recipientSignature:"0xcd"})).status,409);
     await f.db.prepare("DELETE FROM community_sessions WHERE account_id='account-a'").run();assert.equal((await f.request(path)).status,401);
     assert.equal((await f.db.prepare("SELECT payload_json FROM community_member_artifacts WHERE kind='consent'").first<{payload_json:string}>())!.payload_json,saved);
     await f.db.prepare("INSERT INTO community_sessions VALUES(?,?,?,?,?,?,?)").bind(hashText("a".repeat(64)),h("1"),origin,"account-a","binding-a","csrf-a",Date.now()+3600000).run();
-    assert.equal((await(await f.request(path)).json()).state,"blocked");assert.deepEqual(await(await f.request("/api/community/join")).json(),joined);
+    assert.equal((await readName(f.request(path))).state,"blocked");assert.deepEqual(await readJoin(f.request("/api/community/join")),joined);
     assert.equal(await f.count("community_member_artifacts"),2);assert.equal(await f.count(),2);
   }finally{await f.runtime.dispose();}
 });
 test("fresh canonical evidence separates consumption from usability; a saved observation is insufficient",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json(),path=`/api/member-name/claims/${v.claim.requestId}`;
+    await f.join();const v=await readPrepared(f.prepare()),path=`/api/member-name/claims/${v.claim.requestId}`;
     f.observation("consumed",true);
     const reconciled=await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest});assert.equal(reconciled.status,200);
-    const consumed=await reconciled.json();assert.equal(consumed.state,"consumed");assert.equal(consumed.usability,"usable");
-    f.observation("consumed",false);const transferred=await(await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest})).json();assert.equal(transferred.state,"consumed");assert.equal(transferred.usability,"not_usable");
-    f.names.observation=undefined;const unavailable=await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest});assert.equal(unavailable.status,503);assert.equal((await unavailable.json()).reason,"service_unavailable");
-    const read=await f.request(path);assert.equal(read.status,503);assert.equal((await read.json()).reason,"service_unavailable");
-    assert.equal((await(await f.request("/api/community/join")).json()).state,"accepted");assert.equal(await f.count(),2);
+    const consumed=await readConsumed(reconciled);assert.equal(consumed.state,"consumed");assert.equal(consumed.usability,"usable");
+    f.observation("consumed",false);const transferred=await readConsumed(f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest}));assert.equal(transferred.state,"consumed");assert.equal(transferred.usability,"not_usable");
+    f.names.observation=undefined;const unavailable=await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest});assert.equal(unavailable.status,503);assert.equal((await readNameRefusal(unavailable)).reason,"service_unavailable");
+    const read=await f.request(path);assert.equal(read.status,503);assert.equal((await readNameRefusal(read)).reason,"service_unavailable");
+    assert.equal((await readJoin(f.request("/api/community/join"))).state,"accepted");assert.equal(await f.count(),2);
   }finally{await f.runtime.dispose();}
 });
 test("expiry, changed source/epoch, wrong original receipt and uncertainty never create replacements",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json(),path=`/api/member-name/claims/${v.claim.requestId}`,originalObserve=f.names.observation!;
+    await f.join();const v=await readPrepared(f.prepare()),path=`/api/member-name/claims/${v.claim.requestId}`,originalObserve=f.names.observation!;
     f.names.observation={observe:async input=>({...await originalObserve.observe(input),requestId:h("b")})};
     assert.equal((await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest})).status,409);
     f.names.observation=originalObserve;f.context.name!.sourceSha256="b".repeat(64);
     assert.equal((await f.request(path+"/consent","POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"})).status,409);
     f.context.name!.sourceSha256="5".repeat(64);f.advance(300001);
-    const unknown=await(await f.request(path)).json();assert.equal(unknown.state,"unknown");assert.equal(unknown.claim.requestId,v.claim.requestId);
-    f.observation("expired_unconsumed");const expired=await(await f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest})).json();assert.equal(expired.state,"expired_unconsumed");
-    assert.equal((await f.prepare("name-request-replacement","otheraaa")).status,409);assert.equal(await f.count(),2);assert.equal((await(await f.request("/api/community/join")).json()).state,"accepted");
+    const unknown=await readUnknown(f.request(path));assert.equal(unknown.state,"unknown");assert.equal(unknown.claim.requestId,v.claim.requestId);
+    f.observation("expired_unconsumed");const expired=await readName(f.request(path+"/reconcile","POST",{planDigest:v.claim.planDigest}));assert.equal(expired.state,"expired_unconsumed");
+    assert.equal((await f.prepare("name-request-replacement","otheraaa")).status,409);assert.equal(await f.count(),2);assert.equal((await readJoin(f.request("/api/community/join"))).state,"accepted");
   }finally{await f.runtime.dispose();}
 });
 test("original/grant/consent/transaction custody is append-only, exact and requires actual verifier ports",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json(),s=await f.session(),plain=new CommunityMemberJournal(f.db),op=(await plain.byId(f.context,s,v.claim.requestId))!;
+    await f.join();const v=await readPrepared(f.prepare()),s=await f.session(),plain=new CommunityMemberJournal(f.db),op=(await plain.byId(f.context,s,v.claim.requestId))!;
     await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});
     const grant:OriginalGrant={requestId:op.original.requestId,planDigest:op.digest,sourceSha256:op.original.preparation!.sourceSha256,
       grantDigest:h("c"),issuerNonce:"7",nonceKey:h("d"),expiresAtMs:f.now()+10000,envelope:{fixtureOnly:true,signature:"0xcd"}};
@@ -183,13 +203,13 @@ test("original/grant/consent/transaction custody is append-only, exact and requi
     await journal.recordBroadcast(op,{transactionHash:tx.transactionHash,state:"unknown"},f.context.fence,f.now());
     const artifacts=await journal.artifacts(op);assert.equal(JSON.parse(artifacts.transaction).raw,raw);assert.equal(JSON.parse(artifacts.transaction).transactionHash,tx.transactionHash);
     assert.equal(JSON.parse(artifacts.broadcast).state,"unknown");assert.equal(await f.count("community_member_artifacts"),5);
-    const read=await(await f.request(`/api/member-name/claims/${v.claim.requestId}`)).json();assert.equal(read.state,"unknown");assert.equal(read.claim.requestId,op.original.requestId);
+    const read=await readUnknown(f.request(`/api/member-name/claims/${v.claim.requestId}`));assert.equal(read.state,"unknown");assert.equal(read.claim.requestId,op.original.requestId);
     for(const sql of ["DELETE FROM community_member_operations","UPDATE community_member_operations SET label='otheraaa'","DELETE FROM community_member_artifacts","UPDATE community_member_artifacts SET payload_json='{}'","DELETE FROM community_member_budgets"]) await assert.rejects(()=>f.db.prepare(sql).run());
   }finally{await f.runtime.dispose();}
 });
 test("final consent policy/session fence rolls back custody on revocation",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json();
+    await f.join();const v=await readPrepared(f.prepare());
     f.names.policy!.revalidate=async()=>{await f.db.prepare("DELETE FROM community_sessions WHERE account_id='account-a'").run();};
     const r=await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});assert.equal(r.status,503);
     assert.equal(await f.count("community_member_artifacts"),1);assert.equal(await f.count(),2);
@@ -197,10 +217,10 @@ test("final consent policy/session fence rolls back custody on revocation",async
 });
 test("changed policy epoch at final write refuses consent without deleting Join or original",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json(),verifier=f.names.recipientVerifier!;
+    await f.join();const v=await readPrepared(f.prepare()),verifier=f.names.recipientVerifier!;
     f.names.recipientVerifier={verify:async input=>{const e=await verifier.verify(input);await f.db.prepare("UPDATE member_fixture_authority SET epoch=2").run();return e;}};
     const r=await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});
-    assert.equal(r.status,503);assert.equal(await f.count("community_member_artifacts"),1);assert.equal((await(await f.request("/api/community/join")).json()).state,"accepted");
+    assert.equal(r.status,503);assert.equal(await f.count("community_member_artifacts"),1);assert.equal((await readJoin(f.request("/api/community/join"))).state,"accepted");
   }finally{await f.runtime.dispose();}
 });
 test("effective premium price, nonzero maxCost and exhausted budgets refuse before operation custody",async()=>{
@@ -211,7 +231,7 @@ test("effective premium price, nonzero maxCost and exhausted budgets refuse befo
         if(bad==="gasBudget")p.terms.gas.maxTotalWei="2000001";
         else {p.quote.premiumAtomic="1";(p.quote as unknown as Record<string,string>)[bad]="1";}
         return p;}};
-      const r=await f.prepare();assert.equal(r.status,409);assert.equal((await r.json()).reason,bad==="gasBudget"?"budget_exhausted":"not_free");
+      const r=await f.prepare();assert.equal(r.status,409);assert.equal((await readNameRefusal(r)).reason,bad==="gasBudget"?"budget_exhausted":"not_free");
       assert.equal(await f.count(),1);assert.equal(await f.count("community_member_budgets"),0);assert.equal(await f.count("community_member_artifacts"),0);
     }finally{await f.runtime.dispose();}
   }
@@ -219,7 +239,7 @@ test("effective premium price, nonzero maxCost and exhausted budgets refuse befo
 test("two accounts cannot reuse a grant nonce domain, sender nonce or signed transaction hash",async()=>{
   const f=await fixture();try {
     await f.join("a");await f.join("b");
-    const a=await(await f.prepare()).json(),b=await(await f.prepare("name-request-b-000001","otheraaa","b")).json();
+    const a=await readPrepared(f.prepare()),b=await readPrepared(f.prepare("name-request-b-000001","otheraaa","b"));
     const journal=new CommunityMemberJournal(f.db,{grant:{verify:async()=>{}},transaction:{verify:async()=>{}}});
     const oa=(await journal.byId(f.context,await f.session("a"),a.claim.requestId))!,ob=(await journal.byId(f.context,await f.session("b"),b.claim.requestId))!;
     for(const [v,id] of [[a,"a"],[b,"b"]] as const) await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"},id);
@@ -256,7 +276,7 @@ test("equal concurrent reservations cannot borrow another account's successful c
     }});
     const replies=await Promise.all([f.prepare(key,label,"a"),f.prepare("name-request-b-000001","otheraaa","b")]);
     assert.equal(readers,2);assert.deepEqual(replies.map(r=>r.status).sort(),[200,503]);
-    const winner=await replies.find(r=>r.status===200)!.json();
+    const winner=await readPrepared(replies.find(r=>r.status===200)!);
     const budget=await f.db.prepare("SELECT reserved_wei,revision,last_operation_id FROM community_member_budgets WHERE bucket=?").bind(h("8")).first<{reserved_wei:string;revision:number;last_operation_id:string}>();
     assert.deepEqual(budget,{reserved_wei:"1000000",revision:1,last_operation_id:winner.claim.requestId});
     assert.equal(await f.count(),3);assert.equal(await f.count("community_member_artifacts"),1);assert.equal(await f.count("community_member_budgets"),2);
@@ -276,10 +296,10 @@ test("REPLACE cannot bypass original/nonce/hash custody through alternate unique
     await replace("community_member_operations",ja,{operation_id:h("c")},/member_original_immutable/); // idempotency
     await replace("community_member_operations",ja,{idempotency_key:"join-alternate-000001"},/member_original_immutable/); // primary key
     await replace("community_member_operations",ja,{operation_id:h("c"),idempotency_key:"join-alternate-000001"},/member_original_immutable/); // owner index
-    const a=await(await f.prepare()).json(),na=(await f.db.prepare("SELECT * FROM community_member_operations WHERE operation_id=?").bind(a.claim.requestId).first<Record<string,unknown>>())!;
+    const a=await readPrepared(f.prepare()),na=(await f.db.prepare("SELECT * FROM community_member_operations WHERE operation_id=?").bind(a.claim.requestId).first<Record<string,unknown>>())!;
     await replace("community_member_operations",na,{operation_id:h("c"),idempotency_key:"name-alternate-000001"},/member_original_immutable/); // name owner
     await replace("community_member_operations",na,{operation_id:h("c"),idempotency_key:"name-alternate-000001",account_id:jb.account_id,binding_id:jb.binding_id,recipient:jb.recipient,join_id:jb.operation_id},/member_original_immutable/); // namespace/label, other owner
-    const b=await(await f.prepare("name-request-b-000001","otheraaa","b")).json();
+    const b=await readPrepared(f.prepare("name-request-b-000001","otheraaa","b"));
     for(const [v,id] of [[a,"a"],[b,"b"]] as const) await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"},id);
     const journal=new CommunityMemberJournal(f.db,{grant:{verify:async()=>{}},transaction:{verify:async()=>{}}}),oa=(await journal.byId(f.context,await f.session("a"),a.claim.requestId))!;
     await journal.recordGrant(oa,{requestId:oa.original.requestId,planDigest:oa.digest,sourceSha256:oa.original.preparation!.sourceSha256,grantDigest:h("c"),issuerNonce:"7",nonceKey:h("d"),expiresAtMs:f.now()+10000,envelope:{fixtureOnly:true}},f.context.fence,f.now());
@@ -302,7 +322,7 @@ test("REPLACE cannot bypass original/nonce/hash custody through alternate unique
 });
 test("deferred grant verification persists only its original operation, envelope and fence snapshots",{timeout:20000},async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json();
+    await f.join();const v=await readPrepared(f.prepare());
     await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});
     const plain=new CommunityMemberJournal(f.db),session=await f.session(),op=(await plain.byId(f.context,session,v.claim.requestId))!;
     const grant:OriginalGrant={requestId:op.original.requestId,planDigest:op.digest,sourceSha256:op.original.preparation!.sourceSha256,grantDigest:h("c"),issuerNonce:"7",nonceKey:h("d"),expiresAtMs:f.now()+10000,envelope:{fixtureOnly:true,signature:"0xcd"}};
@@ -322,7 +342,7 @@ test("deferred grant verification persists only its original operation, envelope
 });
 test("deferred transaction verification cannot be switched to another valid raw hash or mutable original",{timeout:20000},async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json();
+    await f.join();const v=await readPrepared(f.prepare());
     await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});
     const plain=new CommunityMemberJournal(f.db),session=await f.session(),op=(await plain.byId(f.context,session,v.claim.requestId))!;
     const grant:OriginalGrant={requestId:op.original.requestId,planDigest:op.digest,sourceSha256:op.original.preparation!.sourceSha256,grantDigest:h("c"),issuerNonce:"7",nonceKey:h("d"),expiresAtMs:f.now()+10000,envelope:{fixtureOnly:true}};
@@ -344,7 +364,7 @@ test("deferred transaction verification cannot be switched to another valid raw 
 });
 test("a verifier that rewrites its delegated copy cannot turn that copy into a persisted verified grant",async()=>{
   const f=await fixture();try {
-    await f.join();const v=await(await f.prepare()).json();
+    await f.join();const v=await readPrepared(f.prepare());
     await f.request(`/api/member-name/claims/${v.claim.requestId}/consent`,"POST",{planDigest:v.claim.planDigest,recipientSignature:"0xab"});
     const plain=new CommunityMemberJournal(f.db),op=(await plain.byId(f.context,await f.session(),v.claim.requestId))!;
     const journal=new CommunityMemberJournal(f.db,{grant:{verify:async(_operation,payload)=>{await Promise.resolve();payload.envelope.signature="0xdead";}}});
