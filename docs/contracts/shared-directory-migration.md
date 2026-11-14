@@ -40,6 +40,23 @@ Apply it before selecting the new directoryHistoryCache implementation at a curr
 mount. Old snapshots/orphans remain retained until an independently admitted
 retention operation proves reachability and custody.
 
+Existing community routes already instantiate this adapter; the prerequisite is
+not limited to new shared installations. Root must assign the actual migration
+ordinal in its current merge order. Require the expected existing guard-table
+schema and the explicit expected absence (or independently verified exact already
+applied version) of both cache tables. Unknown/partial schemas refuse. Execute the
+admitted additive migration as one atomic batch, with rollback on any failure and
+before/after checks retaining every existing configuration, cursor and original
+journal row. Do not hide a schema mismatch with IF NOT EXISTS, memory fallback or
+an alternate route. This document and the unnumbered SQL are unapplied proposals;
+no runtime schema creation or database mutation is introduced by the source repair.
+
+Unchanged revisions reuse their existing immutable pages and update only the fully
+authenticated head through a complete-cursor compare-and-swap. Temporary RPC lag
+does not delete or replace the saved head. These changes require no additional
+table/column or alteration of historical rows. Replaced/orphaned snapshots remain
+preserved; no retention or cleanup operation is authorized here.
+
 No new mounting, domain/registry repointing, HNS write, operator-key transfer or
 live release is authorized by a schema-valid plan or by this document. Existing
 installation selection deliberately refuses with

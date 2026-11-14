@@ -7,6 +7,7 @@ import { address, ipfsUri } from "./manifest-core.ts";
 import { sharedBinding, sharedDirectoryAbi, validateSharedProfile, type SharedDirectoryProfile } from "./shared-directory.ts";
 import { validateSharedConfig } from "./shared-config-manifest.ts";
 import type { SharedCommunityConfig } from "./config-manifest.ts";
+import { sharedBytes32 } from "./shared-identity.ts";
 
 export interface SharedRegistrationPlan {
   schema: "pirate.shared-directory-registration/1";
@@ -83,16 +84,31 @@ export async function observeSharedRegistration(client: PublicClient, original: 
   insist(transactionHash === operation.transactionHash, "original_directory_transaction_mismatch");
   const p = operation.plan.profile;
   insist((await client.getChainId()) === p.chainId, "wrong_application_chain");
-  let receipt;
+  let receipt: Awaited<ReturnType<PublicClient["getTransactionReceipt"]>>;
   try { receipt = await client.getTransactionReceipt({ hash: operation.transactionHash }); }
   catch (error) { if (error instanceof TransactionReceiptNotFoundError) return { status: "pending" as const, original: operation }; throw error; }
-  const [head, block, code] = await Promise.all([client.getBlockNumber({ cacheTime: 0 }),
+  // Match the registry's safe-block convention, including its inclusive boundary.
+  // Missing/unsupported safe tags propagate refusal; never fall back to latest.
+  const [safe, block, code] = await Promise.all([client.getBlock({ blockTag: "safe" }),
     client.getBlock({ blockNumber: receipt.blockNumber }), client.getCode({ address: p.directory, blockNumber: receipt.blockNumber })]);
+  insist(typeof safe.number === "bigint" && safe.number >= 0n && typeof safe.hash === "string", "directory_safe_block_unavailable");
+  const safeNumber = safe.number, safeHash = sharedBytes32(safe.hash);
   insist(code && keccak256(code) === p.directoryCodeHash && block.hash === receipt.blockHash &&
+    receipt.blockNumber >= p.deploymentBlock && block.number === receipt.blockNumber &&
     receipt.transactionHash === operation.transactionHash && receipt.to?.toLowerCase() === p.directory &&
     receipt.from.toLowerCase() === operation.plan.admin, "directory_receipt_authentication_failed");
-  if (head <= receipt.blockNumber) return { status: "pending" as const, original: operation };
-  if (receipt.status === "reverted") return { status: "reverted" as const, original: operation, receipt };
+  if (receipt.blockNumber > safeNumber) return { status: "pending" as const, original: operation };
+  async function finish() {
+    const [originalBlock, confirmation] = await Promise.all([
+      client.getBlock({ blockNumber: receipt.blockNumber }), client.getBlock({ blockNumber: safeNumber }),
+    ]);
+    insist(originalBlock.number === receipt.blockNumber && originalBlock.hash === receipt.blockHash &&
+      confirmation.number === safeNumber && confirmation.hash === safeHash, "directory_chain_reorganized");
+  }
+  if (receipt.status === "reverted") {
+    await finish();
+    return { status: "reverted" as const, original: operation, receipt };
+  }
   insist(receipt.status === "success", "directory_receipt_status_unknown");
   const bound = [], published = [];
   for (const log of receipt.logs) {
@@ -113,7 +129,7 @@ export async function observeSharedRegistration(client: PublicClient, original: 
     event.controller.toLowerCase() === config.controller && event.publisher.toLowerCase() === config.publisher &&
     event.operatorPayments.toLowerCase() === config.operatorPayments && event.learningRecords.toLowerCase() === config.learningRecords,
     "directory_registration_event_mismatch");
-  insist((await client.getBlock({ blockNumber: receipt.blockNumber })).hash === receipt.blockHash, "directory_chain_reorganized");
+  await finish();
   // Durable original fact, independent of later publisher/controller changes.
   return { status: "consumed" as const, original: operation, receipt, communityId: p.communityId };
 }

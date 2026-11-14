@@ -36,8 +36,10 @@ boundary, not a configuration that silently changes the binding. Two communities
 can select the same registry and namespace; full-name uniqueness belongs to the
 registry. Identical labels under distinct TLDs remain independent.
 
-TLDs are exact lowercase ASCII DNS labels of 1–63 bytes, no edge hyphen, no `xn--`,
-case folding, root dot, whitespace or Unicode terminator. Namespace helpers reject
+TLDs follow the accepted registry's `Labels.isValid` exactly: 1–63 lowercase ASCII
+bytes from a-z, 0-9 and hyphen, no edge hyphen, and no hyphens at both zero-based
+byte positions 2 and 3. This rejects `ab--cd` as well as `xn--`; `a--b` and `abc--d`
+remain valid. There is no case folding, root dot, whitespace or Unicode terminator. Namespace helpers reject
 noncanonical input. These are TLD rules; member issuance separately uses the
 accepted registry's ordinary-label minimum of eight characters.
 
@@ -105,6 +107,14 @@ independently of later controller/publisher state. Pending/unknown/reorg/refusal
 not authorize a new request, nonce or automatic replay. Root's backend must supply
 the durable original-operation lease/persistence before any future broadcast.
 
+Recovery selects the RPC's `safe` block, with no latest-minus-one or unsupported-tag
+fallback. A receipt above that block remains pending; equality is sufficiently
+confirmed, matching registry recovery. Both consumed and reverted outcomes require
+the original receipt block and the selected safe block to remain canonical through
+the final check. Missing/unsupported safe views refuse without declaring consumption
+or allocating a different operation. Receipt/source checks and the immutable
+reconstructed original plan, raw bytes, nonce and transaction hash remain mandatory.
+
 ## Revision reader and durable cache
 
 The 256-revision cutoff is removed. Configurations are processed in order with
@@ -125,12 +135,28 @@ contiguous revision and profile. Final row state and pinned block are rechecked.
 An unchanged contract revision permits skipping new log scans, never skipping
 authentication of cached evidence. No cached summary is trusted as authority.
 
-The cache stages immutable bounded pages before publishing a CAS head. A failed
-page write leaves the old head valid. A concurrent loser cannot overwrite a winner;
-a reorg or regressed head compare-deletes only its stale pointer. Unknown RPC and
-authentication errors propagate. Cold replay rebuilds from canonical receipts.
+The cache stages immutable bounded pages before publishing a CAS head when history
+changes. When the authenticated contract revision is unchanged, every cached page
+is still replayed and authenticated, but no new snapshot or page is written. After
+the final canonical checks, `advance(previous, head, hash)` updates only the head.
+Its compare-and-swap binds profile key, snapshot, next block, block hash, revision
+and page count. A stale warm reader refuses with `directory_cache_cursor_raced`.
+Snapshot-replacing writers and invalidation bind the same complete prior cursor;
+the existing cold-race behavior still permits a valid pinned historical read when
+its cache write loses, while returning false from that write and preserving the winner.
+
+A lagging reader, missing block or null hash preserves the existing head and pages
+and refuses with `directory_cache_view_unavailable`. Other RPC errors propagate.
+Only a numbered canonical checkpoint block whose hash demonstrably differs may
+compare-delete that exact head; a concurrent head change refuses invalidation.
+A failed page write leaves the old head valid. Cold replay rebuilds from canonical receipts.
 Orphan/old snapshots are retained; Root may later admit bounded retention after
 proving they are unreachable. They are not deleted automatically here.
+
+These four-finding corrections are source-only until separately reviewed and tested.
+Historical af70 CI results do not qualify them. The label correction changes the
+Directory's bytecode even though its ABI is unchanged: Root must rebuild, compare
+the actual compiled consumer ABI and derive fresh source/runtime pins before adoption.
 
 `directory-checkpoint-cache.sql` is an exact additive migration proposal, with no
 ordinal. Root must admit/apply it before mounting the new adapter. Old configuration

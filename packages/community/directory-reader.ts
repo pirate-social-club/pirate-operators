@@ -100,7 +100,8 @@ export async function walkConfigurationHistory(client: PublicClient, profile: An
     insist(canonical(binding) === canonical(sharedBinding(profile)) && registryCode &&
       keccak256(registryCode) === profile.registryCodeHash, "shared_binding_changed", 503);
   }
-  const state = configurationState(), writer = cache && (!saved || through + 1n > saved.nextBlock) ? cache.begin(saved) : undefined;
+  const reuse = saved !== undefined && BigInt(saved.revision) === row.configurationRevision;
+  const state = configurationState(), writer = cache && !reuse ? cache.begin(saved) : undefined;
   let lastLog: ConfigurationLog | undefined, pending: ConfigurationEvidence[] = [];
   async function consume(log: ConfigurationLog, stored?: string) {
     insist(log.args.communityId === profile.communityId && log.args.revision === BigInt((state.last?.configurationRevision ?? 0) + 1) &&
@@ -124,8 +125,10 @@ export async function walkConfigurationHistory(client: PublicClient, profile: An
       "configuration_event_mismatch", 503);
     lastLog = log;
     onConfiguration?.(config);
-    pending.push({ log, document });
-    if (pending.length === CONFIGURATION_PAGE_SIZE) { await writer?.append(pending); pending = []; }
+    if (writer) {
+      pending.push({ log, document });
+      if (pending.length === CONFIGURATION_PAGE_SIZE) { await writer.append(pending); pending = []; }
+    }
   }
   if (saved) {
     insist(saved.nextBlock <= through + 1n && saved.revision <= Number(row.configurationRevision), "directory_cache_cursor_invalid", 503);
@@ -151,6 +154,8 @@ export async function walkConfigurationHistory(client: PublicClient, profile: An
   insist((await client.getBlock({ blockNumber: through })).hash === block.hash, "directory_chain_reorganized", 503);
   if (pending.length) await writer?.append(pending);
   await writer?.commit(through, block.hash, state.last.configurationRevision);
+  if (cache && saved && reuse && through + 1n > saved.nextBlock)
+    insist(await cache.advance(saved, through, block.hash), "directory_cache_cursor_raced", 503);
   return state.last;
 }
 
