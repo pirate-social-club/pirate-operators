@@ -215,8 +215,13 @@ test("stale readbacks cannot replace a newer terminal observation", async (t) =>
   const f = await configured(t);
   let phase = 0;
   const old = deferred<LinuxObservation>();
-  f.backend.observeResult = async ({ operation }) =>
-    phase === 0
+  const entered = deferred<void>();
+  f.backend.observeResult = async ({ operation }) => {
+    if (phase === 1) {
+      entered.resolve();
+      return old.promise;
+    }
+    return phase === 0
       ? {
           state: "pending",
           custody: "held",
@@ -224,15 +229,21 @@ test("stale readbacks cannot replace a newer terminal observation", async (t) =>
           receiptRef: `receipt:${operation.id}`,
           correction: "Fixture pending",
         }
-      : phase === 1
-        ? old.promise
-        : f.success(operation, 3);
+      : f.success(operation, 3);
+  };
   await f.review();
   await f.deploy();
   await f.setup.settled();
   phase = 1;
   const delayed = f.setup.reconcile();
-  await new Promise((r) => setTimeout(r, 5));
+  await Promise.race([
+    entered.promise,
+    delayed.then(() => { throw Error("Reconciliation finished before the delayed observer entered."); }),
+  ]);
+  // Concurrent reconcile calls share this read. Let its existing bounded call
+  // time out before a fresh read can report the newer terminal observation.
+  await delayed;
+  assert.equal(f.setup.snapshot().operation?.state, "unknown");
   phase = 2;
   await f.setup.reconcile();
   assert.equal(f.setup.snapshot().operation?.state, "succeeded");
@@ -243,7 +254,9 @@ test("stale readbacks cannot replace a newer terminal observation", async (t) =>
     receiptRef: "receipt:old",
     correction: "Old pending read",
   });
+  await old.promise;
   await delayed;
+  assert.equal(JSON.parse(await f.disk()).operation.state, "succeeded");
   assert.equal(f.setup.snapshot().operation?.state, "succeeded");
   assert.equal(f.setup.snapshot().operation?.observationRevision, 3);
 });
