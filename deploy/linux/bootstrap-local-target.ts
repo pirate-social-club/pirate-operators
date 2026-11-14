@@ -22,7 +22,7 @@ export async function bootstrapLocalTarget(input:LocalTargetBootstrapInputs) {
   const agent=await startManagedKeyAgent({...input.keyAgent,installationId:input.backend.installationId,
     authenticationKey:input.backend.keyChannel.authenticationKey,lease:input.backend.bootstrapLease,capturedRoots:[...Object.values(input.backend.snapshotRoots),input.backend.operationsDirectory,input.backend.resultsDirectory,
       input.backend.observationDirectory,input.backend.plansDirectory,input.backend.profileRecordsDirectory,
-      ...(input.backend.delivery === "full-v2" ? [input.backend.inspectionDirectory] : []),input.backend.bootstrapLease.directory,input.wizardDirectory]});
+      ...(input.backend.runtimeProfile === "full-v2" ? [input.backend.inspectionDirectory] : []),input.backend.bootstrapLease.directory,input.wizardDirectory]});
   let activeImplementation:Awaited<ReturnType<typeof createLocalTargetImplementation>>|undefined;
   let activeRuntime:Awaited<ReturnType<typeof createLinuxWizardRuntime>>|undefined;
   let activeProxy:ReturnType<typeof createServer>|undefined;
