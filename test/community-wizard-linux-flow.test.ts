@@ -402,23 +402,48 @@ test("partial or changed encrypted uploads retain their original request instead
 test("missing restore capability and malformed private journal fail closed", async (t) => {
   const f = await linuxFixture();
   t.after(f.dispose);
+  const supportedOperations = [...f.capabilities.operations],
+    before = f.setup.snapshot(),
+    path = join(f.directory, "linux-setup-v2.json");
   f.capabilities.operations = ["create"];
+  await assert.rejects(
+    f.setup.destination({
+      revision: 0,
+      mode: "restore",
+      target: { kind: "local-linux" },
+    }),
+    (error: unknown) => error instanceof LinuxInputError && error.code === "setup_mode_unavailable",
+  );
+  assert.deepEqual(f.setup.snapshot(), before);
+  await assert.rejects(stat(path), { code: "ENOENT" });
+  assert.equal(f.facts.nativeIntents.length, 0);
+  assert.equal(f.facts.executes.length, 0);
+
+  // Admit a real supported destination first, then lose restore capability at
+  // the separate upload boundary. Both guards must refuse without effects.
+  f.capabilities.operations = supportedOperations;
   await f.setup.destination({
     revision: 0,
     mode: "restore",
     target: { kind: "local-linux" },
   });
+  const selected = f.setup.snapshot();
+  f.capabilities.operations = ["create"];
+  let consumed = 0;
   await assert.rejects(
     f.setup.stageBackup(
       (async function* () {
+        consumed++;
         yield fixtureCiphertext;
       })(),
       fixtureCiphertext.length,
     ),
     /supported encrypted backup/,
   );
-  const path = join(f.directory, "linux-setup-v2.json"),
-    saved = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(consumed, 0);
+  assert.deepEqual(f.setup.snapshot(), selected);
+  assert.equal(f.facts.nativeIntents.length, 0);
+  const saved = JSON.parse(await readFile(path, "utf8"));
   saved.version = 99;
   await writeFile(path, JSON.stringify(saved), { mode: 0o600 });
   await assert.rejects(
