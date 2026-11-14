@@ -93,7 +93,7 @@ export async function leaseJob(db: D1Database, id: string, time: number) {
       `UPDATE publication_jobs SET lease_token=?,lease_until=?,attempts=attempts+1,updated_at=?
     WHERE job_id=? AND lease_until<=? AND due_at<=? AND phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication','catalog_reserve','catalog_confirm')
     AND (phase NOT IN ('catalog_reserve','catalog_confirm') OR (json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?))
-    AND NOT (phase IN ('admission','registration') AND json_extract(authority_json,'$.policy.version')=? AND json_extract(authority_json,'$.policy.sha256')=?)
+    AND NOT (phase IN ('admission','registration') AND COALESCE(json_extract(authority_json,'$.policy.version'),'')=? AND COALESCE(json_extract(authority_json,'$.policy.sha256'),'')=?)
     AND NOT (phase='registration' AND COALESCE(json_extract(authority_json,'$.policy.version'),'')=? AND COALESCE(json_extract(authority_json,'$.policy.sha256'),'')=?)
     RETURNING *`,
     )
@@ -297,7 +297,7 @@ export async function advanceJob(
   const steps = jobSteps(job);
   insist(steps.includes(step), "step_outside_job_sequence", 409);
   const next = steps.at(steps.indexOf(step) + 1) ?? "published";
-  if (next === "published" && catalogOwner(object(JSON.parse(job.authority_json)).policy as {version:string;sha256:string})) {
+  if (next === "published" && step === "catalog_confirm") {
     const obligation = await db.withSession("first-primary").prepare("SELECT state FROM publication_catalog_obligations WHERE job_id=?").bind(job.job_id).first<{state:string}>();
     insist(obligation?.state === "complete", "catalog_pending", 409);
   }

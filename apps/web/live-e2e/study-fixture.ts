@@ -177,6 +177,14 @@ export async function serveStudy(
       if (options.rewardOffers === "hang") return new Promise<void>(() => {});
       return json({ error: "reward_offers_unavailable" }, 503);
     }
+    // Membership is independent of the Study/publication behavior under test.
+    // Only its authenticated read is simulated; no join or name is accepted.
+    if (path === "/api/community/join") {
+      expect(request.method()).toBe("GET");
+      return authenticated
+        ? json({ schema: "pirate.community-join/1", ownerScope: privateId, revision: 0, state: "not_joined" })
+        : json({ error: "session_required" }, 401);
+    }
     if (path === "/api/session")
       return authenticated
         ? json({

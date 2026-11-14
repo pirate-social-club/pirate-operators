@@ -141,6 +141,14 @@ export async function serveAccounts(page: Page) {
         study: true,
         policyVersion: "fixture",
       });
+    // Membership is independent of the Study/publication behavior under test.
+    // Only its authenticated read is simulated; no join or name is accepted.
+    if (path === "/api/community/join") {
+      expect(request.method()).toBe("GET");
+      return cookie
+        ? json({ schema: "pirate.community-join/1", ownerScope: `fixture-member-${cookie}`, revision: 0, state: "not_joined" })
+        : json({ error: "session_required" }, 401);
+    }
     if (path === "/api/session") {
       if (sessionFailures > 0) {
         sessionFailures--;

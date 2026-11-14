@@ -81,6 +81,7 @@ export async function serveCommunity(
     rewards?: boolean;
     feedOutage?: boolean;
     profile?: "loaded" | "unavailable";
+    joined?: boolean;
   } = {},
 ) {
   const accountId = randomUUID(),
@@ -207,6 +208,17 @@ export async function serveCommunity(
         ? json({ error: "fixture_feed_unavailable" }, 503)
         : json(feed());
     if (path === "/api/rewards/offers") return json({ offers: [] });
+    // Membership is independent of the Study/publication behavior under test.
+    // Only its authenticated read is simulated; no join or name write is accepted.
+    if (path === "/api/community/join") {
+      expect(request.method()).toBe("GET");
+      return authenticated
+        ? json({ schema: "pirate.community-join/1", ownerScope: accountId, revision: 0,
+            ...(options.joined
+              ? { state: "accepted", receipt: { joinId: "fixture-membership", acceptedAtMs: 1800000000000 } }
+              : { state: "not_joined" }) })
+        : json({ error: "session_required" }, 401);
+    }
     if (path === "/api/session")
       return authenticated
         ? json({

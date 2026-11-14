@@ -32,6 +32,9 @@ export class MemoryD1 {
   // Only the operations used by the real services are adapted. Unsupported
   // platform APIs are absent, so an unexpected use fails the fixture.
   readonly db = {
+    // One actual SQLite connection is always primary. This fixture does not
+    // model bookmarks or replication; session reads retain its fault hooks.
+    withSession: () => this.db,
     prepare: (sql: string) => this.prepare(sql),
     batch: async (statements: MemoryStatement[]) => {
       this.sqlite.exec("BEGIN");

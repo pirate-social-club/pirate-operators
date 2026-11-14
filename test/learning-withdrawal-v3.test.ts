@@ -374,38 +374,54 @@ test(
       const requestId = crypto.randomUUID();
       const real = f.env.DB as D1Database;
       let hook: (() => Promise<void>) | undefined = () => turnOff(f, f.auth);
-      // The turn-off runs just before this start creates its lesson row.
-      f.env.DB = new Proxy(real, {
+      // Trigger at actual persistence, whether the insert runs alone or in an
+      // atomic batch. Keep the genuine bound statements passed to D1.
+      const originals = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+      const beforeInsert = async () => {
+        const before = hook;
+        hook = undefined;
+        await before?.();
+      };
+      const statement = (actual: D1PreparedStatement): D1PreparedStatement => {
+        const proxy = new Proxy(actual, {
+          get(target, key) {
+            if (key === "bind") return (...values: unknown[]) => statement(target.bind(...values));
+            if (key === "run" || key === "first" || key === "all" || key === "raw")
+              return async (...args: unknown[]) => {
+                await beforeInsert();
+                return Reflect.apply(Reflect.get(target, key), target, args);
+              };
+            const value = Reflect.get(target, key);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+        originals.set(proxy, actual);
+        return proxy;
+      };
+      const wrap = <T extends D1Database | D1DatabaseSession>(actual: T): T => new Proxy(actual, {
         get(target, property) {
+          if (property === "withSession" && "withSession" in target)
+            return (...args: Parameters<D1Database["withSession"]>) => wrap(target.withSession(...args));
           if (property === "prepare")
             return (sql: string) => {
-              const statement = target.prepare(sql);
-              if (!hook || !sql.startsWith("INSERT INTO study_lessons("))
-                return statement;
-              return {
-                bind: (...values: unknown[]) => {
-                  const ready = statement.bind(...values);
-                  return {
-                    async run() {
-                      const before = hook!;
-                      hook = undefined;
-                      await before();
-                      return ready.run();
-                    },
-                  };
-                },
-              };
+              const prepared = target.prepare(sql);
+              return sql.startsWith("INSERT INTO study_lessons(") ? statement(prepared) : prepared;
             };
+          if (property === "batch") return async (statements: D1PreparedStatement[]) => {
+            if (statements.some(s => originals.has(s))) await beforeInsert();
+            return target.batch(statements.map(s => originals.get(s) ?? s));
+          };
           const value = Reflect.get(target, property);
           return typeof value === "function" ? value.bind(target) : value;
         },
       });
-      const start = await f.post(
-        "/api/study/lessons",
-        { requestId, song: f.song },
-        f.auth,
-      );
-      f.env.DB = real;
+      f.env.DB = wrap(real);
+      let start: Response;
+      try {
+        start = await f.post("/api/study/lessons", { requestId, song: f.song }, f.auth);
+      } finally {
+        f.env.DB = real;
+      }
       assert.equal(hook, undefined);
       assert.equal(start.status, 409, await start.clone().text());
       const id = await lessonByRequest(f, requestId);
