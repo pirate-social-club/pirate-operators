@@ -4,13 +4,35 @@
 -- The complete affected preimage is absence of every new name and incoming FK.
 CREATE TABLE native_application_transition_guard(valid INTEGER NOT NULL CONSTRAINT native_business_schema_refusal CHECK(valid=1));
 -- native-transition-statement
+-- Attest the sole protected FK-free runtime object before FK introspection.
+-- Absence is allowed; any present name/type/owner/SQL-byte mismatch refuses.
+WITH expected_runtime_metadata(type,name,tbl_name,sql) AS (
+  VALUES ('table','_cf_METADATA','_cf_METADATA','CREATE TABLE _cf_METADATA (
+        key INTEGER PRIMARY KEY,
+        value BLOB
+      )')
+), actual_runtime_metadata AS (
+  SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql
+  FROM main.sqlite_schema WHERE lower(name)='_cf_metadata'
+)
+INSERT INTO native_application_transition_guard
+SELECT CASE WHEN NOT EXISTS (
+  SELECT type,name,tbl_name,sql FROM actual_runtime_metadata
+  EXCEPT SELECT type,name,tbl_name,CAST(sql AS BLOB) FROM expected_runtime_metadata
+) THEN 1 ELSE 0 END;
+-- native-transition-statement
+-- Metadata was attested by the preceding CHECK in this same D1 batch.
+WITH incoming_tables AS MATERIALIZED (
+  SELECT name FROM main.sqlite_schema
+  WHERE type='table' AND name<>'_cf_METADATA'
+)
 INSERT INTO native_application_transition_guard SELECT CASE WHEN
   NOT EXISTS(SELECT 1 FROM sqlite_schema WHERE lower(name) IN (
     'native_application_original','native_business_bindings','native_readback_nonces','native_binding_guards',
     'native_original_no_update','native_original_no_delete','native_business_no_update',
     'native_nonce_no_update','native_nonce_no_delete'))
-  AND NOT EXISTS(SELECT 1 FROM sqlite_schema s JOIN pragma_foreign_key_list(s.name) f
-    WHERE s.type='table' AND lower(f."table") IN (
+  AND NOT EXISTS(SELECT 1 FROM incoming_tables s JOIN pragma_foreign_key_list(s.name) f
+    WHERE lower(f."table") IN (
       'native_application_original','native_business_bindings','native_readback_nonces','native_binding_guards',
       'native_application_transition_guard'))
   THEN 1 ELSE 0 END;

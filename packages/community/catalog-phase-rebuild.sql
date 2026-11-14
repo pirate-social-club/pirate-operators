@@ -13,6 +13,23 @@ CREATE TABLE catalog_phase_schema_guard (
   valid INTEGER NOT NULL CONSTRAINT catalog_phase_schema_refusal CHECK(valid = 1)
 );
 -- catalog-phase-statement
+-- Attest the sole protected FK-free runtime object before FK introspection.
+-- Absence is allowed; any present name/type/owner/SQL-byte mismatch refuses.
+WITH expected_runtime_metadata(type,name,tbl_name,sql) AS (
+  VALUES ('table','_cf_METADATA','_cf_METADATA','CREATE TABLE _cf_METADATA (
+        key INTEGER PRIMARY KEY,
+        value BLOB
+      )')
+), actual_runtime_metadata AS (
+  SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql
+  FROM main.sqlite_schema WHERE lower(name)='_cf_metadata'
+)
+INSERT INTO catalog_phase_schema_guard(singleton,valid)
+SELECT 1, CASE WHEN NOT EXISTS (
+  SELECT type,name,tbl_name,sql FROM actual_runtime_metadata
+  EXCEPT SELECT type,name,tbl_name,CAST(sql AS BLOB) FROM expected_runtime_metadata
+) THEN 1 ELSE 0 END;
+-- catalog-phase-statement
 -- Exact selected migration SQL bytes, including CHECK/default/collation text.
 -- BLOB equality deliberately refuses even a semantically equivalent rewrite.
 -- Autoindex NULL SQL/name/owner identities are included, not filtered away.
@@ -184,13 +201,19 @@ expected_incoming(child, parent, child_column, parent_column, on_update, on_dele
     ('publication_amendments', 'external_operations', 'predecessor_operation_id', 'operation_id', 'NO ACTION', 'NO ACTION', 'NONE'),
     ('publication_amendments', 'publication_jobs', 'job_id', 'job_id', 'NO ACTION', 'NO ACTION', 'NONE')
 ),
+-- The preceding named CHECK has proved this exact object is FK-free.
+-- Materialize before invoking the pragma; every other table remains included.
+incoming_tables AS MATERIALIZED (
+  SELECT name FROM main.sqlite_schema
+  WHERE type='table' AND name<>'_cf_METADATA'
+),
 actual_incoming AS (
   SELECT s.name, f."table", f."from", f."to", f.on_update, f.on_delete, f.match
-  FROM main.sqlite_schema AS s JOIN pragma_foreign_key_list(s.name) AS f
-  WHERE s.type = 'table' AND lower(f."table") IN ('publication_jobs', 'external_operations', 'external_operation_reconciliations', 'publication_amendments')
+  FROM incoming_tables AS s JOIN pragma_foreign_key_list(s.name) AS f
+  WHERE lower(f."table") IN ('publication_jobs', 'external_operations', 'external_operation_reconciliations', 'publication_amendments')
 )
-INSERT INTO catalog_phase_schema_guard(singleton, valid)
-SELECT 1, CASE WHEN
+UPDATE catalog_phase_schema_guard
+SET valid = CASE WHEN
   NOT EXISTS (
     SELECT type, name, tbl_name, sql FROM actual_affected
     EXCEPT SELECT type, name, tbl_name, CAST(sql AS BLOB) FROM expected_affected
@@ -209,7 +232,8 @@ SELECT 1, CASE WHEN
   AND NOT EXISTS (
     SELECT * FROM expected_incoming EXCEPT SELECT * FROM actual_incoming
   )
-THEN 1 ELSE 0 END;
+THEN 1 ELSE 0 END
+WHERE singleton=1;
 -- catalog-phase-statement
 CREATE TABLE publication_jobs_catalog_next (
   job_id TEXT PRIMARY KEY,

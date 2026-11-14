@@ -12,6 +12,27 @@ import { catalogPhaseTransitionSql, catalogPhaseTransitionStatements } from "../
 import { Miniflare } from "miniflare";
 import { migrateOwnerDatabase } from "./owner-publishing-migration-fixture.ts";
 
+type RuntimeSchemaRow={type:string;name:string;tbl_name:string;sql:string|null};
+const runtimeMetadataSql = "CREATE TABLE _cf_METADATA (\n        key INTEGER PRIMARY KEY,\n        value BLOB\n      )";
+function attestRuntimeMetadata(schema:readonly RuntimeSchemaRow[]){
+  const metadata=schema.filter(entry=>entry.name.toLowerCase()==='_cf_metadata');
+  assert.deepEqual(metadata,metadata.length===0?[]:[{
+    type:'table',name:'_cf_METADATA',tbl_name:'_cf_METADATA',sql:runtimeMetadataSql,
+  }]);
+  return metadata;
+}
+async function runtimeMetadata(database:D1Database){
+  const schema=(await database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE lower(name)='_cf_metadata'").all<RuntimeSchemaRow>()).results;
+  return attestRuntimeMetadata(schema);
+}
+function mismatchedMetadataPin(draft:string){
+  const literal="'"+runtimeMetadataSql.replaceAll("'","''")+"'";
+  assert.equal(draft.split(literal).length,2,"one exact metadata pin required");
+  const changed=literal.replace('value BLOB','value TEXT');
+  assert.notEqual(changed,literal);
+  return draft.replace(literal,changed);
+}
+
 test('unnumbered phase rebuild preserves every captured job/operation byte and foreign-key identity',async()=>{
   const f=await communityRuntime();try {
     await f.db.prepare('INSERT INTO community_accounts VALUES(?,?,?)').bind('historic-account','0x'+'12'.repeat(32),1).run();
@@ -36,6 +57,7 @@ test('unnumbered phase rebuild preserves every captured job/operation byte and f
     const beforeIdentities=(await identities()).map(result=>result.results);
     const schema=async()=>f.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE tbl_name IN ('publication_jobs','external_operations','external_operation_reconciliations','publication_amendments') ORDER BY type,name").all<{type:string;name:string;tbl_name:string;sql:string|null}>();
     const beforeSchema=(await schema()).results;
+    const beforeRuntimeMetadata=await runtimeMetadata(f.db);
     const jobs=await rows(f.db,'publication_jobs'),operations=await rows(f.db,'external_operations');
     const draft=await readFile(new URL('../packages/community/catalog-phase-rebuild.sql',import.meta.url),'utf8');
     const statements=catalogPhaseTransitionSql(draft);
@@ -53,6 +75,7 @@ test('unnumbered phase rebuild preserves every captured job/operation byte and f
     assert.deepEqual((await identities()).map(result=>result.results),beforeIdentities);
     assert.equal((await f.db.prepare("SELECT name FROM sqlite_schema WHERE name LIKE '%_catalog_next%'").all()).results.length,0);
     await f.db.batch(catalogPhaseTransitionStatements(f.db,draft));
+    assert.deepEqual(await runtimeMetadata(f.db),beforeRuntimeMetadata);
     assert.deepEqual(await rows(f.db,'publication_jobs'),jobs);assert.deepEqual(await rows(f.db,'external_operations'),operations);
     assert.equal((await f.db.prepare('PRAGMA foreign_key_check').all()).results.length,0);
     assert.deepEqual(await rows(f.db,'external_operation_reconciliations'),reconciliations);
@@ -96,7 +119,10 @@ async function retainedHistory(database: D1Database) {
 const identifier = (name: string) => '"' + name.replaceAll('"', '""') + '"';
 async function completeDatabase(database: D1Database) {
   const schema=(await database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name").all<{type:string;name:string;tbl_name:string;sql:string|null}>()).results;
-  const tables=await Promise.all(schema.filter(entry=>entry.type==='table'&&!entry.name.startsWith('sqlite_')).map(async entry=>({
+  // Retain the engine schema row; sample every application table's rows.
+  // The exact protected metadata object has no application-owned row history.
+  attestRuntimeMetadata(schema);
+  const tables=await Promise.all(schema.filter(entry=>entry.type==='table'&&!entry.name.startsWith('sqlite_')&&entry.name!=='_cf_METADATA').map(async entry=>({
     name:entry.name,
     rows:(await database.prepare("SELECT rowid AS retained_rowid,* FROM "+identifier(entry.name)+" ORDER BY rowid").all()).results,
   })));
@@ -211,4 +237,25 @@ test('guarded phase rebuild retains the exact full nineteen-migration D1 schema 
     assert.equal((await database.prepare('PRAGMA foreign_key_check').all()).results.length,0);
     assert.equal((await database.prepare("SELECT name FROM sqlite_schema WHERE name='catalog_phase_schema_guard' OR name LIKE '%_catalog_next%'").all()).results.length,0);
   } finally {await runtime.dispose();}
+});
+
+test('atomic phase rebuild refuses a metadata schema pin mismatch and retains all captured history',async()=>{
+  const f=await communityRuntime();
+  try {
+    await retainedHistory(f.db);
+    const metadata=await runtimeMetadata(f.db);
+    assert.equal(metadata.length,1,'retained D1 fixture must expose its actual metadata schema');
+    const before=await completeDatabase(f.db);
+    const draft=await readFile(new URL('../packages/community/catalog-phase-rebuild.sql',import.meta.url),'utf8');
+    const transition=catalogPhaseTransitionStatements(f.db,mismatchedMetadataPin(draft));
+    await assert.rejects(f.db.batch([
+      f.db.prepare("INSERT INTO transaction_guards VALUES('metadata-refusal-marker',1)"),
+      f.db.prepare("UPDATE publication_jobs SET attempts=attempts+1,updated_at=999 WHERE job_id='schema-job'"),
+      ...transition,
+    ]),/catalog_phase_schema_refusal/);
+    assert.deepEqual(await completeDatabase(f.db),before);
+    assert.deepEqual(await runtimeMetadata(f.db),metadata);
+    assert.equal((await f.db.prepare('PRAGMA foreign_key_check').all()).results.length,0);
+    assert.equal((await f.db.prepare("SELECT name FROM sqlite_schema WHERE name='catalog_phase_schema_guard' OR name LIKE '%_catalog_next%'").all()).results.length,0);
+  }finally{await f.dispose();}
 });

@@ -14,6 +14,37 @@ import {reserveOwnerSubmission} from "../packages/community/submissions.ts";
 import {validateOwnerAuthorization} from "../packages/community/owner-authorization.ts";
 import {UNREGISTERED_OWNER_POLICY_VERSION} from "../packages/community/owner-policy.ts";
 
+type RuntimeSchemaRow={type:string;name:string;tbl_name:string;sql:string|null};
+const runtimeMetadataSql = "CREATE TABLE _cf_METADATA (\n        key INTEGER PRIMARY KEY,\n        value BLOB\n      )";
+function attestRuntimeMetadata(schema:readonly RuntimeSchemaRow[]){
+  const metadata=schema.filter(entry=>entry.name.toLowerCase()==='_cf_metadata');
+  assert.deepEqual(metadata,metadata.length===0?[]:[{
+    type:'table',name:'_cf_METADATA',tbl_name:'_cf_METADATA',sql:runtimeMetadataSql,
+  }]);
+  return metadata;
+}
+async function runtimeMetadata(database:D1Database){
+  const schema=(await database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE lower(name)='_cf_metadata'").all<RuntimeSchemaRow>()).results;
+  return attestRuntimeMetadata(schema);
+}
+function mismatchedMetadataPin(draft:string){
+  const literal="'"+runtimeMetadataSql.replaceAll("'","''")+"'";
+  assert.equal(draft.split(literal).length,2,"one exact metadata pin required");
+  const changed=literal.replace('value BLOB','value TEXT');
+  assert.notEqual(changed,literal);
+  return draft.replace(literal,changed);
+}
+
+async function nativeDatabaseImage(database:D1Database){
+  const schema=(await database.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name").all<RuntimeSchemaRow>()).results;
+  attestRuntimeMetadata(schema);
+  const tables=await Promise.all(schema.filter(entry=>entry.type==='table'&&!entry.name.startsWith('sqlite_')&&entry.name!=='_cf_METADATA').map(async entry=>{
+    const name='"'+entry.name.replaceAll('"','""')+'"';
+    return {name:entry.name,rows:(await database.prepare("SELECT rowid AS retained_rowid,* FROM "+name+" ORDER BY rowid").all()).results};
+  }));
+  return {schema,tables};
+}
+
 async function ownerUpload(f:Awaited<ReturnType<typeof nativeProducerFixture>>){
  const login=await f.login(),config=f.profile.infrastructure.configuration;
  const session=await accountSession(new Request(config.app.origin+"/api/session",{headers:{Cookie:login.cookie}}),f.db,
@@ -193,7 +224,7 @@ test("native additive transition rolls back DDL after staged tables without chan
   await f.db.prepare("INSERT INTO community_accounts VALUES('retained','0x1234',1)").run();
   const before=(await f.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY name").all()).results;
   const statements=nativeBusinessTransition(f.db,f.draft);
-   await assert.rejects(f.db.batch([...statements.slice(0,7),f.db.prepare("INSERT INTO native_application_transition_guard VALUES(0)"),...statements.slice(7)]),/native_business_schema_refusal/);
+   await assert.rejects(f.db.batch([...statements.slice(0,8),f.db.prepare("INSERT INTO native_application_transition_guard VALUES(0)"),...statements.slice(8)]),/native_business_schema_refusal/);
   assert.deepEqual((await f.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY name").all()).results,before);
   assert.equal((await f.db.prepare("SELECT account_id FROM community_accounts").first<{account_id:string}>())?.account_id,"retained");
  }finally{await f.dispose();}
@@ -204,9 +235,11 @@ test("additive native schema retains original parent indexes and populated rowid
   await f.db.prepare("INSERT INTO community_accounts(rowid,account_id,author_id,created_at) VALUES(91,'retained','retained-author',1)").run();
   const schema=(await f.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY name").all()).results;
   const rows=(await f.db.prepare("SELECT rowid,* FROM community_accounts ORDER BY rowid").all()).results;
+  const beforeRuntimeMetadata=await runtimeMetadata(f.db);
   await f.db.batch(nativeBusinessTransition(f.db,f.draft));
   const after=(await f.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY name").all()).results;
   for(const entry of schema)assert.ok(after.some(candidate=>JSON.stringify(candidate)===JSON.stringify(entry)));
+  assert.deepEqual(await runtimeMetadata(f.db),beforeRuntimeMetadata);
   assert.deepEqual((await f.db.prepare("SELECT rowid,* FROM community_accounts ORDER BY rowid").all()).results,rows);
   assert.equal((await f.db.prepare("PRAGMA foreign_key_check").all()).results.length,0);
  }finally{await f.dispose();}
@@ -271,4 +304,24 @@ for(const kind of ["revoked","stale","resource","signer"] as const)test("native 
   assert.equal((await f.call("/api/session",{headers:await f.signed(login.cookie,{current})})).status,403);
   assert.equal((await f.db.prepare("SELECT nonce FROM native_readback_nonces").all()).results.length,0);
  }finally{await other?.dispose();await f.dispose();}
+});
+
+test('native metadata schema pin mismatch rolls back schema and actual account session submission history',async()=>{
+  const f=await nativeProducerFixture(false,true);
+  try{
+    const upload=await ownerUpload(f);
+    const metadata=await runtimeMetadata(f.db);
+    assert.equal(metadata.length,1,'retained D1 fixture must expose its actual metadata schema');
+    const before=await nativeDatabaseImage(f.db);
+    const transition=nativeBusinessTransition(f.db,mismatchedMetadataPin(f.draft));
+    await assert.rejects(f.db.batch([
+      f.db.prepare("INSERT INTO transaction_guards VALUES('native-metadata-refusal-marker',1)"),
+      f.db.prepare("UPDATE community_accounts SET created_at=created_at+1 WHERE account_id=?").bind(upload.session.account_id),
+      ...transition,
+    ]),/native_business_schema_refusal/);
+    assert.deepEqual(await nativeDatabaseImage(f.db),before);
+    assert.deepEqual(await runtimeMetadata(f.db),metadata);
+    assert.equal((await f.db.prepare('PRAGMA foreign_key_check').all()).results.length,0);
+    assert.equal((await f.db.prepare("SELECT name FROM sqlite_schema WHERE name='native_application_transition_guard' OR name IN ('native_application_original','native_business_bindings','native_readback_nonces','native_binding_guards')").all()).results.length,0);
+  }finally{await f.dispose();}
 });
