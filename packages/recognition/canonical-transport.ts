@@ -271,7 +271,7 @@ export function canonicalCommunityClient(
       return bytes;
     },
     async authorize(p, operationId) {
-      await call("authorize", { source: p, operationId });
+      await call("authorize", { ...sourceBody(p), operationId });
     },
     async ready(p) {
       requireFirstSongRevision(p.publicationRevision);
