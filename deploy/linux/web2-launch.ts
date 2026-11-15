@@ -157,8 +157,27 @@ export async function runWeb2Native(configPath: string) {
     installationId: _installation,
     ...directory
   } = deployment.directoryProfile;
+  // The same explicit signed qualification mapping must reach Node's pre-start
+  // RPC/content reads as well as Worker egress. Container loopback is not the
+  // host fixture. Production graphs have no mapping and keep normal fetch.
+  const send: typeof fetch = (input, init) => {
+    const request = new Request(input, init),
+      url = new URL(request.url);
+    if (!graph.fixtureTransport) return fetch(request);
+    const route = graph.fixtureTransport.routes.find(
+      (row) => row.origin === url.origin,
+    );
+    assert(
+      route && graph.allowedOrigins.includes(url.origin),
+      "unconfigured_native_fixture_origin",
+    );
+    return fetch(
+      new Request(route.upstream + url.pathname + url.search, request),
+      { redirect: "manual" },
+    );
+  };
   const client = createPublicClient({
-    transport: http(deployment.rpcUrl, { retryCount: 0 }),
+    transport: http(deployment.rpcUrl, { retryCount: 0, fetchFn: send }),
   });
   const current = async () => {
     await assertStartAllowed(config.maintenanceDirectory);
@@ -180,7 +199,7 @@ export async function runWeb2Native(configPath: string) {
     await authenticateWeb2Enrollment(
       {
         client,
-        send: communityIpfsTransport(deployment),
+        send: communityIpfsTransport(deployment, send),
         now: () => BigInt(Math.floor(Date.now() / 1000)),
         maxSafeBlockAgeSeconds: BigInt(
           plan.registrationAuthority.maxSafeBlockAgeSeconds,
