@@ -82,6 +82,7 @@ export async function serveCommunity(
     feedOutage?: boolean;
     profile?: "loaded" | "unavailable";
     joined?: boolean;
+    membership?: boolean;
   } = {},
 ) {
   const accountId = randomUUID(),
@@ -202,6 +203,7 @@ export async function serveCommunity(
         policyVersion: policy,
         rewards: !!options.rewards,
         study: false,
+        ...(options.membership === undefined ? {} : {membership: options.membership}),
       });
     if (path === "/api/feed")
       return feedDown
@@ -211,6 +213,7 @@ export async function serveCommunity(
     // Membership is independent of the Study/publication behavior under test.
     // Only its authenticated read is simulated; no join or name write is accepted.
     if (path === "/api/community/join") {
+      if (options.membership === false) return json({error: "feature_unavailable"}, 404);
       expect(request.method()).toBe("GET");
       return authenticated
         ? json({ schema: "pirate.community-join/1", ownerScope: accountId, revision: 0,

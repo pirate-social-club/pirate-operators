@@ -10,7 +10,7 @@ import {
 } from "../../packages/community/common.ts";
 import {
   validateConfig,
-  type CommunityConfig,
+  type HistoricalCommunityConfig as CommunityConfig,
 } from "../../packages/community/config-manifest.ts";
 import { preparePin, type PinIntent } from "../../packages/community/ipfs.ts";
 import {

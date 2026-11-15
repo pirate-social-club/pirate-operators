@@ -86,7 +86,7 @@ export function processAdmission(
         );
         const authority = JSON.parse(row.authority_json);
         insist(
-          authority.registry === pairing.registry &&
+          !("schema" in pairing) && authority.registry === pairing.registry &&
             authority.directory === pairing.directory &&
             authority.controller === pairing.controller &&
             authority.communityOrigin === pairing.communityOrigin &&
@@ -137,6 +137,8 @@ export function processAdmission(
         let pinnedPolicy: { version: string; sha256: string } | undefined;
         const authorize = async () => {
           const current = await config.currentConfiguration(pairing);
+          insist(current.schema !== "pirate.community-config/4" && !("schema" in pairing),
+            "historical_moderation_profile_required", 503);
           insist(
             !ownerCurated(current.policies.admission),
             "automated_content_deferred",

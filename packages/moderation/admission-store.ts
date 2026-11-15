@@ -53,6 +53,7 @@ export async function enqueueAdmission(
   serviceBudget: { period: string; requestCap: number },
   time = Date.now(),
 ) {
+  insist(!("schema" in pairing), "historical_moderation_profile_required", 503);
   const id = admissionId(pairing.communityId, request.jobId),
     requestHash = admissionInputHash(request);
   const authority = {

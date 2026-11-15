@@ -9,7 +9,7 @@ import {
   text,
 } from "./common.ts";
 import { address, httpsOrigin } from "./manifest-core.ts";
-import { validateConfig, type CommunityConfig } from "./config-manifest.ts";
+import { validateConfig, isHistoricalConfiguration, type CommunityConfig } from "./config-manifest.ts";
 import { ownerCurated } from "./owner-policy.ts";
 import type { RegisteredExecutionProfile } from "./publication-profile.ts";
 
@@ -97,6 +97,7 @@ export async function validateCuratedAmendment(
     "curated_configuration_mismatch",
     409,
   );
+  insist(isHistoricalConfiguration(config), "historical_curated_profile_required", 409);
   const original = validateConfig(a.originalConfiguration);
   insist(
     original.configurationRevision === 1 &&

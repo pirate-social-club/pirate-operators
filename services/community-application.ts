@@ -22,6 +22,7 @@ import {
 } from "../packages/community/accounts.ts";
 import {
   bytes32,
+  canonical,
   CommunityError,
   cookie,
   insist,
@@ -30,6 +31,9 @@ import {
   text,
 } from "../packages/community/common.ts";
 import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
+import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
+import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
+import { readSignInMessageV4 } from "../packages/protocol/learning-results-v4.ts";
 import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
 import { publicResultManifest } from "../packages/records/result-manifest.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
@@ -49,7 +53,7 @@ import type {
   CommunitySessionView,
 } from "../packages/community/application-api.ts";
 import { RELEASE_POLICY } from "../packages/community/manifest-core.ts";
-import { readCommunityDeploymentProfile, communityIpfsTransport, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
+import { readCommunityDeploymentProfile, communityIpfsTransport, isWeb2Deployment, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import { firstSong } from "./first-song-profile.ts";
 import { learningPolicyPage } from "./learning-policy-pages.ts";
 import { learningV3Disclosure } from "./learning-policy-v3.ts";
@@ -217,13 +221,15 @@ function dependencies(
   const content=communityIpfsTransport(deployment);
   const transport = (request: Request) =>
     timing.measure("ipfs", () => content(request));
-  const directory = {
-    ...deployment.directoryProfile,
-    deploymentBlock: BigInt(deployment.directoryProfile.deploymentBlock),
-  };
-  // Both exact Directory ABIs retain their own closed authenticated reader.
-  const readHistory=():Promise<CommunityConfig[]>=>{
-    if("schema" in directory)return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
+  // Each deployment version selects its own closed authenticated reader.
+  const readHistory=async():Promise<CommunityConfig[]>=>{
+    if (isWeb2Deployment(deployment)) {
+      const read = await readWeb2Community(client, parseWeb2ProfileDocument(deployment.directoryProfile),
+        {now: () => BigInt(Math.floor(Date.now()/1000)), maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds)}, transport);
+      insist(read.eligibility.status === "available", "community_authority_unavailable", 503);
+      return [...read.history];
+    }
+    const directory = {...deployment.directoryProfile, deploymentBlock: BigInt(deployment.directoryProfile.deploymentBlock)};
     return readConfigurationHistory(client,directory,transport,directoryHistoryCache(env.DB,client,directory));
   };
   let history:Promise<CommunityConfig[]>|undefined;
@@ -231,7 +237,7 @@ function dependencies(
   return {
     deployment,
     freshConfiguration:async()=> (await readHistory()).at(-1)!,
-    privateDance: communityPrivateDanceDefaults(env),
+    privateDance: isWeb2Deployment(deployment) ? undefined : communityPrivateDanceDefaults(env),
     async configuration() {
       return (await configurationHistory()).at(-1)!;
     },
@@ -251,6 +257,7 @@ function dependencies(
       return client.verifyMessage({ address, message: proof, signature });
     },
     async creatorHealth() {
+      if (isWeb2Deployment(deployment)) return false;
       try {
         const response = await timing.measure("creator", () =>
             fetch(deployment.creatorOrigin + "/api/health", {
@@ -293,10 +300,14 @@ function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
   });
 }
 export async function communityFetch(request:Request,env:CommunityEnv,provided?:CommunityDependencies):Promise<Response>{
-  const actual=provided??dependencies(env);
   try {
+    const actual=provided??dependencies(env), deployment=actual.deployment??deploymentProfile(env);
+    if (isWeb2Deployment(deployment)) {
+      insist(!request.headers.has("X-Pirate-Native-Request"), "web2_native_profile_unqualified", 503);
+      insist(!web2ExcludedPath(new URL(request.url).pathname), "feature_unavailable", 404);
+    }
     return await nativeBusinessResponse({request,env,
-      configuration:actual.freshConfiguration??actual.configuration,
+      configuration:freshAuthority(actual, deployment),
       privateDance:actual.privateDance,
       business:()=>communityFetchBusiness(request,env,actual)});
   } catch(error) {
@@ -304,12 +315,23 @@ export async function communityFetch(request:Request,env:CommunityEnv,provided?:
     throw error;
   }
 }
+function freshAuthority(ports: CommunityDependencies, deployment: CommunityDeploymentProfile) {
+  if (isWeb2Deployment(deployment)) insist(ports.freshConfiguration, "fresh_community_authority_required", 503);
+  return ports.freshConfiguration??ports.configuration;
+}
+function web2ExcludedPath(path: string) {
+  return /^\/api\/public\/posts\/[^/]+\/karaoke(?:\/|$)/.test(path) ||
+    ["/api/study", "/api/karaoke", "/api/learning", "/api/media", "/api/dance", "/api/member-name",
+    "/api/rewards", "/api/operator/rewards", "/api/operator/song-alignment", "/api/community/join",
+    "/learning", "/study", "/karaoke"].some(prefix => path === prefix || path.startsWith(prefix+"/"));
+}
 async function communityFetchBusiness(
   request: Request,
   env: CommunityEnv,
   ports?: CommunityDependencies,
 ): Promise<Response> {
   const deployment=ports?.deployment??deploymentProfile(env);
+  const web2 = isWeb2Deployment(deployment);
   const timing = new RequestTiming();
   ports ??= dependencies(env, timing);
   const url = new URL(request.url),
@@ -320,7 +342,8 @@ async function communityFetchBusiness(
     };
   try {
     insist(url.origin === deployment.origin, "wrong_community_host", 403);
-    const policy = learningPolicyPage(
+    insist(!web2 || !web2ExcludedPath(url.pathname), "feature_unavailable", 404);
+    const policy = !web2 && learningPolicyPage(
       url.pathname,
       !!env.STUDY_RESULTS_V4_CONTRACT,
     );
@@ -333,14 +356,18 @@ async function communityFetchBusiness(
       client: megaethReadClient(),
       profile: publicPostsProfile(deployment),
     };
-    const configuration = async () => {
-      const config = await ports.configuration();
+    const configuration = async (fresh = false) => {
+      const config = await (web2 && fresh ? freshAuthority(ports,deployment)() : ports.configuration());
       insist(
         config.communityId === context.communityId &&
           config.app.origin === context.origin,
         "community_configuration_changed",
         503,
       );
+      if (isWeb2Deployment(deployment)) insist(config.schema === "pirate.community-config/4" &&
+        config.chainId === deployment.directoryProfile.chainId && config.directory === deployment.directoryProfile.directory &&
+        config.communityKey === deployment.directoryProfile.communityKey && config.installationId === deployment.directoryProfile.installationId &&
+        config.postsContract === deployment.posts.address, "community_configuration_changed", 503);
       return config;
     };
     if (
@@ -358,7 +385,7 @@ async function communityFetchBusiness(
     const creatorAvailable = async (known?: CommunityConfig) => {
       // A deployment carrying the owner grant never contacts the creator
       // service, before or after the owner policy is activated.
-      if (env.OWNER_GRANT_JSON) return false;
+      if (web2 || env.OWNER_GRANT_JSON) return false;
       let config = known;
       if (!config)
         try {
@@ -373,22 +400,23 @@ async function communityFetchBusiness(
         : ports.creatorHealth();
     };
     const ready = async () => {
-      const config = await configuration();
+      const config = await configuration(true);
       const runtime =
         ports.releaseRuntime?.(config) ??
-        firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
+        firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
       await runtime.checkServices();
+      if (web2) insist(canonical(await configuration(true)) === canonical(config), "community_authority_changed", 409);
       return { config, ports: runtime };
     };
     // Display only: whether this account sees release controls. The release
     // API checks the same authority again before every reservation and seal.
     const sessionPublisher = async (accountId: string, wallet: string) => {
       try {
-        const config = await configuration();
+        const config = await configuration(true);
         if (ownerOnly(config.policies.admission)) {
           const runtime =
             ports.releaseRuntime?.(config) ??
-            firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
+            firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
           await requireAuthorizedOwner(
             runtime.ownerAuthorization,
             config,
@@ -597,7 +625,7 @@ async function communityFetchBusiness(
         // Only a V4 community has public results by sign-in; no RPC
         // otherwise. With V4 configured, a failed configuration read is
         // "pending", never "unavailable", which would offer V3 enrollment.
-        publicResults: !env.STUDY_RESULTS_V4_CONTRACT
+        publicResults: web2 || !env.STUDY_RESULTS_V4_CONTRACT
           ? "unavailable"
           : await configuration().then(
               (config) =>
@@ -726,17 +754,18 @@ async function communityFetchBusiness(
         /* Fail closed while a required peer is unavailable. */
       }
       const capabilities: CommunityCapabilities = {
-        ...(env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
-        study: studyAvailable(env, config),
+        ...(web2 ? {membership: false} : {}),
+        ...(!web2 && env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
+        study: !web2 && studyAvailable(env, config),
         schema: "pirate.community-capabilities/1",
         signIn: true,
-        ...(env.KARAOKE_SERVICE_MODE === "internal"
+        ...(!web2 && env.KARAOKE_SERVICE_MODE === "internal"
           ? { learningServiceMode: "internal" as const }
           : {}),
         // The learning documents of the community's actual version, for the
         // site footer: exercise surfaces carry no links in any mode. A V4
         // sign-in accepts them; a V3 community's enrollment did.
-        ...(signInV4(env, config)
+        ...(!web2 && signInV4(env, config)
           ? {
               learningPolicy: {
                 version: 4 as const,
@@ -744,7 +773,7 @@ async function communityFetchBusiness(
                 privacyUrl: learningV4Disclosure.privacyUrl,
               },
             }
-          : env.STUDY_RESULTS_V3_CONTRACT?.toLowerCase() ===
+          : !web2 && env.STUDY_RESULTS_V3_CONTRACT?.toLowerCase() ===
               config.learningRecords.toLowerCase()
             ? {
                 learningPolicy: {
@@ -881,7 +910,7 @@ async function communityFetchBusiness(
       const body = await jsonBody(request);
       if (url.pathname === "/api/auth/challenge") {
         const loginAt = (ports.now ?? Date.now)();
-        const v4 = await publicationSignInAtLogin(
+        const v4 = web2 ? undefined : await publicationSignInAtLogin(
           env,
           env.DB,
           body.address,
@@ -902,7 +931,10 @@ async function communityFetchBusiness(
           context,
           text(body.id, 64),
           text(body.signature, 32768),
-          ports.verifyLogin,
+          web2 ? (address, proof, signature) => {
+            insist(!readSignInMessageV4(proof), "learning_sign_in_unavailable", 403);
+            return ports.verifyLogin(address, proof, signature);
+          } : ports.verifyLogin,
           (ports.now ?? Date.now)(),
         );
         // The V4 sign-in is only stored: it is relayed when the learner
@@ -1082,6 +1114,13 @@ export async function communityScheduled(
   provided?: CommunityDependencies,
 ) {
   const deployment=provided?.deployment??deploymentProfile(env);
+  if (isWeb2Deployment(deployment)) {
+    const ports = provided??dependencies(env), config = await freshAuthority(ports,deployment)();
+    insist(config.schema === "pirate.community-config/4" && config.communityId === deployment.directoryProfile.communityId &&
+      config.app.origin === deployment.origin, "community_configuration_changed", 503);
+    await recoverCommunityJobs(env.DB, env.JOBS);
+    return;
+  }
   const failures: unknown[] = [];
   if (provided?.linkedAuthority) {
     try {
@@ -1204,8 +1243,8 @@ export async function communityQueue(
   provided?: CommunityDependencies,
 ) {
   const deployment=provided?.deployment??deploymentProfile(env);
-  const ports = provided ?? dependencies(env),
-    config = await ports.configuration();
+  const ports = provided ?? dependencies(env);
+  let config = await (isWeb2Deployment(deployment) ? freshAuthority(ports,deployment)() : ports.configuration());
   insist(
     config.communityId === deployment.directoryProfile.communityId &&
       config.app.origin === deployment.origin,
@@ -1217,7 +1256,14 @@ export async function communityQueue(
   for (const message of batch.messages) {
     try {
       const job = message.body;
+      if (isWeb2Deployment(deployment)) {
+        config = await freshAuthority(ports,deployment)();
+        insist(config.schema === "pirate.community-config/4" && config.communityId === deployment.directoryProfile.communityId &&
+          config.app.origin === deployment.origin, "community_configuration_changed", 503);
+        publication = undefined;
+      }
       if (job.kind === "community-media/1") {
+        insist(!isWeb2Deployment(deployment), "feature_unavailable", 503);
         privateDance ??= await ports.privateDance?.(config);
         insist(
           privateDance && privateDance.communityId === config.communityId,
@@ -1228,7 +1274,7 @@ export async function communityQueue(
       } else {
         publication ??=
           ports.releaseRuntime?.(config) ??
-          firstSongRuntime(env, config, ports.freshConfiguration??ports.configuration,deployment);
+          firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
         await runCommunityJob(publication, env.JOBS, job.jobId);
       }
       message.ack();

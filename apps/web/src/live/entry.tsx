@@ -656,9 +656,10 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   let joinIntent = 0;
   let joinReturnFocus: HTMLElement | undefined;
   let memberClosing = false;
+  const membershipSupported = () => capabilities() !== null && capabilities()?.membership !== false;
   const memberIdentity = () => {
     const config = boot(), current = settling() ? null : session();
-    return !walletPage && config && current ? {
+    return membershipSupported() && !walletPage && config && current ? {
       key: JSON.stringify([config.communityId, current.authorId, current.csrf, current.mossAddress]),
       csrf: current.csrf, wallet: current.mossAddress,
     } : null;
@@ -710,7 +711,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     };
   };
   function openMemberRoute() {
-    if (walletPage || practiceOpen()) return;
+    if (!membershipSupported() || walletPage || practiceOpen()) return;
     memberClosing = false;
     if (document.activeElement instanceof HTMLElement) joinReturnFocus = document.activeElement;
     const previousHref = location.href, next = memberJoinUrl(new URL(previousHref));
@@ -738,7 +739,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     lastLocation = ""; syncLocation();
   }
   async function joinCommunity() {
-    if (walletPage || busy() || settling() || practiceOpen() || !boot()) return;
+    if (!membershipSupported() || walletPage || busy() || settling() || practiceOpen() || !boot()) return;
     const community = boot()!.communityId, intent = ++joinIntent;
     openMemberRoute();
     if (!session()) {
@@ -753,6 +754,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       acceptedJoin(membership.state())) await membership.openName();
   }
   const shellMembership = () => {
+    if (!membershipSupported()) return undefined;
     const current = memberView(), joined = acceptedJoin(current);
     const blocked = current.join?.state === "blocked" ? current.join : undefined;
     return {
@@ -852,7 +854,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       composing={view() === "publish"}
       onSignIn={() => void run(signIn)}
     >
-      <ChooseHandle
+      <Show when={membershipSupported()}><ChooseHandle
         communityName={name()}
         state={memberView()}
         returnFocus={() => joinReturnFocus?.isConnected ? joinReturnFocus :
@@ -862,7 +864,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         onConsent={() => { void membership.consent(); }}
         onCheck={() => { void membership.checkName(); }}
         onReconcile={() => { void membership.reconcile(); }}
-      />
+      /></Show>
       <Show when={walletPage && session() && !settling()}>
         <Show
           when={location.pathname === "/operator/rewards"}

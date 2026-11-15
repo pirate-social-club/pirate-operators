@@ -15,7 +15,7 @@ import {
 } from "../packages/release/owner-grant.ts";
 import { requireOwnerGrantScope } from "../packages/release/owner-release.ts";
 import { firstSong } from "./first-song-profile.ts";
-import type { CommunityDeploymentProfile } from "./community-deployment-profile.ts";
+import { isWeb2Deployment, communityIpfsTransport, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 
 export interface FirstSongRuntimeEnv {
   DB: D1Database;
@@ -38,15 +38,22 @@ export interface FirstSongRuntimeEnv {
   /** Reviewed existing account fence; missing input fails closed for the new policy. */
   CATALOG_ACCOUNT_FENCE?: (accountId:string,wallet:string,authorId:string)=>Promise<void>;
   CATALOG_TRANSPORT?: (request:Request)=>Promise<Response>;
+  /** Trusted service binding; the configured managed origin remains the request scope. */
+  MANAGED_RELEASE_SERVICE?: Fetcher;
+}
+function managedTransport(env: FirstSongRuntimeEnv) {
+  return env.MANAGED_RELEASE_SERVICE
+    ? (request: Request) => env.MANAGED_RELEASE_SERVICE!.fetch(request)
+    : (request: Request) => fetch(request);
 }
 export async function managedReleaseConfigured(
   env: FirstSongRuntimeEnv, deployment: CommunityDeploymentProfile = firstSong,
 ) {
   try {
-    const response = await fetch(deployment.managedOrigin + "/health", {
+    const response = await managedTransport(env)(new Request(deployment.managedOrigin + "/health", {
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
-      }),
+      })),
       body = await jsonBody(response),
       release = body.release as Record<string, unknown> | undefined;
     return (
@@ -67,10 +74,10 @@ export async function managedOwnerReleaseConfigured(
   deployment: CommunityDeploymentProfile = firstSong,
 ) {
   try {
-    const response = await fetch(deployment.managedOrigin + "/health", {
+    const response = await managedTransport(env)(new Request(deployment.managedOrigin + "/health", {
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
-      }),
+      })),
       body = await jsonBody(response),
       owner = body.ownerRelease as Record<string, unknown> | undefined;
     return (
@@ -126,12 +133,12 @@ export function ownerSongRuntime(
   const publisher = privateKeyToAccount(
       env.COMMUNITY_PUBLISHER_PRIVATE_KEY as `0x${string}`,
     ),
-    managed = { origin: deployment.managedOrigin, publisher, configuration };
+    managed = { origin: deployment.managedOrigin, publisher, configuration, transport: managedTransport(env) };
   const runtime: FirstSongDriverPorts = {
     db: env.DB,
     media: env.MEDIA,
     managed,
-    release: { client: managed, grantHash: grant!.sha256, ownerGrant: grant! },
+    release: { client: managed, grantHash: grant!.sha256, ownerGrant: grant!, ipfs: communityIpfsTransport(deployment) },
     posting: {
       db: env.DB,
       client: megaethReadClient(undefined, deployment.rpcUrl),
@@ -155,7 +162,11 @@ export function ownerSongRuntime(
   if (catalogOwner(configuration.policies.admission)) {
     insist(env.RECOGNITION_PROFILE_JSON && env.CATALOG_ACCOUNT_FENCE,"recognition_runtime_unconfigured",503);
     insist(configuration.communityId===deployment.directoryProfile.communityId&&configuration.app.origin===deployment.origin&&
-      configuration.registry===deployment.directoryProfile.registry&&configuration.postsContract===deployment.posts.address,
+      configuration.postsContract===deployment.posts.address && configuration.directory===deployment.directoryProfile.directory &&
+      (isWeb2Deployment(deployment)
+        ? configuration.schema==="pirate.community-config/4" && configuration.communityKey===deployment.directoryProfile.communityKey &&
+          configuration.installationId===deployment.directoryProfile.installationId && configuration.chainId===deployment.directoryProfile.chainId
+        : configuration.schema!=="pirate.community-config/4" && configuration.registry===deployment.directoryProfile.registry),
       "recognition_deployment_profile_changed",503);
     const pin=recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON));
     insist(canonical(pin)===canonical(configuration.policies.recognition) && pin.signer!==grant!.ownerWallet,"recognition_pin_changed",503);
@@ -173,6 +184,8 @@ export function firstSongRuntime(
 ): FirstSongDriverPorts {
   if (ownerOnly(configuration.policies.admission))
     return ownerSongRuntime(env, configuration, currentConfiguration, undefined, deployment);
+  insist(!isWeb2Deployment(deployment) && configuration.schema!=="pirate.community-config/4",
+    "historical_registered_release_profile_required", 503);
   insist(
     /^0x[0-9a-fA-F]{64}$/.test(env.COMMUNITY_PUBLISHER_PRIVATE_KEY) &&
       /^0x[0-9a-f]{64}$/.test(env.RELEASE_GRANT_HASH ?? ""),
@@ -200,6 +213,7 @@ export function firstSongRuntime(
       grantHash: env.RELEASE_GRANT_HASH!,
       registrationOperator: address(env.REGISTRATION_OPERATOR_ADDRESS),
       story,
+      ipfs: communityIpfsTransport(deployment),
     },
     posting: {
       db: env.DB,

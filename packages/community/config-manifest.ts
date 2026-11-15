@@ -1,4 +1,5 @@
 import { catalogOwner } from "./owner-policy.ts";
+import type { Web2CommunityConfig } from "./web2-config-manifest.ts";
 import { recognitionProfile, type RecognitionProfile } from "../recognition/intent.ts";
 import type { Address, Hex } from "viem";
 import { canonicalTld, directoryInstanceId, sharedBytes32, sharedNamespaceId } from "./shared-identity.ts";
@@ -70,12 +71,16 @@ export interface CapturedCatalogCommunityConfig extends Omit<LegacyCommunityConf
   communityKey?:never; installationId?:never; namespaceId?:never;
   registryCodeHash?:never; registrySourceCommit?:never; registryAbiSha256?:never;
 }
-export type CommunityConfig = LegacyCommunityConfig | SharedCommunityConfig | CapturedCatalogCommunityConfig;
+export type HistoricalCommunityConfig = LegacyCommunityConfig | SharedCommunityConfig | CapturedCatalogCommunityConfig;
+export type CommunityConfig = HistoricalCommunityConfig | Web2CommunityConfig;
+export function isHistoricalConfiguration(value: CommunityConfig): value is HistoricalCommunityConfig {
+  return value.schema !== "pirate.community-config/4";
+}
 export function isSharedConfiguration(value:CommunityConfig):value is SharedCommunityConfig {
   return (value.schema==="pirate.community-config/2"||value.schema==="pirate.community-config/3") &&
     value.communityKey!==undefined;
 }
-export type DirectoryConfig = CommunityConfig;
+export type DirectoryConfig = HistoricalCommunityConfig;
 export interface ConfigurationState {
   first?: DirectoryConfig;
   last?: DirectoryConfig;
@@ -248,7 +253,7 @@ export function advanceConfiguration(state: ConfigurationState, result: Director
 export function validateConfiguration(value: unknown, state: ConfigurationState, atBlock?: bigint): DirectoryConfig {
   return advanceConfiguration(state, parseConfiguration(value), atBlock);
 }
-export function validateConfig(value: unknown, previous: CommunityConfig[] = [], atBlock?: bigint): LegacyCommunityConfig | CapturedCatalogCommunityConfig {
+export function validateConfig(value: unknown, previous: HistoricalCommunityConfig[] = [], atBlock?: bigint): LegacyCommunityConfig | CapturedCatalogCommunityConfig {
   const state = configurationState();
   for (const old of previous) advanceConfiguration(state, old, atBlock);
   const result = validateConfiguration(value, state, atBlock);

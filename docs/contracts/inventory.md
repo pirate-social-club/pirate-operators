@@ -7,10 +7,15 @@ registry deployments or contract administration. Name-holder and external TLD
 owner rights remain separate from Pirate administration.
 
 The [Web2 release plan](../self-hosting/checkpoint-1-pilot-delivery-20261114.md)
-governs new deployment selection. Directory V3 is the Web2-first candidate;
+governs new deployment selection. Directory V3 is the Web2-first source foundation;
 Directory V2 is superseded for new deployments. First-song enrollment has no
-learning-results target. Consent redesign and optional HNS/naming adoption remain
-separate work; retaining earlier source does not select it for deployment.
+learning-results target. Baseline [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58)
+at `9374f4c`, Directory [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56)
+at `aef30d0`, and consent [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59)
+at `c6c98cb` are merged and CI-qualified source. V5/Dance V2 remain inactive
+pending application and policy qualification. First-song application/runtime
+and selected-host acceptance remain unqualified; optional HNS adoption and
+retaining historical source do not change that boundary.
 
 ## Source inventory and deployment boundaries
 
@@ -23,6 +28,7 @@ separate work; retaining earlier source does not select it for deployment.
 | CommunityListingAuthorityV1  | pirate-operators | Retained V1 listing authority; not the V3 role configuration.                                                                                             |
 | OperatorPayments             | pirate-operators | Community deposits and signed payments for operator work.                                                                                                 |
 | LearningResultsV4            | pirate-operators | Retained origin-bound result/consent implementation; not selected for the new first-song profile.                                                         |
+| LearningResultsV5            | pirate-operators | Separate publication-consent result foundation; merged source, inactive pending application and policy gates.                                             |
 
 SharedNameRegistryV3 is feature-branch source, not an accepted deployed source.
 At exact source56d63ad, release solc and separate Solar tests, generated ABI byte
@@ -43,15 +49,19 @@ reviewed cutover; this inventory does not switch them.
 
 ## Additional application contracts
 
-| Contract             | Status               | Responsibility                                                      |
-| -------------------- | -------------------- | ------------------------------------------------------------------- |
-| DanceVerdictsV1      | Dance feature source | Categorical Dance verdict lifecycle for one community.              |
-| DanceCapturePolicyV1 | Dance feature source | Stateless capture-policy validation pinned by the verdict contract. |
-| RewardPool           | Separate experiment  | One drawing with signed registration, payout and recovery.          |
+| Contract             | Status                | Responsibility                                                                       |
+| -------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| DanceVerdictsV1      | Retained Dance source | Categorical Dance verdict lifecycle for one community.                               |
+| DanceCapturePolicyV1 | Retained Dance source | Stateless capture-policy validation pinned by the verdict contract.                  |
+| DanceVerdictsV2      | Inactive foundation   | Separate-consent categorical verdict lifecycle; application and policy gates remain. |
+| DanceCapturePolicyV2 | Inactive foundation   | V2 capture-policy validation pinned by the verdict contract.                         |
+| RewardPool           | Separate experiment   | One drawing with signed registration, payout and recovery.                           |
 
-The [Dance source contract](dance-verdicts-v1.md) describes the two concrete
-Dance contracts. Their presence in source does not establish deployed Dance
-acceptance. RewardPool is not a required naming or learning deployment.
+The [retained Dance source contract](dance-verdicts-v1.md) describes the V1 pair.
+The [separate publication-consent specification](publication-consent-v1.md)
+defines the inactive V5/V2 foundation. Neither source presence nor successful CI
+establishes deployed Dance acceptance. RewardPool is not a required naming or
+learning deployment.
 
 ## Historical implementations
 
@@ -81,11 +91,13 @@ contract name into these older scripts.
 | PirateTestUSD              | pirate-registry  | Valueless test currency.                     |
 | DisabledDiscoveryAuthority | pirate-operators | Permanently unlisted disposable communities. |
 
-There are 15 concrete application contract definitions in this combined source
-inventory, including the undeployed V3 branch and the two Dance contracts.
-The earlier count of 13 omitted those Dance contracts. The two testnet helpers
-are separate. Libraries, interfaces, abstract bases and test mocks are excluded.
-Counts describe source definitions and do not describe deployed addresses.
+This inventory lists 18 concrete application definitions. The earlier count of
+15 predates LearningResultsV5, DanceVerdictsV2 and DanceCapturePolicyV2; the earlier
+count of 13 omitted the V1 Dance pair. PublicationConsentV1 and
+DanceVerdictAuthorityV2 are abstract bases, DanceVerdictWireV2 is a library, and
+the consent/capture interfaces add no concrete contract to this count. The two
+testnet helpers and test mocks remain separate. These are listed source
+definitions, not deployed addresses or an activation count.
 
 ## Retirement boundary
 
