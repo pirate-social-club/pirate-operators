@@ -53,8 +53,9 @@ stale/unavailable authority negative passes through the actual handler, with
 no additional provider effects. The browser membership regression passes in
 1.9 seconds against the actual live build: the owner can open Post/composer
 while membership is disabled and no join/name request is sent. Its screenshot
-and request attachment are under `apps/web/test-results/`. Full repository
-qualification remains unrun and needs the serialized coordinator runtime slot.
+and request attachment are under `apps/web/test-results/`. The later broad
+local run and its resolved launcher failure are recorded below. Exact-candidate
+hosted qualification remains required before merge.
 
 The first fixture attempts are retained as failures: the registrar initially
 conflicted with the admin role; the registration lacked safe confirmations; and
@@ -82,9 +83,10 @@ not byte-identical receipts across separate chain instances.
 Independent source reviews found the old moderation/registration closure gaps,
 a missing configured IPFS transport, stale readiness/queue reads and a missed
 public Karaoke route. These were corrected; the reviewers found no remaining
-blocker in the inspected production branches. Final committed-source review and
-required hosted CI remain open. Existing tests and their negative assertions
-remain required.
+blocker in the inspected production branches. Independent committed-source
+reviews cleared the runtime and artifact successors. Required current-base
+hosted CI remains open. Existing tests and their negative assertions remain
+required.
 
 The retained historical manifest, Directory, managed Worker/service and owner
 authority selection passes all 87 cases in 30.78 seconds on merge `13d295a`.
@@ -104,3 +106,29 @@ after two seconds; the outer qualification command also remains bounded.
 The emitted artifact includes the full configuration, receipt, public proof and
 prepared operation data as well as hashes, so their commitments can be checked
 offline. It contains public disposable-fixture transaction data, never secrets.
+
+At `de821a1`, the full local `npm run check` invocation passed types and ran all
+2,257 Node cases in 1,601.63 seconds: 2,255 passed, one failed and one optional
+case skipped. The sole failure was the launcher's omitted
+`PIRATE_TEST_RUN_PARENT`, asserted before filesystem or production effects in
+`test/linux-local-installation.test.ts:101`. The original exit 1 and stack remain
+in `.local/web2-first-song/full-check.log`; it is not reported as a green full
+invocation.
+
+All nine unchanged cases in that file then passed with fresh owned mode-0700
+scratch under `/run/user/1000` and a private short `TMPDIR`. Independent source
+inspection confirmed that only this test consumes the omitted input. The
+chained Forge and acceptance stages had not run after the Node failure; executed
+separately, all 329 Forge cases and the nine-step local acceptance trace passed.
+These are combined stage results, not a replacement successful full invocation.
+No failing test or production guard was deleted or weakened.
+
+The successor `04f9bc0` normally merges protected main `0510f77`, containing the
+standalone hosted-service foundation, and includes the admitted truthful stem
+copy and local-check policy. Root and web types, all 25 hosted-service cases,
+the live build, and both the membership-disabled and retained desktop browser
+cases pass. No hosted enrollment consumer or native Web2 admission is mounted.
+The source-bound broad results above precede this intake; the complete
+current-base six-suite CI caller and release-ready must qualify the exact
+published successor. Installed Linux, actual hosted provisioning and funded or
+real-device acceptance remain separate and unqualified.
