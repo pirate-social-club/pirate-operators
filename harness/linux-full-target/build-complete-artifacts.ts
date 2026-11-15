@@ -99,7 +99,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const row of input.wizardFiles){
   const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write("wizard/"+row.path,body);
  }
- const assets:Record<string,unknown>={},mime:Record<string,string>={".html":"text/html; charset=utf-8",".css":"text/css",".js":"text/javascript",".json":"application/json",".svg":"image/svg+xml",".mp3":"audio/mpeg",".png":"image/png",".webp":"image/webp",".woff2":"font/woff2"};
+ const assets:Record<string,unknown>={},mime:Record<string,string>={".html":"text/html; charset=utf-8",".css":"text/css; charset=utf-8",".js":"text/javascript; charset=utf-8",".json":"application/json",".svg":"image/svg+xml",".mp3":"audio/mpeg",".png":"image/png",".webp":"image/webp",".woff2":"font/woff2"};
  for(const [name,expected] of Object.entries(owning.assets)){
   const body=await readFile(join(input.sourceRoot,input.assetDirectory,name));assert.equal("0x"+sha(body),expected);
   await write("assets/"+name,body);assets[name]={sha256:sha(body),contentType:mime[extname(name)]??"application/octet-stream"};
