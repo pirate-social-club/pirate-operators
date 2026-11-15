@@ -51,7 +51,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const [output,source] of modules){
   assert(source && output);sourceHashes[source]=sha(await readFile(join(input.sourceRoot,source)));
   await runOwnedCommand({lease:input.lease,executable:input.esbuildNative,executableSha256:input.esbuildNativeSha256,
-   argv:[join(input.sourceRoot,source!),"--bundle",output==="full-launch.mjs"?"--platform=node":"--platform=neutral","--format=esm","--target=es2024","--external:cloudflare:workers","--external:node:*",
+   argv:[join(input.sourceRoot,source!),"--bundle",output==="full-launch.mjs"?"--platform=node":web2?"--platform=browser":"--platform=neutral","--format=esm","--target=es2024","--external:cloudflare:workers","--external:node:*",
     "--outfile="+join(input.output,output!)],
    environment:input.environment,cwd:input.sourceRoot,outputDirectory:input.rawOutputDirectory,
    name:"bundle-"+output!.replace(/[^A-Za-z0-9_-]/g,"-"),seconds:90,signal:input.signal});
