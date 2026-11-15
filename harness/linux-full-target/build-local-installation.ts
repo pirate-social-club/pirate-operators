@@ -170,6 +170,16 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const sql=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),migrationRoot,JSON.stringify(names)],"split-migrations");
   const migrationPlan:Parameters<typeof buildCompleteLinuxArtifacts>[0]["migrationPlan"]=JSON.parse(await readFile(sql.stdoutPath,"utf8"));
   assert.deepEqual(migrationPlan.map(row=>row.name),names);
+  let web2Schema:Parameters<typeof buildCompleteLinuxArtifacts>[0]["web2Schema"];
+  if(o.profile==="web2-first-song/1"){
+   // These are schema prerequisites only; application learning/names/Dance
+   // remain disabled by the separately verified first-song configuration.
+   assert(Object.values(migrations).every(Boolean),"web2_fresh_schema_requires_complete_pinned_base");
+   const overlays=["packages/community/catalog-phase-rebuild.sql","packages/community/catalog-obligation.sql","packages/community/native-business.sql"];
+   const split=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),root,JSON.stringify(overlays),"web2-first-song/1"],"split-web2-schema");
+   web2Schema={schema:"pirate.linux-web2-schema/1",overlays:JSON.parse(await readFile(split.stdoutPath,"utf8"))};
+   assert.deepEqual(web2Schema.overlays.map(row=>row.name),overlays);
+  }
   const actorValue:unknown=JSON.parse((await bytes(o.actorsFile)).body.toString("utf8"));assert(Array.isArray(actorValue),"actual_selected_actor_manifest_required");
   const actorOutputs=new Set<string>(),reserved=new Set(["application.mjs","queue.mjs","maintenance.mjs","full-launch.mjs",
    "full-startup.worker.mjs","cold-reconcile.worker.mjs","selected-handler-observer.worker.mjs","maintenance.bootstrap.mjs",
@@ -200,7 +210,8 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const selectedBackend=unique(backendModules),selectedToolchain=unique(toolchainModules);
   const inventory={sourceHead:o.head,sourceTree:o.tree,...(o.profile?{profile:o.profile}:{}),backendModules:selectedBackend,toolchainModules:selectedToolchain,
    wizardFiles,nativeModules,node:{path:node.source,sha256:node.sha256},native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
-   migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),actorModules,licenses};
+   migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),
+   ...(web2Schema?{web2Schema:web2Schema.overlays.map(({name,sha256})=>({name,sha256}))}:{}),actorModules,licenses};
   const inventoryBytes=Buffer.from(JSON.stringify(inventory)+"\n"),inventorySha256=hash(inventoryBytes);
   await writeFile(join(o.outputDirectory,"build-inputs.json"),inventoryBytes,{flag:"wx",mode:0o600});
   await lease.record("inputs-pinned",{inventorySha256,inventoryPath:join(o.outputDirectory,"build-inputs.json")});
@@ -209,7 +220,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
    migrations,node:node.source,nodeSha256:node.sha256,esbuildCLI:esbuildCLI.source,esbuildCLISha256:esbuildCLI.sha256,
    esbuildNative:esbuildNative.source,esbuildNativeSha256:esbuildNative.sha256,signal:abort.signal,environment:env,
    backendModules:selectedBackend,toolchainModules:selectedToolchain.map(row=>({...row,executable:row.output.endsWith("/bin/esbuild")})),wizardFiles,
-   actorModules,migrationPlan,native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
+   actorModules,migrationPlan,web2Schema,native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
    nativeModules:nativeModules.map(row=>({path:row.source,output:row.output,sha256:row.sha256})),licenses});
   await lease.assertHeld();abort.signal.throwIfAborted();
   await lease.record("artifacts-built",{inventorySha256,output:built.output,dockerExecuted:false,qualification:"UNRUN"});

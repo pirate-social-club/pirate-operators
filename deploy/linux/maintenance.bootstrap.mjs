@@ -1,5 +1,6 @@
 import {initializeNativeOriginal} from "../../packages/community/native-business-binding.ts";
 import {initializeWeb2NativeOriginal} from "../../packages/community/web2-native-business-binding.ts";
+import {initializeWeb2Schema} from "./web2-initialization.ts";
 /** Private one-shot bootstrap. No user-facing listener or caller-supplied SQL. */
 export default {
   async fetch(request, env) {
@@ -30,12 +31,16 @@ export default {
           .bind(index + 1, migration.name, migration.sha256, plan.releaseSha256),
       ]);
     }
-    // The new draft must be assigned a real contiguous ordinal by Root and be
-    // present in the exact signed migration set; no runtime DDL is invented here.
     if (!env.NATIVE_APPLICATION_ORIGINAL_JSON) throw new Error('Native original binding missing');
-    if(JSON.parse(env.NATIVE_APPLICATION_ORIGINAL_JSON).schema === "pirate.web2-native-application-original/1")
+    const web2 = JSON.parse(env.NATIVE_APPLICATION_ORIGINAL_JSON).schema === "pirate.web2-native-application-original/1";
+    if (web2) {
+      if (!plan.web2Schema) throw new Error('Explicit fresh Web2 schema plan missing');
+      await initializeWeb2Schema(env.DB, plan.web2Schema, plan.releaseSha256);
       await initializeWeb2NativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
-    else await initializeNativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
+    } else {
+      if (plan.web2Schema) throw new Error('Web2 schema cannot alter historical profile');
+      await initializeNativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
+    }
     const checks = await env.DB.prepare('PRAGMA foreign_key_check').all();
     if (checks.results.length) throw new Error('Foreign-key violations');
     // Native R2 binding proof on a fresh, private qualification key, not an app-media claim.

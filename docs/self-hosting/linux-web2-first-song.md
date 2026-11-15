@@ -107,6 +107,20 @@ The signed host admission binds both; equality is neither required nor invented.
 The paired Wizard borrows the service's custody guard and cannot release its
 persistent operation lease when setup closes.
 
+The fresh Web2 artifact plan explicitly selects the pinned 0001–0019 schema
+prerequisites, followed by the catalog phase, catalog obligation and native
+business source overlays. These schema prerequisites do not enable names,
+learning-results, Dance or rewards in the first-song app configuration. No new
+migration ordinal is assigned and historical installation profiles do not select
+these overlays. Their exact SQL bytes and trigger-aware statement boundaries are
+part of the immutable artifact. The owning schema guards, all three overlays and
+a source/release-bound schema ledger commit in one D1 batch. A failed guard leaves
+neither a partial overlay nor its ledger. Restart compares the complete saved
+schema and source/release before reusing it, preserving application rows rather
+than rerunning the transition. Unknown schema or changed source refuses. Two
+real local-D1 integration cases cover atomic refusal, account-data retention,
+exact restart and altered source/schema; full native installation remains separate.
+
 Local acceptance uses real Anvil, native workerd/D1/R2, real Caddy TLS and the
 actual browser application. Fixture CA evidence proves local protocol behavior;
 public DNS, public ACME issuance and the actual selected host remain separate

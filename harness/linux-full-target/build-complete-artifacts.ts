@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {buildCommunityArtifacts} from "../community-artifacts.ts";
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import type {OperationLease} from "../../deploy/linux/backend-state.ts";
+import type {Web2SchemaPlan} from "../../deploy/linux/web2-initialization.ts";
 /** Build real owning bytes; no Docker/provider execution or simulated consumer.
  * Root materializes the exact accepted source/prerequisites before this gate. */
 export async function buildCompleteLinuxArtifacts(input:{
@@ -20,11 +21,13 @@ export async function buildCompleteLinuxArtifacts(input:{
  wizardFiles:Array<{source:string;path:string;sha256:string}>;
  actorModules:Array<{source:string;output:string}>;
  migrationPlan:Array<{name:string;sha256:string;sql:string;statements:string[]}>;
+ web2Schema?:Web2SchemaPlan;
  native:{path:string;sha256:string};schema:{path:string;sha256:string};licenses:Array<{path:string;output:string;sha256:string}>;
  nativeModules:Array<{path:string;output:string;sha256:string}>;
 }) {
  assert(input.profile===undefined || input.profile==="web2-first-song/1","explicit_linux_build_profile_required");
  const web2=input.profile==="web2-first-song/1";
+ assert(web2===Boolean(input.web2Schema),"explicit_web2_schema_selection_required");
  assert(await realpath(input.sourceRoot)===input.sourceRoot && !input.output.startsWith(input.sourceRoot+"/"));
  const sha=(b:Uint8Array)=>createHash("sha256").update(b).digest("hex");
  assert(sha(await readFile(input.esbuildCLI))===input.esbuildCLISha256 && sha(await readFile(input.esbuildNative))===input.esbuildNativeSha256);
@@ -94,10 +97,16 @@ export async function buildCompleteLinuxArtifacts(input:{
  assert.deepEqual(input.migrationPlan.map(x=>x.name),owning.migrations);
  for(const row of input.migrationPlan){const source=await readFile(join(input.sourceRoot,"apps/community-wizard/infra/migrations",row.name));
   assert(sha(source)===row.sha256 && source.toString("utf8")===row.sql && row.statements.join("")===row.sql);await write("sql/"+row.name,source);}
+ if(input.web2Schema)for(const row of input.web2Schema.overlays){
+  const source=await readFile(join(input.sourceRoot,row.name));
+  assert(sha(source)===row.sha256 && source.toString("utf8")===row.sql && row.statements.join("")===row.sql,"web2_schema_source_changed");
+  await write("sql/"+row.name.split("/").at(-1),source);
+ }
  const nativeIdentity=sha(Buffer.from(JSON.stringify({sourceHashes,files,migrations:input.migrationPlan.map(({name,sha256})=>({name,sha256}))})));
  // The unchanged component bootstrap's qualification flag stays component-only;
  // no full-profile readiness is inferred from migration/object initialization.
- await write("migration-plan.json",Buffer.from(JSON.stringify({schema:"pirate.linux-migration-plan/1",qualificationOnly:true,releaseSha256:nativeIdentity,migrations:input.migrationPlan})));
+ await write("migration-plan.json",Buffer.from(JSON.stringify({schema:"pirate.linux-migration-plan/1",qualificationOnly:true,releaseSha256:nativeIdentity,migrations:input.migrationPlan,
+  ...(input.web2Schema?{web2Schema:input.web2Schema}:{})})));
  const native=await readFile(input.native.path),schema=await readFile(input.schema.path);
  assert(sha(native)===input.native.sha256 && sha(schema)===input.schema.sha256);
  await write("workerd",native);await chmod(join(input.output,"workerd"),0o555);await write("workerd.capnp",schema);
