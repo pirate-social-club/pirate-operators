@@ -278,6 +278,8 @@ export function createWizardServer(
 }
 
 const web2Corrections: Record<string,string> = {
+  web2_controller_address_invalid: "Enter a complete controller address with a valid checksum, or use its lowercase form. Nothing new was prepared.",
+  web2_publisher_address_invalid: "Enter a complete publisher address with a valid checksum, or use its lowercase form. Nothing new was prepared.",
   web2_setup_unavailable: "The hosted Web2 setup adapter is not connected to this runner.",
   web2_installation_unavailable: "The real Linux Web2 installer is unavailable. Enrollment is retained; nothing is reported installed.",
   hosted_signing_request_changed: "The service returned different signing terms. No wallet request is authorized. Reconnect to the selected service.",
