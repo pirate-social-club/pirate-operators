@@ -6,7 +6,8 @@ import type {
 import type { SongSubmissionView } from "./reference/src/features/posts/media-submission/projection.ts";
 import type { SongObservationSource } from "./reference/src/features/posts/song-submission/song-observation-machine.ts";
 import {
-  OWNER_RELEASE_POLICY,
+  CATALOG_RELEASE_POLICY,
+  requiresDeclaredRating,
   fileHash,
   mp3Issue,
   songCapability,
@@ -28,6 +29,7 @@ export interface SongReleaseInput {
   vocals: File;
   originalConsent: boolean;
   rating: "general" | "adult" | null;
+  allowsDerivatives?: boolean | null;
 }
 export type SongCommand =
   | "reserve"
@@ -53,6 +55,7 @@ export interface CommunitySongDraft {
     audioSha256: string;
     audioBytes: number;
     rating?: "general" | "adult";
+    terms?: { revision: 1; allowsDerivatives: boolean };
   };
   bodyDigest: string;
   files: { audio: File; instrumental: File; vocals: File };
@@ -93,12 +96,14 @@ const id = (value: unknown): value is string =>
   typeof value === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(value);
 const digest = (body: object) => fileHash(new Blob([JSON.stringify(body)]));
 const phases = [
+  "catalog_reserve",
   "admission",
   "pin_audio",
   "pin_lyrics",
   "registration",
   "pin_manifest",
   "publication",
+  "catalog_confirm",
   "published",
   "uncertain",
   "held",
@@ -208,8 +213,16 @@ export class CommunitySongController {
     )
       throw new Error("Check title, lyrics, language and publication consent.");
     const policy = this.owner.current.capabilities.policyVersion;
-    if (policy === OWNER_RELEASE_POLICY && !input.rating)
+    if (requiresDeclaredRating(policy) && !input.rating)
       throw new Error("Declare the release rating before reserving it.");
+    let terms: { revision: 1; allowsDerivatives: boolean } | undefined;
+    if (policy === CATALOG_RELEASE_POLICY) {
+      if (typeof input.allowsDerivatives !== "boolean")
+        throw new Error(
+          "Choose whether derivative use is allowed before reserving this release.",
+        );
+      terms = { revision: 1, allowsDerivatives: input.allowsDerivatives };
+    }
     const hashes = {
       audio: await fileHash(input.file),
       instrumental: await fileHash(input.instrumental),
@@ -223,7 +236,8 @@ export class CommunitySongController {
       acceptedPolicy: policy,
       audioSha256: hashes.audio,
       audioBytes: input.file.size,
-      ...(policy === OWNER_RELEASE_POLICY ? { rating: input.rating! } : {}),
+      ...(requiresDeclaredRating(policy) ? { rating: input.rating! } : {}),
+      ...(terms ? { terms } : {}),
     };
     return {
       body,
@@ -554,7 +568,9 @@ export class CommunitySongController {
     return {
       status: "processing",
       submissionId: draft.submissionId,
-      phase: job.phase === "admission" ? "analysis" : "publish",
+      phase: ["admission", "catalog_reserve"].includes(job.phase)
+        ? "analysis"
+        : "publish",
     };
   }
   observe(signal?: AbortSignal) {
