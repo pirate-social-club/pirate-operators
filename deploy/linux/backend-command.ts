@@ -14,6 +14,9 @@ export interface OwnedCommandInput {
   environment: NodeJS.ProcessEnv; cwd: string; outputDirectory: string; name: string;
   seconds: number; signal: AbortSignal;
   keyMaterial?: Uint8Array;
+  /** Pinned read-only build metadata only. A terminal child may finish before
+   * /proc observation; its actual exit/output are evidence, never a live ID. */
+  completedMetadataChild?: true;
 }
 export async function runOwnedCommand(input:OwnedCommandInput) {return runCommand(input);}
 export async function runCurrentAuthorityCommand(input:OwnedCommandInput,assertCurrent:()=>Promise<void>){
@@ -22,6 +25,7 @@ export async function runCurrentAuthorityCommand(input:OwnedCommandInput,assertC
 }
 async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<void>) {
   await input.lease.assertHeld(); assert(!input.signal.aborted,"native_effect_cancelled");
+  assert(!input.completedMetadataChild || !assertCurrent,"metadata_completion_cannot_authorize_mutation");
   assert(safeId(input.name), "backend_command_name_invalid");
   assert(input.environment.HOME === process.env.HOME, "backend_HOME_changed");
   assert(Object.keys(input.environment).every((key) => ["HOME", "PATH", "TMPDIR", "TZ", "LANG", "NODE_COMPILE_CACHE"].includes(key)),
@@ -73,9 +77,20 @@ async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<voi
   }
   const cancel = () => { cancelled = true; void stop(); };
   try {
-    await spawned; owned = await processIdentity(child.pid!);
-    assert(owned && owned.pidNamespace === input.lease.holder.pidNamespace && owned.hostGroup === child.pid && owned.hostSession === child.pid);
-    await input.lease.record(input.name + "-launch", { executable: input.executable, argv: input.argv, owned });
+    await spawned;
+    let observationError:unknown;
+    try{owned = await processIdentity(child.pid!);}catch(error){observationError=error;}
+    if(owned)assert(owned.pidNamespace === input.lease.holder.pidNamespace && owned.hostGroup === child.pid && owned.hostSession === child.pid);
+    else{
+      // Drain the actual child exit event, not a guessed process absence. This
+      // exception never covers a live child, denied namespace read or mutator.
+      await new Promise<void>(resolve=>setImmediate(resolve));
+      const gone=observationError===undefined || ["ENOENT","ESRCH"].includes((observationError as NodeJS.ErrnoException).code??"");
+      assert(input.completedMetadataChild && gone && (child.exitCode!==null || child.signalCode!==null),
+        "backend_live_child_identity_unproved");
+    }
+    await input.lease.record(input.name + "-launch", { executable: input.executable, argv: input.argv, owned,
+      ...(owned?{}:{completedBeforeNativeObservation:true,childPid:child.pid}) });
     timer = setTimeout(() => { timedOut = true; void stop(); }, input.seconds * 1000);
     input.signal.addEventListener("abort", cancel, { once: true });
     if (input.signal.aborted) cancel();
@@ -93,9 +108,10 @@ async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<voi
       try { text = await readFile("/proc/" + id + "/stat", "utf8"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
       const fields = text.slice(text.lastIndexOf(")") + 2).split(/\s+/);
-      if (Number(fields[3]) === owned.hostSession) descendants.push(Number(id));
+      if (Number(fields[3]) === (owned?.hostSession??child.pid)) descendants.push(Number(id));
     }
     const facts = { ...result, timedOut, cancelled, owned, descendants,
+      ...(owned?{}:{completedBeforeNativeObservation:true,childPid:child.pid}),
       custodyUncertain: custodyError !== undefined || descendants.length > 0 };
     await input.lease.record(input.name + "-exit", facts);
     assert(!facts.custodyUncertain && !timedOut && !cancelled && result.code === 0 && result.signal === null, "backend_command_failed_or_custody_uncertain");

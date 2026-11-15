@@ -118,7 +118,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const command=async(executable:string,digest:string,argv:string[],name:string)=>{
    abort.signal.throwIfAborted();
    return runOwnedCommand({lease,executable,executableSha256:digest,argv,environment:env,cwd:root,
-     outputDirectory:raw,name:String(++sequence).padStart(3,"0")+"-"+name,seconds:60,signal:abort.signal});
+     outputDirectory:raw,name:String(++sequence).padStart(3,"0")+"-"+name,seconds:60,signal:abort.signal,completedMetadataChild:true});
   };
   const gitArgs=["--no-optional-locks","-c","core.fsmonitor=false","-c","safe.directory="+root,"-C",root];
   const pin=await command(git.source,git.sha256,[...gitArgs,"rev-parse","HEAD","HEAD^{tree}"],"candidate-pin");
