@@ -4,9 +4,9 @@ import type {OriginalLinuxDraft} from "../../../packages/community-setup/linux-c
 import type {LinuxJournal} from "../server/linux-journal.ts";
 import type {LinuxCapabilities} from "../server/linux-contracts.ts";
 import type {LinuxDraftV2,LinuxCommunityProfileV2} from "../../../packages/community-setup/shared-linux-profile.ts";
-export type LinuxSnapshot=
+export type LinuxSnapshot=({web2Available?:boolean})&(
  |{available:false;csrf:string;legacyAvailable:boolean;correction:string}
- |{available:true;csrf:string;legacyAvailable:boolean;state:LinuxJournal;capabilities:LinuxCapabilities};
+ |{available:true;csrf:string;legacyAvailable:boolean;state:LinuxJournal;capabilities:LinuxCapabilities});
 export interface LinuxInputs {
  settings:{revision:number;draft:OriginalLinuxDraft};
  destination:{revision:number;mode:LinuxDraftV2["mode"];target:LinuxDraftV2["target"]};
