@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import {hostname,platform,arch} from "node:os";
-import {readFile,lstat,realpath,readdir,mkdir} from "node:fs/promises";
+import {readFile,lstat,realpath,readdir,mkdir,mkdtemp} from "node:fs/promises";
 import {join} from "node:path";
 import {runOwnedCommand,runCurrentAuthorityCommand} from "./backend-command.ts";
-import {privateFile,privateDirectory,hash,createJSON,processIdentity,sameProcess,type OperationLease} from "./backend-state.ts";
+import {privateFile,privateDirectory,syncDirectory,hash,createJSON,processIdentity,sameProcess,type OperationLease} from "./backend-state.ts";
 import {assertStartAllowed,createMaintenanceGuard} from "./maintenance-guard.ts";
 import {containerProcessEvidence,requireObserverHostFrame,requireLifetimeAbsent} from "./writer-evidence.ts";
 import {readPrivateJSON,canonicalDigest,evidenceId} from "./installed-records.ts";
@@ -23,6 +23,10 @@ export interface InstalledTarget {
 export async function createLocalController(config:InstalledTarget,lease:OperationLease) {
   assert(config.installationId===lease.installationId && config.containers.length>0);
   await privateDirectory(config.stateRoot);await privateDirectory(config.resourceDirectory);await privateDirectory(config.outputDirectory);
+  await lease.assertHeld();
+  const commandOutputDirectory=await mkdtemp(join(config.outputDirectory,"controller-"));
+  await privateDirectory(commandOutputDirectory);await syncDirectory(config.outputDirectory);
+  await lease.record("controller-evidence-directory",{directory:commandOutputDirectory,outputRoot:config.outputDirectory});
   await privateDirectory(config.dockerConfig);assert.deepEqual(await readdir(config.dockerConfig),[]);
   assert.equal(await realpath(config.socket),config.socket);
   const socket=await lstat(config.socket);assert(socket.isSocket(),"local_docker_socket_required");
@@ -38,7 +42,7 @@ export async function createLocalController(config:InstalledTarget,lease:Operati
     const current=await lstat(config.socket);assert(current.dev===socket.dev && current.ino===socket.ino && current.isSocket(),"daemon_socket_changed");
     const input={lease,executable:config.docker,executableSha256:config.dockerSha256,
       argv:["--host","unix://"+config.socket,"--config",config.dockerConfig,...args],
-      outputDirectory:config.outputDirectory,cwd:config.cwd,environment:config.environment,
+      outputDirectory:commandOutputDirectory,cwd:config.cwd,environment:config.environment,
       signal,name:"target-"+String(++sequence).padStart(6,"0"),seconds};
     const result=mutation?await runCurrentAuthorityCommand(input,assertCurrent!):await runOwnedCommand(input);
     const file=await privateFile(result.stdoutPath,16*1024**2);
