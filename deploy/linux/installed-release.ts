@@ -41,6 +41,11 @@ export function installedExecutionPaths(release:FullRelease|Web2BootstrapRelease
     main:join(release.sourceRoot,web2?"deploy/linux/web2-service.ts":"deploy/linux/local-install-main.ts"),wizardDist:join(release.root,"wizard")};
 }
 async function verifyInstalledArtifacts(release:FullRelease|Web2BootstrapRelease) {
+  const started=performance.now(),fileCount=Object.keys(release.files).length;
+  let filesVerified=0,completed=false;
+  const facts={event:"installed-artifact-verification",sourceHead:release.sourceHead,artifactDigest:release.artifactDigest,fileCount};
+  console.error(JSON.stringify({...facts,phase:"start",at:Date.now()}));
+  try{
   assert((release.schema==="pirate.complete-linux-release/1" || release.schema==="pirate.complete-linux-web2-release/1" ||
     release.schema==="pirate.linux-web2-bootstrap-release/1") &&
     /^[a-f0-9]{40}$/.test(release.sourceHead) && /^[a-f0-9]{40}$/.test(release.sourceTree));
@@ -64,13 +69,23 @@ async function verifyInstalledArtifacts(release:FullRelease|Web2BootstrapRelease
     }
   }
   await walk(release.root,"");assert.deepEqual(found.sort(),expected,"complete_release_pathset_changed");
-  for(const [path,sha] of Object.entries(release.files)){
+  // The immutable inventory can contain tens of thousands of small dependency
+  // files. Bound concurrent reads instead of serializing every filesystem
+  // round-trip; check every original byte/path/mode and settle all reads before
+  // returning or refusing. There is no cached or skipped verification.
+  const entries=Object.entries(release.files);let next=0;
+  const verified=await Promise.allSettled(Array.from({length:Math.min(8,entries.length)},async()=>{
+   for(;;){const index=next++;if(index>=entries.length)return;const [path,sha]=entries[index]!;
     assert(!path.startsWith("/") && path.split("/").every(x=>x && x!=="." && x!==".."));
     const file=join(release.root,path),s=await lstat(file);assert(s.isFile() && !s.isSymbolicLink());
     assert.equal(await realpath(file),file,"installed_symlink_ancestor_refused");
     assert(!(s.mode&0o222),"immutable_installed_file_required");
     assert.equal(digest(await readFile(file)),sha,"complete_release_bytes_changed");
-  }
+    filesVerified++;
+   }
+  }));
+  const failures=verified.filter((result):result is PromiseRejectedResult=>result.status==="rejected");
+  if(failures.length)throw failures[0]!.reason;
   for(const [path,sha] of Object.entries(release.sourceHashes)) {
     assert(!path.startsWith("/") && path.split("/").every(x=>x && x!=="." && x!==".."));
     assert.equal(release.files["source/"+path],sha,"installed_authored_source_missing");
@@ -91,6 +106,11 @@ async function verifyInstalledArtifacts(release:FullRelease|Web2BootstrapRelease
     Object.hasOwn(release.sourceHashes,"services/linux-community.ts"),"actual_owning_application_source_required");
   assert.equal(release.sourceDigest,"0x"+canonicalDigest(release.sourceHashes));
   assert.equal(release.artifactDigest,"0x"+canonicalDigest(release.files));
+  completed=true;
+  }finally{
+   console.error(JSON.stringify({...facts,phase:"end",at:Date.now(),elapsedMs:performance.now()-started,
+     filesVerified,outcome:completed?"verified":"refused"}));
+  }
 }
 export async function verifyWeb2BootstrapRelease(record:SignedRecord<Web2BootstrapRelease>,trust:TrustAnchor) {
   const release=verifyRecord(record,trust);
