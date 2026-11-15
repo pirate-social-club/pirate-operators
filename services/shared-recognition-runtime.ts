@@ -10,7 +10,8 @@ import { originalIdentification } from "../packages/recognition/original-identif
 import { RecognitionStore } from "../packages/recognition/store.ts";
 import { recognitionEffectBudget } from "../packages/recognition/effect-budget.ts";
 import { recognitionProfile, type AcceptedIntent, type RecognitionProfile } from "../packages/recognition/intent.ts";
-import { canonicalPosting, canonicalPublication, readCanonicalIntent, type CanonicalIntentPorts } from "../packages/recognition/canonical-intent.ts";
+import type { CanonicalIntentPorts } from "../packages/recognition/canonical-intent.ts";
+import { canonicalCommunity, type CanonicalCommunity } from "../packages/recognition/canonical-community.ts";
 import { validateProviderBinding, type ManagedCatalogBinding } from "../packages/recognition/provider-binding.ts";
 import type { Recording, VerifiedPublication } from "../packages/recognition/model.ts";
 import { sharedRecognitionService } from "./shared-recognition.ts";
@@ -21,7 +22,7 @@ export type RecognitionWake={kind:'reservation';reservationId:string}|{kind:'rec
 export interface SharedRecognitionRuntimeInputs {
   db:D1Database; profile:RecognitionProfile; signer:PrivateKeyAccount;
   binding:ManagedCatalogBinding; credentials:AcrCredentials; catalogToken:string;
-  communities:ReadonlyMap<string,CanonicalIntentPorts>;
+  communities:ReadonlyMap<string,CanonicalIntentPorts | CanonicalCommunity>;
   quotas:{service:number;community:number};
   queue:{send(message:RecognitionWake):Promise<unknown>};
   cancellation(ports:CanonicalIntentPorts,intent:AcceptedIntent):Promise<string>;
@@ -35,33 +36,17 @@ export function sharedRecognitionRuntime(inputs:SharedRecognitionRuntimeInputs) 
   const journal=Object.freeze({epoch:bytes32(inputs.journal.epoch),restoreAnchorSha256:bytes32(inputs.journal.restoreAnchorSha256)});
   const profile=recognitionProfile(inputs.profile),binding=validateProviderBinding(inputs.binding,profile,credentials),
     now=inputs.now??Date.now,store=()=>new RecognitionStore(inputs.db,profile.namespace,now),
-    community=(id:string)=>{const ports=inputs.communities.get(id);insist(ports,'recognition_community_unconfigured',503);return ports;};
+    community=(id:string)=>{const ports=inputs.communities.get(id);insist(ports,'recognition_community_unconfigured',503);return canonicalCommunity(ports);};
+  const localCommunity=(id:string)=>{const ports=inputs.communities.get(id);
+    insist(ports && "db" in ports,'recognition_remote_withdrawal_or_cancellation_unconfigured',503);return ports;};
   const installation=async()=>{
     const row=await inputs.db.withSession('first-primary').prepare('SELECT * FROM shared_recognition_installation WHERE namespace=?').bind(profile.namespace)
       .first<{profile_sha256:string;journal_epoch:string;restore_anchor_sha256:string}>();
     insist(row?.profile_sha256===profile.sha256&&row.journal_epoch===journal.epoch&&row.restore_anchor_sha256===journal.restoreAnchorSha256,
       'recognition_restore_or_installation_unqualified',503);
   };
-  const sourceJob=async(p:AcceptedIntent|VerifiedPublication)=>{
-    if('schema' in p)return p.jobId;
-    const row=await community(p.communityId).db.withSession('first-primary').prepare(`SELECT j.job_id FROM publication_jobs j
-      JOIN media_submissions s ON s.submission_id=j.submission_id WHERE s.post_id=?`).bind(p.postId).first<{job_id:string}>();
-    insist(row,'recognition_publication_unverified',403);return row.job_id;
-  };
-  const source=async(p:AcceptedIntent|VerifiedPublication)=>{
-    const ports=community(p.communityId),current=await readCanonicalIntent(ports,await sourceJob(p));
-    insist(current.intent.audioSha256===p.audioSha256&&current.intent.audioObjectKey===p.audioObjectKey&&
-      current.intent.creatorKey===p.creatorKey,'recognition_private_source_changed',403);
-    if('schema' in p)insist(canonical(current.intent)===canonical(p),'recognition_intent_changed',403);
-    return {ports,p:current.intent};
-  };
-  const readAudio=async(p:AcceptedIntent|VerifiedPublication,signal:AbortSignal)=>{
-    const {ports,p:current}=await source(p),object=await ports.media.get(current.audioObjectKey);
-    signal.throwIfAborted();insist(object,'recognition_private_media_missing',503);
-    const bytes=new Uint8Array(await object.arrayBuffer());
-    insist(bytes.byteLength===p.audioBytes&&sha256(bytes)===p.audioSha256,'recognition_audio_changed',409);
-    await source(p);signal.throwIfAborted();return bytes;
-  };
+  const source=(p:AcceptedIntent|VerifiedPublication)=>community(p.communityId).source(p);
+  const readAudio=(p:AcceptedIntent|VerifiedPublication,signal:AbortSignal)=>community(p.communityId).audio(p,signal);
   const sample=async(p:AcceptedIntent|VerifiedPublication,signal=new AbortController().signal)=>{
     const bytes=await readAudio(p,signal),probe=await readMp3Probe(new Blob([bytes]).stream(),3600000,signal),
       window=await readMp3FrameWindow(new Blob([bytes]).stream(),probe.durationMs,'primary',4000000,signal);
@@ -75,8 +60,8 @@ export function sharedRecognitionRuntime(inputs:SharedRecognitionRuntimeInputs) 
   });
   const loadAuthority=async(id:string)=>{
     await installation();
-    const ports=inputs.communities.get(id);if(!ports)return null;
-    const config=await ports.currentConfiguration();
+    if(!inputs.communities.has(id))return null;
+    const config=await community(id).currentConfiguration();
     insist(config.communityId===id&&canonical(config.policies.recognition)===canonical(profile),'recognition_profile_changed',403);
     return {namespace:profile.namespace,profileSha256:profile.sha256,communityId:id,communityOrigin:config.app.origin,
       publisher:config.publisher,configurationRevision:config.configurationRevision,enabled:true};
@@ -89,28 +74,23 @@ export function sharedRecognitionRuntime(inputs:SharedRecognitionRuntimeInputs) 
   const service=sharedRecognitionService({db:inputs.db,namespace:profile.namespace,profileSha256:profile.sha256,origin:profile.origin,
     statusSigner:inputs.signer,now,loadAuthority,
     async verifyPublication(a,postId,revision) {
-      const ports=community(a.communityId),row=await ports.db.withSession('first-primary').prepare(`SELECT o.intent_json,o.posting_json
-        FROM publication_catalog_obligations o JOIN media_submissions s ON s.submission_id=json_extract(o.intent_json,'$.submissionId')
-        WHERE s.post_id=? AND json_extract(o.intent_json,'$.publicationRevision')=?`).bind(postId,revision)
-        .first<{intent_json:string;posting_json:string|null}>();
-      if(!row?.posting_json)return null;
-      return canonicalPublication(ports,JSON.parse(row.intent_json),JSON.parse(row.posting_json));
+      return community(a.communityId).findPublication(postId,revision);
     },
-    verifyWithdrawal:(a,p)=>inputs.withdrawal(community(a.communityId),p),
+    verifyWithdrawal:(a,p)=>inputs.withdrawal(localCommunity(a.communityId),p),
     async resolveEnrollment(){throw new Error('recognition_reservation_required');},
     wake:wakeRecording,
     enrollment:{catalog,readAudio,verify,authorizeSource:async p=>{await source(p);},recoverVerification:async r=>{const receipt=await store().verificationReceipt(r);return receipt?verificationFromReceipt(r,receipt):null;},
       authorizeEffect:async(effect,r)=>{await installation();validateProviderBinding(binding,profile,credentials);await quota(effect,r);
         if(effect==='verify') {const p=await store().source(r.recording_id);insist(p,'recognition_source_changed',409);
-          await community(p.communityId).authorizeRecognition(hashJson({recordingId:r.recording_id,attempt:r.attempt,purpose:'verify'}),hashJson(p));}
+          await community(p.communityId).authorize(p,hashJson({recordingId:r.recording_id,attempt:r.attempt,purpose:'verify'}));}
       }},
     reservations:{db:inputs.db,profile,signer:inputs.signer,now,loadAuthority,
-      verifyIntent:async(a,jobId)=>(await readCanonicalIntent(community(a.communityId),jobId)).intent,
-      verifyPosting:(a,p,posting)=>canonicalPosting(community(a.communityId),p,posting),
-      verifyPublication:(a,p,posting)=>canonicalPublication(community(a.communityId),p,posting),
-      verifyCancellation:(a,p)=>inputs.cancellation(community(a.communityId),p),
+      verifyIntent:async(a,jobId)=>(await community(a.communityId).read(jobId)).intent,
+      verifyPosting:(a,p,posting)=>community(a.communityId).posting(p,posting),
+      verifyPublication:(a,p,posting)=>community(a.communityId).publication(p,posting),
+      verifyCancellation:(a,p)=>inputs.cancellation(localCommunity(a.communityId),p),
       original:originalIdentification({credentials,transport:inputs.providerTransport,sample,
-        authorize:(p,id)=>community(p.communityId).authorizeRecognition(id,hashJson(p)),
+        authorize:(p,id)=>community(p.communityId).authorize(p,id),
         // The receipt callback is the canonical journal. A missing retained response is unresolved.
         recover:async operationId=>{const row=await inputs.db.withSession("first-primary").prepare("SELECT receipt_json FROM shared_recognition_original_calls WHERE operation_id=? AND state='received'").bind(operationId).first<{receipt_json:string|null}>();return row?.receipt_json?JSON.parse(row.receipt_json):null;}}),quotas:inputs.quotas,
       wake:async reservationId=>{await inputs.queue.send({kind:'reservation',reservationId});},wakeRecording},
