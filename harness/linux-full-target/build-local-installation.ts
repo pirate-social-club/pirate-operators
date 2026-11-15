@@ -81,6 +81,11 @@ async function packageClosure(seeds:Array<{name:string;from:string}>,root:string
   const optionalDeps=object(data.optionalDependencies??{}),deps=object(data.dependencies??{});
   for(const dep of Object.keys(deps).sort())await visit(dep,await realpath(pkg),Object.hasOwn(optionalDeps,dep));
   for(const dep of Object.keys(optionalDeps).sort())if(!Object.hasOwn(deps,dep))await visit(dep,await realpath(pkg),true);
+  const peers=object(data.peerDependencies??{}),peerMeta=object(data.peerDependenciesMeta??{});
+  for(const dep of Object.keys(peers).sort()){
+   const meta=object(peerMeta[dep]??{});
+   await visit(dep,await realpath(pkg),meta.optional===true);
+  }
  }
  for(const seed of seeds)await visit(seed.name,seed.from);
  return rows;
@@ -227,6 +232,13 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
    backendModules:selectedBackend,toolchainModules:selectedToolchain.map(row=>({...row,executable:row.output.endsWith("/bin/esbuild")})),wizardFiles,
    actorModules,migrationPlan,web2Schema,native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
    nativeModules:nativeModules.map(row=>({path:row.source,output:row.output,sha256:row.sha256})),licenses});
+  await lease.assertHeld();abort.signal.throwIfAborted();
+  // Exercise the REAL retained Node/tsx/source package graph before an image
+  // is built. Module import is not a service start or installation proof.
+  const installedMain=join(built.output,"source/deploy/linux/",o.profile==="web2-first-song/1"?"web2-service.ts":"local-install-main.ts");
+  await runOwnedCommand({lease,executable:join(built.output,built.execution.node),executableSha256:built.execution.nodeSha256,
+   argv:["--import",join(built.output,built.execution.loader),"--input-type=module","-e","await import("+JSON.stringify(installedMain)+")"],
+   environment:env,cwd:built.output,outputDirectory:raw,name:"installed-entrypoint-import",seconds:60,signal:abort.signal});
   await lease.assertHeld();abort.signal.throwIfAborted();
   await lease.record("artifacts-built",{inventorySha256,output:built.output,dockerExecuted:false,qualification:"UNRUN"});
   abort.signal.throwIfAborted();assert(performance.now()<deadline,"candidate_build_deadline");
