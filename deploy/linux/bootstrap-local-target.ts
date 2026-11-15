@@ -26,6 +26,14 @@ export interface PairedOperatorInputs {
   assertHeld():Promise<void>;
   createRuntime(authorization:{authorize(request:IncomingMessage,action:"read"|"write"):Promise<void>}):Promise<PairedOperatorRuntime>;
 }
+/** Startup can fail after the genuine runtime is listening. Its original
+ * cleanup capability must survive a failed close; the caller retains custody. */
+export class PairedOperatorStartupFailure extends AggregateError {
+  readonly close:()=>Promise<void>;
+  constructor(errors:unknown[],close:()=>Promise<void>){
+    super(errors,"paired_runtime_cleanup_failed");this.close=close;
+  }
+}
 /** Shared transport only. Both explicit profile owners supply their genuine
  * runtime; the browser cannot replace the target, profile or authentication. */
 export async function startPairedOperator(value:PairedOperatorInputs){
@@ -106,11 +114,21 @@ export async function startPairedOperator(value:PairedOperatorInputs){
   };
   }catch(error){
     if(activeTimer)clearTimeout(activeTimer);
-    if(activeProxy?.listening){activeProxy.closeAllConnections();await new Promise<void>(resolve=>activeProxy!.close(()=>resolve()));}
-    const errors:unknown[]=[error];
-    try{activeRuntime?.server.closeAllConnections();await activeRuntime?.close();}catch(e){errors.push(e);}
     for(const bytes of transient)bytes.fill(0);
-    throw errors.length===1?error:new AggregateError(errors,"paired_runtime_cleanup_failed");
+    let proxyClosed=!activeProxy,runtimeClosed=!activeRuntime,work:Promise<void>|undefined;
+    const close=()=>work??=(async()=>{
+      const errors:unknown[]=[];
+      if(!proxyClosed)try{
+        activeProxy!.closeAllConnections();
+        if(activeProxy!.listening)await new Promise<void>((resolve,reject)=>activeProxy!.close(e=>e?reject(e):resolve()));
+        proxyClosed=true;
+      }catch(e){errors.push(e);}
+      if(!runtimeClosed)try{activeRuntime!.server.closeAllConnections();await activeRuntime!.close();runtimeClosed=true;}
+      catch(e){errors.push(e);}
+      if(errors.length)throw errors.length===1?errors[0]:new AggregateError(errors,"paired_runtime_custody_retained");
+    })().catch(error=>{work=undefined;throw error;});
+    try{await close();}catch(cleanup){throw new PairedOperatorStartupFailure([error,cleanup],close);}
+    throw error;
   }
 }
 

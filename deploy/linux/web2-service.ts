@@ -20,6 +20,7 @@ import {
 import { privateDirectory } from "./backend-state.ts";
 import {
   startPairedOperator,
+  PairedOperatorStartupFailure,
   type PairedOperatorRuntime,
   type PairedOperatorInputs,
 } from "./bootstrap-local-target.ts";
@@ -255,14 +256,15 @@ export async function launchWeb2LocalInstallation(
     };
   } catch (error) {
     secret.fill(0);
-    try {
+    const cleanup = async () => {
       await installation.shutdownService();
+      if (error instanceof PairedOperatorStartupFailure) await error.close();
       await inputs.closeControl();
-    } catch (cleanup) {
-      throw new Web2ServiceStartupFailure([error, cleanup], async () => {
-        await installation.shutdownService();
-        await inputs.closeControl();
-      });
+    };
+    try {
+      await cleanup();
+    } catch (failure) {
+      throw new Web2ServiceStartupFailure([error, failure], cleanup);
     }
     throw error;
   }

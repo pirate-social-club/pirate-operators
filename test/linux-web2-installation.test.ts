@@ -230,7 +230,7 @@ test(
 );
 
 test("paired Web2 setup keeps its destination, captured secret and actual private forwarder boundary", async (t) => {
-  const { startPairedOperator } = await import(
+  const { startPairedOperator, PairedOperatorStartupFailure } = await import(
     "../deploy/linux/bootstrap-local-target.ts"
   );
   const { acquireOperation } = await import("../deploy/linux/backend-state.ts");
@@ -362,6 +362,70 @@ test("paired Web2 setup keeps its destination, captured secret and actual privat
   cleanupUnavailable = false;
   await paired.close(finishSetup);
   await assert.rejects(call("/api/setup", { headers: { Cookie: cookie } }));
+
+  // Fail the actual proxy bind AFTER the inner runtime starts, then refuse its
+  // first cleanup. The error must carry the original cleanup owner, not lose it.
+  const conflict = createServer((_req, res) => res.end("owned port conflict"));
+  conflict.listen(frontPort, "127.0.0.1");
+  await once(conflict, "listening");
+  t.after(
+    () => new Promise<void>((resolve) => conflict.close(() => resolve())),
+  );
+  const controlDirectory = join(root, "startup-control");
+  await mkdir(controlDirectory, { mode: 0o700 });
+  const control = await acquireWeb2ServiceControl(
+    controlDirectory,
+    "web2-paired-fixture",
+  );
+  let cleanupBlocked = true;
+  const inner = createServer((_req, res) => res.end("original inner runtime"));
+  let startup: InstanceType<typeof PairedOperatorStartupFailure> | undefined;
+  t.after(async () => {
+    cleanupBlocked = false;
+    await startup?.close();
+    await control.closeControl();
+  });
+  try {
+    await startPairedOperator({
+      installationId: control.lease.installationId,
+      frontPort,
+      innerPort,
+      pairingSecret: randomBytes(32),
+      pairingNonceDirectory: join(root, "nonces"),
+      assertHeld: control.lease.assertHeld,
+      async createRuntime() {
+        return {
+          server: inner,
+          async listen(port) {
+            inner.listen(port, "127.0.0.1");
+            await once(inner, "listening");
+          },
+          async close() {
+            if (cleanupBlocked)
+              throw Error("fixture_runtime_cleanup_unavailable");
+            await new Promise<void>((resolve, reject) =>
+              inner.close((error) => (error ? reject(error) : resolve())),
+            );
+          },
+        };
+      },
+    });
+    assert.fail("occupied front port must fail startup");
+  } catch (error) {
+    assert(error instanceof PairedOperatorStartupFailure);
+    startup = error;
+  }
+  assert(inner.listening, "the unresolved original runtime is still owned");
+  await assert.rejects(startup.close(), /fixture_runtime_cleanup_unavailable/);
+  await control.lease.assertHeld();
+  await assert.rejects(
+    acquireWeb2ServiceControl(controlDirectory, "web2-paired-fixture"),
+    { code: "EEXIST" },
+  );
+  cleanupBlocked = false;
+  await startup.close();
+  assert.equal(inner.listening, false);
+  await control.closeControl();
 });
 
 test(
