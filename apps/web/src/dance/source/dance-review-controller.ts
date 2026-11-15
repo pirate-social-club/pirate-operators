@@ -35,7 +35,11 @@ export interface DanceReviewView {
 }
 export type DanceReviewIntent = { readonly operation: "submit" | "withdraw" };
 export function createDanceReviewController(
-  options: DanceSourcePorts & { readonly reviewId?: string },
+  options: DanceSourcePorts & {
+    readonly reviewId?: string;
+    /** Live presentation eligibility for a genuinely new command only. */
+    readonly assertFreshPosting?: () => void;
+  },
 ) {
   let disposed = false;
   let localCaptureId: string | undefined;
@@ -323,6 +327,9 @@ export function createDanceReviewController(
           )
             throw Error("dance_review_closed");
           const client = requireCommandPorts(options);
+          // The retained/read/access awaits above may outlive the phone view.
+          // Once created, this immutable command must still settle/recover.
+          options.assertFreshPosting?.();
           const command = await client.prepareSubmission(
             danceTargetKey(options.scope),
             entry.capture.captureId,

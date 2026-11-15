@@ -55,6 +55,10 @@ jobs:
           sudo --preserve-env=PATH,HOME,TEST_SHARD unshare --net bash -c '
             set -euo pipefail
             ip link set lo up
+            # Native filesystem tests need fresh private scratch, including /run.
+            TMPDIR="$(mktemp -d)"
+            PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)"
+            export TMPDIR PIRATE_TEST_RUN_PARENT
             node --test --test-concurrency=2 --test-shard="$TEST_SHARD" \
               --test-reporter=spec --test-reporter-destination=stdout \
               --test-reporter=junit --test-reporter-destination=".local/root-tests-${TEST_SHARD%/*}.xml" \

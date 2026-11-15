@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid 667a6f22 src/features/activity/activity-progress-header.tsx; only imports changed.
+// Adopted from pirate-web-solid 667a6f22 src/features/activity/activity-progress-header.tsx; independently owned Paper success/spacing correction, 2026-11-12.
 import { Show } from "solid-js";
 
 import { cn, IconButton, IconCaretLeft, IconGift, IconX } from "./ui.ts";
@@ -34,7 +34,7 @@ export function ActivityProgressHeader(props: ActivityProgressHeaderProps) {
   const progressTone = () => props.progressTone ?? "warning";
 
   return (
-    <header class="grid min-h-14 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-b border-border-soft px-4 py-2 sm:px-6">
+    <header class={cn("grid min-h-14 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-b border-border-soft px-4 py-2", progressTone() !== "success" && "sm:px-6")}>
       <IconButton
         aria-label={props.exitLabel ?? "Exit activity"}
         class="size-10 bg-secondary"
@@ -58,7 +58,7 @@ export function ActivityProgressHeader(props: ActivityProgressHeaderProps) {
           <div
             class={cn(
               "h-full rounded-full transition-[width] duration-300 ease-out motion-reduce:transition-none",
-              progressTone() === "success" ? "bg-[#8fd19e]" : "bg-warning",
+              progressTone() === "success" ? "bg-success" : "bg-warning",
             )}
             style={{ width: `${progressPercent()}%` }}
           />

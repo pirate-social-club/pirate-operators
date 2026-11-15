@@ -48,7 +48,9 @@ export function d1Sqlite(database: DatabaseSync) {
       },
     };
   }
-  return {
+  const db = {
+    // Sessions share the real primary SQLite connection, not a copied store.
+    withSession: () => db,
     prepare,
     async batch(statements: { run(): Promise<unknown> }[]) {
       database.exec("SAVEPOINT d1_batch");
@@ -64,6 +66,7 @@ export function d1Sqlite(database: DatabaseSync) {
       }
     },
   } as unknown as D1Database;
+  return db;
 }
 export async function linkedStudyFixture(
   f: Awaited<ReturnType<typeof botFixture>>,

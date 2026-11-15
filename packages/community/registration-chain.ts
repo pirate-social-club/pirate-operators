@@ -240,3 +240,6 @@ export async function observeRootRegistration(
     status: "confirmed",
   });
 }
+
+// Explicit shared-directory enrollment successor. Story APIs above keep their semantics.
+export { prepareSharedRegistration, bindSharedRegistrationTransaction, observeSharedRegistration } from "./shared-registration-chain.ts";

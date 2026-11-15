@@ -25,6 +25,10 @@ import {
   integratedDanceMedia,
 } from "./dance-media-integration.ts";
 import { DanceReviewService } from "./dance-review.ts";
+import type { DanceSelectedCatalogue } from "./dance-production.ts";
+import type { DanceSource3Bindings } from "./dance-source3-bindings.ts";
+import type { MediaIntent } from "../packages/community-media/contracts.ts";
+import { readMediaBody } from "../packages/community-media/validation.ts";
 
 export type PrivateMediaJob = {
   kind: "community-media/1";
@@ -40,6 +44,9 @@ export class CommunityPrivateDance {
   readonly media: CommunityMedia;
   readonly dance: DancePorts;
   readonly db: D1Database;
+  readonly catalogue?: DanceSelectedCatalogue;
+  readonly source3?: DanceSource3Bindings;
+  readonly current?: () => Promise<void>;
   constructor(input: {
     db: D1Database;
     bucket: R2Bucket;
@@ -47,6 +54,9 @@ export class CommunityPrivateDance {
     /** Managed service binding; there is no client-selected processor origin. */
     renderer: Pick<Fetcher, "fetch">;
     dance: Omit<DancePorts, "media">;
+    catalogue?: DanceSelectedCatalogue;
+    source3?: DanceSource3Bindings;
+    current?: () => Promise<void>;
     active: CommunityMediaPorts["active"];
     song: CommunityMediaPorts["song"];
     reservation: NonNullable<CommunityMediaPorts["privateReservation"]>;
@@ -56,6 +66,9 @@ export class CommunityPrivateDance {
   }) {
     this.db = input.db;
     this.communityId = input.communityId;
+    this.catalogue = input.catalogue;
+    this.source3 = input.source3;
+    this.current = input.current;
     const store = new DanceStore(input.db);
     const denied = (error: unknown) =>
       error instanceof CommunityError &&
@@ -104,12 +117,13 @@ export class CommunityPrivateDance {
       },
       privatePlaybackAuthority: (actor, media) => playback(actor, media),
     });
-    this.dance = { ...input.dance, media: integratedDanceMedia(this.media) };
+    this.dance = { ...input.dance, media: integratedDanceMedia(this.media, input.source3) };
     const dance = new DanceReviewService(store, this.dance, this.communityId);
     const playback = dancePrivatePlaybackAuthority(dance, input.preview);
   }
 
   async fetch(request: Request, context: AuthContext, headers: Headers) {
+    await this.current?.();
     insist(
       context.communityId === this.communityId,
       "media_wrong_community",
@@ -117,19 +131,36 @@ export class CommunityPrivateDance {
     );
     const dance = await danceCommunityApi(
       request,
-      { db: this.db, dance: this.dance },
+      { db: this.db, dance: this.dance, catalogue: this.catalogue },
       context,
       headers,
     );
-    if (dance) return dance;
-    return communityMediaApi(request, this.media, {
+    if (dance) { await this.current?.(); return dance; }
+    const response = await communityMediaApi(request, this.media, {
       origin: context.origin,
       actor: async (r, write) => {
         try {
           const session = write
             ? await authenticatedWrite(r, this.db, context)
             : await accountSession(r, this.db, context);
-          return { accountId: session.account_id };
+          const actor = { accountId: session.account_id };
+          if (this.source3) {
+            insist(r.headers.get("x-dance-account") === actor.accountId,
+              "dance_account_changed", 409);
+            if (r.method === "POST" && new URL(r.url).pathname === "/api/media") {
+              const bytes = await readMediaBody(r.clone(), 8192);
+              let intent: MediaIntent;
+              try { intent = JSON.parse(new TextDecoder().decode(bytes)); }
+              catch { throw new CommunityError("invalid_media_intent"); }
+              insist(intent && typeof intent === "object", "invalid_media_intent");
+              if (intent.purpose === "private-review") {
+                const id = r.headers.get("x-dance-capture-id"), hash = r.headers.get("x-dance-capture-hash");
+                insist(id && hash, "dance_source3_capture_witness_missing", 403);
+                await this.source3.bindIntent(actor, id, hash, intent);
+              }
+            }
+          }
+          return actor;
         } catch (error) {
           if (!write && error instanceof CommunityError && error.status === 401)
             return null;
@@ -137,9 +168,12 @@ export class CommunityPrivateDance {
         }
       },
     });
+    await this.current?.();
+    return response;
   }
 
   async process(job: PrivateMediaJob) {
+    await this.current?.();
     insist(
       job.kind === "community-media/1" &&
         job.communityId === this.communityId &&
@@ -150,9 +184,11 @@ export class CommunityPrivateDance {
       409,
     );
     await this.media.process(job.mediaId);
+    await this.current?.();
   }
 
   async tick() {
+    await this.current?.();
     const previous = await this.db
       .prepare(
         "SELECT after_id,revision FROM community_media_recovery WHERE community_id=?",
@@ -160,6 +196,7 @@ export class CommunityPrivateDance {
       .bind(this.communityId)
       .first<{ after_id: string; revision: number }>();
     const after = (await this.media.recover(previous?.after_id)) ?? "";
+    await this.current?.();
     if (previous) {
       await this.db
         .prepare(

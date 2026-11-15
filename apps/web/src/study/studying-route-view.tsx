@@ -40,8 +40,8 @@ import {
 import { createStudyFeedbackAudio } from "./feedback-audio.ts";
 
 // Route-level view for the studying activity. All effectful work (payload
-// load, attempt submission, mic capture, the multiple-choice auto-advance
-// delay) is injected; the view only sequences the surface state machine.
+// load, attempt submission and mic capture) is injected; the view sequences
+// the surface state machine. Choice feedback advances only on explicit Next.
 // Mirrors the legacy `study-route.tsx` controller minus Telegram handoff.
 
 export interface StudyingRouteViewProps {
@@ -56,8 +56,6 @@ export interface StudyingRouteViewProps {
   client: StudyingClient;
   /** Mic seam. Absent recorder => the say-it-back card explains it cannot record. */
   recorder?: StudyingRecorder;
-  /** Auto-advance scheduler after a correct multiple-choice answer (legacy: 700 ms). */
-  scheduleAdvance?: (run: () => void) => void;
   onExit?: () => void;
   onKaraoke?: () => void;
   onStudyAgain?: () => void;
@@ -74,11 +72,6 @@ type MultipleChoiceSurfaceState = Extract<
   StudyingSurfaceState,
   { kind: "multiple_choice" }
 >;
-
-function defaultScheduleAdvance(run: () => void): void {
-  if (typeof window === "undefined") return;
-  window.setTimeout(run, 700);
-}
 
 function initialSurface(payload: StudyingLessonPayload): StudyingSurfaceState {
   const first = payload.exercises[0];
@@ -119,6 +112,9 @@ function LoadedStudyingLesson(
     surface: initialSurface(props.payload),
   });
   let active = true;
+  // Signal writes can batch within one gesture. Claim this presentation now,
+  // and retain the claim through feedback until Next or an error permits retry.
+  let multipleChoiceSubmissionLocked = false;
   let divergenceRecoveries = 0;
   const idempotencyKeys = new Map<string, string>();
 
@@ -229,18 +225,6 @@ function LoadedStudyingLesson(
         }
         if (input.type === "translation_choice") {
           updateMultipleChoice(exerciseId, (surface, current) => {
-            if (result.outcome === "correct") {
-              // The green highlight stays on the selected option briefly, then
-              // the lesson moves to the server's next card without a "correct"
-              // banner.
-              (props.scheduleAdvance ?? defaultScheduleAdvance)(() => {
-                updateMultipleChoice(exerciseId, (latest, state) =>
-                  latest.result === "correct"
-                    ? applyServerLesson(state, result)
-                    : state,
-                );
-              });
-            }
             // A retryable miss keeps the server-selected current card — the same
             // item at its next attempt number; only its queue ordinal moved.
             const retryExercise = result.next_lesson?.exercises[0];
@@ -337,6 +321,7 @@ function LoadedStudyingLesson(
           return;
         }
         if (input.type === "translation_choice") {
+          multipleChoiceSubmissionLocked = false;
           updateMultipleChoice(exerciseId, (surface, current) => ({
             ...current,
             surface: {
@@ -369,6 +354,8 @@ function LoadedStudyingLesson(
     surface: MultipleChoiceSurfaceState,
     selectedOptionId: string,
   ) => {
+    if (!active || multipleChoiceSubmissionLocked) return;
+    multipleChoiceSubmissionLocked = true;
     updateMultipleChoice(surface.exercise.id, (latest, current) => ({
       ...current,
       surface: { ...latest, submitError: undefined, submitting: true },
@@ -442,6 +429,7 @@ function LoadedStudyingLesson(
     const surface = lesson().surface;
     if (surface.kind === "multiple_choice") {
       if (surface.result) {
+        multipleChoiceSubmissionLocked = false;
         if (surface.result === "wrong" && surface.canRetry) {
           updateMultipleChoice(surface.exercise.id, (latest, current) => ({
             ...current,
@@ -547,6 +535,8 @@ function LoadedStudyingLesson(
   const handleOptionSelect = (optionId: string) => {
     const surface = lesson().surface;
     if (
+      !active ||
+      multipleChoiceSubmissionLocked ||
       surface.kind !== "multiple_choice" ||
       surface.result ||
       surface.submitting

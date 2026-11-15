@@ -1,0 +1,62 @@
+# Qualification foundation only. No complete-community or production claim.
+services:
+  initialize:
+    image: ${PIRATE_LINUX_IMAGE:?exact locally built image required}
+    pull_policy: never
+    platform: linux/amd64
+    command: ["initialize"]
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 2
+    network_mode: none
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ${PIRATE_STATE_ROOT:?fresh owned state required}
+        target: /var/lib/pirate
+        bind: {create_host_path: false}
+    labels:
+      io.pirate.qualification.token: ${PIRATE_QUALIFICATION_TOKEN:?one-use token required}
+    restart: "no"
+    stop_grace_period: 30s
+  application:
+    image: ${PIRATE_LINUX_IMAGE:?exact locally built image required}
+    pull_policy: never
+    platform: linux/amd64
+    depends_on:
+      initialize: {condition: service_completed_successfully}
+    init: true
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 2
+    tmpfs: ["/tmp:rw,nosuid,nodev,noexec,size=64m,mode=1777"]
+    volumes:
+      - type: bind
+        source: ${PIRATE_STATE_ROOT:?fresh owned state required}
+        target: /var/lib/pirate
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PIRATE_TLS_ROOT:?private fixture TLS directory required}
+        target: /run/pirate/tls
+        read_only: true
+        bind: {create_host_path: false}
+    ports: ["127.0.0.1::8443"]
+    networks: [qualification]
+    labels:
+      io.pirate.qualification.token: ${PIRATE_QUALIFICATION_TOKEN:?one-use token required}
+    restart: "no"
+    stop_grace_period: 30s
+networks:
+  qualification:
+    internal: true
+    labels:
+      io.pirate.qualification.token: ${PIRATE_QUALIFICATION_TOKEN:?one-use token required}

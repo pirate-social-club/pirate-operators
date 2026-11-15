@@ -2,7 +2,7 @@
  * authenticated owner, authority and durable storage only. No device access. */
 import { DanceReviewPage } from "../src/dance/source/dance-review-page.tsx";
 import { DanceResultPage } from "../src/dance/source/dance-result-page.tsx";
-import { createSignal, onCleanup } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { createDanceClient, DanceClientError } from "../src/dance/client.ts";
 import { danceSession } from "../src/dance/source/dance-preparation-api.ts";
 import { createDanceRecordingController } from "../src/dance/source/dance-recording.ts";
@@ -24,6 +24,10 @@ export type RepairStoryMode =
   | "local_missing_original"
   | "review_stalled_401"
   | "result_stalled_403";
+const originalFixtureUrl = new URL(
+  "./dance-fixtures/paper-neutral-avc-aac.mp4",
+  import.meta.url,
+).href;
 export function DanceRepairStory(props: { mode: RepairStoryMode }) {
   const f = simulatedSource(),
     storage = simulatedRecordingStorage();
@@ -39,6 +43,7 @@ export function DanceRepairStory(props: { mode: RepairStoryMode }) {
   let refuse = false,
     delayNext = false,
     lateReply: (() => void) | undefined;
+  const [closed, setClosed] = createSignal(false);
   const [lateWaiting, setLateWaiting] = createSignal(false);
   const [lastPath, setLastPath] = createSignal(""),
     [lost, setLost] = createSignal(0);
@@ -83,7 +88,9 @@ export function DanceRepairStory(props: { mode: RepairStoryMode }) {
   onCleanup(() => client.dispose());
   const setup = (async () => {
     await f.seed();
-    const file = new File(["actual retained story original"], "take.mp4", {
+    const response = await fetch(originalFixtureUrl, { credentials: "omit" });
+    if (!response.ok) throw new Error("story_fixture_missing");
+    const file = new File([await response.blob()], "take.mp4", {
       type: "video/mp4",
     });
     const session = danceSession(f.c, f.ports.media.maximumBytes);
@@ -142,11 +149,12 @@ export function DanceRepairStory(props: { mode: RepairStoryMode }) {
     props.mode.startsWith("explicit_") || props.mode.includes("stalled");
   return (
     <>
+      <Show when={!closed()}>
       {props.mode === "result_stalled_403" ? (
         <DanceResultPage
           source={source}
           reviewId={a.captureId}
-          onBack={() => {}}
+          onBack={() => setClosed(true)}
           onManage={() => {}}
           onSignIn={() => {}}
           onAccessLost={() => {
@@ -156,14 +164,18 @@ export function DanceRepairStory(props: { mode: RepairStoryMode }) {
       ) : (
         <DanceReviewPage
           source={source}
+          songLabel="Fixture song"
           reviewId={explicit ? a.captureId : undefined}
-          onBack={() => {}}
+          onBack={() => setClosed(true)}
           onAccessLost={() => {
             setLost(lost() + 1);
           }}
         />
       )}
+      </Show>
       <aside
+        hidden
+        aria-hidden="true"
         aria-label="Simulated fixture controls"
         data-last-path={lastPath()}
       >
@@ -190,6 +202,7 @@ export function DanceRepairStory(props: { mode: RepairStoryMode }) {
         </button>
         <output data-fixture-late-waiting>{String(lateWaiting())}</output>
         <output data-fixture-path>{lastPath()}</output>
+        <output data-fixture-exited>{String(closed())}</output>
         <output data-fixture-lost>{lost()}</output>
       </aside>
     </>

@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+    "types": ["node", "@cloudflare/workers-types"]
+  },
+  "include": [
+    "backend-state.ts",
+    "backend-command.ts",
+    "backup-staging.ts",
+    "backup-transport.ts",
+    "cold-writer-fence.ts",
+    "cold-backup-operation.ts",
+    "cold-backup-cli.ts",
+    "maintenance-guard.ts",
+    "writer-evidence.ts",
+    "download-commit.ts",
+    "cohort-archive.ts",
+    "profile-canonical.ts",
+    "backup-profile-authority.ts",
+    "retained-operation-readback.ts"
+  ]
+}

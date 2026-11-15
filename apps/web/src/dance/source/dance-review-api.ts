@@ -115,32 +115,32 @@ export function danceResultPresentation(result: DanceResult): {
             detail:
               e.finality === "safe"
                 ? "Your dance passed review."
-                : "Review recorded on chain; safe confirmation is still pending.",
+                : "Your review is awaiting confirmation.",
           }
         : {
             title: "Not passed",
             detail:
               e.finality === "safe"
                 ? "You can return to the song to record another attempt."
-                : "Review recorded on chain; safe confirmation is still pending.",
+                : "Your review is awaiting confirmation.",
           };
     if (r.localDenied || r.state === "withdrawal_pending")
       return {
         title: "Withdrawal pending",
         detail:
-          "Private access is stopped. Canonical ordering determines any already broadcast review.",
+          "Your cancellation is being confirmed.",
       };
     if (e)
       return {
         title: "Review awaiting confirmation",
         detail:
-          "The original canonical evidence is being reconciled. There is no confirmed review result yet.",
+          "Your review is being confirmed.",
       };
     if (r.decision || r.state === "decision_pending")
       return {
         title: "Decision pending",
         detail:
-          "The original decision is pending canonical publication. There is no final verdict yet.",
+          "Your review is being confirmed.",
       };
     if (r.state === "expired")
       return {
@@ -158,7 +158,7 @@ export function danceResultPresentation(result: DanceResult): {
         ? "Withdrawal pending"
         : "Request acknowledged",
     detail:
-      "Private access is stopped. Canonical ordering determines any already broadcast review.",
+      "Your cancellation is being confirmed.",
   };
 }
 export const danceReviewPath = (community: string, id: string) =>

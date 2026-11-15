@@ -20,6 +20,7 @@ import {
   scope,
 } from "./dance-source-fixtures.ts";
 export type DanceStoryMode =
+  | "desktop"
   | "camera"
   | "saved"
   | "pending"
@@ -34,7 +35,7 @@ export type DanceStoryMode =
   | "error"
   | "held";
 const fixtureUrl = new URL(
-  "./dance-fixtures/capture-prefix-avc-aac.mp4",
+  "./dance-fixtures/paper-neutral-avc-aac.mp4",
   import.meta.url,
 ).href;
 export function DanceStory(props: { mode: DanceStoryMode }) {
@@ -211,6 +212,7 @@ export function DanceStory(props: { mode: DanceStoryMode }) {
   };
   return (
     <DanceSongPage
+      browseOnly={props.mode === "desktop"}
       communityId={scope.communityId}
       songKey={scope.songKey}
       recorder={recorder}

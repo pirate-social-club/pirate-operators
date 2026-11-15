@@ -5,10 +5,32 @@ confirmed D1 through D6 and authorized public repository creation on 2026-11-03.
 The initial coordinator bootstrap publishes main after local checks. Later
 changes use named branches and pull requests under the workspace lifecycle.
 
-The workspace_owner selected Alchemy.run to own community Cloudflare
-provisioning: Workers, D1, R2, jobs and bindings. Use cf for diagnostics and
-account inspection without independently changing Alchemy-owned resources.
-Infisical is the service-secret source. Do not introduce Wrangler configuration.
+The workspace_owner's November 14 delivery decision selects a single Linux
+profile and the [Web2 release plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md).
+Web2 and HNS communities use the same on-chain identity, publications and
+discovery policy. Implement Web2 foundation contracts (1a) and repair PR58 (2)
+in parallel. Start separate publication-consent design (1c) immediately; naming
+registry/gateway completion (1b) does not block Web2. Freeze their attachment
+interface before dependent integration.
+
+The first-song pilot omits learning-results and V4 sign-in configuration and
+uses plain origin-bound sign-in. Learning publication, Dance and names remain
+disabled in that profile. Separate login from publication consent before the
+expanded Dance release. Songs, canonical Dance-to-song references and shared
+aggregation are in the expanded Web2 scope. HNS can be attached later without
+recreating community or content identity. Backup/restore and automated upgrades
+remain deferred; storage and disposal limitations must be explicit.
+
+Pirate-hosted enrollment and capped top-ups preserve community publisher and
+controller authority. The plan selects 30-day Web2 address verification with
+service-side rechecks, not daily on-chain renewal per community. This is an
+approved implementation direction, not a qualified deployment.
+
+Alchemy.run continues to own provisioning for existing or selected managed
+Cloudflare services: Workers, D1, R2, jobs and bindings. Use cf for diagnostics
+and account inspection without independently changing Alchemy-owned resources.
+This does not make Cloudflare the selected community-hosting target. Infisical
+is the service-secret source. Do not introduce Wrangler configuration.
 The first delivery is operator setup through first-song publication; sponsored
 customer name buying is later work. This direction authorizes documentation
 and the admitted implementation lanes, not an unscoped deployment or key action.

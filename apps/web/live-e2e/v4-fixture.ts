@@ -158,6 +158,14 @@ export async function serveV4(
         study: true,
         policyVersion: "fixture",
       });
+    // Membership is independent of the Study/publication behavior under test.
+    // Only its authenticated read is simulated; no join or name is accepted.
+    if (path === "/api/community/join") {
+      expect(request.method()).toBe("GET");
+      return signedIn
+        ? json({ schema: "pirate.community-join/1", ownerScope: privateId, revision: 0, state: "not_joined" })
+        : json({ error: "session_required" }, 401);
+    }
     if (path === "/api/session")
       return signedIn
         ? json({

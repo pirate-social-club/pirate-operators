@@ -7,11 +7,13 @@ import { join } from "node:path";
 import {
   decodeFunctionData,
   encodeAbiParameters,
+  encodeEventTopics,
   keccak256,
   parseTransaction,
   type Hex,
   type PublicClient,
 } from "viem";
+import { directoryAbi } from "../packages/community/directory-wire.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { canonical, hashJson, hashText } from "../packages/community/common.ts";
 import { preparePin } from "../packages/community/ipfs.ts";
@@ -223,7 +225,7 @@ async function fixture() {
       },
       blockNumber: base + 10n + BigInt(i === 5 ? 3 : i),
       logIndex: i === 5 ? 3 : i,
-      blockHash: hashText("log" + i),
+      blockHash: hashText("block" + (base + 10n + BigInt(i === 5 ? 3 : i))),
       transactionHash: hashText("tx" + i),
     });
   }
@@ -279,6 +281,30 @@ async function fixture() {
           blockNumber: base + 50n,
           blockHash: blockHash(base + 50n),
           status: "success",
+        };
+      const configurationLog = visible().find(log => log.transactionHash === hash);
+      if (configurationLog)
+        return {
+          transactionHash: hash,
+          blockNumber: configurationLog.blockNumber,
+          blockHash: configurationLog.blockHash,
+          status: "success",
+          logs: [{
+            address: history[0].directory,
+            blockNumber: configurationLog.blockNumber,
+            blockHash: configurationLog.blockHash,
+            transactionHash: hash,
+            logIndex: configurationLog.logIndex,
+            removed: false,
+            topics: encodeEventTopics({ abi: directoryAbi, eventName: "ConfigurationPublished", args: {
+              communityId: configurationLog.args.communityId,
+            } }),
+            data: encodeAbiParameters(directoryAbi[1].inputs.filter(input => !("indexed" in input && input.indexed)), [
+              configurationLog.args.revision, configurationLog.args.controller,
+              configurationLog.args.publisher, configurationLog.args.operatorPayments,
+              configurationLog.args.learningRecords, configurationLog.args.sha256Digest, configurationLog.args.uri,
+            ]),
+          }],
         };
       const tx = transactions.get(hash);
       if (!tx?.landed) {

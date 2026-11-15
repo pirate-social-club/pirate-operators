@@ -1,4 +1,4 @@
-// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-surface.tsx; only imports changed.
+// Adopted from pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db src/features/studying/studying-surface.tsx; independently owned Paper/owner corrections recorded in the 2026-11-12 packet.
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
 
@@ -66,7 +66,7 @@ function ActivityFooter(props: {
 }) {
   return (
     <Show when={props.primaryLabel}>
-      <footer class="sticky bottom-0 z-10 border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl sm:px-6">
+      <footer class="sticky bottom-0 z-10 mx-auto w-full max-w-[640px] border-t border-border-soft bg-background/95 px-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] pt-4 backdrop-blur-xl">
         <div class={cn("mx-auto grid w-full max-w-[640px] gap-3", props.secondaryLabel && (props.results ? "grid-cols-2" : "sm:grid-cols-2"))}>
           <Show when={props.results && props.secondaryLabel}>
             <Button class="h-13 w-full" leadingIcon={props.secondaryIcon} onClick={props.onSecondaryAction} size="lg" variant="secondary">
@@ -154,19 +154,19 @@ function StudyResultBox(props: { correct: boolean; heard?: string; label?: strin
   return (
     <div
       class={cn(
-        "rounded-[var(--radius-xl)] border px-4 py-3.5",
-        props.correct ? "border-[#8fd19e] bg-[#1d2a22]" : "border-[#f0543f] bg-[#3a211d]",
+        "rounded-[var(--radius-xl)] border p-4",
+        props.correct ? "border-success bg-success/14" : "border-destructive bg-destructive/15",
       )}
       data-study-result={props.correct ? "correct" : "incorrect"}
       role="status"
     >
       <div class="flex items-center gap-3">
-        <Show when={props.correct} fallback={<IconX aria-hidden="true" class="size-5 shrink-0 text-[#f0543f]" />}>
-          <IconCheck aria-hidden="true" class="size-5 shrink-0 text-[#8fd19e]" />
+        <Show when={props.correct} fallback={<IconX aria-hidden="true" class="size-6 shrink-0 text-destructive" />}>
+          <IconCheck aria-hidden="true" class="size-6 shrink-0 text-success" />
         </Show>
         <Type
           as="p"
-          class={cn("text-base font-semibold leading-6", props.correct ? "text-[#8fd19e]" : "text-destructive-text")}
+          class={cn("text-base font-semibold leading-6", props.correct ? "text-success" : "text-destructive-text")}
           variant="body-strong"
         >
           {props.label ?? (props.correct ? "Correct" : "Incorrect")}
@@ -185,7 +185,7 @@ function StudyResultBox(props: { correct: boolean; heard?: string; label?: strin
 
 function SayItBackState(props: { state: Extract<StudyingSurfaceState, { kind: "say_it_back" }> }) {
   return (
-    <div class="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-6 px-4 pb-10 pt-7 sm:px-6 sm:pt-10">
+    <div class="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-6 px-4 pb-10 pt-7">
       <StudyPrompt instruction="Say it back:" prompt={props.state.exercise.prompt} />
 
       {/* A miss reports Incorrect and what was heard; the owner dropped the
@@ -216,14 +216,14 @@ function MultipleChoiceState(props: {
   state: Extract<StudyingSurfaceState, { kind: "multiple_choice" }>;
 }) {
   return (
-    <div class="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-6 px-4 pb-10 pt-7 sm:px-6 sm:pt-10">
+    <div class="mx-auto flex w-full max-w-[640px] flex-1 flex-col gap-6 px-4 pb-10 pt-7">
       <StudyPrompt
         instruction={props.state.exercise.question}
         prompt={props.state.exercise.prompt}
-        promptClass="text-xl"
+        promptClass="text-xl leading-[25px]"
       />
 
-      <div class="grid gap-3">
+      <div aria-busy={props.state.submitting ? "true" : "false"} aria-label="Answer choices" class="grid gap-3" role="group">
         <For each={props.state.exercise.options}>
           {(option) => {
             const selected = () => option.id === props.state.selectedOptionId;
@@ -237,10 +237,11 @@ function MultipleChoiceState(props: {
                   "flex min-h-16 items-center justify-between gap-4 rounded-[var(--radius-xl)] border border-border-soft bg-card px-4 py-3 text-left transition-[border-color,background-color]",
                   !props.state.result && !props.state.submitting && "cursor-pointer hover:border-border",
                   (props.state.result || props.state.submitting) && "cursor-default",
-                  selected() && !props.state.result && "border-[#4c8df6] bg-[#16202e]",
-                  revealCorrect() && "border-[#8fd19e] bg-[#1d2a22]",
-                  revealWrong() && "border-[#f0543f] bg-[#3a211d]",
+                  selected() && !props.state.result && "border-primary bg-primary/14",
+                  revealCorrect() && "border-success bg-success/14",
+                  revealWrong() && "border-destructive bg-destructive/15",
                 )}
+                aria-pressed={selected() ? "true" : "false"}
                 disabled={Boolean(props.state.result) || Boolean(props.state.submitting)}
                 onClick={() => props.onOptionSelect?.(option.id)}
                 type="button"
@@ -258,17 +259,17 @@ function MultipleChoiceState(props: {
                           when={selected()}
                           fallback={<span class="size-6 shrink-0 rounded-full border border-border" />}
                         >
-                            <span class="grid size-6 shrink-0 place-items-center rounded-full bg-[#4c8df6] text-white">
+                          <span class="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
                             <IconCheck class="size-4" />
                           </span>
                         </Show>
                       )}
                     >
-                      <IconX class="size-6 shrink-0 text-[#f0543f]" />
+                      <IconX class="size-6 shrink-0 text-destructive" />
                     </Show>
                   )}
                 >
-                  <span class="grid size-6 shrink-0 place-items-center rounded-full bg-[#8fd19e] text-[#202326]">
+                  <span class="grid size-6 shrink-0 place-items-center rounded-full bg-success text-background">
                     <IconCheck class="size-4" />
                   </span>
                 </Show>
@@ -278,8 +279,8 @@ function MultipleChoiceState(props: {
         </For>
       </div>
 
-      {/* The same result box as Say it back (Paper): correct moves on by
-          itself; incorrect waits for Continue. */}
+      {/* Show only the authoritative result. Both outcomes wait for Next;
+          submission remains an internal lock, not a separate checking screen. */}
       <Show when={props.state.result}>
         {result => <StudyResultBox correct={result() === "correct"} />}
       </Show>
@@ -505,7 +506,7 @@ export function StudyingSurface(props: StudyingSurfaceProps) {
   const secondaryLabel = () => props.onStudyAgain && (recordingBlocked() || (complete() && props.onExit && !props.completeActionLabel)) ? "Study again" : undefined;
 
   return (
-    <section class={cn("flex h-dvh w-full flex-col overflow-y-auto bg-background text-foreground", props.class)}>
+    <section class={cn("flex h-dvh w-full flex-col overflow-y-auto border border-border-soft bg-background text-foreground", props.class)}>
       {/* A finished lesson needs no exit arrow or progress bar; Continue leaves. */}
       <Show when={!complete()}>
         {/* Paper: on desktop the header sits in the card's 640 column. The

@@ -45,7 +45,7 @@ export async function publicSongs(
     ports.transport,
   );
   insist(scan.caughtUp, "public_index_catching_up", 503);
-  return indexedPublicPosts(
+  const records = await indexedPublicPosts(
     db,
     ports.client,
     ports.profile,
@@ -54,6 +54,20 @@ export async function publicSongs(
     scan.head,
     postId,
   );
+  const visible:typeof records=[];
+  for(const record of records) {
+    if(record.post.schema==="pirate.community-post/4") {
+      const r=record.post.recognition;
+      const ack=await db.withSession("first-primary").prepare(`SELECT o.state FROM publication_catalog_obligations o
+        JOIN publication_jobs j ON j.job_id=o.job_id JOIN media_submissions s ON s.submission_id=j.submission_id
+        WHERE o.reservation_id=? AND o.intent_sha256=? AND o.state='complete' AND o.promotion_receipt_json IS NOT NULL
+        AND j.phase='published' AND s.post_id=? AND json_extract(o.intent_json,'$.communityId')=?`)
+        .bind(r!.reservationId,r!.intentSha256,record.post.postId,record.post.communityId).first<{state:string}>();
+      if(!ack) {if(postId) insist(false,"catalog_pending",503);continue;}
+    }
+    visible.push(record);
+  }
+  return visible;
 }
 type PublicPost = Awaited<ReturnType<typeof publicSongs>>[number]["post"];
 /** A published post's pinned lyric manifest, bound to that exact post. */
@@ -105,7 +119,7 @@ export async function publicSongViews(
         language: post.language,
         rating: post.rating,
         ...(post.schema === "pirate.community-post/2" ||
-        post.schema === "pirate.community-post/3"
+        post.schema === "pirate.community-post/3" || post.schema === "pirate.community-post/4"
           ? {
               declarationSource: post.admission.declarationSource,
               automatedContent: post.admission.automatedContent,

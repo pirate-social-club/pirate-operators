@@ -21,7 +21,7 @@ import {
 import type { CommunityConfig } from "./config-manifest.ts";
 import {
   ownerCurated,
-  unregisteredOwner,
+  unregisteredOwner, catalogOwner, CATALOG_OWNER_POLICY_VERSION, CATALOG_OWNER_POLICY_HASH,
   OWNER_POLICY_VERSION,
   OWNER_POLICY_HASH,
   UNREGISTERED_OWNER_POLICY_VERSION,
@@ -114,7 +114,8 @@ export function validateAbsentRegistration(value: unknown): AbsentRegistration {
 export type PostSchema =
   | "pirate.community-post/1"
   | "pirate.community-post/2"
-  | "pirate.community-post/3";
+  | "pirate.community-post/3"
+  | "pirate.community-post/4";
 export const isRegistered = (
   registration: RegistrationReceipt | AbsentRegistration,
 ): registration is RegistrationReceipt => registration.status === "confirmed";
@@ -140,23 +141,26 @@ export interface PostManifest extends PublicationIdentity {
     declarationSource?: "operator_declared";
   };
   registration: RegistrationReceipt | AbsentRegistration;
+  terms?: {revision:number;allowsDerivatives:boolean};
+  recognition?: {namespace:Hex;profileSha256:Hex;intentSha256:Hex;reservationId:Hex;recordingId:Hex};
 }
 export function validatePost(value: unknown): PostManifest {
   const raw = object(value),
-    unregistered = raw.schema === "pirate.community-post/3",
+    catalog = raw.schema === "pirate.community-post/4",
+    unregistered = catalog || raw.schema === "pirate.community-post/3",
     // Both owner policies declare rating and language and defer automated content.
     curated = unregistered || raw.schema === "pirate.community-post/2",
-    name: PostSchema = unregistered
+    name: PostSchema = catalog ? "pirate.community-post/4" : unregistered
       ? "pirate.community-post/3"
       : curated
         ? "pirate.community-post/2"
         : "pirate.community-post/1",
-    policyVersion = unregistered
+    policyVersion = catalog ? CATALOG_OWNER_POLICY_VERSION : unregistered
       ? UNREGISTERED_OWNER_POLICY_VERSION
       : curated
         ? OWNER_POLICY_VERSION
         : RELEASE_POLICY,
-    policySha256 = unregistered
+    policySha256 = catalog ? CATALOG_OWNER_POLICY_HASH : unregistered
       ? UNREGISTERED_OWNER_POLICY_HASH
       : curated
         ? OWNER_POLICY_HASH
@@ -177,11 +181,19 @@ export function validatePost(value: unknown): PostManifest {
     "media",
     "admission",
     "registration",
+    ...(catalog ? ["terms","recognition"] : []),
   ]);
   insist(
     o.kind === "song" && (o.rating === "general" || o.rating === "adult"),
     "unsupported_post",
   );
+  let catalogFields: Pick<PostManifest,"terms"|"recognition"> = {};
+  if (catalog) {
+    const terms=object(o.terms),r=object(o.recognition);
+    exact(terms,["revision","allowsDerivatives"]); exact(r,["namespace","profileSha256","intentSha256","reservationId","recordingId"]);
+    insist(terms.revision===1 && typeof terms.allowsDerivatives==="boolean","invalid_song_terms");
+    catalogFields={terms:{revision:1,allowsDerivatives:terms.allowsDerivatives},recognition:{namespace:bytes32(r.namespace),profileSha256:bytes32(r.profileSha256),intentSha256:bytes32(r.intentSha256),reservationId:bytes32(r.reservationId),recordingId:bytes32(r.recordingId)}};
+  }
   const admission = object(o.admission);
   exact(admission, [
     "policyVersion",
@@ -261,6 +273,7 @@ export function validatePost(value: unknown): PostManifest {
   );
   return {
     ...identity(o),
+    ...catalogFields,
     schema: name,
     authorId: bytes32(o.authorId),
     kind: "song",
@@ -313,7 +326,9 @@ export function validatePostForEvent(
       (post.schema === "pirate.community-post/2") ===
         ownerCurated(config.policies.admission) &&
       (post.schema === "pirate.community-post/3") ===
-        unregisteredOwner(config.policies.admission),
+        unregisteredOwner(config.policies.admission) &&
+      (post.schema === "pirate.community-post/4") === catalogOwner(config.policies.admission) &&
+      (post.schema !== "pirate.community-post/4" || (post.recognition?.namespace === config.policies.recognition?.namespace && post.recognition?.profileSha256 === config.policies.recognition?.sha256)),
     "post_admission_policy_mismatch",
   );
   insist(event.kind === 0, "unsupported_post_event_kind");

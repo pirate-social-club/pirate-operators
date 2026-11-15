@@ -19,6 +19,9 @@ import { runCommunityComposerBrowserCase } from "./media-community-composer.brow
 import { runCommunityShellLifetimeBrowserCases } from "./media-community-shell-lifetime.browser.tsx";
 import { runCommunityShellProfileBrowserCase } from "./media-community-shell-profile.browser.tsx";
 import storageWorkerUrl from "./media-community-storage.worker.ts?worker&url";
+import { runDancePaperDesktopBrowserCase } from "./dance-paper-desktop.browser.tsx";
+import { runDanceAsyncResizeBrowserCase } from "./dance-async-resize.browser.tsx";
+import { runDanceMissingOriginalExitBrowserCase } from "./dance-missing-original-exit.browser.tsx";
 import "./owner-ui.fixture.css";
 
 const query = new URL(location.href).searchParams;
@@ -142,8 +145,45 @@ function MediaCases(props: { kind: string }) {
     </>
   );
 }
+function DancePaperCases(props: { kind: "desktop" | "async-resize" | "missing-original-exit" }) {
+  const [status, setStatus] = createSignal("idle");
+  const [detail, setDetail] = createSignal("");
+  let root: HTMLDivElement | undefined;
+  const run = async () => {
+    setStatus("running");
+    try {
+      let value: unknown;
+      if (props.kind === "desktop") {
+        value = await runDancePaperDesktopBrowserCase(root!, { browseOnly: query.get("browseOnly") === "1" });
+      } else if (props.kind === "async-resize") {
+        const resize = (window as Window & { __ownerUiDanceResize?: (width: number, height: number) => Promise<void> }).__ownerUiDanceResize;
+        if (!resize) throw Error("Actual Playwright viewport bridge is required");
+        const scenario = query.get("scenario");
+        if (scenario !== "submission" && scenario !== "activation") throw Error("Exact async resize scenario is required");
+        value = await runDanceAsyncResizeBrowserCase(root!, scenario, { resize });
+      } else {
+        value = await runDanceMissingOriginalExitBrowserCase(root!);
+      }
+      setDetail(JSON.stringify(value));
+      setStatus("passed");
+    } catch (error) {
+      setDetail(String(error));
+      setStatus("failed");
+    }
+  };
+  return (
+    <>
+      <button onClick={() => void run()}>Run actual Dance Paper cases</button>
+      <output data-dance-paper-status={status()}>{detail()}</output>
+      <div ref={(element) => { root = element; }} />
+    </>
+  );
+}
 function Fixture() {
   const mode = query.get("fixture");
+  if (mode === "dance-paper-desktop") return <DancePaperCases kind="desktop" />;
+  if (mode === "dance-async-resize") return <DancePaperCases kind="async-resize" />;
+  if (mode === "dance-missing-original-exit") return <DancePaperCases kind="missing-original-exit" />;
   if (mode === "profile") {
     const scenario =
       profiles.find((value) => value === query.get("case")) ?? "empty";

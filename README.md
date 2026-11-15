@@ -1,5 +1,13 @@
 # Pirate operators
 
+The approved [Web2 release and optional HNS plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+starts Web2 foundation contracts, consent redesign and integration repair in
+parallel. The first-song pilot uses plain sign-in with learning-results disabled.
+Dance and shared aggregation follow as explicit Web2 release work. HNS is an
+optional later attachment to the same on-chain community and content; it is not
+required for registration, discovery or gas eligibility. The plan supersedes
+conflicting historical scope below and does not claim a qualified release.
+
 The [compact public results amendment](docs/learning-results-v2.md) sets the
 next recording/payment direction: one terminal result per lesson or run,
 internal usage accounting for Pirate's own service and guaranteed coverage for

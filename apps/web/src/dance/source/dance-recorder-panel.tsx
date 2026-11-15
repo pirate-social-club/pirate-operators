@@ -1,3 +1,4 @@
+import { createDancePostingViewport, dancePostingAllowed } from "./dance-viewport.ts";
 import { isServer } from "@solidjs/web";
 import {
   createEffect,
@@ -29,11 +30,18 @@ import { DanceReviewPage } from "./dance-review-page.tsx";
 
 export function DanceRecorderPanel(props: {
   readonly source: DanceSourcePorts;
+  readonly songLabel?: string;
   readonly onBack: () => void;
   readonly onAccessLost: () => void;
   readonly onSignIn?: () => void;
   readonly recorder?: typeof createDanceRecorder;
+  readonly assertFreshPosting?: () => void;
 }) {
+  const postingAllowed = createDancePostingViewport();
+  const assertFreshPosting = () => {
+    props.assertFreshPosting?.();
+    if (!dancePostingAllowed()) throw Error("dance_posting_unavailable");
+  };
   const options = untrack(() => ({
     ...props,
     scope: { ...props.source.scope },
@@ -103,11 +111,12 @@ export function DanceRecorderPanel(props: {
     } else options.onBack();
   };
   onSettled(() => {
-    if (!alive || denied()) return;
+    if (!alive || denied() || !dancePostingAllowed()) return;
     recorder = (options.recorder ?? createDanceRecorder)({
       ...options.source,
       currentScope: () =>
         alive && !denied() ? options.source.currentScope() : null,
+      assertFreshPosting,
     });
     journey = createDanceJourneyActor({
       recorder,
@@ -199,7 +208,7 @@ export function DanceRecorderPanel(props: {
     }
     const error = state()?.context.error;
     const held = originalHoldCopy(error);
-    if (held) return held;
+    if (held) return "This recording needs confirmation. Resume to continue.";
     if (error instanceof VideoCaptureError && error.reason === "camera_denied")
       return "Camera or microphone access is off. Allow access in your browser, then retry.";
     if (
@@ -320,7 +329,7 @@ export function DanceRecorderPanel(props: {
                       fallback={
                         <>
                           <p role="status" aria-live="polite">
-                            {status()}
+                            {postingAllowed() ? status() : "Recording is available on mobile."}
                           </p>
                           <Show
                             when={
@@ -345,8 +354,9 @@ export function DanceRecorderPanel(props: {
                                   fallback={
                                     <Show when={!missingOriginal()}>
                                       <Button
+                                        disabled={!postingAllowed()}
                                         onClick={() =>
-                                          journey?.send({ type: "RETRY" })
+                                          dancePostingAllowed() && journey?.send({ type: "RETRY" })
                                         }
                                       >
                                         Resume recording
@@ -356,8 +366,9 @@ export function DanceRecorderPanel(props: {
                                 >
                                   <p>This recording session has finished.</p>
                                   <Button
+                                    disabled={!postingAllowed()}
                                     onClick={() =>
-                                      journey?.send({ type: "NEW_ATTEMPT" })
+                                      dancePostingAllowed() && journey?.send({ type: "NEW_ATTEMPT" })
                                     }
                                   >
                                     Record again
@@ -393,7 +404,8 @@ export function DanceRecorderPanel(props: {
                       {(context) => (
                         <DanceFundedObjectives
                           context={context}
-                          onAccept={() => journey?.send({ type: "ACCEPT" })}
+                          disabled={!postingAllowed()}
+                          onAccept={() => { if (dancePostingAllowed()) journey?.send({ type: "ACCEPT" }); }}
                         />
                       )}
                     </Show>
@@ -405,11 +417,7 @@ export function DanceRecorderPanel(props: {
                     title="Dance"
                     allowUpload={false}
                     onClose={back}
-                    notice={
-                      <p class="text-center text-sm text-white">
-                        {value.ready.session.capture.rubricText}
-                      </p>
-                    }
+                    songLabel={options.songLabel}
                     status={
                       matches("capturing") &&
                       state()?.context.stage === "recording"
@@ -418,12 +426,13 @@ export function DanceRecorderPanel(props: {
                     }
                     elapsedLabel={
                       matches("capturing")
-                        ? `${(state()!.context.elapsed / 1000).toFixed(1)} s`
-                        : "0 s"
+                        ? `${Math.floor(state()!.context.elapsed / 60000)}:${String(Math.floor(state()!.context.elapsed / 1000) % 60).padStart(2, "0")}`
+                        : "0:00"
                     }
                     durationLabel={`${value.ready.session.body_end_ms / 1000} s`}
-                    timerClass="rounded-none bg-transparent px-0 py-0 backdrop-blur-none"
-                    recordDisabled={!matches("camera")}
+                    timerElapsedOnly
+                    timerClass="rounded-none bg-transparent px-0 py-0 text-base font-semibold leading-6 backdrop-blur-none"
+                    recordDisabled={!matches("camera") || !postingAllowed()}
                     recordActionLabel={
                       matches("camera")
                         ? "Record"
@@ -431,7 +440,7 @@ export function DanceRecorderPanel(props: {
                           ? "Starting recording"
                           : "Recording in progress"
                     }
-                    onRecordToggle={() => journey?.send({ type: "RECORD" })}
+                    onRecordToggle={() => { if (dancePostingAllowed()) journey?.send({ type: "RECORD" }); }}
                     preview={
                       <video
                         ref={(element) => {
@@ -455,6 +464,8 @@ export function DanceRecorderPanel(props: {
           {(value) => (
             <DanceReviewPage
               source={options.source}
+              assertFreshPosting={assertFreshPosting}
+              songLabel={options.songLabel}
               localPreview={preview()}
               journey={journey}
               onBack={options.onBack}

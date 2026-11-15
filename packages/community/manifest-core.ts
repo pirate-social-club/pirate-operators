@@ -7,7 +7,7 @@ export const RELEASE_POLICY_HASH: Hex =
   "0xf4355daa134e09599937e0547188046289fc598c089bc2ac1d381fb327e64e84";
 export function address(value: unknown, zero = false): Address {
   insist(
-    typeof value === "string" && /^0x[0-9a-f]{40}$/.test(value),
+    typeof value === "string" && /^0x[0-9a-f]{40}(?![\s\S])/.test(value),
     "invalid_address",
   );
   insist(zero || !/^0x0+$/.test(value), "zero_address");
@@ -19,6 +19,7 @@ export function chain(value: unknown): 6343 | 31337 {
 }
 export function decimal(value: unknown): string {
   const n = amount(value);
+  insist(value === n.toString(), "noncanonical_decimal");
   insist(n < 2n ** 256n, "integer_overflow");
   return n.toString();
 }
@@ -89,3 +90,6 @@ export function communityId(chainId: number, registry: Address): Hex {
     ),
   );
 }
+
+// V1 communityId above intentionally retains its historic registry-based formula.
+export { directoryInstanceId, sharedNamespaceId } from "./shared-identity.ts";

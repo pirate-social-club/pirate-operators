@@ -24,6 +24,7 @@ import type {
 } from "../packages/community-media/contracts.ts";
 import type { DanceReviewService } from "./dance-review.ts";
 import type { CommunityMedia } from "./community-media.ts";
+import type { DanceSource3Bindings } from "./dance-source3-bindings.ts";
 import {
   createDanceMediaPort,
   DANCE_MEDIA_PRODUCER_PIN,
@@ -83,15 +84,18 @@ function producerMedia(media: DanceReadyMedia) {
 
 /** Producer and consumer share the same repository and D1 batch. The ready
  * accessors keep their separate uploader and non-self reviewer checks. */
-export function integratedDanceMedia(service: CommunityMedia): DanceMediaPort {
+export function integratedDanceMedia(service: CommunityMedia, source3?: DanceSource3Bindings): DanceMediaPort {
   return createDanceMediaPort(
     {
       async readyForSubmission(id, binding, actor) {
+        binding = structuredClone(binding); actor = structuredClone(actor);
+        if (source3) await source3.assertUploaderMedia(id, actor, binding.recordingSha256);
         return danceRead(() =>
           service.readyForSubmission(id, producerBinding(binding), actor),
         );
       },
       async readyForReview(id, binding, actor) {
+        binding = structuredClone(binding); actor = structuredClone(actor);
         return danceRead(() =>
           service.readyForReview(id, producerBinding(binding), actor),
         );

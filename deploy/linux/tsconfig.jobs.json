@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2024"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["@cloudflare/workers-types"],
+    "strict": true,
+    "noEmit": true
+  },
+  "include": [
+    "durable-queue-store.ts",
+    "durable-queue-protocol.ts",
+    "durable-queue-worker.ts",
+    "durable-maintenance-worker.ts"
+  ]
+}

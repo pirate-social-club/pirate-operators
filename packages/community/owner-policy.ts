@@ -67,3 +67,28 @@ export const unregisteredOwner = (policy: {
 }) =>
   policy.version === UNREGISTERED_OWNER_POLICY_VERSION &&
   policy.sha256 === UNREGISTERED_OWNER_POLICY_HASH;
+
+/** Separate immutable release policy; does not reinterpret either earlier policy. */
+export const CATALOG_OWNER_POLICY = {
+  version: "pirate-owner-catalog/2026-11-13/1",
+  creatorScope: "controller-authorized owner account only; no general creator posting",
+  lineage: "root",
+  registration: "absent; deferred for launch",
+  recognition: {
+    required: true, provider: "pirate-shared-acrcloud",
+    acceptedIntent: "fresh canonical owner, creator, sealed media and terms",
+    identified: "same verified creator may reuse; other creators held",
+    inconclusive: "catalog pending; never permission to publish",
+    enrollment: "every accepted release, independently of derivative permission",
+    originalJournal: "unknown effects and original quota acquisition never reset",
+    publication: "reserve before posting; exact durable signed bytes before send; receipt before promotion",
+  },
+  contentModeration: "deferred; no automated content evidence required or claimed",
+  ratingAndLanguage: "explicit owner declaration",
+  funding: "finite owner window; replacement grants never replenish",
+} as const;
+export const CATALOG_OWNER_POLICY_VERSION = CATALOG_OWNER_POLICY.version;
+export const CATALOG_OWNER_POLICY_HASH = hashJson(CATALOG_OWNER_POLICY);
+export const catalogOwner = (p: {version:string;sha256:string}) =>
+  p.version === CATALOG_OWNER_POLICY_VERSION && p.sha256 === CATALOG_OWNER_POLICY_HASH;
+export const ownerOnly = (p: {version:string;sha256:string}) => unregisteredOwner(p) || catalogOwner(p);

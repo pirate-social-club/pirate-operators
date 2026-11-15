@@ -1,4 +1,4 @@
-// Independently adapted c7 dance-review-page: original ActionFooterShell,
+// Independently adapted c7 review controller/machine on Paper media-first layout:
 // explicit submission, retained preview, bounded GET observation and cancel
 // dialog. Public visibility/publication is held; canonical receipt truth differs.
 import { isServer } from "@solidjs/web";
@@ -11,15 +11,16 @@ import {
   untrack,
 } from "solid-js";
 import {
-  ActionFooterShell,
   Button,
-  MobilePageHeader,
   Modal,
   ModalContent,
   ModalHeader,
   ModalTitle,
   Type,
+  IconPlay,
 } from "../design-system.ts";
+import { DanceMediaHeader, DanceStatusHeader } from "./dance-media-header.tsx";
+import { createDancePostingViewport, dancePostingAllowed } from "./dance-viewport.ts";
 import { privateAccessLost } from "../client.ts";
 import { assertRequestedReview, originalHoldCopy } from "./command-ordering.ts";
 import {
@@ -34,7 +35,6 @@ import {
   danceResultPresentation,
   danceReviewEditable,
   danceReviewPending,
-  type DanceResult,
 } from "./dance-review-api.ts";
 import {
   assertCurrent,
@@ -44,13 +44,17 @@ import {
 
 export function DanceReviewPage(props: {
   readonly source: DanceSourcePorts;
+  readonly songLabel?: string;
   readonly reviewId?: string;
   readonly localPreview?: string;
   readonly journey?: DanceJourneyActor;
   readonly onBack: () => void;
   readonly onAccessLost: () => void;
   readonly onSignIn?: () => void;
+  readonly assertFreshPosting?: () => void;
 }) {
+  const postingAllowed = createDancePostingViewport();
+  const [playing, setPlaying] = createSignal(false);
   const provided = untrack(() => ({ ...props }));
   const journey =
     provided.journey ??
@@ -80,6 +84,10 @@ export function DanceReviewPage(props: {
   const controller = createDanceReviewController({
     ...provided.source,
     reviewId: provided.reviewId,
+    assertFreshPosting: () => {
+      props.assertFreshPosting?.();
+      if (!dancePostingAllowed()) throw Error("dance_posting_unavailable");
+    },
   });
   const ready = () =>
     phase() === "ready" ? (snapshot().context.review ?? undefined) : undefined;
@@ -94,6 +102,7 @@ export function DanceReviewPage(props: {
       video.removeAttribute("src");
       video.load();
     }
+    setPlaying(false);
     setPreview(undefined);
     if (ownedPreview) URL.revokeObjectURL(ownedPreview);
     ownedPreview = undefined;
@@ -188,7 +197,7 @@ export function DanceReviewPage(props: {
           error: Error("dance_review_original_pending"),
         });
         setNotice(
-          "An earlier request still needs confirmation. Resume the same submission.",
+          "Your submission needs confirmation. Resume to continue.",
         );
       } else {
         setNotice("");
@@ -200,13 +209,13 @@ export function DanceReviewPage(props: {
       else if (ready()) {
         journey.send({ type: "REVIEW_ERROR", error });
         setNotice(
-          originalHoldCopy(error) ??
-            "Your request could not be confirmed. Resume it without making a new submission.",
+          (originalHoldCopy(error) ? "This recording needs confirmation. Resume to continue." : null) ??
+            "Your submission needs confirmation. Resume to continue.",
         );
       } else {
         setPhase("error");
         setNotice(
-          originalHoldCopy(error) ??
+          (originalHoldCopy(error) ? "This recording needs confirmation. Resume to continue." : null) ??
             "We couldn’t confirm your recording’s status.",
         );
       }
@@ -214,7 +223,7 @@ export function DanceReviewPage(props: {
   }
   async function act(operation: "submit" | "withdraw") {
     const view = ready();
-    if (!view || writeBlocked()) return;
+    if (!view || writeBlocked() || (operation === "submit" && !dancePostingAllowed())) return;
     stopObservation();
     stopPreview();
     journey.send({ type: "REVIEW_WRITE" });
@@ -245,8 +254,8 @@ export function DanceReviewPage(props: {
           setNotice("This recording session has finished.");
         } else
           setNotice(
-            originalHoldCopy(error) ??
-              "Your request could not be confirmed. Resume it without making a new submission.",
+            (originalHoldCopy(error) ? "This recording needs confirmation. Resume to continue." : null) ??
+              "Your submission needs confirmation. Resume to continue.",
           );
       }
     }
@@ -362,210 +371,116 @@ export function DanceReviewPage(props: {
   const localPreview = () =>
     !expired() &&
     ready() &&
+    ready()!.result.kind === "local_recording" &&
     danceReviewEditable(ready()!.result) &&
     props.localPreview !== failedLocalPreview()
       ? props.localPreview
       : undefined;
-  const localResult = ():
-    | Extract<DanceResult, { kind: "local_recording" }>
-    | undefined => {
-    const r = ready()?.result;
-    return r?.kind === "local_recording" ? r : undefined;
-  };
-  const reviewResult = ():
-    | Extract<DanceResult, { kind: "review" }>
-    | undefined => {
-    const r = ready()?.result;
-    return r?.kind === "review" ? r : undefined;
-  };
+  const editable = () => !!ready() && !expired() && danceReviewEditable(ready()!.result);
+  const fullMedia = () => editable() && (ready()!.result.kind === "local_recording" || !!preview());
+  async function togglePlayback() {
+    if (!video || !editable()) return;
+    if (!video.paused) { video.pause(); return; }
+    const selectedVideo = video, selectedUrl = localPreview() || preview(), attempt = revision;
+    previewRequest?.abort();
+    const pending = new AbortController(); previewRequest = pending;
+    try {
+      const fresh = await controller.observe(pending.signal);
+      if (!current(attempt, pending.signal)) return;
+      assertRequestedReview(fresh.result, provided.reviewId);
+      if (!danceReviewEditable(fresh.result)) { apply(fresh); return; }
+      if (fresh.result.kind === "local_recording") {
+        if (Date.now() >= fresh.result.capture.expiresAtMs) throw Error("dance_local_preview_unavailable");
+        await provided.source.captureAccess(fresh.result.capture, pending.signal);
+      }
+      else if (fresh.result.kind === "review") {
+        const grant = await provided.source.media.playback(fresh.result.review, pending.signal);
+        const path = `/api/media/${encodeURIComponent(fresh.result.review.receipt.mediaId)}/playback`;
+        if (grant.url !== path || (selectedUrl?.startsWith("/api/media/") && selectedUrl !== path) || !Number.isSafeInteger(grant.expiresAtMs) || grant.expiresAtMs <= Date.now() || fresh.result.review.receipt.reviewDeadlineMs <= Date.now()) throw Error("dance_review_media_unavailable");
+        clearTimeout(previewTimer);
+        previewTimer = setTimeout(stopPreview, Math.min(grant.expiresAtMs, fresh.result.review.receipt.reviewDeadlineMs) - Date.now());
+      }
+      if (!current(attempt, pending.signal) || video !== selectedVideo || (localPreview() || preview()) !== selectedUrl || !selectedVideo.getAttribute("src")) return;
+      await selectedVideo.play();
+      if (!current(attempt, pending.signal)) selectedVideo.pause();
+    } catch (error) {
+      if (!current(attempt, pending.signal)) return;
+      if (privateAccessLost(error)) failure(error);
+      else { stopPreview(); setPreviewStatus("unavailable"); }
+    }
+  }
   return (
-    <main class="h-dvh bg-background" data-dance-review={phase()}>
+    <main class="relative flex h-dvh min-h-0 flex-col overflow-hidden bg-background" data-dance-review={phase()}>
       <h1 class="sr-only">Your recording</h1>
-      <ActionFooterShell
-        fullViewport
-        header={
-          <MobilePageHeader
-            title="Your recording"
-            density="compact"
-            onBackClick={provided.onBack}
-          />
-        }
-        bodyClass="relative flex flex-col gap-4 px-4 pt-[calc(4rem+env(safe-area-inset-top))]"
-        footer={
-          <div class="mx-auto grid w-full max-w-md gap-3">
-            <Show when={ready()}>
-              {(view) => (
-                <>
-                  <Show when={!expired() && view().result.state === "uploaded"}>
-                    <Button
-                      disabled={writeBlocked()}
-                      onClick={() => void act("submit")}
-                    >
-                      {busy() ? "Submitting…" : "Submit for review"}
-                    </Button>
-                  </Show>
-                  <Show
-                    when={!expired() && snapshot().matches({ review: "error" })}
-                  >
-                    <Button disabled={busy()} onClick={() => void load(true)}>
-                      Resume submission
-                    </Button>
-                  </Show>
-                  <Show when={expired() || view().result.state !== "uploaded"}>
-                    <Button variant="secondary" onClick={provided.onBack}>
-                      Done
-                    </Button>
-                  </Show>
-                </>
-              )}
-            </Show>
-          </div>
-        }
-      >
-        <Show when={phase() === "loading"}>
-          <p aria-busy="true">Checking your recording…</p>
-        </Show>
+      <Show when={fullMedia()} fallback={<DanceStatusHeader onBack={provided.onBack} />}>
+        <div class="absolute inset-0 bg-[#171B1F]" />
+        <DanceMediaHeader songLabel={provided.songLabel} onBack={provided.onBack} />
+      </Show>
+      <div class={fullMedia() ? "contents" : "relative flex min-h-0 flex-1 flex-col"}>
+        <Show when={phase() === "loading"}><p class="px-4 py-12 text-center" aria-busy="true">Checking your recording…</p></Show>
         <Show when={phase() === "anonymous"}>
-          <p>Sign in to view your recording.</p>
-          <Show when={props.onSignIn}>
-            <Button variant="secondary" onClick={() => props.onSignIn?.()}>
-              Sign in
-            </Button>
-          </Show>
+          <div class="flex flex-col gap-4 px-4 py-12"><p>Sign in to view your recording.</p>
+            <Show when={props.onSignIn}><Button variant="secondary" onClick={() => props.onSignIn?.()}>Sign in</Button></Show>
+          </div>
         </Show>
         <Show when={phase() === "error"}>
-          <p role="alert">We couldn’t confirm your recording’s status.</p>
-          <Button variant="secondary" onClick={() => void load(false)}>
-            Check again
-          </Button>
-          <Button onClick={() => void load(true)}>Resume submission</Button>
+          <div class="flex flex-col gap-4 px-4 py-12"><p role="alert">We couldn’t confirm your recording’s status.</p>
+            <Button variant="secondary" onClick={() => void load(false)}>Check again</Button>
+            <Button onClick={() => void load(true)}>Resume submission</Button>
+            <Button variant="secondary" onClick={provided.onBack}>Back to dance</Button>
+          </div>
         </Show>
-        <Show when={ready()}>
-          {(view) => (
-            <>
-              <section
-                class={
-                  view().result.state === "uploaded" ? "sr-only" : "space-y-3"
-                }
-                aria-live="polite"
-              >
-                <Type as="h2" variant="h2">
-                  {danceResultPresentation(view().result).title}
-                </Type>
-                <p>{danceResultPresentation(view().result).detail}</p>
-              </section>
-              <Show when={!expired() && danceReviewEditable(view().result)}>
-                <Show
-                  when={localPreview() || preview()}
-                  fallback={
-                    <Button
-                      variant="secondary"
-                      disabled={busy() || previewStatus() === "loading"}
-                      onClick={() => void play()}
-                    >
-                      {previewStatus() === "loading"
-                        ? "Loading recording…"
-                        : "Preview recording"}
-                    </Button>
-                  }
-                >
-                  {(url) => (
-                    <video
-                      ref={(element) => {
-                        video = element;
-                        onCleanup(() => {
-                          element.pause();
-                          element.removeAttribute("src");
-                          element.load();
-                        });
-                      }}
-                      class="mx-auto min-h-0 w-full flex-1 bg-black object-contain"
-                      src={url()}
-                      controls
-                      playsinline
-                      preload="metadata"
-                      aria-label="Your private recording"
-                      onError={() => {
-                        setFailedLocalPreview(props.localPreview);
-                        stopPreview();
-                        setPreviewStatus("unavailable");
-                      }}
-                    />
-                  )}
-                </Show>
-                <Show when={previewStatus() === "unavailable"}>
-                  <p role="status">
-                    The preview isn’t available. You can retry.
-                  </p>
-                </Show>
-                <Show when={localResult()} keyed>
-                  {(take) => (
-                    <>
-                      <p class="text-sm text-muted-foreground">
-                        {take.capture.rubricText}
-                      </p>
-                      <p class="text-sm text-muted-foreground">
-                        This recording is private. Public posting is not
-                        enabled.
-                      </p>
-                    </>
-                  )}
-                </Show>
-              </Show>
-              <Show when={reviewResult()} keyed>
-                {(result) => (
-                  <>
-                    <Show when={danceReviewPending(result)}>
-                      <p class="text-sm text-muted-foreground">
-                        Review deadline:{" "}
-                        <time
-                          datetime={new Date(
-                            result.review.receipt.reviewDeadlineMs,
-                          ).toISOString()}
-                        >
-                          {new Date(
-                            result.review.receipt.reviewDeadlineMs,
-                          ).toLocaleString()}
-                        </time>
-                      </p>
-                    </Show>
-                    <Show when={danceReviewEditable(result)}>
-                      <details class="text-sm">
-                        <summary class="cursor-pointer text-muted-foreground">
-                          Recording options
-                        </summary>
-                        <Button
-                          variant="ghost"
-                          disabled={writeBlocked()}
-                          onClick={() => setConfirmCancel(true)}
-                        >
-                          Cancel review
-                        </Button>
-                      </details>
-                    </Show>
-                  </>
-                )}
-              </Show>
-            </>
-          )}
-        </Show>
-        <Show when={notice()}>
-          <p role="status">{notice()}</p>
-        </Show>
-      </ActionFooterShell>
+        <Show when={ready()}>{(view) => <>
+          <Show when={!fullMedia()}>
+            <section class="flex flex-col items-center gap-4 px-4 pb-10 pt-12 text-center" aria-live="polite">
+              <svg aria-hidden="true" width="56" height="56" viewBox="0 0 56 56" class="text-muted-foreground"><circle cx="28" cy="28" r="24" fill="none" stroke="currentColor" stroke-width="4" /><path d="M28 15V28H38" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" /></svg>
+              <Type as="h2" variant="h3">{view().result.state === "awaiting_review" ? "Submitted" : danceResultPresentation(view().result).title}</Type>
+              <p>{danceResultPresentation(view().result).detail}</p>
+            </section>
+          </Show>
+          <Show when={fullMedia()}>
+            <section class="absolute inset-0" aria-label="Recording preview">
+              <Show when={localPreview() || preview()} fallback={
+                <button type="button" class="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white focus-visible:outline-2 focus-visible:outline-white" disabled={busy() || previewStatus() === "loading"} onClick={() => void play()}>
+                  <IconPlay aria-hidden="true" class="size-[26px]" /><span class="sr-only">{previewStatus() === "loading" ? "Loading recording…" : "Preview recording"}</span>
+                </button>
+              }>{(url) => <>
+                <video ref={(element) => {
+                  video = element;
+                  onCleanup(() => { element.pause(); element.removeAttribute("src"); element.load(); });
+                }} class="absolute inset-0 h-full w-full bg-[#171B1F] object-cover" src={url()} playsinline preload="metadata" aria-label="Your private recording"
+                  onPlay={() => { if (ready()) setPlaying(true); else video?.pause(); }} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+                  onError={() => { setFailedLocalPreview(props.localPreview); stopPreview(); setPreviewStatus("unavailable"); }} />
+                <button type="button" class="absolute left-1/2 top-1/2 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white focus-visible:outline-2 focus-visible:outline-white" onClick={() => void togglePlayback()}>
+                  <Show when={playing()} fallback={<IconPlay aria-hidden="true" class="size-[26px]" />}><svg aria-hidden="true" width="26" height="26" viewBox="0 0 26 26" fill="currentColor"><rect x="6" y="4" width="5" height="18" rx="1" /><rect x="15" y="4" width="5" height="18" rx="1" /></svg></Show>
+                  <span class="sr-only">{playing() ? "Pause recording" : "Play recording"}</span>
+                </button>
+              </>}</Show>
+              <Show when={previewStatus() === "unavailable"}><p role="status" class="absolute inset-x-4 top-20 rounded-xl bg-black/70 p-4 text-center text-white">The preview isn’t available. You can retry or go back to your dance.</p></Show>
+            </section>
+          </Show>
+        </>}</Show>
+      </div>
+      <footer class="relative z-20 mt-auto flex flex-col gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+        <Show when={notice()}><p role="status" class="rounded-xl bg-background/95 p-3 text-sm">{notice()}</p></Show>
+        <Show when={ready()}>{(view) => <>
+          <Show when={!expired() && view().result.state === "uploaded" && postingAllowed()}>
+            <Button class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => void act("submit")}>{busy() ? "Submitting…" : "Submit for review"}</Button>
+          </Show>
+          <Show when={!expired() && snapshot().matches({ review: "error" })}><Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(true)}>Resume submission</Button></Show>
+          <Show when={editable() && !fullMedia()}><Button variant="secondary" class="h-12 w-full rounded-xl" disabled={previewStatus() === "loading"} onClick={() => void play()}>Preview recording</Button></Show>
+          <Show when={view().result.kind === "review" && danceReviewEditable(view().result)}>
+            <Button variant="secondary" class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => setConfirmCancel(true)}>Cancel review</Button>
+          </Show>
+          <Show when={!postingAllowed() && view().result.state === "uploaded"}><p class="text-sm">Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
+          <Show when={expired() || view().result.state !== "uploaded"}><Button class="h-12 w-full rounded-xl" variant="secondary" onClick={provided.onBack}>Done</Button></Show>
+        </>}</Show>
+      </footer>
       <Modal open={confirmCancel()} onOpenChange={setConfirmCancel}>
-        <ModalContent>
-          <ModalHeader>
-            <ModalTitle>Cancel review of this recording?</ModalTitle>
-          </ModalHeader>
-          <p>
-            Private access will stop. Any already broadcast review must still be
-            reconciled.
-          </p>
-          <Button onClick={() => void act("withdraw")}>Cancel review</Button>
-          <Button variant="secondary" onClick={() => setConfirmCancel(false)}>
-            Keep waiting
-          </Button>
+        <ModalContent><ModalHeader><ModalTitle>Cancel review of this recording?</ModalTitle></ModalHeader>
+          <p>Stop review of this recording?</p>
+          <Button disabled={writeBlocked()} onClick={() => void act("withdraw")}>Cancel review</Button>
+          <Button variant="secondary" onClick={() => setConfirmCancel(false)}>Keep waiting</Button>
         </ModalContent>
       </Modal>
     </main>

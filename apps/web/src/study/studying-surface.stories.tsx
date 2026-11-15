@@ -200,9 +200,20 @@ export const MultipleChoiceSelected: Story = {
     docs: {
       description: {
         story:
-          "A tap submits immediately; options lock while the attempt is recorded, with no Check step.",
+          "Engineering-only in-flight boundary, nearest Paper choice-ready: the selected card stays in place and locks until the grading response. No dedicated Checking screen, result or Next is shown yet.",
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const choices = canvas.getByRole("group", { name: "Answer choices" });
+    await expect(choices).toHaveAttribute("aria-busy", "true");
+    const options = within(choices).getAllByRole("button");
+    await expect(options).toHaveLength(4);
+    for (const option of options) await expect(option).toBeDisabled();
+    await expect(canvas.queryByRole("button", { name: /Checking/ })).toBeNull();
+    await expect(canvas.queryByRole("button", { name: "Next" })).toBeNull();
+    await expect(canvasElement.querySelector("[data-study-result]")).toBeNull();
   },
 };
 
@@ -221,7 +232,7 @@ export const MultipleChoiceCorrect: Story = {
     docs: {
       description: {
         story:
-          "Paper: Correct shows the green box and no button; the route moves on by itself after 700 ms.",
+          "Paper correct feedback and semantic success tokens; latest owner instruction adds explicit Next for both outcomes, superseding the old automatic advance. This static snapshot does not simulate progression.",
       },
     },
   },
@@ -233,6 +244,8 @@ export const MultipleChoiceCorrect: Story = {
     if (box === null) throw new Error("Expected the Correct box");
     await expect(within(box).getByText("Correct")).toBeVisible();
     await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(canvas.getByRole("button", { name: "Next" })).toBeEnabled();
+    await expect(canvas.queryByRole("button", { name: /Checking/ })).toBeNull();
   },
 };
 
@@ -252,7 +265,7 @@ export const MultipleChoiceWrong: Story = {
     docs: {
       description: {
         story:
-          "Paper: the missed selection and the right option are marked, the Incorrect box sits under the options, and the card waits for Continue.",
+          "Paper wrong feedback: the missed selection and a server-disclosed correct option are marked. The latest owner instruction requires Next; the route either presents the server's retry or its next card.",
       },
     },
   },
@@ -264,7 +277,7 @@ export const MultipleChoiceWrong: Story = {
     if (box === null) throw new Error("Expected the Incorrect box");
     await expect(within(box).getByText("Incorrect")).toBeVisible();
     await expect(
-      canvas.getByRole("button", { name: "Continue" }),
+      canvas.getByRole("button", { name: "Next" }),
     ).toBeVisible();
     await expect(
       canvas.queryByRole("button", { name: "Try again" }),

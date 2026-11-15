@@ -58,6 +58,8 @@ export type DanceRecorderStage =
  * same original in memory or durable storage; recovery never auto-recaptures. */
 export function createDanceRecorder(
   options: DanceSourcePorts & {
+    /** Live presentation eligibility, separate from ongoing account guards. */
+    readonly assertFreshPosting?: () => void;
     readonly storage?: Parameters<
       typeof createDanceRecordingController
     >[0]["storage"];
@@ -265,6 +267,15 @@ export function createDanceRecorder(
             if (!lease) throw new Error("dance_preparation_capture_superseded");
           },
         };
+        // Restore/access/lease awaits may finish after the viewport changes.
+        // No camera request exists yet; release the lease without losing data.
+        try {
+          options.assertFreshPosting?.();
+        } catch (error) {
+          releaseLease();
+          ready = null;
+          throw error;
+        }
         ready = ownedView;
         const opened = await (options.openCamera ?? openCameraPreview)().catch(
           (error) => {
@@ -346,6 +357,9 @@ export function createDanceRecorder(
         try {
           await guide.activate();
           guard();
+          // Activation can be deferred. Eligibility is checked once before
+          // creating capture, never in its ongoing/finalization guards.
+          options.assertFreshPosting?.();
           stage("recording");
           capture = (options.capture ?? startDanceCapture)({
             ready: selected,
