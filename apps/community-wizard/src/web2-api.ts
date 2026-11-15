@@ -60,7 +60,13 @@ export function createWeb2WizardClient(
             }
           : {},
         ...(action ? { body: bytes } : {}),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(
+          action === "installation-prepare" ||
+            action === "install" ||
+            action === "installation-status"
+            ? 180_000
+            : 30_000,
+        ),
       });
     } catch {
       throw Error(
