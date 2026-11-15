@@ -137,3 +137,43 @@ test(
     );
   },
 );
+
+// Recovery failures: request reconstruction must not require a new live window;
+// canonical reads/status and retained pin settlement must keep exact authority,
+// account, input and signature fences. Fresh spending after expiry still fails.
+for (const version of [1,2] as const) test(`V${version} lost paid pin reply recovers its immutable original after expiry without another effect`, {timeout:180000},async(t)=>{
+  const f=await web2FirstSongFixture({http:true,authorizationVersion:version,ownerWindowSeconds:80});t.after(f.close);
+  const owner=await f.login();f.loseNextPinAcknowledgement();
+  const song=await f.publish(owner,{stopAfterLostPin:true});
+  const original=await f.originalPin(song.jobId),effects={...f.effects};
+  assert.equal(original.operation.status,"uncertain");assert.equal(effects.pinAdds,1);
+  if(version===2)await f.managedAdmission.revoke();
+  await f.waitForOwnerExpiry();
+  const recovered=await f.recoverOriginalPin(song.jobId,owner);
+  assert.equal(recovered.operation.status,"confirmed");
+  assert.equal(recovered.operation.operation_id,original.operation.operation_id);
+  assert.equal(recovered.operation.request_json,original.operation.request_json);
+  assert.equal(recovered.operation.prepared_json,original.operation.prepared_json);
+  assert.equal(recovered.authorizationBytes,original.authorizationBytes);
+  assert.deepEqual(f.effects,effects);
+  assert.equal((await f.reserve(owner)).status,403);
+  await f.writeRecoveryArtifact(`v${version}-expired-pin`,{original,recovered,effects});
+});
+
+for(const version of [1,2] as const) test(`V${version} lost broadcast reply recovers the original chain receipt after expiry`,{timeout:180000},async(t)=>{
+  const f=await web2FirstSongFixture({http:true,authorizationVersion:version,ownerWindowSeconds:80});t.after(f.close);
+  const owner=await f.login(),song=await f.publish(owner,{stopAfterLostBroadcast:true});
+  const original=await f.originalPosting(song.jobId),effects={...f.effects};
+  assert.equal(original.operation.status,"uncertain");assert.equal(effects.broadcasts,1);
+  if(version===2)await f.managedAdmission.revoke();
+  await f.waitForOwnerExpiry();
+  const recovered=await f.recoverOriginalPosting(song.jobId,owner);
+  assert.equal(recovered.operation.status,"confirmed");
+  assert.equal(recovered.operation.operation_id,original.operation.operation_id);
+  assert.equal(recovered.operation.request_json,original.operation.request_json);
+  assert.equal(recovered.operation.prepared_json,original.operation.prepared_json);
+  assert.equal(recovered.authorizationBytes,original.authorizationBytes);
+  assert.deepEqual(f.effects,effects);
+  assert.equal((await f.reserve(owner)).status,403);
+  await f.writeRecoveryArtifact(`v${version}-expired-broadcast`,{original,recovered,effects});
+});

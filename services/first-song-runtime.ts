@@ -82,6 +82,7 @@ export async function managedOwnerReleaseConfigured(
 ) {
   try {
     const response = await managedTransport(env)(new Request(deployment.managedOrigin + "/health", {
+        ...(env.WEB2_PUBLISHING_SELECTION_SHA256 ? {headers:{"x-pirate-community":grant.communityId,"x-pirate-owner-grant":grant.sha256}} : {}),
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
       })),
@@ -177,11 +178,12 @@ export function ownerSongRuntime(
       publisher,
       profile: publicPostsProfile(deployment),
       config: configuration,
-      currentConfiguration: catalogOwner(configuration.policies.admission) ? currentConfiguration : async () => {
-        const fresh = await currentConfiguration();
-        await requireAuthorizedOwner(ownerAuthorization,fresh,grant!.ownerWallet,undefined,runtime.ownerVerification);
-        return fresh;
+      currentConfiguration,
+      ownerReservationCondition:async()=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        return {clause:"unixepoch()>=? AND unixepoch()<?",binds:[Math.max(owner.validFrom,grant!.validFrom),Math.min(owner.expiresAt,grant!.expiresAt)],code:"owner_authorization_outside_window"};
       },
+      beforeBroadcast:async()=>{await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);},
       bounds: {
         period: `owner-${grant!.validFrom}-${grant!.expiresAt}`,
         ...postingLimits,
@@ -212,8 +214,17 @@ export function ownerSongRuntime(
     const pin=recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON));
     insist(canonical(pin)===canonical(configuration.policies.recognition) && pin.signer!==grant!.ownerWallet,"recognition_pin_changed",503);
     runtime.catalog={db:env.DB,media:env.MEDIA,currentConfiguration,ownerAuthorization:async()=>ownerAuthorization,ownerVerification:runtime.ownerVerification,
-      posting:runtime.posting,publisher,transport:env.CATALOG_TRANSPORT,currentAccount:env.CATALOG_ACCOUNT_FENCE,
-      authorizeRecognition:async(id,request)=>{requireOwnerGrantScope(grant!,await currentConfiguration());await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);await reserveOwnerBudget(env.DB,grant!,"recognition_requests",id,request,"1");}};
+      posting:runtime.posting,publisher,transport:env.CATALOG_TRANSPORT,
+      beforeCatalogDispatch:async(_operation,finalFence)=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        await finalFence();
+        const now=Math.floor(Date.now()/1000);
+        insist(now>=owner.validFrom&&now<owner.expiresAt,"owner_authorization_outside_window",403);
+      },currentAccount:env.CATALOG_ACCOUNT_FENCE,
+      authorizeRecognition:async(id,request)=>{requireOwnerGrantScope(grant!,await currentConfiguration());await reserveOwnerBudget(env.DB,grant!,"recognition_requests",id,request,"1",undefined,async()=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        return {clause:"unixepoch()>=? AND unixepoch()<?",binds:[Math.max(owner.validFrom,grant!.validFrom),Math.min(owner.expiresAt,grant!.expiresAt)],code:"owner_authorization_outside_window"};
+      });await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);}};
   }
   return runtime;
 }

@@ -10,6 +10,8 @@ import { reservationId, type PostingBinding } from "../recognition/intent.ts";
 export interface CatalogPublicationPorts extends CanonicalIntentPorts {
   publisher:PrivateKeyAccount;
   transport?:(request:Request)=>Promise<Response>;
+  /** Applied at the actual mutating transport boundary; status remains read-only. */
+  beforeCatalogDispatch?(operation:ExternalOperation,finalFence:()=>Promise<void>):Promise<void>;
 }
 export async function catalogPublication(ports:CatalogPublicationPorts,operation:ExternalOperation,lease:string|null|undefined) {
   const {intent:p,config,input}=await readCanonicalIntent(ports,operation.job_id);
@@ -22,7 +24,10 @@ export async function catalogPublication(ports:CatalogPublicationPorts,operation
       .bind(operation.operation_id,p.jobId,operation.step,lease,Date.now()).first<{request_hash:string;prepared_json:string|null}>();
     insist(live?.request_hash===operation.request_hash&&live.prepared_json===operation.prepared_json,"publication_lease_lost",409);
   };
-  const client=reservationClient({profile:config.policies.recognition,publisher:ports.publisher,transport:ports.transport,
+  const client=reservationClient({profile:config.policies.recognition,publisher:ports.publisher,transport:async(request)=>{
+      if(new URL(request.url).pathname!=="/v1/reservations/status") await ports.beforeCatalogDispatch?.(operation,fence);
+      return (ports.transport ?? fetch)(request);
+    },
     current:async()=>{insist(canonical((await readCanonicalIntent(ports,p.jobId)).intent)===canonical(p),"recognition_intent_changed",409);},
     beforeSend:fence});
   const result=(recordingId:string,state:string,publicationSha256:string|null=null):OperationResult=>({kind:'confirmed',providerId:hashJson({intent:hashJson(p),state}),
@@ -67,11 +72,12 @@ export async function catalogPublication(ports:CatalogPublicationPorts,operation
       const proof=()=>canonical({request:r.request,receipt:r.receipt});
       if(r.payload.state!=='committed') return r.payload.state==='committing'&&mode==='reconcile' ? {kind:'absent',proof:proof()} : {kind:'unknown'};
       insist(r.payload.recordingState==='ready'&&r.payload.postingSha256===hashJson(posting)&&r.payload.publicationSha256,"catalog_promotion_pending",503);
-      if(mode==='execute') await ports.db.prepare(`UPDATE publication_catalog_obligations SET state='complete',promotion_receipt_json=?
+      await ports.db.prepare(`UPDATE publication_catalog_obligations SET state='complete',promotion_receipt_json=?
         WHERE job_id=? AND intent_sha256=? AND chain_receipt_json IS NOT NULL AND posting_json=? AND state='receipt' AND promotion_receipt_json IS NULL`)
         .bind(canonical(r.receipt),p.jobId,hashJson(p),canonical(posting)).run();
-      // A lost commit reply is recovered through the same commit operation on execute;
-      // read-only reconciliation cannot manufacture a missing local promotion receipt.
+      // An authenticated committed status proves the same immutable posting.
+      // Retain that actual receipt locally even after the owner's window closes;
+      // never send another commit merely to manufacture a missing local receipt.
       if((await catalogObligation(ports.db,p.jobId)).state!=='complete') return {kind:'absent',proof:proof()};
       return stable(r.payload);
     },

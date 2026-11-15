@@ -68,6 +68,7 @@ export interface Web2WizardView {
   revision: number;
   phase: Phase;
   busy: boolean;
+  signingOrigin:string|null;
   serverPublisher: {
     address: `0x${string}`;
     custodyBindingDigest: `0x${string}`;
@@ -100,6 +101,8 @@ export interface Web2WizardView {
 }
 export interface Web2SetupInputs {
   policy: HostedPolicy;
+  /** Exact public HTTPS helper origin, from authenticated host configuration. */
+  signingOrigin?:string;
   publisherProof?: PublisherProofSigner;
   publishing?: Web2PublishingInputs;
   notice: string;
@@ -162,6 +165,7 @@ export async function createWeb2Setup(
     "policies",
   ]);
   const notice = input.notice;
+  const signingOrigin=input.signingOrigin === undefined ? null : httpsOrigin(input.signingOrigin);
   const { journal, save, checkInstallationPlan, checkObservation } =
     await createWeb2Journal(
       directoryInput,
@@ -190,6 +194,7 @@ export async function createWeb2Setup(
       revision: journal.revision,
       phase: journal.phase,
       busy,
+      signingOrigin,
       serverPublisher,
       publishing: publishing.snapshot(),
       notice,

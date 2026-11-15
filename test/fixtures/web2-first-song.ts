@@ -1,3 +1,4 @@
+import {managedAdmissionFixture} from "./managed-admission-gate.ts";
 import { web2OwnerAuthorizationData } from "./web2-first-song-chain.ts";
 import type { OwnerAuthorization } from "../../packages/community/owner-authorization.ts";
 import { execFileSync } from "node:child_process";
@@ -83,7 +84,7 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean } = {}) {
   const community = await communityRuntime(),
     mf = new Miniflare({
       modules: true,
@@ -205,7 +206,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           publisher: web2Publisher.address.toLowerCase(),
         },
         validFrom: now - 60,
-        expiresAt: now + 3600,
+        expiresAt: now + (options.ownerWindowSeconds ?? 3600),
         limits: {
           songs: 3,
           pinAdds: 15,
@@ -221,7 +222,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         ownerWallet: grant.ownerWallet,
         policy: grant.policy,
         validFrom: now - 60,
-        expiresAt: now + 3600,
+        expiresAt: now + (options.ownerWindowSeconds ?? 3600),
       },
       ownerAuthorization = {
         authorization,
@@ -428,8 +429,11 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         },
       });
     catalog = build();
+    const managedAdmission=await managedAdmissionFixture(managedDb as unknown as D1Database,grant);
+    const healthRequests:Array<{community:string|null;grant:string|null}>=[];
     const managedEnv = {
       DB: managedDb,
+      MANAGED_ADMISSION_GATE: options.managedGate || options.authorizationVersion === 2 ? managedAdmission.gate : undefined,
       MEDIA: managedMedia,
       JOBS: {
         send: async () => {
@@ -522,6 +526,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
     let acceptedPin: SignedServiceRequest | undefined;
     env.MANAGED_RELEASE_SERVICE = {
       async fetch(request: Request) {
+        if(new URL(request.url).pathname === "/health")healthRequests.push({community:request.headers.get("x-pirate-community"),grant:request.headers.get("x-pirate-owner-grant")});
         const wire =
           new URL(request.url).pathname === "/v1/owner-releases/pin"
             ? ((await request.clone().json()) as SignedServiceRequest)
@@ -627,8 +632,8 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           .all<ExternalOperation>()
       ).results;
     }
-    async function publish(account: Account, { restart = false } = {}) {
-      if (restart) c.loseNextBroadcastAcknowledgement();
+    async function publish(account: Account, { restart = false, stopAfterLostPin=false,stopAfterLostBroadcast=false,stopWhenHeld=false } = {}) {
+      if (restart || stopAfterLostBroadcast) c.loseNextBroadcastAcknowledgement(stopAfterLostBroadcast);
       const reserved = await reserve(account);
       assert.equal(reserved.status, 201, await reserved.clone().text());
       const { submissionId } = (await reserved.json()) as {
@@ -703,6 +708,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           env,
         );
         job = await loadJob(community.db, jobId);
+        if((stopAfterLostPin && lostPin) || (stopAfterLostBroadcast && c.broadcastAcknowledgementLost()) || (stopWhenHeld && (job.phase === "held" || managedAdmission.revoked))) return {job,jobId,submissionId,audio};
         if (
           restart &&
           ((lostPin && restarts === 0) ||
@@ -739,9 +745,9 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           } catch (error) {
             diagnostic = error instanceof Error ? error.stack : String(error);
           }
-        await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
+        await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
         await writeFile(
-          `.local/web2-first-song/failed-${submissionId}.json`,
+          `.local/web2-owner-signing-implementation/completion/first-song/failed-${submissionId}.json`,
           JSON.stringify({ job, operations: ops, diagnostic }, null, 2),
         );
         assert.fail(
@@ -787,6 +793,37 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       login,
       publish,
       reserve,
+      managedAdmission,healthRequests,communityId:grant.communityId,ownerGrantDigest:grant.sha256,
+      managedHealth:(changed:{community?:string;grant?:string}={})=>http!.transport(new Request(deployment.managedOrigin+"/health",{headers:{"x-pirate-community":changed.community ?? grant.communityId,"x-pirate-owner-grant":changed.grant ?? grant.sha256}})),
+      managedReservations:async()=>(await managedDb.prepare("SELECT reservation_id,request_hash,asset,amount,status FROM spending_reservations WHERE scope LIKE 'owner:%'").all()).results,
+      async originalPin(jobId:string) {const operation=(await operations(jobId)).find(o=>o.step === "pin_audio")!;assert(operation);return {operation,authorizationBytes:env.OWNER_AUTHORIZATION_JSON};},
+      async recoverOriginalPin(jobId:string,account:Account) {
+        const resume=await http!.transport(new Request(deployment.origin+`/api/jobs/${jobId}/resume`,{method:"POST",headers:{cookie:account.cookie,origin:deployment.origin,"x-csrf-token":account.session.csrf,"content-type":"application/json"},body:"{}"}));
+        assert.equal(resume.status,200,await resume.clone().text());
+        await communityQueue({messages:[{body:{jobId},ack(){},retry(){}} as Message<{jobId:string}>]},env);
+        const operation=(await operations(jobId)).find(o=>o.step === "pin_audio")!;
+        return {operation,authorizationBytes:env.OWNER_AUTHORIZATION_JSON};
+      },
+      async originalPosting(jobId:string) {const operation=(await operations(jobId)).find(o=>o.step === "publication")!;assert(operation);return {operation,authorizationBytes:env.OWNER_AUTHORIZATION_JSON};},
+      async recoverOriginalPosting(jobId:string,account:Account) {
+        c.unavailable(false);
+        const resume=await http!.transport(new Request(deployment.origin+`/api/jobs/${jobId}/resume`,{method:"POST",headers:{cookie:account.cookie,origin:deployment.origin,"x-csrf-token":account.session.csrf,"content-type":"application/json"},body:"{}"}));
+        assert.equal(resume.status,200,await resume.clone().text());
+        await c.rpc("evm_mine");
+        await communityQueue({messages:[{body:{jobId},ack(){},retry(){}} as Message<{jobId:string}>]},env);
+        const operation=(await operations(jobId)).find(o=>o.step === "publication")!;
+        return {operation,authorizationBytes:env.OWNER_AUTHORIZATION_JSON};
+      },
+      async waitForOwnerExpiry(){const delay=grant.expiresAt*1000-Date.now()+30;if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));},
+      async writeRecoveryArtifact(label:string,evidence:unknown){
+        const registrationReceipt=await c.client.getTransactionReceipt({hash:c.original.transactionHash});
+        const artifact={schema:"pirate.web2-owner-signing-recovery-evidence/1",scope:"actual local HTTP/D1/Anvil; explicit provider/issuer fixtures; no real MOSS/public acceptance",
+          checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sourceTreeDirty:true,
+          configurationDigest:hashJson(c.current()),authorizationDigest:hashJson(ownerAuthorization),grantDigest:grant.sha256,
+          registrationTransaction:c.original.transactionHash,registrationReceipt,effects:{...c.effects},evidence};
+        await mkdir(".local/web2-owner-signing-implementation/completion/recovery",{recursive:true});
+        await writeFile(`.local/web2-owner-signing-implementation/completion/recovery/${label}-${Date.now()}.json`,JSON.stringify(artifact,(_key,value)=>typeof value==="bigint"?String(value):value,2));
+      },
       submissionCount:async()=>(await community.db.prepare("SELECT COUNT(*) AS n FROM media_submissions").first<{n:number}>())!.n,
       async changeOwnerProof(mutation:"owner"|"policy"|"domain"|"window"|"text-hex"|"unavailable"|"admission"|"managed-grant"|"authority-during-await"|"expiry-during-await") {
         c.unavailable(false);
@@ -1267,9 +1304,9 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
               }
             : { kind: "actual in-process handler composition" },
         };
-        await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
+        await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
         await writeFile(
-          `.local/web2-owner-signing-implementation/first-song/${label}.json`,
+          `.local/web2-owner-signing-implementation/completion/first-song/${label}-${Date.now()}.json`,
           JSON.stringify(artifact, null, 2),
         );
       },

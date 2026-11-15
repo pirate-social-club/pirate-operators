@@ -62,6 +62,9 @@ export async function hostedWizardFixture(
     sameRecipient?: boolean;
     invalidDeployment?: boolean;
     publishing?: boolean;
+    grantWindowSeconds?:number;
+    signingOrigin?:string;
+    observeInstallationAttempts?:boolean;
     missingCustody?: boolean;
   } = {},
 ) {
@@ -93,7 +96,7 @@ export async function hostedWizardFixture(
   const origins: string[] = [];
   let nextStatusGate: { enter: () => void; wait: Promise<void> } | undefined;
   const statusReleases = new Set<() => void>();
-  const nativeDirectory = resolve(".local/web2-owner-signing-implementation/hosted-wizard/native");
+  const nativeDirectory = resolve(".local/web2-owner-signing-implementation/completion/hosted-wizard/native");
   const nativePath = join(
     nativeDirectory,
     `fixture-${process.pid}-${publicId().slice(2, 18)}.json`,
@@ -280,13 +283,17 @@ export async function hostedWizardFixture(
       directoryProfile: _profile,
       ...hostDeployment
     } = chain.deployment;
-    const signing = await operatorSigningFixture(directory,policy);
+    const signing = await operatorSigningFixture(directory,policy,options);
     const prepareInput = {
       name:"Wizard Garden",origin:"https://wizard-community.example",controller,
       publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
     };
+    let installationAttempts=0;
+    const installationUnavailable=async()=>{installationAttempts++;throw Error("fixture installation must not run after an expired owner window");};
     const inputs = {
       policy,
+      ...(options.observeInstallationAttempts ? {installation:{prepare:installationUnavailable,apply:installationUnavailable,status:installationUnavailable,close:async()=>{}}} : {}),
+      ...(options.signingOrigin ? {signingOrigin:options.signingOrigin} : {}),
       notice,
       hostInstallationId:"wizard-host-fixture",
       ...(!options.missingCustody ? {publisherProof:signing.publisher} : {}),
@@ -453,10 +460,13 @@ export async function hostedWizardFixture(
         return origin;
       },
       directory,
+      installationAttempts:()=>installationAttempts,
       nominatedOwner:web2Other.address.toLowerCase(),
       signingJournal:join(directory,"web2-signing-sidecar.json"),
-      loseAttachmentReply:()=>signing!.loseAttachmentReply(),
+      loseAttachmentReply:(outcome:"before"|"after"="after")=>signing!.loseAttachmentReply(outcome),
+      waitForGrantExpiry:()=>signing.waitForGrantExpiry(),
       attachmentEffects:()=>signing.attachmentEffects(),
+      attachmentUnknown:(value:boolean)=>signing.attachmentUnknown(value),
       custodyUnavailable:()=>signing.custodyUnavailable(),
       changeGrantSelection:(kind:"publisher")=>signing!.changeGrantSelection(kind),
       journal: join(directory, "web2-wizard-original.json"),
@@ -518,8 +528,8 @@ export async function hostedWizardFixture(
         const original = JSON.parse(
           await readFile(join(directory, "web2-wizard-original.json"), "utf8"),
         );
-        await mkdir(".local/web2-owner-signing-implementation/hosted-wizard/evidence", { recursive: true });
-        const artifactPath = `.local/web2-owner-signing-implementation/hosted-wizard/evidence/${label}.json`;
+        await mkdir(".local/web2-owner-signing-implementation/completion/hosted-wizard/evidence", { recursive: true });
+        const artifactPath = `.local/web2-owner-signing-implementation/completion/hosted-wizard/evidence/${label}-${Date.now()}.json`;
         await writeFile(
           artifactPath,
           JSON.stringify(

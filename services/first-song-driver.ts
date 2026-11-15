@@ -1,4 +1,4 @@
-import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { requireAuthorizedOwner, requireOwnerIdentity } from "../packages/community/owner-authorization.ts";
 import type { OwnerVerification } from "../packages/community/owner-authorization-verifier.ts";
 import { catalogOwner } from "../packages/community/owner-policy.ts";
 import { catalogPublication, type CatalogPublicationPorts } from "../packages/community/catalog-publication.ts";
@@ -121,7 +121,7 @@ export function firstSongDriver(
 ): PublicationDriver {
   async function authorizeOwner() {
     if (!ports.release.ownerGrant) return;
-    await requireAuthorizedOwner(ports.ownerAuthorization, ports.managed.configuration,
+    return requireAuthorizedOwner(ports.ownerAuthorization, ports.managed.configuration,
       ports.release.ownerGrant.ownerWallet, undefined, ports.ownerVerification);
   }
   const load = async (operation: ExternalOperation) => {
@@ -188,7 +188,10 @@ export function firstSongDriver(
       requireExecutionProfile(input.authority, ports);
       if (step !== "admission")
         await requireStems(ports.db, ports.media, input.row.submission_id);
-      await authorizeOwner();
+      if(ports.release.ownerGrant) {
+        const original=await requireOwnerIdentity(ports.ownerAuthorization,ports.managed.configuration,ports.release.ownerGrant.ownerWallet,ports.ownerVerification);
+        insist(Math.floor(input.createdAt/1000)>=original.validFrom&&Math.floor(input.createdAt/1000)<original.expiresAt,"publication_original_owner_window_changed",403);
+      }
       return requestValue(
         input,
         step,
@@ -243,12 +246,25 @@ export function firstSongDriver(
         );
       if (operation.step === "publication") {
         await validateMedia(input);
+        const owner=await authorizeOwner();
+        const beforeBroadcast=async()=>{
+          await ports.posting.beforeBroadcast?.(operation);
+          if(!owner)return;
+          insist(job?.lease_token,"publication_lease_lost",409);
+          const held=await ports.db.withSession("first-primary").prepare(`SELECT e.request_hash,e.prepared_json FROM external_operations e
+            JOIN publication_jobs j ON j.job_id=e.job_id WHERE e.operation_id=? AND e.job_id=? AND j.phase='publication'
+            AND j.lease_token=? AND j.lease_until>? AND e.status IN ('running','uncertain')`)
+            .bind(operation.operation_id,operation.job_id,job.lease_token,Date.now()).first<{request_hash:string;prepared_json:string|null}>();
+          insist(held?.request_hash===operation.request_hash&&held.prepared_json===operation.prepared_json,"publication_lease_lost",409);
+          const now=ports.ownerVerification?.now() ?? Math.floor(Date.now()/1000);
+          insist(now>=owner.validFrom&&now<owner.expiresAt,"owner_authorization_outside_window",403);
+        };
         if (catalogOwner(ports.managed.configuration.policies.admission)) {
           insist(ports.catalog,"recognition_runtime_unconfigured",503);
-          return executePosting(operation,{...ports.posting,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}});
+          return executePosting(operation,{...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}});
         }
         await authorizeOwner();
-        return executePosting(operation, {...ports.posting,catalogBeforeBroadcast:authorizeOwner});
+        return executePosting(operation, {...ports.posting,beforeBroadcast,catalogBeforeBroadcast:async()=>{await authorizeOwner();}});
       }
       return confirmed(
         await releasePin(
@@ -346,6 +362,15 @@ export async function resumeFirstSongAdmission(
     "admission_resume_not_idempotent",
     503,
   );
+  // Observe the immutable original before asking for NEW processing authority.
+  // A lost completed reply needs neither a new window nor provider dispatch.
+  const observation=await reconcileAdmission(input,ports.managed,ports.acrEndpoint);
+  if(observation.kind!=="unknown"&&observation.kind!=="absent")return false;
+  if(ports.release.ownerGrant) {
+    const owner=await requireOwnerIdentity(ports.ownerAuthorization,ports.managed.configuration,ports.release.ownerGrant.ownerWallet,ports.ownerVerification);
+    const now=ports.ownerVerification?.now() ?? Math.floor(Date.now()/1000);
+    if(now<owner.validFrom||now>=owner.expiresAt)return false;
+  }
   await ports.checkServices();
   const proof = {
     schema: "pirate.admission-resume-intent/1",
@@ -360,6 +385,7 @@ export async function resumeFirstSongAdmission(
     )
     .bind(operation.operation_id, hashJson(proof), canonical(proof), Date.now())
     .run();
+  if(ports.release.ownerGrant) await requireAuthorizedOwner(ports.ownerAuthorization,ports.managed.configuration,ports.release.ownerGrant.ownerWallet,undefined,ports.ownerVerification);
   return resumeAdmissionProcessing(
     ports.db,
     input,

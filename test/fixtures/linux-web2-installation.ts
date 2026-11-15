@@ -330,6 +330,7 @@ export async function installationAuthorityFixture() {
 export async function operatorSigningFixture(
   directory: string,
   policy: import("../../packages/community/hosted-enrollment.ts").HostedPolicy,
+  options:{grantWindowSeconds?:number}={},
 ) {
   const { createWeb2PublisherProofSigner } = await import("../../deploy/linux/web2-publisher-proof.ts");
   const { hashJson, canonical } = await import("../../packages/community/common.ts");
@@ -353,15 +354,15 @@ export async function operatorSigningFixture(
   });
   type Selection = import("../../deploy/linux/web2-operator-inputs.ts").ConfiguredGrantSelection;
   type Scope = import("../../deploy/linux/web2-operator-inputs.ts").OwnerGrantScope;
-  const from = Math.floor(Date.now()/1000)-60, until = from+3660;
-  let selected: Selection | undefined, loseReply = false, wrongPublisher = false, effects = 0;
+  const from = Math.floor(Date.now()/1000)-60, until = Math.floor(Date.now()/1000)+(options.grantWindowSeconds ?? 3600);
+  let selected: Selection | undefined, loseReply: false | "before" | "after" = false, wrongPublisher = false, unknown = false, effects = 0;
   const admission = join(directory,"fixture-managed-grant-admission.json");
   async function observation(digest:`0x${string}`) {
     assert(selected && selected.selectionDigest === digest,"fixture selection required");
     let exists = false;
     try { assert.equal(await readFile(admission,"utf8"),canonical(selected));exists=true; }
     catch(error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    return {selectionDigest:digest,grantDigest:selected.grant.sha256,admissionReference:selected.admissionReference,state:exists ? "attached" as const : "absent" as const};
+    return {selectionDigest:digest,grantDigest:selected.grant.sha256,admissionReference:selected.admissionReference,state:unknown ? "unknown" as const : exists ? "attached" as const : "absent" as const};
   }
   const grants: import("../../deploy/linux/web2-operator-inputs.ts").ManagedOwnerGrantPort = {
     async prepare(scope: Scope) {
@@ -382,11 +383,12 @@ export async function operatorSigningFixture(
     },
     reconcile:observation,
     async attach(digest) {
+      if(loseReply === "before") {loseReply=false;throw Error("explicit fixture lost before acceptance");}
       if ((await observation(digest)).state === "absent") {await writeFile(admission,canonical(selected),{mode:0o600,flag:"wx"});effects++;}
       if (loseReply) {loseReply=false;throw Error("explicit fixture lost admission reply");}
       return observation(digest);
     },
   };
-  return {publisher,grants,custodyUnavailable:()=>{custodyUnavailable=true;},loseAttachmentReply:()=>{loseReply=true;},attachmentEffects:()=>effects,
+  return {publisher,grants,attachmentUnknown:(value:boolean)=>{unknown=value;},custodyUnavailable:()=>{custodyUnavailable=true;},waitForGrantExpiry:async()=>{const delay=until*1000-Date.now()+30;if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));},loseAttachmentReply:(outcome:"before"|"after"="after")=>{loseReply=outcome;},attachmentEffects:()=>effects,
     changeGrantSelection:(_kind:"publisher")=>{wrongPublisher=true;}};
 }

@@ -95,7 +95,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
     rpcMethods: string[] = [];
   let unavailable = false,
     loseBroadcastAck = false,
-    broadcastAckLost = false;
+    broadcastAckLost = false,
+    holdReadsAfterBroadcast = false;
   let afterVerification: (()=>Promise<void>) | undefined;
   const broadcastTransactions: Hex[] = [];
   const gateway = httpServer(async (req, res) => {
@@ -138,6 +139,7 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         ) {
           loseBroadcastAck = false;
           broadcastAckLost = true;
+          if(holdReadsAfterBroadcast)unavailable=true;
           res.destroy();
           return;
         }
@@ -178,9 +180,9 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         clearTimeout(deadline);
       }
     }
-    await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
+    await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
     await writeFile(
-      `.local/web2-owner-signing-implementation/first-song/anvil-${child.pid}.json`,
+      `.local/web2-owner-signing-implementation/completion/first-song/anvil-${child.pid}-${port}-${startedAt.replace(/[^0-9]/g,"")}.json`,
       JSON.stringify(
         {
           pid: child.pid,
@@ -419,8 +421,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       close,
       rpc,
       broadcastTransactions,
-      loseNextBroadcastAcknowledgement: () => {
-        loseBroadcastAck = true;
+      loseNextBroadcastAcknowledgement: (holdReads=false) => {
+        loseBroadcastAck = true;holdReadsAfterBroadcast=holdReads;
       },
       broadcastAcknowledgementLost: () => broadcastAckLost,
       current: () => config,
