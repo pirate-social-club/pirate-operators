@@ -35,9 +35,8 @@ does not become the community publisher. The runtime gaps below remain open.
 
 This is the required onboarding contract. The application/runtime and standalone
 hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
-The hosted Wizard client/server/UI candidate has type checks, written real
-integration/browser cases and pending runtime qualification. It does not establish
-a supported installed host. Runtime acceptance of the complete fresh-host journey
+The hosted Wizard client/server/UI source has scoped local qualification below.
+It does not establish a supported installed host. Acceptance of the complete fresh-host journey
 is UNRUN; no public DNS/ACME, external provider or real-device readiness is inferred.
 
 Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
@@ -51,6 +50,45 @@ a strict installer requiring that future draft during bootstrap would be circula
 The host installation reference remains distinct from the Directory installation
 ID. Closing this Wizard borrows no right to release the persistent service lease.
 Public status is a view, not chain authority or a fresh native-health proof.
+
+## Scoped consumer qualification, November 15
+
+At `a1c22e7`, root and Wizard types pass. Eleven real HTTP/D1/local-chain
+integration cases pass in 10.66 seconds, the three retained Linux HTTP cases pass,
+the build passes in 998 milliseconds, and the new Web2 plus retained legacy browser
+cases pass in 10.3 seconds. The Web2 browser uses actual hosted handlers, D1 and
+DirectoryV3/Posts on a disposable local 6343 chain. External wallet transport,
+the test pairing issuer and immutable content transport are explicit fixtures.
+The ERC1271 case uses a real deployed test account; its nonpayable account has
+zero top-up allocation rather than a fabricated successful transfer.
+
+The first focused invocation remains failed: ten passed and the Host assertion
+received 200 instead of 403. An independent wire probe confirmed Node fetch
+replaced the supplied Host with the URL host. The fixture now sends actual
+node:http bytes; the production guard and expected 403 remain unchanged, and
+all eleven cases pass. The original log and JUnit remain retained separately.
+
+Repeat with the repository's pinned Node, Foundry and Chromium prerequisites:
+`forge build --offline`, then
+`node --test --test-concurrency=1 test/web2-hosted-wizard.test.ts` from the root.
+Build the Wizard and run its `test:browser` command with the Web2 case selected.
+The cases write `.local/web2-hosted-wizard/evidence/*.json`; the browser also
+attaches its complete execution evidence, request list and screenshot under
+`apps/community-wizard/test-results/`. Evidence includes the exact public plan,
+policy, configuration, consumed disposable-fixture transactions and receipt costs.
+The artifact permits independent CID/configuration SHA-256, registration calldata,
+transaction Keccak/signer and cost-bound checks. Public product status never
+contains invitations, authorization signatures or signed raw transactions.
+Separate fresh chains produce different identities and receipts; repeatability
+means the same verified behavior, not identical bytes across new communities.
+
+The private original and its initialized marker are both durable before effects.
+Losing the original while that marker remains refuses reconstruction. This is
+not backup or recovery from erasing the entire state directory. Installation
+prepare/apply/status, distinct host/Directory identity and persistent-service
+survival after closing setup still require the actual Linux producer join.
+No installed success is simulated in these consumer cases. Exact current-base
+hosted CI and all six suites plus release-ready remain required before merge.
 
 The workspace instructions dated 2026-11-14 select one documented Linux profile,
 fresh installation, browser operator setup, real authentication and eligible

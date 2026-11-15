@@ -2,6 +2,8 @@
 // Only immutable content transport and the external wallet transport are fixtures.
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { request as httpRequest } from "node:http";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -26,6 +28,7 @@ import {
 } from "../../packages/community/hosted-enrollment-store.ts";
 import {
   enrollmentTypedData,
+  policyDocument,
   type HostedPolicy,
 } from "../../packages/community/hosted-enrollment.ts";
 import type { HostedRuntime } from "../../packages/community/hosted-topup-chain.ts";
@@ -77,7 +80,40 @@ export async function hostedWizardFixture(
     dropRedeem = false,
     dropPrepare = false,
     changePrepare = false;
+  const origins: string[] = [];
+  const nativeDirectory = resolve(".local/web2-hosted-wizard/native");
+  const nativePath = join(
+    nativeDirectory,
+    `fixture-${process.pid}-${publicId().slice(2, 18)}.json`,
+  );
+  let nativeFields: string[] = [];
+  async function recordNative(state: string) {
+    await writeFile(
+      nativePath,
+      JSON.stringify(
+        {
+          pid: process.pid,
+          start: nativeFields[19],
+          group: nativeFields[2],
+          session: nativeFields[3],
+          state,
+          at: new Date().toISOString(),
+          ports: [
+            Number(new URL(chain.client.chain.rpcUrls.default.http[0]!).port),
+            Number(new URL(chain.deployment.rpcUrl).port),
+            ...origins.map((o) => Number(new URL(o).port)),
+          ],
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+  }
   try {
+    await mkdir(nativeDirectory, { recursive: true });
+    const nativeStat = await readFile("/proc/self/stat", "utf8");
+    nativeFields = nativeStat.slice(nativeStat.lastIndexOf(")") + 2).split(" ");
     const db = await mf.getD1Database("DB"),
       sql = await readFile(
         "packages/community/schema/hosted-enrollment.sql",
@@ -264,6 +300,8 @@ export async function hostedWizardFixture(
       await once(server, "listening");
       origin =
         "http://127.0.0.1:" + (server.address() as { port: number }).port;
+      origins.push(origin);
+      await recordNative("running");
     };
     await start();
     const raw = async (
@@ -277,28 +315,65 @@ export async function hostedWizardFixture(
         csrf?: string;
       } = {},
     ) => {
-      const response = await fetch(origin + path, {
-        method,
-        redirect: "manual",
-        headers: {
-          "content-type": "application/json",
-          ...(overrides.pair === false
-            ? {}
-            : { cookie: "wizard_fixture=paired" }),
-          ...(method === "POST"
-            ? {
-                origin: overrides.origin ?? origin,
-                "x-wizard-token": overrides.csrf ?? csrf,
-              }
-            : {}),
-          ...(overrides.host ? { host: overrides.host } : {}),
+      // Node fetch rewrites Host to the URL host. node:http sends the requested
+      // wire header, so the negative Host case reaches the actual server guard.
+      return new Promise<{ status: number; body: Record<string, unknown> }>(
+        (resolve, reject) => {
+          const request = httpRequest(
+            origin + path,
+            {
+              method,
+              headers: {
+                "content-type": "application/json",
+                ...(overrides.pair === false
+                  ? {}
+                  : { cookie: "wizard_fixture=paired" }),
+                ...(method === "POST"
+                  ? {
+                      origin: overrides.origin ?? origin,
+                      "x-wizard-token": overrides.csrf ?? csrf,
+                    }
+                  : {}),
+                host: overrides.host ?? new URL(origin).host,
+              },
+            },
+            (response) => {
+              const chunks: Buffer[] = [];
+              let size = 0;
+              response.on("data", (value: Buffer) => {
+                size += value.length;
+                if (size > 262144)
+                  request.destroy(Error("fixture response bound"));
+                else chunks.push(value);
+              });
+              response.on("error", (error) => {
+                clearTimeout(deadline);
+                reject(error);
+              });
+              response.on("end", () => {
+                clearTimeout(deadline);
+                try {
+                  resolve({
+                    status: response.statusCode!,
+                    body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+                  });
+                } catch (error) {
+                  reject(error);
+                }
+              });
+            },
+          );
+          const deadline = setTimeout(
+            () => request.destroy(Error("fixture HTTP deadline")),
+            10000,
+          );
+          request.on("error", (error) => {
+            clearTimeout(deadline);
+            reject(error);
+          });
+          request.end(body === undefined ? undefined : JSON.stringify(body));
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      return {
-        status: response.status,
-        body: (await response.json()) as Record<string, unknown>,
-      };
+      );
     };
     const state = async () => {
       const r = await raw("GET", "/api/web2/state");
@@ -388,19 +463,39 @@ export async function hostedWizardFixture(
         const operations = view.enrollment
           ? await allOperations(db, view.enrollment.enrollmentId)
           : [];
-        await mkdir(".local/web2-hosted-wizard", { recursive: true });
+        const original = JSON.parse(
+          await readFile(join(directory, "web2-wizard-original.json"), "utf8"),
+        );
+        await mkdir(".local/web2-hosted-wizard/evidence", { recursive: true });
+        const artifactPath = `.local/web2-hosted-wizard/evidence/${label}.json`;
         await writeFile(
-          `.local/web2-hosted-wizard/${label}.json`,
+          artifactPath,
           JSON.stringify(
             {
               schema: "pirate.web2-wizard-evidence/1",
               scope:
                 "Actual Wizard HTTP, hosted handlers, D1 and disposable 6343 RPC; fixture paired/wallet/content transport; no installed Linux claim",
               view,
+              sourceCommit: execFileSync("git", ["rev-parse", "HEAD"], {
+                encoding: "utf8",
+              }).trim(),
+              sourceTreeDirty: Boolean(
+                execFileSync(
+                  "git",
+                  ["status", "--porcelain", "--untracked-files=no"],
+                  { encoding: "utf8" },
+                ).trim(),
+              ),
+              plan: original.plan,
+              policy: policyDocument(policy),
               broadcasts: chain.effects.broadcasts - before,
               operations: operations.map((o) => ({
                 kind: o.kind,
                 transactionHash: o.tx_hash,
+                // Only consumed disposable-fixture originals are exportable.
+                // The product's public status never returns signed raw bytes.
+                consumedFixtureRawTransaction:
+                  o.state === "consumed" ? o.raw : null,
                 receipt: o.receipt ? JSON.parse(o.receipt) : null,
               })),
             },
@@ -408,6 +503,7 @@ export async function hostedWizardFixture(
             2,
           ),
         );
+        return artifactPath;
       },
       async close() {
         const results = await Promise.allSettled([
@@ -416,6 +512,7 @@ export async function hostedWizardFixture(
           chain.close(),
         ]);
         const failures = results.filter((r) => r.status === "rejected");
+        await recordNative(failures.length ? "cleanup-uncertain" : "closed");
         if (!failures.length) await rm(directory, { recursive: true });
         else
           throw new AggregateError(
@@ -430,6 +527,11 @@ export async function hostedWizardFixture(
     const results = await Promise.allSettled([mf.dispose(), chain.close()]);
     if (results.every((r) => r.status === "fulfilled"))
       await rm(directory, { recursive: true });
+    await recordNative(
+      results.every((r) => r.status === "fulfilled")
+        ? "closed"
+        : "cleanup-uncertain",
+    ).catch(() => {});
     throw error;
   }
 }
