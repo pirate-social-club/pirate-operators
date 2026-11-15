@@ -78,6 +78,23 @@ original signed recognition envelopes and public transaction/manifest witnesses,
 with independently checked SHA-256 commitments. The other four first-song cases
 remain required in hosted CI; this focused run is not a full-suite result.
 
+The ordinary revision-validation handoff at 964cada was independently rerun with
+pinned Node 24.18.1, Foundry 1.9.0, a fresh private temporary directory and a
+240-second execution bound. The same three actual HTTP cases pass in 196.275
+seconds with no failure, cancellation or skip. Its complete root type check was
+already recorded at 6.650 seconds. These are direct results for 964cada, not the
+earlier e76b602 evidence above.
+
+Independent patch review found that the authorization method omitted the new
+pre-transport revision guard. Commit 5f5490f8ebe11a27fa2d358b47e859e68a135957
+routes that method through the same guard and extends the retained HTTP boundary
+case. Source, posting, publication, lookup, audio, authorization and readiness
+now each reject revision 2 without a transport request. The complete root type
+check and the same three integration cases pass on this commit, the latter in
+191.782 seconds with no failure, cancellation or skip. Both bounded runs left no
+test-owned process or listener; unrelated retained Storybook and separate Linux
+fixture processes were not touched.
+
 All eleven real Wizard integration cases also pass in 12.2 seconds. The existing
 first case now verifies valid checksummed input becomes canonical lowercase,
 while malformed input produces a field-specific correction before preparation
