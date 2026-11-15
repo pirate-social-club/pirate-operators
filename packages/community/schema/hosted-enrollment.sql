@@ -1,0 +1,11 @@
+-- Separate Pirate-hosted service database. Unapplied outside disposable tests.
+-- No migration ordinal, existing community database or restore semantics implied.
+CREATE TABLE hosted_schema(version INTEGER PRIMARY KEY CHECK(version=1),budget_namespace TEXT);
+INSERT INTO hosted_schema(version) VALUES(1);
+CREATE TABLE hosted_invites(id TEXT PRIMARY KEY,token_hash TEXT NOT NULL UNIQUE,allowance_id TEXT NOT NULL,policy_hash TEXT NOT NULL,expires_at INTEGER NOT NULL,revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN(0,1)));
+CREATE TABLE hosted_preparations(id TEXT PRIMARY KEY,invite_id TEXT NOT NULL UNIQUE REFERENCES hosted_invites(id),request_hash TEXT NOT NULL,body TEXT NOT NULL,policy TEXT NOT NULL);
+CREATE TABLE hosted_enrollments(id TEXT PRIMARY KEY REFERENCES hosted_preparations(id),invite_id TEXT NOT NULL UNIQUE REFERENCES hosted_invites(id),allowance_id TEXT NOT NULL UNIQUE,community_id TEXT NOT NULL UNIQUE,installation_id TEXT NOT NULL UNIQUE);
+CREATE TABLE hosted_operations(id TEXT PRIMARY KEY,enrollment_id TEXT NOT NULL REFERENCES hosted_enrollments(id),kind TEXT NOT NULL CHECK(kind IN('registration','topup')),sender TEXT NOT NULL,chain_id INTEGER NOT NULL,nonce INTEGER NOT NULL,payload TEXT NOT NULL,request_hash TEXT NOT NULL,reservation TEXT NOT NULL,raw TEXT,tx_hash TEXT,state TEXT NOT NULL DEFAULT 'planned' CHECK(state IN('planned','signed','dispatched','consumed','reverted')),receipt TEXT,attempts INTEGER NOT NULL DEFAULT 0,last_dispatch INTEGER,UNIQUE(sender,chain_id,nonce));
+CREATE TABLE spending_budgets(scope TEXT NOT NULL,period TEXT NOT NULL,asset TEXT NOT NULL,ceiling TEXT NOT NULL,reserved TEXT NOT NULL DEFAULT '0',spent TEXT NOT NULL DEFAULT '0',version INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(scope,period,asset));
+CREATE TABLE spending_reservations(reservation_id TEXT NOT NULL,scope TEXT NOT NULL,period TEXT NOT NULL,asset TEXT NOT NULL,request_hash TEXT NOT NULL,amount TEXT NOT NULL,actual TEXT,status TEXT NOT NULL CHECK(status IN('reserved','settled')),PRIMARY KEY(reservation_id,scope,period,asset),FOREIGN KEY(scope,period,asset) REFERENCES spending_budgets(scope,period,asset));
+CREATE TABLE transaction_guards(guard_id TEXT PRIMARY KEY,valid INTEGER NOT NULL CHECK(valid=1));
