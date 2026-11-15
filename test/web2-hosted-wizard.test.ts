@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { getAddress } from "viem";
 import {
   readFile,
   lstat,
@@ -17,7 +18,29 @@ import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
 test("paired Web2 Wizard retains one original across lost redeem reply and restart, then funds distinct signers", async () => {
   const f = await hostedWizardFixture();
   try {
-    let view = await f.prepare();
+    const bad = await f.post("prepare", {
+      ...f.prepareInput,
+      controller: "0x1234",
+    });
+    assert.equal(bad.status, 400);
+    assert.equal(bad.body.code, "web2_controller_address_invalid");
+    assert.match(String(bad.body.error), /controller address/);
+    assert.equal((await f.state()).selection, null);
+    assert.equal(await f.preparationCount(), 0);
+    assert.equal(f.broadcasts(), 0);
+    let view = await f.send("prepare", {
+      ...f.prepareInput,
+      controller: getAddress(f.prepareInput.controller),
+      publisher: getAddress(f.prepareInput.publisher),
+    });
+    assert.equal(
+      view.selection?.controller,
+      f.prepareInput.controller.toLowerCase(),
+    );
+    assert.equal(
+      view.selection?.publisher,
+      f.prepareInput.publisher.toLowerCase(),
+    );
     assert(view.challenge);
     f.dropRedeemReply();
     view = await f.send("redeem", { signature: await f.sign(view.challenge) });

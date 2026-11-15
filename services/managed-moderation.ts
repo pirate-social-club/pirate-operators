@@ -35,10 +35,14 @@ import { acrEndpoint } from "../packages/moderation/acrcloud.ts";
 import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
 
 import type { CatalogOwnerReleaseInputs } from "../packages/release/catalog-owner-release.ts";
+import { canonicalCommunityClient } from "../packages/recognition/canonical-transport.ts";
+import { megaethReadClient } from "../packages/community/chain.ts";
 export interface ManagedEnv {
   /** Trusted service composition for the external pinning provider. */
   PIN_TRANSPORT?: IpfsTransport;
   CATALOG_RELEASE_INPUTS?: CatalogOwnerReleaseInputs;
+  /** Explicit managed-side qualification transport; never a community credential. */
+  CATALOG_CANONICAL_TRANSPORT?: (request:Request)=>Promise<Response>;
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<{ admissionId: string }>;
@@ -241,7 +245,21 @@ export default {
           filebaseCredential: env.FILEBASE_IPFS_TOKEN,
           pinTransport: env.PIN_TRANSPORT,
           acrEndpoint: acrEndpoint(config.acr.host),
-          catalog: env.CATALOG_RELEASE_INPUTS,
+          catalog: env.CATALOG_RELEASE_INPUTS ?? (()=>{
+            const client=(id:string)=>{
+              const pairing=config.pairings.find(p=>p.communityId===id&&p.enabled);
+              insist(pairing,"canonical_community_unconfigured",503);
+              const selected=(JSON.parse(env.DIRECTORY_PROFILES_JSON) as unknown[]).map(v=>object(v)).find(v=>
+                v.schema==="pirate.community-deployment/2"&&object(v.directoryProfile).communityId===id);
+              insist(selected,"canonical_deployment_unconfigured",503);
+              const deployment=validateCommunityDeploymentProfile(selected);
+              return canonicalCommunityClient({signer:config.signer,
+                chain:{client:megaethReadClient(undefined,deployment.rpcUrl),
+                  posts:{...deployment.posts,deploymentBlock:BigInt(deployment.posts.deploymentBlock)},ipfs:communityIpfsTransport(deployment)},
+                currentConfiguration:()=>config.currentConfiguration(pairing),transport:env.CATALOG_CANONICAL_TRANSPORT});
+            };
+            return {canonical:async(id:string)=>client(id),recognition:async(id:string)=>({ready:client(id).ready})};
+          })(),
         });
       }
       if (url.pathname.startsWith("/v1/releases/")) {

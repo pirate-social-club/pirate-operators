@@ -10,7 +10,7 @@ import type { D1Database as HostedD1Database } from "@cloudflare/workers-types";
 declare global {
   interface D1Database extends HostedD1Database {}
 }
-import type { Hex } from "viem";
+import { isAddress, type Hex } from "viem";
 import {
   canonical,
   CommunityError,
@@ -62,6 +62,15 @@ import {
   type Web2CommunityDeploymentProfile,
 } from "../../../services/community-deployment-profile.ts";
 
+function inputAddress(value: unknown, role: "controller" | "publisher") {
+  insist(
+    typeof value === "string" &&
+      isAddress(value.trim(), { strict: true }) &&
+      value.trim().toLowerCase() !== `0x${"0".repeat(40)}`,
+    `web2_${role}_address_invalid`,
+  );
+  return address(value.trim().toLowerCase());
+}
 export interface Web2WizardView {
   schema: "pirate.web2-wizard-view/1";
   revision: number;
@@ -256,8 +265,8 @@ export async function createWeb2Setup(
         const selected: SelectionInput = {
           name,
           origin: httpsOrigin(body.origin),
-          controller: address(body.controller),
-          publisher: address(body.publisher),
+          controller: inputAddress(body.controller, "controller"),
+          publisher: inputAddress(body.publisher, "publisher"),
         };
         const inviteToken = text(body.inviteToken, 1024);
         insist(/^[a-f0-9]{64}$/.test(inviteToken), "invalid_invite");
