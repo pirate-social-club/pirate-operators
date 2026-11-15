@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { web2FirstSongFixture } from "./fixtures/web2-first-song.ts";
 
 test("V2 ERC1271 controller authorization passes actual first-song HTTP, D1, canonical witnesses and publication", { timeout: 120000 }, async (t) => {
-  const f = await web2FirstSongFixture({ http: true, authorizationVersion: 2, contractController:true });
+  const f = await web2FirstSongFixture({ http: true, authorizationVersion: 2, contractController:true, evidenceDirectory:".local/web2-owner-signing-implementation/recognition-expiry" });
   t.after(f.close);
   const owner=await f.login();
   assert.equal(owner.session.publisher,true);
@@ -176,4 +176,34 @@ for(const version of [1,2] as const) test(`V${version} lost broadcast reply reco
   assert.deepEqual(f.effects,effects);
   assert.equal((await f.reserve(owner)).status,403);
   await f.writeRecoveryArtifact(`v${version}-expired-broadcast`,{original,recovered,effects});
+});
+
+// P1 regression authored before the final-upload correction: queue delay must
+// not turn an authenticated original into NEW upload permission after expiry.
+test("pending recognition recording refuses a new catalog upload after real owner expiry while original status recovers",{timeout:120000},async(t)=>{
+  const f=await web2FirstSongFixture({http:true,authorizationVersion:2,ownerWindowSeconds:45,
+    evidenceDirectory:".local/web2-owner-signing-implementation/recognition-expiry"});t.after(f.close);
+  const song=await f.publish(await f.login(),{stopAtPendingRecording:true});
+  const original=await f.recognitionSnapshot(song.jobId);
+  assert.equal(original.recording.state,"pending");
+  assert.equal(original.originalCall.state,"received");
+  assert(original.originalCall.receipt_json);
+  assert.equal(f.effects.catalogUploads,0);
+  assert(Math.floor(Date.now()/1000)<JSON.parse(original.authorizationBytes!).authorization.expiresAt);
+  await f.waitForOwnerExpiry();
+  const statusBefore=await f.recognitionStatus(song.jobId);
+  assert.equal(statusBefore.payload.recordingState,"pending");
+  const outcome=await f.deliverPendingRecording(original.recording.recording_id);
+  const recovered=await f.recognitionSnapshot(song.jobId),statusAfter=await f.recognitionStatus(song.jobId);
+  await f.writeRecoveryArtifact("pending-upload-expiry",{original,recovered,statusBefore,statusAfter,outcome,effects:f.effects});
+  assert.equal(f.effects.catalogUploads,0,"expired owner permission cannot authorize a NEW catalog POST");
+  assert.equal(f.effects.pinAdds,0);assert.equal(f.effects.broadcasts,0);
+  assert.equal(outcome,"retry");
+  assert.equal(statusAfter.payload.recordingId,original.recording.recording_id);
+  assert.equal(recovered.authorizationBytes,original.authorizationBytes);
+  assert.equal(recovered.attachmentBytes,original.attachmentBytes);
+  assert.equal(recovered.reservation.intent_json,original.reservation.intent_json);
+  assert.equal(recovered.reservation.intent_sha256,original.reservation.intent_sha256);
+  assert.deepEqual(recovered.originalCall,original.originalCall);
+  assert.deepEqual(recovered.operations,original.operations);
 });
