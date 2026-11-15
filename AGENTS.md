@@ -61,8 +61,16 @@ WebSockets, storage and pool locally. The local protocol subset must be named;
 do not claim full revision 5 or M1 conformance from the skeleton.
 
 Never write personal names. Preserve copied source provenance. Keep each
-operational script under 400 lines where practical. Run npm run check before
-publication; record any incomplete checks and remaining acceptance work.
+operational script under 400 lines where practical.
+
+Before publishing code changes, run type checks for affected packages and
+meaningful behavioral or artifact checks appropriate to the change. Record the
+checked revision, commands and outcomes, including failed, unrun or incomplete
+checks and remaining acceptance work. Run npm run check locally when broader
+evidence is needed; do not queue a duplicate full local suite by default. Before
+merging, require the complete current-base CI caller, all six suites and
+release-ready on the exact candidate. Green hosted CI does not resolve a known
+local failure or qualify an unrun deployment path.
 
 ## Testing behavior
 

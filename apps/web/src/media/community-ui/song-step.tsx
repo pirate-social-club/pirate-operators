@@ -208,7 +208,7 @@ export function SongStep(props: {
           variant="caption"
           class="-mt-1 text-muted-foreground"
         >
-          Both are required to continue and unlock Karaoke and Study.
+          Both are required to publish this song.
         </Type>
         <div class="divide-y divide-border-soft overflow-hidden rounded-[var(--radius-lg)] border border-border-soft">
           <StemRow
