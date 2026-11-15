@@ -50,7 +50,7 @@ const comparable = (log: ConfigurationLog) => canonical({
   logIndex: log.logIndex,
 });
 
-export async function authenticateConfigurationLog(client: PublicClient, profile: AnyDirectoryProfile, log: ConfigurationLog) {
+export async function authenticateConfigurationLog(client: PublicClient, profile: Pick<AnyDirectoryProfile, "directory">, log: ConfigurationLog) {
   const [receipt, block] = await Promise.all([
     client.getTransactionReceipt({ hash: log.transactionHash }), client.getBlock({ blockNumber: log.blockNumber }),
   ]);
@@ -70,6 +70,7 @@ export async function authenticateConfigurationLog(client: PublicClient, profile
       transactionHash: event.transactionHash, logIndex: event.logIndex });
   }
   insist(matching.length === 1 && comparable(matching[0]!) === comparable(log), "directory_cache_event_changed", 503);
+  return receipt;
 }
 
 // Returns a current configuration without materializing lifetime history. A caller
