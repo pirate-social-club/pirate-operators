@@ -21,7 +21,7 @@ import {
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import { address } from "../community/manifest-core.ts";
 import { validateLyrics } from "../community/lyric-manifest.ts";
-import { requireAuthorizedOwner } from "../community/owner-authorization.ts";
+import { requireOwnerIdentity } from "../community/owner-authorization.ts";
 import { recognitionRequestTypes } from "./authorization.ts";
 import type { ReleaseContext } from "../release/authority.ts";
 import { acceptedIntent, reservationId } from "./intent.ts";
@@ -60,12 +60,13 @@ async function snapshot(
   const intent = acceptedIntent(v.intent),
     c = object(v.context);
   requireFirstSongRevision(intent.publicationRevision);
-  const owner = await requireAuthorizedOwner(
+  const owner = await requireOwnerIdentity(
     v.ownerAuthorization,
     config,
     intent.creatorKey.slice("eip155:6343:".length),
-    undefined, verification,
+    verification,
   );
+  insist(Math.floor(intent.acceptedAt/1000)>=owner.validFrom&&Math.floor(intent.acceptedAt/1000)<owner.expiresAt,"recognition_original_owner_window_changed",403);
   insist(
     hashJson(owner) === intent.ownerAuthorizationSha256,
     "recognition_owner_authority_changed",

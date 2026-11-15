@@ -28,8 +28,8 @@ import {
 } from "../../../packages/community/common.ts";
 import { address } from "../../../packages/community/manifest-core.ts";
 import { ownerOnly } from "../../../packages/community/owner-policy.ts";
-import { ownerAuthorizationTypedData } from "../../../packages/community/owner-authorization-typed-data.ts";
-import { validateOwnerAuthorization } from "../../../packages/community/owner-authorization.ts";
+import { ownerAuthorizationTypedData, ownerAuthorizationRecord } from "../../../packages/community/owner-authorization-typed-data.ts";
+import { validateOwnerAuthorization, requireAuthorizedOwner } from "../../../packages/community/owner-authorization.ts";
 import { readWeb2Community } from "../../../packages/community/web2-directory-reader.ts";
 import { parseWeb2ProfileDocument } from "../../../packages/community/web2-directory.ts";
 import type { LinuxWeb2Draft } from "../../../packages/community-setup/linux-web2-profile.ts";
@@ -94,6 +94,7 @@ export async function createWeb2PublishingSetup(
       authorization: j.authorization,
       typedData,
       requestDigest: hashJson(typedData),
+      live:input.now()>=j.authorization.validFrom&&input.now()<j.authorization.expiresAt,
       authorized: Boolean(j.accepted),
       attached: Boolean(j.attachment),
       pending: j.attachmentPending,
@@ -272,11 +273,8 @@ export async function createWeb2PublishingSetup(
     const { j, c } = await reselect(draft);
     if (action === "publishing-authorize") {
       if (j.accepted) return;
-      const accepted = await validateOwnerAuthorization(
-        { authorization: j.authorization, signature: body.signature },
-        c.config,
-        c.verification,
-      );
+      const accepted=ownerAuthorizationRecord({authorization:j.authorization,signature:body.signature});
+      await requireAuthorizedOwner(accepted,c.config,j.authorization.ownerWallet,undefined,c.verification);
       await journal.save({ ...j, accepted });
       return;
     }
@@ -298,6 +296,7 @@ export async function createWeb2PublishingSetup(
       j.selection,
     );
     if (action === "publishing-attach" && observation.state === "absent") {
+      await requireAuthorizedOwner(j.accepted,c.config,j.authorization.ownerWallet,undefined,c.verification);
       await journal.save({ ...j, attachmentPending: true });
       insist(
         input.now() >= j.authorization.validFrom &&
@@ -317,6 +316,12 @@ export async function createWeb2PublishingSetup(
           503,
         );
       }
+    }
+    if(observation.state === "absent") {
+      // Authenticated absence releases only the pending-attempt hold. It never
+      // replaces the selected grant, accepted bytes or signed window.
+      await journal.save({...j,attachmentPending:false});
+      return;
     }
     insist(
       observation.state === "attached",
@@ -355,7 +360,7 @@ export async function createWeb2PublishingSetup(
         "web2_managed_grant_admission_unavailable",
         503,
       );
-      await validateOwnerAuthorization(j.accepted, c.config, c.verification);
+      await requireAuthorizedOwner(j.accepted,c.config,j.authorization.ownerWallet,undefined,c.verification);
       return publishingAttachment(j.attachment);
     },
   };

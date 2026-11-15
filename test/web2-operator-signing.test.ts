@@ -237,3 +237,52 @@ test("missing signing originals refuse reconstruction after restart", async () =
     await f.close();
   }
 });
+
+// Failure plan: a lost completed attachment must remain recordable after its
+// window closes; authenticated absence must allow an explicit same-byte retry;
+// unknown must remain held, and absent-after-expiry must never permit an attach.
+for (const outcome of ["before","after"] as const) test(`lost ${outcome}-acceptance grant reply reconciles the same authorization after restart`,async()=>{
+  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,observeInstallationAttempts:true});
+  try {
+    let v=await f.prepare();await f.send("redeem",{signature:await f.sign(v.challenge)});await f.mine();await f.send("reconcile",{});
+    v=await f.send("publishing-prepare",{ownerWallet:f.prepareInput.controller,rolesReviewed:true});
+    v=await f.send("publishing-authorize",{signature:await f.sign(v.publishing!.typedData),requestDigest:v.publishing!.requestDigest,reviewed:true});
+    const original=await readFile(f.signingJournal,"utf8");f.loseAttachmentReply(outcome);
+    assert.equal((await f.post("publishing-attach",{})).status,503);await f.restart();
+    if(outcome === "before") {
+      v=await f.send("publishing-reconcile",{});assert.equal(v.publishing!.pending,false);assert.equal(v.publishing!.attached,false);
+      v=await f.send("publishing-attach",{});assert.equal(v.publishing!.attached,true);
+    } else {
+      await f.waitForGrantExpiry();v=await f.send("publishing-reconcile",{});
+      assert.equal(v.publishing!.attached,true);assert.equal(v.publishing!.live,false);
+      assert.equal((await f.post("installation-prepare",{})).status,403);
+      assert.equal(f.installationAttempts(),0);
+    }
+    assert.equal(f.attachmentEffects(),1);
+    assert.deepEqual(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted,JSON.parse(original).accepted);
+    await f.artifact(`completion-attachment-${outcome}`,v);
+  } finally {await f.close();}
+});
+
+test("unknown attachment holds, and authoritative absence after expiry cannot authorize a retry",async()=>{
+  const f=await hostedWizardFixture({publishing:true,grantWindowSeconds:12,observeInstallationAttempts:true});
+  try {
+    let v=await f.prepare();await f.send("redeem",{signature:await f.sign(v.challenge)});await f.mine();await f.send("reconcile",{});
+    v=await f.send("publishing-prepare",{ownerWallet:f.prepareInput.controller,rolesReviewed:true});
+    v=await f.send("publishing-authorize",{signature:await f.sign(v.publishing!.typedData),requestDigest:v.publishing!.requestDigest,reviewed:true});
+    const original=JSON.parse(await readFile(f.signingJournal,"utf8")).accepted;
+    f.loseAttachmentReply("before");assert.equal((await f.post("publishing-attach",{})).status,503);
+    f.attachmentUnknown(true);
+    assert.equal((await f.post("publishing-reconcile",{})).status,503);
+    assert.equal((await f.state()).publishing!.pending,true);
+    assert.equal((await f.post("publishing-attach",{})).status,503);
+    assert.equal(f.attachmentEffects(),0);
+    f.attachmentUnknown(false);await f.waitForGrantExpiry();
+    v=await f.send("publishing-reconcile",{});
+    assert.equal(v.publishing!.pending,false);assert.equal(v.publishing!.attached,false);assert.equal(v.publishing!.live,false);
+    assert.equal((await f.post("publishing-attach",{})).status,403);
+    assert.equal(f.attachmentEffects(),0);
+    assert.deepEqual(JSON.parse(await readFile(f.signingJournal,"utf8")).accepted,original);
+    await f.artifact("completion-absent-expired",v);
+  } finally {await f.close();}
+});

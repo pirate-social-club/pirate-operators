@@ -418,6 +418,10 @@ async function communityFetchBusiness(
       const runtime =
         ports.releaseRuntime?.(config) ??
         firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
+      if(ownerOnly(config.policies.admission)) {
+        insist(runtime.release.ownerGrant,"owner_grant_unavailable",503);
+        await requireAuthorizedOwner(runtime.ownerAuthorization,config,runtime.release.ownerGrant.ownerWallet,undefined,runtime.ownerVerification);
+      }
       await runtime.checkServices();
       if (web2) insist(canonical(await configuration(true)) === canonical(config), "community_authority_changed", 409);
       return { config, ports: runtime };
@@ -736,6 +740,13 @@ async function communityFetchBusiness(
       context,
       ready,
       reply,
+      async()=>{
+        // Authenticated owned uncertain jobs may wake original reconciliation.
+        // Their driver enforces live eligibility only at NEW-effect boundaries.
+        const config=await configuration(true),runtime=ports.releaseRuntime?.(config) ?? firstSongRuntime(env,config,freshAuthority(ports,deployment),deployment);
+        if(web2) insist(canonical(await configuration(true))===canonical(config),"community_authority_changed",409);
+        return {config,ports:runtime};
+      },
     );
     if (release) return release;
     const config = await configuration();

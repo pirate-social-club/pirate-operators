@@ -1,7 +1,7 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
 import { formatEther, type TypedDataDefinition } from "viem";
 import { hashJson } from "../../../packages/community/common.ts";
-import { createWeb2Wallet } from "./web2-wallet.ts";
+import {createWeb2MossWindow} from "./web2-moss-window.ts";
 import {
   createWeb2WizardClient,
   type Web2Action,
@@ -9,8 +9,12 @@ import {
 } from "./web2-api.ts";
 
 export function Web2Wizard() {
-  const api = createWeb2WizardClient(),
-    wallet = createWeb2Wallet();
+  const api = createWeb2WizardClient();
+  const wallet=()=>{
+    const signingOrigin=snapshot()?.view.signingOrigin;
+    if(!signingOrigin)throw Error("A trusted HTTPS MOSS signing window is unavailable. Keep the paired Wizard on loopback.");
+    return createWeb2MossWindow({signingOrigin});
+  };
   const [snapshot, setSnapshot] = createSignal<Web2Snapshot>(),
     [error, setError] = createSignal(""),
     [busy, setBusy] = createSignal(false);
@@ -69,7 +73,7 @@ export function Web2Wizard() {
     data: unknown,
     requestDigest = hashJson(data),
   ): Promise<string> {
-    const result = await wallet.signTypedData({
+    const result = await wallet().signTypedData({
       expectedController: view()!.selection!.controller,
       requestDigest: requestDigest as `0x${string}`,
       data: data as TypedDataDefinition,
@@ -79,7 +83,7 @@ export function Web2Wizard() {
     if (result.status === "error")
       throw Error(
         result.code === "web2_wallet_unavailable"
-          ? "MOSS is unavailable at this paired URL. Use a URL permitted to embed MOSS and reconcile the retained request."
+          ? "MOSS is unavailable in the configured HTTPS signing window. Reopen it and retry the retained request."
           : result.code,
       );
     return result.signature;
@@ -163,7 +167,7 @@ export function Web2Wizard() {
               disabled={locked()}
               onClick={() =>
                 void perform(async () => {
-                  const account = await wallet.connect();
+                  const account = await wallet().connect();
                   setController(account.address);
                   if (!owner()) setOwner(account.address);
                   setRolesReviewed(false);
@@ -445,7 +449,7 @@ export function Web2Wizard() {
               }
             >
               <button
-                disabled={locked()}
+                disabled={locked() || (!view()!.publishing!.pending && !view()!.publishing!.live)}
                 onClick={() =>
                   void perform(() =>
                     send(
@@ -462,7 +466,7 @@ export function Web2Wizard() {
               </button>
             </Show>
             <Show when={view()!.publishing!.attached}>
-              <p>Publishing grant attached</p>
+              <p>{view()!.publishing!.live ? "Publishing grant attached" : "Original grant attachment recorded; window expired"}</p>
             </Show>
           </Show>
           <h2>Install on this Linux host</h2>

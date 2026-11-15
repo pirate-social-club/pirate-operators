@@ -69,12 +69,80 @@ the optional digest retain their existing interpretation and are never rewritten
 Readiness checks require the matching managed grant, selection and admission
 reference. Publisher material remains in existing secret bindings.
 
-Three deployment inputs remain external: authenticated Pirate grant selection
-and admission with configured limits/window; the preprovisioned publisher's
-managed custody binding; and a useful paired URL permitted to embed MOSS.
-Absent inputs are unavailable states. Existing Alchemy-owned provisioning is
-unchanged. Storage/disposal limits stay explicit; backup, restore, upgrades,
-learning, Dance and naming are outside this slice.
+The operator Wizard stays on its paired loopback HTTP listener. Direct MOSS
+embedding below that HTTP ancestor is unavailable for real WebAuthn; headers
+alone do not repair it. Authenticated host/setup input `signingOrigin` selects
+one exact HTTPS origin. It is public configuration, never a form-selected URL.
+Each actual Connect or signing gesture synchronously opens an owned top-level
+`/operator-signing?openerOrigin=<loopback-origin>` window before awaiting work.
+Only public opener metadata enters that URL. The exact request, fresh 32-byte
+channel nonce, digest, expected controller and testnet selection cross a bound
+postMessage channel with explicit target origins. Both sides check the exact
+window source and origin. Connection and signature responses are distinct;
+wrong digest/account/network, replay, late callbacks, cancellation, close,
+blocked popup and timeout cannot submit proof. Retry requires an explicit new
+gesture. No operator/pairing token, key, login or service authority enters the
+helper. Normal SDK initialization/connect/signData runs only after review in
+that HTTPS window. Enrollment and owner publishing remain separate prompts.
+
+The Wizard Vite build emits `moss-signing.html` and `.vite/manifest.json`.
+Native's managed publishing Worker must map the fixed public GET route
+`/operator-signing` to that HTML and serve its manifest entry's complete recursive
+`imports`, `dynamicImports`, `css` and `assets` closure at the emitted paths.
+The HTML's emitted module path is part of that closure. It must never serve the
+Wizard `index.html`, operator API or private setup state. No runtime dependency
+on historical probes is present. W1 supplies these artifacts; Native owns the
+Worker/Alchemy packaging and its qualification separately.
+
+Required helper responses: `Referrer-Policy: strict-origin`,
+`X-Content-Type-Options: nosniff`, `Cache-Control: no-store`,
+`X-Frame-Options: DENY` and CSP `default-src 'none'; script-src 'self';
+style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com;
+frame-src https://*.megaeth.com; base-uri 'none'; form-action 'none';
+frame-ancestors 'none'`. Use Permissions Policy
+`publickey-credentials-get=(self "https://account.megaeth.com"),
+publickey-credentials-create=(self "https://account.megaeth.com")`.
+Keep the exact HTTPS opener relationship intact: do not set COOP `same-origin`
+or `noopener` on this route; use `Cross-Origin-Opener-Policy: unsafe-none`.
+These are source packaging requirements, not evidence of a deployed helper or
+real MOSS acceptance. The loopback Wizard retains self-only scripts, exact
+Host/Origin, CSRF, pairing and frame-ancestors protections.
+
+`ManagedAdmissionGate` is trusted private composition, never a grant or wire
+schema field. The new managed wrapper must capture its authenticated admission
+reference, selection digest, original registration revision, community and
+publisher and validate the exact parsed grant in both methods. Its
+`reservationCondition(grant, {operationId, requestHash, asset, requested})`
+returns an actual D1 condition on that active original admission/revision and
+current database time. `reserveOwnerBudget` invokes the supplier lazily after
+identical-existing-reservation comparison and ANDs it with the retained owner
+window condition in the SAME reservation transaction. This is required for
+songs, pin additions and pin bytes. `beforeDispatch(grant, {operationId,
+requestHash})` rechecks admission after final canonical/provider preparation,
+immediately before a paid pin add. Missing fresh-wrapper gate is unavailable;
+historical profiles retain their original behavior. Scoped fresh health uses
+`x-pirate-community` and `x-pirate-owner-grant` and checks the selection/reference;
+a health response is never managed admission. No deferred moderation is enabled.
+
+Cryptographic identity validation, canonical reads, original status/receipt
+reconciliation and settlement retain exact signature, scope, current authority,
+account, lease and request fences after expiry/revocation. They do not obtain a
+new window. New reservations, provider sends and broadcasts recheck live
+eligibility after awaits. Authenticated completed attachment observations may
+be recorded after expiry but do not confer installation/start readiness.
+Authoritative absence clears only the pending hold: an explicit retry uses the
+same original bytes and requires a live window. Unknown remains held.
+
+Public deployment still requires real hosted enrollment AND top-up Worker
+composition; real V3 Directory/Posts deployments with source/runtime pins,
+registrar/funder roles and caps; authenticated Pirate grant selection/admission
+and configured limits/window; preprovisioned publisher managed custody; Native
+managed producers and the pinned helper asset/header composition. Real MOSS
+prompts, public-provider wrapped verification and the resulting first-song
+publication/playback remain manual acceptance gates. Missing joins fail
+unavailable. Existing Alchemy-owned provisioning is unchanged. Storage/disposal
+limits stay explicit; backup, restore, upgrades, learning, Dance and naming are
+outside this slice.
 
 The signing mechanism follows [MOSS Sign Data](https://moss.megaeth.com/developers/methods/signing/sign-data)
 and [viem public verifyMessage](https://viem.sh/docs/actions/public/verifyMessage).
@@ -94,4 +162,4 @@ Validation commands, candidate source digests, failures and remaining acceptance
 are recorded privately under `.local/web2-owner-signing-implementation` for the
 coordinator's exact-source review. Real paired MOSS signing, public RPC wrapped
 verification, publisher custody and first-song publication/playback remain
-manual qualification after the three deployment inputs exist.
+manual qualification after the real compositions and deployment inputs exist.

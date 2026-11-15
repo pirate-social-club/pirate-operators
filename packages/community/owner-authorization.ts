@@ -45,29 +45,18 @@ export async function validateOwnerAuthorization(
   return record;
 }
 
-/** Refuses anyone but the authorized owner wallet, inside the signed window. */
-export async function requireAuthorizedOwner(
-  value: unknown,
-  config: CommunityConfig,
-  wallet: string,
-  now?: number,
-  verification?: OwnerVerification,
-) {
-  const { authorization } = await validateOwnerAuthorization(
-    value,
-    config,
-    verification,
-  );
-  now = verification?.now() ?? now ?? Math.floor(Date.now() / 1000);
-  insist(
-    now >= authorization.validFrom && now < authorization.expiresAt,
-    "owner_authorization_outside_window",
-    403,
-  );
-  insist(
-    wallet.toLowerCase() === authorization.ownerWallet,
-    "owner_publication_only",
-    403,
-  );
+/** Current controller signature, scope and owner identity. This grants no new
+ * paid effect and never changes the original signed window. */
+export async function requireOwnerIdentity(value:unknown,config:CommunityConfig,wallet:string,verification?:OwnerVerification) {
+  const {authorization}=await validateOwnerAuthorization(value,config,verification);
+  insist(wallet.toLowerCase()===authorization.ownerWallet,"owner_publication_only",403);
+  return authorization;
+}
+
+/** NEW-effect eligibility, sampled after cryptographic/current-chain awaits. */
+export async function requireAuthorizedOwner(value:unknown,config:CommunityConfig,wallet:string,now?:number,verification?:OwnerVerification) {
+  const authorization=await requireOwnerIdentity(value,config,wallet,verification);
+  now=verification?.now() ?? now ?? Math.floor(Date.now()/1000);
+  insist(now>=authorization.validFrom&&now<authorization.expiresAt,"owner_authorization_outside_window",403);
   return authorization;
 }

@@ -64,14 +64,9 @@ export async function verifyOwnerTypedAuthorization(
     );
     fresh();
     insist(valid, "untrusted_owner_authorization_signer", 403);
-    // Sample after the final await; callers sample again at effect boundaries.
-    const now = v.now(),
-      a = record.authorization;
-    insist(
-      now >= a.validFrom && now < a.expiresAt,
-      "owner_authorization_outside_window",
-      403,
-    );
+    // Cryptographic/current identity verification is also required when
+    // authenticating an immutable original after its paid window has closed.
+    // NEW effects separately call requireAuthorizedOwner after their awaits.
   } catch (error) {
     if (error instanceof CommunityError) throw error;
     throw new CommunityError(

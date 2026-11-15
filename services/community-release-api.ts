@@ -35,7 +35,7 @@ import {
 
 import type { PublicationWakeQueue } from "./community-jobs.ts";
 import { requireCuratedOwner } from "../packages/community/curated-amendment.ts";
-import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { requireAuthorizedOwner, requireOwnerIdentity } from "../packages/community/owner-authorization.ts";
 import {
   ownerCurated,
   ownerOnly,
@@ -56,6 +56,7 @@ export async function communityReleaseApi(
   context: AuthContext,
   ready: () => Promise<ReleaseRuntime>,
   reply: (body: unknown, status?: number) => Response,
+  recoverOriginal:()=>Promise<ReleaseRuntime> = ready,
 ) {
   const url = new URL(request.url),
     upload = /^\/api\/uploads\/([a-f0-9-]{36})\/(audio|seal)$/.exec(
@@ -168,19 +169,14 @@ export async function communityReleaseApi(
         409,
       );
       exact(await jsonBody(request), []);
-      const runtime = await ready();
+      const runtime = await recoverOriginal();
       if (ownerOnly(runtime.config.policies.admission)) {
         insist(
           runtime.ports.ownerAuthorization !== undefined,
           "owner_authorization_unavailable",
           503,
         );
-        await requireAuthorizedOwner(
-          runtime.ports.ownerAuthorization,
-          runtime.config,
-          session.wallet,
-          undefined, runtime.ports.ownerVerification,
-        );
+        await requireOwnerIdentity(runtime.ports.ownerAuthorization,runtime.config,session.wallet,runtime.ports.ownerVerification);
       } else await requireCuratedOwner(env.DB, runtime.config, session.wallet);
       await resumeFirstSongAdmission(runtime.ports, id);
       await resumeUncertainJob(env.DB, id, session.account_id);
