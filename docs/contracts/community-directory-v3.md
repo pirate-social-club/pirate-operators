@@ -263,3 +263,11 @@ passed all 39 cases again after the final type correction. TypeScript, all
 the offline compiler artifact reproduced the committed generated file exactly.
 The broad application and six-suite hosted CI gates must qualify this merged
 candidate separately; no application adoption or deployment is claimed here.
+
+Hosted run `43674313845` found 17 Linux authority/producer failures because the
+static runtime guard still pinned the prior reader file. The successor updates
+only that expected SHA-256 to the actual reviewed reader bytes; the byte guard
+and all authority assertions remain intact. All 17 original cases pass locally
+with their required private temporary directory. A first invocation without
+that required directory failed before exercising the guard. Full hosted CI must
+run again on the pin-repair successor; the earlier run is retained as failed.

@@ -11,7 +11,7 @@ import {readCommunityDeploymentProfile,communityIpfsTransport} from "../../servi
 import {hash,privateDirectory,privateFile,type OperationLease} from "./backend-state.ts";
 import {canonicalDigest,verifyRecord,readPrivateJSON,type SignedRecord,type TrustAnchor} from "./installed-records.ts";
 export const DIRECTORY_SOURCE_PINS:Readonly<Record<string,string>>=Object.freeze({
-  "packages/community/directory-reader.ts": "4fb3996ca460188347eacd64f68b5e9866e2331bfbf9835d92f8d11d8383fd3c",
+  "packages/community/directory-reader.ts": "5db3f8501cc2d48e723e9b1ae60b29c485968dce9caef0479ae716b17529ec43",
   "packages/community/shared-directory.ts": "3c58c665227e69be9b5ea7575df22510801b0d0a5409172e98edd2448f8fc511",
   "packages/community/shared-config-manifest.ts": "aeb3a0abda2956a4515cab22db85f53bb7374ef537d881e876df783cd508305e"
 });
