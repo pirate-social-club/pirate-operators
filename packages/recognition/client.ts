@@ -110,7 +110,7 @@ export function recognitionClient(ports: RecognitionClientPorts) {
       `${connection.origin}/v1/catalog/publications/${path}`,
       {
         method: "POST",
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
         headers: { "content-type": "application/json" },
         body: requestJson,
