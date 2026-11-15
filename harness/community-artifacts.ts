@@ -5,7 +5,7 @@ import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { build } from "esbuild";
-import { hashText, insist } from "../packages/community/common.ts";
+import { insist } from "../packages/community/common.ts";
 import { communityMigrations } from "./package-migrations.ts";
 
 const digest = (bytes: Uint8Array) =>
@@ -155,7 +155,7 @@ export async function buildCommunityArtifacts(options: CommunityArtifactOptions)
   const sourceHashes = Object.fromEntries(await Promise.all(sourcePaths.map(
     async (name) => {
       const bytes = await regularBytes(join(root, name));
-      return [name, name.endsWith(".mp3") ? digest(bytes) : hashText(bytes.toString("utf8"))];
+      return [name, digest(bytes)];
     },
   )));
   const assets = Object.fromEntries(await Promise.all(names.map(async (name) =>
