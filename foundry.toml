@@ -13,6 +13,7 @@ additional_compiler_profiles = [
 ]
 compilation_restrictions = [
   { paths = "contracts/dance/{DanceVerdictsV1,DanceCapturePolicyV1}.sol", via_ir = true, optimizer_runs = 1 },
+  { paths = "contracts/dance/{DanceVerdictsV2,DanceCapturePolicyV2}.sol", via_ir = true, optimizer_runs = 1 },
 ]
 
 [invariant]
