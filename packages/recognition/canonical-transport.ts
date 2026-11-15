@@ -32,6 +32,7 @@ import {
   canonicalPostingBinding,
   canonicalPostingInput,
   independentCanonicalPublication,
+  requireFirstSongRevision,
   type CanonicalChainInputs,
 } from "./canonical-chain.ts";
 import type {
@@ -56,6 +57,7 @@ async function snapshot(
   ]);
   const intent = acceptedIntent(v.intent),
     c = object(v.context);
+  requireFirstSongRevision(intent.publicationRevision);
   const owner = await requireAuthorizedOwner(
     v.ownerAuthorization,
     config,
@@ -183,7 +185,10 @@ export function canonicalCommunityClient(
           : JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)),
     };
   };
-  const sourceBody = (p: CanonicalSource) => ({ source: p });
+  const sourceBody = (p: CanonicalSource) => {
+    requireFirstSongRevision(p.publicationRevision);
+    return { source: p };
+  };
   return {
     currentConfiguration: () => inputs.currentConfiguration(),
     async read(jobId) {
@@ -198,6 +203,7 @@ export function canonicalCommunityClient(
       return requireSameCanonicalSource(value.intent, p);
     },
     async posting(p, claimed) {
+      requireFirstSongRevision(p.publicationRevision);
       const response = await call("posting", { intent: p, posting: claimed }),
         value = canonicalPostingBinding(response.data);
       insist(
@@ -209,6 +215,7 @@ export function canonicalCommunityClient(
       return value;
     },
     async publication(p, claimed) {
+      requireFirstSongRevision(p.publicationRevision);
       const response = await call("publication", {
           intent: p,
           posting: claimed,
@@ -233,6 +240,7 @@ export function canonicalCommunityClient(
       return witness.publication;
     },
     async findPublication(postId, revision) {
+      requireFirstSongRevision(revision);
       const r = await call("find_publication", { postId, revision });
       if (r.data === null) return null;
       const value = (
@@ -263,9 +271,10 @@ export function canonicalCommunityClient(
       return bytes;
     },
     async authorize(p, operationId) {
-      await call("authorize", { source: p, operationId });
+      await call("authorize", { ...sourceBody(p), operationId });
     },
     async ready(p) {
+      requireFirstSongRevision(p.publicationRevision);
       const response = await call("ready", { intent: p }),
         data = object(response.data);
       exact(data, ["request", "receipt"]);

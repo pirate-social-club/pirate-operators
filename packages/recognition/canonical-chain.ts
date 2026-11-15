@@ -40,6 +40,9 @@ export interface CanonicalChainInputs {
   posts: PostsProfile;
   ipfs?: IpfsTransport;
 }
+export function requireFirstSongRevision(revision: number) {
+  insist(revision === 1, "canonical_publication_revision_unsupported", 409);
+}
 export function canonicalPostingBinding(input: unknown): PostingBinding {
   const v = object(input);
   exact(v, [
@@ -68,6 +71,7 @@ export async function canonicalPostingInput(
   input: unknown,
   config: CommunityConfig,
 ) {
+  requireFirstSongRevision(p.publicationRevision);
   const posting = canonicalPostingBinding(input),
     tx = parseTransaction(posting.signedTransaction);
   insist(
@@ -165,7 +169,10 @@ export async function independentCanonicalPublication(
       publication,
     );
   insist(
-    observed && value.publicationEvidenceSha256 === hashJson(observed),
+    observed &&
+      p.publicationRevision === observed.revision &&
+      value.publicationRevision === observed.revision &&
+      value.publicationEvidenceSha256 === hashJson(observed),
     "recognition_chain_receipt_changed",
     409,
   );
@@ -184,7 +191,7 @@ export async function independentCanonicalPublication(
         chainId: 6343,
         postsContract: config.postsContract,
         kind: 0,
-        revision: 1,
+        revision: observed.revision,
       },
       config,
     ),

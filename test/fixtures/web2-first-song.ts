@@ -794,13 +794,17 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       },
       assertPublicSong,
       async assertCanonicalBoundaries(song: Song) {
+        let transportCalls = 0;
         const config = await current(),
           before = { ...c.effects },
           client = canonicalCommunityClient({
             chain: canonicalChain,
             signer,
             currentConfiguration: current,
-            transport: (request) => http!.transport(request),
+            transport: (request) => {
+              transportCalls++;
+              return http!.transport(request);
+            },
           }),
           original = await client.read(song.jobId),
           request = async (wire: unknown) =>
@@ -814,6 +818,41 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
             );
         assert.equal(original.intent.jobId, song.jobId);
         assert.deepEqual(await client.audio(original.intent), song.audio);
+        const unsupported = { ...original.intent, publicationRevision: 2 },
+          beforeUnsupported = transportCalls;
+        await assert.rejects(
+          client.source(unsupported),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.posting(unsupported, null as unknown as PostingBinding),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.publication(unsupported, null as unknown as PostingBinding),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.findPublication(original.intent.postId, 2),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.audio(unsupported),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.authorize(unsupported, hashText("unsupported revision")),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.ready(unsupported),
+          /canonical_publication_revision_unsupported/,
+        );
+        assert.equal(
+          transportCalls,
+          beforeUnsupported,
+          "unsupported revisions are rejected before the remote boundary",
+        );
         const wire = await signCanonicalRequest(signer, config, "read", {
           jobId: song.jobId,
         });
