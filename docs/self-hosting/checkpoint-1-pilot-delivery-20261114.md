@@ -17,27 +17,29 @@ This plan supersedes conflicting Cloudflare-first hosting, HNS-required
 registration/discovery, blanket Dance deferral, combined login/publication
 consent and broad restore/upgrade prerequisites in older delivery documents.
 Existing deployments and historical evidence are not changed by this decision.
-The current Directory and application do not yet implement these requirements.
+Directory and consent contract foundations are merged and CI-qualified source.
+First-song application/runtime and selected-host acceptance remain unqualified.
 Required CI and authorization checks remain. Publication of this plan authorizes
 no deployment, signing, funding or credential operation.
 
 ## Checkpoints and dependencies
 
-| Checkpoint                       | Required result                                                                                                                                                                                                                                                | Dependency and owner                                                                                                                                                                                 |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1a. Web2 foundation contracts    | Community creation without HNS; stable identity; revisioned origin configuration; constrained registrar; independent listing/delisting; Posts and stable song references; reviewed future HNS attachment interface; generated interfaces and behavioral tests. | Starts now. contract_hardening_coordinator owns the existing contract lane. Naming registry and gateway completion are not prerequisites.                                                            |
-| 1b. Optional HNS contracts       | Qualified naming registry and constrained gateway, size limit, proof vectors and real admission/refresh integration.                                                                                                                                           | Can proceed alongside Web2 delivery against 1a's agreed attachment interface. Blocks HNS activation only.                                                                                            |
-| 1c. Separate publication consent | Separate login from learning/Dance publication authorization, including stable community identity, address changes, revocation, replay protection and Dance adapter compatibility.                                                                             | Design starts now alongside 1a, owned by learning_consent_coordinator. Complete the required contracts before checkpoint 4 implementation. Does not block checkpoint 3.                              |
-| 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Starts now in parallel with 1a/1c. ci_release_coordinator is the assigned source writer after the documentation handoff; integration_release_coordinator owns shared-interface acceptance and merge. |
-| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Requires 1a, the qualified baseline and real selected services. HNS, names, learning-results publication and Dance remain disabled in this profile.                                                  |
-| 4. Dance and shared feed         | Qualified private capture/review, consented public videos, canonical song references, aggregate indexing and playback, delisting propagation, retention and deletion.                                                                                          | Requires the consent/Dance contract gate, stable media interfaces and a green baseline. Full Web2 functionality is in scope; first-song acceptance remains separately useful.                        |
-| 5. Release and handback          | Qualify the selected release scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                               | Release the narrower first-song pilot or the completed expanded Web2 scope honestly. Neither waits for HNS.                                                                                          |
+| Checkpoint                       | Required result                                                                                                                                                                                                                                                | Dependency and owner                                                                                                                                                                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1a. Web2 foundation contracts    | Community creation without HNS; stable identity; revisioned origin configuration; constrained registrar; independent listing/delisting; Posts and stable song references; reviewed future HNS attachment interface; generated interfaces and behavioral tests. | Source merged and CI-qualified in [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56) at `aef30d0`. Application/deployment qualification remains required; naming is not a prerequisite.                                                 |
+| 1b. Optional HNS contracts       | Qualified naming registry and constrained gateway, size limit, proof vectors and real admission/refresh integration.                                                                                                                                           | Can proceed alongside Web2 delivery against 1a's agreed attachment interface. Blocks HNS activation only.                                                                                                                                                   |
+| 1c. Separate publication consent | Separate login from learning/Dance publication authorization, including stable community identity, address changes, revocation, replay protection and Dance adapter compatibility.                                                                             | Source merged and CI-qualified in [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59) at `c6c98cb`; [V5/Dance V2](../contracts/publication-consent-v1.md) remain inactive pending application/policy gates. Does not block checkpoint 3. |
+| 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Source merged and CI-qualified in [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58) at `9374f4c`. The combined runtime still requires its own current-base qualification.                                                              |
+| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Unqualified. Requires the qualified application/runtime and real selected host/services. HNS, names, learning-results publication and Dance remain disabled in this profile.                                                                                |
+| 4. Dance and shared feed         | Qualified private capture/review, consented public videos, canonical song references, aggregate indexing and playback, delisting propagation, retention and deletion.                                                                                          | Requires the consent/Dance contract gate, stable media interfaces and a green baseline. Full Web2 functionality is in scope; first-song acceptance remains separately useful.                                                                               |
+| 5. Release and handback          | Qualify the selected release scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                               | Release the narrower first-song pilot or the completed expanded Web2 scope honestly. Neither waits for HNS.                                                                                                                                                 |
 
 Checkpoint 2 fixes known failures without waiting for final contracts. Integrate
 contract changes when ready and qualify the combined candidate before release.
 Disabled features must be excluded at server and UI boundaries; retain their
 source and failing evidence instead of silently filtering required checks.
-Current PR56 Directory code is not the accepted deployment design for 1a.
+Directory V3 is the merged source foundation for 1a; that source qualification
+does not establish first-song runtime or selected-host acceptance.
 
 Complete contracts before implementing the behavior that depends on them.
 This is not a requirement to finish every future contract before the first
@@ -299,9 +301,69 @@ These observations support reviewing admission/waiting overhead; they do not
 attribute every minute or establish that required testing should be removed.
 
 Advance checkpoints on concrete outputs and evidence, with no invented dates.
-The immediate authorized work is publication of this plan, 1a implementation,
-1c design and repair of PR58. Defer further plan-review loops unless a concrete
+The contract foundations and repaired baseline are merged. Current source work
+joins the first-song runtime and invited hosted enrollment; selected-host
+acceptance remains open. Defer further plan-review loops unless a concrete
 implementation finding changes an accepted boundary.
+
+## Additional addresses (deferred, after the Web2 pilot)
+
+The workspace_owner approved these three separate levels on November 15, 2026.
+None changes the order, dependencies or acceptance of checkpoints 1–5. The ENS
+read-only mirror may follow the first-song pilot; verified naming and interactive
+additional addresses are separate deferred work, not new pilot prerequisites.
+
+1. ENS read-only mirror. Point a `.eth` name's contenthash at the published IPFS
+   release. Authenticated actions open the canonical HTTPS application. This
+   requires no Pirate contract change or mirror login. Updating a direct IPFS
+   contenthash requires an Ethereum mainnet transaction paid by the name's owner;
+   an updatable pointer has its own publishing, signing and availability policy.
+   Verify release bytes, retention and retrieval before updating the pointer.
+2. ENS as a verified community name. Directory V3 has separate Web2 verification
+   and HNS attachment state; neither represents ENS evidence. Before a lasting
+   deployment, decide whether its successor adds an ENS attachment or generalizes
+   naming attachments with explicit protocol types while retaining HNS. The
+   disposable testnet V3 need not change now. Define current ENS control, expiry,
+   resolver/delegation changes, evidence freshness and revocation before Pirate's
+   verifier attests the binding on MegaETH. Preserve community/content identity
+   and independent listing approval. Reading Ethereum state is a useful basis;
+   it does not by itself define or qualify the attestation policy. The order of
+   verified ENS versus HNS remains a later decision. ENS member subnames are a
+   separate issuance design, not implied by attaching a community's ENS name.
+3. Interactive additional addresses. Combine HNS, ENS and native IPFS application
+   access into one milestone. Define controller-approved addresses and address-
+   bound login, session audience, refresh, revocation and API authorization.
+   Cross-site page/API deployments must work with third-party cookies blocked;
+   design short-lived audience-bound token sessions for that path, including
+   storage, replay and logout behavior. Do not weaken the current canonical
+   host-only cookie/CSRF boundary; an additional HTTPS address with its own
+   same-origin API may retain a separate cookie session. Qualify MOSS connection,
+   sign-in, signing and consent on every supported browser/address type. The
+   current client uses MOSS-signed SIWE; MOSS's optional authenticate JWT is also
+   bound to the requesting host and cannot be replayed as another host's login.
+   Reading a mirror successfully does not establish interactive acceptance.
+
+Freedom provides a strong native verification path: Colibri verifies the ENS
+resolution to its content reference, and native IPFS retrieval verifies the
+content against its CID. This authenticates the name-to-content binding and
+retrieved application bytes without trusting a third-party HTTPS content gateway
+to serve the code faithfully. Freedom preserves the ENS name as the page origin
+across content updates. Acceptance must record that the Colibri-verified path was
+used; a fallback resolver must not be presented as the same proof. This is an
+existing browser capability, separate from the deferred Pirate/MOSS integration.
+
+An ordinary third-party HTTPS gateway remains a distinct trust path: without
+independent content verification it can serve altered application code. The plan
+must distinguish that access from Freedom's verified native access. Wallet/API
+compatibility and service availability remain separate from name/content proof.
+
+Swarm is a later storage mirror with its own release packaging, retention/postage
+and retrieval acceptance. It changes none of checkpoints 1–5.
+
+References: [ENS contenthash](https://docs.ens.domains/ensip/7/),
+[MOSS authentication](https://moss.megaeth.com/developers/concepts/authentication),
+[Freedom native IPFS](https://github.com/pirate-social-club/freedom-browser/blob/main/docs/protocols/ipfs.md)
+and [Colibri verification](https://github.com/corpus-core/colibri-stateless).
 
 ## Later naming gateway and refresh policy
 

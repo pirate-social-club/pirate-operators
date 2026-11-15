@@ -1,11 +1,12 @@
 import type { Address, Hex } from "viem";
+import {parseWeb2ProfileDocument,web2ProfileDocument} from "../packages/community/web2-directory.ts";
 import {parseSharedProfileDocument,sharedProfileDocument} from "../packages/community/shared-directory.ts";
 import { bytes32, insist, object, text } from "../packages/community/common.ts";
 import { address, communityId } from "../packages/community/manifest-core.ts";
 import { publicGateways } from "../packages/community/ipfs.ts";
 
 /** Server-owned deployment inputs; hosting origin supplies no naming authority. */
-export interface CommunityDeploymentProfile {
+export interface HistoricalCommunityDeploymentProfile {
   schema: "pirate.community-deployment/1";
   origin: string;
   name: string;
@@ -29,6 +30,14 @@ export interface CommunityDeploymentProfile {
     deploymentBlock: string;
   };
 }
+export interface Web2CommunityDeploymentProfile extends Omit<HistoricalCommunityDeploymentProfile,"schema"|"directoryProfile"|"creatorOrigin"> {
+  schema: "pirate.community-deployment/2";
+  directoryProfile: ReturnType<typeof web2ProfileDocument>;
+  freshness: { maxSafeBlockAgeSeconds: string };
+}
+export type CommunityDeploymentProfile = HistoricalCommunityDeploymentProfile | Web2CommunityDeploymentProfile;
+export const isWeb2Deployment = (profile: CommunityDeploymentProfile): profile is Web2CommunityDeploymentProfile =>
+  profile.schema === "pirate.community-deployment/2";
 
 function fields(value: unknown, names: readonly string[]) {
   const row = object(value);
@@ -75,6 +84,7 @@ function block(value: unknown) {
 }
 
 export function validateCommunityDeploymentProfile(input: unknown): CommunityDeploymentProfile {
+  if(object(input).schema === "pirate.community-deployment/2") return validateWeb2Deployment(input);
   const row = fields(input, ["schema", "origin", "name", "planId", "postingPeriod", "rpcUrl",
     "ipfsGateways", "managedOrigin", "creatorOrigin", "directoryProfile", "posts"]);
   insist(row.schema === "pirate.community-deployment/1", "invalid_community_deployment");
@@ -108,6 +118,24 @@ export function validateCommunityDeploymentProfile(input: unknown): CommunityDep
     posts: { address: address(posts.address), runtimeCodeHash: bytes32(posts.runtimeCodeHash),
       deploymentBlock: block(posts.deploymentBlock) },
   };
+}
+
+function validateWeb2Deployment(input: unknown): Web2CommunityDeploymentProfile {
+  const row=fields(input,["schema","origin","name","planId","postingPeriod","rpcUrl","ipfsGateways","managedOrigin","directoryProfile","posts","freshness"]);
+  const directory=web2ProfileDocument(parseWeb2ProfileDocument(row.directoryProfile));
+  insist(directory.chainId===6343,"wrong_application_chain");
+  const freshness=fields(row.freshness,["maxSafeBlockAgeSeconds"]),age=freshness.maxSafeBlockAgeSeconds;
+  insist(typeof age==="string" && /^(0|[1-9][0-9]{0,19})$/.test(age) && BigInt(age)<2n**64n,"explicit_directory_freshness_policy_required");
+  const posts=fields(row.posts,["address","runtimeCodeHash","deploymentBlock"]);
+  const planId=text(row.planId,64),postingPeriod=text(row.postingPeriod,100);
+  insist(/^[a-f0-9]{64}$/.test(planId) && /^[a-z0-9][a-z0-9-]*$/.test(postingPeriod),"invalid_community_deployment_plan");
+  insist(Array.isArray(row.ipfsGateways) && row.ipfsGateways.length>0 && row.ipfsGateways.length<=publicGateways.length,"invalid_community_deployment_gateways");
+  const gateways=row.ipfsGateways.map(v=>endpoint(v,true));
+  insist(new Set(gateways).size===gateways.length,"invalid_community_deployment_gateways");
+  return {schema:"pirate.community-deployment/2",origin:origin(row.origin),name:text(row.name,100),planId,postingPeriod,
+    rpcUrl:endpoint(row.rpcUrl),ipfsGateways:gateways,managedOrigin:origin(row.managedOrigin),directoryProfile:directory,
+    posts:{address:address(posts.address),runtimeCodeHash:bytes32(posts.runtimeCodeHash),deploymentBlock:block(posts.deploymentBlock)},
+    freshness:{maxSafeBlockAgeSeconds:age}};
 }
 
 export function readCommunityDeploymentProfile(value: string): CommunityDeploymentProfile {

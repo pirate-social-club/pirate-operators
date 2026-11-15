@@ -23,6 +23,7 @@ import {
   assertWeb2Origin,
   validateWeb2Configuration,
   web2ConfigurationState,
+  type Web2CommunityConfig,
 } from "./web2-config-manifest.ts";
 import { sharedBytes32 } from "./shared-identity.ts";
 
@@ -208,6 +209,7 @@ export async function readWeb2Community(
     503,
   );
   const state = web2ConfigurationState();
+  const history: Web2CommunityConfig[] = [];
   let last: ConfigurationLog | undefined;
   for await (const page of configurationLogPages(
     client,
@@ -295,6 +297,7 @@ export async function readWeb2Community(
       // This catches origin changes hidden in an ordinary configure or transfer.
       assertWeb2Origin(c, origins[0]!);
       advanceWeb2Configuration(state, c, log.blockNumber);
+      history.push(c);
       last = log;
     }
   insist(
@@ -351,6 +354,7 @@ export async function readWeb2Community(
   });
   return {
     config: state.last,
+    history: Object.freeze(history.map(c => structuredClone(c))),
     origin,
     verificationSnapshot,
     eligibility: evaluateWeb2Eligibility(
