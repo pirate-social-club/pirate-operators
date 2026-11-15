@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import {mkdir,writeFile,readFile,realpath,chmod,lstat,readdir} from "node:fs/promises";
 import {join,dirname,extname} from "node:path";
-import {createHash} from "node:crypto";
+import {createHash,X509Certificate} from "node:crypto";
 import {buildCommunityArtifacts} from "../community-artifacts.ts";
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import type {OperationLease} from "../../deploy/linux/backend-state.ts";
+import type {Web2SchemaPlan} from "../../deploy/linux/web2-initialization.ts";
 /** Build real owning bytes; no Docker/provider execution or simulated consumer.
  * Root materializes the exact accepted source/prerequisites before this gate. */
 export async function buildCompleteLinuxArtifacts(input:{
+ profile?:"web2-first-song/1";
  sourceRoot:string;assetDirectory:string;output:string;rawOutputDirectory:string;lease:OperationLease;
  migrations:Parameters<typeof buildCommunityArtifacts>[0]["migrations"];
  node:string;nodeSha256:string;esbuildCLI:string;esbuildCLISha256:string;esbuildNative:string;esbuildNativeSha256:string;
@@ -19,9 +21,13 @@ export async function buildCompleteLinuxArtifacts(input:{
  wizardFiles:Array<{source:string;path:string;sha256:string}>;
  actorModules:Array<{source:string;output:string}>;
  migrationPlan:Array<{name:string;sha256:string;sql:string;statements:string[]}>;
+ web2Schema?:Web2SchemaPlan;
  native:{path:string;sha256:string};schema:{path:string;sha256:string};licenses:Array<{path:string;output:string;sha256:string}>;
  nativeModules:Array<{path:string;output:string;sha256:string}>;
 }) {
+ assert(input.profile===undefined || input.profile==="web2-first-song/1","explicit_linux_build_profile_required");
+ const web2=input.profile==="web2-first-song/1";
+ assert(web2===Boolean(input.web2Schema),"explicit_web2_schema_selection_required");
  assert(await realpath(input.sourceRoot)===input.sourceRoot && !input.output.startsWith(input.sourceRoot+"/"));
  const sha=(b:Uint8Array)=>createHash("sha256").update(b).digest("hex");
  assert(sha(await readFile(input.esbuildCLI))===input.esbuildCLISha256 && sha(await readFile(input.esbuildNative))===input.esbuildNativeSha256);
@@ -43,12 +49,14 @@ export async function buildCompleteLinuxArtifacts(input:{
   ["full-startup.worker.mjs","deploy/linux/full-startup.worker.ts"],
   ["selected-handler-observer.worker.mjs","deploy/linux/selected-handler-observer.worker.ts"],
   ["maintenance.bootstrap.mjs","deploy/linux/maintenance.bootstrap.mjs"],
-  ["full-launch.mjs","deploy/linux/full-launch.ts"],...input.actorModules.map(x=>[x.output,x.source])
+  ["full-launch.mjs",web2?"deploy/linux/web2-launch.ts":"deploy/linux/full-launch.ts"],
+  ...(web2?[["web2-fixture-egress.worker.mjs","deploy/linux/web2-fixture-egress.worker.ts"]]:[]),
+  ...input.actorModules.map(x=>[x.output,x.source])
  ];
  for(const [output,source] of modules){
   assert(source && output);sourceHashes[source]=sha(await readFile(join(input.sourceRoot,source)));
   await runOwnedCommand({lease:input.lease,executable:input.esbuildNative,executableSha256:input.esbuildNativeSha256,
-   argv:[join(input.sourceRoot,source!),"--bundle",output==="full-launch.mjs"?"--platform=node":"--platform=neutral","--format=esm","--target=es2024","--external:cloudflare:workers","--external:node:*",
+   argv:[join(input.sourceRoot,source!),"--bundle",output==="full-launch.mjs"?"--platform=node":web2?"--platform=browser":"--platform=neutral","--format=esm","--target=es2024","--external:cloudflare:workers","--external:node:*",
     "--outfile="+join(input.output,output!)],
    environment:input.environment,cwd:input.sourceRoot,outputDirectory:input.rawOutputDirectory,
    name:"bundle-"+output!.replace(/[^A-Za-z0-9_-]/g,"-"),seconds:90,signal:input.signal});
@@ -72,6 +80,17 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const row of [...input.nativeModules,...input.licenses]){const body=await readFile(row.path);assert.equal(sha(body),row.sha256);await write(row.output,body);}
  const node=await readFile(input.node);assert.equal(sha(node),input.nodeSha256);
  await write("toolchain/node",node);await chmod(join(input.output,"toolchain/node"),0o555);
+ // The slim image has no OS trust store. Use only the bundled Mozilla roots
+ // from the verified Node executable, never ambient host or extra CA files.
+ const rootsOutput=await runOwnedCommand({lease:input.lease,executable:join(input.output,"toolchain/node"),executableSha256:input.nodeSha256,
+  argv:["--input-type=commonjs","-e","process.stdout.write(JSON.stringify(require('node:tls').rootCertificates))"],
+  environment:{HOME:process.env.HOME,PATH:"/usr/bin:/bin",TZ:"UTC"},cwd:input.sourceRoot,
+  outputDirectory:input.rawOutputDirectory,name:"node-bundled-root-certificates",seconds:30,signal:input.signal,completedMetadataChild:true});
+ assert((await lstat(rootsOutput.stdoutPath)).size<=1024*1024,"bundled_ca_output_too_large");
+ const roots:unknown=JSON.parse(await readFile(rootsOutput.stdoutPath,"utf8"));
+ assert(Array.isArray(roots) && roots.length>0 && roots.length<=1024,"bundled_ca_store_required");
+ for(const pem of roots){assert(typeof pem==="string" && pem.startsWith("-----BEGIN CERTIFICATE-----") && pem.trimEnd().endsWith("-----END CERTIFICATE-----"),"bundled_ca_pem_invalid");new X509Certificate(pem);}
+ await write("toolchain/ca-certificates.crt",Buffer.from(roots.join("\n")+"\n"));
  for(const row of input.toolchainModules){
   assert(row.output.startsWith("toolchain/node_modules/"),"pinned_loader_closure_layout_required");
   const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write(row.output,body);
@@ -80,7 +99,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const row of input.wizardFiles){
   const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write("wizard/"+row.path,body);
  }
- const assets:Record<string,unknown>={},mime:Record<string,string>={".html":"text/html; charset=utf-8",".css":"text/css",".js":"text/javascript",".json":"application/json",".svg":"image/svg+xml",".mp3":"audio/mpeg",".png":"image/png",".webp":"image/webp",".woff2":"font/woff2"};
+ const assets:Record<string,unknown>={},mime:Record<string,string>={".html":"text/html; charset=utf-8",".css":"text/css; charset=utf-8",".js":"text/javascript; charset=utf-8",".json":"application/json",".svg":"image/svg+xml",".mp3":"audio/mpeg",".png":"image/png",".webp":"image/webp",".woff2":"font/woff2"};
  for(const [name,expected] of Object.entries(owning.assets)){
   const body=await readFile(join(input.sourceRoot,input.assetDirectory,name));assert.equal("0x"+sha(body),expected);
   await write("assets/"+name,body);assets[name]={sha256:sha(body),contentType:mime[extname(name)]??"application/octet-stream"};
@@ -89,10 +108,16 @@ export async function buildCompleteLinuxArtifacts(input:{
  assert.deepEqual(input.migrationPlan.map(x=>x.name),owning.migrations);
  for(const row of input.migrationPlan){const source=await readFile(join(input.sourceRoot,"apps/community-wizard/infra/migrations",row.name));
   assert(sha(source)===row.sha256 && source.toString("utf8")===row.sql && row.statements.join("")===row.sql);await write("sql/"+row.name,source);}
+ if(input.web2Schema)for(const row of input.web2Schema.overlays){
+  const source=await readFile(join(input.sourceRoot,row.name));
+  assert(sha(source)===row.sha256 && source.toString("utf8")===row.sql && row.statements.join("")===row.sql,"web2_schema_source_changed");
+  await write("sql/"+row.name.split("/").at(-1),source);
+ }
  const nativeIdentity=sha(Buffer.from(JSON.stringify({sourceHashes,files,migrations:input.migrationPlan.map(({name,sha256})=>({name,sha256}))})));
  // The unchanged component bootstrap's qualification flag stays component-only;
  // no full-profile readiness is inferred from migration/object initialization.
- await write("migration-plan.json",Buffer.from(JSON.stringify({schema:"pirate.linux-migration-plan/1",qualificationOnly:true,releaseSha256:nativeIdentity,migrations:input.migrationPlan})));
+ await write("migration-plan.json",Buffer.from(JSON.stringify({schema:"pirate.linux-migration-plan/1",qualificationOnly:true,releaseSha256:nativeIdentity,migrations:input.migrationPlan,
+  ...(input.web2Schema?{web2Schema:input.web2Schema}:{})})));
  const native=await readFile(input.native.path),schema=await readFile(input.schema.path);
  assert(sha(native)===input.native.sha256 && sha(schema)===input.schema.sha256);
  await write("workerd",native);await chmod(join(input.output,"workerd"),0o555);await write("workerd.capnp",schema);
@@ -103,7 +128,11 @@ export async function buildCompleteLinuxArtifacts(input:{
   if(Object.hasOwn(files,output))assert.equal(files[output],sha(body));else await write(output,body);
  }
  for(const name of ["source/backend.ts","source/package.json","source/deploy/linux/local-install-main.ts",
-  "source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts",
+  ...(web2?["source/deploy/linux/web2-local-installation.ts","source/deploy/linux/web2-launch.ts",
+    "source/deploy/linux/web2-service.ts",
+    "source/deploy/linux/web2-runtime-binding.ts",
+    "source/packages/community/web2-native-business-binding.ts"]:
+    ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
   "toolchain/node_modules/tsx/dist/loader.mjs","toolchain/node_modules/tsx/package.json","wizard/index.html"])
   assert(Object.hasOwn(files,name),"installed_backend_loader_or_asset_closure_missing: "+name);
  async function seal(path:string){for(const row of await readdir(path,{withFileTypes:true})){
@@ -112,6 +141,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  }await chmod(path,0o555);}
  await seal(input.output);
  return {owning,files,sourceHashes,nativeIdentity,output:input.output,dockerExecuted:false,
+  releaseSchema:web2?"pirate.complete-linux-web2-release/1" as const:"pirate.complete-linux-release/1" as const,
   execution:{node:"toolchain/node" as const,nodeSha256:input.nodeSha256,nodeVersion:"v24.18.1" as const,
    loader:"toolchain/node_modules/tsx/dist/loader.mjs" as const,tsxVersion:"4.20.6" as const,backend:"source/backend.ts" as const},
   remainingExecutionInputs:["actual post-build signed release/image identity and exact installed path/resource mapping","genuine current signed create template/profile and managed key channels","actual one-host create/publication/restart qualification"]};

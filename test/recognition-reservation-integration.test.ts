@@ -6,6 +6,7 @@ import { hashJson } from "../packages/community/common.ts";
 import { catalogObligation } from "../packages/community/catalog-outbox.ts";
 import { loadJob } from "../packages/community/publication-store.ts";
 import { CATALOG_OWNER_POLICY_VERSION } from "../packages/community/owner-policy.ts";
+import { verifyReservation } from "../packages/recognition/reservation-receipt.ts";
 import type { CommunityFeed } from "../packages/community/application-api.ts";
 import { reservationFixture, otherOwner } from "./recognition-reservation-fixture.ts";
 import { submit,drive,rows } from "./recognition-reservation-helpers.ts";
@@ -100,6 +101,16 @@ for(const boundary of ['loseReserveAck','loseBindAck','loseCommitAck'] as const)
     assert.equal(posting.signedTransaction,JSON.parse(String(operation.prepared_json)).replay.signedTransaction);
     assert.equal(f.counts.uploads,1);assert.equal(song.app.f.posts.broadcasts(),1);
     assert.equal((await rows(f.db,'shared_recognition_reservations')).length,1);assert.equal(o.intent_sha256,hashJson(song.intent));
+    if(boundary==='loseCommitAck') {
+      const confirm=(await rows(song.app.f.community.db,'external_operations')).find(r=>r.step==='catalog_confirm')!;
+      const reconciliations=(await rows(song.app.f.community.db,'external_operation_reconciliations')).filter(r=>r.operation_id===confirm.operation_id);
+      assert.equal(reconciliations.length,1);
+      const proof=JSON.parse(JSON.parse(String(reconciliations[0]!.proof_json)).absenceProof);
+      const payload=await verifyReservation(proof.receipt,f.profile,{requestSha256:hashJson(proof.request),
+        intentSha256:hashJson(song.intent),communityId:song.intent.communityId,state:'committed'},proof.receipt.payload.issuedAt);
+      const published=(await rows(f.db,'shared_recognition_publications'))[0]!;
+      assert.equal(payload.publicationSha256,hashJson(JSON.parse(String(published.publication_json))));
+    }
   }finally{await f.dispose();}
 });
 for(const boundary of ['lostUpload','unknownBeforeUpload'] as const)test(`${boundary} preserves unknown upload identity without another send after restart`,async()=>{

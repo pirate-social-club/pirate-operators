@@ -16,6 +16,7 @@ import {object} from "../../packages/community/common.ts";
 import {buildCompleteLinuxArtifacts} from "./build-complete-artifacts.ts";
 
 export interface CandidateBuildOptions {
+ profile?:"web2-first-song/1";
  sourceRoot:string;head:string;tree:string;outputDirectory:string;installationId:string;operationId:string;
  hostPidNamespace:string;backend:string;assets:string;wizardDist:string;
  workerd:string;workerdSha256:string;schema:string;schemaSha256:string;
@@ -80,6 +81,11 @@ async function packageClosure(seeds:Array<{name:string;from:string}>,root:string
   const optionalDeps=object(data.optionalDependencies??{}),deps=object(data.dependencies??{});
   for(const dep of Object.keys(deps).sort())await visit(dep,await realpath(pkg),Object.hasOwn(optionalDeps,dep));
   for(const dep of Object.keys(optionalDeps).sort())if(!Object.hasOwn(deps,dep))await visit(dep,await realpath(pkg),true);
+  const peers=object(data.peerDependencies??{}),peerMeta=object(data.peerDependenciesMeta??{});
+  for(const dep of Object.keys(peers).sort()){
+   const meta=object(peerMeta[dep]??{});
+   await visit(dep,await realpath(pkg),meta.optional===true);
+  }
  }
  for(const seed of seeds)await visit(seed.name,seed.from);
  return rows;
@@ -117,7 +123,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const command=async(executable:string,digest:string,argv:string[],name:string)=>{
    abort.signal.throwIfAborted();
    return runOwnedCommand({lease,executable,executableSha256:digest,argv,environment:env,cwd:root,
-     outputDirectory:raw,name:String(++sequence).padStart(3,"0")+"-"+name,seconds:60,signal:abort.signal});
+     outputDirectory:raw,name:String(++sequence).padStart(3,"0")+"-"+name,seconds:60,signal:abort.signal,completedMetadataChild:true});
   };
   const gitArgs=["--no-optional-locks","-c","core.fsmonitor=false","-c","safe.directory="+root,"-C",root];
   const pin=await command(git.source,git.sha256,[...gitArgs,"rev-parse","HEAD","HEAD^{tree}"],"candidate-pin");
@@ -135,6 +141,11 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   // The backend is observed as source only. esbuild discovers import edges;
   // emitted diagnostic bytes are NOT installed or used as compiled provenance.
   const graph=await build({stdin:{contents:backend.body.toString("utf8"),resolveDir:root,sourcefile:"backend.ts",loader:"ts"},
+   // The installed entrypoint is loaded BEFORE it imports the backend. Its
+   // eager imports need the same retained package closure, even when the
+   // backend does not call their historical exports.
+   entryPoints:[join(root,o.profile==="web2-first-song/1"?"deploy/linux/web2-service.ts":"deploy/linux/local-install-main.ts")],
+   outdir:join(o.outputDirectory,"analysis-only"),
    bundle:true,write:false,platform:"node",format:"esm",target:"es2024",metafile:true,packages:"external",
    external:["node:*","cloudflare:*","miniflare:*"],logLevel:"silent"});
   assert(graph.metafile);
@@ -169,6 +180,16 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const sql=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),migrationRoot,JSON.stringify(names)],"split-migrations");
   const migrationPlan:Parameters<typeof buildCompleteLinuxArtifacts>[0]["migrationPlan"]=JSON.parse(await readFile(sql.stdoutPath,"utf8"));
   assert.deepEqual(migrationPlan.map(row=>row.name),names);
+  let web2Schema:Parameters<typeof buildCompleteLinuxArtifacts>[0]["web2Schema"];
+  if(o.profile==="web2-first-song/1"){
+   // These are schema prerequisites only; application learning/names/Dance
+   // remain disabled by the separately verified first-song configuration.
+   assert(Object.values(migrations).every(Boolean),"web2_fresh_schema_requires_complete_pinned_base");
+   const overlays=["packages/community/catalog-phase-rebuild.sql","packages/community/catalog-obligation.sql","packages/community/native-business.sql"];
+   const split=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),root,JSON.stringify(overlays),"web2-first-song/1"],"split-web2-schema");
+   web2Schema={schema:"pirate.linux-web2-schema/1",overlays:JSON.parse(await readFile(split.stdoutPath,"utf8"))};
+   assert.deepEqual(web2Schema.overlays.map(row=>row.name),overlays);
+  }
   const actorValue:unknown=JSON.parse((await bytes(o.actorsFile)).body.toString("utf8"));assert(Array.isArray(actorValue),"actual_selected_actor_manifest_required");
   const actorOutputs=new Set<string>(),reserved=new Set(["application.mjs","queue.mjs","maintenance.mjs","full-launch.mjs",
    "full-startup.worker.mjs","cold-reconcile.worker.mjs","selected-handler-observer.worker.mjs","maintenance.bootstrap.mjs",
@@ -197,23 +218,31 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   }
   const unique=(rows:Copied[])=>{const map=new Map<string,Copied>();for(const row of rows){const old=map.get(row.output);assert(!old || old.sha256===row.sha256,"selected_output_collision");map.set(row.output,row);}return [...map.values()].sort((a,b)=>a.output.localeCompare(b.output));};
   const selectedBackend=unique(backendModules),selectedToolchain=unique(toolchainModules);
-  const inventory={sourceHead:o.head,sourceTree:o.tree,backendModules:selectedBackend,toolchainModules:selectedToolchain,
+  const inventory={sourceHead:o.head,sourceTree:o.tree,...(o.profile?{profile:o.profile}:{}),backendModules:selectedBackend,toolchainModules:selectedToolchain,
    wizardFiles,nativeModules,node:{path:node.source,sha256:node.sha256},native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
-   migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),actorModules,licenses};
+   migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),
+   ...(web2Schema?{web2Schema:web2Schema.overlays.map(({name,sha256})=>({name,sha256}))}:{}),actorModules,licenses};
   const inventoryBytes=Buffer.from(JSON.stringify(inventory)+"\n"),inventorySha256=hash(inventoryBytes);
   await writeFile(join(o.outputDirectory,"build-inputs.json"),inventoryBytes,{flag:"wx",mode:0o600});
   await lease.record("inputs-pinned",{inventorySha256,inventoryPath:join(o.outputDirectory,"build-inputs.json")});
   await lease.assertHeld();abort.signal.throwIfAborted();
-  const built=await buildCompleteLinuxArtifacts({sourceRoot:root,assetDirectory:inside(root,assets),output:join(o.outputDirectory,"release"),rawOutputDirectory:compilerRaw,lease,
+  const built=await buildCompleteLinuxArtifacts({...(o.profile?{profile:o.profile}:{}),sourceRoot:root,assetDirectory:inside(root,assets),output:join(o.outputDirectory,"release"),rawOutputDirectory:compilerRaw,lease,
    migrations,node:node.source,nodeSha256:node.sha256,esbuildCLI:esbuildCLI.source,esbuildCLISha256:esbuildCLI.sha256,
    esbuildNative:esbuildNative.source,esbuildNativeSha256:esbuildNative.sha256,signal:abort.signal,environment:env,
    backendModules:selectedBackend,toolchainModules:selectedToolchain.map(row=>({...row,executable:row.output.endsWith("/bin/esbuild")})),wizardFiles,
-   actorModules,migrationPlan,native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
+   actorModules,migrationPlan,web2Schema,native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
    nativeModules:nativeModules.map(row=>({path:row.source,output:row.output,sha256:row.sha256})),licenses});
+  await lease.assertHeld();abort.signal.throwIfAborted();
+  // Exercise the REAL retained Node/tsx/source package graph before an image
+  // is built. Module import is not a service start or installation proof.
+  const installedMain=join(built.output,"source/deploy/linux/",o.profile==="web2-first-song/1"?"web2-service.ts":"local-install-main.ts");
+  await runOwnedCommand({lease,executable:join(built.output,built.execution.node),executableSha256:built.execution.nodeSha256,
+   argv:["--import",join(built.output,built.execution.loader),"--input-type=module","-e","await import("+JSON.stringify(installedMain)+")"],
+   environment:env,cwd:built.output,outputDirectory:raw,name:"installed-entrypoint-import",seconds:60,signal:abort.signal});
   await lease.assertHeld();abort.signal.throwIfAborted();
   await lease.record("artifacts-built",{inventorySha256,output:built.output,dockerExecuted:false,qualification:"UNRUN"});
   abort.signal.throwIfAborted();assert(performance.now()<deadline,"candidate_build_deadline");
-  await writeFile(join(o.outputDirectory,"built-artifacts.json"),JSON.stringify({files:built.files,sourceHashes:built.sourceHashes,execution:built.execution,output:built.output,inventorySha256,dockerExecuted:false,qualification:"UNRUN"})+"\n",{flag:"wx",mode:0o600});
+  await writeFile(join(o.outputDirectory,"built-artifacts.json"),JSON.stringify({releaseSchema:built.releaseSchema,files:built.files,sourceHashes:built.sourceHashes,execution:built.execution,output:built.output,inventorySha256,dockerExecuted:false,qualification:"UNRUN"})+"\n",{flag:"wx",mode:0o600});
   abort.signal.throwIfAborted();assert(performance.now()<deadline,"candidate_build_deadline");
   return {output:built.output,inventorySha256,leaseDirectory,leaseRetained:true,qualification:"UNRUN" as const};
  }catch(error){await lease.record("build-failed-custody-retained",{error:error instanceof Error?error.message:"unknown"});throw error;}
@@ -221,11 +250,13 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
 }
 if(process.argv[1] && await realpath(process.argv[1])===fileURLToPath(import.meta.url)){
  const names=["source-root","head","tree","output-directory","installation-id","operation-id","host-pid-namespace",
-  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds"];
+  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds","profile"];
  const options=Object.fromEntries(names.map(name=>[name,{type:"string" as const}]));
  const {values}=parseArgs({options,strict:true,allowPositionals:false});
  const get=(name:string)=>{const value=values[name];assert(typeof value==="string" && value.length,"required_build_argument: --"+name);return value;};
- try{const result=await buildLocalInstallationCandidate({sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
+ try{const profile=values.profile;
+  assert(profile===undefined || profile==="web2-first-song/1","unknown_linux_build_profile");
+  const result=await buildLocalInstallationCandidate({...(profile?{profile}:{}),sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
   installationId:get("installation-id"),operationId:get("operation-id"),hostPidNamespace:get("host-pid-namespace"),backend:get("backend"),assets:get("assets"),
   wizardDist:get("wizard-dist"),workerd:get("workerd"),workerdSha256:get("workerd-sha256"),schema:get("schema"),schemaSha256:get("schema-sha256"),
   migrationsFile:get("migrations-file"),actorsFile:get("actors-file"),seconds:Number(get("seconds"))});

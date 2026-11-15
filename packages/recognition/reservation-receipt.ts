@@ -6,7 +6,7 @@ const domain={name:"Pirate Accepted Intent Reservation",version:"1"} as const;
 const types={Reservation:[{name:"payloadSha256",type:"bytes32"}]} as const;
 export interface ReservationReceipt {
   schema:"pirate.recognition-reservation-receipt/1";
-  purpose:"accepted_intent" | "posting_bound" | "publication_promoted";
+  purpose:"accepted_intent" | "posting_bound" | "publication_promoted" | "reservation_absent";
   namespace:string; profileSha256:string; communityId:string; configurationRevision:number;
   requestSha256:string; intentSha256:string; reservationId:string; recordingId:string | null;
   state:string; recordingState:string|null; postingSha256:string | null; publicationSha256:string | null;
@@ -17,7 +17,10 @@ export function reservationReceipt(input:unknown):ReservationReceipt {
   exact(p,["schema","purpose","namespace","profileSha256","communityId","configurationRevision","requestSha256",
     "intentSha256","reservationId","recordingId","state","recordingState","postingSha256","publicationSha256","issuedAt","expiresAt"]);
   insist(p.schema==='pirate.recognition-reservation-receipt/1' &&
-    (p.purpose==='accepted_intent'||p.purpose==='posting_bound'||p.purpose==='publication_promoted'),"recognition_reservation_receipt_invalid",503);
+    (p.purpose==='accepted_intent'||p.purpose==='posting_bound'||p.purpose==='publication_promoted'||p.purpose==='reservation_absent'),"recognition_reservation_receipt_invalid",503);
+  insist((p.purpose==='reservation_absent')===(p.state==='absent')&&
+    (p.purpose!=='reservation_absent'||[p.recordingId,p.recordingState,p.postingSha256,p.publicationSha256].every(v=>v===null)),
+    "recognition_reservation_receipt_invalid",503);
   return {schema:p.schema,purpose:p.purpose,namespace:bytes32(p.namespace),profileSha256:bytes32(p.profileSha256),
     communityId:bytes32(p.communityId),configurationRevision:integer(p.configurationRevision,1,2147483647),
     requestSha256:bytes32(p.requestSha256),intentSha256:bytes32(p.intentSha256),reservationId:bytes32(p.reservationId),

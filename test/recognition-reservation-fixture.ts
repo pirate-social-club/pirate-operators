@@ -30,11 +30,15 @@ export async function reservationFixture(options:{secondCreator?:typeof recognit
   // Explicit fresh installation identity, not a ready recording/publication seed.
   await db.prepare('INSERT INTO shared_recognition_installation VALUES(?,?,?,?)').bind(namespace,profile.sha256,journal.epoch,journal.restoreAnchorSha256).run();
   const communities=new Map<string,CanonicalIntentPorts>(),wakes:RecognitionWake[]=[],files=new Map<string,Record<string,unknown>>(),
-    flags={outage:false,indexing:false,lostIdentify:false,lostUpload:false,lostDelete:false,ambiguous:false,loseReserveAck:false,loseBindAck:false,loseCommitAck:false,unknownBeforeUpload:false},
+    flags={outage:false,indexing:false,lostIdentify:false,lostUpload:false,lostDelete:false,ambiguous:false,loseReserveAck:false,loseBindAck:false,loseCommitAck:false,unknownBeforeUpload:false,loseReserveBeforeService:false},
     counts={identifies:0,uploads:0,deletes:0},requests:Array<ReturnType<Request["clone"]>>=[],withdrawn=new Set<string>();
   let runtime:ReturnType<typeof sharedRecognitionRuntime>;
   const transport=async(request:Request)=>{
-    requests.push(request.clone());const path=new URL(request.url).pathname,response=await runtime.fetch(request);
+    requests.push(request.clone());const path=new URL(request.url).pathname;
+    if(path==='/v1/reservations'&&flags.loseReserveBeforeService) {
+      flags.loseReserveBeforeService=false;throw Error('simulated transport loss before central received the original');
+    }
+    const response=await runtime.fetch(request);
     if((path==='/v1/reservations'&&flags.loseReserveAck)||(path.endsWith('/bind')&&flags.loseBindAck)||(path.endsWith('/commit')&&flags.loseCommitAck)) {
       flags.loseReserveAck=flags.loseBindAck=flags.loseCommitAck=false;throw Error('simulated lost central acknowledgement');
     }

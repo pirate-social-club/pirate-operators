@@ -1,0 +1,166 @@
+# Linux Web2 first-song installation
+
+Source slice based on merged enrollment `0510f779568e1ad27525ae2f40cc390fffe33e16`.
+This is an explicit fresh-install profile. Existing HNS create/restore profiles
+retain their validators and history. Qualification uses the actual Linux amd64
+host and records its distribution, kernel, Docker and pinned runtime versions.
+The current host is Linux Mint 22.3 with the Ubuntu Noble base. An exact Ubuntu
+distribution-name match is not an application prerequisite; the real runtime,
+permissions, storage, networking and installation/restart checks determine
+compatibility. A separate Ubuntu VM is not required merely to change that name.
+No public deployment, certificates, credentials or funding have been performed.
+
+## Boundary and failure plan
+
+The Wizard owns its hosted-enrollment client, readable controller consent and UI.
+It supplies `LinuxWeb2Draft` to `createWeb2Installation(hostInputs)`. Host inputs
+come from the installed, authenticated host configuration; browser JSON cannot
+select filesystem paths, executables, RPC providers, signer keys or trust roots.
+Setup starts from a signed `pirate.linux-web2-bootstrap-release/1` containing
+only the immutable source, tools, assets and image inventory. It has no runtime
+graph, community ID or enrollment binding. The host's separately signed binding
+policy fixes its paths, target, expected HTTPS origin, artifact pins, issuer and
+finite validity. The paired Wizard can therefore create and retain a fresh
+community key and Directory installation ID before a runtime exists.
+
+Full host inventories are explicitly bounded to 16 MiB at the affected control
+record reads; the ordinary private-record limit remains 1 MiB. The binder also
+signs a separate compact application release identity, containing only schema,
+source/artifact digests and the installation/durable-scope/Directory binding.
+That exact signature is retained with the bound result and handed to the native
+launcher. The app never accepts a redacted full signature or carries the host
+file inventory into D1. The host independently verifies the full immutable
+inventory, and the launcher requires the compact identity to match that release.
+The app-original limit stays 1 MiB; the issuer key stays outside its container.
+
+Only after the Wizard durably retains its original receipt-bearing install draft
+does `prepare(draft)` invoke the host binder. The binder independently verifies
+the actual enrollment and host, persists the exact binding intent, signs the
+fully bound runtime release and host admission, and syncs their combined original
+result before the strict installer can act. A lost acknowledgement continues the
+same intent and signed identities. Restart reads that result; it does not create
+a replacement community, choose new IDs or register again. Changed drafts,
+graphs, artifacts or host policies refuse rather than overwrite that original.
+
+`prepare(draft)` returns a plan ID/digest and public summary; `apply(selection)`
+rechecks authority and journals before effects; `status(selection)` observes only.
+`close()` detaches setup; it does not delete resources, release unknown custody
+or stop a community. The explicit `web2-service.ts` foreground host service owns
+the Caddy child independently of setup. Only explicit service shutdown stops its
+owned ingress; containers and state remain. This is not a detached daemon or a
+systemd installation. Service startup may resume a previously started original
+after fresh authority/resource checks; a prepared plan without a start intent
+does not authorize starting the community.
+The historical local-install entrypoint remains closed to this new profile;
+the explicit Web2 service is the owning process.
+
+The installed backend acquires `acquireWeb2ServiceControl` and supplies its
+`lease` and `closeControl` to the foreground service. Its stable private
+`active-web2-service.json` excludes a competing control process; every clean boot
+gets a separate retained operation journal. Only after ingress and paired setup
+have stopped does service shutdown close this control lock. App containers and
+data remain running, and backup/whole-writer barriers are never cleared by this
+API. A crashed service retains its lock and refuses automatic takeover. That
+case needs explicit reconciliation; ordinary clean restart needs neither backup
+clearance nor a new enrollment. The process-level integration check proves two
+clean boots, refusal of a concurrent owner and refusal after a killed owner;
+it does not qualify the full installed application's restart.
+
+Hosted status is a hint identifying the original transaction, not a signed chain
+proof. The installer authenticates its exact transaction, accepted Directory V3
+source/deployment, receipt, event, safe block and current configuration. Controller,
+publisher, installation, community, config URI/digest and HTTPS origin must match.
+Registration does not establish DNS/HNS control, verified listing or name issuance.
+The first-song profile leaves names, learning, Dance and dependent features off.
+
+Before implementation, these are the observable failures the proof must cover:
+
+- Forged status/receipt, another community's successful transaction, wrong chain,
+  wrong source or ABI, wrong installation, changed controller/publisher/origin,
+  stale safe state, missing receipt and reorg must refuse before local effects.
+- Mutation during awaited verification cannot replace the captured draft or
+  original operation. Repeated prepare/apply/restart retains the original plan,
+  installation, resource bindings and signed evidence; no adoption of foreign state.
+- Corrupt/missing original evidence, changed signed release, revoked/expired host
+  authority, mismatched target or unsupported schema cannot initialize or start.
+- Failed file/directory sync prevents effects. Lost effects remain uncertain,
+  with the original intent retained; no blind recreate or new operation identity.
+- Wrong Host/SNI, cross-origin writes, forged forwarding/native-readback headers,
+  private operator routes and invalid upstream TLS cannot reach authorized work.
+- Actual application sign-in, upload, publication, media ranges and logout must
+  work through Caddy. Stop/start must preserve DB, objects, jobs, sessions and the
+  publication journal, while using a fresh process boot identity.
+- Selected external services work; an unconfigured origin and cross-origin
+  redirect remain refused. Provider outage is unavailable, never fabricated success.
+
+## HTTPS and persistence
+
+Caddy is a separately pinned host process. Public TCP 80/443 reaches only Caddy;
+the community upstream remains HTTPS on a private loopback port, and the paired
+operator Wizard remains loopback-only. Caddy sends the exact configured public
+Host, verifies the upstream certificate using a pinned CA and server name, and
+does not infer origin from caller-supplied forwarding headers. No on-demand TLS,
+wildcard DNS credentials or insecure upstream TLS bypass is introduced.
+
+Caddy's certificate/account storage persists separately from application DB,
+objects, jobs, scheduler and configuration roots. Application outbound traffic
+uses the existing exact-origin workerd gate; this is not a Docker URL firewall.
+Required RPC, IPFS and managed endpoints are explicit installed inputs.
+The retained host target digest covers the actual containers, ingress and native
+runtime directory. Installation `running` requires a live original Caddy process
+and a real application reply through local Caddy TLS, rechecked against current
+authority. That observation does not establish external DNS/firewall reachability.
+
+The opaque Linux installation ID identifies the host lease and release. The
+Directory installation ID is a separate bytes32 value identifying enrollment.
+The signed host admission binds both; equality is neither required nor invented.
+The paired Wizard borrows the service's custody guard and cannot release its
+persistent operation lease when setup closes.
+
+The fresh Web2 artifact plan explicitly selects the pinned 0001–0019 schema
+prerequisites, followed by the catalog phase, catalog obligation and native
+business source overlays. These schema prerequisites do not enable names,
+learning-results, Dance or rewards in the first-song app configuration. No new
+migration ordinal is assigned and historical installation profiles do not select
+these overlays. Their exact SQL bytes and trigger-aware statement boundaries are
+part of the immutable artifact. The owning schema guards, all three overlays and
+a source/release-bound schema ledger commit in one D1 batch. A failed guard leaves
+neither a partial overlay nor its ledger. Restart compares the complete saved
+schema and source/release before reusing it, preserving application rows rather
+than rerunning the transition. Unknown schema or changed source refuses. Two
+real local-D1 integration cases cover atomic refusal, account-data retention,
+exact restart and altered source/schema; full native installation remains separate.
+
+Local acceptance uses real Anvil, native workerd/D1/R2, real Caddy TLS and the
+actual browser application. Fixture CA evidence proves local protocol behavior;
+public DNS, public ACME issuance and the actual selected host remain separate
+acceptance. No backup, restore, upgrade or HNS migration is a first-install gate.
+
+Eight focused cases passed locally: real Caddy adaptation/validation and TLS,
+exact Host/private-route/header checks, untrusted upstream rejection, persistent
+CA restart, failed startup acknowledgement, failed executable start, lost lease
+and bounded stopped-child cleanup; real-chain enrollment/source/configuration/
+safe-state checks and mutation during a read; paired HTTP setup; and immutable
+D1 initialization with actual login/session binding. The paired close case also
+passed after adding recovery from an interrupted cleanup phase. Root TypeScript
+passed. These are component and integration checks on the current host. Later
+source changes require appropriate requalification. The installed
+service/application/browser and full restart journey remain UNRUN. The W1 Web2
+application profile and consumer are explicit source dependencies; validators
+are imported from their owner, never copied into this installer.
+
+Local ingress tests require an explicitly pinned `PIRATE_CADDY_BINARY`,
+`PIRATE_CADDY_SHA256` and private `TMPDIR`. Local CI installs Caddy 2.11.9 before
+network isolation, checks both the pinned archive SHA-256 and upstream SHA-512,
+then checks executable bytes. Fixture TLS sets `skip_install_trust`; no system
+certificate store changes or public CA requests are part of these tests.
+
+Primary references checked 2026-11-15:
+[Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
+[upstream TLS and Host](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy),
+[internal HTTP/HTTPS ports](https://caddyserver.com/docs/caddyfile/options).
+
+The first actual web-asset build refused a missing installed Solid Vite plugin.
+The source lock remains unchanged; its owned application dependency directory is
+being reconciled from that exact lock before a new build. This failed attempt
+does not qualify the late binder or installed journey.

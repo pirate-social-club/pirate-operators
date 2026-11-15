@@ -12,6 +12,8 @@ export interface NativeGraph {
   migrationPlanFile:string;
   coldPlanFile?:string;
   probePlanFile:string;readbackKeyFile:string;
+  /** Disposable local qualification only; absent on the public-provider path. */
+  fixtureTransport?:{schema:"pirate.linux-local-fixture-transport/1";peer:string;routes:Array<{origin:string;upstream:string}>};
 }
 const q=JSON.stringify;
 const binding=(v:NativeBinding)=>{
@@ -38,20 +40,37 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   for(const key of ["database","objects","jobs","scheduler"])assert(g.stateRoots[key]?.startsWith("/"),"native_durable_root_required");
   const module=(file:string)=>{assert(/^[A-Za-z0-9_.-]+$/.test(file));return g.releaseRoot+"/"+file;};
   const disk=(name:string,path:string)=>`(name=${q(name)},disk=(path=${q(path)},writable=true,allowDotfiles=true))`;
-  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string,outbound="deny")=>
+  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string,outbound="deny",experimental=false)=>
     `(name=${q(name)},worker=(modules=[(name="entry.mjs",esModule=embed ${q(module(file))})],compatibilityDate="2026-11-04",
-       compatibilityFlags=["nodejs_compat","service_binding_extra_handlers"],bindings=[${bindings}],
+       compatibilityFlags=${JSON.stringify(["nodejs_compat","service_binding_extra_handlers",...(experimental?["experimental"]:[])])},bindings=[${bindings}],
        ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
   const ns=(service:string,cls:string,key:string)=>`(className=${q(cls)},uniqueKey=${q(key)},enableSql=true)`;
   const doBinding=(name:string,service:string,cls:string)=>`(name=${q(name)},durableObjectNamespace=(serviceName=${q(service)},className=${q(cls)}))`;
   const objectEntry=(name:string,service:string,cls:string,namespace:string)=>worker(name,"object-entry.worker.js",
     `(name="MINIFLARE_NAMESPACE",text=${q(namespace)}),${doBinding("MINIFLARE_OBJECT",service,cls)}`);
+  const fixture=g.fixtureTransport;
+  if(fixture){
+    assert(fixture.schema==="pirate.linux-local-fixture-transport/1" && fixture.routes.length>0 && fixture.routes.length<=16);
+    const numbers=fixture.peer.split(".").map(Number);
+    assert(numbers.length===4 && numbers.every(n=>Number.isInteger(n)&&n>=0&&n<=255) &&
+      numbers.join(".")===fixture.peer && (numbers[0]===10 || numbers[0]===172 && numbers[1]!>=16 && numbers[1]!<=31 ||
+      numbers[0]===192 && numbers[1]===168),"explicit_private_fixture_peer_required");
+    assert(new Set(fixture.routes.map(x=>x.origin)).size===fixture.routes.length);
+    for(const route of fixture.routes){
+      const origin=new URL(route.origin),target=new URL(route.upstream);
+      assert(["https:","http:"].includes(origin.protocol) && origin.origin===route.origin && g.allowedOrigins.includes(route.origin) &&
+        (origin.hostname==="127.0.0.1" || origin.hostname==="localhost" || origin.hostname.endsWith(".example") || origin.hostname.endsWith(".test")),
+        "fixture_cannot_replace_public_provider");
+      assert(target.protocol==="http:" && target.hostname===fixture.peer && target.port && !target.username && !target.password &&
+        !target.search && !target.hash && /^\/fixture\/[a-z0-9-]+$/.test(target.pathname),"exact_owned_fixture_route_required");
+    }
+  }
   const services=[
     objectEntry("d1-entry","d1-backend","D1DatabaseObject","database-"+scope),
-    worker("d1-backend","database.worker.js","",ns("d1-backend","D1DatabaseObject","database-v1-"+scope),"database-storage"),
+    worker("d1-backend","database.worker.js","",ns("d1-backend","D1DatabaseObject","database-v1-"+scope),"database-storage","deny",true),
     objectEntry("media-entry","media-backend","R2BucketObject","objects-"+scope),
     worker("media-backend","bucket.worker.js",`(name="MINIFLARE_BLOBS",service="object-storage")`,
-      ns("media-backend","R2BucketObject","objects-v1-"+scope),"object-storage"),
+      ns("media-backend","R2BucketObject","objects-v1-"+scope),"object-storage","deny",true),
     worker("queue","queue.mjs",doBinding("QUEUE_STATE","queue","PersistentQueue")+
       ',(name="CONSUMER",service="application"),(name="QUEUE_CONFIGURATION",text='+q(JSON.stringify(g.queueConfiguration))+')',
       ns("queue","PersistentQueue","queue-v1-"+scope),"queue-storage"),
@@ -62,7 +81,10 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     disk("queue-storage",g.stateRoots.jobs!),disk("scheduler-storage",g.stateRoots.scheduler!),
     '(name="asset-files",disk=(path='+q(g.releaseRoot+"/assets")+',writable=false))',
     worker("assets","assets.worker.mjs",'(name="FILES",service="asset-files"),(name="ASSET_INDEX_JSON",text=embed '+q(g.releaseRoot+"/asset-index.json")+')'),
-    worker("egress","egress-policy.worker.mjs",'(name="ALLOWED_ORIGINS",text='+q(JSON.stringify(g.allowedOrigins))+')',"",undefined,"internet"),
+    worker("egress",fixture?"web2-fixture-egress.worker.mjs":"egress-policy.worker.mjs",
+      fixture?'(name="FIXTURE_ROUTES_JSON",text='+q(JSON.stringify(fixture.routes))+')':
+        '(name="ALLOWED_ORIGINS",text='+q(JSON.stringify(g.allowedOrigins))+')',"",undefined,fixture?"fixture-peer":"internet"),
+    ...(fixture?['(name="fixture-peer",network=(allow=['+q(fixture.peer+"/32")+']))']:[]),
     '(name="internet",network=(allow=["public"]))',
     worker("deny","deny.worker.mjs",""),
   ];

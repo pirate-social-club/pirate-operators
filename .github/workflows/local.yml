@@ -47,12 +47,30 @@ jobs:
           fi
           ffmpeg -version
           ffprobe -version
+      - name: Install pinned Caddy for real HTTPS ingress tests
+        run: |
+          set -euo pipefail
+          tool="$RUNNER_TEMP/pirate-caddy-2.11.9"
+          mkdir -m 700 "$tool"
+          base=https://github.com/caddyserver/caddy/releases/download/v2.11.9
+          curl --fail --location --retry 2 --max-time 90 "$base/caddy_2.11.9_checksums.txt" -o "$tool/checksums.txt"
+          curl --fail --location --retry 2 --max-time 90 "$base/caddy_2.11.9_linux_amd64.tar.gz" -o "$tool/caddy_2.11.9_linux_amd64.tar.gz"
+          cd "$tool"
+          echo 'e4e1e43b78299733b19b8aeab8abebcf57aef4f5dae617be125016f9e4e0299f  checksums.txt' | sha256sum -c -
+          echo '5b8cb7faf8726a2028ad96a66e54e6e81e8f361bc6175e5d22bbd997cc5177fb  caddy_2.11.9_linux_amd64.tar.gz' | sha256sum -c -
+          # Upstream uses SHA512; GitHub asset SHA256 is pinned above as well.
+          grep '  caddy_2.11.9_linux_amd64.tar.gz$' checksums.txt | sha512sum -c -
+          tar --extract --gzip --file caddy_2.11.9_linux_amd64.tar.gz --no-same-owner caddy LICENSE README.md
+          echo 'a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf  caddy' | sha256sum -c -
+          chmod 555 caddy
+          printf 'PIRATE_CADDY_BINARY=%s/caddy\n' "$tool" >> "$GITHUB_ENV"
+          echo 'PIRATE_CADDY_SHA256=a563843e11cbce39c557bd429ebb787d56f49d51d9bbb3292cd9b36b37a60cdf' >> "$GITHUB_ENV"
       - name: Run assigned root integration shard without external networking
         env:
           TEST_SHARD: ${{ matrix.shard }}/4
         run: |
           mkdir -p .local
-          sudo --preserve-env=PATH,HOME,TEST_SHARD unshare --net bash -c '
+          sudo --preserve-env=PATH,HOME,TEST_SHARD,PIRATE_CADDY_BINARY,PIRATE_CADDY_SHA256 unshare --net bash -c '
             set -euo pipefail
             ip link set lo up
             # Native filesystem tests need fresh private scratch, including /run.

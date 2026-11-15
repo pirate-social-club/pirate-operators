@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createServer } from "node:net";
-import { chmod, link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { artifactFiles, buildCommunityArtifacts, communityBuildEnvironment, communityClientInventory } from "../harness/community-artifacts.ts";
@@ -47,6 +47,13 @@ test("portable artifacts build the real application with explicit asset fixtures
     assert.ok(!result.sourcePaths.includes("harness/community-package.ts"));
     assert.ok(!result.sourcePaths.includes("harness/creator-state.ts"));
     assert.ok(result.sourcePaths.every((path) => !path.startsWith("/") && !path.startsWith("..")));
+    const binarySources=result.sourcePaths.filter(path=>/\.(ttf|png)$/.test(path));
+    assert.ok(binarySources.length>0,"the actual client inventory includes binary assets");
+    for(const path of binarySources){
+      const bytes=await readFile(path);
+      assert.equal(result.sourceHashes[path],`0x${createHash("sha256").update(bytes).digest("hex")}`,
+        "source commitment must preserve the original binary bytes: "+path);
+    }
   } finally { await f.dispose(); }
 });
 
