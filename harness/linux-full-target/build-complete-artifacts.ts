@@ -46,7 +46,9 @@ export async function buildCompleteLinuxArtifacts(input:{
   ["full-startup.worker.mjs","deploy/linux/full-startup.worker.ts"],
   ["selected-handler-observer.worker.mjs","deploy/linux/selected-handler-observer.worker.ts"],
   ["maintenance.bootstrap.mjs","deploy/linux/maintenance.bootstrap.mjs"],
-  ["full-launch.mjs",web2?"deploy/linux/web2-launch.ts":"deploy/linux/full-launch.ts"],...input.actorModules.map(x=>[x.output,x.source])
+  ["full-launch.mjs",web2?"deploy/linux/web2-launch.ts":"deploy/linux/full-launch.ts"],
+  ...(web2?[["web2-fixture-egress.worker.mjs","deploy/linux/web2-fixture-egress.worker.ts"]]:[]),
+  ...input.actorModules.map(x=>[x.output,x.source])
  ];
  for(const [output,source] of modules){
   assert(source && output);sourceHashes[source]=sha(await readFile(join(input.sourceRoot,source)));
