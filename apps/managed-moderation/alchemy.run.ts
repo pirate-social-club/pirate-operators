@@ -39,10 +39,9 @@ const selectedPackage = fresh || helperOnly ? (() => {
 const signingAssets = selectedPackage?.operatorSigning ? {
   assets: { directory: "./operator-signing", runWorkerFirst: true, htmlHandling: "none" as const, notFoundHandling: "none" as const },
 } : {};
-export default Alchemy.Stack(
-  prefix,
-  { providers: Cloudflare.providers(), state: encryptedLocalState() },
-  Effect.gen(function* () {
+// The selected production resource program is also collected by offline package
+// qualification using Alchemy's actual StackContext and Config resolution.
+export const selectedManagedResources = Effect.gen(function* () {
     if (helperOnly) {
       if (!selectedPackage?.operatorSigning) throw new Error("operator_signing_closure_unavailable");
       const helper = yield* Cloudflare.Worker("SigningHelper", {
@@ -112,7 +111,7 @@ export default Alchemy.Stack(
         FILEBASE_IPFS_TOKEN: Config.Redacted("FILEBASE_IPFS_TOKEN"),
         ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
         ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
-        OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),
+        ...(fresh ? {} : { OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY") }),
         MODERATION_SIGNER_PRIVATE_KEY: Config.Redacted(
           "MODERATION_SIGNER_PRIVATE_KEY",
         ),
@@ -155,5 +154,9 @@ export default Alchemy.Stack(
         recognitionDatabase: recognitionDB.databaseId, recognitionQueue: recognitionJOBS.queueId };
     }
     return { origin: app.url, database: DB.databaseId, queue: JOBS.queueId };
-  }),
+  });
+export default Alchemy.Stack(
+  prefix,
+  { providers: Cloudflare.providers(), state: encryptedLocalState() },
+  selectedManagedResources,
 );

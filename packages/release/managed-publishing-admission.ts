@@ -146,7 +146,9 @@ interface AdmissionRow { original_id: string; admission_reference: string; selec
   registration_json: string; state: "prepared" | "attaching" | "attached"; attached_at: number | null }
 
 export class ManagedPublishingJournal {
-  constructor(readonly db: D1Database, readonly config: ManagedPublishingConfiguration) {}
+  readonly db: D1Database;
+  readonly config: ManagedPublishingConfiguration;
+  constructor(db: D1Database, config: ManagedPublishingConfiguration) { this.db = db; this.config = config; }
   async installation() {
     const row = await this.db.withSession("first-primary").prepare("SELECT epoch,restore_anchor_sha256 FROM managed_publishing_installation WHERE origin=?")
       .bind(this.config.origin).first<{ epoch: string; restore_anchor_sha256: string }>();

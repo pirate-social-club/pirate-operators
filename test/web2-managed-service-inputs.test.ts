@@ -170,3 +170,37 @@ test("actual fresh packaged Alchemy entry refuses absent and incompatible profil
     await f.artifact("v3-packaged-entry-early-refusal");
   } finally { await f.close(); }
 });
+
+
+// v4: installed Alchemy resources + actual Effect Config resolution, no cloud provider.
+test("selected Alchemy profiles resolve required redacted bindings while fresh catalog defers only OpenAI", async () => {
+  const { managedPackageEntryBoundaryFixture } = await import("./fixtures/managed-first-song-services.ts"), f = await managedPackageEntryBoundaryFixture();
+  try {
+    const fresh = await f.collectSelectedProfile("managed-web2", ["OPENAI_API_KEY"]);
+    assert.equal(fresh.config.ok, true, fresh.config.error);
+    assert.deepEqual(fresh.resources.map(r => r.id), ["App", "Consumer", "Database", "Jobs", "Media", "RecognitionApp", "RecognitionConsumer", "RecognitionDatabase", "RecognitionJobs"]);
+    const app = fresh.resources.find(r => r.id === "App")!;
+    assert.deepEqual(app.secrets, ["ACRCLOUD_ACCESS_KEY", "ACRCLOUD_ACCESS_SECRET", "FILEBASE_IPFS_TOKEN", "MODERATION_SIGNER_PRIVATE_KEY"]);
+    assert.equal(app.env.includes("OPENAI_API_KEY"), false);
+    assert.equal(fresh.config.allRedacted, true);
+    const noSigner = await f.collectSelectedProfile("managed-web2", ["OPENAI_API_KEY", "MODERATION_SIGNER_PRIVATE_KEY"]);
+    assert.equal(noSigner.config.ok, false); assert.match(noSigner.config.error!, /MODERATION_SIGNER_PRIVATE_KEY/);
+    for (const profile of ["historical-owner", "historical-registered"] as const) {
+      const historical = await f.collectSelectedProfile(profile, ["OPENAI_API_KEY"]);
+      assert.equal(historical.config.ok, false); assert.match(historical.config.error!, /OPENAI_API_KEY/);
+      const complete = await f.collectSelectedProfile(profile, []);
+      assert.equal(complete.config.ok, true, complete.config.error); assert.equal(complete.config.allRedacted, true);
+      assert.deepEqual(complete.resources.map(r => r.id), ["App", "Consumer", "Database", "Jobs", "Media"]);
+      assert.deepEqual(complete.resources.find(r => r.id === "App")!.secrets,
+        ["ACRCLOUD_ACCESS_KEY", "ACRCLOUD_ACCESS_SECRET", "FILEBASE_IPFS_TOKEN", "MODERATION_SIGNER_PRIVATE_KEY", "OPENAI_API_KEY",
+          ...(profile === "historical-registered" ? ["REGISTRATION_OPERATOR_PRIVATE_KEY"] : [])].sort());
+    }
+    const helper = await f.collectSelectedProfile("operator-signing-only", ["OPENAI_API_KEY", "MODERATION_SIGNER_PRIVATE_KEY"]);
+    assert.equal(helper.config.ok, true, helper.config.error);
+    assert.deepEqual(helper.resources.map(r => r.id), ["SigningHelper"]);
+    assert.deepEqual(helper.resources[0]!.secrets, []); assert.deepEqual(helper.resources[0]!.crons, []);
+    assert.deepEqual(helper.resources[0]!.env, ["MANAGED_PUBLISHING_PROFILE", "OPERATOR_SIGNING_PROFILE_JSON"]);
+    assert.equal(helper.resources.some(r => /D1|R2|Queue/.test(r.type)), false);
+    await f.artifact("v4-actual-profile-config-resolution");
+  } finally { await f.close(); }
+});

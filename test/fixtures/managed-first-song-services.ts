@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { request as httpRequest } from "node:http";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, readFile, writeFile, mkdir, readdir, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,15 +14,15 @@ import { join } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { Miniflare } from "miniflare";
+import { CoreHeaders, Miniflare, Response as MiniflareResponse } from "miniflare";
 import { sha256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { canonical, hashJson, hashText } from "../../packages/community/common.ts";
+import { CommunityError, canonical, hashJson, hashText } from "../../packages/community/common.ts";
 import { address } from "../../packages/community/manifest-core.ts";
 import { web2SongChain, web2Owner, web2Controller, web2Publisher } from "./web2-first-song-chain.ts";
 import { canonicalHttpFixture } from "./canonical-http.ts";
 import { ownerGrantDigest, ownerBudgetKey, ownerWindowCondition, validateOwnerGrant, type OwnerBudgetGrant } from "../../packages/release/owner-grant.ts";
-import { authenticatedManagedRegistration, provisionManagedPublishingInputs, revokeManagedPublishingAdmission,
+import { authenticatedManagedRegistration, managedDigest, provisionManagedPublishingInputs, revokeManagedPublishingAdmission,
   type ManagedPublishingRegistration, type ManagedPublishingConfiguration } from "../../packages/release/managed-publishing-admission.ts";
 import { provisionSharedRecognitionInputs, type SharedRecognitionConfiguration } from "../../services/shared-recognition-configuration.ts";
 import { readPrivateJSON, signRecord, type SignedRecord, type TrustAnchor } from "../../deploy/linux/installed-records.ts";
@@ -52,8 +53,32 @@ import { validateOwnerAuthorization } from "../../packages/community/owner-autho
 import { leaseJob } from "../../packages/community/publication-store.ts";
 import type { CatalogPublicationPorts } from "../../packages/community/catalog-publication.ts";
 import type { AccountSession } from "../../packages/community/accounts.ts";
+import type { OperatorSigningClosure } from "../../services/managed-publishing-worker.ts";
 import type { Recording, VerifiedPublication } from "../../packages/recognition/model.ts";
 
+// Preserve bytes across the two installed Fetch implementations instead of
+// asserting structural compatibility or casting their private platform fields.
+async function nodeResponse(response: Awaited<ReturnType<Miniflare["dispatchFetch"]>>) {
+  return new Response([204, 205, 304].includes(response.status) ? null : await response.arrayBuffer(),
+    { status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers) });
+}
+async function workerRequestInit(request: Request) {
+  return { method: request.method, headers: Object.fromEntries(request.headers), redirect: "manual" as const,
+    ...(!["GET", "HEAD"].includes(request.method) ? { body: await request.arrayBuffer() } : {}) };
+}
+interface AdmissionJSON extends Record<string, unknown> { state?: string; selectionDigest?: string; admissionReference?: string; grantDigest?: string }
+class AdmissionResponse extends Response {
+  override async json(): Promise<AdmissionJSON> {
+    const value: unknown = await super.json();
+    function checked(input: unknown): asserts input is AdmissionJSON {
+      assert(input !== null && typeof input === "object" && !Array.isArray(input));
+      for (const key of ["state", "selectionDigest", "admissionReference", "grantDigest"])
+        if (key in input) assert.equal(typeof Reflect.get(input, key), "string");
+    }
+    checked(value); return value;
+  }
+}
+const serviceEvidenceRoot = process.env.MANAGED_SERVICES_EVIDENCE_DIRECTORY ?? ".local/managed-first-song-service-tests";
 const wizardRequire = createRequire(new URL("../../apps/community-wizard/package.json", import.meta.url));
 async function schema(db: D1Database, path: string) {
   const owned = createRequire(wizardRequire.resolve("@alchemy.run/cloudflare/D1/Database"));
@@ -87,7 +112,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     profileBody = { schema: "pirate.recognition-profile/1" as const, namespace, origin: "https://recognition.web2.example",
       signer: signer.address.toLowerCase(), providerBindingSha256: hashJson(binding) },
     profile: RecognitionProfile = { ...profileBody, sha256: hashJson(profileBody) };
-  const chain = await web2SongChain(profile); cleanups.push(() => chain.close());
+  const chain = await web2SongChain(profile, { evidenceDirectory: join(serviceEvidenceRoot, runId, "chain") }); cleanups.push(() => chain.close());
   const pair = generateKeyPairSync("ed25519"),
     privateIssuer = pair.privateKey.export({ format: "der", type: "pkcs8" }),
     trust: TrustAnchor = { keyId: "fixture-pirate-issuer", spki: pair.publicKey.export({ format: "der", type: "spki" }).toString("base64") },
@@ -96,7 +121,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     inviteId = hashText("retained managed-service fixture invitation"), custodyBody = { keyReference: "publisher", generation: 1,
       installationId, publisher: chain.current().publisher },
     draft = { schema: "pirate.owner-publishing-grant/1" as const, sha256: hashText("digest placeholder unused by digest projection"),
-      communityId: chain.profile.communityId, communityOrigin: chain.deployment.origin, ownerWallet: address(web2Owner.address),
+      communityId: chain.profile.communityId, communityOrigin: chain.deployment.origin, ownerWallet: address(web2Owner.address.toLowerCase()),
       policy: chain.current().policies.admission, destination: { chainId: 6343, postsContract: chain.deployment.posts.address,
         publisher: chain.current().publisher }, validFrom: now - 30, expiresAt: now + (options.grantSeconds ?? 1800),
       limits: { songs: 2, pinAdds: 10, pinBytes: "16777216", recognitionRequests: 8, postFeeWei: "90000000000000" } },
@@ -105,7 +130,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       admissionReference: "manual-pilot:" + randomUUID(), serviceOrigin: chain.deployment.managedOrigin,
       scope: { schema: "pirate.web2-owner-grant-scope/1", enrollmentId: hashText(`hosted-enrollment:${inviteId}`), installationId: chain.profile.installationId,
         hostInstallationId: installationId, deploymentDigest: hashJson(chain.deployment), communityId: chain.profile.communityId,
-        origin: chain.deployment.origin, controller: chain.current().controller, ownerWallet: address(web2Owner.address),
+        origin: chain.deployment.origin, controller: chain.current().controller, ownerWallet: address(web2Owner.address.toLowerCase()),
         policy: chain.current().policies.admission, chainId: 6343, postsContract: chain.deployment.posts.address, publisher: chain.current().publisher },
       grant, deployment: chain.deployment, configurationSha256: hashJson(chain.current()),
       registrationOriginal: { plan: planDocument(chain.original.plan), rawTransaction: chain.original.rawTransaction,
@@ -127,11 +152,11 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     RECOGNITION_SIGNER_PRIVATE_KEY: signerKey, ACRCLOUD_HOST: credentials.host, ACRCLOUD_ACCESS_KEY: credentials.accessKey,
     ACRCLOUD_ACCESS_SECRET: credentials.accessSecret, ACRCLOUD_CATALOG_TOKEN: "explicit-outside-provider-fixture-token" };
   const community = await communityRuntime(); cleanups.push(() => community.dispose());
-  let providerRequests = 0, uploads = 0, identifies = 0, lostUpload = false, lostIdentify = false, providerOutage = false, consume = true, pinAdds = 0;
+  let providerRequests = 0, uploads = 0, identifies = 0, deletes = 0, lostUpload = false, lostIdentify = false, providerOutage = false, consume = true, pinAdds = 0;
   let canonicalActionHook: { action: string; run(): Promise<unknown> } | undefined;
   const files = new Map<string, { id: number; bucket_id: number; title: string; acr_id: string; state: number; user_defined: unknown }>();
   let canonicalPorts: CatalogPublicationPorts | undefined, afterRead: (() => Promise<unknown>) | undefined;
-  const outbound = async (request: { url: string; method: string; headers: Iterable<[string, string]>; arrayBuffer(): Promise<ArrayBuffer> }) => {
+  const outsideResponse = async (request: { url: string; method: string; headers: Iterable<[string, string]>; arrayBuffer(): Promise<ArrayBuffer> }) => {
     const url = new URL(request.url);
     if (url.origin === new URL(chain.deployment.rpcUrl).origin) {
       const response = await fetch(request.url, { method: request.method, headers: Object.fromEntries(request.headers),
@@ -142,7 +167,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       const bytes = await request.arrayBuffer(), wire = JSON.parse(new TextDecoder().decode(bytes)),
         response = await http!.transport(new Request(request.url, { method: request.method,
           headers: Object.fromEntries(request.headers), body: bytes, redirect: "manual" }));
-      if (canonicalActionHook?.action === wire.payload?.action) { const hook = canonicalActionHook; canonicalActionHook = undefined; await hook.run(); }
+      if (canonicalActionHook && canonicalActionHook.action === wire.payload?.action) { const hook = canonicalActionHook; canonicalActionHook = undefined; await hook.run(); }
       return response;
     }
     if (url.pathname === "/api/v0/add") { pinAdds++; return new Response(null, { status: 503 }); }
@@ -157,6 +182,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       return Response.json({ status: { code: row ? 0 : 1001 }, metadata: { custom_files: row ? [{ acrid: row.acr_id }] : [] } });
     }
     assert.equal(url.origin, binding.catalogOrigin);
+    if (request.method === "DELETE") deletes++;
     if (request.method === "POST") {
       uploads++;
       const form = await new Request(request.url, { method: "POST", headers: Object.fromEntries(request.headers), body: await request.arrayBuffer() }).formData(),
@@ -168,6 +194,11 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     }
     return Response.json({ data: [...files.values()].filter(row => row.title === url.searchParams.get("search")), next_page_url: null });
   };
+  const outbound = async (request: Parameters<typeof outsideResponse>[0]) => {
+    const response = await outsideResponse(request);
+    return new MiniflareResponse([204, 205, 304].includes(response.status) ? null : await response.arrayBuffer(),
+      { status: response.status, statusText: response.statusText, headers: Object.fromEntries(response.headers) });
+  };
   const managedOptions = () => ({ modules: true, script: managedCode, compatibilityDate: "2026-08-06",
     compatibilityFlags: ["nodejs_compat"], d1Databases: { DB: "managed-db" }, r2Buckets: ["MEDIA"], queueProducers: { JOBS: "managed" },
     bindings: managedBindings, outboundService: outbound });
@@ -175,16 +206,26 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     compatibilityFlags: ["nodejs_compat"], d1Databases: { DB: "recognition-db", ADMISSION_DB: "managed-db" }, queueProducers: { JOBS: "recognition" },
     ...(consume ? { queueConsumers: { recognition: { maxBatchSize: 1, maxBatchTimeout: 0, maxRetries: 1 } } } : {}),
     bindings: recognitionBindings, outboundService: outbound });
-  const optionsForRuntime = () => ({ workers: [{ name: "managed", ...managedOptions() }, { name: "recognition", ...recognitionOptions() }] });
-  const runtime = new Miniflare(optionsForRuntime()), updateRuntime = () => runtime.setOptions(optionsForRuntime());
+  const runtimeState = await mkdtemp(join(tmpdir(), "pirate-managed-journals-"));
+  await mkdir(join(serviceEvidenceRoot, runId), { recursive: true, mode: 0o700 });
+  await writeFile(join(serviceEvidenceRoot, runId, "runtime-journals.json"), JSON.stringify({ runtimeState,
+    retention: "Owned actual managed/recognition D1 files retained in private inherited TMPDIR; no keys or credentials copied" }), { mode: 0o600 });
+  const optionsForRuntime = () => ({ d1Persist: join(runtimeState, "d1"), workers: [{ name: "managed", ...managedOptions() }, { name: "recognition", ...recognitionOptions() }] });
+  const runtime = new Miniflare(optionsForRuntime());
+  async function updateRuntime() {
+    await runtime.setOptions(optionsForRuntime());
+    // Miniflare poisons old stubs on restart; reopen the same durable DBs.
+    db = await runtime.getD1Database("DB", "managed"); recognitionDb = await runtime.getD1Database("DB", "recognition");
+  }
   cleanups.push(() => runtime.dispose());
-  const recognitionFetch = async (url: string, init: RequestInit) => (await runtime.getWorker("recognition")).fetch(url, init);
+  const recognitionFetch = async (url: string, init: RequestInit) =>
+    nodeResponse(await (await runtime.getWorker("recognition")).fetch(url, await workerRequestInit(new Request(url, init))));
   let agent: Awaited<ReturnType<typeof startManagedKeyAgent>> | undefined,
     key: Awaited<ReturnType<typeof createManagedKeyClient>> | undefined,
     lease: Awaited<ReturnType<typeof acquireOperation>> | undefined,
     installed: SignedRecord<InstalledWeb2ManagedServiceInputs> | undefined, lost: string | undefined,
     redirect = false, attachCalls = 0, crossed = 0, root: string | undefined;
-  const db = await runtime.getD1Database("DB", "managed"), recognitionDb = await runtime.getD1Database("DB", "recognition");
+  let db = await runtime.getD1Database("DB", "managed"), recognitionDb = await runtime.getD1Database("DB", "recognition");
   const rows = async () => (await db.prepare("SELECT * FROM managed_publishing_admissions ORDER BY original_id").all()).results;
   const budgets = async () => (await db.prepare("SELECT * FROM spending_budgets ORDER BY scope,period,asset").all()).results;
   let http: Awaited<ReturnType<typeof canonicalHttpFixture>> | undefined;
@@ -200,8 +241,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     await community.db.batch(catalogPhaseTransitionStatements(community.db, await readFile("packages/community/catalog-phase-rebuild.sql", "utf8")));
     await schema(community.db, "packages/community/catalog-obligation.sql");
     http = await canonicalHttpFixture(new Map([
-      [registration.serviceOrigin, async (request: Request) => runtime.dispatchFetch(request.url, {
-        method: request.method, headers: Object.fromEntries(request.headers), body: await request.arrayBuffer(), redirect: "manual" })],
+      [registration.serviceOrigin, async (request: Request) => nodeResponse(await runtime.dispatchFetch(request.url, await workerRequestInit(request)))],
       [registration.scope.origin, async (request: Request) => {
         assert(canonicalPorts);
         try { return await communityCanonicalFetch(request, canonicalPorts); }
@@ -209,7 +249,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       }],
       [profile.origin, async (request: Request) => recognitionFetch(request.url, {
         method: request.method, headers: Object.fromEntries(request.headers), body: await request.arrayBuffer(), redirect: "manual" })],
-    ]));
+    ]), join(serviceEvidenceRoot, runId, "http"));
     cleanups.push(() => http!.close());
     const transport = async (request: Request) => {
       if (new URL(request.url).origin !== registration.serviceOrigin) { crossed++; throw Error("crossed origin"); }
@@ -223,10 +263,10 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
     const selectionBody = { schema: "pirate.web2-configured-owner-grant/1" as const, scope: registration.scope,
       grant: registration.grant, admissionReference: registration.admissionReference };
     const selection = { ...selectionBody, selectionDigest: hashJson(selectionBody) };
-    const request = (action: string, body: unknown, headers: Record<string, string> = {}) => transport(new Request(registration.serviceOrigin + "/v1/managed-publishing/" + action, {
+    const request = async (action: string, body: unknown, headers: Record<string, string> = {}) => { const response = await transport(new Request(registration.serviceOrigin + "/v1/managed-publishing/" + action, {
       method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + credential,
         "x-pirate-installation": installationId, "x-pirate-admission": registration.admissionReference, ...headers }, body: canonical(body),
-    }));
+    })); return new AdmissionResponse(response.body, { status: response.status, statusText: response.statusText, headers: response.headers }); };
     const publisherPolicy: HostedPolicy = { schema: "pirate.hosted-enrollment-policy/1", pilotId: "managed-service-local-fixture",
       serviceOrigin: "https://enrollment.fixture.example", deployment: { schema: "pirate.web2-directory/3", chainId: 6343,
         directory: chain.profile.directory, directoryCodeHash: chain.profile.directoryCodeHash, directoryAbiSha256: chain.profile.directoryAbiSha256,
@@ -268,7 +308,8 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       return { schema: "pirate.linux-web2-managed-service-inputs/1", installationId, serviceTrust: trust, registration: sign(r), publisherPolicy: policyDocument(publisherPolicy) };
     };
     return {
-      db, chain, registration, selection, publisherKey, credential, rows, budgets,
+      get db() { return db; }, chain, registration, selection, publisherKey, credential, rows, budgets,
+      packageInputs: () => ({ publishing: structuredClone(publishing), recognition: sign(recognition), trust: structuredClone(trust) }),
       afterNextCanonicalRead: (hook: () => Promise<unknown>) => { afterRead = hook; },
       afterCanonicalAction: (action: string, run: () => Promise<unknown>) => { canonicalActionHook = { action, run }; }, pinAdds: () => pinAdds,
       health: (headers: Record<string, string> = {}) => runtime.dispatchFetch(registration.serviceOrigin + "/health", { headers }),
@@ -337,7 +378,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       markAttaching: () => db.prepare("UPDATE managed_publishing_admissions SET state='attaching' WHERE selection_digest=?").bind(selection.selectionDigest).run(),
       async withChangedRegistration(change: "scope" | "grant" | "custody" | "issuer", action: () => Promise<Response>) {
         const r = structuredClone(registration);
-        if (change === "scope") r.scope.controller = address(web2Owner.address);
+        if (change === "scope") r.scope.controller = address(web2Owner.address.toLowerCase());
         if (change === "grant") { r.grant.limits.songs++; r.grant.sha256 = ownerGrantDigest(r.grant); }
         if (change === "custody") { r.custody.generation++; const { custodyBindingDigest: _digest, ...c } = r.custody; r.custody.custodyBindingDigest = hashJson(c); }
         if (change === "issuer") r.issuerKeyId = "unadmitted-issuer";
@@ -354,7 +395,8 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       async linuxInputs() {
         if (!key || !lease) {
           root = await mkdtemp(join(tmpdir(), "pirate-managed-services-")); await privateDirectory(root);
-          const leases = join(root, "lease"), keys = join(root, "keys"); await privateDirectory(leases); await privateDirectory(keys);
+          const leases = join(root, "lease"), keys = join(root, "keys");
+          await mkdir(leases, { mode: 0o700 }); await mkdir(keys, { mode: 0o700 }); await privateDirectory(leases); await privateDirectory(keys);
           const identity = await processIdentity(process.pid); assert(identity);
           lease = await acquireOperation(leases, "managed-service-fixture", installationId, { selection: selection.selectionDigest }, identity.pidNamespace);
           const material = [{ ref: "publisher", bytes: publisherKey }, { ref: "service-auth", bytes: Buffer.from(credential) }, { ref: "host-issuer", bytes: privateIssuer }];
@@ -391,10 +433,16 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       },
       recognitionWorker: () => runtime.getWorker("recognition"), restartRecognition: () => updateRuntime(),
       async setWakeDelivery(enabled: boolean) { consume = enabled; await updateRuntime(); },
-      recognitionClient: client, providerEffects: () => ({ uploads, identifies }), loseNextUploadReply: () => { lostUpload = true; },
+      recognitionClient: client, providerEffects: () => ({ uploads, identifies, deletes }), loseNextUploadReply: () => { lostUpload = true; },
       loseNextIdentifyReply: () => { lostIdentify = true; }, setProviderOutage: (value: boolean) => { providerOutage = value; },
       async waitForUploadCall() {
-        for (let attempt = 0; attempt < 200 && uploads === 0; attempt++) await new Promise(resolve => setTimeout(resolve, 50));
+        const deadline = Date.now() + 120000;
+        while (uploads === 0 && Date.now() < deadline) {
+          // Production cron wakes existing due originals; it neither creates a
+          // replacement nor retries a provider purchase directly. Await it.
+          await (await runtime.getWorker("recognition")).scheduled();
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
         assert(uploads > 0, "actual catalog upload transport was never reached");
       },
       async waitForIdentifyCall() {
@@ -403,11 +451,11 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       },
       async acceptCanonicalIntent() {
         const session: AccountSession = { account_id: randomUUID(), author_id: hashText("retained integration author"), binding_id: randomUUID(),
-          wallet: address(web2Owner.address), session_hash: hashText("retained integration session"), csrf_token: "fixture-csrf", expires_at: Date.now() + 600000 };
+          wallet: address(web2Owner.address.toLowerCase()), session_hash: hashText("retained integration session"), csrf_token: "fixture-csrf", expires_at: Date.now() + 600000 };
         await community.db.prepare("INSERT INTO community_accounts VALUES(?,?,?)").bind(session.account_id, session.author_id, Date.now()).run();
         await community.db.prepare("INSERT INTO credential_bindings VALUES(?,?,'moss',6343,?,?)").bind(session.binding_id, session.account_id, session.wallet, Date.now()).run();
-        const submissionProfile = { execution: publicationExecutionProfile(ports), chainId: 6343, communityId: grant.communityId,
-          postsContract: grant.destination.postsContract, configurationRevision: 1, publisher: grant.destination.publisher,
+        const submissionProfile = { execution: publicationExecutionProfile(ports), chainId: 6343, communityId: managedDigest(grant.communityId),
+          postsContract: address(grant.destination.postsContract), configurationRevision: 1, publisher: address(grant.destination.publisher),
           moderationSigner: chain.current().policies.moderationSigner, recognition: profile, communityOrigin: grant.communityOrigin },
           audio = new Uint8Array(1600 * 417);
         for (let frame = 0; frame < 1600; frame++) audio.set([0xff, 0xfb, 0x90, 0], frame * 417);
@@ -430,8 +478,14 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
         .bind(reservationId(intent)).first<{ reservation_id: string; intent_json: string }>(),
       async waitRecognitionReady(intent: AcceptedIntent) {
         for (let attempt = 0; attempt < 200; attempt++) {
-          const status = await client().status(intent);
-          if (status.state === "ready") return status;
+          try {
+            const status = await client().status(intent);
+            if (status.state === "ready") return status;
+          } catch (error) {
+            // Poll only the existing client's pending read result. This never
+            // retries a reservation or an outside provider purchase.
+            if (!(error instanceof CommunityError && error.code === "recognition_catalog_pending")) throw error;
+          }
           if (attempt % 10 === 0) await (await runtime.getWorker("recognition")).scheduled();
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -445,8 +499,15 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
           allowsDerivatives: false, publicationEvidenceSha256: hashText("explicit incomplete-source negative fixture") };
         const result = await store.enroll(p, await store.catalogRevision()); return result.recording;
       },
+      async recognitionDiagnostics() {
+        return { recordings: (await recognitionDb.prepare("SELECT * FROM shared_recognition_recordings").all()).results,
+          reservations: (await recognitionDb.prepare("SELECT reservation_id,state FROM shared_recognition_reservations").all()).results,
+          events: (await recognitionDb.prepare("SELECT kind,evidence_json FROM shared_recognition_events ORDER BY event_id").all()).results,
+          provider: { identifies, uploads, deletes, providerRequests }, http: http!.evidence.map(e => ({ origin: e.origin, path: e.path, status: e.status })) };
+      },
       async recordingOriginal() { return recognitionDb.prepare("SELECT * FROM shared_recognition_recordings LIMIT 1").first<Recording>(); },
       async recordingIdentity() { return recognitionDb.prepare("SELECT recording_id,audio_sha256 FROM shared_recognition_recordings LIMIT 1").first(); },
+      async providerReceiptKinds() { return (await recognitionDb.prepare("SELECT kind FROM shared_recognition_events WHERE kind LIKE 'receipt:%' ORDER BY event_id").all<{ kind: string }>()).results.map(row => row.kind); },
       async providerReceiptCount() { return (await recognitionDb.prepare("SELECT count(*) AS n FROM shared_recognition_events WHERE kind LIKE 'receipt:%'").first<{ n: number }>())!.n; },
       async recognitionFault(fault: "installation" | "profile" | "schema" | "database-schema" | "credentials" | "issuer", action: (worker: Awaited<ReturnType<Miniflare["getWorker"]>>) => Promise<void>) {
         const before = { ...recognitionBindings }, r = JSON.parse(recognitionBindings.RECOGNITION_CONFIGURATION_JSON);
@@ -464,12 +525,13 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
         }
       },
       async artifact(label: string) {
-        const directory = `.local/managed-first-song-service-tests/${runId}`;
+        const directory = join(serviceEvidenceRoot, runId);
         await mkdir(directory, { recursive: true });
         await writeFile(`${directory}/${label}.json`, JSON.stringify({ schema: "pirate.managed-service-integration-evidence/1",
           label, runId, pinAdds, journalCandidateEvidence, sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
           sourceStatus: (await promisify(execFile)("git", ["status", "--short"])).stdout,
-          runnerOutcome: "external test runner completion and cleanup required", providerEffects: { uploads, identifies }, registrationTransaction: chain.original.transactionHash, selectionDigest: selection.selectionDigest, grantDigest: grant.sha256,
+          runnerOutcome: "external test runner completion and cleanup required", providerEffects: { uploads, identifies, deletes }, providerReceiptKinds: (await recognitionDb.prepare("SELECT kind FROM shared_recognition_events WHERE kind LIKE 'receipt:%' ORDER BY event_id").all()).results,
+          recordings: (await recognitionDb.prepare("SELECT recording_id,audio_sha256,state FROM shared_recognition_recordings").all()).results, registrationTransaction: chain.original.transactionHash, selectionDigest: selection.selectionDigest, grantDigest: grant.sha256,
           admissions: await rows(), budgets: await budgets(), providerRequests, attachCalls, crossed, http: http!.evidence }, null, 2));
       }, close,
     };
@@ -479,29 +541,53 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
 
 
 /** Boundary-only static assets. This is not W1's MOSS page or handshake. */
-export async function signingHelperBoundaryFixture() {
-  const directory = await mkdtemp(join(tmpdir(), "pirate-signing-static-")), assets = join(directory, "assets"),
-    entry = new TextEncoder().encode('<!doctype html><script type="module" src="/assets/helper-fixture.js"></script>'),
+export async function signingHelperBoundaryFixture(selected?: { directory: string; profile: OperatorSigningClosure; script: string }) {
+  const directory = selected?.directory ?? await mkdtemp(join(tmpdir(), "pirate-signing-static-")), assets = join(directory, "assets"),
+    entry = selected ? Uint8Array.from(await readFile(join(directory, "operator-signing"))) : new TextEncoder().encode('<!doctype html><script type="module" src="/assets/helper-fixture.js"></script>'),
     chunk = new TextEncoder().encode('document.documentElement.dataset.fixture="static-boundary";'),
-    origin = "https://managed-signing.fixture.example";
-  await mkdir(assets); await writeFile(join(directory, "operator-signing"), entry); await writeFile(join(assets, "helper-fixture.js"), chunk);
-  const script = await bundle("services/managed-publishing-worker.ts"), profile = { schema: "pirate.operator-signing-closure/1", origin,
+    origin = selected?.profile.origin ?? "https://managed-signing.fixture.example";
+  if (!selected) { await mkdir(assets); await writeFile(join(directory, "operator-signing"), entry); await writeFile(join(assets, "helper-fixture.js"), chunk); }
+  const script = selected?.script ?? await bundle("services/managed-publishing-worker.ts"), profile = selected ? structuredClone(selected.profile) : { schema: "pirate.operator-signing-closure/1", origin,
     contentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com; frame-src https://*.megaeth.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     files: [{ path: "/operator-signing", sha256: sha256(entry), contentType: "text/html" },
       { path: "/assets/helper-fixture.js", sha256: sha256(chunk), contentType: "text/javascript" }] };
-  const options = () => ({ modules: true, script, compatibilityDate: "2026-08-06", compatibilityFlags: ["nodejs_compat"],
-    assets: { directory, binding: "ASSETS", routerConfig: { invoke_user_worker_ahead_of_assets: true },
+  const options = () => ({ name: "signing-static-boundary", modules: true, script, compatibilityDate: "2026-08-06", compatibilityFlags: ["nodejs_compat"],
+    assets: { directory, binding: "ASSETS", routerConfig: { invoke_user_worker_ahead_of_assets: true, has_user_worker: true },
       assetConfig: { html_handling: "none" as const, not_found_handling: "none" as const } },
     bindings: { MANAGED_PUBLISHING_PROFILE: "operator-signing-only", OPERATOR_SIGNING_PROFILE_JSON: canonical(profile) } });
   const runtime = new Miniflare(options());
-  return { entry, fetch: (path: string, init?: RequestInit) => runtime.dispatchFetch(origin + path, init),
-    async changeCsp(value: string) { profile.contentSecurityPolicy = value; await runtime.setOptions(options()); },
-    async tamperChunk() { await writeFile(join(assets, "helper-fixture.js"), "changed bytes"); await runtime.setOptions(options()); },
+  return { entry, fetch: async (path: string, init?: RequestInit) => {
+      const request = new Request(origin + path, init), target = new URL(request.url), local = await runtime.ready,
+        headers = Object.fromEntries(request.headers);
+      // Actual loopback HTTP preserves Host (undici's Fetch overrides it).
+      // Use Miniflare's own original-URL header, as dispatchFetch does, solely
+      // to map the selected logical HTTPS origin into the local fixture engine.
+      headers.host ??= target.host; headers[CoreHeaders.ORIGINAL_URL] = request.url;
+      headers[CoreHeaders.DISABLE_PRETTY_ERROR] = "true";
+      const body = new Uint8Array(await request.arrayBuffer());
+      return new Promise<Response>((resolve, reject) => {
+        const outgoing = httpRequest({ hostname: local.hostname, port: local.port, method: request.method,
+          path: target.pathname + target.search, headers }, incoming => {
+          const chunks: Uint8Array[] = []; let size = 0;
+          incoming.on("data", chunk => { size += chunk.length;
+            if (size > 3 * 1024 * 1024) incoming.destroy(Error("fixture_static_response_limit")); else chunks.push(chunk); });
+          incoming.on("error", reject); incoming.on("end", () => {
+            assert(incoming.statusCode);
+            const responseHeaders = new Headers();
+            for (const [key, value] of Object.entries(incoming.headers)) if (value !== undefined)
+              responseHeaders.set(key, Array.isArray(value) ? value.join(", ") : value);
+            resolve(new Response(Uint8Array.from(Buffer.concat(chunks)), { status: incoming.statusCode, headers: responseHeaders }));
+          });
+        }); outgoing.on("error", reject); outgoing.end(body);
+      });
+    },
+    async changeCsp(value: string) { assert(!selected, "reviewed_artifact_is_read_only"); profile.contentSecurityPolicy = value; await runtime.setOptions(options()); },
+    async tamperChunk() { assert(!selected, "reviewed_artifact_is_read_only"); await writeFile(join(assets, "helper-fixture.js"), "changed bytes"); await runtime.setOptions(options()); },
     async artifact(label: string) {
-      const output = `.local/managed-first-song-service-tests/static-${randomUUID()}`; await mkdir(output, { recursive: true });
+      const output = join(serviceEvidenceRoot, "static-" + randomUUID()); await mkdir(output, { recursive: true });
       await writeFile(join(output, label + ".json"), JSON.stringify({ label, profile, bundleSha256: hashText(script),
         sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
-        limitation: "static boundary only; actual emitted W1 closure packaging and real MOSS prompt UNRUN" }, null, 2));
+        limitation: selected ? "actual packaged emitted closure HTTP semantics; real MOSS/browser/public TLS UNRUN" : "synthetic static boundary only; real MOSS prompt UNRUN" }, null, 2));
     }, close: () => runtime.dispose() };
 }
 
@@ -533,7 +619,7 @@ export async function managedPackageEntryBoundaryFixture() {
         bytes = Buffer.from(JSON.stringify(pkg));
       await writeFile(join(directory, "managed-web2-package.json"), bytes);
       const beforeState = await stateSnapshot(), env: NodeJS.ProcessEnv = {
-        PATH: process.env.PATH, NO_COLOR: "1", XDG_CONFIG_HOME: join(directory, "config"),
+        PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, NO_COLOR: "1", XDG_CONFIG_HOME: join(directory, "config"),
         MANAGED_WEB2_PREFIX: prefix, MANAGED_WEB2_PLAN_ID: planId, MANAGED_WEB2_PACKAGE_DIGEST: sha256(bytes),
       };
       if (selector !== undefined) env.MANAGED_SERVICE_PACKAGE_PROFILE = selector;
@@ -544,12 +630,61 @@ export async function managedPackageEntryBoundaryFixture() {
       outcomes.push({ profile, selector: selector ?? null, outcome, beforeState, afterState });
       return { outcome, beforeState, afterState };
     },
+    async collectSelectedProfile(profile: "managed-web2" | "operator-signing-only" | "historical-owner" | "historical-registered", omitted: string[]): Promise<ManagedProfileCollection> {
+      const fresh = profile === "managed-web2" || profile === "operator-signing-only", packageFile = join(directory, "managed-web2-package.json"),
+        pkg = { packageProfile: profile, prefix, identity: { prefix, packageProfile: profile, planId,
+          state: { store: "pirate-encrypted-local", stack: prefix } }, publishing: {}, recognition: {}, trust: {},
+          operatorSigning: profile === "operator-signing-only" ? { schema: "pirate.operator-signing-closure/1" } : null },
+        bytes = Buffer.from(JSON.stringify(pkg)), env: NodeJS.ProcessEnv = {
+          PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, NO_COLOR: "1", XDG_CONFIG_HOME: join(directory, "config"),
+          SERVICE_ORIGIN: "https://managed.fixture.example", SERVICE_PROFILE_HASH: hashText("independent fixture service profile"),
+          PAIRINGS_JSON: "[]", DIRECTORY_PROFILES_JSON: "[]", SERVICE_BUDGET_PERIOD: "fixture", SERVICE_REQUEST_CAP: "8",
+          ACRCLOUD_HOST: "identify-eu-west-1.acrcloud.com",
+        };
+      if (fresh) {
+        await writeFile(packageFile, bytes); Object.assign(env, { MANAGED_SERVICE_PACKAGE_PROFILE: profile,
+          MANAGED_WEB2_PREFIX: prefix, MANAGED_WEB2_PLAN_ID: planId, MANAGED_WEB2_PACKAGE_DIGEST: sha256(bytes) });
+      } else { await rm(packageFile, { force: true }); if (profile === "historical-owner") env.OWNER_GRANT_JSON = "{}"; }
+      // These independent public fixture values only resolve Config; no provider
+      // layers, real credentials, encrypted store or deployment runner is used.
+      const values = Object.fromEntries(["OPENAI_API_KEY", "MODERATION_SIGNER_PRIVATE_KEY", "FILEBASE_IPFS_TOKEN", "ACRCLOUD_ACCESS_KEY",
+        "ACRCLOUD_ACCESS_SECRET", "ACRCLOUD_CATALOG_TOKEN", "RECOGNITION_SIGNER_PRIVATE_KEY", "REGISTRATION_OPERATOR_PRIVATE_KEY"]
+        .filter(name => !omitted.includes(name)).map(name => [name, "public-profile-fixture:" + name]));
+      const driver = `import * as Effect from "effect/Effect"; import * as Config from "effect/Config";
+        import * as ConfigProvider from "effect/ConfigProvider"; import * as Redacted from "effect/Redacted";
+        import * as Exit from "effect/Exit"; import * as Cause from "effect/Cause";
+        import {StackContext} from "alchemy/StackContext";
+        const module = await import(${JSON.stringify(pathToFileURL(entry).href)}), stack={name:module.default.stackName,stage:"fixture",resources:{},bindings:{},actions:{}};
+        const values=${JSON.stringify(values)}, provider=ConfigProvider.fromUnknown(values), resources=[], configs=[], config={ok:true,allRedacted:true};
+        const collected=await Effect.runPromiseExit(module.selectedManagedResources.pipe(Effect.provideService(StackContext, stack),
+          Effect.provideService(ConfigProvider.ConfigProvider,provider)));
+        if(Exit.isFailure(collected)){config.ok=false;config.error=Cause.pretty(collected.cause);}
+        for (const resource of Object.values(stack.resources)) {
+          const env=resource.Props?.env ?? {}, secrets=Object.keys(env).filter(name=>Config.isConfig(env[name])||Redacted.isRedacted(env[name])).sort();
+          resources.push({id:resource.LogicalId,type:resource.Type,env:Object.keys(env).sort(),secrets,crons:resource.Props?.crons ?? []});
+          for (const name of secrets) configs.push({name,input:env[name]});
+        }
+        for (const {name,input} of configs) try {
+          const value=Config.isConfig(input)?await Effect.runPromise(input.pipe(Effect.provideService(ConfigProvider.ConfigProvider,provider))):input;
+          if(!Redacted.isRedacted(value)||Redacted.value(value)!==values[name])config.allRedacted=false;
+        } catch(error) {config.ok=false;config.error=String(error);break;}
+        resources.sort((a,b)=>a.id.localeCompare(b.id)); console.log(JSON.stringify({resources,config}));`;
+      const result = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", driver], { cwd: directory, env, timeout: 30000 }),
+        parsed: ManagedProfileCollection = JSON.parse(result.stdout.trim().split("\n").at(-1)!);
+      outcomes.push({ profile, omitted, collection: parsed }); return parsed;
+    },
     async artifact(label: string) {
-      const output = `.local/managed-first-song-service-tests/entry-${randomUUID()}`; await mkdir(output, { recursive: true });
+      const output = join(serviceEvidenceRoot, "entry-" + randomUUID()); await mkdir(output, { recursive: true });
       await writeFile(join(output, label + ".json"), JSON.stringify({ label, outcomes,
         entrySha256: sha256(await readFile(entry)), sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
         boundary: "actual entry import rejects before its Stack/default initializer; isolated state sentinel unchanged; no provider or deployment runner invoked" }, null, 2));
     },
     close: () => rm(directory, { recursive: true, force: true }),
   };
+}
+
+
+interface ManagedProfileCollection {
+  resources: { id: string; type: string; env: string[]; secrets: string[]; crons: string[] }[];
+  config: { ok: boolean; allRedacted: boolean; error?: string };
 }

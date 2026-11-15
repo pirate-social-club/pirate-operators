@@ -47,7 +47,8 @@ async function signingAsset(request: Request, env: Pick<ManagedPublishingEnv, "O
   insist(typeof env.OPERATOR_SIGNING_PROFILE_JSON === "string" && env.OPERATOR_SIGNING_PROFILE_JSON.length <= 32768 && env.ASSETS,
     "operator_signing_closure_unavailable", 503);
   const profile = operatorSigningClosure(JSON.parse(env.OPERATOR_SIGNING_PROFILE_JSON)), url = new URL(request.url), host = request.headers.get("host");
-  insist(url.origin === profile.origin && (host === null || host === url.host), "operator_signing_wrong_origin", 403);
+  insist(url.origin === profile.origin, "operator_signing_wrong_origin", 403);
+  insist(host === null || host === url.host, "operator_signing_wrong_host", 403);
   insist(!url.hash && !url.pathname.includes("%"), "operator_signing_path_invalid", 404);
   if (url.pathname === "/operator-signing") {
     let opener: string;

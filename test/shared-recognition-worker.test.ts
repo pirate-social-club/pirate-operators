@@ -19,13 +19,17 @@ test("bundled fetch, queue and scheduled use the admitted journal and awaited re
     assert.equal(queued.outcome, "ok");
     await worker.queue("recognition", [{ id: "duplicate-delivery", timestamp: new Date(), attempts: 2,
       body: { kind: "recording", recordingId: original.recording_id } }]);
-    assert.equal(await f.providerReceiptCount(), 0);
+    assert.deepEqual(f.providerEffects(), { uploads: 0, identifies: 0, deletes: 0 });
+    assert.ok((await f.providerReceiptKinds()).every(kind => kind === "receipt:lookup"));
+    const pending = await f.recordingOriginal(); assert(pending); assert.notEqual(pending.state, "ready");
     assert.deepEqual(await f.recordingIdentity(), {
       recording_id: original.recording_id, audio_sha256: original.audio_sha256,
     });
     await f.restartRecognition();
     assert.equal((await (await f.recognitionWorker()).scheduled()).outcome, "ok");
-    assert.equal(await f.providerReceiptCount(), 0);
+    assert.deepEqual(f.providerEffects(), { uploads: 0, identifies: 0, deletes: 0 });
+    assert.ok((await f.providerReceiptKinds()).every(kind => kind === "receipt:lookup"));
+    const retained = await f.recordingOriginal(); assert(retained); assert.notEqual(retained.state, "ready");
     await f.artifact("bundled-recognition-original-recovery");
   } finally { await f.close(); }
 });

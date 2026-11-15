@@ -1,7 +1,10 @@
 # Managed first-song services
 
-Status: source-only composition, unqualified. No build, typecheck, integration
-case, migration, Alchemy apply or deployment has been run for this change.
+Status: fresh managed composition under finite local qualification, unqualified
+for deployment. The correction-v4 review packet records actual commands, source
+hashes, results and retained failures. Earlier source-only packets retain their
+original UNRUN status. No Alchemy provider apply or deployment is authorized by
+these local checks.
 The installed native first-song qualification is historical evidence for its
 own immutable release; it does not qualify this service composition.
 Both product PR merges are held until owner morning, including changes to
@@ -134,8 +137,8 @@ runtime consumer must add `x-pirate-community` and `x-pirate-owner-grant` for a
 scoped health read; the scoped response checks an attached original, current
 authority, lifetime and release credential/signer configuration. This consumer
 is present in the combined committed source at
-`services/first-song-runtime.ts`; exact-candidate behavior remains UNRUN. This
-source slice does not edit that shared consumer.
+`services/first-song-runtime.ts`; each exact-candidate local result is recorded
+in the v4 packet. This source slice does not edit that shared consumer.
 
 ## Worker composition and package selection
 
@@ -145,9 +148,17 @@ missing fresh admission to a static grant. The fresh profile accepts catalog
 owner release paths and delegates them to the existing managed handler with
 one trusted journal-selected grant/pairing/deployment. Canonical calls and pin
 dispatch require the shared managed admission gate. Its final interface and
-consumer are present in the combined base; integration checks remain UNRUN.
+consumer are present in the combined base; local results and remaining external
+qualification are recorded separately in the v4 packet.
 The historical profiles retain the existing registered/static-owner behavior. Historical automated moderation
 is not enabled in the fresh catalog profile.
+Accordingly the fresh App omits only the deferred OPENAI_API_KEY binding. Its
+canonical MODERATION_SIGNER_PRIVATE_KEY and selected provider secrets remain
+required Config.Redacted inputs. Historical App secret requirements, including
+OpenAI, stay intact. Signing-only has no secret Config bindings. Qualification
+collects the actual selected Alchemy resource program and resolves its real
+Config values through an explicit isolated fixture ConfigProvider; no cloud
+provider, real secret store or blank production credential substitutes for it.
 
 `services/shared-recognition-worker.ts` exports real awaited fetch, typed queue
 and scheduled handlers. It builds the existing `sharedRecognitionRuntime` from
@@ -157,11 +168,13 @@ recognition DB holds recognition journals; `ADMISSION_DB` is the managed D1
 binding used to recheck the exact active attached grant before and after
 canonical reads for new effects. Signed status requests retain original identity
 authentication without applying a new-effect eligibility decision. Entry and
-canonical boundaries check live admission for new work. Alpha separately owns
-the pending shared asynchronous upload/adapter live-effect callback repair;
-its final source pin and combined effect-boundary checks are required. Identity
-checks alone after a delayed await do not authorize a fresh upload. Retained
-read/status must still work. There is no isolate-global mutable authority registry.
+canonical boundaries check live admission for new work. The combined base includes Alpha's
+final cf173 upload guard: it authenticates owner authority and samples the
+original window synchronously after awaited preparation, immediately before
+upload. It requires no new SharedRecognitionRuntimeInputs, CanonicalCommunity,
+configured-runtime, wire or grant constructor join. Identity checks alone after
+a delayed await do not authorize a fresh upload. Retained read/status must still
+work. Alpha's separate results do not qualify these owned integration cases. There is no isolate-global mutable authority registry.
 The existing runtime retains its policy, quota and receipt behavior. Cron
 recovery enqueues existing due originals; it does not generate outcomes.
 Unsupported cancellation/withdrawal refuses instead of fabricating evidence.
@@ -175,8 +188,13 @@ retain and reuse an already generated immutable package rather than rewriting it
 The fresh writer checks bundle identity and links the existing verified managed dependency tree.
 It does not choose or reserve migration ordinals. Integration must supply
 reviewed distinct migration filenames after reviewing the current ledger.
-The new admission SQL and existing recognition schema remain unnumbered source
-in this change, and nothing has applied them.
+The admission SQL remains unnumbered, unchanged source. Root assigns generated
+copies `0005_managed_publishing_admission.sql` after the existing managed0001–0004
+ledger and `0001_shared_recognition.sql` for the separate new recognition DB.
+That recognition source already includes reservations: never also apply
+reservation-schema.sql. Qualification applies only these copies in disposable
+local engines and checks repeat application preserves ledgers/counters. No live
+ledger, migration ordinal reservation or existing deployment database changes.
 
 Alchemy remains the sole infrastructure owner. A fresh package requires
 `MANAGED_SERVICE_PACKAGE_PROFILE=managed-web2` and a distinct reviewed
@@ -219,16 +237,19 @@ The signer reconstructs only the retained enrollment challenge and keeps its
 original lease/generation/address checks. It is not an arbitrary signing API.
 
 Integration must qualify the committed W1 modules and scoped health consumer,
-join Alpha's final shared live-effect callback repair, assign/apply reviewed
+qualify the included Alpha live-effect guard, assign/apply reviewed
 schema ordinals, provision real signed registrations and
 custody references, install per-installation credentials, configure real
 provider association/credentials and dedicated signers, qualify origins and
 perform exact-candidate types, bundle/schema/dependency checks, HTTP/D1/queue/
 scheduler/key-channel integration and a fresh installed first-song journey.
-Tests produce sanitized repeatable artifacts under
-`.local/managed-first-song-service-tests/` only when actually run. No artifact
-or successful result exists for these new cases yet. Preserve failed cases and
-original journals; never replace them with an invented ready receipt.
+Tests produce sanitized repeatable artifacts under their configured evidence
+directory (the default is `.local/managed-first-song-service-tests/`). The v4
+qualification recorder selects a separate directory for each actual phase and
+records UTC bounds, exit status, elapsed time, exact source hashes and failures.
+Actual managed/recognition D1 journals remain in the inherited private temporary
+root, with their paths recorded in the phase artifacts. Preserve failed cases
+and original journals; never replace them with an invented ready receipt.
 
 Persistent service data includes encrypted Alchemy state, both D1 journals,
 managed media and outside catalog/provider records. Ordinary process restart
@@ -267,8 +288,9 @@ The shared consumer's `beforeDispatch` belongs after final awaited preflights
 and immediately before actual paid ADD/send. A post-response refusal cannot
 fence that effect. Source presence is not runtime qualification: actual HTTP,
 D1 captured-condition expiry, lazy replay, settlement and dispatch regressions
-are UNRUN. Alpha's separate asynchronous recognition live-effect repair remains
-a required shared source join; this slice does not edit its runtime/adapter.
+are recorded separately for each actual v4 phase, including failures. Alpha's
+final guard is already included; this slice does not edit its runtime/adapter
+or invent an additional callback/constructor interface.
 
 ## Narrow signing-only HTTPS component
 
@@ -291,8 +313,11 @@ W1 owns moss-signing.html, its JavaScript and the exact opener origin/source,
 nonce, requestDigest and controller handshake. The committed source contract selects
 `apps/community-wizard/dist/moss-signing.html` and its `.vite/manifest.json` entry
 `moss-signing.html`, including recursive imports, dynamicImports, css and assets.
-Root must still supply and verify the actual emitted artifact and manifest
-digest before packaging; no build was performed here. OperatorSigningBuildInputs
+The v4 qualification builds this worktree's real Vite artifact, independently
+records the emitted manifest and recursive file digests, and checks the actual
+packaged bundles serving those bytes. The five-file retained closure includes
+HTML, three JavaScript chunks and its manifest. These local artifact checks do
+not qualify a public deployment or a real MOSS prompt. OperatorSigningBuildInputs
 is this packager's bounded intake shape. The helper packager generates no HTML/JS
 source and copies only the reviewed emitted closure. Synthetic static-boundary
 fixture assets do not prove the real MOSS handshake.
