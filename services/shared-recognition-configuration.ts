@@ -1,3 +1,4 @@
+import { requireOwnerGrantTime } from "../packages/release/owner-grant.ts";
 import { keccak256, parseTransaction } from "viem";
 import { bytes32, canonical, exact, hashJson, insist, integer, object, text } from "../packages/community/common.ts";
 import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
@@ -91,7 +92,7 @@ export async function provisionSharedRecognitionInputs(db: D1Database, record: S
     "recognition_restore_or_installation_unqualified", 503);
 }
 /** Every event captures its own registry and credentials. No shared authority Map. */
-export function configuredRecognitionRuntime(env: SharedRecognitionEnv) {
+export function configuredRecognitionRuntime(env: SharedRecognitionEnv, purpose: "read" | "effect" = "effect") {
   insist(typeof env.RECOGNITION_CONFIGURATION_JSON === "string" && env.RECOGNITION_CONFIGURATION_JSON.length <= 1024 * 1024 &&
     typeof env.SERVICE_CONFIGURATION_TRUST_JSON === "string" && env.SERVICE_CONFIGURATION_TRUST_JSON.length <= 8192,
     "recognition_configuration_unavailable", 503);
@@ -111,10 +112,13 @@ export function configuredRecognitionRuntime(env: SharedRecognitionEnv) {
   for (const signed of c.communities) {
     requireDedicatedManagedSigner(bytes32(env.RECOGNITION_SIGNER_PRIVATE_KEY), signed.body.deployment.rpcUrl);
     const r = authenticatedManagedRegistration(signed, trust), d = r.deployment;
-    insist(publishing.registrations.some(value => canonical(value) === canonical(signed)), "recognition_admission_changed", 503);
+    const selected = publishing.registrations.find(value => value.body.admissionReference === r.admissionReference);
+    if (selected) insist(canonical(selected) === canonical(signed), "recognition_admission_changed", 503);
+    if (purpose === "effect") insist(selected, "recognition_admission_changed", 503);
     const admitted = async () => {
-      await admissions.registration(r);
+      await admissions.registration(r, purpose === "effect");
       insist((await admissions.observation(r, selectionFor(r).selectionDigest)).state === "attached", "recognition_admission_unattached", 503);
+      if (purpose === "effect") requireOwnerGrantTime(r.grant);
     };
     const currentConfiguration = async () => {
       insist(env.RECOGNITION_CONFIGURATION_JSON === canonical(record) || canonical(JSON.parse(env.RECOGNITION_CONFIGURATION_JSON)) === canonical(record),

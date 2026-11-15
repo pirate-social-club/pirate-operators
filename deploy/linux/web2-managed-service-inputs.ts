@@ -42,7 +42,7 @@ export async function provisionWeb2ManagedServiceInputs(input: {
 }) {
   const { body } = installedBody(input.body), trust = structuredClone(input.trust),
     ref = text(input.keyReference, 256), generation = input.generation;
-  insist(ref.length > 0 && Number.isSafeInteger(generation) && generation > 0, "managed_provisioning_custody_unavailable", 503);
+  insist(ref.length > 0 && !/[\x00-\x1f\x7f\u2028\u2029]/.test(ref) && Number.isSafeInteger(generation) && generation > 0, "managed_provisioning_custody_unavailable", 503);
   return input.signing.withSecret(ref, generation, async bytes => signRecord(body, trust, bytes));
 }
 class ManagedTransportUnknown extends Error {
@@ -77,7 +77,7 @@ export async function createWeb2ManagedServiceInputs(input: {
     await check();
     return input.key.withSecret(credential.keyReference, credential.generation, async bytes => {
       const secret = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      insist(/^[A-Za-z0-9_-]{32,512}$/.test(secret) && hashText(secret) === credential.sha256,
+      insist(/^[A-Za-z0-9_-]{32,512}(?![\s\S])/.test(secret) && hashText(secret) === credential.sha256,
         "managed_installation_credential_changed", 409);
       await check();
       const deadline = AbortSignal.timeout(15000), request = new Request(r.serviceOrigin + "/v1/managed-publishing/" + action, {

@@ -123,3 +123,22 @@ test("provider outage cannot turn an accepted original into catalog readiness", 
     await f.artifact("provider-outage-original");
   } finally { await f.close(); }
 });
+
+
+// Correction-v2: status reauthenticates retained original, while real queued
+// work must consume current admission authority. No status result creates work.
+test("retained recognition status survives admission revocation and removal without new provider effects", async () => {
+  const f = await managedServicesFixture();
+  try {
+    await f.prepare(); await f.attach(); const intent = await f.acceptCanonicalIntent(); f.loseNextIdentifyReply();
+    await assert.rejects(f.recognitionClient().reserve(intent)); await f.waitForIdentifyCall();
+    const original = await f.reservationOriginal(intent); assert(original);
+    await f.revoke(); await f.activeRegistry("removed");
+    assert.notEqual((await f.recognitionClient().status(intent)).recordingState, "ready");
+    const before = f.providerEffects();
+    await (await f.recognitionWorker()).queue("recognition", [{ id: "v2-revoked-original", timestamp: new Date(), attempts: 2,
+      body: { kind: "reservation", reservationId: original.reservation_id } }]);
+    assert.deepEqual(f.providerEffects(), before); assert.deepEqual(await f.reservationIdentity(intent), original);
+    await f.artifact("v2-retained-recognition-status");
+  } finally { await f.close(); }
+});

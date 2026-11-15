@@ -85,8 +85,10 @@ transport budget and a 64 KiB response limit. There is no browser key bridge.
 Do not log authorization headers, credential bytes, secret bindings or keys.
 
 Prepare persists the exact scope, grant, selection digest, admission reference
-and registered custody/issuer original. An identical retry returns the same
-selection; changed bytes conflict. The selection is the existing
+and registered custody/issuer original. Prepare also reselects an existing exact
+durable original after expiry, revocation, disablement or active-registry removal.
+It returns the stored selection without claiming a window or creating anything.
+A missing/fresh original still needs live eligibility; changed bytes conflict. The selection is the existing
 `pirate.web2-configured-owner-grant/1` envelope. Its digest is `hashJson` of the
 body excluding `selectionDigest`; authority comes from configured issuer
 signature plus the authenticated service, not from that digest.
@@ -98,22 +100,31 @@ marker is `unknown`. A retained prepare that has never begun attachment is
 `absent`. A missing row, inaccessible database or lost response is never proof
 of absence. Linux returns an observation bound to the same original with state
 `unknown` after transport uncertainty; it performs no automatic attach retry.
-Reconcile the same original before deciding what to do next.
+Reconcile the same original before deciding what to do next. An existing durable
+attached acknowledgement can be returned after expiry without another effect.
+An attaching marker remains unknown; it cannot be promoted by repeating attach.
+An authenticated absent observation permits only same-original retry while live.
 
 Reconciliation authenticates the retained original registration and preserves
 historical attachment acknowledgements after expiry, revocation or removal from
-the active configured registry, while its original issuer trust remains pinned. Such a receipt does not authorize new work. New service
+the active configured registry, while its original issuer trust remains pinned. Such a receipt does not authorize new work. Historical journal identity is
+separate from fresh external eligibility and survives an RPC outage; it records
+what the service actually authenticated before the durable prepare/attachment,
+not a fresh assertion about current external chain state. New service
 work still checks the current grant time, D1 registration and canonical roles.
 Existing `claimOwnerWindow` and `reserveOwnerBudget` keep counters and all five
 ceilings keyed by the original owner/community/policy/window. Replacement grant
 hashes and configuration changes cannot replenish a window. No budget reset or
-cleanup is part of this flow.
+cleanup is part of this flow. Apply revocation/disablement to the durable journal
+through the controlled producer before updating deployment configuration. A
+configuration swap cannot retroactively change an in-flight Worker environment;
+the atomic reservation predicate and final dispatch read use durable D1 state.
 
 Managed attachment and application attachment are separate systems. Readiness
 requires W1's retained application acknowledgement and an actual managed
 acknowledgement for the same selectionDigest, grantDigest and admissionReference.
 A managed receipt cannot substitute for application attachment. A generic fresh
-GET `/health` explicitly returns `ownerRelease.configured:false`. The owning
+GET `/health` is refused without both exact scope headers. The owning
 runtime consumer must add `x-pirate-community` and `x-pirate-owner-grant` for a
 scoped health read; the scoped response checks an attached original, current
 authority, lifetime and release credential/signer configuration. This consumer
@@ -127,7 +138,8 @@ in this source slice.
 missing fresh admission to a static grant. The fresh profile accepts catalog
 owner release paths and delegates them to the existing managed handler with
 one trusted journal-selected grant/pairing/deployment. Canonical calls and pin
-dispatch recheck admission/current configuration. The historical profiles retain
+dispatch require the shared managed admission gate. Its final W1 implementation
+is still a required join, not qualified source in this packet. The historical profiles retain
 the existing registered/static-owner behavior. Historical automated moderation
 is not enabled in the fresh catalog profile.
 
@@ -137,7 +149,9 @@ event-owned captured inputs, actual D1/Queue bindings and a real server account.
 Its canonical clients select only admitted pinned deployments. The separate
 recognition DB holds recognition journals; `ADMISSION_DB` is the managed D1
 binding used to recheck the exact active attached grant before and after
-canonical reads. There is no isolate-global mutable authority registry.
+canonical reads for new effects. Signed status requests retain original identity
+authentication without applying a new-effect eligibility decision; queued work
+still checks live admission. There is no isolate-global mutable authority registry.
 The existing runtime retains its policy, quota and receipt behavior. Cron
 recovery enqueues existing due originals; it does not generate outcomes.
 Unsupported cancellation/withdrawal refuses instead of fabricating evidence.
@@ -145,8 +159,10 @@ Unsupported cancellation/withdrawal refuses instead of fabricating evidence.
 The new `managedWeb2ServicesPackage` / `writeManagedWeb2ServicesPackage` APIs in
 `harness/managed-package.ts` select fresh packages explicitly, build both real
 bundles and retain transitive owned source, dependency lock and schema hashes.
-The existing historical packager defaults remain unchanged. The fresh writer
-checks bundle identity and links the existing verified managed dependency tree.
+The existing historical packager defaults remain unchanged. Fresh writers refuse
+an existing deployment directory before overwriting package/profile artifacts;
+retain and reuse an already generated immutable package rather than rewriting it.
+The fresh writer checks bundle identity and links the existing verified managed dependency tree.
 It does not choose or reserve migration ordinals. Integration must supply
 reviewed distinct migration filenames after reviewing the current ledger.
 The new admission SQL and existing recognition schema remain unnumbered source
@@ -154,7 +170,13 @@ in this change, and nothing has applied them.
 
 Alchemy remains the sole infrastructure owner. A fresh package requires
 `MANAGED_SERVICE_PACKAGE_PROFILE=managed-web2` and a distinct reviewed
-`MANAGED_WEB2_PREFIX`. Its separate encrypted stack owns managed D1/R2/Queue
+`MANAGED_WEB2_PREFIX`, explicit plan ID and expected canonical package digest.
+The historical `pirate-managed-firstsong-20261105` prefix and its entire resource
+namespace are forbidden for both new profiles. Package identity binds profile,
+plan, prefix and `pirate-encrypted-local` state stack. Alchemy validates the
+actual generated package bytes and selected env identity before initializing
+state/providers; the same checked prefix is passed to Alchemy.Stack and the
+existing encrypted store uses state/<stack>/<stage>. Its separate encrypted stack owns managed D1/R2/Queue
 and the independently scoped recognition D1/Queue/Worker/consumer/cron. Both new
 Workers use compatibility date 2026-11-15 and enable logs and traces. Historical
 stack identity, default date and migration files stay unchanged. No Wrangler
@@ -195,8 +217,67 @@ original journals; never replace them with an invented ready receipt.
 
 Persistent service data includes encrypted Alchemy state, both D1 journals,
 managed media and outside catalog/provider records. Ordinary process restart
-must retain those originals. Tested source here is not a supported backup,
+must retain those originals. This unexecuted source is not a supported backup,
 restore or disposal procedure. Automated upgrades/restoration, historical chain
 retention and cross-host recovery remain unqualified and deferred. Disposing
 an installation requires explicit treatment of each retained store and outside
 provider obligation; deleting local state does not prove external deletion.
+
+
+## Shared effect gate: required W1 join
+
+The own adapter is typed through `ManagedEnv["MANAGED_ADMISSION_GATE"]`. That
+property and its shared type are W1-owned and not present as a final source pin
+in this correction base. No duplicate shared declaration or unsafe cast supplies
+it. The agreed methods are `reservationCondition(grant, original)` returning the
+existing ReservationCondition and `beforeDispatch(grant, original)` returning
+Promise<void>. Reservation original binds operationId, requestHash, asset and
+requested; dispatch original binds operationId and requestHash. The closure
+captures the exact authenticated registration revision, selection digest,
+admission reference, community and publisher from trusted configuration/D1.
+
+Root/W1 must supply reservationCondition lazily inside reserveOwnerBudget only
+AFTER authenticating/checking an existing original reservation. The resulting
+predicate must be ANDed with ownerWindowCondition inside the same D1 reservation
+transaction. It must never replace the owner-window predicate or run eagerly on
+replay. beforeDispatch must run after the final awaited preflights immediately
+before the actual ADD/send. Post-response refusal cannot fence a paid effect.
+Replay/status/settlement may bypass new-effect eligibility, never authentication.
+The wrapper injects the adapter but cannot qualify an unjoined shared consumer.
+The prepared real HTTP ADD regression remains UNRUN until W1 joins that boundary.
+
+## Narrow signing-only HTTPS component
+
+The explicit `operator-signing-only` profile serves `/operator-signing` and only
+its pinned Vite manifest dependency closure. It routes before lazy backend
+imports or env/D1/key/provider initialization. Every backend/health route and
+queue/scheduled handler is unavailable in that profile. No grant, database,
+provider credential, publisher key or funding input is needed to serve it.
+Historical profiles keep their original routes. The static handler enforces
+exact HTTPS origin/Host, GET/HEAD, no query/encoded path aliases, fixed closure
+paths, response digest pins, bounded files and configured CSP; it forwards no
+incoming cookies, authorization or signing data to the ASSETS binding.
+
+W1 owns moss-signing.html, its JavaScript and the exact opener origin/source,
+nonce, requestDigest and controller handshake. Root must provide the final
+reviewed build directory, manifest path/digest, manifest entry key, emitted
+moss-signing.html location, transitive dependency closure and response CSP.
+OperatorSigningBuildInputs is this packager's bounded intake shape, not a claim
+that W1's final export/asset contract has frozen. The helper packager generates
+no HTML/JS source and copies only that reviewed emitted closure. Until that
+contract is supplied, helper package/browser gates remain blocked and UNRUN;
+synthetic static-boundary fixture assets do not prove the real MOSS handshake.
+
+A qualified local top-level HTTPS signing-helper component may be tested with
+real MOSS before a public VPS, public domain or full managed backend. The first
+selected real MOSS environment is local. No actual MOSS prompt was run here.
+The existing paired Wizard remains HTTP loopback-only; community TLS, CSP or an
+iframe ancestor does not make that Wizard MOSS-ready. Do not expose or relax
+Wizard Host/Origin rules or place keys/tokens in helper URLs or a JavaScript bridge.
+
+The full public managed backend separately needs reviewed actual D1, queues,
+provider/custody configuration, genuine admission/policy and deployment pins.
+Public hosted enrollment/top-up factories are NOT mounted by this fourteen-path
+Worker/Alchemy slice. A real registrar/funder Worker, routes/resources, caps,
+funds, actual contract deployments/source pins and managed roles are missing
+joins, not just missing URLs or keys. They are not added or deployed here.

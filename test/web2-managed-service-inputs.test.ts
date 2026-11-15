@@ -87,3 +87,33 @@ test("altered signed installed origin, issuer or admission bytes fail signature 
     await f.artifact("installed-signature-refusal");
   } finally { await f.close(); }
 });
+
+
+// Correction-v2 keyless route and namespace contract cases; all UNRUN.
+test("bundled signing-only profile serves only a pinned static closure with no backend bindings", async () => {
+  const { signingHelperBoundaryFixture } = await import("./fixtures/managed-first-song-services.ts");
+  const f = await signingHelperBoundaryFixture();
+  try {
+    const entry = await f.fetch("/operator-signing"); assert.equal(entry.status, 200);
+    assert.deepEqual(new Uint8Array(await entry.arrayBuffer()), f.entry);
+    assert.equal((await f.fetch("/assets/helper-fixture.js")).status, 200);
+    for (const path of ["/health", "/v1/managed-publishing/prepare", "/api/auth/challenge", "/unknown"])
+      assert.equal((await f.fetch(path)).status, 503);
+    for (const path of ["/assets/unknown.js", "/assets/%2e%2e/private", "/operator-signing?key=anything"])
+      assert.ok([403, 404].includes((await f.fetch(path)).status));
+    assert.equal((await f.fetch("/operator-signing", { method: "POST" })).status, 405);
+    assert.equal((await f.fetch("/operator-signing", { headers: { host: "wrong.invalid" } })).status, 403);
+    await f.tamperChunk(); assert.equal((await f.fetch("/assets/helper-fixture.js")).status, 503);
+    await f.artifact("v2-keyless-static-boundary");
+  } finally { await f.close(); }
+});
+
+test("fresh package identity refuses the historical namespace, terminators and a mismatched selected stack", async () => {
+  const { managedFreshStackIdentity } = await import("../harness/managed-package.ts");
+  const selected = { prefix: "pirate-managed-v2-fixture", packageProfile: "managed-web2" as const, planId: hashJson({ reviewed: "fixture plan" }),
+    state: { store: "pirate-encrypted-local" as const, stack: "pirate-managed-v2-fixture" } };
+  assert.deepEqual(managedFreshStackIdentity(selected), selected);
+  for (const prefix of ["pirate-managed-firstsong-20261105", "pirate-managed-firstsong-20261105-db", selected.prefix + "\n", selected.prefix + "\u2028"])
+    assert.throws(() => managedFreshStackIdentity({ ...selected, prefix, state: { ...selected.state, stack: prefix } }));
+  assert.throws(() => managedFreshStackIdentity({ ...selected, state: { ...selected.state, stack: "pirate-managed-firstsong-20261105" } }));
+});

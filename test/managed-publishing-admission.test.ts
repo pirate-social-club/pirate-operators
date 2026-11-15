@@ -127,3 +127,121 @@ test("window expiration during an awaited canonical read never extends or replac
     await f.artifact("expiry-during-canonical-read");
   } finally { await f.close(); }
 });
+
+
+// Correction-v2 regressions: authored before corrective production changes. UNRUN.
+test("prepare reselects the exact durable original after revocation, disablement and registry removal", async () => {
+  const f = await managedServicesFixture();
+  try {
+    const selected = await (await f.prepare()).json(); await f.attach();
+    const originals = await f.rows(), budgets = await f.budgets();
+    await f.revoke();
+    assert.deepEqual(await (await f.prepare()).json(), selected);
+    await f.activeRegistry("disabled");
+    assert.deepEqual(await (await f.prepare()).json(), selected);
+    await f.activeRegistry("removed");
+    assert.deepEqual(await (await f.prepare()).json(), selected);
+    assert.equal((await (await f.reconcile()).json()).state, "attached");
+    assert.deepEqual(await f.rows(), originals); assert.deepEqual(await f.budgets(), budgets);
+    assert.equal((await f.ownerRequest()).status, 403);
+    await f.artifact("v2-retained-reselection");
+  } finally { await f.close(); }
+});
+
+test("lost actual attachment reply remains reselectable and reconcilable after expiry", async () => {
+  const f = await managedServicesFixture({ grantSeconds: 30 });
+  try {
+    const selected = await (await f.prepare()).json(); f.loseReply("attach");
+    await assert.rejects(f.attach()); const original = await f.rows(), budgets = await f.budgets();
+    await f.waitPastGrantExpiry();
+    assert.deepEqual(await (await f.prepare()).json(), selected);
+    assert.equal((await (await f.reconcile()).json()).state, "attached");
+    assert.equal((await (await f.attach()).json()).state, "attached");
+    assert.deepEqual(await f.rows(), original); assert.deepEqual(await f.budgets(), budgets);
+    await f.artifact("v2-expired-lost-ack");
+  } finally { await f.close(); }
+});
+
+test("an expired absent original cannot be freshly prepared and unknown attachment cannot become acknowledgement", async () => {
+  const f = await managedServicesFixture({ grantSeconds: 30 });
+  try {
+    await f.waitPastGrantExpiry(); assert.equal((await f.prepare()).status, 403);
+    assert.deepEqual(await f.rows(), []); await f.artifact("v2-no-expired-mint");
+  } finally { await f.close(); }
+  const unknown = await managedServicesFixture();
+  try {
+    await unknown.prepare(); await unknown.markAttaching(); const before = await unknown.rows();
+    assert.equal((await (await unknown.prepare()).json()).selectionDigest, unknown.selection.selectionDigest);
+    assert.equal((await (await unknown.attach()).json()).state, "unknown");
+    assert.deepEqual(await unknown.rows(), before); await unknown.artifact("v2-held-unknown");
+  } finally { await unknown.close(); }
+});
+
+test("signed noncanonical host/reference/window strings and malformed original bytes cannot acquire admission", async () => {
+  const f = await managedServicesFixture();
+  try {
+    const budgets = await f.budgets();
+    for (const suffix of ["\n", "\r\n", "\u2028", "\u2029"]) {
+      for (const field of ["host", "reference", "period", "raw"] as const) {
+        await assert.rejects(f.provisionChangedOriginal(r => {
+          if (field === "host") {
+            r.scope.hostInstallationId += suffix; r.custody.installationId = r.scope.hostInstallationId;
+            const { custodyBindingDigest: _digest, ...binding } = r.custody; r.custody.custodyBindingDigest = hashJson(binding);
+          }
+          if (field === "reference") r.admissionReference += suffix;
+          if (field === "period") r.moderation.budgetPeriod += suffix;
+          if (field === "raw") r.registrationOriginal.rawTransaction = `${r.registrationOriginal.rawTransaction}${suffix}`;
+        }));
+      }
+    }
+    await assert.rejects(f.provisionChangedOriginal(r => { r.registrationOriginal.rawTransaction = `${r.registrationOriginal.rawTransaction}a`; }));
+    await assert.rejects(f.provisionChangedOriginal(r => { r.registrationOriginal.transactionHash = hashText("a different original transaction"); }));
+    assert.deepEqual(await f.rows(), []); assert.deepEqual(await f.budgets(), budgets);
+    await f.artifact("v2-complete-string-refusals");
+  } finally { await f.close(); }
+});
+
+test("the managed gate guards the actual D1 transaction and authenticates replay without resetting owner ceilings", async () => {
+  const f = await managedServicesFixture();
+  try {
+    await f.prepare(); await f.attach();
+    const gate = f.admissionGate(), g = f.registration.grant,
+      original = { operationId: "v2-original-pin", requestHash: hashText("independent original pin request"), asset: "pin_adds" as const, requested: "1" };
+    const condition = await gate.reservationCondition(g, original);
+    await f.revoke();
+    // Actual existing reserveBudget executes both owner and admission predicates
+    // in one D1 transaction; no test mock implements the guard.
+    await assert.rejects(f.reserveWithGateCondition(original, condition));
+    assert.equal(await f.reservationCount(original.operationId), 0);
+    await assert.rejects(gate.beforeDispatch(g, original));
+    await f.artifact("v2-atomic-gate-refusal");
+  } finally { await f.close(); }
+});
+
+test("scoped health requires both exact selected headers and never treats health as an attachment acknowledgement", async () => {
+  const f = await managedServicesFixture();
+  try {
+    await f.prepare();
+    assert.equal((await f.health()).status, 403);
+    assert.equal((await f.health({ "x-pirate-community": f.registration.scope.communityId })).status, 403);
+    assert.equal((await f.ownerRequest()).status, 403);
+    await f.attach();
+    assert.equal((await f.health({ "x-pirate-community": f.registration.scope.communityId, "x-pirate-owner-grant": hashText("wrong selected grant") })).status, 409);
+    const before = await f.rows(); assert.equal((await f.ownerRequest()).status, 200);
+    assert.deepEqual(await f.rows(), before); await f.artifact("v2-exact-scoped-health");
+  } finally { await f.close(); }
+});
+
+
+test("revocation during real canonical readiness blocks the managed HTTP ADD before provider dispatch", async () => {
+  const f = await managedServicesFixture();
+  try {
+    await f.prepare(); await f.attach(); const intent = await f.acceptCanonicalIntent();
+    await assert.rejects(f.recognitionClient().reserve(intent)); await f.waitRecognitionReady(intent);
+    f.afterCanonicalAction("ready", () => f.revoke());
+    const response = await f.pinAudioOriginal(intent); assert.equal(response.ok, false);
+    assert.equal(f.pinAdds(), 0);
+    assert.equal((await (await f.reconcile()).json()).state, "attached");
+    await f.artifact("v2-real-managed-dispatch-gate");
+  } finally { await f.close(); }
+});

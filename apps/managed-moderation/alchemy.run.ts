@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
@@ -8,14 +10,43 @@ import { encryptedLocalState } from "./encrypted-state.ts";
 
 // Fresh packages select a separate encrypted stack explicitly. Historical
 // identity, migrations, entrypoint and default bindings remain unchanged.
-const fresh = process.env.MANAGED_SERVICE_PACKAGE_PROFILE === "managed-web2";
-if (process.env.MANAGED_SERVICE_PACKAGE_PROFILE && !fresh) throw new Error("unknown_managed_service_package_profile");
-const prefix = fresh ? process.env.MANAGED_WEB2_PREFIX! : "pirate-managed-firstsong-20261105";
-if (fresh && !/^pirate-[a-z0-9-]{1,48}$/.test(prefix ?? "")) throw new Error("explicit_managed_web2_prefix_required");
+const selectedProfile = process.env.MANAGED_SERVICE_PACKAGE_PROFILE;
+const helperOnly = selectedProfile === "operator-signing-only", fresh = selectedProfile === "managed-web2";
+if (selectedProfile && !fresh && !helperOnly) throw new Error("unknown_managed_service_package_profile");
+const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || helperOnly ? process.env.MANAGED_WEB2_PREFIX! : historicalPrefix;
+// Before state/provider initialization, bind the reviewed generated package,
+// explicit plan and actual Alchemy.Stack namespace. Existing encrypted local
+// state stores resources under state/<stack>/<stage>; Stack uses this same prefix.
+const selectedPackage = fresh || helperOnly ? (() => {
+  if (!/^pirate-[a-z0-9-]{1,48}(?![\s\S])/.test(prefix ?? "") || prefix.startsWith(historicalPrefix))
+    throw new Error("fresh_managed_stack_identity_required");
+  const bytes = readFileSync(new URL("./managed-web2-package.json", import.meta.url));
+  if (bytes.length > 2 * 1024 * 1024 || "0x" + createHash("sha256").update(bytes).digest("hex") !== process.env.MANAGED_WEB2_PACKAGE_DIGEST)
+    throw new Error("managed_package_pin_changed");
+  const p = JSON.parse(bytes.toString("utf8")), i = p.identity;
+  if (p.prefix !== prefix || p.packageProfile !== selectedProfile || i.prefix !== prefix || i.packageProfile !== selectedProfile ||
+    i.planId !== process.env.MANAGED_WEB2_PLAN_ID || !/^0x[0-9a-f]{64}(?![\s\S])/.test(i.planId) ||
+    i.state.store !== "pirate-encrypted-local" || i.state.stack !== prefix) throw new Error("managed_package_stack_changed");
+  return p;
+})() : undefined;
+const signingAssets = selectedPackage?.operatorSigning ? {
+  assets: { directory: "./operator-signing", runWorkerFirst: true, htmlHandling: "none" as const, notFoundHandling: "none" as const },
+} : {};
 export default Alchemy.Stack(
   prefix,
   { providers: Cloudflare.providers(), state: encryptedLocalState() },
   Effect.gen(function* () {
+    if (helperOnly) {
+      if (!selectedPackage?.operatorSigning) throw new Error("operator_signing_closure_unavailable");
+      const helper = yield* Cloudflare.Worker("SigningHelper", {
+        name: prefix, main: "./worker/worker.mjs", bundle: false, ...signingAssets,
+        compatibility: { date: "2026-11-15", flags: ["nodejs_compat", "global_fetch_strictly_public"] },
+        workersDev: { enabled: true, previewsEnabled: false },
+        observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true }, traces: { enabled: true, headSamplingRate: 0.1 } },
+        env: { MANAGED_PUBLISHING_PROFILE: "operator-signing-only", OPERATOR_SIGNING_PROFILE_JSON: JSON.stringify(selectedPackage.operatorSigning) },
+      });
+      return { origin: helper.url, profile: "operator-signing-only", planId: selectedPackage.identity.planId };
+    }
     const DB = yield* Cloudflare.D1.Database("Database", {
       name: `${prefix}-db`,
       migrations: "./migrations",
@@ -31,6 +62,7 @@ export default Alchemy.Stack(
       name: prefix,
       main: "./worker/worker.mjs",
       bundle: false,
+      ...(fresh ? signingAssets : {}),
       compatibility: {
         date: fresh ? "2026-11-15" : "2026-11-04",
         flags: ["nodejs_compat", "global_fetch_strictly_public"],
@@ -59,8 +91,9 @@ export default Alchemy.Stack(
         // deployment binds only the registered grant and registration key.
         ...(fresh
           ? { MANAGED_PUBLISHING_PROFILE: "managed-web2",
-              MANAGED_PUBLISHING_CONFIGURATION_JSON: process.env.MANAGED_PUBLISHING_CONFIGURATION_JSON!,
-              SERVICE_CONFIGURATION_TRUST_JSON: process.env.SERVICE_CONFIGURATION_TRUST_JSON! }
+              MANAGED_PUBLISHING_CONFIGURATION_JSON: JSON.stringify(selectedPackage.publishing),
+              SERVICE_CONFIGURATION_TRUST_JSON: JSON.stringify(selectedPackage.trust),
+              ...(selectedPackage.operatorSigning ? { OPERATOR_SIGNING_PROFILE_JSON: JSON.stringify(selectedPackage.operatorSigning) } : {}) }
           : process.env.OWNER_GRANT_JSON
           ? { OWNER_GRANT_JSON: process.env.OWNER_GRANT_JSON }
           : {
@@ -101,9 +134,9 @@ export default Alchemy.Stack(
         observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true },
           traces: { enabled: true, headSamplingRate: 0.1 } },
         env: { DB: recognitionDB, ADMISSION_DB: DB, JOBS: recognitionJOBS,
-          MANAGED_PUBLISHING_CONFIGURATION_JSON: process.env.MANAGED_PUBLISHING_CONFIGURATION_JSON!,
-          RECOGNITION_CONFIGURATION_JSON: process.env.RECOGNITION_CONFIGURATION_JSON!,
-          SERVICE_CONFIGURATION_TRUST_JSON: process.env.SERVICE_CONFIGURATION_TRUST_JSON!,
+          MANAGED_PUBLISHING_CONFIGURATION_JSON: JSON.stringify(selectedPackage.publishing),
+          RECOGNITION_CONFIGURATION_JSON: JSON.stringify(selectedPackage.recognition),
+          SERVICE_CONFIGURATION_TRUST_JSON: JSON.stringify(selectedPackage.trust),
           RECOGNITION_SIGNER_PRIVATE_KEY: Config.Redacted("RECOGNITION_SIGNER_PRIVATE_KEY"),
           ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!, ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
           ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"), ACRCLOUD_CATALOG_TOKEN: Config.Redacted("ACRCLOUD_CATALOG_TOKEN"),

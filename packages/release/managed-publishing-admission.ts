@@ -1,7 +1,7 @@
 /** Managed service admission. Grant/selection/observation types belong to their
  * existing owners; an issuer signature authenticates provisioning, not a hash. */
 import { timingSafeEqual } from "node:crypto";
-import { type Hex } from "viem";
+import { keccak256, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { canonical, bytes32, exact, hashJson, hashText, insist, integer, object, text } from "../community/common.ts";
 import { address, httpsOrigin } from "../community/manifest-core.ts";
@@ -42,26 +42,39 @@ const publicFixtureKeys: readonly Hex[] = Object.freeze([
 ]);
 const publicFixturePublishers = Object.freeze(publicFixtureKeys.map(key => privateKeyToAccount(key).address.toLowerCase()));
 export function requireDedicatedManagedSigner(key: Hex, rpcUrl: string) {
+  managedDigest(key);
   const url = new URL(rpcUrl), local = url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
   insist(local || !publicFixtureKeys.includes(key), "public_fixture_key_forbidden", 503);
   return privateKeyToAccount(key);
+}
+/** Canonical wire strings use a real end, not JavaScript's final-LF `$`. */
+export function managedDigest(value: unknown): Hex {
+  insist(typeof value === "string" && value.length === 66, "invalid_managed_digest");
+  return bytes32(value);
+}
+function reference(value: unknown, max: number) {
+  const v = text(value, max);
+  insist(v.length > 0 && !/[\x00-\x1f\x7f\u2028\u2029]/.test(v), "invalid_managed_reference"); return v;
+}
+function managedAddress(value: unknown) {
+  insist(typeof value === "string" && value.length === 42, "invalid_managed_address"); return address(value);
 }
 export function managedGrantScope(input: unknown): OwnerGrantScope {
   const s = object(structuredClone(input)); exact(object(s), ["schema", "enrollmentId", "installationId", "hostInstallationId", "deploymentDigest",
     "communityId", "origin", "controller", "ownerWallet", "policy", "chainId", "postsContract", "publisher"]);
   const policy = object(s.policy); exact(policy, ["version", "sha256"]);
   insist(s.schema === "pirate.web2-owner-grant-scope/1" && s.chainId === 6343, "managed_scope_unavailable", 409);
-  const scope: OwnerGrantScope = { schema: s.schema, enrollmentId: bytes32(s.enrollmentId), installationId: bytes32(s.installationId),
-    hostInstallationId: text(s.hostInstallationId, 200), deploymentDigest: bytes32(s.deploymentDigest), communityId: bytes32(s.communityId),
-    origin: httpsOrigin(s.origin), controller: address(s.controller), ownerWallet: address(s.ownerWallet),
-    policy: { version: text(policy.version, 100), sha256: bytes32(policy.sha256) }, chainId: 6343,
-    postsContract: address(s.postsContract), publisher: address(s.publisher) };
-  insist(installationReference(scope.hostInstallationId) && canonical(scope) === canonical(input), "managed_scope_changed", 409);
+  const scope: OwnerGrantScope = { schema: s.schema, enrollmentId: managedDigest(s.enrollmentId), installationId: managedDigest(s.installationId),
+    hostInstallationId: text(s.hostInstallationId, 200), deploymentDigest: managedDigest(s.deploymentDigest), communityId: managedDigest(s.communityId),
+    origin: httpsOrigin(s.origin), controller: managedAddress(s.controller), ownerWallet: managedAddress(s.ownerWallet),
+    policy: { version: text(policy.version, 100), sha256: managedDigest(policy.sha256) }, chainId: 6343,
+    postsContract: managedAddress(s.postsContract), publisher: managedAddress(s.publisher) };
+  insist(installationReference(scope.hostInstallationId) && !/[\u2028\u2029]/.test(scope.hostInstallationId) && canonical(scope) === canonical(input), "managed_scope_changed", 409);
   return scope;
 }
 export function authenticatedManagedRegistration(record: SignedRecord<ManagedPublishingRegistration>, trust: TrustAnchor) {
   exact(object(trust), ["keyId", "spki"]);
-  insist(text(trust.keyId, 200).length > 0 && text(trust.spki, 8192).length > 0, "managed_issuer_unavailable", 503);
+  insist(reference(trust.keyId, 200).length > 0 && reference(trust.spki, 8192).length > 0, "managed_issuer_unavailable", 503);
   exact(object(record), ["schema", "keyId", "body", "signature"]);
   const r = structuredClone(verifyRecord(record, trust));
   exact(object(r), ["schema", "issuerKeyId", "admissionReference", "serviceOrigin", "scope", "grant", "deployment", "configurationSha256",
@@ -79,15 +92,16 @@ export function authenticatedManagedRegistration(record: SignedRecord<ManagedPub
     !publicFixturePublishers.includes(scope.publisher), "public_fixture_key_forbidden", 503);
   const { custodyBindingDigest, ...custody } = r.custody;
   const generation = integer(custody.generation, 1, Number.MAX_SAFE_INTEGER);
-  insist(text(custody.keyReference, 256).length > 0 && generation > 0 && custody.installationId === scope.hostInstallationId &&
+  insist(reference(custody.keyReference, 256).length > 0 && generation > 0 && custody.installationId === scope.hostInstallationId &&
     address(custody.publisher) === scope.publisher && custodyBindingDigest === hashJson(custody), "managed_custody_unavailable", 503);
-  insist(text(r.credential.keyReference, 256).length > 0 && integer(r.credential.generation, 1, Number.MAX_SAFE_INTEGER) > 0,
+  insist(reference(r.credential.keyReference, 256).length > 0 && integer(r.credential.generation, 1, Number.MAX_SAFE_INTEGER) > 0,
     "managed_credential_unavailable", 503);
-  bytes32(r.credential.sha256); bytes32(r.configurationSha256); bytes32(r.registrationOriginal.transactionHash);
-  insist(typeof r.registrationOriginal.rawTransaction === "string" && /^0x[0-9a-f]+$/.test(r.registrationOriginal.rawTransaction) &&
-    r.registrationOriginal.rawTransaction.length <= 65536, "managed_registration_original_invalid", 503);
-  insist(/^[A-Za-z0-9:_./-]{1,200}$/.test(text(r.admissionReference, 200)) &&
-    /^[a-z0-9][a-z0-9_-]{1,63}$/.test(text(r.moderation.budgetPeriod, 64)) &&
+  managedDigest(r.credential.sha256); managedDigest(r.configurationSha256); managedDigest(r.registrationOriginal.transactionHash);
+  managedDigest(r.custody.custodyBindingDigest);
+  insist(typeof r.registrationOriginal.rawTransaction === "string" && /^0x(?:[0-9a-f]{2})+(?![\s\S])/.test(r.registrationOriginal.rawTransaction) &&
+    r.registrationOriginal.rawTransaction.length <= 65536 && keccak256(r.registrationOriginal.rawTransaction) === r.registrationOriginal.transactionHash, "managed_registration_original_invalid", 503);
+  insist(/^[A-Za-z0-9:_./-]{1,200}(?![\s\S])/.test(text(r.admissionReference, 200)) &&
+    /^[a-z0-9][a-z0-9_-]{1,63}(?![\s\S])/.test(text(r.moderation.budgetPeriod, 64)) &&
     integer(r.moderation.requestCap, 1, 100) > 0, "managed_admission_unavailable", 503);
   insist(httpsOrigin(r.serviceOrigin) === deployment.managedOrigin && deployment.directoryProfile.communityId === scope.communityId &&
     deployment.directoryProfile.installationId === scope.installationId && deployment.origin === scope.origin &&
@@ -107,15 +121,16 @@ export function selectionFor(r: ManagedPublishingRegistration): ConfiguredGrantS
 export function managedPublishingConfiguration(input: ManagedPublishingConfiguration, trust: TrustAnchor) {
   const c = structuredClone(input); exact(object(c), ["schema", "origin", "journal", "registrations", "disabledAdmissionReferences"]);
   exact(object(c.journal), ["epoch", "restoreAnchorSha256"]);
-  insist(c.schema === "pirate.managed-publishing-service/1" && Array.isArray(c.registrations) && c.registrations.length > 0 &&
+  insist(c.schema === "pirate.managed-publishing-service/1" && Array.isArray(c.registrations) && c.registrations.length >= 0 &&
     c.registrations.length <= 100 && Array.isArray(c.disabledAdmissionReferences) && c.disabledAdmissionReferences.length <= 100,
     "managed_service_configuration_unavailable", 503);
-  httpsOrigin(c.origin); bytes32(c.journal.epoch); bytes32(c.journal.restoreAnchorSha256);
+  httpsOrigin(c.origin); managedDigest(c.journal.epoch); managedDigest(c.journal.restoreAnchorSha256);
   const registrations = c.registrations.map(r => authenticatedManagedRegistration(r, trust));
   insist(registrations.every(r => r.serviceOrigin === c.origin) &&
     new Set(registrations.map(r => r.admissionReference)).size === registrations.length &&
     new Set(registrations.map(r => r.scope.enrollmentId)).size === registrations.length &&
-    c.disabledAdmissionReferences.every(ref => typeof ref === "string" && registrations.some(r => r.admissionReference === ref)),
+    new Set(c.disabledAdmissionReferences).size === c.disabledAdmissionReferences.length &&
+    c.disabledAdmissionReferences.every(ref => /^[A-Za-z0-9:_./-]{1,200}(?![\s\S])/.test(reference(ref, 200))),
     "managed_configuration_conflict", 503);
   return c;
 }
@@ -123,7 +138,7 @@ export function authenticateManagedCredential(request: Request, r: ManagedPublis
   const origin = request.headers.get("origin"), bearer = request.headers.get("authorization") ?? "";
   insist(new URL(request.url).origin === r.serviceOrigin && (origin === null || origin === r.serviceOrigin) &&
     request.headers.get("x-pirate-installation") === r.scope.hostInstallationId && bearer.length <= 1024 &&
-    /^Bearer [A-Za-z0-9_-]{32,512}$/.test(bearer), "managed_service_authentication_failed", 403);
+    /^Bearer [A-Za-z0-9_-]{32,512}(?![\s\S])/.test(bearer), "managed_service_authentication_failed", 403);
   const actual = Buffer.from(hashText(bearer.slice(7)).slice(2), "hex"), expected = Buffer.from(r.credential.sha256.slice(2), "hex");
   insist(actual.length === expected.length && timingSafeEqual(actual, expected), "managed_service_authentication_failed", 403);
 }
@@ -147,6 +162,15 @@ export class ManagedPublishingJournal {
   }
   async row(digest: Hex): Promise<AdmissionRow | null> {
     return this.db.withSession("first-primary").prepare("SELECT * FROM managed_publishing_admissions WHERE selection_digest=?").bind(digest).first<AdmissionRow>();
+  }
+  async retainedSelection(r: ManagedPublishingRegistration) {
+    const row = await this.db.withSession("first-primary").prepare("SELECT * FROM managed_publishing_admissions WHERE original_id=?")
+      .bind(r.scope.enrollmentId).first<AdmissionRow>();
+    if (!row) return null;
+    const expected = selectionFor(r);
+    insist(row.selection_digest === expected.selectionDigest && row.admission_reference === r.admissionReference &&
+      row.registration_json === canonical(r) && row.selection_json === canonical(expected), "managed_original_conflict", 409);
+    return configuredGrantSelection(JSON.parse(row.selection_json), r.scope);
   }
   async prepare(r: ManagedPublishingRegistration) {
     const selection = selectionFor(r);
@@ -224,6 +248,7 @@ export async function provisionManagedPublishingInputs(db: D1Database, input: Ma
   return { origin: c.origin, admitted: c.registrations.map(r => r.body.admissionReference), journal: c.journal };
 }
 /** Provisioning-side revocation. No deletion, reactivation or original rewrite. */
-export async function revokeManagedPublishingAdmission(db: D1Database, reference: string) {
-  await db.prepare("UPDATE managed_publishing_registrations SET state='revoked' WHERE admission_reference=?").bind(text(reference, 200)).run();
+export async function revokeManagedPublishingAdmission(db: D1Database, reference: string, state: "revoked" | "disabled" = "revoked") {
+  insist(["revoked", "disabled"].includes(state) && /^[A-Za-z0-9:_./-]{1,200}(?![\s\S])/.test(text(reference, 200)), "invalid_managed_reference");
+  await db.prepare("UPDATE managed_publishing_registrations SET state=? WHERE admission_reference=?").bind(state, reference).run();
 }
