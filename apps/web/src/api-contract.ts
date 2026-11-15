@@ -33,6 +33,9 @@ export interface CommunitySessionView {
   publisher: boolean;
 }
 export interface CommunityCapabilities {
+  /** Explicit false disables membership and naming in the first-song profile.
+   * Absence retains the historical membership behavior. */
+  membership?: boolean;
   rewards?: boolean;
   study?: boolean;
   learningServiceMode?: "internal";

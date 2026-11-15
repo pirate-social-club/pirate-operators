@@ -18,6 +18,22 @@ import {
   noHorizontalOverflow,
 } from "./community-controls.ts";
 
+test("Web2 owner can open the composer with membership disabled and no join or name requests", async ({page}) => {
+  const state = await serve(page, true, false, true, "strict-origin", {membership: false, joined: false});
+  await page.goto(origin + "/#/join");
+  await expect(page.getByRole("heading", {name: "Browser Fixture Community"})).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const post = page.getByRole("button", {name: "Post", exact: true});
+  await expect(post).toBeEnabled();
+  await post.click();
+  const composer = page.getByRole("main", {name: "Create a post", exact: true});
+  await expect(composer).toBeVisible();
+  await expect(composer.locator('input[aria-label="Upload audio"]')).toHaveCount(1);
+  expect(state.events.filter(event => event.path === "/api/community/join" || event.path.startsWith("/api/member-name"))).toEqual([]);
+  await page.screenshot({path: test.info().outputPath("web2-owner-composer.png"), fullPage: true});
+  await test.info().attach("membership-disabled-requests", {body: JSON.stringify(state.events, null, 2), contentType: "application/json"});
+});
+
 test("fresh anonymous browser loads the real client, offers sign-in and preserves the empty feed on reload", async ({
   page,
 }) => {

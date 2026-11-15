@@ -10,10 +10,11 @@ import {
   text,
 } from "../community/common.ts";
 import { address, httpsOrigin } from "../community/manifest-core.ts";
-import type { CommunityConfig } from "../community/config-manifest.ts";
+import { isHistoricalConfiguration, type CommunityConfig } from "../community/config-manifest.ts";
+import { directoryInstanceId, sharedBytes32 } from "../community/shared-identity.ts";
 import { evidenceDomain } from "./evidence.ts";
 
-export interface ManagedPairing {
+export interface HistoricalManagedPairing {
   communityId: Hex;
   registry: Address;
   directory: Address;
@@ -23,6 +24,16 @@ export interface ManagedPairing {
   enabled: boolean;
   budgetPeriod: string;
   requestCap: number;
+}
+export interface Web2ManagedPairing extends Omit<HistoricalManagedPairing, "registry"> {
+  schema: "pirate.managed-pairing/2";
+  chainId: 6343;
+  communityKey: Hex;
+  installationId: Hex;
+}
+export type ManagedPairing = HistoricalManagedPairing | Web2ManagedPairing;
+export function isWeb2Pairing(pairing: ManagedPairing): pairing is Web2ManagedPairing {
+  return "schema" in pairing && pairing.schema === "pirate.managed-pairing/2";
 }
 export interface ServiceAuthorization {
   action:
@@ -74,11 +85,12 @@ export function managedPairings(value: unknown): ManagedPairing[] {
     "invalid_managed_pairings",
     503,
   );
-  const values = value.map((input) => {
+  const values: ManagedPairing[] = value.map((input) => {
     const p = object(input);
+    const web2 = p.schema === "pirate.managed-pairing/2";
     exact(p, [
       "communityId",
-      "registry",
+      ...(web2 ? ["schema", "chainId", "communityKey", "installationId"] : ["registry"]),
       "directory",
       "controller",
       "communityOrigin",
@@ -94,9 +106,8 @@ export function managedPairings(value: unknown): ManagedPairing[] {
       "invalid_budget_period",
       503,
     );
-    return {
+    const common = {
       communityId: bytes32(p.communityId),
-      registry: address(p.registry),
       directory: address(p.directory),
       controller: address(p.controller),
       communityOrigin: httpsOrigin(p.communityOrigin),
@@ -105,6 +116,12 @@ export function managedPairings(value: unknown): ManagedPairing[] {
       budgetPeriod,
       requestCap: integer(p.requestCap, 1, 100),
     };
+    if (!web2) return {...common, registry: address(p.registry)};
+    const communityKey = sharedBytes32(p.communityKey);
+    insist(p.chainId === 6343 && common.communityId === directoryInstanceId(6343, communityKey),
+      "invalid_managed_pairing", 503);
+    return {...common, schema: "pirate.managed-pairing/2", chainId: 6343,
+      communityKey, installationId: sharedBytes32(p.installationId)};
   });
   insist(
     new Set(values.map((p) => p.communityId)).size === values.length,
@@ -217,7 +234,10 @@ export async function authorizeServiceRequest(
   insist(
     current.chainId === 6343 &&
       current.communityId === pairing.communityId &&
-      current.registry === pairing.registry &&
+      (isWeb2Pairing(pairing)
+        ? !isHistoricalConfiguration(current) && current.communityKey === pairing.communityKey &&
+          current.installationId === pairing.installationId
+        : isHistoricalConfiguration(current) && current.registry === pairing.registry) &&
       current.directory === pairing.directory &&
       current.controller === pairing.controller &&
       current.app.origin === pairing.communityOrigin &&

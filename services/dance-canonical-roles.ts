@@ -1,6 +1,6 @@
 import type { Address, PublicClient } from "viem";
 import { bytes32, insist } from "../packages/community/common.ts";
-import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import { isHistoricalConfiguration, type CommunityConfig } from "../packages/community/config-manifest.ts";
 import { danceVerdictsAbi } from "../packages/dance-chain/abi.ts";
 import { directoryAbi } from "../packages/community/directory-reader.ts";
 import { address } from "../packages/community/manifest-core.ts";
@@ -37,6 +37,7 @@ export async function observeCanonicalDanceRole(input: {
 }) {
   const { client, source, config } = input,
     { pin, domain } = source;
+  insist(isHistoricalConfiguration(config), "historical_dance_profile_required", 503);
   const rpc = danceReadPort(client);
   insist(
     domain.chainId === 6343n &&

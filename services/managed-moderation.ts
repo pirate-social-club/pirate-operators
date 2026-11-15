@@ -11,7 +11,11 @@ import {
 } from "../packages/community/common.ts";
 import { address, httpsOrigin } from "../packages/community/manifest-core.ts";
 import { readConfiguration } from "../packages/community/directory-reader.ts";
-import { managedPairings } from "../packages/moderation/pairing.ts";
+import { managedPairings, isWeb2Pairing } from "../packages/moderation/pairing.ts";
+import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
+import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
+import { validateCommunityDeploymentProfile, isWeb2Deployment, communityIpfsTransport } from "./community-deployment-profile.ts";
+import type { IpfsTransport } from "../packages/community/ipfs.ts";
 import {
   managedFetch,
   recoverAdmissions,
@@ -32,6 +36,8 @@ import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
 
 import type { CatalogOwnerReleaseInputs } from "../packages/release/catalog-owner-release.ts";
 export interface ManagedEnv {
+  /** Trusted service composition for the external pinning provider. */
+  PIN_TRANSPORT?: IpfsTransport;
   CATALOG_RELEASE_INPUTS?: CatalogOwnerReleaseInputs;
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -90,6 +96,11 @@ function configuration(env: ManagedEnv): ManagedService {
   );
   const profiles = rawProfiles.map((value) => {
     const p = object(value);
+    if (p.schema === "pirate.community-deployment/2") {
+      const deployment = validateCommunityDeploymentProfile(p);
+      insist(isWeb2Deployment(deployment), "invalid_directory_profile", 503);
+      return {kind: "web2" as const, communityId: deployment.directoryProfile.communityId, deployment};
+    }
     exact(p, [
       "chainId",
       "communityId",
@@ -106,6 +117,7 @@ function configuration(env: ManagedEnv): ManagedService {
       503,
     );
     return {
+      kind: "historical" as const,
       chainId: 6343 as const,
       communityId: bytes32(p.communityId),
       directory: address(p.directory),
@@ -147,8 +159,23 @@ function configuration(env: ManagedEnv): ManagedService {
       const profile = profiles.find(
         (p) => p.communityId === pairing.communityId,
       );
+      insist(profile, "unpaired_directory_profile", 503);
+      if (profile.kind === "web2") {
+        const deployment = profile.deployment, directory = parseWeb2ProfileDocument(deployment.directoryProfile);
+        insist(isWeb2Pairing(pairing) && directory.directory === pairing.directory &&
+          directory.communityKey === pairing.communityKey && directory.installationId === pairing.installationId &&
+          deployment.origin === pairing.communityOrigin && deployment.managedOrigin === serviceOrigin,
+          "unpaired_directory_profile", 503);
+        const web2Client = createPublicClient({chain, transport: http(deployment.rpcUrl,
+          {retryCount: 0, timeout: 15000, fetchOptions: {redirect: "manual"}})});
+        const read = await readWeb2Community(web2Client, directory,
+          {now: () => BigInt(Math.floor(Date.now()/1000)), maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds)},
+          communityIpfsTransport(deployment));
+        insist(read.eligibility.status === "available", "community_authority_unavailable", 503);
+        return read.config;
+      }
       insist(
-        profile &&
+        !isWeb2Pairing(pairing) &&
           profile.registry === pairing.registry &&
           profile.directory === pairing.directory,
         "unpaired_directory_profile",
@@ -212,6 +239,7 @@ export default {
           pairings: config.pairings,
           currentConfiguration: config.currentConfiguration,
           filebaseCredential: env.FILEBASE_IPFS_TOKEN,
+          pinTransport: env.PIN_TRANSPORT,
           acrEndpoint: acrEndpoint(config.acr.host),
           catalog: env.CATALOG_RELEASE_INPUTS,
         });
@@ -230,7 +258,12 @@ export default {
           origin: config.serviceOrigin,
           grant: JSON.parse(env.RELEASE_GRANT_JSON),
           pairings: config.pairings,
-          currentConfiguration: config.currentConfiguration,
+          currentConfiguration: async pairing => {
+            insist(!isWeb2Pairing(pairing), "historical_registered_release_profile_required", 503);
+            const current = await config.currentConfiguration(pairing);
+            insist(current.schema !== "pirate.community-config/4", "historical_registered_release_profile_required", 503);
+            return current;
+          },
           filebaseCredential: env.FILEBASE_IPFS_TOKEN,
           registrationSigner: privateKeyToAccount(
             env.REGISTRATION_OPERATOR_PRIVATE_KEY as `0x${string}`,
