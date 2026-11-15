@@ -814,6 +814,14 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
             );
         assert.equal(original.intent.jobId, song.jobId);
         assert.deepEqual(await client.audio(original.intent), song.audio);
+        await assert.rejects(
+          client.findPublication(original.intent.postId, 2),
+          /canonical_publication_revision_unsupported/,
+        );
+        await assert.rejects(
+          client.ready({ ...original.intent, publicationRevision: 2 }),
+          /canonical_publication_revision_unsupported/,
+        );
         const wire = await signCanonicalRequest(signer, config, "read", {
           jobId: song.jobId,
         });
