@@ -16,6 +16,7 @@ import {object} from "../../packages/community/common.ts";
 import {buildCompleteLinuxArtifacts} from "./build-complete-artifacts.ts";
 
 export interface CandidateBuildOptions {
+ profile?:"web2-first-song/1";
  sourceRoot:string;head:string;tree:string;outputDirectory:string;installationId:string;operationId:string;
  hostPidNamespace:string;backend:string;assets:string;wizardDist:string;
  workerd:string;workerdSha256:string;schema:string;schemaSha256:string;
@@ -197,14 +198,14 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   }
   const unique=(rows:Copied[])=>{const map=new Map<string,Copied>();for(const row of rows){const old=map.get(row.output);assert(!old || old.sha256===row.sha256,"selected_output_collision");map.set(row.output,row);}return [...map.values()].sort((a,b)=>a.output.localeCompare(b.output));};
   const selectedBackend=unique(backendModules),selectedToolchain=unique(toolchainModules);
-  const inventory={sourceHead:o.head,sourceTree:o.tree,backendModules:selectedBackend,toolchainModules:selectedToolchain,
+  const inventory={sourceHead:o.head,sourceTree:o.tree,...(o.profile?{profile:o.profile}:{}),backendModules:selectedBackend,toolchainModules:selectedToolchain,
    wizardFiles,nativeModules,node:{path:node.source,sha256:node.sha256},native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
    migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),actorModules,licenses};
   const inventoryBytes=Buffer.from(JSON.stringify(inventory)+"\n"),inventorySha256=hash(inventoryBytes);
   await writeFile(join(o.outputDirectory,"build-inputs.json"),inventoryBytes,{flag:"wx",mode:0o600});
   await lease.record("inputs-pinned",{inventorySha256,inventoryPath:join(o.outputDirectory,"build-inputs.json")});
   await lease.assertHeld();abort.signal.throwIfAborted();
-  const built=await buildCompleteLinuxArtifacts({sourceRoot:root,assetDirectory:inside(root,assets),output:join(o.outputDirectory,"release"),rawOutputDirectory:compilerRaw,lease,
+  const built=await buildCompleteLinuxArtifacts({...(o.profile?{profile:o.profile}:{}),sourceRoot:root,assetDirectory:inside(root,assets),output:join(o.outputDirectory,"release"),rawOutputDirectory:compilerRaw,lease,
    migrations,node:node.source,nodeSha256:node.sha256,esbuildCLI:esbuildCLI.source,esbuildCLISha256:esbuildCLI.sha256,
    esbuildNative:esbuildNative.source,esbuildNativeSha256:esbuildNative.sha256,signal:abort.signal,environment:env,
    backendModules:selectedBackend,toolchainModules:selectedToolchain.map(row=>({...row,executable:row.output.endsWith("/bin/esbuild")})),wizardFiles,
@@ -213,7 +214,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   await lease.assertHeld();abort.signal.throwIfAborted();
   await lease.record("artifacts-built",{inventorySha256,output:built.output,dockerExecuted:false,qualification:"UNRUN"});
   abort.signal.throwIfAborted();assert(performance.now()<deadline,"candidate_build_deadline");
-  await writeFile(join(o.outputDirectory,"built-artifacts.json"),JSON.stringify({files:built.files,sourceHashes:built.sourceHashes,execution:built.execution,output:built.output,inventorySha256,dockerExecuted:false,qualification:"UNRUN"})+"\n",{flag:"wx",mode:0o600});
+  await writeFile(join(o.outputDirectory,"built-artifacts.json"),JSON.stringify({releaseSchema:built.releaseSchema,files:built.files,sourceHashes:built.sourceHashes,execution:built.execution,output:built.output,inventorySha256,dockerExecuted:false,qualification:"UNRUN"})+"\n",{flag:"wx",mode:0o600});
   abort.signal.throwIfAborted();assert(performance.now()<deadline,"candidate_build_deadline");
   return {output:built.output,inventorySha256,leaseDirectory,leaseRetained:true,qualification:"UNRUN" as const};
  }catch(error){await lease.record("build-failed-custody-retained",{error:error instanceof Error?error.message:"unknown"});throw error;}
@@ -221,11 +222,13 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
 }
 if(process.argv[1] && await realpath(process.argv[1])===fileURLToPath(import.meta.url)){
  const names=["source-root","head","tree","output-directory","installation-id","operation-id","host-pid-namespace",
-  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds"];
+  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds","profile"];
  const options=Object.fromEntries(names.map(name=>[name,{type:"string" as const}]));
  const {values}=parseArgs({options,strict:true,allowPositionals:false});
  const get=(name:string)=>{const value=values[name];assert(typeof value==="string" && value.length,"required_build_argument: --"+name);return value;};
- try{const result=await buildLocalInstallationCandidate({sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
+ try{const profile=values.profile;
+  assert(profile===undefined || profile==="web2-first-song/1","unknown_linux_build_profile");
+  const result=await buildLocalInstallationCandidate({...(profile?{profile}:{}),sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
   installationId:get("installation-id"),operationId:get("operation-id"),hostPidNamespace:get("host-pid-namespace"),backend:get("backend"),assets:get("assets"),
   wizardDist:get("wizard-dist"),workerd:get("workerd"),workerdSha256:get("workerd-sha256"),schema:get("schema"),schemaSha256:get("schema-sha256"),
   migrationsFile:get("migrations-file"),actorsFile:get("actors-file"),seconds:Number(get("seconds"))});

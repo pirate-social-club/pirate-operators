@@ -8,6 +8,7 @@ import {nativeLearningFences,type NativeBusinessFence} from "../packages/communi
 import type {CommunityPrivateDance} from "./community-private-dance.ts";
 import {validateAuthority} from "../packages/dance/validation.ts";
 import {danceAtomicPredicates} from "../packages/dance/fence.ts";
+import {web2NativeOriginal} from "../packages/community/web2-native-business-binding.ts";
 
 export interface ApplicationNativeEnv {
   DB: D1Database;
@@ -22,6 +23,16 @@ export async function nativeApplicationOriginal(env: ApplicationNativeEnv) {
   ).first<{original_digest:string;original_json:string}>();
   insist(stored?.original_digest===nativeDigest(original) &&
     stored.original_json===nativeCanonical(original),"native_application_original_changed",503);
+  return original;
+}
+export async function web2ApplicationOriginal(env: ApplicationNativeEnv) {
+  insist(env.NATIVE_APPLICATION_ORIGINAL_JSON,"web2_native_original_required",503);
+  const original=await web2NativeOriginal(env.NATIVE_APPLICATION_ORIGINAL_JSON);
+  const row=await env.DB.withSession("first-primary").prepare(
+    "SELECT original_digest,original_json FROM native_application_original WHERE singleton=1",
+  ).first<{original_digest:string;original_json:string}>();
+  insist(row?.original_digest===nativeDigest(original) && row.original_json===nativeCanonical(original),
+    "web2_native_original_changed",503);
   return original;
 }
 export async function nativeBusinessResponse(input: {

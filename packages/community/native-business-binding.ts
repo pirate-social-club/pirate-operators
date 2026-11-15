@@ -22,7 +22,7 @@ const binary = (value: string, url = false, status:403|503=503) => {
   return decoded;
 };
 
-async function verifyNativeRecord(record:SignedRecord<unknown>,trust:TrustAnchor,status:403|503=503){
+export async function verifyNativeRecord(record:SignedRecord<unknown>,trust:TrustAnchor,status:403|503=503){
   exact(object(record),["schema","keyId","body","signature"]);
   insist(record.schema==="pirate.local-signed-record/1" && record.keyId===trust.keyId,"native_original_issuer",status);
   const key=await crypto.subtle.importKey("spki",binary(trust.spki),"Ed25519",false,["verify"]);
@@ -66,6 +66,14 @@ export async function nativeOriginal(raw: string): Promise<NativeOriginal> {
   return input;
 }
 
+// Closed schema dispatch inside the same atomic business insert. Unknown
+// originals yield NULL, never a fallback to either community identity.
+const originalField = (legacy: string, web2: string) => `CASE json_extract(o.original_json,'$.schema')
+ WHEN 'pirate.native-application-original/1' THEN json_extract(o.original_json,'$.record.body.profile.${legacy}')
+ WHEN 'pirate.web2-native-application-original/1' THEN json_extract(o.original_json,'$.record.body.draft.${web2}') END`;
+const originalCommunity = originalField("identity.communityId", "enrollment.communityId");
+const originalOrigin = originalField("settings.origin", "origin");
+
 /** Additive immutable scope metadata. It stores no completion/outcome or readiness. */
 export async function captureNativeBusiness(
   db: D1Database, kind: NativeBusinessKind, recordId: string, accountId: string,
@@ -83,8 +91,8 @@ export async function captureNativeBusiness(
     JOIN credential_bindings k ON k.binding_id=s.binding_id AND k.account_id=s.account_id
     JOIN login_challenges c ON c.challenge_id=? AND c.subject=k.subject AND c.community_id=s.community_id
       AND c.community_origin=s.community_origin AND c.consumed=0
-      AND s.community_id=json_extract(o.original_json,'$.record.body.profile.identity.communityId')
-      AND s.community_origin=json_extract(o.original_json,'$.record.body.profile.settings.origin')
+      AND s.community_id=${originalCommunity}
+      AND s.community_origin=${originalOrigin}
     WHERE o.singleton=1 ON CONFLICT(kind,record_id) DO NOTHING`).bind(loginSignature.toLowerCase(),recordId,requestId)];
   }
   const definition = kind === "media"
@@ -93,7 +101,7 @@ export async function captureNativeBusiness(
   return [db.prepare(`INSERT INTO native_business_bindings(kind,record_id,account_id,request_id,original_digest,${definition.column})
     SELECT ?,b.${definition.key},b.account_id,b.request_id,o.original_digest,b.${definition.key} FROM native_application_original o
     JOIN ${definition.table} b ON b.${definition.key}=? AND b.account_id=? AND b.request_id=?
-    WHERE o.singleton=1 AND b.community_id=json_extract(o.original_json,'$.record.body.profile.identity.communityId')
+    WHERE o.singleton=1 AND b.community_id=${originalCommunity}
     ${onlyInserted ? "AND changes()=1" : ""}
     ON CONFLICT(kind,record_id) DO NOTHING`).bind(kind, recordId, accountId, requestId)];
 }
@@ -111,12 +119,12 @@ export async function captureNativeSubmission(db:D1Database,id:string,account:st
       json_object('requestHash',s.request_hash,'profile',json(?))
     FROM native_application_original o JOIN media_submissions s ON s.submission_id=? AND s.account_id=? AND s.idempotency_key=?
     WHERE o.singleton=1 AND changes()=1
-      AND json_extract(o.original_json,'$.record.body.profile.identity.communityId')=?
-      AND json_extract(o.original_json,'$.record.body.profile.infrastructure.configuration.configurationRevision')=?
-      AND json_extract(o.original_json,'$.record.body.profile.infrastructure.configuration.chainId')=?
-      AND json_extract(o.original_json,'$.record.body.profile.infrastructure.configuration.postsContract')=?
-      AND json_extract(o.original_json,'$.record.body.profile.infrastructure.configuration.publisher')=?
-      AND json_extract(o.original_json,'$.record.body.profile.infrastructure.configuration.policies.moderationSigner')=?
+      AND ${originalCommunity}=?
+      AND ${originalField("infrastructure.configuration.configurationRevision", "configuration.configurationRevision")}=?
+      AND ${originalField("infrastructure.configuration.chainId", "configuration.chainId")}=?
+      AND ${originalField("infrastructure.configuration.postsContract", "configuration.postsContract")}=?
+      AND ${originalField("infrastructure.configuration.publisher", "configuration.publisher")}=?
+      AND ${originalField("infrastructure.configuration.policies.moderationSigner", "configuration.policies.moderationSigner")}=?
     ON CONFLICT(kind,record_id) DO NOTHING`).bind(nativeCanonical(profile),id,account,key,
       profile.communityId,profile.configurationRevision,profile.chainId,profile.postsContract,profile.publisher,profile.moderationSigner)];
 }

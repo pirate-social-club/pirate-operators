@@ -7,7 +7,7 @@ import {immutableRecord} from "./installed-records.ts";
 import {type OperationLease} from "./backend-state.ts";
 import {type NativeGraph,renderFullNativeConfig} from "./full-native-config.ts";
 export interface FullRelease {
-  schema:"pirate.complete-linux-release/1";sourceHead:string;sourceTree:string;root:string;
+  schema:"pirate.complete-linux-release/1"|"pirate.complete-linux-web2-release/1";sourceHead:string;sourceTree:string;root:string;
   sourceRoot:string;
   execution:{node:"toolchain/node";nodeSha256:string;nodeVersion:"v24.18.1";
     loader:"toolchain/node_modules/tsx/dist/loader.mjs";tsxVersion:"4.20.6";backend:"source/backend.ts"};
@@ -22,16 +22,22 @@ export function installedExecutionPaths(release:FullRelease) {
   assert(e?.node==="toolchain/node" && e.nodeVersion==="v24.18.1" && e.tsxVersion==="4.20.6" &&
     e.loader==="toolchain/node_modules/tsx/dist/loader.mjs" && e.backend==="source/backend.ts","pinned_installed_execution_required");
   assert(/^[a-f0-9]{64}$/.test(e.nodeSha256) && release.files[e.node]===e.nodeSha256,"installed_node_digest_changed");
+  const web2=release.schema==="pirate.complete-linux-web2-release/1";
   for(const path of [e.loader,e.backend,"source/package.json","source/deploy/linux/local-install-main.ts",
-    "source/deploy/linux/local-installation.ts","source/deploy/linux/local-target-services.ts",
-    "source/deploy/linux/shared-v2-result-producer.ts","toolchain/node_modules/tsx/package.json","wizard/index.html"])
+    "source/deploy/linux/local-installation.ts",
+    ...(web2?["source/deploy/linux/web2-local-installation.ts","source/deploy/linux/web2-launch.ts",
+      "source/deploy/linux/web2-service.ts",
+      "source/packages/community/web2-native-business-binding.ts"]:
+      ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
+    "toolchain/node_modules/tsx/package.json","wizard/index.html"])
     assert(Object.hasOwn(release.files,path),"complete_installed_runtime_closure_required: "+path);
   return {node:join(release.root,e.node),loader:join(release.root,e.loader),backend:join(release.root,e.backend),
-    main:join(release.sourceRoot,"deploy/linux/local-install-main.ts"),wizardDist:join(release.root,"wizard")};
+    main:join(release.sourceRoot,web2?"deploy/linux/web2-service.ts":"deploy/linux/local-install-main.ts"),wizardDist:join(release.root,"wizard")};
 }
 export async function verifyInstalledRelease(record:SignedRecord<FullRelease>,trust:TrustAnchor) {
   const release=verifyRecord(record,trust);
-  assert(release.schema==="pirate.complete-linux-release/1" && /^[a-f0-9]{40}$/.test(release.sourceHead) && /^[a-f0-9]{40}$/.test(release.sourceTree));
+  assert((release.schema==="pirate.complete-linux-release/1" || release.schema==="pirate.complete-linux-web2-release/1") &&
+    /^[a-f0-9]{40}$/.test(release.sourceHead) && /^[a-f0-9]{40}$/.test(release.sourceTree));
   assert.equal(await realpath(release.root),release.root);
   installedExecutionPaths(release);
   // The signed record is external to this immutable tree. No ancestor can

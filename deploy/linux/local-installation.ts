@@ -9,11 +9,13 @@ import {verifyInstalledRelease,installedExecutionPaths,type FullRelease} from ".
 import {linuxCreateRuntimeProfileFrom,type LinuxCreateRuntimeProfile} from "./create-runtime-profile.ts";
 import type {LocalTargetCreateBootstrapInputs} from "./bootstrap-local-target.ts";
 import type {InstalledLinuxCreateInputs} from "../../apps/community-wizard/server/linux-launch.ts";
+import type {Web2LocalInstallationConfiguration} from "./web2-local-installation.ts";
 
-export interface LocalInstallationConfiguration {
+export interface HistoricalLocalInstallationConfiguration {
   schema:"pirate.local-installation/1";
   release:SignedRecord<FullRelease>;trust:TrustAnchor;runtimeProfileFile:string;
 }
+export type LocalInstallationConfiguration=HistoricalLocalInstallationConfiguration|Web2LocalInstallationConfiguration;
 /** Scratch is private and fresh on EVERY boot. Persistent roots, installation
  * IDs, leases, pending operations and journals are never created/replaced here. */
 export async function createBootDirectory(parent:string) {
@@ -37,6 +39,10 @@ export function assertCreateRuntimeSelection(release:FullRelease,runtime:LinuxCr
  * contract. Unsigned path selection never constructs a signed profile, issuer,
  * namespace proof, readiness row, credential, installation ID or retry child. */
 export async function launchLocalInstallation(config:LocalInstallationConfiguration) {
+  if(config.schema==="pirate.web2-local-installation/1"){
+    const {launchWeb2LocalInstallation}=await import("./web2-local-installation.ts");
+    return launchWeb2LocalInstallation(config);
+  }
   assert(config.schema==="pirate.local-installation/1","local_installation_configuration_required");
   assert.deepEqual(Object.keys(config).sort(),["release","runtimeProfileFile","schema","trust"]);
   const release=await verifyInstalledRelease(config.release,config.trust);

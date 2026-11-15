@@ -1,4 +1,5 @@
 import {initializeNativeOriginal} from "../../packages/community/native-business-binding.ts";
+import {initializeWeb2NativeOriginal} from "../../packages/community/web2-native-business-binding.ts";
 /** Private one-shot bootstrap. No user-facing listener or caller-supplied SQL. */
 export default {
   async fetch(request, env) {
@@ -32,7 +33,9 @@ export default {
     // The new draft must be assigned a real contiguous ordinal by Root and be
     // present in the exact signed migration set; no runtime DDL is invented here.
     if (!env.NATIVE_APPLICATION_ORIGINAL_JSON) throw new Error('Native original binding missing');
-    await initializeNativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
+    if(JSON.parse(env.NATIVE_APPLICATION_ORIGINAL_JSON).schema === "pirate.web2-native-application-original/1")
+      await initializeWeb2NativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
+    else await initializeNativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
     const checks = await env.DB.prepare('PRAGMA foreign_key_check').all();
     if (checks.results.length) throw new Error('Foreign-key violations');
     // Native R2 binding proof on a fresh, private qualification key, not an app-media claim.

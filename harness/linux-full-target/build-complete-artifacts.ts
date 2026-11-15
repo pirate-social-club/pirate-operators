@@ -8,6 +8,7 @@ import type {OperationLease} from "../../deploy/linux/backend-state.ts";
 /** Build real owning bytes; no Docker/provider execution or simulated consumer.
  * Root materializes the exact accepted source/prerequisites before this gate. */
 export async function buildCompleteLinuxArtifacts(input:{
+ profile?:"web2-first-song/1";
  sourceRoot:string;assetDirectory:string;output:string;rawOutputDirectory:string;lease:OperationLease;
  migrations:Parameters<typeof buildCommunityArtifacts>[0]["migrations"];
  node:string;nodeSha256:string;esbuildCLI:string;esbuildCLISha256:string;esbuildNative:string;esbuildNativeSha256:string;
@@ -22,6 +23,8 @@ export async function buildCompleteLinuxArtifacts(input:{
  native:{path:string;sha256:string};schema:{path:string;sha256:string};licenses:Array<{path:string;output:string;sha256:string}>;
  nativeModules:Array<{path:string;output:string;sha256:string}>;
 }) {
+ assert(input.profile===undefined || input.profile==="web2-first-song/1","explicit_linux_build_profile_required");
+ const web2=input.profile==="web2-first-song/1";
  assert(await realpath(input.sourceRoot)===input.sourceRoot && !input.output.startsWith(input.sourceRoot+"/"));
  const sha=(b:Uint8Array)=>createHash("sha256").update(b).digest("hex");
  assert(sha(await readFile(input.esbuildCLI))===input.esbuildCLISha256 && sha(await readFile(input.esbuildNative))===input.esbuildNativeSha256);
@@ -43,7 +46,7 @@ export async function buildCompleteLinuxArtifacts(input:{
   ["full-startup.worker.mjs","deploy/linux/full-startup.worker.ts"],
   ["selected-handler-observer.worker.mjs","deploy/linux/selected-handler-observer.worker.ts"],
   ["maintenance.bootstrap.mjs","deploy/linux/maintenance.bootstrap.mjs"],
-  ["full-launch.mjs","deploy/linux/full-launch.ts"],...input.actorModules.map(x=>[x.output,x.source])
+  ["full-launch.mjs",web2?"deploy/linux/web2-launch.ts":"deploy/linux/full-launch.ts"],...input.actorModules.map(x=>[x.output,x.source])
  ];
  for(const [output,source] of modules){
   assert(source && output);sourceHashes[source]=sha(await readFile(join(input.sourceRoot,source)));
@@ -103,7 +106,10 @@ export async function buildCompleteLinuxArtifacts(input:{
   if(Object.hasOwn(files,output))assert.equal(files[output],sha(body));else await write(output,body);
  }
  for(const name of ["source/backend.ts","source/package.json","source/deploy/linux/local-install-main.ts",
-  "source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts",
+  ...(web2?["source/deploy/linux/web2-local-installation.ts","source/deploy/linux/web2-launch.ts",
+    "source/deploy/linux/web2-service.ts",
+    "source/packages/community/web2-native-business-binding.ts"]:
+    ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
   "toolchain/node_modules/tsx/dist/loader.mjs","toolchain/node_modules/tsx/package.json","wizard/index.html"])
   assert(Object.hasOwn(files,name),"installed_backend_loader_or_asset_closure_missing: "+name);
  async function seal(path:string){for(const row of await readdir(path,{withFileTypes:true})){
@@ -112,6 +118,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  }await chmod(path,0o555);}
  await seal(input.output);
  return {owning,files,sourceHashes,nativeIdentity,output:input.output,dockerExecuted:false,
+  releaseSchema:web2?"pirate.complete-linux-web2-release/1" as const:"pirate.complete-linux-release/1" as const,
   execution:{node:"toolchain/node" as const,nodeSha256:input.nodeSha256,nodeVersion:"v24.18.1" as const,
    loader:"toolchain/node_modules/tsx/dist/loader.mjs" as const,tsxVersion:"4.20.6" as const,backend:"source/backend.ts" as const},
   remainingExecutionInputs:["actual post-build signed release/image identity and exact installed path/resource mapping","genuine current signed create template/profile and managed key channels","actual one-host create/publication/restart qualification"]};
