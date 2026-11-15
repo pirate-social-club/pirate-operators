@@ -2,7 +2,12 @@
 
 Source slice based on merged enrollment `0510f779568e1ad27525ae2f40cc390fffe33e16`.
 This is an explicit fresh-install profile. Existing HNS create/restore profiles
-retain their validators and history. The selected host is Ubuntu 24.04 amd64.
+retain their validators and history. Qualification uses the actual Linux amd64
+host and records its distribution, kernel, Docker and pinned runtime versions.
+The current host is Linux Mint 22.3 with the Ubuntu Noble base. An exact Ubuntu
+distribution-name match is not an application prerequisite; the real runtime,
+permissions, storage, networking and installation/restart checks determine
+compatibility. A separate Ubuntu VM is not required merely to change that name.
 No public deployment, certificates, credentials or funding have been performed.
 
 ## Boundary and failure plan
@@ -11,6 +16,22 @@ The Wizard owns its hosted-enrollment client, readable controller consent and UI
 It supplies `LinuxWeb2Draft` to `createWeb2Installation(hostInputs)`. Host inputs
 come from the installed, authenticated host configuration; browser JSON cannot
 select filesystem paths, executables, RPC providers, signer keys or trust roots.
+Setup starts from a signed `pirate.linux-web2-bootstrap-release/1` containing
+only the immutable source, tools, assets and image inventory. It has no runtime
+graph, community ID or enrollment binding. The host's separately signed binding
+policy fixes its paths, target, expected HTTPS origin, artifact pins, issuer and
+finite validity. The paired Wizard can therefore create and retain a fresh
+community key and Directory installation ID before a runtime exists.
+
+Only after the Wizard durably retains its original receipt-bearing install draft
+does `prepare(draft)` invoke the host binder. The binder independently verifies
+the actual enrollment and host, persists the exact binding intent, signs the
+fully bound runtime release and host admission, and syncs their combined original
+result before the strict installer can act. A lost acknowledgement continues the
+same intent and signed identities. Restart reads that result; it does not create
+a replacement community, choose new IDs or register again. Changed drafts,
+graphs, artifacts or host policies refuse rather than overwrite that original.
+
 `prepare(draft)` returns a plan ID/digest and public summary; `apply(selection)`
 rechecks authority and journals before effects; `status(selection)` observes only.
 `close()` detaches setup; it does not delete resources, release unknown custody
@@ -20,6 +41,8 @@ owned ingress; containers and state remain. This is not a detached daemon or a
 systemd installation. Service startup may resume a previously started original
 after fresh authority/resource checks; a prepared plan without a start intent
 does not authorize starting the community.
+The historical local-install entrypoint remains closed to this new profile;
+the explicit Web2 service is the owning process.
 
 Hosted status is a hint identifying the original transaction, not a signed chain
 proof. The installer authenticates its exact transaction, accepted Directory V3
@@ -66,16 +89,27 @@ runtime directory. Installation `running` requires a live original Caddy process
 and a real application reply through local Caddy TLS, rechecked against current
 authority. That observation does not establish external DNS/firewall reachability.
 
+The opaque Linux installation ID identifies the host lease and release. The
+Directory installation ID is a separate bytes32 value identifying enrollment.
+The signed host admission binds both; equality is neither required nor invented.
+The paired Wizard borrows the service's custody guard and cannot release its
+persistent operation lease when setup closes.
+
 Local acceptance uses real Anvil, native workerd/D1/R2, real Caddy TLS and the
 actual browser application. Fixture CA evidence proves local protocol behavior;
 public DNS, public ACME issuance and the actual selected host remain separate
 acceptance. No backup, restore, upgrade or HNS migration is a first-install gate.
 
-The first two real Caddy cases passed locally: adaptation/validation, exact Host,
-private routes, forged-header removal, untrusted upstream rejection, persistent
-CA restart and cleanup after a failed startup-journal acknowledgement. Subsequent
-source changes require requalification. The two new chain-authority cases and
-the installed service/application/browser journey remain UNRUN. The W1 Web2
+Eight focused cases passed locally: real Caddy adaptation/validation and TLS,
+exact Host/private-route/header checks, untrusted upstream rejection, persistent
+CA restart, failed startup acknowledgement, failed executable start, lost lease
+and bounded stopped-child cleanup; real-chain enrollment/source/configuration/
+safe-state checks and mutation during a read; paired HTTP setup; and immutable
+D1 initialization with actual login/session binding. The paired close case also
+passed after adding recovery from an interrupted cleanup phase. Root TypeScript
+passed. These are component and integration checks on the current host. Later
+source changes require appropriate requalification. The installed
+service/application/browser and full restart journey remain UNRUN. The W1 Web2
 application profile and consumer are explicit source dependencies; validators
 are imported from their owner, never copied into this installer.
 
@@ -89,3 +123,8 @@ Primary references checked 2026-11-15:
 [Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
 [upstream TLS and Host](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy),
 [internal HTTP/HTTPS ports](https://caddyserver.com/docs/caddyfile/options).
+
+The first actual web-asset build refused a missing installed Solid Vite plugin.
+The source lock remains unchanged; its owned application dependency directory is
+being reconciled from that exact lock before a new build. This failed attempt
+does not qualify the late binder or installed journey.

@@ -53,8 +53,13 @@ export async function createLocalController(config:InstalledTarget,lease:Operati
     const ids=(await command(["container","ls","--all","--quiet","--no-trunc"],signal)).text.trim().split(/\s+/).filter(Boolean);
     assert(ids.length<=10000 && ids.every(x=>/^[a-f0-9]{64}$/.test(x)));
     if(!ids.length)return [];
-    const rows=JSON.parse((await command(["inspect","--type","container",...ids],signal)).text);
-    assert(Array.isArray(rows) && rows.length===ids.length && new Set(rows.map(x=>x.Id)).size===ids.length);return rows;
+    // Foreign containers are inspected only for identity and mount conflicts.
+    // Their environment/configuration can contain unrelated service secrets.
+    const selected=config.containers.map(x=>`(eq .Name ${JSON.stringify("/"+x.name)})`).join(" ");
+    const format=`{"Id":{{json .Id}},"Name":{{json .Name}},"Mounts":{{json .Mounts}}`+
+      `{{if or ${selected}}},"Image":{{json .Image}},"Config":{{json .Config}},"HostConfig":{{json .HostConfig}},"State":{{json .State}}{{end}}}`;
+    const rows=(await command(["inspect","--type","container","--format",format,...ids],signal)).text.trim().split("\n").map(line=>JSON.parse(line));
+    assert(rows.length===ids.length && new Set(rows.map(x=>x.Id)).size===ids.length && rows.every(x=>ids.includes(x.Id)));return rows;
   }
   const overlaps=(a:string,b:string)=>a===b || a.startsWith(b+"/") || b.startsWith(a+"/");
   async function owned(spec:InstalledContainer,rows:any[]) {
@@ -86,9 +91,15 @@ export async function createLocalController(config:InstalledTarget,lease:Operati
   return {
     config,command,inspect,
     async inspectHost(signal:AbortSignal) {
-      const result=await inspect(signal),os=await readFile("/etc/os-release","utf8");
-      const supported=result.platform==="linux" && result.architecture==="x64" && /^ID=ubuntu$/m.test(os) && /^VERSION_ID="24.04"$/m.test(os);
-      return {...result,supported,corrections:supported?[]:["The complete target is qualified against Ubuntu24.04 amd64 only after actual acceptance."]};
+      const result=await inspect(signal),operatingSystem=await readFile("/etc/os-release","utf8"),engine=await daemon(signal);
+      // Distribution branding is evidence, not an application capability. The
+      // selected daemon, native binaries, permissions, mounts and actual host
+      // journey remain independently checked; this is not universal support.
+      const supported=result.platform==="linux" && result.architecture==="x64" && engine.OSType==="linux" &&
+        ["x86_64","amd64"].includes(engine.Architecture);
+      return {...result,operatingSystem,runtime:{dockerVersion:engine.ServerVersion,kernelVersion:engine.KernelVersion,
+        storageDriver:engine.Driver,cgroupVersion:engine.CgroupVersion},supported,
+        corrections:supported?[]:["The selected runtime requires a Linux amd64 host and Linux amd64 Docker daemon."]};
     },
     async create(signal:AbortSignal,assertCurrent:()=>Promise<void>) {
       assert(typeof assertCurrent==="function","actual_current_effect_authority_required");

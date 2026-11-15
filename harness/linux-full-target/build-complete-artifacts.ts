@@ -108,6 +108,7 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const name of ["source/backend.ts","source/package.json","source/deploy/linux/local-install-main.ts",
   ...(web2?["source/deploy/linux/web2-local-installation.ts","source/deploy/linux/web2-launch.ts",
     "source/deploy/linux/web2-service.ts",
+    "source/deploy/linux/web2-runtime-binding.ts",
     "source/packages/community/web2-native-business-binding.ts"]:
     ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
   "toolchain/node_modules/tsx/dist/loader.mjs","toolchain/node_modules/tsx/package.json","wizard/index.html"])

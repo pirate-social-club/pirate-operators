@@ -19,7 +19,7 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
 
 /** Explicit Linux composition. Missing/invalid server inputs never select First Song. */
 export default {
-  async fetch(request, env) {
+  async fetch(request:Request, env:LinuxCommunityEnv) {
     let deployment: CommunityDeploymentProfile;
     try {
       deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);

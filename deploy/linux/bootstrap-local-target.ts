@@ -86,15 +86,22 @@ export async function startPairedOperator(value:PairedOperatorInputs){
   })().catch(()=>{if(!res.headersSent)res.writeHead(403,{"Content-Type":"application/json"}).end('{"error":"operator_authorization_required"}');else res.destroy();});});
   activeProxy=proxy;await new Promise<void>((resolve,reject)=>{proxy.once("error",reject);proxy.listen(input.frontPort,"127.0.0.1",resolve);});
   const timer=setTimeout(()=>{closed=true;session.fill(0);},30*60000);activeTimer=timer;
+  let closeWork:Promise<void>|undefined,closeRequested=false,proxyClosed=false,runtimeClosed=false,beforeClosed=false;
+  let beforeClose:(()=>Promise<void>)|undefined;
   return {origin,
-    async close(beforeRuntimeClose?:()=>Promise<void>){
+    close(beforeRuntimeClose?:()=>Promise<void>){
+      if(!closeRequested){closeRequested=true;beforeClose=beforeRuntimeClose;}
+      if(closeWork)return closeWork;
+      closeWork=(async()=>{
       closed=true;clearTimeout(timer);proxy.closeAllConnections();
-      await new Promise<void>((resolve,reject)=>proxy.close(e=>e?reject(e):resolve()));
       const errors:unknown[]=[];
-      try{await beforeRuntimeClose?.();}catch(e){errors.push(e);}
-      try{runtime.server.closeAllConnections();await runtime.close();}catch(e){errors.push(e);}
+      if(!proxyClosed)try{await new Promise<void>((resolve,reject)=>proxy.close(e=>e?reject(e):resolve()));proxyClosed=true;}catch(e){errors.push(e);}
+      if(!beforeClosed)try{await beforeClose?.();beforeClosed=true;}catch(e){errors.push(e);}
+      if(!runtimeClosed)try{runtime.server.closeAllConnections();await runtime.close();runtimeClosed=true;}catch(e){errors.push(e);}
       for(const bytes of transient)bytes.fill(0);
       if(errors.length)throw new AggregateError(errors,"paired_runtime_custody_retained");
+      })().catch(error=>{closeWork=undefined;throw error;});
+      return closeWork;
     },
   };
   }catch(error){

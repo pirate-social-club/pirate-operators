@@ -14,19 +14,25 @@ export interface FullRelease {
   files:Record<string,string>;sourceHashes:Record<string,string>;requiredRoles:string[];
   graph:NativeGraph;artifactDigest:string;sourceDigest:string;imageId:string;
 }
+/** Installed bytes before enrollment. It contains no community identity,
+ * deployment binding, origin or runtime graph. */
+export interface Web2BootstrapRelease extends Omit<FullRelease,"schema"|"graph"|"requiredRoles"> {
+  schema:"pirate.linux-web2-bootstrap-release/1";
+}
 const digest=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("hex");
-export function installedExecutionPaths(release:FullRelease) {
+export function installedExecutionPaths(release:FullRelease|Web2BootstrapRelease) {
   assert(release.root.startsWith("/") && release.sourceRoot===join(release.root,"source"),"single_installed_source_root_required");
-  assert(release.graph.releaseRoot===release.root,"single_installed_release_root_required");
+  if("graph" in release)assert(release.graph.releaseRoot===release.root,"single_installed_release_root_required");
   const e=release.execution;
   assert(e?.node==="toolchain/node" && e.nodeVersion==="v24.18.1" && e.tsxVersion==="4.20.6" &&
     e.loader==="toolchain/node_modules/tsx/dist/loader.mjs" && e.backend==="source/backend.ts","pinned_installed_execution_required");
   assert(/^[a-f0-9]{64}$/.test(e.nodeSha256) && release.files[e.node]===e.nodeSha256,"installed_node_digest_changed");
-  const web2=release.schema==="pirate.complete-linux-web2-release/1";
+  const web2=release.schema!=="pirate.complete-linux-release/1";
   for(const path of [e.loader,e.backend,"source/package.json","source/deploy/linux/local-install-main.ts",
     "source/deploy/linux/local-installation.ts",
     ...(web2?["source/deploy/linux/web2-local-installation.ts","source/deploy/linux/web2-launch.ts",
       "source/deploy/linux/web2-service.ts",
+      "source/deploy/linux/web2-runtime-binding.ts",
       "source/packages/community/web2-native-business-binding.ts"]:
       ["source/deploy/linux/local-target-services.ts","source/deploy/linux/shared-v2-result-producer.ts"]),
     "toolchain/node_modules/tsx/package.json","wizard/index.html"])
@@ -34,9 +40,9 @@ export function installedExecutionPaths(release:FullRelease) {
   return {node:join(release.root,e.node),loader:join(release.root,e.loader),backend:join(release.root,e.backend),
     main:join(release.sourceRoot,web2?"deploy/linux/web2-service.ts":"deploy/linux/local-install-main.ts"),wizardDist:join(release.root,"wizard")};
 }
-export async function verifyInstalledRelease(record:SignedRecord<FullRelease>,trust:TrustAnchor) {
-  const release=verifyRecord(record,trust);
-  assert((release.schema==="pirate.complete-linux-release/1" || release.schema==="pirate.complete-linux-web2-release/1") &&
+async function verifyInstalledArtifacts(release:FullRelease|Web2BootstrapRelease) {
+  assert((release.schema==="pirate.complete-linux-release/1" || release.schema==="pirate.complete-linux-web2-release/1" ||
+    release.schema==="pirate.linux-web2-bootstrap-release/1") &&
     /^[a-f0-9]{40}$/.test(release.sourceHead) && /^[a-f0-9]{40}$/.test(release.sourceTree));
   assert.equal(await realpath(release.root),release.root);
   installedExecutionPaths(release);
@@ -85,6 +91,18 @@ export async function verifyInstalledRelease(record:SignedRecord<FullRelease>,tr
     Object.hasOwn(release.sourceHashes,"services/linux-community.ts"),"actual_owning_application_source_required");
   assert.equal(release.sourceDigest,"0x"+canonicalDigest(release.sourceHashes));
   assert.equal(release.artifactDigest,"0x"+canonicalDigest(release.files));
+}
+export async function verifyWeb2BootstrapRelease(record:SignedRecord<Web2BootstrapRelease>,trust:TrustAnchor) {
+  const release=verifyRecord(record,trust);
+  assert(release.schema==="pirate.linux-web2-bootstrap-release/1","explicit_web2_bootstrap_required");
+  assert.deepEqual(Object.keys(release).sort(),["artifactDigest","execution","files","imageId","root","schema",
+    "sourceDigest","sourceHashes","sourceHead","sourceRoot","sourceTree"].sort(),"bootstrap_must_not_prebind_community");
+  await verifyInstalledArtifacts(release);return release;
+}
+export async function verifyInstalledRelease(record:SignedRecord<FullRelease>,trust:TrustAnchor) {
+  const release=verifyRecord(record,trust);
+  assert(release.schema==="pirate.complete-linux-release/1" || release.schema==="pirate.complete-linux-web2-release/1");
+  await verifyInstalledArtifacts(release);
   assert.deepEqual(release.graph.requiredRoles,release.requiredRoles);renderFullNativeConfig(release.graph,"serve","1".repeat(64)); // structure only; launcher supplies fresh actual boot ID
   assert.equal(release.graph.releaseRoot,release.root);
   assert.equal(release.graph.migrationPlanFile,join(release.root,"migration-plan.json"),"exact_installed_migration_plan_required");
