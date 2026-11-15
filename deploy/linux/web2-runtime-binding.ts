@@ -311,19 +311,33 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     );
     await verifyInstalledRelease(bound.release, captured.trust);
     await authenticate(draft);
+    await retainWeb2Record(
+      policy.bindingDirectory,
+      "web2-binding-intent",
+      bound.intent,
+    );
+    await retainWeb2Record(
+      policy.bindingDirectory,
+      "web2-bound-runtime",
+      bound,
+    );
     // A crash between the combined result and admission persistence completes
     // the same bytes. A newer valid admission is never overwritten on restart.
-    if (!(await optionalWeb2Record(policy.currentAdmissionFile))) {
-      assert(
-        basename(policy.currentAdmissionFile) === "web2-host-admission.json",
-        "owned_admission_filename_required",
-      );
-      await retainWeb2Record(
-        dirname(policy.currentAdmissionFile),
-        "web2-host-admission",
-        bound.admission,
-      );
-    }
+    const admission =
+      (await optionalWeb2Record<SignedRecord<Web2HostAdmission>>(
+        policy.currentAdmissionFile,
+      )) ?? bound.admission;
+    assert(
+      basename(policy.currentAdmissionFile) === "web2-host-admission.json",
+      "owned_admission_filename_required",
+    );
+    // Re-sync the exact current envelope, including a newer signed refresh.
+    // Never replace it with the earlier admission embedded in the bound result.
+    await retainWeb2Record(
+      dirname(policy.currentAdmissionFile),
+      "web2-host-admission",
+      admission,
+    );
     await readWeb2HostAdmission({
       path: policy.currentAdmissionFile,
       trust: captured.trust,
@@ -388,12 +402,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
             },
             admission: admissionFor(draft, now()),
           };
-          await retainWeb2Record(
-            policy.bindingDirectory,
-            "web2-binding-intent",
-            intent,
-          );
         }
+        await retainWeb2Record(
+          policy.bindingDirectory,
+          "web2-binding-intent",
+          intent,
+        );
         await authenticate(draft);
         const release = await signRelease(structuredClone(intent.release)),
           admission = await signAdmission(structuredClone(intent.admission));
