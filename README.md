@@ -15,6 +15,12 @@ independent providers. [Learner-held history](docs/learner-history.md) defines
 the private tutoring/export boundary. These specifications do not change the
 current v1 runtime or resolve the MOSS consent release gate.
 
+The [application contract inventory](docs/contracts/inventory.md) distinguishes
+current implementation candidates from retained source and deployment history.
+The [Web2-first Directory V3](docs/contracts/community-directory-v3.md) is the
+new enrollment candidate; neither source availability nor earlier deployment
+evidence qualifies it for release.
+
 For launch, the workspace owner is the only song publisher.
 [Owner-only MegaETH song publication](docs/megaeth-song-publication.md) is the
 active launch contract: the owner signs in with the ordinary MOSS account and

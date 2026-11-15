@@ -7,7 +7,7 @@ import type { AnyDirectoryProfile, ConfigurationLog } from "./directory-reader.t
 // Dense RPC ranges are bisected. A single block is indivisible to getLogs, but
 // processing and durable writes still use fixed-size pages, including many
 // revisions in the same block. No lifetime revision or publication-count cap.
-export async function* configurationLogPages(client: PublicClient, profile: AnyDirectoryProfile,
+export async function* configurationLogPages(client: PublicClient, profile: Pick<AnyDirectoryProfile, "directory" | "communityId">,
   from: bigint, through: bigint): AsyncGenerator<ConfigurationLog[]> {
   async function* range(first: bigint, last: bigint): AsyncGenerator<ConfigurationLog[]> {
     const logs = await client.getLogs({ address: profile.directory, event: directoryAbi[1],
