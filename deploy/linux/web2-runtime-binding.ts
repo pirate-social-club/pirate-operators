@@ -1,3 +1,8 @@
+import { canonical, hashJson } from "../../packages/community/common.ts";
+import { ownerOnly } from "../../packages/community/owner-policy.ts";
+import { createWeb2PublishingSetup } from "../../apps/community-wizard/server/web2-publishing-setup.ts";
+import { publishingAttachment } from "./web2-publishing-attachment.ts";
+import type { ManagedOwnerGrantPort, PublisherProofSigner, Web2PublishingAttachment } from "./web2-operator-inputs.ts";
 /** One-time host binding AFTER the Wizard retains its genuine enrollment.
  * Bootstrap bytes carry no community ID. No request chooses paths or issuers. */
 import assert from "node:assert/strict";
@@ -71,6 +76,8 @@ export interface Web2RuntimeBindingInputs {
   lease: OperationLease;
   chain: Web2ChainAuthority;
   now: () => number;
+  /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
+  publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
   signApplicationRelease(
     body: Web2NativeOriginal["release"]["body"],
@@ -88,6 +95,7 @@ interface BindingIntent {
   bootstrapDigest: string;
   policyDigest: string;
   draft: LinuxWeb2Draft;
+  publishingAttachment?: Web2PublishingAttachment;
   release: FullRelease;
   admission: Web2HostAdmission;
 }
@@ -189,15 +197,20 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       policy.graph.stateRoots.configuration === policy.bindingDirectory,
     "web2_binding_policy_changed",
   );
+  const publishing = input.publishing ? await createWeb2PublishingSetup(input.publishing.directory, {
+    hostInstallationId:policy.installationId,publisher:input.publishing.publisher,
+    publishing:{chain,grants:input.publishing.grants},now,
+  }) : null;
   const ingress = publicIngressFrom(policy.ingress);
   assert(
     ingress.origin === policy.origin &&
       !Object.hasOwn(policy.graph, "directoryRuntimeBinding"),
     "bootstrap_prebinding_refused",
   );
+  const ownerBindingNames=["OWNER_GRANT_JSON","OWNER_AUTHORIZATION_JSON","WEB2_PUBLISHING_ATTACHMENT_SHA256","WEB2_PUBLISHING_ATTACHMENT_JSON","WEB2_PUBLISHING_SELECTION_SHA256","OWNER_GRANT_ADMISSION_REFERENCE"];
   assert(
     !policy.graph.applicationBindings.some((x) =>
-      ["COMMUNITY_NAME", "PLAN_ID"].includes(x.name),
+      ["COMMUNITY_NAME", "PLAN_ID", ...ownerBindingNames].includes(x.name),
     ),
     "bootstrap_application_identity_refused",
   );
@@ -209,6 +222,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       policy.issuedAt < policy.expiresAt,
     "finite_binding_policy_required",
   );
+  assert(!policy.graph.secretBindings.some(x=>ownerBindingNames.includes(x.name)) &&
+    !policy.graph.actors.some(actor=>actor.bindings.some(x=>ownerBindingNames.includes(x.name))),"bootstrap_owner_binding_refused");
   await privateDirectory(policy.bindingDirectory);
   const intentPath = join(policy.bindingDirectory, "web2-binding-intent.json"),
     boundPath = join(policy.bindingDirectory, "web2-bound-runtime.json");
@@ -259,7 +274,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         canonicalDigest(owned) === canonicalDigest(draft),
         "original_web2_draft_changed",
       );
-    const graph = graphFor(owned);
+    const graph = graphFor(owned, intent.publishingAttachment);
     assert(
       canonicalDigest(intent.release) ===
         canonicalDigest({
@@ -283,7 +298,15 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     );
     return owned;
   }
-  function graphFor(draft: LinuxWeb2Draft): NativeGraph {
+  function graphFor(draft: LinuxWeb2Draft, attachment?: Web2PublishingAttachment): NativeGraph {
+    if (ownerOnly(draft.configuration.policies.admission)) assert(attachment,"web2_publishing_attachment_required");
+    if (attachment) {
+      const a = publishingAttachment(attachment), scope = a.selection.scope, c = draft.configuration;
+      assert(scope.enrollmentId === draft.enrollment.enrollmentId && scope.hostInstallationId === policy.installationId &&
+        scope.installationId === c.installationId && scope.communityId === c.communityId && scope.origin === draft.origin &&
+        scope.controller === c.controller && scope.publisher === c.publisher && scope.postsContract === c.postsContract &&
+        scope.deploymentDigest === hashJson(draft.deployment),"web2_publishing_attachment_scope_changed");
+    }
     return {
       ...structuredClone(policy.graph),
       directoryRuntimeBinding: JSON.stringify(draft.deployment),
@@ -291,6 +314,14 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         ...structuredClone(policy.graph.applicationBindings),
         { name: "COMMUNITY_NAME", text: draft.name },
         { name: "PLAN_ID", text: draft.deployment.planId },
+        ...(attachment ? [
+          {name:"OWNER_GRANT_JSON",text:JSON.stringify(attachment.selection.grant)},
+          {name:"OWNER_AUTHORIZATION_JSON",text:JSON.stringify(attachment.authorization)},
+          {name:"WEB2_PUBLISHING_ATTACHMENT_SHA256",text:attachment.digest},
+          {name:"WEB2_PUBLISHING_ATTACHMENT_JSON",text:JSON.stringify(attachment)},
+          {name:"WEB2_PUBLISHING_SELECTION_SHA256",text:attachment.selection.selectionDigest},
+          {name:"OWNER_GRANT_ADMISSION_REFERENCE",text:attachment.selection.admissionReference},
+        ] : []),
       ],
     };
   }
@@ -333,6 +364,10 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       "application_release_identity_changed",
     );
     await authenticate(draft);
+    if (bound.intent.publishingAttachment) {
+      assert(publishing,"web2_publishing_authority_unavailable");
+      assert(canonical(await publishing.attachment(draft)) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
+    }
     await retainWeb2Record(
       policy.bindingDirectory,
       "web2-binding-intent",
@@ -385,7 +420,13 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       hostFingerprint: policy.hostFingerprint,
       nativeRuntimeDirectory: policy.nativeRuntimeDirectory,
       now,
-      signProfile,
+      signProfile: async (body,generation) => {
+        if (bound.intent.publishingAttachment) {
+          assert(publishing,"web2_publishing_authority_unavailable");
+          assert(canonical(await publishing.attachment(draft)) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
+        }
+        return signProfile(body,generation);
+      },
     };
   }
   let busy = false;
@@ -411,12 +452,15 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         let intent = await optionalWeb2Record<BindingIntent>(intentPath);
         if (intent) validateIntent(intent, draft);
         else {
-          const graph = graphFor(draft);
+          const attachment = ownerOnly(draft.configuration.policies.admission)
+            ? (assert(publishing,"web2_publishing_authority_unavailable"), await publishing.attachment(draft)) : undefined;
+          const graph = graphFor(draft, attachment);
           intent = {
             schema: "pirate.web2-runtime-binding-intent/1",
             bootstrapDigest,
             policyDigest,
             draft,
+            ...(attachment ? {publishingAttachment:attachment} : {}),
             release: {
               ...structuredClone(bootstrap),
               schema: "pirate.complete-linux-web2-release/1",

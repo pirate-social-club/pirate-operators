@@ -17,6 +17,7 @@
     "smoke:runtime": "tsx test/runtime-smoke.ts"
   },
   "dependencies": {
+    "@megaeth-labs/wallet-sdk": "1.0.8",
     "@alchemy.run/cloudflare": "2.0.0-beta.85",
     "@effect/platform-node": "4.1.2",
     "@infisical/sdk": "5.0.2",

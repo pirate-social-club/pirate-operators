@@ -1,3 +1,4 @@
+import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import { keccak256, parseTransaction, recoverTransactionAddress, type TransactionSerializedLegacy } from "viem";
 import { canonical, CommunityError, hashJson, insist, object } from "../community/common.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
@@ -18,6 +19,7 @@ export interface CanonicalIntentPorts {
   db:D1Database; media:R2Bucket;
   currentConfiguration():Promise<CommunityConfig>;
   ownerAuthorization():Promise<unknown>;
+  ownerVerification?:OwnerVerification;
   posting:PostingPorts;
   /** Existing linked-account fence, mandatory in connected authority compositions. */
   currentAccount(accountId:string,wallet:string,authorId:string):Promise<void>;
@@ -37,7 +39,7 @@ export async function readCanonicalIntent(ports:CanonicalIntentPorts,jobId:strin
       throw new CommunityError("recognition_sealed_media_changed",409);
     throw error;
   }),
-    owner=await requireAuthorizedOwner(await ports.ownerAuthorization(),config,input.row.captured_wallet);
+    owner=await requireAuthorizedOwner(await ports.ownerAuthorization(),config,input.row.captured_wallet,undefined,ports.ownerVerification);
   await ports.currentAccount(input.row.account_id,input.row.captured_wallet,input.row.author_id);
   insist(config.policies.recognition.signer!==owner.ownerWallet,"recognition_signer_role_collision",403);
   insist(hashJson(owner)===input.authority.ownerAuthorizationSha256,"recognition_owner_authority_changed",403);
@@ -49,12 +51,13 @@ export async function readCanonicalIntent(ports:CanonicalIntentPorts,jobId:strin
   const head=await ports.media.head(intent.audioObjectKey);
   insist(head?.etag===intent.audioEtag&&head.size===intent.audioBytes&&head.customMetadata?.sha256===intent.audioSha256,
     "recognition_sealed_media_changed",409);
-  const finalOwner=await requireAuthorizedOwner(await ports.ownerAuthorization(),config,input.row.captured_wallet);
+  const finalOwner=await requireAuthorizedOwner(await ports.ownerAuthorization(),config,input.row.captured_wallet,undefined,ports.ownerVerification);
   insist(hashJson(finalOwner)===intent.ownerAuthorizationSha256&&canonical(await ports.currentConfiguration())===canonical(config),
     "recognition_authority_changed",403);
   await ports.currentAccount(input.row.account_id,input.row.captured_wallet,input.row.author_id);
   const after=await snapshot();
   insist(canonical(after)===canonical(before),"recognition_intent_changed",409);
+  insist((ports.ownerVerification?.now() ?? Math.floor(Date.now()/1000)) < finalOwner.expiresAt,"owner_authorization_outside_window",403);
   return {intent:acceptedIntent(intent),input,config};
 }
 export async function canonicalPosting(ports:CanonicalIntentPorts,p:AcceptedIntent,claimed:unknown):Promise<PostingBinding> {

@@ -1,3 +1,4 @@
+import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import {
   canonicalPath,
   signCanonicalRequest,
@@ -45,6 +46,7 @@ import { requireSameCanonicalSource } from "./canonical-community.ts";
 async function snapshot(
   input: unknown,
   config: CommunityConfig,
+  verification?: OwnerVerification,
 ): Promise<CanonicalSnapshot> {
   const v = object(input);
   exact(v, [
@@ -62,6 +64,7 @@ async function snapshot(
     v.ownerAuthorization,
     config,
     intent.creatorKey.slice("eip155:6343:".length),
+    undefined, verification,
   );
   insist(
     hashJson(owner) === intent.ownerAuthorizationSha256,
@@ -193,13 +196,13 @@ export function canonicalCommunityClient(
     currentConfiguration: () => inputs.currentConfiguration(),
     async read(jobId) {
       const r = await call("read", { jobId }),
-        value = await snapshot(r.data, r.config);
+        value = await snapshot(r.data, r.config, inputs.chain.ownerVerification);
       insist(value.intent.jobId === jobId, "canonical_snapshot_changed", 409);
       return value;
     },
     async source(p) {
       const response = await call("source", sourceBody(p)),
-        value = await snapshot(response.data, response.config);
+        value = await snapshot(response.data, response.config, inputs.chain.ownerVerification);
       return requireSameCanonicalSource(value.intent, p);
     },
     async posting(p, claimed) {

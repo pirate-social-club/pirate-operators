@@ -1,31 +1,27 @@
 import { createSignal, For, onSettled, Show } from "solid-js";
-import {
-  formatEther,
-  getTypesForEIP712Domain,
-  serializeTypedData,
-  type TypedDataDefinition,
-} from "viem";
-import type { enrollmentTypedData } from "../../../packages/community/hosted-enrollment.ts";
+import { formatEther, type TypedDataDefinition } from "viem";
+import { hashJson } from "../../../packages/community/common.ts";
+import { createWeb2Wallet } from "./web2-wallet.ts";
 import {
   createWeb2WizardClient,
   type Web2Action,
   type Web2Snapshot,
 } from "./web2-api.ts";
 
-interface Wallet {
-  request(input: { method: string; params?: unknown[] }): Promise<unknown>;
-}
 export function Web2Wizard() {
-  const api = createWeb2WizardClient();
+  const api = createWeb2WizardClient(),
+    wallet = createWeb2Wallet();
   const [snapshot, setSnapshot] = createSignal<Web2Snapshot>(),
     [error, setError] = createSignal(""),
     [busy, setBusy] = createSignal(false);
   const [name, setName] = createSignal(""),
     [origin, setOrigin] = createSignal(""),
     [controller, setController] = createSignal(""),
-    [publisher, setPublisher] = createSignal(""),
+    [owner, setOwner] = createSignal(""),
     [invite, setInvite] = createSignal("");
-  const [accepted, setAccepted] = createSignal(false),
+  const [rolesReviewed, setRolesReviewed] = createSignal(false),
+    [ownerReviewed, setOwnerReviewed] = createSignal(false),
+    [accepted, setAccepted] = createSignal(false),
     [reviewed, setReviewed] = createSignal(false),
     [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
@@ -69,43 +65,24 @@ export function Web2Wizard() {
       if (installation) setWaitingForInstallation(false);
     }
   };
-  async function sign(actor: string): Promise<string> {
-    const wallet = (window as unknown as { ethereum?: Wallet }).ethereum;
-    if (!wallet)
-      throw Error(
-        "Connect a wallet that supports the selected controller or publisher. Private keys never enter this wizard.",
-      );
-    const chain = await wallet.request({ method: "eth_chainId" });
-    if (
-      typeof chain !== "string" ||
-      BigInt(chain) !== BigInt(view()!.policy.chainId)
-    )
-      throw Error(
-        "Select the displayed test network in your wallet before signing.",
-      );
-    const accounts = await wallet.request({ method: "eth_requestAccounts" });
-    if (
-      !Array.isArray(accounts) ||
-      !accounts.some((a) => typeof a === "string" && a.toLowerCase() === actor)
-    )
-      throw Error(
-        "Select the account named in this exact request. Another account cannot authorize it.",
-      );
-    const typed = view()!.challenge as ReturnType<typeof enrollmentTypedData>;
-    const payload = serializeTypedData({
-      ...typed,
-      types: {
-        EIP712Domain: getTypesForEIP712Domain({ domain: typed.domain }),
-        ...typed.types,
-      },
-    } as unknown as TypedDataDefinition);
-    const proof = await wallet.request({
-      method: "eth_signTypedData_v4",
-      params: [actor, payload],
+  async function sign(
+    data: unknown,
+    requestDigest = hashJson(data),
+  ): Promise<string> {
+    const result = await wallet.signTypedData({
+      expectedController: view()!.selection!.controller,
+      requestDigest: requestDigest as `0x${string}`,
+      data: data as TypedDataDefinition,
     });
-    if (typeof proof !== "string" || !/^0x(?:[a-fA-F0-9]{2})+$/.test(proof))
-      throw Error("The wallet did not return a complete authorization.");
-    return proof;
+    if (result.status === "cancelled")
+      throw Error("Signing cancelled. Your original request is retained.");
+    if (result.status === "error")
+      throw Error(
+        result.code === "web2_wallet_unavailable"
+          ? "MOSS is unavailable at this paired URL. Use a URL permitted to embed MOSS and reconcile the retained request."
+          : result.code,
+      );
+    return result.signature;
   }
   return (
     <section class="linux-setup" aria-label="Web2 community setup">
@@ -151,7 +128,7 @@ export function Web2Wizard() {
                   name: name(),
                   origin: origin(),
                   controller: controller(),
-                  publisher: publisher(),
+                  publisher: view()!.serverPublisher?.address ?? "",
                   inviteToken: invite(),
                   noticeAccepted: accepted(),
                 });
@@ -181,25 +158,49 @@ export function Web2Wizard() {
                 disabled={locked()}
               />
             </label>
+            <button
+              type="button"
+              disabled={locked()}
+              onClick={() =>
+                void perform(async () => {
+                  const account = await wallet.connect();
+                  setController(account.address);
+                  if (!owner()) setOwner(account.address);
+                  setRolesReviewed(false);
+                  return api.state();
+                })
+              }
+            >
+              Connect MOSS
+            </button>
+            <p>Controller: {controller() || "Connect your human controller"}</p>
+            <p>
+              Server publisher:{" "}
+              {view()!.serverPublisher?.address ??
+                "Managed publisher custody unavailable"}
+            </p>
             <label>
-              Controller address
+              Owner wallet
               <input
                 required
                 pattern="0x[a-fA-F0-9]{40}"
-                value={controller()}
-                onInput={(e) => setController(e.currentTarget.value)}
+                value={owner()}
+                onInput={(e) => {
+                  setOwner(e.currentTarget.value.toLowerCase());
+                  setRolesReviewed(false);
+                  setOwnerReviewed(false);
+                }}
                 disabled={locked()}
               />
             </label>
             <label>
-              Publisher address
               <input
-                required
-                pattern="0x[a-fA-F0-9]{40}"
-                value={publisher()}
-                onInput={(e) => setPublisher(e.currentTarget.value)}
+                type="checkbox"
+                checked={rolesReviewed()}
+                onChange={(e) => setRolesReviewed(e.currentTarget.checked)}
                 disabled={locked()}
               />
+              I reviewed the controller, owner and server publisher
             </label>
             <label>
               Pilot invitation
@@ -223,7 +224,16 @@ export function Web2Wizard() {
               />
               I accept this pilot notice and its storage limitations.
             </label>
-            <button type="submit" disabled={locked() || !accepted()}>
+            <button
+              type="submit"
+              disabled={
+                locked() ||
+                !accepted() ||
+                !rolesReviewed() ||
+                !controller() ||
+                !view()!.serverPublisher
+              }
+            >
               Prepare enrollment
             </button>
           </form>
@@ -270,6 +280,14 @@ export function Web2Wizard() {
           </button>
         </Show>
         <Show when={view()!.challenge}>
+          <p>{view()!.notice}</p>
+          <p>
+            Policy: {view()!.policy.admissionPolicy.version} (
+            {view()!.policy.admissionPolicy.sha256}). Initial controller gas:{" "}
+            {formatEther(BigInt(view()!.policy.controllerInitialWei))} ETH.
+            Initial publisher gas:{" "}
+            {formatEther(BigInt(view()!.policy.publisherInitialWei))} ETH.
+          </p>
           <p>
             Your wallet authorizes this community, its controller and publisher,
             exact origin, configuration and selected pilot policy. It does not
@@ -283,7 +301,7 @@ export function Web2Wizard() {
                   "redeem",
                   view()!.controllerAuthorized
                     ? {}
-                    : { signature: await sign(view()!.selection!.controller) },
+                    : { signature: await sign(view()!.challenge) },
                 ),
               )
             }
@@ -321,26 +339,132 @@ export function Web2Wizard() {
           </For>
           <button
             disabled={locked()}
-            onClick={() =>
-              void perform(async () => {
-                const proofs = [];
-                if (!view()!.fundingAuthorized)
-                  for (const r of view()!.recipients)
-                    proofs.push({
-                      recipient: r.address,
-                      signature: await sign(r.address),
-                    });
-                return send(
-                  "topup",
-                  view()!.fundingAuthorized ? {} : { proofs },
-                );
-              })
-            }
+            onClick={() => void perform(() => send("topup"))}
           >
             {view()!.fundingAuthorized
               ? "Retry original gas allocation"
               : "Authorize initial gas allocation"}
           </button>
+          <h2>Owner publishing authorization</h2>
+          <p>
+            Publishing is reviewed separately from enrollment, login and song
+            terms. Policy: {view()!.policy.admissionPolicy.version} (
+            {view()!.policy.admissionPolicy.sha256}).
+          </p>
+          <Show when={!view()!.publishing}>
+            <label>
+              Nominated owner wallet
+              <input
+                pattern="0x[a-fA-F0-9]{40}"
+                value={owner() || view()!.selection!.controller}
+                onInput={(e) => {
+                  setOwner(e.currentTarget.value.toLowerCase());
+                  setRolesReviewed(false);
+                }}
+                disabled={locked()}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={rolesReviewed()}
+                onChange={(e) => setRolesReviewed(e.currentTarget.checked)}
+                disabled={locked()}
+              />
+              I reviewed the controller, owner and server publisher for
+              publishing
+            </label>
+            <button
+              disabled={locked() || !rolesReviewed()}
+              onClick={() =>
+                void perform(() =>
+                  send("publishing-prepare", {
+                    ownerWallet: owner() || view()!.selection!.controller,
+                    rolesReviewed: rolesReviewed(),
+                  }),
+                )
+              }
+            >
+              Review owner publishing
+            </button>
+          </Show>
+          <Show when={view()!.publishing}>
+            <p>Owner: {view()!.publishing!.authorization.ownerWallet}</p>
+            <p>
+              Window: {view()!.publishing!.authorization.validFrom} through{" "}
+              {view()!.publishing!.authorization.expiresAt} (Unix seconds).
+            </p>
+            <p>
+              Destination: chain{" "}
+              {view()!.publishing!.selection.grant.destination.chainId}, Posts{" "}
+              {view()!.publishing!.selection.grant.destination.postsContract},
+              publisher{" "}
+              {view()!.publishing!.selection.grant.destination.publisher}.
+            </p>
+            <p>
+              Limits: songs {view()!.publishing!.selection.grant.limits.songs};
+              pin additions {view()!.publishing!.selection.grant.limits.pinAdds}
+              ; pin bytes {view()!.publishing!.selection.grant.limits.pinBytes};
+              recognition requests{" "}
+              {view()!.publishing!.selection.grant.limits.recognitionRequests};
+              post fee wei{" "}
+              {view()!.publishing!.selection.grant.limits.postFeeWei}.
+            </p>
+            <Show when={!view()!.publishing!.authorized}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={ownerReviewed()}
+                  onChange={(e) => setOwnerReviewed(e.currentTarget.checked)}
+                  disabled={locked()}
+                />
+                I reviewed the owner policy, window, destination and every
+                service limit
+              </label>
+              <button
+                disabled={locked() || !ownerReviewed()}
+                onClick={() =>
+                  void perform(async () =>
+                    send("publishing-authorize", {
+                      signature: await sign(
+                        view()!.publishing!.typedData,
+                        view()!.publishing!.requestDigest,
+                      ),
+                      requestDigest: view()!.publishing!.requestDigest,
+                      reviewed: ownerReviewed(),
+                    }),
+                  )
+                }
+              >
+                Authorize owner publishing
+              </button>
+            </Show>
+            <Show
+              when={
+                view()!.publishing!.authorized && !view()!.publishing!.attached
+              }
+            >
+              <button
+                disabled={locked()}
+                onClick={() =>
+                  void perform(() =>
+                    send(
+                      view()!.publishing!.pending
+                        ? "publishing-reconcile"
+                        : "publishing-attach",
+                    ),
+                  )
+                }
+              >
+                {view()!.publishing!.pending
+                  ? "Reconcile original publishing attachment"
+                  : "Attach reviewed publishing grant"}
+              </button>
+            </Show>
+            <Show when={view()!.publishing!.attached}>
+              <p>Publishing grant attached</p>
+            </Show>
+          </Show>
           <h2>Install on this Linux host</h2>
           <Show
             when={view()!.installationAvailable}
@@ -352,7 +476,7 @@ export function Web2Wizard() {
             }
           >
             <button
-              disabled={locked()}
+              disabled={locked() || !view()!.publishing?.attached}
               onClick={() => void perform(() => send("installation-prepare"))}
             >
               Review Linux installation

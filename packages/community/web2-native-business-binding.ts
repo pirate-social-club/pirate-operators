@@ -20,6 +20,7 @@ export interface Web2NativeOriginal {
   // installed launcher separately requires and verifies the complete release.
   release: SignedRecord<
     Pick<FullRelease, "schema" | "artifactDigest" | "sourceDigest"> & {
+      publishingAttachmentDigest?: `0x${string}`;
       graph: Pick<
         FullRelease["graph"],
         "installationId" | "durableScope" | "directoryRuntimeBinding"
@@ -38,7 +39,10 @@ export function web2ApplicationReleaseBody(
     "schema" | "artifactDigest" | "sourceDigest" | "graph"
   >,
 ): Web2NativeOriginal["release"]["body"] {
+  const attachment = release.graph.applicationBindings.filter(x => x.name === "WEB2_PUBLISHING_ATTACHMENT_SHA256");
+  insist(attachment.length <= 1 && (!attachment.length || (typeof attachment[0]!.text === "string" && /^0x[0-9a-f]{64}$/.test(attachment[0]!.text))),"web2_publishing_attachment_changed",503);
   return {
+    ...(attachment.length ? {publishingAttachmentDigest:attachment[0]!.text as `0x${string}`} : {}),
     schema: release.schema,
     artifactDigest: release.artifactDigest,
     sourceDigest: release.sourceDigest,
@@ -75,7 +79,7 @@ export async function web2NativeOriginal(
   await verifyNativeRecord(input.release, input.trust);
   const body = input.record.body,
     release = input.release.body;
-  exact(object(release), ["schema", "artifactDigest", "sourceDigest", "graph"]);
+  exact(object(release), ["schema", "artifactDigest", "sourceDigest", "graph", ...(Object.hasOwn(release,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : [])]);
   exact(object(release.graph), [
     "installationId",
     "durableScope",
@@ -94,6 +98,7 @@ export async function web2NativeOriginal(
     "hostFingerprint",
     "enrollment",
     "registrationAuthority",
+    ...(Object.hasOwn(body,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : []),
   ]);
   const draft = linuxWeb2DraftFrom(body.draft);
   insist(
@@ -108,6 +113,8 @@ export async function web2NativeOriginal(
       body.durableScope === input.durableScope &&
       body.releaseArtifactDigest === release.artifactDigest &&
       body.releaseSourceDigest === release.sourceDigest &&
+      body.publishingAttachmentDigest === release.publishingAttachmentDigest &&
+      (!Object.hasOwn(body,"publishingAttachmentDigest") || (typeof body.publishingAttachmentDigest === "string" && /^0x[0-9a-f]{64}$/.test(body.publishingAttachmentDigest))) &&
       nativeCanonical(JSON.parse(release.graph.directoryRuntimeBinding)) ===
         nativeCanonical(draft.deployment) &&
       body.enrollment.schema === "pirate.linux-web2-enrollment-evidence/1" &&

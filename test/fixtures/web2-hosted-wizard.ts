@@ -1,3 +1,10 @@
+import { createWeb2Journal, web2Wire } from "../../apps/community-wizard/server/web2-journal.ts";
+import { prepareWeb2WizardRegistration } from "../../apps/community-wizard/server/web2-publishing-setup.ts";
+import { createHostedEnrollmentClient } from "../../packages/community-setup/hosted-enrollment-client.ts";
+import { parseEnrollment, planDocument } from "../../packages/community/hosted-enrollment.ts";
+import { operatorSigningFixture } from "./linux-web2-installation.ts";
+import { CommunityError } from "../../packages/community/common.ts";
+import { communityIpfsTransport } from "../../services/community-deployment-profile.ts";
 // Actual Wizard HTTP + hosted handlers + D1 + existing real 6343 V3/Posts chain.
 // Only immutable content transport and the external wallet transport are fixtures.
 import assert from "node:assert/strict";
@@ -17,6 +24,7 @@ import {
   type Hex,
 } from "viem";
 import {
+  canonical,
   hashJson,
   hashText,
   publicId,
@@ -53,6 +61,8 @@ export async function hostedWizardFixture(
     contractController?: boolean;
     sameRecipient?: boolean;
     invalidDeployment?: boolean;
+    publishing?: boolean;
+    missingCustody?: boolean;
   } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "pw2-wizard-"));
@@ -83,7 +93,7 @@ export async function hostedWizardFixture(
   const origins: string[] = [];
   let nextStatusGate: { enter: () => void; wait: Promise<void> } | undefined;
   const statusReleases = new Set<() => void>();
-  const nativeDirectory = resolve(".local/web2-hosted-wizard/native");
+  const nativeDirectory = resolve(".local/web2-owner-signing-implementation/hosted-wizard/native");
   const nativePath = join(
     nativeDirectory,
     `fixture-${process.pid}-${publicId().slice(2, 18)}.json`,
@@ -270,9 +280,18 @@ export async function hostedWizardFixture(
       directoryProfile: _profile,
       ...hostDeployment
     } = chain.deployment;
+    const signing = await operatorSigningFixture(directory,policy);
+    const prepareInput = {
+      name:"Wizard Garden",origin:"https://wizard-community.example",controller,
+      publisher:options.sameRecipient ? controller : web2Publisher.address.toLowerCase(),inviteToken,noticeAccepted:true,
+    };
     const inputs = {
       policy,
       notice,
+      hostInstallationId:"wizard-host-fixture",
+      ...(!options.missingCustody ? {publisherProof:signing.publisher} : {}),
+      ...(options.publishing ? {publishing:{grants:signing.grants,chain:{client,send:communityIpfsTransport(chain.deployment),now:()=>BigInt(Math.floor(Date.now()/1000)),
+        maxSafeBlockAgeSeconds:600n,deployment:{...policy.deployment,deploymentBlock:String(policy.deployment.deploymentBlock)},registrar:policy.registrar,registrarRevision:1n}}} : {}),
       deployment: options.invalidDeployment
         ? { ...hostDeployment, ipfsGateways: [] }
         : hostDeployment,
@@ -286,6 +305,20 @@ export async function hostedWizardFixture(
         chain.contents.set(value.uri.slice(7), value.bytes);
       },
     };
+    if(options.sameRecipient) {
+      const selected={name:prepareInput.name,origin:prepareInput.origin,controller,publisher:controller};
+      const {plan,deployment}=await prepareWeb2WizardRegistration(policy,inputs.configuration,inputs.deployment,selected);
+      await inputs.pinConfiguration({uri:plan.uri,bytes:new TextEncoder().encode(canonical(plan.config))});
+      const oldClient=createHostedEnrollmentClient(policy,transport),prepared=await oldClient.prepare(plan,inviteToken);
+      const e=parseEnrollment(prepared.enrollment),proof=await web2Owner.signTypedData(enrollmentTypedData(e));
+      await oldClient.redeem(prepared,proof);await chain.rpc("anvil_mine",["0x40","0x0"]);
+      await oldClient.topup(prepared,proof,[{recipient:controller,signature:proof}]);await chain.rpc("anvil_mine",["0x40","0x0"]);
+      const {journal,save}=await createWeb2Journal(directory,policy,inputs.hostInstallationId,runtime.now);
+      Object.assign(journal,{request:selected,inviteToken,plan:web2Wire(planDocument(plan)),deployment,prepared,
+        controllerSignature:proof,recipientProofs:[{recipient:controller,signature:proof}],
+        enrollment:await oldClient.status(prepared,proof),phase:"funded"});
+      await save();
+    }
     const start = async () => {
       setup = await createWeb2Setup(directory, inputs);
       server = createWizardServer(
@@ -401,17 +434,6 @@ export async function hostedWizardFixture(
       assert.equal(r.status, 200, JSON.stringify(r.body));
       return r.body.view as unknown as Web2WizardView;
     };
-    const prepareInput = {
-      name: "Wizard Garden",
-      origin: "https://wizard-community.example",
-      controller,
-      publisher:
-        options.contractController || options.sameRecipient
-          ? controller
-          : web2Publisher.address.toLowerCase(),
-      inviteToken,
-      noticeAccepted: true,
-    };
     const sign = async (typed: unknown, actor = controller) =>
       (actor.toLowerCase() === web2Publisher.address.toLowerCase()
         ? web2Publisher
@@ -431,6 +453,12 @@ export async function hostedWizardFixture(
         return origin;
       },
       directory,
+      nominatedOwner:web2Other.address.toLowerCase(),
+      signingJournal:join(directory,"web2-signing-sidecar.json"),
+      loseAttachmentReply:()=>signing!.loseAttachmentReply(),
+      attachmentEffects:()=>signing.attachmentEffects(),
+      custodyUnavailable:()=>signing.custodyUnavailable(),
+      changeGrantSelection:(kind:"publisher")=>signing!.changeGrantSelection(kind),
       journal: join(directory, "web2-wizard-original.json"),
       inviteToken,
       prepareInput,
@@ -490,8 +518,8 @@ export async function hostedWizardFixture(
         const original = JSON.parse(
           await readFile(join(directory, "web2-wizard-original.json"), "utf8"),
         );
-        await mkdir(".local/web2-hosted-wizard/evidence", { recursive: true });
-        const artifactPath = `.local/web2-hosted-wizard/evidence/${label}.json`;
+        await mkdir(".local/web2-owner-signing-implementation/hosted-wizard/evidence", { recursive: true });
+        const artifactPath = `.local/web2-owner-signing-implementation/hosted-wizard/evidence/${label}.json`;
         await writeFile(
           artifactPath,
           JSON.stringify(
@@ -510,6 +538,12 @@ export async function hostedWizardFixture(
                   { encoding: "utf8" },
                 ).trim(),
               ),
+              requestDigest:hashJson(original.request),
+              configurationDigest:hashJson(original.plan.config),
+              ...(await readFile(join(directory,"web2-signing-sidecar.json"),"utf8").then(raw=>{
+                const sidecar=JSON.parse(raw);return {authorizationDigest:sidecar.accepted ? hashJson(sidecar.accepted) : null,
+                  grantDigest:sidecar.selection.grant.sha256,selectionDigest:sidecar.selection.selectionDigest,attachmentDigest:sidecar.attachment?.digest ?? null};
+              },()=>({}))),
               plan: original.plan,
               policy: policyDocument(policy),
               broadcasts: chain.effects.broadcasts - before,
@@ -518,8 +552,7 @@ export async function hostedWizardFixture(
                 transactionHash: o.tx_hash,
                 // Only consumed disposable-fixture originals are exportable.
                 // The product's public status never returns signed raw bytes.
-                consumedFixtureRawTransaction:
-                  o.state === "consumed" ? o.raw : null,
+
                 receipt: o.receipt ? JSON.parse(o.receipt) : null,
               })),
             },
