@@ -87,6 +87,9 @@ export function createCommunityComposerRuntime(
     const [rating, setRating] = createSignal<"general" | "adult" | null>(null, {
       ownedWrite: true,
     });
+    const [allowsDerivatives, setAllowsDerivatives] = createSignal<
+      boolean | null
+    >(null, { ownedWrite: true });
     const [busy, setBusy] = createSignal(false, { ownedWrite: true });
     const [error, setError] = createSignal<string | null>(null, {
       ownedWrite: true,
@@ -145,6 +148,7 @@ export function createCommunityComposerRuntime(
         setLyrics(next.body.lyrics);
         setConsent(true);
         setRating(next.body.rating ?? null);
+        setAllowsDerivatives(next.body.terms?.allowsDerivatives ?? null);
       }
     };
     try {
@@ -354,6 +358,7 @@ export function createCommunityComposerRuntime(
       lyrics,
       consent,
       rating,
+      allowsDerivatives,
       busy,
       error,
       selectedId,
@@ -375,6 +380,10 @@ export function createCommunityComposerRuntime(
       setRating: (next: "general" | "adult") => {
         owner.assert();
         if (!latest) setRating(next);
+      },
+      setAllowsDerivatives: (next: boolean) => {
+        owner.assert();
+        if (!latest) setAllowsDerivatives(next);
       },
       setError: (next: string) => {
         if (active()) setError(next);
@@ -418,6 +427,7 @@ export function createCommunityComposerRuntime(
           setLyrics("");
           setConsent(false);
           setRating(null);
+          setAllowsDerivatives(null);
           setDraftVersion((value) => value + 1);
         }),
       stopUpload: () => {

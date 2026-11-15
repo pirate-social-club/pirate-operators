@@ -11,12 +11,16 @@ const settle = () =>
   new Promise<void>((resolve) =>
     requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
   );
-export async function runCommunityComposerBrowserCase(root: HTMLElement) {
+async function composerCase(root: HTMLElement, policy: string) {
   let prepareCalls = 0,
     posted = 0,
     finish!: (value: boolean) => void;
   const [consent, setConsent] = createSignal(false),
     [rating, setRating] = createSignal<"general" | "adult" | null>(null);
+  const [allowsDerivatives, setAllowsDerivatives] = createSignal<
+    boolean | null
+  >(null);
+  const catalog = policy === "pirate-owner-catalog/2026-11-13/1";
   const [prepared, setPrepared] = createSignal(false);
   const file = new File(["fixture"], "fixture.mp3", { type: "audio/mpeg" });
   const dispose = render(
@@ -34,14 +38,18 @@ export async function runCommunityComposerBrowserCase(root: HTMLElement) {
         }}
         release={{
           authorized: () => true,
-          policy: () => OWNER_RELEASE_POLICY,
+          policy: () => policy,
           consent,
           onConsent: setConsent,
           rating,
           onRating: setRating,
+          allowsDerivatives,
+          onAllowsDerivatives: setAllowsDerivatives,
           language: () => "en",
           issue: () =>
-            !consent() || !rating() ? "Consent and rating required" : "",
+            !consent() || !rating() || (catalog && allowsDerivatives() === null)
+              ? "Consent, rating and a derivative choice are required"
+              : "",
         }}
         songFlowRuntime={{
           get prepared() {
@@ -89,12 +97,34 @@ export async function runCommunityComposerBrowserCase(root: HTMLElement) {
     );
     check(checkbox, "actual policy checkbox absent");
     checkbox.click();
+    await settle();
+    button("Next")!.click();
+    await settle();
+    check(Number(prepareCalls) === 0, "missing declared rating started upload");
     const general = root.querySelector<HTMLInputElement>(
       'input[type="radio"][value="general"]',
     );
     check(general, "actual declared rating producer absent");
     general.click();
     await settle();
+    if (catalog) {
+      button("Next")!.click();
+      await settle();
+      check(
+        Number(prepareCalls) === 0,
+        "missing derivative choice started upload",
+      );
+      const deny = root.querySelector<HTMLInputElement>(
+        'input[type="radio"][value="deny"]',
+      );
+      check(deny, "explicit derivative permission producer absent");
+      deny.click();
+      await settle();
+      check(
+        allowsDerivatives() === false,
+        "denied derivative choice was not retained",
+      );
+    }
     button("Next")!.click();
     button("Next")!.click();
     await settle();
@@ -117,6 +147,11 @@ export async function runCommunityComposerBrowserCase(root: HTMLElement) {
         !root.textContent?.includes("Remix and sell"),
       "backend review claims unsupported licensing",
     );
+    if (catalog)
+      check(
+        root.textContent?.includes("Not allowed"),
+        "review omitted the captured derivative decision",
+      );
     const post = button("Post");
     check(post, "source Post action absent");
     post.click();
@@ -134,4 +169,16 @@ export async function runCommunityComposerBrowserCase(root: HTMLElement) {
   } finally {
     dispose();
   }
+}
+
+export async function runCommunityComposerBrowserCase(root: HTMLElement) {
+  const cases: string[] = [];
+  for (const policy of [
+    OWNER_RELEASE_POLICY,
+    "pirate-owner-catalog/2026-11-13/1",
+  ]) {
+    const result = await composerCase(root, policy);
+    cases.push(...result.cases.map((name) => `${policy}: ${name}`));
+  }
+  return { cases, acceptance: "fixture UI only, no provider or publication" };
 }

@@ -27,6 +27,7 @@ import { createPostComposerController } from "../src/media/reference/src/feature
 const community = "0x" + "1".repeat(64),
   author = "0x" + "2".repeat(64),
   postId = "0x" + "3".repeat(64);
+const catalogPolicy = "pirate-owner-catalog/2026-11-13/1";
 const submissionId = "11111111-1111-4111-8111-111111111111",
   jobId = "publication:" + submissionId;
 const unavailableStorage: MediaAttemptStorage = {
@@ -248,59 +249,91 @@ function server() {
   };
 }
 
-test(
-  "real reserve/master/stems/seal/job/feed/proof sequence preserves request and only confirms genuine publication",
-  { timeout: 4000 },
-  async () => {
-    const current = context(),
-      owner = captureCommunityOwner(() => current),
-      saved = memory(),
-      api = server();
-    const controller = new CommunitySongController({
-      owner,
-      store: saved.store,
-      http: communityHttp(owner, api.transport),
-    });
-    await controller.prepare(input());
-    const frozen = saved.value()!;
-    const reserve = api.calls.find(
-      (call) => call.path === "/api/uploads" && call.method === "POST",
-    )!;
-    assert.equal(reserve.key, frozen.requestId);
-    assert.equal(JSON.parse(reserve.body!).rating, "general");
-    assert.equal(frozen.master, true);
-    assert.deepEqual(frozen.stems, { instrumental: true, vocals: true });
-    assert.equal((await controller.publish()).status, "processing");
-    api.phase("uncertain");
-    assert.equal((await controller.observe()).status, "reconciling");
-    await controller.resume();
-    assert.equal(
-      api.calls.filter((call) => call.path.endsWith("/resume")).length,
-      1,
-    );
-    api.phase("published");
-    const published = await controller.observe();
-    assert.deepEqual(published, {
-      status: "published",
-      submissionId,
-      postId,
-      postHref: `/#song-${postId}`,
-    });
-    assert.equal(saved.value()?.requestId, frozen.requestId);
-    assert.equal(saved.value()?.bodyDigest, frozen.bodyDigest);
-    await controller.close();
-    assert.equal(saved.value(), null);
-    owner.dispose();
-  },
-);
+for (const [policy, allowsDerivatives] of [
+  [OWNER_RELEASE_POLICY, null],
+  [catalogPolicy, false],
+  [catalogPolicy, true],
+] as const)
+  test(
+    `real reserve/master/stems/seal/job/feed/proof preserves ${policy} terms (${allowsDerivatives}) and confirms genuine publication`,
+    { timeout: 4000 },
+    async () => {
+      const current = context();
+      current.capabilities.policyVersion = policy;
+      const owner = captureCommunityOwner(() => current),
+        saved = memory(),
+        api = server();
+      const controller = new CommunitySongController({
+        owner,
+        store: saved.store,
+        http: communityHttp(owner, api.transport),
+      });
+      const release = { ...input(), allowsDerivatives };
+      await controller.prepare(release);
+      const frozen = saved.value()!;
+      const reserve = api.calls.find(
+        (call) => call.path === "/api/uploads" && call.method === "POST",
+      )!;
+      assert.equal(reserve.key, frozen.requestId);
+      assert.equal(JSON.parse(reserve.body!).rating, "general");
+      const body = JSON.parse(reserve.body!);
+      assert.equal(body.acceptedPolicy, policy);
+      assert.deepEqual(
+        body.terms,
+        policy === catalogPolicy
+          ? { revision: 1, allowsDerivatives }
+          : undefined,
+      );
+      assert.equal(frozen.master, true);
+      assert.deepEqual(frozen.stems, { instrumental: true, vocals: true });
+      assert.equal((await controller.publish()).status, "processing");
+      if (policy === catalogPolicy) {
+        api.phase("catalog_reserve");
+        assert.deepEqual(await controller.observe(), {
+          status: "processing",
+          submissionId,
+          phase: "analysis",
+        });
+        api.phase("catalog_confirm");
+        assert.deepEqual(await controller.observe(), {
+          status: "processing",
+          submissionId,
+          phase: "publish",
+        });
+      }
+      api.phase("uncertain");
+      assert.equal((await controller.observe()).status, "reconciling");
+      await controller.resume();
+      assert.equal(
+        api.calls.filter((call) => call.path.endsWith("/resume")).length,
+        1,
+      );
+      api.phase("published");
+      const published = await controller.observe();
+      assert.deepEqual(published, {
+        status: "published",
+        submissionId,
+        postId,
+        postHref: `/#song-${postId}`,
+      });
+      assert.equal(saved.value()?.requestId, frozen.requestId);
+      assert.equal(saved.value()?.bodyDigest, frozen.bodyDigest);
+      await controller.close();
+      assert.equal(saved.value(), null);
+      owner.dispose();
+    },
+  );
 
 for (const lost of ["reserve", "audio", "seal"] as const)
   test(
     `lost ${lost} acknowledgement retains exact identity and restore performs reads only`,
     { timeout: 4000 },
     async () => {
-      const current = context(),
-        owner = captureCommunityOwner(() => current),
+      const current = context();
+      if (lost === "reserve")
+        current.capabilities.policyVersion = catalogPolicy;
+      const release = { ...input(), allowsDerivatives: false };
+      const owner = captureCommunityOwner(() => current),
         saved = memory(),
         api = server();
       let lose = true;
@@ -324,9 +357,9 @@ for (const lost of ["reserve", "audio", "seal"] as const)
       };
       let controller = new CommunitySongController(ports);
       if (lost === "seal") {
-        await controller.prepare(input());
+        await controller.prepare(release);
         await assert.rejects(controller.publish());
-      } else await assert.rejects(controller.prepare(input()));
+      } else await assert.rejects(controller.prepare(release));
       const original = saved.value()!,
         before = api.calls.length;
       controller = new CommunitySongController(ports);
@@ -339,6 +372,11 @@ for (const lost of ["reserve", "audio", "seal"] as const)
       }
       assert.equal(saved.value()?.requestId, original.requestId);
       assert.equal(saved.value()?.bodyDigest, original.bodyDigest);
+      if (lost === "reserve")
+        assert.deepEqual(saved.value()?.body.terms, {
+          revision: 1,
+          allowsDerivatives: false,
+        });
       const reservations = api.calls.filter(
         (call) => call.path === "/api/uploads" && call.method === "POST",
       );
@@ -419,37 +457,48 @@ test(
   "capabilities, curated policy, consent, rating and account aliases deny before reservation",
   { timeout: 4000 },
   async () => {
-    for (const kind of [
-      "publisher",
-      "curated",
-      "consent",
-      "rating",
-      "length",
-    ] as const) {
-      const current = context(),
-        value = input(),
-        saved = memory();
-      let calls = 0;
-      if (kind === "publisher") current.session.publisher = false;
-      if (kind === "curated")
-        current.capabilities.policyVersion = SINGLE_CURATED_RELEASE;
-      if (kind === "consent") value.originalConsent = false;
-      if (kind === "rating") value.rating = null;
-      if (kind === "length") value.title = "x".repeat(201);
-      const owner = captureCommunityOwner(() => current),
-        controller = new CommunitySongController({
-          owner,
-          store: saved.store,
-          http: communityHttp(owner, async () => {
-            calls++;
-            throw new Error("Denied before network");
-          }),
-        });
-      await assert.rejects(controller.prepare(value));
-      assert.equal(calls, 0);
-      assert.equal(saved.value(), null);
-      owner.dispose();
-    }
+    for (const policy of [OWNER_RELEASE_POLICY, catalogPolicy])
+      for (const kind of [
+        "publisher",
+        "upload",
+        "publication",
+        "unknown-policy",
+        "curated",
+        "consent",
+        "rating",
+        ...(policy === catalogPolicy ? ["terms" as const] : []),
+        "length",
+      ] as const) {
+        const current = context(),
+          value = { ...input(), allowsDerivatives: false as boolean | null },
+          saved = memory();
+        current.capabilities.policyVersion = policy;
+        let calls = 0;
+        if (kind === "publisher") current.session.publisher = false;
+        if (kind === "upload") current.capabilities.upload = false;
+        if (kind === "publication") current.capabilities.publication = false;
+        if (kind === "unknown-policy")
+          current.capabilities.policyVersion = "unsupported-policy";
+        if (kind === "terms") value.allowsDerivatives = null;
+        if (kind === "curated")
+          current.capabilities.policyVersion = SINGLE_CURATED_RELEASE;
+        if (kind === "consent") value.originalConsent = false;
+        if (kind === "rating") value.rating = null;
+        if (kind === "length") value.title = "x".repeat(201);
+        const owner = captureCommunityOwner(() => current),
+          controller = new CommunitySongController({
+            owner,
+            store: saved.store,
+            http: communityHttp(owner, async () => {
+              calls++;
+              throw new Error("Denied before network");
+            }),
+          });
+        await assert.rejects(controller.prepare(value));
+        assert.equal(calls, 0);
+        assert.equal(saved.value(), null);
+        owner.dispose();
+      }
     const bad = context();
     bad.owner.accountId = bad.session.authorId;
     assert.throws(() => requireHost(bad));
