@@ -13,7 +13,7 @@ test("top-level HTTPS signing window binds source, origin, nonce and separate co
   const f=await hostedWizardFixture({publishing:true,signingOrigin});
   try {
     await context.addCookies([{name:"wizard_fixture",value:"paired",url:f.origin}]);
-    const penpal=await readFile("apps/web/node_modules/penpal/dist/penpal.mjs","utf8");
+    const penpal=await readFile(new URL(import.meta.resolve("penpal")),"utf8");
     await context.exposeBinding("signingFixtureProof",async(_,data:unknown)=>({status:"success",signature:await f.sign(data)}));
     await context.addInitScript(()=>{window.addEventListener("message",e=>{
       if(e.data?.protocol==="pirate.web2-moss-window/1"&&e.data?.kind==="request")
