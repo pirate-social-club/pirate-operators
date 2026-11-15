@@ -1,6 +1,7 @@
 import {
   decodeEventLog,
   keccak256,
+  type Address,
   type ContractFunctionReturnType,
   type Hex,
   type PublicClient,
@@ -38,6 +39,12 @@ type HnsLease = ContractFunctionReturnType<
   "getHnsAttachment"
 >;
 
+interface ProofAuthoritySnapshot {
+  readonly verifier: Address;
+  readonly generation: bigint;
+  readonly invalidatedAt: bigint;
+}
+
 export interface Web2EligibilityPolicy {
   /** Trusted service Unix-seconds clock, sampled again after all reads. */
   now: () => bigint;
@@ -46,24 +53,40 @@ export interface Web2EligibilityPolicy {
 }
 
 export interface Web2VerificationSnapshot {
-  readonly schema: "pirate.directory-verification-snapshot/1";
+  readonly schema: "pirate.directory-verification-snapshot/2";
   readonly profile: Readonly<Web2DirectoryProfile>;
   readonly blockNumber: bigint;
   readonly blockHash: Hex;
   readonly blockTimestamp: bigint;
   readonly capturedAt: bigint;
   readonly listedAtBlock: boolean;
+  readonly listingRevision: bigint;
   readonly discoverableAtBlock: boolean;
   readonly web2: Readonly<{
     verifiedAtBlock: boolean;
     revision: bigint;
+    acceptedGeneration: bigint;
+    authority: Readonly<ProofAuthoritySnapshot>;
     proof: Web2Lease[1];
   }>;
   readonly hns: Readonly<{
     verifiedAtBlock: boolean;
     revision: bigint;
+    acceptedGeneration: bigint;
+    authority: Readonly<ProofAuthoritySnapshot>;
     proof: HnsLease[1];
   }>;
+}
+
+function currentProofAuthority(
+  acceptedGeneration: bigint,
+  observedAt: bigint,
+  authority: ProofAuthoritySnapshot,
+) {
+  return (
+    acceptedGeneration === authority.generation &&
+    (authority.generation === 1n || observedAt > authority.invalidatedAt)
+  );
 }
 
 function queryTime(value: unknown): asserts value is bigint {
@@ -109,9 +132,20 @@ export function evaluateWeb2Eligibility(
   }
   const web2Verified =
     snapshot.web2.verifiedAtBlock &&
+    currentProofAuthority(
+      snapshot.web2.acceptedGeneration,
+      snapshot.web2.proof.observedAt,
+      snapshot.web2.authority,
+    ) &&
     evaluatedAt < snapshot.web2.proof.validUntil;
   const hnsVerified =
-    snapshot.hns.verifiedAtBlock && evaluatedAt < snapshot.hns.proof.validUntil;
+    snapshot.hns.verifiedAtBlock &&
+    currentProofAuthority(
+      snapshot.hns.acceptedGeneration,
+      snapshot.hns.proof.observedAt,
+      snapshot.hns.authority,
+    ) &&
+    evaluatedAt < snapshot.hns.proof.validUntil;
   return Object.freeze({
     status: "available" as const,
     evaluatedAt,
@@ -161,6 +195,11 @@ export async function readWeb2Community(
     args: [p.communityId],
     blockNumber: through,
   } as const;
+  const authorityRequest = {
+    address: p.directory,
+    abi: directoryV3Abi,
+    blockNumber: through,
+  } as const;
   const [
     code,
     row,
@@ -171,6 +210,10 @@ export async function readWeb2Community(
     hnsVerified,
     web2Lease,
     hnsLease,
+    web2AuthorityRow,
+    hnsAuthorityRow,
+    web2AcceptedGeneration,
+    hnsAcceptedGeneration,
   ] = await Promise.all([
     client.getCode({ address: p.directory, blockNumber: through }),
     client.readContract({ ...request, functionName: "getCommunity" }),
@@ -181,7 +224,27 @@ export async function readWeb2Community(
     client.readContract({ ...request, functionName: "isHnsVerified" }),
     client.readContract({ ...request, functionName: "getWeb2Verification" }),
     client.readContract({ ...request, functionName: "getHnsAttachment" }),
+    client.readContract({
+      ...authorityRequest,
+      functionName: "getWeb2ProofAuthority",
+    }),
+    client.readContract({
+      ...authorityRequest,
+      functionName: "getHnsProofAuthority",
+    }),
+    client.readContract({ ...request, functionName: "getWeb2ProofGeneration" }),
+    client.readContract({ ...request, functionName: "getHnsProofGeneration" }),
   ]);
+  const web2Authority = Object.freeze({
+    verifier: web2AuthorityRow[0],
+    generation: web2AuthorityRow[1],
+    invalidatedAt: web2AuthorityRow[2],
+  });
+  const hnsAuthority = Object.freeze({
+    verifier: hnsAuthorityRow[0],
+    generation: hnsAuthorityRow[1],
+    invalidatedAt: hnsAuthorityRow[2],
+  });
   insist(
     code &&
       keccak256(code) === p.directoryCodeHash &&
@@ -190,13 +253,29 @@ export async function readWeb2Community(
     503,
   );
   insist(
-    discoverable === (row.listed && (web2Verified || hnsVerified)) &&
+    web2Authority.generation > 0n &&
+      hnsAuthority.generation > 0n &&
+      web2Authority.invalidatedAt <= blockTimestamp &&
+      hnsAuthority.invalidatedAt <= blockTimestamp &&
+      web2AcceptedGeneration <= web2Authority.generation &&
+      hnsAcceptedGeneration <= hnsAuthority.generation &&
+      discoverable === (row.listed && (web2Verified || hnsVerified)) &&
       (!web2Verified ||
         (web2Lease[0] > 0n &&
+          currentProofAuthority(
+            web2AcceptedGeneration,
+            web2Lease[1].observedAt,
+            web2Authority,
+          ) &&
           web2Lease[1].observedAt <= blockTimestamp &&
           blockTimestamp < web2Lease[1].validUntil)) &&
       (!hnsVerified ||
         (hnsLease[0] > 0n &&
+          currentProofAuthority(
+            hnsAcceptedGeneration,
+            hnsLease[1].observedAt,
+            hnsAuthority,
+          ) &&
           hnsLease[1].observedAt <= blockTimestamp &&
           blockTimestamp < hnsLease[1].validUntil)),
     "directory_verification_snapshot_mismatch",
@@ -333,28 +412,33 @@ export async function readWeb2Community(
   queryTime(capturedAt);
   insist(capturedAt >= startedAt, "directory_query_clock_regressed", 503);
   const verificationSnapshot: Web2VerificationSnapshot = Object.freeze({
-    schema: "pirate.directory-verification-snapshot/1",
+    schema: "pirate.directory-verification-snapshot/2",
     profile: p,
     blockNumber: through,
     blockHash: safeHash,
     blockTimestamp,
     capturedAt,
     listedAtBlock: row.listed,
+    listingRevision: row.listingRevision,
     discoverableAtBlock: discoverable,
     web2: Object.freeze({
       verifiedAtBlock: web2Verified,
       revision: web2Lease[0],
+      acceptedGeneration: web2AcceptedGeneration,
+      authority: web2Authority,
       proof: Object.freeze({ ...web2Lease[1] }),
     }),
     hns: Object.freeze({
       verifiedAtBlock: hnsVerified,
       revision: hnsLease[0],
+      acceptedGeneration: hnsAcceptedGeneration,
+      authority: hnsAuthority,
       proof: Object.freeze({ ...hnsLease[1] }),
     }),
   });
   return {
     config: state.last,
-    history: Object.freeze(history.map(c => structuredClone(c))),
+    history: Object.freeze(history.map((c) => structuredClone(c))),
     origin,
     verificationSnapshot,
     eligibility: evaluateWeb2Eligibility(
