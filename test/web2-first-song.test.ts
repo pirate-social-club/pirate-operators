@@ -6,7 +6,7 @@ test(
   "Web2 first song uses plain SIWE and actual owner publication, catalog, feed and media",
   { timeout: 120000 },
   async (t) => {
-    const f = await web2FirstSongFixture();
+    const f = await web2FirstSongFixture({ http: true });
     t.after(f.close);
     const account = await f.login();
     assert.equal(account.challenge.kind, undefined);
@@ -18,6 +18,18 @@ test(
     await f.assertPublicSong(song);
     await f.writeArtifact("ordinary", song);
     await f.assertManagedAuthorityRefusal();
+  },
+);
+
+test(
+  "canonical service HTTP binds private reads to current authority and refuses altered or replayed evidence",
+  { timeout: 120000 },
+  async (t) => {
+    const f = await web2FirstSongFixture({ http: true });
+    t.after(f.close);
+    const song = await f.publish(await f.login());
+    await f.writeArtifact("canonical-http", song);
+    await f.assertCanonicalBoundaries(song);
   },
 );
 
@@ -69,7 +81,7 @@ test(
   "lost acknowledgement and runtime restart retain one original publication and every effect identity",
   { timeout: 120000 },
   async (t) => {
-    const f = await web2FirstSongFixture();
+    const f = await web2FirstSongFixture({ http: true });
     t.after(f.close);
     const owner = await f.login();
     f.loseNextPinAcknowledgement();

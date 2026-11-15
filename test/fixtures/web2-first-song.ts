@@ -3,9 +3,32 @@
 import assert from "node:assert/strict";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { sha256, type Hex } from "viem";
+import { sha256, parseTransaction, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "../community-runtime.ts";
+import { canonicalHttpFixture } from "./canonical-http.ts";
+import {
+  readCanonicalIntent,
+  canonicalPublication,
+  type CanonicalIntentPorts,
+} from "../../packages/recognition/canonical-intent.ts";
+import type { CanonicalCommunity } from "../../packages/recognition/canonical-community.ts";
+import { reservationClient } from "../../packages/recognition/reservation-client.ts";
+import {
+  canonicalResponse,
+  type CanonicalWireRequest,
+} from "../../packages/recognition/canonical-protocol.ts";
+import { signRecognitionRequest } from "../../packages/recognition/authorization.ts";
+import { signReservation } from "../../packages/recognition/reservation-receipt.ts";
+import {
+  reservationId,
+  type PostingBinding,
+} from "../../packages/recognition/intent.ts";
+import { canonicalCommunityClient } from "../../packages/recognition/canonical-transport.ts";
+import {
+  canonicalPath,
+  signCanonicalRequest,
+} from "../../packages/recognition/canonical-protocol.ts";
 import {
   web2SongChain,
   web2Owner,
@@ -47,11 +70,6 @@ import {
   sharedRecognitionRuntime,
   type RecognitionWake,
 } from "../../services/shared-recognition-runtime.ts";
-import {
-  readCanonicalIntent,
-  type CanonicalIntentPorts,
-} from "../../packages/recognition/canonical-intent.ts";
-import { reservationClient } from "../../packages/recognition/reservation-client.ts";
 import type { ManagedCatalogBinding } from "../../packages/recognition/provider-binding.ts";
 import type { RecognitionProfile } from "../../packages/recognition/intent.ts";
 import { loginChallenge } from "../../packages/community/accounts.ts";
@@ -62,7 +80,7 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture() {
+export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
   const community = await communityRuntime(),
     mf = new Miniflare({
       modules: true,
@@ -72,8 +90,10 @@ export async function web2FirstSongFixture() {
       r2Buckets: ["MANAGED_MEDIA"],
     });
   let chain: Awaited<ReturnType<typeof web2SongChain>> | undefined;
+  let http: Awaited<ReturnType<typeof canonicalHttpFixture>> | undefined;
   const close = async () => {
     const results = await Promise.allSettled([
+      http?.close(),
       chain?.close(),
       community.dispose(),
       mf.dispose(),
@@ -303,6 +323,15 @@ export async function web2FirstSongFixture() {
       );
       return value.config;
     };
+    const canonicalChain: import("../../packages/recognition/canonical-chain.ts").CanonicalChainInputs =
+      {
+        client: c.client,
+        posts: {
+          ...deployment.posts,
+          deploymentBlock: BigInt(deployment.posts.deploymentBlock),
+        },
+        ipfs: communityIpfsTransport(deployment),
+      };
     const currentAccount = async (
       account: string,
       wallet: string,
@@ -336,14 +365,28 @@ export async function web2FirstSongFixture() {
       OWNER_AUTHORIZATION_JSON: JSON.stringify(ownerAuthorization),
       RECOGNITION_PROFILE_JSON: JSON.stringify(recognition),
       CATALOG_ACCOUNT_FENCE: currentAccount,
-      CATALOG_TRANSPORT: (request: Request) => catalog.fetch(request),
+      CATALOG_TRANSPORT: (request: Request) =>
+        options.http ? http!.transport(request) : catalog.fetch(request),
       COMMUNITY_DEPLOYMENT_PROFILE_JSON: JSON.stringify(deployment),
     } as unknown as CommunityEnv;
+    // The private registry delegates to actual persisted community inputs and fresh chain reads.
     const canonicalPorts = () =>
       firstSongRuntime(env, c.current(), current, deployment).catalog!;
-    // The private registry delegates to actual persisted community inputs and fresh chain reads.
-    const communities = new Map<string, CanonicalIntentPorts>([
-      [c.profile.communityId, canonicalPorts()],
+    const communities = new Map<
+      string,
+      CanonicalIntentPorts | CanonicalCommunity
+    >([
+      [
+        c.profile.communityId,
+        options.http
+          ? canonicalCommunityClient({
+              chain: canonicalChain,
+              signer,
+              currentConfiguration: current,
+              transport: (request) => http!.transport(request),
+            })
+          : canonicalPorts(),
+      ],
     ]);
     const build = () =>
       sharedRecognitionRuntime({
@@ -407,33 +450,57 @@ export async function web2FirstSongFixture() {
       OWNER_GRANT_JSON: JSON.stringify(grant),
       FILEBASE_IPFS_TOKEN: "explicit-fixture-token",
       PIN_TRANSPORT: pinTransport,
-      CATALOG_RELEASE_INPUTS: {
-        canonical: async () => canonicalPorts(),
-        recognition: async () =>
-          reservationClient({
-            profile: recognition,
-            publisher: web2Publisher,
-            transport: (request) => catalog.fetch(request),
-            current: async (intent) => {
-              assert.equal(
-                (await readCanonicalIntent(canonicalPorts(), intent.jobId))
-                  .intent.inputHash,
-                intent.inputHash,
-              );
+      CATALOG_CANONICAL_TRANSPORT: (request: Request) =>
+        http!.transport(request),
+      ...(!options.http
+        ? {
+            CATALOG_RELEASE_INPUTS: {
+              canonical: async () => canonicalPorts(),
+              recognition: async () =>
+                reservationClient({
+                  profile: recognition,
+                  publisher: web2Publisher,
+                  transport: (request) => catalog.fetch(request),
+                  current: async (p) => {
+                    assert.equal(
+                      (await readCanonicalIntent(canonicalPorts(), p.jobId))
+                        .intent.inputHash,
+                      p.inputHash,
+                    );
+                  },
+                  beforeSend: async (p) => {
+                    const row = await community.db
+                      .withSession("first-primary")
+                      .prepare(
+                        "SELECT job_id FROM publication_jobs WHERE job_id=? AND lease_token IS NOT NULL AND lease_until>?",
+                      )
+                      .bind(p.jobId, Date.now())
+                      .first();
+                    insist(row, "publication_lease_lost", 409);
+                  },
+                }),
             },
-            beforeSend: async (intent) => {
-              const row = await community.db
-                .withSession("first-primary")
-                .prepare(
-                  "SELECT job_id FROM publication_jobs WHERE job_id=? AND lease_token IS NOT NULL AND lease_until>?",
-                )
-                .bind(intent.jobId, Date.now())
-                .first();
-              insist(row, "publication_lease_lost", 409);
-            },
-          }),
-      },
+          }
+        : {}),
     } as unknown as ManagedEnv;
+    if (options.http)
+      http = await canonicalHttpFixture(
+        new Map([
+          [
+            deployment.origin,
+            (request: Request) => communityFetch(request, env),
+          ],
+          [
+            deployment.managedOrigin,
+            (request: Request) =>
+              managedModeration.fetch(
+                request as Parameters<typeof managedModeration.fetch>[0],
+                managedEnv,
+              ),
+          ],
+          [recognition.origin, (request: Request) => catalog.fetch(request)],
+        ]),
+      );
     // Node's real Request has no incoming Cloudflare metadata; handlers do not read it.
     let acceptedPin: SignedServiceRequest | undefined;
     env.MANAGED_RELEASE_SERVICE = {
@@ -442,10 +509,12 @@ export async function web2FirstSongFixture() {
           new URL(request.url).pathname === "/v1/owner-releases/pin"
             ? ((await request.clone().json()) as SignedServiceRequest)
             : undefined;
-        const response = await managedModeration.fetch(
-          request as Parameters<typeof managedModeration.fetch>[0],
-          managedEnv,
-        );
+        const response = options.http
+          ? await http!.transport(request)
+          : await managedModeration.fetch(
+              request as Parameters<typeof managedModeration.fetch>[0],
+              managedEnv,
+            );
         if (wire && response.ok) acceptedPin = wire;
         return response;
       },
@@ -724,6 +793,262 @@ export async function web2FirstSongFixture() {
         losePinAck = true;
       },
       assertPublicSong,
+      async assertCanonicalBoundaries(song: Song) {
+        const config = await current(),
+          before = { ...c.effects },
+          client = canonicalCommunityClient({
+            chain: canonicalChain,
+            signer,
+            currentConfiguration: current,
+            transport: (request) => http!.transport(request),
+          }),
+          original = await client.read(song.jobId),
+          request = async (wire: unknown) =>
+            http!.transport(
+              new Request(deployment.origin + canonicalPath, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: canonical(wire),
+                signal: AbortSignal.timeout(30000),
+              }),
+            );
+        assert.equal(original.intent.jobId, song.jobId);
+        assert.deepEqual(await client.audio(original.intent), song.audio);
+        const wire = await signCanonicalRequest(signer, config, "read", {
+          jobId: song.jobId,
+        });
+        assert.equal((await request(wire)).status, 200);
+        assert.equal(
+          (
+            await request({
+              ...wire,
+              body: { jobId: "publication:another-original" },
+            })
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await request({
+              ...wire,
+              payload: {
+                ...wire.payload,
+                communityId: hashText("foreign community"),
+              },
+            })
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await request(
+              await signCanonicalRequest(web2Owner, config, "read", {
+                jobId: song.jobId,
+              }),
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await request(
+              await signCanonicalRequest(
+                signer,
+                config,
+                "read",
+                { jobId: song.jobId },
+                Math.floor(Date.now() / 1000) - 120,
+              ),
+            )
+          ).status,
+          403,
+        );
+        assert.equal(
+          (
+            await request(
+              await signCanonicalRequest(signer, config, "ready", {
+                intent: original.intent,
+              }),
+            )
+          ).status,
+          403,
+        );
+        const replay = await request(wire),
+          replayClient = canonicalCommunityClient({
+            chain: canonicalChain,
+            signer,
+            currentConfiguration: current,
+            transport: async () => replay.clone(),
+          });
+        await assert.rejects(
+          replayClient.read(song.jobId),
+          /canonical_response_scope_changed/,
+        );
+        const tampered = canonicalCommunityClient({
+          chain: canonicalChain,
+          signer,
+          currentConfiguration: current,
+          transport: async (request) => {
+            const response = await http!.transport(request),
+              body = (await response.json()) as Record<string, unknown>;
+            return new Response(
+              JSON.stringify({ ...body, title: "changed in transport" }),
+              { status: response.status, headers: response.headers },
+            );
+          },
+        });
+        await assert.rejects(
+          tampered.read(song.jobId),
+          /canonical_response_scope_changed/,
+        );
+        const during = canonicalCommunityClient({
+          chain: canonicalChain,
+          signer,
+          currentConfiguration: current,
+          transport: async (request) => {
+            const response = await http!.transport(request);
+            c.unavailable(true);
+            return response;
+          },
+        });
+        await assert.rejects(during.read(song.jobId));
+        c.unavailable(false);
+        const publicationOperation = (await operations(song.jobId)).find(
+            (op) => op.step === "publication",
+          )!,
+          replayBytes = JSON.parse(publicationOperation.prepared_json!).replay,
+          binding: PostingBinding = {
+            operationId: publicationOperation.operation_id,
+            requestHash: publicationOperation.request_hash,
+            signedTransaction: replayBytes.signedTransaction,
+            transactionHash: replayBytes.transactionHash,
+            nonce: parseTransaction(replayBytes.signedTransaction).nonce!,
+          },
+          actualPublication = await canonicalPublication(
+            canonicalPorts(),
+            original.intent,
+            binding,
+          ),
+          falsePublication = {
+            ...actualPublication,
+            publicationEvidenceSha256: hashText(
+              "publisher claimed finality is not a chain receipt",
+            ),
+          };
+        const malicious = await canonicalHttpFixture(
+          new Map([
+            [
+              deployment.origin,
+              async (request: Request) => {
+                const wire = (await request.json()) as CanonicalWireRequest;
+                if (wire.payload.action === "ready") {
+                  const now = Math.floor(Date.now() / 1000),
+                    recognitionRequest = await signRecognitionRequest(
+                      web2Publisher,
+                      {
+                        namespace: recognition.namespace as Hex,
+                        profileSha256: recognition.sha256 as Hex,
+                        action: "intent_status",
+                        communityId: original.intent.communityId as Hex,
+                        communityOrigin: deployment.origin,
+                        serviceOrigin: recognition.origin,
+                        configurationRevision: config.configurationRevision,
+                        nonce: wire.payload.nonce as Hex,
+                        issuedAt: now,
+                        expiresAt: now + 120,
+                      },
+                      { jobId: song.jobId },
+                    ),
+                    receipt = await signReservation(web2Publisher, {
+                      schema: "pirate.recognition-reservation-receipt/1",
+                      purpose: "accepted_intent",
+                      namespace: recognition.namespace,
+                      profileSha256: recognition.sha256,
+                      communityId: original.intent.communityId,
+                      configurationRevision: config.configurationRevision,
+                      requestSha256: hashJson(recognitionRequest),
+                      intentSha256: hashJson(original.intent),
+                      reservationId: reservationId(original.intent),
+                      recordingId: hashText("publisher forged ready recording"),
+                      state: "ready",
+                      recordingState: "ready",
+                      postingSha256: null,
+                      publicationSha256: null,
+                      issuedAt: now,
+                      expiresAt: now + 60,
+                    });
+                  return canonicalResponse(wire, config, web2Publisher, {
+                    request: recognitionRequest,
+                    receipt,
+                  });
+                }
+                return canonicalResponse(wire, config, web2Publisher, {
+                  intent: original.intent,
+                  posting: binding,
+                  publication: falsePublication,
+                  ownerAuthorization,
+                });
+              },
+            ],
+          ]),
+        );
+        try {
+          const forged = canonicalCommunityClient({
+            chain: canonicalChain,
+            signer: web2Controller,
+            currentConfiguration: current,
+            transport: malicious.transport,
+          });
+          await assert.rejects(
+            forged.ready(original.intent),
+            /recognition_reservation_signer_invalid/,
+          );
+          await assert.rejects(
+            forged.publication(original.intent, binding),
+            /recognition_chain_receipt_changed/,
+          );
+          await assert.rejects(
+            forged.findPublication(original.intent.postId, 1),
+            /recognition_chain_receipt_changed/,
+          );
+        } finally {
+          await malicious.close();
+        }
+        const operation = hashText("same original remote allowance"),
+          count = async () =>
+            (await community.db
+              .prepare(
+                "SELECT count(*) AS n FROM spending_reservations WHERE reservation_id=?",
+              )
+              .bind(operation)
+              .first<{ n: number }>())!.n;
+        const previous = await count();
+        await client.authorize(original.intent, operation);
+        await client.authorize(original.intent, operation);
+        assert.equal(
+          await count(),
+          previous + 1,
+          "the same remote operation consumes one stable allowance reservation",
+        );
+        await community.db
+          .prepare(
+            "UPDATE credential_bindings SET subject=? WHERE network=6343 AND subject=?",
+          )
+          .bind(
+            web2Other.address.toLowerCase(),
+            web2Owner.address.toLowerCase(),
+          )
+          .run();
+        await assert.rejects(
+          client.read(song.jobId),
+          /canonical_community_unavailable/,
+        );
+        assert.deepEqual(
+          c.effects,
+          before,
+          "private transport refusals create no chain/provider/pinning effects",
+        );
+      },
       async assertManagedAuthorityRefusal() {
         assert.ok(
           acceptedPin,
@@ -838,6 +1163,12 @@ export async function web2FirstSongFixture() {
               : null,
           })),
           effects: c.effects,
+          serviceTransport: options.http
+            ? {
+                kind: "actual owned HTTP; explicit selected-origin loopback mapping",
+                exchanges: http!.evidence,
+              }
+            : { kind: "actual in-process handler composition" },
         };
         await mkdir(".local/web2-first-song", { recursive: true });
         await writeFile(

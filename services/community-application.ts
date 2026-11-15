@@ -1,4 +1,6 @@
 import { nativeBusinessResponse } from "./application-native-readback.ts";
+import { communityCanonicalFetch } from "./community-canonical.ts";
+import { canonicalPath } from "../packages/recognition/canonical-protocol.ts";
 import { withKaraokeRequestSession } from "./karaoke-request-session.ts";
 import { communityProfilesApi } from "./community-profiles.ts";
 import { connectedPublicResultsAction } from "./learning-public-results.ts";
@@ -370,6 +372,13 @@ async function communityFetchBusiness(
         config.postsContract === deployment.posts.address, "community_configuration_changed", 503);
       return config;
     };
+    if (url.pathname === canonicalPath) {
+      insist(web2, "not_found", 404);
+      const config = await configuration(true), runtime = ports.releaseRuntime?.(config) ??
+        firstSongRuntime(env, config, () => configuration(true), deployment);
+      insist(runtime.catalog, "canonical_community_unconfigured", 503);
+      return communityCanonicalFetch(request, runtime.catalog);
+    }
     if (
       ports.privateDance &&
       (url.pathname === "/api/media" ||

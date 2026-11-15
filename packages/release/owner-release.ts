@@ -16,7 +16,7 @@ import {
   unregisteredOwner, ownerOnly, catalogOwner,
   UNREGISTERED_OWNER_POLICY,
 } from "../community/owner-policy.ts";
-import { readCanonicalIntent } from "../recognition/canonical-intent.ts";
+import { canonicalCommunity } from "../recognition/canonical-community.ts";
 import { establishCatalogOwnerRelease, type CatalogOwnerReleaseInputs } from "./catalog-owner-release.ts";
 import { selectedAdmission } from "../moderation/curated-admission.ts";
 import { verifyAdmission } from "../moderation/admission.ts";
@@ -329,9 +329,9 @@ export async function ownerReleaseFetch(
     const authorizePurchase = async () => {
       if (catalogOwner(current.policies.admission)) {
         insist(service.catalog,"recognition_release_unconfigured",503);
-        const canonicalPorts=await service.catalog.canonical(current.communityId),intent=await readCanonicalIntent(canonicalPorts,String(object(body.context).jobId));
+        const canonicalPorts=canonicalCommunity(await service.catalog.canonical(current.communityId)),intent=await canonicalPorts.read(String(object(body.context).jobId));
         await (await service.catalog.recognition(current.communityId)).ready(intent.intent);
-        insist(canonical((await readCanonicalIntent(canonicalPorts,intent.intent.jobId)).intent)===canonical(intent.intent),"catalog_release_changed",409);
+        insist(canonical((await canonicalPorts.read(intent.intent.jobId)).intent)===canonical(intent.intent),"catalog_release_changed",409);
       }
       const fresh = await service.currentConfiguration(pairing),
         active = service.pairings.find(
@@ -378,7 +378,11 @@ export async function ownerReleaseFetch(
       "unsupported_release_artifact",
       400,
     );
-    const artifactMedia = release.catalog ? (await service.catalog!.canonical(current.communityId)).media : media;
+    const artifactMedia = release.catalog ? { async get(key:string) {
+      insist(key===release.audioObjectKey,"catalog_private_media_changed",409);
+      const source=canonicalCommunity(await service.catalog!.canonical(current.communityId)),bytes=await source.audio(release.catalog!.intent);
+      return {async arrayBuffer(){return bytes.slice().buffer as ArrayBuffer;}};
+    }} : media;
     const artifact = await releaseArtifact(db, artifactMedia, release, role);
     const operationId = pinOperationId(release.grant.sha256, role),
       reservation = hashJson({ operationId, intent: artifact.intent });
