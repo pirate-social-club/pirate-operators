@@ -92,7 +92,8 @@ export async function startPairedOperator(value:PairedOperatorInputs){
         "x-pirate-private-forwarder":internal.toString("hex")}},reply=>{
       res.writeHead(reply.statusCode!,reply.headers);reply.pipe(res);
     });
-    forward.setTimeout(30000,()=>forward.destroy(new Error("operator_forward_timeout")));
+    const nativeInstallation=req.method==="POST" && ["/api/web2/installation-prepare","/api/web2/install","/api/web2/installation-status"].includes(req.url??"");
+    forward.setTimeout(nativeInstallation?180000:30000,()=>forward.destroy(new Error("operator_forward_timeout")));
     forward.on("error",()=>res.destroy());req.on("error",()=>forward.destroy());req.pipe(forward);
   })().catch(()=>{if(!res.headersSent)res.writeHead(403,{"Content-Type":"application/json"}).end('{"error":"operator_authorization_required"}');else res.destroy();});});
   activeProxy=proxy;await new Promise<void>((resolve,reject)=>{proxy.once("error",reject);proxy.listen(input.frontPort,"127.0.0.1",resolve);});

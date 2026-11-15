@@ -428,6 +428,85 @@ test("paired Web2 setup keeps its destination, captured secret and actual privat
   await control.closeControl();
 });
 
+test("paired native installation replies can exceed thirty seconds without extending ordinary requests", { timeout: 65000 }, async (t) => {
+  const { startPairedOperator } = await import("../deploy/linux/bootstrap-local-target.ts");
+  const { hostedWizardFixture } = await import("./fixtures/web2-hosted-wizard.ts");
+  const fixture = await hostedWizardFixture();
+  t.after(fixture.close);
+  assert(process.env.TMPDIR);
+  const root = await mkdtemp(join(process.env.TMPDIR, "web2-long-pair-"));
+  await mkdir(join(root, "nonces"), { mode: 0o700 });
+  const frontPort = await availablePort(), innerPort = await availablePort();
+  const secret = randomBytes(32), code = secret.toString("base64url");
+  const identity = await fixture.state(), originalBroadcasts = fixture.broadcasts();
+  const replies: Array<{ method: string; path: string; status: number }> = [];
+  const handled = new Map<string, () => void>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const paired = await startPairedOperator({
+    installationId: "long-native-reply", frontPort, innerPort, pairingSecret: secret,
+    setup: "linux-web2", pairingNonceDirectory: join(root, "nonces"),
+    async assertHeld() {},
+    async createRuntime(authorization) {
+      const server = createServer((req, res) => {
+        void (async () => {
+          await authorization.authorize(req, "write");
+          let body = "";
+          for await (const chunk of req) body += chunk;
+          // Delay only the transport of the genuine unavailable-installer reply.
+          // The real Wizard, CSRF, journal and original enrollment stay intact.
+          const reply = await fixture.raw(req.method!, req.url!, body ? JSON.parse(body) : undefined);
+          replies.push({ method: req.method!, path: req.url!, status: reply.status });
+          handled.get(req.url!)?.();
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            res.writeHead(reply.status, { "content-type": "application/json" }).end(JSON.stringify(reply.body));
+          }, 31000);
+          timers.add(timer);
+        })().catch(() => res.writeHead(403).end());
+      });
+      return { server, async listen(port) { server.listen(port, "127.0.0.1"); await once(server, "listening"); },
+        async close() { for (const timer of timers) clearTimeout(timer); server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); } };
+    },
+  });
+  t.after(() => paired.close());
+  const linked = await fetch(paired.origin + "/pair", { method: "POST", redirect: "manual", headers: { Origin: paired.origin }, body: new URLSearchParams({ code }) });
+  assert.equal(linked.status, 303);
+  const cookie = linked.headers.get("set-cookie")!.split(";")[0]!;
+  const state = await fixture.raw("GET", "/api/web2/state");
+  const nativePaths = ["/api/web2/installation-prepare", "/api/web2/install", "/api/web2/installation-status"];
+  const request = async (method: string, path: string, revision = identity.revision) => {
+    const started = performance.now();
+    const response = await fetch(paired.origin + path, { method, headers: { Cookie: cookie, Origin: paired.origin, "content-type": "application/json", "x-wizard-token": String(state.body.csrf) },
+      ...(method === "POST" ? { body: JSON.stringify({ revision }) } : {}), signal: AbortSignal.timeout(45000) });
+    return { response, body: await response.json(), elapsedMs: performance.now() - started };
+  };
+  const nativeRequests = [];
+  for (const path of nativePaths) {
+    const observed = new Promise<void>(resolve => handled.set(path, resolve));
+    const current = await fixture.state();
+    nativeRequests.push(request("POST", path, current.revision));
+    // The actual journal refuses a stale revision. Let each real refusal settle
+    // before issuing the next original request; their delayed replies overlap.
+    await observed;
+  }
+  const outcomes = await Promise.allSettled([
+    ...nativeRequests,
+    request("POST", "/api/web2/state"), request("GET", nativePaths[0]!), request("POST", nativePaths[0] + "?extra=1"),
+  ]);
+  for (const outcome of outcomes.slice(0, 3)) {
+    assert.equal(outcome.status, "fulfilled", "the actual paired native reply must survive thirty seconds");
+    assert.equal(outcome.value.response.status, 503);
+    assert(outcome.value.body && typeof outcome.value.body === "object" && "code" in outcome.value.body);
+    assert.equal(outcome.value.body.code, "web2_installation_unavailable");
+    assert(outcome.value.elapsedMs >= 31000);
+  }
+  for (const outcome of outcomes.slice(3)) assert.equal(outcome.status, "rejected", "only the three exact POST routes receive the longer bound");
+  assert.equal(fixture.broadcasts(), originalBroadcasts);
+  assert.deepEqual((await fixture.state()).selection, identity.selection);
+  await mkdir(".local/linux-web2-installation", { recursive: true });
+  await writeFile(".local/linux-web2-installation/paired-long-reply.json", JSON.stringify({ replies, outcomes: outcomes.map(result => result.status), originalBroadcasts, finalBroadcasts: fixture.broadcasts(), scope: "actual paired proxy and genuine unavailable installer, not installed success" }) + "\n");
+});
+
 test(
   "Web2 native initialization keeps one signed original and binds actual login sessions in D1",
   { timeout: 120000 },
