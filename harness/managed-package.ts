@@ -273,3 +273,65 @@ export async function writeManagedPackage(
   await linkRetainedDependencies(join(cwd, "node_modules"), dependencies);
   return cwd;
 }
+
+import { managedPublishingConfiguration, type ManagedPublishingConfiguration } from "../packages/release/managed-publishing-admission.ts";
+import { trustedRecognitionConfiguration, type SharedRecognitionConfiguration } from "../services/shared-recognition-configuration.ts";
+import type { SignedRecord, TrustAnchor } from "../deploy/linux/installed-records.ts";
+
+/** Separate fresh-service selection. The deployed historical plan above is never
+ * rewritten. Migration names are supplied by integration after ordinal review. */
+export async function managedWeb2ServicesPackage(input: {
+  prefix: string; publishing: ManagedPublishingConfiguration;
+  recognition: SignedRecord<SharedRecognitionConfiguration>; trust: TrustAnchor;
+  admissionMigrationName: string; recognitionMigrationName: string;
+}) {
+  await verifyManagedDependencies();
+  const selected = structuredClone(input), publishing = managedPublishingConfiguration(selected.publishing, selected.trust),
+    recognition = trustedRecognitionConfiguration(selected.recognition, selected.trust);
+  insist(/^pirate-[a-z0-9-]{1,48}$/.test(selected.prefix), "explicit_managed_web2_prefix_required");
+  for (const name of [selected.admissionMigrationName, selected.recognitionMigrationName])
+    insist(/^[0-9]{4}_[a-z0-9_-]+\.sql$/.test(name), "reviewed_schema_migration_name_required");
+  const migrations = managedMigrations(true);
+  insist(!migrations.includes(selected.admissionMigrationName), "managed_migration_name_conflict");
+  insist(recognition.communities.every(r => publishing.registrations.some(p => hashJson(p) === hashJson(r))),
+    "managed_recognition_admission_changed");
+  const bundles = await Promise.all(["services/managed-publishing-worker.ts", "services/shared-recognition-worker.ts"].map(entry => build({
+    entryPoints: [entry], bundle: true, write: false, platform: "browser", format: "esm", target: "es2024",
+    external: ["node:*"], minify: true, metafile: true, logLevel: "silent", legalComments: "none",
+  })));
+  const sources = [...new Set([
+    ...(await ownedModuleGraph("harness/managed-package.ts")),
+    ...bundles.flatMap(b => Object.keys(b.metafile!.inputs).filter(p => !p.includes("node_modules/"))),
+    "packages/release/schema/managed-publishing-admission.sql", "packages/recognition/schema.sql",
+    "apps/managed-moderation/alchemy.run.ts", "apps/managed-moderation/encrypted-state.ts", "apps/managed-moderation/protected-data.ts",
+    "apps/managed-moderation/package.json", "apps/managed-moderation/package-lock.json", "package.json", "package-lock.json",
+    ...migrations.map(name => "apps/managed-moderation/migrations/" + name),
+    "docs/self-hosting/managed-first-song-services.md",
+  ])].sort();
+  const sourceHashes = Object.fromEntries(await Promise.all(sources.map(async p => [p, hashText(await readFile(p, "utf8"))])));
+  const profile = { schema: "pirate.managed-web2-services-package/1", packageProfile: "managed-web2", prefix: selected.prefix,
+    publishing, recognition: selected.recognition, trust: selected.trust,
+    admissionMigrationName: selected.admissionMigrationName, recognitionMigrationName: selected.recognitionMigrationName,
+    migrations, sourceHashes, dependencies: { manifest: sourceHashes["apps/managed-moderation/package.json"],
+      lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: "verifyManagedDependencies" },
+    bundles: bundles.map((b, i) => ({ path: i === 0 ? "worker/worker.mjs" : "worker/recognition.mjs",
+      sha256: hashText(b.outputFiles![0]!.text), bytes: b.outputFiles![0]!.contents.length })),
+    compatibilityDate: "2026-11-15", provisioning: "separate explicit signed admission and journal provisioning required",
+    recovery: "Retain exact D1 journals and encrypted Alchemy state; unknown provider sends never authorize a replacement.",
+  };
+  return { profile, profileHash: hashJson(profile), bytes: bundles[0]!.outputFiles![0]!.contents,
+    recognitionBytes: bundles[1]!.outputFiles![0]!.contents };
+}
+export async function writeManagedWeb2ServicesPackage(directory: string, pkg: Awaited<ReturnType<typeof managedWeb2ServicesPackage>>,
+  dependencies?: Parameters<typeof writeManagedPackage>[3]) {
+  insist(hashJson(pkg.profile) === pkg.profileHash && pkg.profile.packageProfile === "managed-web2" &&
+    hashText(new TextDecoder("utf-8", { fatal: true }).decode(pkg.bytes)) === pkg.profile.bundles[0]!.sha256 &&
+    hashText(new TextDecoder("utf-8", { fatal: true }).decode(pkg.recognitionBytes)) === pkg.profile.bundles[1]!.sha256, "managed_web2_package_changed");
+  const cwd = await writeManagedPackage(directory, pkg.bytes, pkg.profile.migrations, dependencies);
+  await privateDirectory(join(cwd, "recognition-migrations"));
+  await writeFile(join(cwd, "worker/recognition.mjs"), pkg.recognitionBytes, { mode: 0o600 });
+  await copyFile("packages/release/schema/managed-publishing-admission.sql", join(cwd, "migrations", pkg.profile.admissionMigrationName));
+  await copyFile("packages/recognition/schema.sql", join(cwd, "recognition-migrations", pkg.profile.recognitionMigrationName));
+  await writeFile(join(cwd, "managed-web2-package.json"), JSON.stringify(pkg.profile, null, 2) + "\n", { mode: 0o600 });
+  return cwd;
+}
