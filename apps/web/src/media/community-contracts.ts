@@ -6,6 +6,9 @@ import type {
 
 export const RELEASE_POLICY = "pirate-release/2026-08-29";
 export const OWNER_RELEASE_POLICY = "pirate-owner-curated/2026-11-08/1";
+export const CATALOG_RELEASE_POLICY = "pirate-owner-catalog/2026-11-13/1";
+export const requiresDeclaredRating = (policy: string) =>
+  policy === OWNER_RELEASE_POLICY || policy === CATALOG_RELEASE_POLICY;
 export const SINGLE_CURATED_RELEASE = "pirate-owner-curated/2026-11-05/1";
 export const SONG_BYTES = 25 * 1024 * 1024;
 export interface CommunityHostContext {
@@ -103,7 +106,9 @@ export function songCapability(context: CommunityHostContext) {
       context.session.publisher &&
       context.capabilities.upload &&
       context.capabilities.publication &&
-      [RELEASE_POLICY, OWNER_RELEASE_POLICY].includes(policy),
+      [RELEASE_POLICY, OWNER_RELEASE_POLICY, CATALOG_RELEASE_POLICY].includes(
+        policy,
+      ),
     reason:
       policy === SINGLE_CURATED_RELEASE
         ? "This curated release accepts no new submission."

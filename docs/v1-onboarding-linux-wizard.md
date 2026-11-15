@@ -25,6 +25,12 @@ port reports unavailable, never installed. Tests must retain actual receipt,
 identity, request and browser artifacts. Simulated external wallet/content
 transport is named and is not native installation or public-host acceptance.
 
+Native installation preparation, application and status requests allow a bounded
+three-minute client wait. The Wizard displays that it is waiting for the result;
+other state, registration and funding requests retain their thirty-second wait.
+This changes no server authority window, approval or original-operation rule.
+An interrupted reply still requires reconciliation of the saved original.
+
 The later approved [checkpoint 1 delivery decisions](self-hosting/checkpoint-1-pilot-delivery-20261114.md)
 govern the invited pilot's hosting, gas funding, service responsibilities and
 checkpoint order. Pirate funds capped publisher/controller top-ups; those

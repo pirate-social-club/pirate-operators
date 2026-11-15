@@ -12,6 +12,11 @@ import {
 import { web2Other } from "./fixtures/web2-first-song-chain.ts";
 import { enrollmentTypedData } from "../packages/community/hosted-enrollment.ts";
 import { hostedWizardFixture } from "./fixtures/web2-hosted-wizard.ts";
+import { setTimeout as delay } from "node:timers/promises";
+import {
+  createWeb2WizardClient,
+  type Web2Snapshot,
+} from "../apps/community-wizard/src/web2-api.ts";
 
 // Failure plan precedes production in the onboarding document. These exercise
 // the actual paired HTTP server, hosted handlers, D1, signatures and local RPC.
@@ -66,6 +71,35 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     const unavailable = await f.post("install", {});
     assert.equal(unavailable.status, 503);
     assert.equal(unavailable.body.code, "web2_installation_unavailable");
+    const current = await f.raw("GET", "/api/web2/state"),
+      slowClient = createWeb2WizardClient(async (resource, init) => {
+        const request = new Request(
+            resource instanceof Request
+              ? resource
+              : new URL(resource, f.origin),
+            init,
+          ),
+          headers = new Headers(request.headers);
+        // Keep the existing explicit fixture pairing channel. The actual
+        // runner still checks Origin, CSRF, revision and all request data.
+        headers.set("cookie", "wizard_fixture=paired");
+        headers.set("origin", f.origin);
+        const response = await fetch(new Request(request, { headers }));
+        // Delay the real unavailable-installer reply past the old deadline;
+        // no installer or successful installation response is substituted.
+        await delay(31_000, undefined, { signal: request.signal });
+        return response;
+      });
+    await assert.rejects(
+      slowClient.send(
+        "installation-prepare",
+        {},
+        current.body as unknown as Web2Snapshot,
+      ),
+      /The real Linux Web2 installer is unavailable/,
+    );
+    assert.deepEqual((await f.state()).selection, identity);
+    assert.equal(f.broadcasts(), funded);
     const publicText = JSON.stringify(await f.state());
     assert(!publicText.includes(f.inviteToken));
     assert(!publicText.includes(proofs[0]!.signature));

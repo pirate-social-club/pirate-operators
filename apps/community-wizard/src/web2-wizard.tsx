@@ -26,7 +26,8 @@ export function Web2Wizard() {
     [publisher, setPublisher] = createSignal(""),
     [invite, setInvite] = createSignal("");
   const [accepted, setAccepted] = createSignal(false),
-    [reviewed, setReviewed] = createSignal(false);
+    [reviewed, setReviewed] = createSignal(false),
+    [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
   const locked = () => busy() || Boolean(view()?.busy);
   async function perform(work: () => Promise<Web2Snapshot>, readOnly = false) {
@@ -53,8 +54,21 @@ export function Web2Wizard() {
   onSettled(() => {
     void perform(() => api.state());
   });
-  const send = (action: Web2Action, input: Record<string, unknown> = {}) =>
-    api.send(action, input, snapshot()!);
+  const send = async (
+    action: Web2Action,
+    input: Record<string, unknown> = {},
+  ) => {
+    const installation =
+      action === "installation-prepare" ||
+      action === "install" ||
+      action === "installation-status";
+    if (installation) setWaitingForInstallation(true);
+    try {
+      return await api.send(action, input, snapshot()!);
+    } finally {
+      if (installation) setWaitingForInstallation(false);
+    }
+  };
   async function sign(actor: string): Promise<string> {
     const wallet = (window as unknown as { ethereum?: Wallet }).ethereum;
     if (!wallet)
@@ -102,6 +116,12 @@ export function Web2Wizard() {
       </p>
       <Show when={error()}>
         <p role="alert">{error()}</p>
+      </Show>
+      <Show when={waitingForInstallation()}>
+        <p role="status">
+          Waiting for the Linux installation step to finish. If the connection
+          is interrupted, reload this runner and reconcile the saved request.
+        </p>
       </Show>
       <Show
         when={snapshot()}

@@ -17,7 +17,10 @@ import type {
   SongFlowRuntime,
 } from "../reference/src/features/posts/post-composer/types.ts";
 import type { ComposerSteps } from "../reference/src/features/posts/post-composer/composer-steps.ts";
-import { OWNER_RELEASE_POLICY } from "../community-contracts.ts";
+import {
+  CATALOG_RELEASE_POLICY,
+  requiresDeclaredRating,
+} from "../community-contracts.ts";
 export interface CommunityReleaseUI {
   authorized(): boolean;
   policy(): string;
@@ -25,6 +28,8 @@ export interface CommunityReleaseUI {
   onConsent(value: boolean): void;
   rating(): "general" | "adult" | null;
   onRating(value: "general" | "adult"): void;
+  allowsDerivatives(): boolean | null;
+  onAllowsDerivatives(value: boolean): void;
   language(): string;
   issue(): string;
 }
@@ -91,7 +96,7 @@ export function SongRightsStep(props: Props) {
             community release policy.
           </CheckboxLabel>
         </Checkbox>
-        <Show when={props.release.policy() === OWNER_RELEASE_POLICY}>
+        <Show when={requiresDeclaredRating(props.release.policy())}>
           <RadioGroup
             aria-label="Declared release rating"
             value={props.release.rating() ?? ""}
@@ -104,10 +109,32 @@ export function SongRightsStep(props: Props) {
             <RadioGroupItem value="adult">18+</RadioGroupItem>
           </RadioGroup>
         </Show>
+        <Show when={props.release.policy() === CATALOG_RELEASE_POLICY}>
+          <RadioGroup
+            aria-label="Derivative use"
+            value={
+              props.release.allowsDerivatives() === null
+                ? ""
+                : props.release.allowsDerivatives()
+                  ? "allow"
+                  : "deny"
+            }
+            onChange={(value) => {
+              if (value === "allow" || value === "deny")
+                props.release.onAllowsDerivatives(value === "allow");
+            }}
+          >
+            <RadioGroupItem value="deny">
+              Do not allow derivative use
+            </RadioGroupItem>
+            <RadioGroupItem value="allow">Allow derivative use</RadioGroupItem>
+          </RadioGroup>
+          <FormNote>Your selection is saved with this release.</FormNote>
+        </Show>
       </fieldset>
       <FormNote>
-        Collaborator credits, royalty splits and remix licensing are unavailable
-        in this release protocol.
+        Collaborator credits and royalty splits are unavailable in this release
+        protocol.
       </FormNote>
       <Show when={props.release.issue()}>
         {(message) => <FormNote tone="warning">{message()}</FormNote>}
@@ -140,6 +167,18 @@ export function SongReviewStep(props: Props & { steps: ComposerSteps }) {
           onChange={() => props.steps.set("rights")}
         />
         <ReviewRow label="Language" value={props.release.language()} />
+        <Show when={props.release.policy() === CATALOG_RELEASE_POLICY}>
+          <ReviewRow
+            label="Derivative use"
+            value={
+              props.release.allowsDerivatives() === null
+                ? "Not selected"
+                : props.release.allowsDerivatives()
+                  ? "Allowed"
+                  : "Not allowed"
+            }
+          />
+        </Show>
         <Show when={props.release.rating()}>
           <ReviewRow
             label="Declared rating"

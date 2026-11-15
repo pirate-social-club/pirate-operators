@@ -8,7 +8,8 @@ import { PendingSongs } from "./reference/src/features/posts/song-submission/pen
 import { Button, FormNote } from "./reference/src/design-system.ts";
 import type { PostComposerProps } from "./reference/src/features/posts/post-composer/types.ts";
 import {
-  OWNER_RELEASE_POLICY,
+  CATALOG_RELEASE_POLICY,
+  requiresDeclaredRating,
   songCapability,
   type CommunityHostContext,
 } from "./community-contracts.ts";
@@ -108,9 +109,12 @@ function CommunityHostView(
       ? capability().reason
       : !r.consent()
         ? "Accept the community release policy before uploading."
-        : policy() === OWNER_RELEASE_POLICY && !r.rating()
+        : requiresDeclaredRating(policy()) && !r.rating()
           ? "Declare the release rating before uploading."
-          : "";
+          : policy() === CATALOG_RELEASE_POLICY &&
+              r.allowsDerivatives() === null
+            ? "Choose whether derivative use is allowed before uploading."
+            : "";
   const flow = {
     get prepared() {
       return (
@@ -152,6 +156,7 @@ function CommunityHostView(
           vocals: r.song().vocalAudioUpload!,
           originalConsent: r.consent(),
           rating: r.rating(),
+          allowsDerivatives: r.allowsDerivatives(),
         });
         return lease.active();
       } catch {
@@ -236,6 +241,8 @@ function CommunityHostView(
           onConsent: r.setConsent,
           rating: r.rating,
           onRating: r.setRating,
+          allowsDerivatives: r.allowsDerivatives,
+          onAllowsDerivatives: r.setAllowsDerivatives,
           language: () =>
             r.record()?.body.language ??
             (r.active() ? owner.current.language : context.language),

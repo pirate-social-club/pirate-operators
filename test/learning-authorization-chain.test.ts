@@ -544,7 +544,9 @@ test(
       );
       assert.equal(f.count("tx:"), 0);
       assert.equal(f.count("sponsor:reservation:"), 0);
-      const safeBefore = await f.evm.publicClient.getBlock({ blockTag: "safe" });
+      const safeBefore = await f.evm.publicClient.getBlock({
+        blockTag: "safe",
+      });
       assert.ok(safeBefore.number < withdrawalReceipt.blockNumber);
       assert.ok(safeBefore.timestamp < revokedAt);
       // Anvil's unchanged default safe anchor trails by 32 blocks. Time alone
@@ -872,7 +874,7 @@ test(
     const { communityAuthorityReader, verifyCommunityAuthority } = await import(
       "../packages/community-setup/authority.ts"
     );
-    const f = await fixture(19977);
+    const f = await fixture(19978);
     try {
       const settings = {
         chainId: 31337 as const,
