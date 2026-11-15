@@ -804,6 +804,11 @@ export async function web2FirstSongFixture() {
       async writeArtifact(label: string, song: Song) {
         const facts = await assertPublicSong(song),
           ops = await operations(song.jobId);
+        const receipt = JSON.parse(
+          JSON.stringify(facts.receipt, (_key, value) =>
+            typeof value === "bigint" ? String(value) : value,
+          ),
+        );
         const artifact = {
           schema: "pirate.web2-first-song-evidence/1",
           scope:
@@ -813,22 +818,21 @@ export async function web2FirstSongFixture() {
             "Filebase add/pin and IPFS gateway",
           ],
           deployment,
+          configuration: c.current(),
           configurationSha256: hashJson(c.current()),
           audioSha256: sha256(audio),
           registrationTransaction: c.original.transactionHash,
+          registrationRawTransaction: c.original.rawTransaction,
           postTransaction: facts.post.transactionHash,
-          receipt: hashJson(
-            JSON.parse(
-              JSON.stringify(facts.receipt, (_key, v) =>
-                typeof v === "bigint" ? String(v) : v,
-              ),
-            ),
-          ),
+          receipt,
+          receiptSha256: hashJson(receipt),
+          proof: facts.proof,
           jobId: song.jobId,
           operations: ops.map((op) => ({
             id: op.operation_id,
             step: op.step,
             requestHash: op.request_hash,
+            prepared: op.prepared_json ? JSON.parse(op.prepared_json) : null,
             preparedSha256: op.prepared_json
               ? hashText(op.prepared_json)
               : null,

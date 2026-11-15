@@ -162,8 +162,17 @@ export async function web2SongChain(recognition: RecognitionProfile) {
     }
     if (child.exitCode === null && child.signalCode === null) {
       const terminal = once(child, "exit");
-      child.kill("SIGTERM");
-      await terminal;
+      // Only this owned child handle may be signalled; unrelated services stay untouched.
+      const deadline = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null)
+          child.kill("SIGKILL");
+      }, 2000);
+      try {
+        child.kill("SIGTERM");
+        await terminal;
+      } finally {
+        clearTimeout(deadline);
+      }
     }
     await mkdir(".local/web2-first-song", { recursive: true });
     await writeFile(

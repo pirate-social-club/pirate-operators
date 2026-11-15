@@ -85,3 +85,22 @@ public Karaoke route. These were corrected; the reviewers found no remaining
 blocker in the inspected production branches. Final committed-source review and
 required hosted CI remain open. Existing tests and their negative assertions
 remain required.
+
+The retained historical manifest, Directory, managed Worker/service and owner
+authority selection passes all 87 cases in 30.78 seconds on merge `13d295a`.
+The normal merge of protected main `aef30d0` keeps exactly checkpoint `8a37851`'s
+tree. Its add/add conflict contained only the four reviewed history additions;
+the resolved index tree was verified identical before the merge commit.
+
+The main integration fixture is an intentional inherent-fixture exception to
+the operational script size target. It owns three real storage roles, actual
+application/managed/catalog composition, authenticated uploads, recovery and
+independent public receipt/media checks. The separate chain fixture owns native
+process/RPC/contracts. Before adding further scenarios, extract cohesive storage
+and provider setup rather than growing this fixture further. The independent
+review recorded this maintenance concern. Owned Anvil cleanup now escalates
+after two seconds; the outer qualification command also remains bounded.
+
+The emitted artifact includes the full configuration, receipt, public proof and
+prepared operation data as well as hashes, so their commitments can be checked
+offline. It contains public disposable-fixture transaction data, never secrets.
