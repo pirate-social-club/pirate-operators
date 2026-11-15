@@ -341,6 +341,7 @@ test("desktop uses reference sidebar and community-owned chrome; profile/setting
   await serve(page, true, false, true, "strict-origin", {
     songs: true,
     rewards: true,
+    joined: true,
   });
   await page.goto(origin);
   const nav = page.getByRole("navigation", {

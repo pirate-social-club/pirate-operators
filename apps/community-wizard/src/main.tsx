@@ -1,5 +1,6 @@
-import { render } from "solid-js/web";
-import { createSignal, For, Show, onCleanup, onMount } from "solid-js";
+import {WizardEntry} from "./wizard-entry.tsx";
+import { render } from "@solidjs/web";
+import { createSignal, For, Show, onSettled } from "solid-js";
 import type { Settings, SecretName } from "../server/model.ts";
 import type { Snapshot } from "./types.ts";
 import { LearningSetup } from "./learning-setup.tsx";
@@ -59,7 +60,7 @@ function App() {
     setState(next);
     if (initial && next.settings) setSettings({ ...next.settings });
   }
-  onMount(() => {
+  onSettled(() => {
     void refresh(true).catch((e) => setError(e.message));
     const timer = setInterval(() => {
       if (state()?.busy)
@@ -69,7 +70,7 @@ function App() {
           ),
         );
     }, 1500);
-    onCleanup(() => clearInterval(timer));
+    return () => clearInterval(timer);
   });
   async function action(path: string, payload: unknown, after?: () => void) {
     if (busy()) return;
@@ -166,7 +167,7 @@ function App() {
             >
               {(title, i) => (
                 <button
-                  classList={{ selected: step() === i() }}
+                  class={{ selected: step() === i() }}
                   onClick={() => setStep(i())}
                   aria-current={step() === i() ? "step" : undefined}
                 >
@@ -614,4 +615,4 @@ function App() {
     </>
   );
 }
-render(() => <App />, document.getElementById("root")!);
+render(() => <WizardEntry cloudflare={()=><App />} />, document.getElementById("root")!);

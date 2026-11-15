@@ -1,3 +1,5 @@
+import { catalogOwner } from "../packages/community/owner-policy.ts";
+import { catalogPublication, type CatalogPublicationPorts } from "../packages/community/catalog-publication.ts";
 import { requireExecutionProfile } from "../packages/community/publication-profile.ts";
 import { requireStems } from "../packages/community/stems.ts";
 import {
@@ -54,6 +56,8 @@ export interface FirstSongDriverPorts {
   checkServices(): Promise<void>;
   /** Controller-signed owner authorization; required under the unregistered owner policy. */
   ownerAuthorization?: unknown;
+  catalog?: CatalogPublicationPorts;
+  clock?: import("../packages/community/publication.ts").PublicationClock;
 }
 const roleFor = (step: PublicationStep) =>
   step === "pin_audio"
@@ -183,9 +187,13 @@ export function firstSongDriver(
         ports.managed.origin,
       );
     },
-    async prepare(operation) {
+    async prepare(operation,job) {
       const input = await load(operation);
       await ports.checkServices();
+      if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
+        insist(ports.catalog, "recognition_runtime_unconfigured",503);
+        return {replay:{kind:"provider_idempotency",provider:"pirate-recognition-reservation/1",key:operation.operation_id},payload:{intentHash:input.job.input_hash}};
+      }
       if (operation.step === "publication") {
         await validateMedia(input);
         return preparePosting(operation, ports.posting);
@@ -202,9 +210,14 @@ export function firstSongDriver(
         payload: { grantHash: releaseBinding(ports) },
       };
     },
-    async execute(operation) {
+    async execute(operation,job) {
       const input = await load(operation);
       await ports.checkServices();
+      if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
+        insist(ports.catalog,"recognition_runtime_unconfigured",503);
+        const c=await catalogPublication(ports.catalog,operation,job?.lease_token);
+        return confirmed(await (operation.step === "catalog_reserve" ? c.reserve("execute") : c.commit("execute")));
+      }
       if (operation.step === "admission")
         return executeAdmission(
           ports.db,
@@ -218,6 +231,10 @@ export function firstSongDriver(
         );
       if (operation.step === "publication") {
         await validateMedia(input);
+        if (catalogOwner(ports.managed.configuration.policies.admission)) {
+          insist(ports.catalog,"recognition_runtime_unconfigured",503);
+          return executePosting(operation,{...ports.posting,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind();}});
+        }
         return executePosting(operation, ports.posting);
       }
       return confirmed(
@@ -229,8 +246,13 @@ export function firstSongDriver(
         ),
       );
     },
-    async reconcile(operation) {
+    async reconcile(operation,job) {
       const input = await load(operation);
+      if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
+        insist(ports.catalog,"recognition_runtime_unconfigured",503);
+        const c=await catalogPublication(ports.catalog,operation,job?.lease_token);
+        return operation.step === "catalog_reserve" ? c.reserve("reconcile") : c.commit("reconcile");
+      }
       if (operation.step === "admission")
         return reconcileAdmission(input, ports.managed, ports.acrEndpoint);
       if (operation.step === "registration")
@@ -244,8 +266,13 @@ export function firstSongDriver(
         "reconcile",
       );
     },
-    async validate(operation, result) {
+    async validate(operation, result,job) {
       const input = await load(operation);
+      if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
+        insist(ports.catalog,"recognition_runtime_unconfigured",503);
+        const c=await catalogPublication(ports.catalog,operation,job?.lease_token),fresh=await (operation.step === "catalog_reserve" ? c.reserve("reconcile") : c.commit("reconcile"));
+        insist(canonical(fresh)===canonical(result),"catalog_receipt_changed",503);return;
+      }
       if (operation.step === "admission")
         return validateAdmissionResult(
           input,

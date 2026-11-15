@@ -1,13 +1,25 @@
 # Pirate operators
 
-The [application contract inventory](docs/contracts/inventory.md) identifies the
-current target, historical implementations, Dance contracts, reward experiment
-and testnet helpers. New learning integrations use LearningResultsV4 and its
-[V4 rollout](docs/learning-v4-rollout.md). SharedNameRegistryV3 is the naming
-target; its verification and caller migration are still required before source
-selection. Existing deployment manifests keep their pinned identities.
-[Learner-held history](docs/learner-history.md) defines the private tutoring and
-export boundary. Earlier learning specifications remain historical references.
+The approved [Web2 release and optional HNS plan](docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md)
+starts Web2 foundation contracts, consent redesign and integration repair in
+parallel. The first-song pilot uses plain sign-in with learning-results disabled.
+Dance and shared aggregation follow as explicit Web2 release work. HNS is an
+optional later attachment to the same on-chain community and content; it is not
+required for registration, discovery or gas eligibility. The plan supersedes
+conflicting historical scope below and does not claim a qualified release.
+
+The [compact public results amendment](docs/learning-results-v2.md) sets the
+next recording/payment direction: one terminal result per lesson or run,
+internal usage accounting for Pirate's own service and guaranteed coverage for
+independent providers. [Learner-held history](docs/learner-history.md) defines
+the private tutoring/export boundary. These specifications do not change the
+current v1 runtime or resolve the MOSS consent release gate.
+
+The [application contract inventory](docs/contracts/inventory.md) distinguishes
+current implementation candidates from retained source and deployment history.
+The [Web2-first Directory V3](docs/contracts/community-directory-v3.md) is the
+new enrollment candidate; neither source availability nor earlier deployment
+evidence qualifies it for release.
 
 For launch, the workspace owner is the only song publisher.
 [Owner-only MegaETH song publication](docs/megaeth-song-publication.md) is the
@@ -45,11 +57,10 @@ are later work under the [namespace scope](docs/decentralized-setup.md#mvp-names
 
 Our application contracts target MegaETH testnet 6343. Ordinary wallet access
 uses MOSS. The active payment implementation uses OperatorPayments deposits
-and signed purchases for admission jobs and karaoke segment takes. The original payments and LearningRecords implementations were merged in
-PRs 14 and 18, with [historical testnet evidence](docs/megaeth-testnet.md).
-LearningRecords is retained for that history; LearningResultsV4 is the current
-learning target. Deployment and acceptance claims require their own exact-source
-evidence. The
+and signed purchases for admission jobs and karaoke segment takes. Payments
+and [LearningRecords](docs/learning-records-contract.md) are merged from PRs 14
+and 18, with separate [testnet evidence](docs/megaeth-testnet.md). This does not
+establish completed first-song acceptance. The
 payment signer can choose any recipient and amount within its community/token
 deposit; admin-controlled recipient and spending limits are not implemented.
 OperatorPayments is optional for the disposable first-song path.

@@ -1,26 +1,7 @@
 name: Community wizard
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
-    paths:
-      - "apps/community-wizard/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/community-wizard.yml"
-  pull_request:
-    paths:
-      - "apps/community-wizard/**"
-      - "packages/**"
-      - "services/**"
-      - "harness/**"
-      - "fixtures/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/community-wizard.yml"
 permissions:
   contents: read
 jobs:

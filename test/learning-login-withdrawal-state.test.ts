@@ -51,7 +51,7 @@ import type { Env } from "../services/runtime.ts";
 test(
   "a revocation confirming during pinned reads cannot make its older snapshot ready for turn-on",
   { timeout: 120000 },
-  async () => {
+  async (t) => {
     const evm = await chain(20366);
     const real = globalThis.fetch;
     let authority:
@@ -208,7 +208,9 @@ test(
           blockNumber: receipt.blockNumber,
         });
         assert.equal(withdrawalBlock.hash, receipt.blockHash);
-        const safeBefore = await evm.publicClient.getBlock({ blockTag: "safe" });
+        const safeBefore = await evm.publicClient.getBlock({
+          blockTag: "safe",
+        });
         // Keep Anvil's default 32-slot policy and the original signed receipt.
         // Mature real descendants before asking the actual proof port to recover.
         await evm.rpc("anvil_mine", ["0x20"]);
@@ -292,10 +294,21 @@ test(
       let fired = false,
         busy = false;
       const pinnedReads: string[] = [];
+      const pinnedTrace: { tag: string; selector: string; busy: boolean }[] =
+        [];
+      let hookFailed = false;
+      let hookFailure: unknown;
+      const hookFailures: {
+        phase: string;
+        message: string;
+        elapsedMs: number;
+        aborted: boolean;
+      }[] = [];
       globalThis.fetch = (async (
         input: RequestInfo | URL,
         init?: RequestInit,
       ) => {
+        const started = performance.now();
         const text = typeof init?.body === "string" ? init.body : "";
         let rpc: { method?: string; params?: unknown[] } | undefined;
         try {
@@ -323,6 +336,11 @@ test(
           rpc.params?.[1] === blockTag
         ) {
           pinnedReads.push(String(rpc.params[1]));
+          pinnedTrace.push({
+            tag: String(rpc.params[1]),
+            selector: String(call.data).slice(0, 10),
+            busy,
+          });
           if (!fired && !busy) {
             fired = true;
             busy = true;
@@ -334,8 +352,14 @@ test(
                 await evm.rpc("eth_sendRawTransaction", [originalRaw]),
                 originalHash,
               );
-              const receipt = await evm.publicClient.getTransactionReceipt({
+              // RPC acceptance does not guarantee mining. Await this exact
+              // original receipt before exercising receipt-only recovery.
+              const receipt = await evm.publicClient.waitForTransactionReceipt({
                 hash: originalHash,
+                confirmations: 1,
+                checkReplacement: false,
+                pollingInterval: 25,
+                timeout: 5_000,
               });
               assert.equal(receipt.status, "success");
               const safeBefore = await evm.publicClient.getBlock({
@@ -364,15 +388,53 @@ test(
                 store.get<{ pending: boolean }>(key)?.pending,
                 false,
               );
+            } catch (error) {
+              // Viem retries a rejected fetch hook. Preserve the original
+              // assertion rather than letting a retry obscure its cause.
+              if (!hookFailed) hookFailure = error;
+              hookFailed = true;
+              hookFailures.push({
+                phase: "mutation",
+                message: error instanceof Error ? error.message : String(error),
+                elapsedMs: performance.now() - started,
+                aborted: init?.signal?.aborted ?? false,
+              });
+              throw error;
             } finally {
               busy = false;
             }
           }
         }
-        return real(input, init);
+        try {
+          return await real(input, init);
+        } catch (error) {
+          if (actualRpc) {
+            if (!hookFailed) hookFailure = error;
+            hookFailed = true;
+            hookFailures.push({
+              phase: "forward",
+              message: error instanceof Error ? error.message : String(error),
+              elapsedMs: performance.now() - started,
+              aborted: init?.signal?.aborted ?? false,
+            });
+          }
+          throw error;
+        }
       }) as typeof fetch;
       // Same old-snapshot assertion, using the real sign-in's immutable time.
-      assert.deepEqual(await authorizationState(env, learner, store), {
+      let observedState: Awaited<ReturnType<typeof authorizationState>>;
+      try {
+        observedState = await authorizationState(env, learner, store);
+      } catch (error) {
+        if (hookFailed) throw hookFailure;
+        throw error;
+      } finally {
+        t.diagnostic(
+          JSON.stringify({ blockTag, pinnedTrace, hookFailed, hookFailures }),
+        );
+      }
+      if (hookFailed) throw hookFailure;
+      assert.deepEqual(observedState, {
         since: Number(signIn.issuedAt),
         revokedAt: 0,
         revocationNonce: "0",

@@ -4,7 +4,10 @@ export default defineConfig({
   testMatch: "*.spec.ts",
   timeout: 30000,
   workers: 1,
-  reporter: [["list"]],
+  reporter: [
+    ["list"],
+    ["json", { outputFile: "../../.local/study-browser-report.json" }],
+  ],
   outputDir: "../../.local/study-browser-results",
   use: {
     baseURL: "http://127.0.0.1:4177",

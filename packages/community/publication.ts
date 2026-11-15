@@ -79,12 +79,13 @@ export interface PublicationDriver {
   // Replay is disabled unless the reviewed adapter enforces exact signed bytes
   // or its provider guarantees idempotency for this immutable operation key.
   // HTTP headers alone do not establish that upstream guarantee.
-  prepare(operation: ExternalOperation): Promise<PreparedOperation>;
-  execute(operation: ExternalOperation): Promise<OperationResult>;
-  reconcile(operation: ExternalOperation): Promise<Reconciliation>;
+  prepare(operation: ExternalOperation,job?:PublicationJob): Promise<PreparedOperation>;
+  execute(operation: ExternalOperation,job?:PublicationJob): Promise<OperationResult>;
+  reconcile(operation: ExternalOperation,job?:PublicationJob): Promise<Reconciliation>;
   validate(
     operation: ExternalOperation,
     result: OperationResult,
+    job?:PublicationJob,
   ): Promise<void>;
 }
 export interface PublicationClock {
@@ -105,7 +106,7 @@ async function accept(
   result: OperationResult,
   clock: PublicationClock,
 ) {
-  await driver.validate(operation, result);
+  await driver.validate(operation, result, job);
   if (result.kind === "confirmed") {
     object(result.value);
     await confirmOperation(
@@ -182,7 +183,7 @@ export function publicationStep(
           "invalid_failed_receipt",
           503,
         );
-        await driver.validate(operation, result);
+        await driver.validate(operation, result, job);
         const phase = result.kind === "held" ? "held" : "failed";
         await parkJob(db, job, phase, result.code, clock.now());
         return phase;
@@ -198,7 +199,7 @@ export function publicationStep(
           providerId: operation.provider_id,
           value: object(JSON.parse(operation.result_json)),
         };
-        await driver.validate(operation, result);
+        await driver.validate(operation, result, job);
         await advanceJob(db, job, job.phase, result.value, clock.now());
         return (await loadJob(db, id)).phase;
       }
@@ -207,7 +208,7 @@ export function publicationStep(
           db,
           job,
           operation,
-          await driver.prepare(operation),
+          await driver.prepare(operation,job),
           clock.now(),
         );
         await hooks.boundary?.("prepared", operation);
@@ -217,7 +218,7 @@ export function publicationStep(
       if (operation.status === "running" || operation.status === "uncertain") {
         let reconciliation: Reconciliation;
         try {
-          reconciliation = await driver.reconcile(operation);
+          reconciliation = await driver.reconcile(operation,job);
         } catch {
           reconciliation = { kind: "unknown" };
         }
@@ -226,7 +227,7 @@ export function publicationStep(
             db,
             job,
             "uncertain",
-            "external_result_uncertain",
+            job.phase === "catalog_reserve" || job.phase === "catalog_confirm" ? "catalog_pending" : "external_result_uncertain",
             clock.now(),
           );
           return "uncertain";
@@ -283,7 +284,7 @@ export function publicationStep(
       await hooks.boundary?.("started", operation);
       let result: OperationResult;
       try {
-        result = await driver.execute(operation);
+        result = await driver.execute(operation,job);
       } catch {
         await db
           .prepare(
@@ -295,7 +296,7 @@ export function publicationStep(
           db,
           job,
           "uncertain",
-          "external_result_uncertain",
+          job.phase === "catalog_reserve" || job.phase === "catalog_confirm" ? "catalog_pending" : "external_result_uncertain",
           clock.now(),
         );
         return "uncertain";

@@ -1,0 +1,45 @@
+name: CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  local:
+    uses: ./.github/workflows/local.yml
+  web:
+    uses: ./.github/workflows/web.yml
+  study:
+    uses: ./.github/workflows/study.yml
+  karaoke:
+    uses: ./.github/workflows/karaoke.yml
+  wizard:
+    uses: ./.github/workflows/community-wizard.yml
+  creator:
+    uses: ./.github/workflows/creator-spike.yml
+  release-ready:
+    name: release-ready
+    if: always()
+    needs: [local, web, study, karaoke, wizard, creator]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every test boundary
+        env:
+          LOCAL_RESULT: ${{ needs.local.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          STUDY_RESULT: ${{ needs.study.result }}
+          KARAOKE_RESULT: ${{ needs.karaoke.result }}
+          WIZARD_RESULT: ${{ needs.wizard.result }}
+          CREATOR_RESULT: ${{ needs.creator.result }}
+        run: |
+          set -euo pipefail
+          for result in "$LOCAL_RESULT" "$WEB_RESULT" "$STUDY_RESULT" "$KARAOKE_RESULT" "$WIZARD_RESULT" "$CREATOR_RESULT"; do
+            test "$result" = success
+          done

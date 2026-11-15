@@ -1,3 +1,5 @@
+import { CATALOG_OWNER_POLICY_VERSION } from "../packages/community/owner-policy.ts";
+import { catalogObligation } from "../packages/community/catalog-outbox.ts";
 import {
   accountSession,
   authenticatedWrite,
@@ -5,6 +7,7 @@ import {
 } from "../packages/community/accounts.ts";
 import { exact, insist, jsonBody, text } from "../packages/community/common.ts";
 import {
+  type Submission,
   reserveSubmission,
   reserveOwnerSubmission,
   sealSubmission,
@@ -35,7 +38,7 @@ import { requireCuratedOwner } from "../packages/community/curated-amendment.ts"
 import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
 import {
   ownerCurated,
-  unregisteredOwner,
+  ownerOnly,
 } from "../packages/community/owner-policy.ts";
 
 interface ReleaseApiEnv {
@@ -62,13 +65,28 @@ export async function communityReleaseApi(
       /^\/api\/uploads\/([a-f0-9-]{36})\/stems(?:\/(instrumental|vocals))?$/.exec(
         url.pathname,
       ),
+    item = /^\/api\/uploads\/([a-f0-9-]{36})$/.exec(url.pathname),
     job = /^\/api\/jobs\/([^/]+)(\/resume)?$/.exec(url.pathname);
-  if (url.pathname !== "/api/uploads" && !upload && !job && !stem) return null;
+  if (url.pathname !== "/api/uploads" && !upload && !job && !stem && !item) return null;
   insist(!url.search, "invalid_request", 400);
   const read = request.method === "GET",
     session = read
       ? await accountSession(request, env.DB, context)
       : await authenticatedWrite(request, env.DB, context);
+  if (item) {
+    insist(read,"method_not_allowed",405);
+    const row=await env.DB.withSession("first-primary").prepare(
+      "SELECT * FROM media_submissions WHERE submission_id=? AND account_id=?",
+    ).bind(item[1]!,session.account_id).first<Submission>();
+    insist(row,"submission_not_found",404);
+    if(row.upload_state==="uploaded"||row.upload_state==="sealed"){
+      const head=await env.MEDIA.head(row.object_key);
+      insist(head && head.etag===row.object_etag && head.size===row.audio_bytes &&
+        head.customMetadata?.sha256===row.audio_sha256,"sealed_media_missing_or_changed",409);
+    }
+    return reply({submissionId:row.submission_id,postId:row.post_id,state:row.upload_state,
+      audioSha256:row.audio_sha256,audioBytes:row.audio_bytes,objectEtag:row.object_etag});
+  }
   if (stem) {
     // Private attachments remain authorized by the original account ownership.
     // Publication-owner adoption is separately gated on both completed seals.
@@ -131,13 +149,14 @@ export async function communityReleaseApi(
     const id = text(decodeURIComponent(job[1]!), 128);
     insist(/^[A-Za-z0-9:_-]+$/.test(id), "invalid_job_identity", 400);
     const owned = await env.DB.prepare(
-      "SELECT j.job_id,j.submission_id,s.post_id,j.phase,j.error_code FROM publication_jobs j JOIN media_submissions s ON s.submission_id=j.submission_id WHERE j.job_id=? AND s.account_id=?",
+      "SELECT j.job_id,j.submission_id,s.post_id,s.metadata_json,j.phase,j.error_code FROM publication_jobs j JOIN media_submissions s ON s.submission_id=j.submission_id WHERE j.job_id=? AND s.account_id=?",
     )
       .bind(id, session.account_id)
       .first<{
         job_id: string;
         submission_id: string;
         post_id: string;
+        metadata_json:string;
         phase: string;
         error_code: string | null;
       }>();
@@ -150,7 +169,7 @@ export async function communityReleaseApi(
       );
       exact(await jsonBody(request), []);
       const runtime = await ready();
-      if (unregisteredOwner(runtime.config.policies.admission)) {
+      if (ownerOnly(runtime.config.policies.admission)) {
         insist(
           runtime.ports.ownerAuthorization !== undefined,
           "owner_authorization_unavailable",
@@ -168,13 +187,15 @@ export async function communityReleaseApi(
       return reply({ resuming: true });
     }
     insist(read, "method_not_allowed", 405);
+    const obligation=JSON.parse(owned.metadata_json).acceptedPolicy===CATALOG_OWNER_POLICY_VERSION ? await catalogObligation(env.DB,id) : null;
     const view: CommunityJobView = {
       schema: "pirate.publication-job-view/1",
       jobId: owned.job_id,
       submissionId: owned.submission_id,
       postId: owned.post_id,
       phase: owned.phase,
-      errorCode: owned.error_code,
+      errorCode: owned.error_code ?? (obligation && obligation.state!=="complete" ? "catalog_pending" : null),
+      ...(obligation ? {catalog:{state:obligation.state==="complete" ? "complete" as const : "pending" as const,stage:obligation.state}} : {}),
       resumable: owned.phase === "uncertain",
     };
     return reply(view);
@@ -201,10 +222,11 @@ export async function communityReleaseApi(
       publisher: config.publisher,
       moderationSigner: config.policies.moderationSigner,
       execution: publicationExecutionProfile(ports),
+      ...(config.policies.recognition ? {recognition:config.policies.recognition,communityOrigin:config.app.origin} : {}),
     };
   // Under the unregistered owner policy only the controller-authorized owner
   // wallet may reserve or seal, checked before any reservation or paid work.
-  const owner = unregisteredOwner(config.policies.admission);
+  const owner = ownerOnly(config.policies.admission);
   if (owner)
     insist(
       ports.ownerAuthorization !== undefined,

@@ -7,8 +7,6 @@ import {
   verify,
   gate,
   inputHashes,
-  jobTransition,
-  type JobState,
   type Song,
 } from "../packages/protocol/index.ts";
 import { accounts, keys } from "../harness/runtime.ts";
@@ -68,24 +66,4 @@ test("publication binds independent inputs and reuses evidence for a declaration
   );
   assert.throws(() => gate({ ...song, lyrics: "edited" }, records, 99));
   assert.throws(() => gate(song, records, 100));
-});
-test("randomized job commands preserve the independently specified action order", () => {
-  let seed = 42;
-  const random = () => {
-    seed = (1664525 * seed + 1013904223) >>> 0;
-    return seed;
-  };
-  const actions = ["reserve", "charge", "deliver"] as const;
-  for (let run = 0; run < 100; run++) {
-    let state: JobState = "new";
-    let progress = 0;
-    for (let i = 0; i < 30; i++) {
-      const action = actions[random() % 3];
-      if (progress < 3 && action === actions[progress]) {
-        state = jobTransition(state, action);
-        progress++;
-      } else assert.throws(() => jobTransition(state, action));
-    }
-    assert.equal(state, ["new", "reserved", "charged", "delivered"][progress]);
-  }
 });

@@ -1,0 +1,167 @@
+{
+  "source_commit": "a88ae60e6c5b85df8799d0ad0c52333ab4f43784",
+  "removed_cases": 39,
+  "production_code_lines_removed": 17,
+  "candidates": [
+    {
+      "path": "test/karaoke-lyric-layout.test.ts",
+      "remove": "entire file",
+      "cases": 5,
+      "production_owner": "apps/web/src/karaoke/karaoke.css; apps/web/src/karaoke/lyric-stage.tsx",
+      "reason": "Pins exact CSS source formatting/declarations instead of rendered layout. Fails harmless selector/formatting/refactor changes and cannot validate narrow-screen layout.",
+      "stronger": "apps/web/karaoke-e2e/karaoke.spec.ts:79 checks actual 320px token bounding-box row and document width; .github/workflows/karaoke.yml invokes playwright.karaoke.config.ts."
+    },
+    {
+      "path": "test/karaoke-manifest-lines.test.ts",
+      "remove": "last test: the protocol manifest line stays assignable to the display timed line",
+      "cases": 1,
+      "production_owner": "packages/karaoke/manifest-lines.ts",
+      "reason": "Defines test-only local identity function asTimed(lines)=>lines; assert reference identity is tautological. Three preceding tests exercise the real adapter.",
+      "stronger": "Retained same-file tests verify actual adapter ID/order/word-range/punctuation behavior; normal tsc compilation checks production call sites."
+    },
+    {
+      "path": "test/protocol.test.ts",
+      "remove": "last randomized job action-order test and JobState/jobTransition imports",
+      "cases": 1,
+      "production_owner": "packages/protocol/index.ts:100-117",
+      "production_lines_deleted": 17,
+      "reason": "Dead bootstrap state map is referenced only by this test. Exhaustive hidden-file repo search excluding dependencies/Git/local outputs found no runtime/docs/namespace consumer. Root package is private with no package exports.",
+      "stronger": "No current product behavior uses this map; real job/payment/publication tests remain unchanged."
+    },
+    {
+      "path": "test/learning-sign-in-vectors-v4.test.ts",
+      "remove": "contract SIGN_IN_STATEMENT source grep",
+      "cases": 1,
+      "production_owner": "contracts/LearningResultsV4.sol constant SIGN_IN_STATEMENT and signInMessage(); packages/protocol/learning-results-v4.ts SIGN_IN_STATEMENT_V4",
+      "reason": "Regex over Solidity source is redundant and fails behavior-preserving code layout changes.",
+      "stronger": "test/learning-results-v4-chain.test.ts:92 compares deployed getter with TS constant; same case compares 200 random rendered text/digests. test/solidity/LearningResultsV4SignIn.t.sol tests real getter and 21 generated edge vectors."
+    },
+    {
+      "path": "test/learning-sign-in-vectors-v4.test.ts",
+      "remove": "challenge backdate direct-helper case",
+      "cases": 1,
+      "production_owner": "packages/protocol/learning-results-v4.ts signInIssuedAtV4",
+      "reason": "All meaningful timing branches duplicated at real DB/login boundary.",
+      "stronger": "test/learning-sign-in.test.ts:1084 covers no account, 10.5sec/90sec/200sec/current-second withdrawals, live challenge issuance and session expiry."
+    },
+    {
+      "action": "delete file",
+      "cases": 1,
+      "reason": "Hashes normalized source text; whitespace/extraction behavior-preserving refactor fails. Source attribution remains in product files and docs/study-slice-handoff.md.",
+      "stronger": "study-e2e/study.spec.ts checks record/stop, correctness, missed card ordering, reload, completion, refusal and recovery. Hash is provenance, not behavior.",
+      "line_range": [
+        1,
+        39
+      ],
+      "path": "apps/web/test/study-parity.test.ts",
+      "production_owner": [
+        "apps/web/src/study/presentation/studying-model.ts",
+        "apps/web/src/study/presentation/studying-surface.tsx",
+        "apps/web/src/study/presentation/studying-route-states.tsx"
+      ]
+    },
+    {
+      "action": "delete file",
+      "cases": 1,
+      "reason": "Hashes normalized source text, CSS and model implementation; breaks safe refactors. Source provenance remains in product comments and docs/learning-results-testnet.md.",
+      "stronger": "karaoke-e2e/karaoke.spec.ts checks actual clock/token order/results and narrow viewport; other karaoke-e2e suites cover capture/recovery.",
+      "line_range": [
+        1,
+        61
+      ],
+      "path": "apps/web/test/karaoke-parity.test.ts",
+      "production_owner": [
+        "apps/web/src/karaoke/practice-surface.tsx",
+        "apps/web/src/karaoke/lyric-stage.tsx",
+        "apps/web/src/karaoke/activity-progress-header.tsx",
+        "apps/web/src/karaoke/activity-results.tsx",
+        "apps/web/src/karaoke/results-model.ts",
+        "apps/web/src/karaoke/route-states.tsx",
+        "apps/web/src/karaoke/scoring-feedback.ts",
+        "apps/web/src/karaoke/karaoke.css"
+      ]
+    },
+    {
+      "action": "delete final test source port double retains a canonical original after a checksummed reservation response is lost",
+      "cases": 1,
+      "reason": "Asserts only sourceSendFixture data.preview/reserve/read and local counters. Test helper implements lowercasing, storage and failure itself; real wallet adapter never drives behavior.",
+      "stronger": "Retain real MOSS adapter cases above; do not delete shared helper needed by mounted browser owner tests.",
+      "line_range": [
+        220,
+        245
+      ],
+      "cleanup": "Remove unused sourceSendFixture and sourceRecipient imports at lines 28-29; keep helper file, used by browser tests.",
+      "path": "apps/web/test/reward-wallet-owner-parity.test.ts",
+      "production_owner": [
+        "apps/web/test/reward-wallet-owner-flow-doubles.ts",
+        "apps/web/src/wallet/moss-sponsored-send.ts"
+      ]
+    },
+    {
+      "action": "delete first authStatus x authBodies matrix, retain final VideoFlow matrix",
+      "cases": 14,
+      "reason": "Both run same HTTP adapter + controller auth paths with all same response variants; retained final matrix adds real hook, actor ownership, background guard, disposal/remount, explicit reconcile, terminal ready. Lower extra pointer equality assertions protect representation. The retained flow PUT branch also checks the exact File and CSRF token; no transport assertion was dropped.",
+      "stronger": "Same file final actual VideoFlow interval guard holds GET matrix, 14 retained cases.",
+      "line_range": [
+        76,
+        145
+      ],
+      "retained_line_start": 328,
+      "also_retained": "media-source-repair.test.ts only a first-dispatch definitive refusal allows discard; an uncertain prior dispatch does not (line 456); lost reserve auth hold (390), which cover discard refusal.",
+      "path": "apps/web/test/media-source-repair2-auth.test.ts",
+      "production_owner": [
+        "apps/web/src/media/client.ts",
+        "apps/web/src/media/media-attempt.ts",
+        "apps/web/src/media/video-flow.ts"
+      ]
+    },
+    {
+      "action": "collapse first header-only body matrix to one stalled-body case per status",
+      "cases": 4,
+      "reason": "All 3 body strings are bypassed before json callback; json override throws same Error for every variant. Distinct bodies do not reach different code. Retain status 401 and 403 with reads==0 assertion.",
+      "stronger": "Retain one no-body-read test per status and mounted auth coverage.",
+      "line_range": [
+        222,
+        241
+      ],
+      "recipe": "Drop nested body loop. Retain outer status 401/403 loop. Construct one Response(null,{status}), keep overridden json() increments + throws, assert reject ProfileRequestError with status and bodyReads==0. Title can omit body representation.",
+      "path": "apps/web/test/profile-controller.test.ts",
+      "production_owner": [
+        "apps/web/src/shell/profiles/client.ts"
+      ]
+    },
+    {
+      "action": "Collapse six owner masking cases to one retained immediate-mask case",
+      "cases": 5,
+      "reason": "Keep one case asserting immediate private-state masking before load settles; mounted tests cover settled 401/403 and recovery. Remove only repeated response-body/status variants.",
+      "stronger": "test/profile-recovery.test.tsx actual ownerAccountId and source Profile mask non-JSON 401/403.",
+      "line_range": [
+        242,
+        266
+      ],
+      "retained_line_start": 37,
+      "path": "apps/web/test/profile-controller.test.ts",
+      "production_owner": [
+        "apps/web/src/shell/profiles/client.ts",
+        "apps/web/src/shell/profiles/controller.ts"
+      ]
+    },
+    {
+      "action": "reduce failedReads auth entries to one body per 401 and 403 status",
+      "cases": 4,
+      "reason": "Header-only client contract discards bodies before decode; controller always sees identical error. Mounted receipt recovery proves preserved pending command and no second write for both statuses. Keep other non-auth failure variants.",
+      "stronger": "test/profile-recovery.test.tsx mounted lost ACK/receipt 401/403; retain failure matrix transport/HTTP/decode branches.",
+      "line_range": [
+        277,
+        282
+      ],
+      "recipe": "Replace spread flatMap with explicit {status:401,body:\"\"}, {status:403,body:\"<html>Sign in</html>\"}. Keep matrix test body lines 284 onward and all first six non-auth rows.",
+      "retained_line_start": 75,
+      "path": "apps/web/test/profile-controller.test.ts",
+      "production_owner": [
+        "apps/web/src/shell/profiles/client.ts",
+        "apps/web/src/shell/profiles/controller.ts"
+      ]
+    }
+  ]
+}

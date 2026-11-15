@@ -1,3 +1,5 @@
+import { catalogOwner } from "./owner-policy.ts";
+import { recognitionProfile, type RecognitionProfile } from "../recognition/intent.ts";
 import type { Address, Hex } from "viem";
 import { canonicalTld, directoryInstanceId, sharedBytes32, sharedNamespaceId } from "./shared-identity.ts";
 import { ownerCurated, unregisteredOwner } from "./owner-policy.ts";
@@ -50,11 +52,12 @@ export interface LegacyCommunityConfig {
   policies: {
     admission: { version: string; sha256: Hex };
     moderationSigner: Address;
+    recognition?: RecognitionProfile;
   };
   publisherRevocations: PublisherRevocation[];
 }
 export interface SharedCommunityConfig extends Omit<LegacyCommunityConfig, "schema"> {
-  schema: "pirate.community-config/2";
+  schema: "pirate.community-config/2" | "pirate.community-config/3";
   communityKey: Hex;
   installationId: Hex;
   namespaceId: Hex;
@@ -62,7 +65,16 @@ export interface SharedCommunityConfig extends Omit<LegacyCommunityConfig, "sche
   registrySourceCommit: string;
   registryAbiSha256: Hex;
 }
-export type CommunityConfig = LegacyCommunityConfig | SharedCommunityConfig;
+export interface CapturedCatalogCommunityConfig extends Omit<LegacyCommunityConfig,"schema"> {
+  schema:"pirate.community-config/2";
+  communityKey?:never; installationId?:never; namespaceId?:never;
+  registryCodeHash?:never; registrySourceCommit?:never; registryAbiSha256?:never;
+}
+export type CommunityConfig = LegacyCommunityConfig | SharedCommunityConfig | CapturedCatalogCommunityConfig;
+export function isSharedConfiguration(value:CommunityConfig):value is SharedCommunityConfig {
+  return (value.schema==="pirate.community-config/2"||value.schema==="pirate.community-config/3") &&
+    value.communityKey!==undefined;
+}
 export type DirectoryConfig = CommunityConfig;
 export interface ConfigurationState {
   first?: DirectoryConfig;
@@ -74,8 +86,11 @@ export const configurationState = (): ConfigurationState => ({
   publishers: new Set(), revocations: new Set(),
 });
 export function parseConfiguration(value: unknown): DirectoryConfig {
-  const raw = object(value), shared = raw.schema === "pirate.community-config/2";
-  const o = schema(value, shared ? "pirate.community-config/2" : "pirate.community-config/1", [
+  const raw=object(value), shared=raw.schema==="pirate.community-config/3" ||
+    raw.schema==="pirate.community-config/2" && Object.hasOwn(raw,"communityKey");
+  const version=raw.schema==="pirate.community-config/3"?"pirate.community-config/3":
+    raw.schema==="pirate.community-config/2"?"pirate.community-config/2":"pirate.community-config/1";
+  const o = schema(value, version, [
     "chainId", "directory", "communityId", "registry", "tld", "configurationRevision",
     "postsContract", "controller", "publisher", "operatorPayments", "learningRecords",
     "app", "feed", "policies", "publisherRevocations",
@@ -92,16 +107,25 @@ export function parseConfiguration(value: unknown): DirectoryConfig {
     "hnsIngress",
   ]);
   exact(feed, ["endpoint", "signingKeyId"]);
-  exact(policies, ["admission", "moderationSigner"]);
+  const selectedAdmission=object(policies.admission);
+  insist(typeof selectedAdmission.version==="string"&&typeof selectedAdmission.sha256==="string","invalid_admission_policy");
+  const catalog=catalogOwner({version:selectedAdmission.version,sha256:selectedAdmission.sha256});
+  exact(policies, ["admission", "moderationSigner",...(catalog?["recognition"]:[])]);
   const admission = object(policies.admission);
   exact(admission, ["version", "sha256"]);
   insist(
     (admission.version === RELEASE_POLICY &&
       admission.sha256 === RELEASE_POLICY_HASH) ||
       ownerCurated(admission as { version: string; sha256: string }) ||
-      unregisteredOwner(admission as { version: string; sha256: string }),
+      unregisteredOwner(admission as { version: string; sha256: string }) || catalog,
     "unsupported_admission_policy",
   );
+  insist(catalog ? (shared?version==="pirate.community-config/3":version==="pirate.community-config/2") :
+    version!=="pirate.community-config/3" && (shared||version==="pirate.community-config/1"),
+    "recognition_configuration_version_mismatch");
+  const pin=catalog?recognitionProfile(policies.recognition):undefined;
+  insist(!pin||![address(policies.moderationSigner),address(o.publisher),address(o.controller)].some(identity=>identity===pin.signer),
+    "recognition_signer_role_collision");
   const tld = text(o.tld, 63),
     label = text(app.label, 63);
   insist(
@@ -169,13 +193,14 @@ export function parseConfiguration(value: unknown): DirectoryConfig {
         sha256: bytes32(admission.sha256),
       },
       moderationSigner: address(policies.moderationSigner),
+      ...(pin?{recognition:pin}:{}),
     },
     publisherRevocations: revocations,
   };
-  if (!shared) return result;
+  if (!shared) return catalog?{...result,schema:"pirate.community-config/2"}:result;
   insist(typeof o.registrySourceCommit === "string" &&
     /^[0-9a-f]{40}(?![\s\S])/.test(o.registrySourceCommit), "invalid_registry_source_commit");
-  return { ...result, schema: "pirate.community-config/2",
+  return { ...result, schema: catalog?"pirate.community-config/3":"pirate.community-config/2",
     communityKey: sharedBytes32(o.communityKey), installationId: sharedBytes32(o.installationId),
     namespaceId: sharedBytes32(o.namespaceId), registryCodeHash: sharedBytes32(o.registryCodeHash),
     registrySourceCommit: o.registrySourceCommit, registryAbiSha256: sharedBytes32(o.registryAbiSha256) };
@@ -187,11 +212,17 @@ export function advanceConfiguration(state: ConfigurationState, result: Director
     "configuration_history_required");
   const old = state.first;
   if (old) {
-    insist(old.schema === result.schema && old.chainId === result.chainId &&
+    const previous=state.last!;
+    const schemaTransition=previous.schema===result.schema ||
+      (isSharedConfiguration(previous)&&isSharedConfiguration(result)&&previous.schema==="pirate.community-config/2"&&
+        result.schema==="pirate.community-config/3"&&catalogOwner(result.policies.admission)) ||
+      (!isSharedConfiguration(previous)&&!isSharedConfiguration(result)&&previous.schema==="pirate.community-config/1"&&
+        result.schema==="pirate.community-config/2"&&catalogOwner(result.policies.admission));
+    insist(schemaTransition && isSharedConfiguration(old)===isSharedConfiguration(result) && old.chainId === result.chainId &&
       old.directory === result.directory && old.communityId === result.communityId &&
       old.registry === result.registry && old.tld === result.tld &&
       old.postsContract === result.postsContract, "wrong_configuration_history");
-    if (old.schema === "pirate.community-config/2" && result.schema === "pirate.community-config/2") {
+    if (isSharedConfiguration(old) && isSharedConfiguration(result)) {
       insist(old.communityKey === result.communityKey && old.installationId === result.installationId &&
         old.namespaceId === result.namespaceId && old.registryCodeHash === result.registryCodeHash &&
         old.registrySourceCommit === result.registrySourceCommit && old.registryAbiSha256 === result.registryAbiSha256 &&
@@ -217,10 +248,10 @@ export function advanceConfiguration(state: ConfigurationState, result: Director
 export function validateConfiguration(value: unknown, state: ConfigurationState, atBlock?: bigint): DirectoryConfig {
   return advanceConfiguration(state, parseConfiguration(value), atBlock);
 }
-export function validateConfig(value: unknown, previous: CommunityConfig[] = [], atBlock?: bigint): LegacyCommunityConfig {
+export function validateConfig(value: unknown, previous: CommunityConfig[] = [], atBlock?: bigint): LegacyCommunityConfig | CapturedCatalogCommunityConfig {
   const state = configurationState();
   for (const old of previous) advanceConfiguration(state, old, atBlock);
   const result = validateConfiguration(value, state, atBlock);
-  insist(result.schema === "pirate.community-config/1", "wrong_configuration_schema");
+  insist(!isSharedConfiguration(result), "wrong_configuration_schema");
   return result;
 }

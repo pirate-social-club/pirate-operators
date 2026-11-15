@@ -18,7 +18,7 @@ export function Readiness(props: { state: Snapshot; onRetry: () => void }) {
           {(item) => (
             <div class="milestone">
               <span
-                classList={{
+                class={{
                   status: true,
                   good: ["saved", "provisioned"].includes(item.state),
                 }}

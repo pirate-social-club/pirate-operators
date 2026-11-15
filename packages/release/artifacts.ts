@@ -1,3 +1,4 @@
+import { reservationId } from "../recognition/intent.ts";
 import { canonical, insist, hashJson } from "../community/common.ts";
 import { preparePin, type PinIntent } from "../community/ipfs.ts";
 import {
@@ -52,7 +53,7 @@ export async function releaseArtifact(
   let bytes: Uint8Array;
   if (role === "audio") {
     const object = await media.get(
-      `admissions/${release.sourceAdmissionId ?? context.admissionId}/audio`,
+      release.audioObjectKey ?? `admissions/${release.sourceAdmissionId ?? context.admissionId}/audio`,
     );
     insist(object, "retained_release_audio_missing", 503);
     bytes = new Uint8Array(await object.arrayBuffer());
@@ -123,7 +124,10 @@ export async function releaseArtifact(
       }
       bytes = encode(
         validatePost({
-          schema: release.unregistered
+          ...(release.catalog ? {terms:{revision:release.catalog.intent.termsRevision,allowsDerivatives:release.catalog.intent.allowsDerivatives},
+            recognition:{namespace:release.catalog.intent.namespace,profileSha256:release.catalog.intent.profileSha256,
+              intentSha256:hashJson(release.catalog.intent),reservationId:reservationId(release.catalog.intent),recordingId:release.catalog.recordingId}} : {}),
+          schema: release.catalog ? "pirate.community-post/4" : release.unregistered
             ? "pirate.community-post/3"
             : ownerCurated(config.policies.admission)
               ? "pirate.community-post/2"

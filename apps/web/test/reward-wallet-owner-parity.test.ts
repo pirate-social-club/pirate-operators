@@ -25,8 +25,6 @@ import {
   sourceWalletView,
   sourceSender,
   sourceToken,
-  sourceSendFixture,
-  sourceRecipient,
 } from "./reward-wallet-owner-flow-doubles.ts";
 
 const closedCredit: RewardCredit = {
@@ -215,31 +213,4 @@ test("an aborted hosted open, changed account or production chain never dispatch
     }),
   );
   assert.equal(calls, 0);
-});
-
-// The real MOSS adapter canonicalizes the wire recipient before calling the guarded port.
-test("source port double retains a canonical original after a checksummed reservation response is lost", async () => {
-  const fixture = sourceSendFixture({ reserveFails: true });
-  const recipient = sourceRecipient.toUpperCase().replace("0X", "0x");
-  const quote = await fixture.dependencies.data.preview(
-    recipient,
-    "1000000000000000",
-  );
-  assert.equal(quote.recipient, sourceRecipient);
-  await assert.rejects(
-    fixture.dependencies.data.reserve(
-      fixture.identity,
-      recipient,
-      quote.amountAtomic,
-      "same-command",
-      quote,
-    ),
-    /response_lost/,
-  );
-  const retained = await fixture.dependencies.data.read(fixture.identity);
-  assert.equal(retained?.recipient_address, sourceRecipient);
-  assert.equal(retained?.amount_atomic, "1000000000000000");
-  assert.equal(fixture.calls.reserve, 1);
-  assert.equal(fixture.calls.approve, 0);
-  assert.equal(fixture.calls.submit, 0);
 });

@@ -1,7 +1,7 @@
 // Publication-time renderer: compiles the presentational components for the
 // server without hydration markers, for scripts/build.ts to run in Node.
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { alias, dedupe } from "./vite.shared.ts";
 
 export default defineConfig({

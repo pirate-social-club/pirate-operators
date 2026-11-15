@@ -10,8 +10,8 @@ import {
 /**
  * The timing fields of the protocol's ManifestLine in
  * packages/protocol/payments.ts, declared structurally so the browser build
- * does not depend on the protocol's chain libraries. The adapter test checks
- * that ManifestLine stays assignable to it.
+ * does not depend on the protocol's chain libraries. Real adapter calls in
+ * the manifest-line tests also check ManifestLine assignability at typecheck.
  */
 export interface KaraokeTimedWord {
   text: string;

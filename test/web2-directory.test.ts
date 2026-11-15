@@ -25,6 +25,12 @@ import {
   observeWeb2Registration,
 } from "../packages/community/web2-registration-chain.ts";
 import { hashText, canonical } from "../packages/community/common.ts";
+import { sharedDirectoryFixture } from "./fixtures/shared-directory.ts";
+import { parseConfiguration } from "../packages/community/config-manifest.ts";
+import {
+  CATALOG_OWNER_POLICY_VERSION,
+  CATALOG_OWNER_POLICY_HASH,
+} from "../packages/community/owner-policy.ts";
 
 // Public disposable local fixture account; never funded or sent to a provider.
 const account = privateKeyToAccount(`0x${"1".repeat(64)}`);
@@ -34,8 +40,8 @@ const limits = {
   maxFeePerGas: 3n,
   maxPriorityFeePerGas: 1n,
 };
-async function original() {
-  const f = await web2DirectoryFixture(),
+async function original(policies?: Parameters<typeof web2DirectoryFixture>[2]) {
+  const f = await web2DirectoryFixture(1, "", policies),
     plan = prepareWeb2Registration(
       f.profile,
       f.config,
@@ -56,6 +62,155 @@ async function original() {
   f.state.from = plan.registrar;
   return { f, plan, raw, operation };
 }
+
+// Current-main join risks: /3 schema confusion, stripped recognition pins,
+// unsupported policy/pin combinations, tampered commitments and role aliasing.
+// Exercise real parsers, signed registration/recovery and authenticated replay.
+function catalogPolicies(signer = a("7")) {
+  const payload = {
+    schema: "pirate.recognition-profile/1" as const,
+    namespace: h("8"),
+    origin: "https://recognition.example",
+    signer,
+    providerBindingSha256: h("9"),
+  };
+  return {
+    admission: {
+      version: CATALOG_OWNER_POLICY_VERSION,
+      sha256: CATALOG_OWNER_POLICY_HASH,
+    },
+    moderationSigner: a("6"),
+    recognition: { ...payload, sha256: hashText(canonical(payload)) },
+  };
+}
+
+test("Web2 config /4 and retained shared catalog /3 refuse cross-schema reinterpretation", async () => {
+  const web = await web2DirectoryFixture(),
+    shared = await sharedDirectoryFixture();
+  const catalog = {
+    ...shared.config,
+    schema: "pirate.community-config/3",
+    policies: catalogPolicies(),
+  };
+  assert.equal(parseConfiguration(catalog).schema, "pirate.community-config/3");
+  assert.equal(
+    parseWeb2Configuration(web.config).schema,
+    "pirate.community-config/4",
+  );
+  for (const schema of [
+    "pirate.community-config/1",
+    "pirate.community-config/2",
+    "pirate.community-config/3",
+  ])
+    assert.throws(
+      () => parseWeb2Configuration({ ...web.config, schema }),
+      /wrong_configuration_schema/,
+    );
+  assert.throws(() => parseWeb2Configuration(catalog));
+  assert.throws(() =>
+    parseWeb2Configuration({ ...catalog, schema: "pirate.community-config/4" }),
+  );
+  assert.throws(() => parseConfiguration(web.config));
+});
+
+test("catalog Web2 enrollment retains the exact recognition pin through signed recovery and safe replay", async () => {
+  const policies = catalogPolicies(),
+    { f, plan, operation } = await original(policies);
+  assert.deepEqual(
+    parseWeb2Configuration(JSON.parse(canonical(f.config))),
+    f.config,
+  );
+  const decoded = decodeFunctionData({ abi: directoryV3Abi, data: plan.data });
+  if (decoded.functionName !== "registerHostedCommunity")
+    throw Error("selector");
+  assert.equal(decoded.args[1].sha256Digest, hashText(canonical(f.config)));
+  assert.equal(
+    (await observeWeb2Registration(f.client, operation)).status,
+    "consumed",
+  );
+  const read = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  assert.deepEqual(read.config.policies, policies);
+  assert.equal(read.config.learningRecords, a("0"));
+  assert.equal(read.config.communityId, f.profile.communityId);
+  assert.equal(read.config.schema, "pirate.community-config/4");
+});
+
+test("catalog Web2 configurations refuse absent, malformed or tampered recognition commitments", async () => {
+  const f = await web2DirectoryFixture(),
+    policies = catalogPolicies();
+  const { recognition, ...withoutPin } = policies;
+  assert.throws(
+    () => parseWeb2Configuration({ ...f.config, policies: withoutPin }),
+    /invalid_fields/,
+  );
+  for (const pin of [
+    null,
+    {},
+    { ...recognition, sha256: h("f") },
+    { ...recognition, namespace: h("a") },
+    { ...recognition, origin: "https://other.example" },
+    { ...recognition, signer: a("9") },
+    { ...recognition, providerBindingSha256: h("a") },
+    { ...recognition, secret: "not-an-allowed-public-field" },
+  ])
+    assert.throws(() =>
+      parseWeb2Configuration({
+        ...f.config,
+        policies: { ...policies, recognition: pin },
+      }),
+    );
+  assert.throws(
+    () =>
+      parseWeb2Configuration({
+        ...f.config,
+        policies: {
+          ...policies,
+          admission: { ...policies.admission, sha256: h("a") },
+        },
+      }),
+    /unsupported_admission_policy/,
+  );
+});
+
+test("catalog recognition signer cannot alias controller, publisher or moderation signer", async () => {
+  const f = await web2DirectoryFixture();
+  for (const signer of [
+    f.config.controller,
+    f.config.publisher,
+    f.config.policies.moderationSigner,
+  ])
+    assert.throws(
+      () =>
+        parseWeb2Configuration({
+          ...f.config,
+          policies: catalogPolicies(signer),
+        }),
+      /recognition_signer_role_collision/,
+    );
+});
+
+test("noncatalog Web2 configurations retain their original strict policy keys", async () => {
+  const f = await web2DirectoryFixture();
+  assert.deepEqual(parseWeb2Configuration(f.config), f.config);
+  assert.equal(
+    Object.hasOwn(parseWeb2Configuration(f.config).policies, "recognition"),
+    false,
+  );
+  for (const recognition of [catalogPolicies().recognition, undefined])
+    assert.throws(
+      () =>
+        parseWeb2Configuration({
+          ...f.config,
+          policies: { ...f.config.policies, recognition },
+        }),
+      /invalid_fields/,
+    );
+});
 test("V3 profile needs no registry, TLD or origin and explicitly rejects V2 fallback", async () => {
   const f = await web2DirectoryFixture();
   assert.deepEqual(

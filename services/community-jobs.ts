@@ -35,7 +35,7 @@ export async function runCommunityJob(
     await resumeUncertainJob(ports.db, id, owner.account_id);
   }
   const phase = await Effect.runPromise(
-    publicationStep(ports.db, id, firstSongDriver(ports)),
+    publicationStep(ports.db, id, firstSongDriver(ports),ports.clock),
   );
   if (isPublicationStep(phase))
     await jobs.send({ jobId: id }, { delaySeconds: 15 });
@@ -47,7 +47,7 @@ export async function recoverCommunityJobs(
 ) {
   const rows = await db
     .prepare(
-      "SELECT job_id FROM publication_jobs WHERE (phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication') AND lease_until<=? AND due_at<=?) OR phase='uncertain' ORDER BY updated_at LIMIT 10",
+      "SELECT job_id FROM publication_jobs WHERE (phase IN ('admission','pin_audio','pin_lyrics','registration','pin_manifest','publication','catalog_reserve','catalog_confirm') AND lease_until<=? AND due_at<=?) OR phase='uncertain' ORDER BY updated_at LIMIT 10",
     )
     .bind(Date.now(), Date.now())
     .all<{ job_id: string }>();

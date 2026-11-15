@@ -234,3 +234,62 @@ test("actual native Dance terminal outcomes recover exact originals across inter
   );
   expect(result).toEqual({ errors: [], unexpected: [] });
 });
+
+// Additional actual component cases. Existing cases and default config remain intact.
+for (const sample of [
+  { name: "desktop default", width: 1280, height: 800, browseOnly: false },
+  { name: "desktop browse-only", width: 1280, height: 800, browseOnly: true },
+  { name: "phone browse-only", width: 390, height: 844, browseOnly: true },
+] as const)
+  test(`actual Dance Paper ${sample.name} never initializes new posting`, async ({ page }) => {
+    const viewport = { width: sample.width, height: sample.height };
+    await page.setViewportSize(viewport);
+    const result = await sourceFixture(page, `fixture=dance-paper-desktop&browseOnly=${sample.browseOnly ? 1 : 0}`);
+    await page.getByRole("button", { name: "Run actual Dance Paper cases", exact: true }).click();
+    const output = page.locator("[data-dance-paper-status]");
+    await expect(output).toHaveAttribute("data-dance-paper-status", "passed");
+    expect(JSON.parse(await output.innerText())).toMatchObject({
+      status: "passed", actualViewport: viewport, browseOnly: sample.browseOnly, reservations: 0,
+    });
+    expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(viewport);
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });
+for (const scenario of ["submission", "activation"] as const)
+  test(`actual Dance ${scenario} pending boundary becomes browse-only after real resize`, async ({ page }) => {
+    const phone = { width: 390, height: 844 }, desktop = { width: 1280, height: 800 };
+    const resizes: { width: number; height: number }[] = [];
+    await page.setViewportSize(phone);
+    await page.exposeFunction("__ownerUiDanceResize", async (width: number, height: number) => {
+      const viewport = { width, height };
+      expect([desktop, phone]).toContainEqual(viewport);
+      await page.setViewportSize(viewport);
+      resizes.push(viewport);
+    });
+    const result = await sourceFixture(page, `fixture=dance-async-resize&scenario=${scenario}`);
+    await page.getByRole("button", { name: "Run actual Dance Paper cases", exact: true }).click();
+    const output = page.locator("[data-dance-paper-status]");
+    await expect(output).toHaveAttribute("data-dance-paper-status", "passed");
+    expect(JSON.parse(await output.innerText())).toMatchObject({
+      scenario, initial: phone, final: desktop,
+      freshCommands: 0, freshPosts: 0, freshNativeCapture: 0,
+    });
+    expect(resizes).toEqual([desktop, phone]);
+    expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(phone);
+    expect(page.viewportSize()).toEqual(phone);
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });
+for (const width of [390, 1280] as const)
+  test(`actual Dance missing original preserves recovery and Back exit at ${width}px`, async ({ page }) => {
+    const viewport = { width, height: width === 390 ? 844 : 800 };
+    await page.setViewportSize(viewport);
+    const result = await sourceFixture(page, "fixture=dance-missing-original-exit");
+    await page.getByRole("button", { name: "Run actual Dance Paper cases", exact: true }).click();
+    const output = page.locator("[data-dance-paper-status]");
+    await expect(output).toHaveAttribute("data-dance-paper-status", "passed");
+    expect(JSON.parse(await output.innerText())).toMatchObject({
+      exited: true, previewCreated: false, recaptured: false,
+    });
+    await expect(page.locator("[data-dance-review]")).toHaveCount(0);
+    expect(await page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(viewport);
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });

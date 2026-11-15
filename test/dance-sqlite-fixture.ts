@@ -57,6 +57,10 @@ export class MemorySqliteD1 {
   prepare(sql: string) {
     return new SqliteStatement(this, sql);
   }
+  // All statements use the same primary SQLite connection and fault hooks.
+  withSession() {
+    return this.asD1();
+  }
   async batch(statements: SqliteStatement[]) {
     const before = this.beforeBatch;
     this.beforeBatch = null;

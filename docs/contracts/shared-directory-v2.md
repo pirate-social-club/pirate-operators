@@ -1,5 +1,10 @@
 # Shared community directory V2 — proposed source protocol 1
 
+V2 is superseded for new deployments by the
+[Web2-first Directory V3](community-directory-v3.md). Do not deploy V2 for the
+current rollout. Retain its source, tests, profiles and review history; this
+notice does not rewrite an existing deployment or grant V3 release acceptance.
+
 This is the explicit successor to CommunityDirectoryV1, not an upgrade. V1 contracts,
 IDs, manifests, publication history, journals and deployment evidence retain their
 original meaning. Source and prepared tests are unrun until Root's allocated gates.

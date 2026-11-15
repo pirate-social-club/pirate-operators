@@ -1,0 +1,15 @@
+{
+  "written_before_implementation": true,
+  "source": "98f854262bfac4881f2062a3c5604dd8a318d5b9",
+  "contract": "The actual release-ready shell step succeeds only when all six reusable workflow results equal success.",
+  "positive": "six successes",
+  "negative_results_per_boundary": [
+    "failure",
+    "cancelled",
+    "skipped",
+    "",
+    "neutral",
+    "timed_out"
+  ],
+  "verification": "Read the actual gate run step, execute its shell with each result vector using subprocess env (no shell substitution), require exit zero only for all-success. Repeat positive output to verify any receipt bytes. Keep a JSON outcome artifact rather than adding source-grep assertions. Actionlint and actual hosted PR qualification remain necessary."
+}

@@ -4,11 +4,13 @@ import { createCommunityProfileIntegration } from "../shell/profiles/integration
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
-import { createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
   post,
+  createDanceSessionOwner,
+  selectedDanceCapability,
   type CommunityCapabilities,
   type CommunityClientConfig,
   type CommunityFeed,
@@ -22,6 +24,8 @@ import {
 } from "../media/community-host.tsx";
 import { createCommunityComposerScope } from "../media/community-composer-scope.ts";
 import { LearningPageMount } from "./learning-pages.tsx";
+import { DancePageMount } from "./dance-pages.tsx";
+import type { DanceProductionRoute } from "../dance/production.tsx";
 import { createLearningActionOwner } from "./learning-action-owner.ts";
 import { StudyLoading } from "../study/screen.tsx";
 import { KaraokeRouteLoadingState } from "../karaoke/route-states.tsx";
@@ -37,8 +41,16 @@ import {
   activityUrl,
   withoutActivity,
   fragmentNavigationHref,
+  danceRoute,
+  danceUrl,
+  memberJoinRoute,
+  memberJoinUrl,
 } from "../shell/routing.ts";
 import { CommunityPages } from "../shell/community-pages.tsx";
+import { ChooseHandle } from "../shell/choose-handle.tsx";
+import {
+  acceptedJoin, createCommunityMembership, MemberActionError, type MembershipState,
+} from "../shell/community-membership.ts";
 import type {
   ShellFeatureContext,
   ShellIntegrations,
@@ -75,9 +87,11 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     location.pathname,
   );
   const initialPractice = activityRoute(new URL(location.href));
+  const initialDance = danceRoute(new URL(location.href));
   const [name, setName] = createSignal(""),
     [view, setView] = createSignal(appView(location.hash)),
     [fragment, setFragment] = createSignal(location.hash),
+    [dancing, setDancing] = createSignal(initialDance),
     [routeNotice, setRouteNotice] = createSignal(""),
     [boot, setBoot] = createSignal<CommunityClientConfig | null>(null),
     [session, setSession] = createSignal<CommunitySessionView | null>(null),
@@ -101,7 +115,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     [error, setError] = createSignal(false);
   // Practice deep links hold their loading state until the community resolves
   // the song and permission. The requested activity stays in the address.
-  const [opening, setOpening] = createSignal(initialPractice.kind !== "none");
+  const [opening, setOpening] = createSignal(
+    initialPractice.kind !== "none" && initialDance.kind === "none",
+  );
   const [studyLesson, setStudyLesson] = createSignal<string | undefined>();
   const [historyGeneration, setHistoryGeneration] = createSignal(0);
   // True while sign-in is settling its permission. The wallet pages and the
@@ -109,6 +125,23 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   const [settling, setSettling] = createSignal(false);
   const actionOwner = createLearningActionOwner(setLearningActions);
   onCleanup(actionOwner.clear);
+  let sessionRead = 0;
+  const danceAuthority = createDanceSessionOwner();
+  const [danceRevision, setDanceRevision] = createSignal(0);
+  const danceSession = {
+    current: () => { danceRevision(); return danceAuthority.current(); },
+    subscribe: danceAuthority.subscribe,
+  };
+  function invalidateDance() {
+    if (danceAuthority.clear()) setDanceRevision(value => value + 1);
+  }
+  function publishDanceSession() {
+    const current = session(), config = boot();
+    if (danceAuthority.update(!settling() && current && config ? {
+      communityId: config.communityId, authorId: current.authorId, csrf: current.csrf,
+    } : null)) setDanceRevision(value => value + 1);
+  }
+  onCleanup(() => { sessionRead++; danceAuthority.dispose(); });
   const learningRoute = createMemo(() => {
     const study = studying(),
       sing = singing();
@@ -127,7 +160,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       ["on", "pending", "off"].includes(session()?.publicResults ?? ""),
   );
   const practiceOpen = () =>
-    singing() !== null || studying() !== null || opening();
+    singing() !== null || studying() !== null || opening() || dancing().kind !== "none";
   let lastLocation = location.href;
   const featureContext = (): ShellFeatureContext => ({
     version: 1,
@@ -135,6 +168,59 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     session: settling() ? null : session(),
     songs: feed()?.posts ?? [],
   });
+  const danceNavigation = () => boot() ? {
+    postHref: (postId: string) => danceUrl(
+      new URL(location.href), boot()!.communityId, { kind: "post", postId },
+    ).href,
+    open: (href: string) => {
+      const url = new URL(href, location.href), route = danceRoute(url);
+      if (url.origin !== location.origin || route.kind !== "dance" ||
+        (route.communityId !== undefined && route.communityId !== boot()?.communityId)) return;
+      openDance(route.route);
+    },
+  } : undefined;
+  function openDance(route: DanceProductionRoute) {
+    const config = boot();
+    if (!config || settling() || walletPage) return;
+    const previousHref = location.href;
+    const next = danceUrl(new URL(previousHref), config.communityId, route);
+    composerRuntime.viewClosed();
+    actionOwner.clear();
+    pauseFeed();
+    setStudying(null); setSinging(null); setStudyLesson(undefined); setOpening(false);
+    if (next.href !== previousHref) history.pushState({
+      ...(history.state && typeof history.state === "object" ? history.state : {}),
+      pirateDance: { version: 1, previousHref, href: next.href },
+    }, "", next);
+    lastLocation = location.href;
+    setView(appView(location.hash)); setFragment(location.hash);
+    setDancing(danceRoute(next));
+  }
+  function closeDance() {
+    const marker = history.state?.pirateDance;
+    if (marker?.version === 1 && marker.href === location.href &&
+      typeof marker.previousHref === "string") {
+      try {
+        if (new URL(marker.previousHref).origin === location.origin) {
+          history.back(); return;
+        }
+      } catch { /* A malformed public navigation marker grants no authority. */ }
+    }
+    history.replaceState(history.state, "", withoutActivity(new URL(location.href)));
+    lastLocation = "";
+    syncLocation();
+  }
+  function danceAccessLost() {
+    // The mount filters planned teardown/stale callbacks before this boundary.
+    sessionRead++;
+    invalidateDance();
+    composerRuntime.invalidate();
+    actionOwner.clear();
+    setHistoryGeneration(value => value + 1);
+    setSession(null);
+    joinIntent++; membership.sync();
+    setStatus("Sign in to do this dance.");
+  }
   function pauseFeed() {
     for (const media of document.querySelectorAll<HTMLMediaElement>(
       "audio, video",
@@ -145,6 +231,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     song: { postId: string; title: string },
     lessonId?: string,
   ) {
+    setDancing({ kind: "none" });
     composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
@@ -158,6 +245,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setStudying(song);
   }
   function openSing(song: { postId: string; title: string }) {
+    setDancing({ kind: "none" });
     composerRuntime.viewClosed();
     actionOwner.clear();
     pauseFeed();
@@ -169,6 +257,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setSinging(song);
   }
   function closeStudy() {
+    setDancing({ kind: "none" });
     actionOwner.clear();
     setStudying(null);
     setSinging(null);
@@ -181,12 +270,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     );
   }
   function syncActivity(posts = feed(), caps = capabilities()) {
+    const requestedDance = danceRoute(new URL(location.href));
     const requested = activityRoute(new URL(location.href));
+    setDancing(requestedDance);
     actionOwner.clear();
     setStudying(null);
     setSinging(null);
     setStudyLesson(undefined);
     setRouteNotice("");
+    if (requestedDance.kind !== "none") {
+      composerRuntime.viewClosed(); pauseFeed(); return;
+    }
     if (requested.kind === "none") {
       setStudying(null);
       setSinging(null);
@@ -233,6 +327,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     // resumed capture never mounts twice for one browser action.
     if (lastLocation === location.href) return;
     lastLocation = location.href;
+    const wasMemberRoute = fragment() === "#/join";
+    memberClosing = false;
     if (view() === "publish") composerRuntime.viewClosed();
     setView(appView(location.hash));
     setFragment(location.hash);
@@ -240,7 +336,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setStudying(null);
     setSinging(null);
     if (boot() && feed()) syncActivity();
-    if (!practiceOpen())
+    else setDancing(danceRoute(new URL(location.href)));
+    if (!practiceOpen() && !wasMemberRoute && !memberJoinRoute(new URL(location.href)))
       requestAnimationFrame(() =>
         document.getElementById("app-content")?.focus(),
       );
@@ -291,6 +388,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     void run(signIn);
   }
   async function refreshSession() {
+    const request = ++sessionRead;
     const before = session();
     let next: CommunitySessionView | null = null;
     try {
@@ -298,16 +396,21 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     } catch {
       next = null;
     }
+    if (request !== sessionRead) return;
     if (
       before?.mossAddress !== next?.mossAddress ||
       before?.authorId !== next?.authorId ||
       before?.csrf !== next?.csrf
     ) {
+      invalidateDance();
       composerRuntime.invalidate();
       actionOwner.clear();
       setHistoryGeneration((value) => value + 1);
     }
+    if (before && (before.mossAddress !== next?.mossAddress || before.csrf !== next?.csrf)) joinIntent++;
     setSession(next);
+    membership.sync();
+    publishDanceSession();
   }
   async function refresh() {
     await refreshSession();
@@ -325,9 +428,13 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       throw new Error(
         "This is not the live community. Open its canonical address.",
       );
-    if (boot()?.communityId !== config.communityId)
+    if (boot()?.communityId !== config.communityId) {
+      invalidateDance();
       setHistoryGeneration((value) => value + 1);
+    }
     setBoot(config);
+    membership.sync();
+    publishDanceSession();
     setName(community.name);
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
@@ -388,12 +495,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     await refreshSession();
   }
   async function signIn() {
+    sessionRead++;
+    invalidateDance();
     composerRuntime.invalidate();
     setSettling(true);
+    membership.sync();
     try {
       await settleSignIn();
     } finally {
       setSettling(false);
+      membership.sync();
+      publishDanceSession();
     }
   }
   async function settleSignIn() {
@@ -537,6 +649,144 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       setFeed(posts);
     },
   });
+  const [memberState, setMemberState] = createSignal<MembershipState>({
+    ownerKey: null, join: null, name: null, joining: false, naming: false,
+    nameOpen: false, joinUncertain: false, nameUncertain: false, error: null,
+  }, { ownedWrite: true });
+  let joinIntent = 0;
+  let joinReturnFocus: HTMLElement | undefined;
+  let memberClosing = false;
+  const memberIdentity = () => {
+    const config = boot(), current = settling() ? null : session();
+    return !walletPage && config && current ? {
+      key: JSON.stringify([config.communityId, current.authorId, current.csrf, current.mossAddress]),
+      csrf: current.csrf, wallet: current.mossAddress,
+    } : null;
+  };
+  const membership = createCommunityMembership({
+    owner: memberIdentity,
+    fetch: (input, init) => fetch(input, init),
+    newKey: () => crypto.randomUUID(),
+    changed: setMemberState,
+    authLost: () => {
+      joinIntent++; sessionRead++;
+      invalidateDance(); composerRuntime.invalidate(); actionOwner.clear();
+      profileIntegration.controller()?.clear(); savedKaraokeHistory.clear();
+      setHistoryGeneration(value => value + 1);
+      setSession(null); setStatus("Sign in again to check your membership or original name request.");
+    },
+    sign: async (prepared, assertCurrent) => {
+      assertCurrent();
+      if (prepared.consent.typedData.domain.chainId !== 6343)
+        throw new MemberActionError("wallet_network", "This wallet cannot sign the prepared network. No consent was submitted.");
+      const mega = await moss();
+      assertCurrent();
+      const connected = await mega.connect();
+      assertCurrent();
+      const matches = (value: { status: string; address?: string }) =>
+        value.status === "connected" &&
+        value.address?.toLowerCase() === prepared.recipient.toLowerCase();
+      if (!matches(connected)) throw new MemberActionError("wallet_recipient",
+        "Connect the wallet for the prepared recipient. No consent was submitted.");
+      // This is the exact server SDK ClaimAcceptance, not a reconstructed claim.
+      const result = await mega.signData({ data: prepared.consent.typedData });
+      assertCurrent();
+      const stillConnected = await mega.status();
+      assertCurrent();
+      if (!matches(stillConnected)) throw new MemberActionError("wallet_changed",
+        "The connected wallet changed. Check the original request before signing again.");
+      if (result.status === "cancelled") throw new MemberActionError("wallet_cancelled",
+        "Signing was cancelled. Your original request is unchanged.");
+      if (result.status !== "success" || !result.signature) throw new MemberActionError("wallet_signing_unavailable",
+        "The wallet could not sign the original claim acceptance. No consent was submitted.");
+      return result.signature;
+    },
+  });
+  const memberView = () => {
+    const current = memberState(), owner = memberIdentity();
+    return current.ownerKey === owner?.key ? current : {
+      ownerKey: owner?.key ?? null, join: null, name: null, joining: false,
+      naming: false, nameOpen: false, joinUncertain: false, nameUncertain: false, error: null,
+    };
+  };
+  function openMemberRoute() {
+    if (walletPage || practiceOpen()) return;
+    memberClosing = false;
+    if (document.activeElement instanceof HTMLElement) joinReturnFocus = document.activeElement;
+    const previousHref = location.href, next = memberJoinUrl(new URL(previousHref));
+    if (next.href !== previousHref) history.pushState({
+      ...(history.state && typeof history.state === "object" ? history.state : {}),
+      pirateMemberJoin: { version: 1, previousHref, href: next.href },
+    }, "", next);
+    lastLocation = location.href;
+    setFragment(location.hash); setView(appView(location.hash));
+  }
+  function closeMemberRoute() {
+    joinIntent++;
+    memberClosing = true;
+    membership.dismissName();
+    if (!memberJoinRoute(new URL(location.href))) return;
+    const marker = history.state?.pirateMemberJoin;
+    if (marker?.version === 1 && marker.href === location.href &&
+      typeof marker.previousHref === "string") {
+      try {
+        if (new URL(marker.previousHref).origin === location.origin) { history.back(); return; }
+      } catch { /* Navigation history never grants ownership. */ }
+    }
+    const url = new URL(location.href); url.hash = "#/";
+    history.replaceState(history.state, "", url);
+    lastLocation = ""; syncLocation();
+  }
+  async function joinCommunity() {
+    if (walletPage || busy() || settling() || practiceOpen() || !boot()) return;
+    const community = boot()!.communityId, intent = ++joinIntent;
+    openMemberRoute();
+    if (!session()) {
+      if (capabilities()?.signIn !== true) { setStatus("Sign in is unavailable."); return; }
+      await run(signIn);
+    }
+    if (intent !== joinIntent || boot()?.communityId !== community || !session() ||
+      !memberJoinRoute(new URL(location.href))) return;
+    membership.sync();
+    await membership.join();
+    if (intent === joinIntent && memberJoinRoute(new URL(location.href)) &&
+      acceptedJoin(membership.state())) await membership.openName();
+  }
+  const shellMembership = () => {
+    const current = memberView(), joined = acceptedJoin(current);
+    const blocked = current.join?.state === "blocked" ? current.join : undefined;
+    return {
+      joined,
+      checking: current.joining || settling(),
+      unknown: !joined && (current.joinUncertain || (!!session() && !current.join)),
+      blocked: !session() && capabilities()?.signIn !== true,
+      label: !session() && capabilities()?.signIn !== true ? "Unavailable" :
+        blocked || current.joinUncertain ? "Check membership" : "Join",
+      notice: current.error ?? blocked?.correction,
+      canChooseName: joined,
+      join: () => {
+        if (session() && (blocked || current.joinUncertain || !current.join))
+          void membership.loadJoin();
+        else void joinCommunity();
+      },
+      chooseName: () => { openMemberRoute(); void membership.openName(); },
+    };
+  };
+  createEffect(
+    () => memberIdentity()?.key ?? null,
+    () => { membership.sync(); if (memberIdentity()) void membership.loadJoin(); },
+  );
+  createEffect(
+    () => [fragment(), memberIdentity()?.key, acceptedJoin(memberView())] as const,
+    () => {
+      if (!memberJoinRoute(new URL(location.href))) {
+        joinIntent++;
+        if (memberState().nameOpen) membership.dismissName();
+      } else if (!memberClosing && acceptedJoin(memberView())) void membership.openName();
+    },
+  );
+  onCleanup(() => { joinIntent++; membership.dispose(); });
+
   const profileSignIn = async () => {
     await run(signIn);
     if (!session()) throw new Error("Sign in was not completed.");
@@ -547,7 +797,10 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     if (!current || busy() || settling())
       throw new Error("Sign out is unavailable.");
     setBusy(true);
+    sessionRead++;
+    invalidateDance();
     composerRuntime.invalidate();
+    joinIntent++; membership.clear();
     profileIntegration.controller()?.clear();
     savedKaraokeHistory.clear();
     try {
@@ -562,6 +815,18 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       await profileIntegration.controller()?.load();
     }
   };
+  const recheckDanceSession = () => {
+    if (!walletPage && (dancing().kind !== "none" || memberState().nameOpen) && boot() && !busy() &&
+      !settling() && document.visibilityState !== "hidden") void refreshSession();
+  };
+  window.addEventListener("focus", recheckDanceSession);
+  window.addEventListener("pageshow", recheckDanceSession);
+  document.addEventListener("visibilitychange", recheckDanceSession);
+  onCleanup(() => {
+    window.removeEventListener("focus", recheckDanceSession);
+    window.removeEventListener("pageshow", recheckDanceSession);
+    document.removeEventListener("visibilitychange", recheckDanceSession);
+  });
   const pageOwnsLegalLinks = () =>
     !walletPage &&
     !practiceOpen() &&
@@ -587,6 +852,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
       composing={view() === "publish"}
       onSignIn={() => void run(signIn)}
     >
+      <ChooseHandle
+        communityName={name()}
+        state={memberView()}
+        returnFocus={() => joinReturnFocus?.isConnected ? joinReturnFocus :
+          document.querySelector<HTMLElement>("[data-community-name-entry]") ?? undefined}
+        onClose={closeMemberRoute}
+        onPrepare={(label) => { void membership.prepareName(label); }}
+        onConsent={() => { void membership.consent(); }}
+        onCheck={() => { void membership.checkName(); }}
+        onReconcile={() => { void membership.reconcile(); }}
+      />
       <Show when={walletPage && session() && !settling()}>
         <Show
           when={location.pathname === "/operator/rewards"}
@@ -609,6 +885,18 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           <p role="status">{status()}</p>
         </main>
       </Show>
+      <DancePageMount
+        communityId={boot()?.communityId ?? ""}
+        route={dancing()}
+        session={danceSession}
+        capability={selectedDanceCapability(capabilities(), boot()?.communityId ?? "")}
+        loading={!boot() || !capabilities()}
+        onBack={closeDance}
+        onSignIn={() => void run(signIn)}
+        onReview={review => openDance({ kind: "review", reviewId: review.reviewId })}
+        onManage={reviewId => openDance({ kind: "review", reviewId })}
+        onAccessLost={danceAccessLost}
+      />
       <LearningPageMount
         communityId={boot()?.communityId ?? ""}
         route={learningRoute()}
@@ -740,6 +1028,8 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 ...props.integrations,
                 version: 1,
                 postAuthors: authors,
+                danceNavigation: danceNavigation(),
+                communityMembership: shellMembership(),
               }}
               context={featureContext}
               onNavigate={(href) =>
@@ -753,6 +1043,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
                 void run(async () => {
                   const current = session();
                   if (!current) return;
+                  sessionRead++;
+                  joinIntent++; membership.clear();
+                  invalidateDance();
                   composerRuntime.invalidate();
                   savedKaraokeHistory.clear();
                   await post("/api/logout", {}, current.csrf);
@@ -830,4 +1123,4 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     </CommunityAppShell>
   );
 }
-render(() => <App />, document.getElementById("app")!);
+export const disposeApplication = render(() => <App />, document.getElementById("app")!);

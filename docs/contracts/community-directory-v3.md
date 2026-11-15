@@ -1,6 +1,9 @@
 # Web2-first Directory V3 — checkpoint 1a
 
-This successor implements the owner-approved plan at operators `a163fc1`.
+This successor implements the
+[owner-approved Web2 release plan](https://github.com/pirate-social-club/pirate-operators/blob/a163fc15ed85d7ebc59041f057cfc713347f6430/docs/self-hosting/checkpoint-1-pilot-delivery-20261114.md).
+The plan is also available in this branch at
+[the current delivery specification](../self-hosting/checkpoint-1-pilot-delivery-20261114.md).
 V1/V2 contracts, manifests, profiles and history remain unchanged. V3 must be
 selected explicitly; no existing deployment is upgraded or silently reinterpreted.
 The normative ABI source is `ICommunityDirectoryV3.sol`; generated artifacts must
@@ -120,7 +123,21 @@ both rotation directions.
 ## Concrete source selection and joins
 
 The explicit profile is `pirate.web2-directory/3`; configuration is
-`pirate.community-config/3` with no registry/TLD requirement.
+`pirate.community-config/4` with no registry/TLD requirement. The Directory
+profile remains `/3`; manifest version and contract version are separate.
+Main already uses configuration `/3` for retained shared-directory catalog
+configurations with registry/namespace fields. Web2 refuses that schema and
+those fields, including the earlier undeployed Web2 `/3` candidate. No decoder
+fallback, automatic rewrite of signed enrollment, or history reinterpretation
+is permitted. The retained shared parser refuses Web2 `/4`.
+
+The catalog-owner policy requires the exact public `pirate.recognition-profile/1`
+pin (schema, namespace, origin, signer, providerBindingSha256 and sha256), using
+the existing recognition validator and canonical digest. The recognition signer
+must differ from the controller, publisher and moderation signer. Noncatalog
+policies keep their original exact keys and refuse a recognition field. Parsing
+the pin does not prove service availability or authorize a publication. The
+first-song configuration still requires no learning target at enrollment.
 `web2-directory.ts` pins the actual generated ABI/runtime and validates deployment
 and community binding. Source commit syntax alone is not release approval; the
 installer must select the independently reviewed source/deployment profile.
@@ -233,3 +250,16 @@ both single-proof directions, both expired, time advancing during async reads,
 policy mutation, clock regression and retained-snapshot reevaluation. Earlier
 Solidity/other suite results remain evidence for their unchanged source; no
 new full application, deployment or live freshness-policy acceptance is claimed.
+
+The subsequent normal merge of main
+`9374f4c6abd0fa98c5ac1a5d53b6afde09e6b99c` retains the exact V3 contract,
+interface, generator and generated artifact bytes from `1b63f4a`. It adopts
+Web2 configuration `/4` and the existing catalog recognition profile described
+above. Five added cases cover schema confusion, catalog signed enrollment and
+authenticated replay, missing/tampered pins, role collisions and unchanged
+noncatalog keys. The nine selected Node files passed 95 cases; the Web2 file
+passed all 39 cases again after the final type correction. TypeScript, all
+110 community Solidity cases and scoped formatting passed. Regeneration from
+the offline compiler artifact reproduced the committed generated file exactly.
+The broad application and six-suite hosted CI gates must qualify this merged
+candidate separately; no application adoption or deployment is claimed here.

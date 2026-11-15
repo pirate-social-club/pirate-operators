@@ -782,7 +782,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
         />
       }
     >
-      <section class="live-karaoke" aria-label={`Karaoke: ${props.title}`}>
+      <div class="live-karaoke" role="group" aria-label={`Karaoke: ${props.title}`}>
         <Show when={notice() && song()}>
           <div
             role="alert"
@@ -875,7 +875,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
             )}
           </Show>
         </Show>
-      </section>
+      </div>
     </Show>
   );
 }

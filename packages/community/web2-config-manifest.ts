@@ -15,7 +15,15 @@ import {
   RELEASE_POLICY,
   RELEASE_POLICY_HASH,
 } from "./manifest-core.ts";
-import { ownerCurated, unregisteredOwner } from "./owner-policy.ts";
+import {
+  catalogOwner,
+  ownerCurated,
+  unregisteredOwner,
+} from "./owner-policy.ts";
+import {
+  recognitionProfile,
+  type RecognitionProfile,
+} from "../recognition/intent.ts";
 import { directoryInstanceId, sharedBytes32 } from "./shared-identity.ts";
 import {
   validateWeb2Profile,
@@ -24,7 +32,7 @@ import {
 import type { PublisherRevocation } from "./config-manifest.ts";
 
 export interface Web2CommunityConfig {
-  schema: "pirate.community-config/3";
+  schema: "pirate.community-config/4";
   chainId: 6343 | 31337;
   directory: Address;
   communityId: Hex;
@@ -41,6 +49,7 @@ export interface Web2CommunityConfig {
   policies: {
     admission: { version: string; sha256: Hex };
     moderationSigner: Address;
+    recognition?: RecognitionProfile;
   };
   publisherRevocations: PublisherRevocation[];
 }
@@ -65,7 +74,7 @@ export function parseWeb2Configuration(value: unknown): Web2CommunityConfig {
     "publisherRevocations",
   ]);
   insist(
-    o.schema === "pirate.community-config/3",
+    o.schema === "pirate.community-config/4",
     "wrong_configuration_schema",
   );
   const app = object(o.app),
@@ -74,18 +83,34 @@ export function parseWeb2Configuration(value: unknown): Web2CommunityConfig {
     admission = object(policies.admission);
   exact(app, ["label", "origin"]);
   exact(feed, ["endpoint", "signingKeyId"]);
-  exact(policies, ["admission", "moderationSigner"]);
   exact(admission, ["version", "sha256"]);
   const policy = {
     version: text(admission.version, 128),
     sha256: sharedBytes32(admission.sha256),
   };
+  const catalog = catalogOwner(policy);
   insist(
     (policy.version === RELEASE_POLICY &&
       policy.sha256 === RELEASE_POLICY_HASH) ||
       ownerCurated(policy) ||
-      unregisteredOwner(policy),
+      unregisteredOwner(policy) ||
+      catalog,
     "unsupported_admission_policy",
+  );
+  exact(policies, [
+    "admission",
+    "moderationSigner",
+    ...(catalog ? ["recognition"] : []),
+  ]);
+  const pin = catalog ? recognitionProfile(policies.recognition) : undefined;
+  insist(
+    !pin ||
+      ![
+        address(o.controller),
+        address(o.publisher),
+        address(policies.moderationSigner),
+      ].some((identity) => identity === pin.signer),
+    "recognition_signer_role_collision",
   );
   const origin = httpsOrigin(app.origin),
     label = text(app.label, 63),
@@ -115,7 +140,7 @@ export function parseWeb2Configuration(value: unknown): Web2CommunityConfig {
     };
   });
   return {
-    schema: "pirate.community-config/3",
+    schema: "pirate.community-config/4",
     chainId,
     directory: address(o.directory),
     communityKey: key,
@@ -139,6 +164,7 @@ export function parseWeb2Configuration(value: unknown): Web2CommunityConfig {
     policies: {
       admission: policy,
       moderationSigner: address(policies.moderationSigner),
+      ...(pin ? { recognition: pin } : {}),
     },
     publisherRevocations: revocations,
   };

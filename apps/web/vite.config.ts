@@ -2,7 +2,7 @@
 // scripts/build.ts writes from this build's manifest; there is no index.html.
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
+import solid from "@solidjs/vite-plugin";
 import { alias, dedupe } from "./vite.shared.ts";
 
 export default defineConfig({

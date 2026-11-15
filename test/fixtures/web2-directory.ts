@@ -32,9 +32,13 @@ import type { Web2CommunityConfig } from "../../packages/community/web2-config-m
 
 export const a = (s: string): Hex => `0x${s.repeat(40)}`;
 export const h = (s: string): Hex => `0x${s.repeat(64)}`;
-export async function web2DirectoryFixture(count = 1, fault = "") {
+export async function web2DirectoryFixture(
+  count = 1,
+  fault = "",
+  policies?: Web2CommunityConfig["policies"],
+) {
   const config: Web2CommunityConfig = {
-    schema: "pirate.community-config/3",
+    schema: "pirate.community-config/4",
     chainId: 31337,
     directory: a("1"),
     communityKey: h("d"),
@@ -51,7 +55,7 @@ export async function web2DirectoryFixture(count = 1, fault = "") {
       endpoint: "https://community.example/api/feed",
       signingKeyId: "fixture",
     },
-    policies: {
+    policies: policies ?? {
       admission: {
         version: UNREGISTERED_OWNER_POLICY_VERSION,
         sha256: UNREGISTERED_OWNER_POLICY_HASH,

@@ -308,7 +308,7 @@ export function CommunityPageShell(props: CommunityPageShellProps) {
     settledViewer() &&
     props.canJoin !== false;
   const membershipSlotClass = () =>
-    followerOnly() ? "col-span-2 h-11 w-full min-w-0" : slotClass;
+    followerOnly() || props.onFollowToggle === undefined ? "col-span-2 h-11 w-full min-w-0" : slotClass;
   /**
    * More's rows for this viewer. Unfollow is offered only to a settled
    * follower who is not a member: a member may not unfollow (spec 016 §4.6).
@@ -528,7 +528,7 @@ export function CommunityPageShell(props: CommunityPageShellProps) {
                   when={confirmedMember()}
                   fallback={
                     <>
-                      <Show when={!followerOnly()}>
+                      <Show when={!followerOnly() && props.onFollowToggle !== undefined}>
                         <Button
                           aria-label={followLabel().description}
                           class={slotClass}

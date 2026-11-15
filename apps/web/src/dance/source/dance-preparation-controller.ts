@@ -47,7 +47,10 @@ export type DancePreparationView =
       readonly context: null;
     };
 
-export function createDancePreparationController(options: DanceSourcePorts) {
+export function createDancePreparationController(options: DanceSourcePorts & {
+  /** Presentation eligibility; existing original recovery never depends on it. */
+  readonly assertFreshPosting?: () => void;
+}) {
   let generation = 0;
   const now = options.nowMs ?? Date.now;
   const begin = (signal: AbortSignal) => {
@@ -244,6 +247,9 @@ export function createDancePreparationController(options: DanceSourcePorts) {
             }
             guard();
           }
+          // Recheck after retained/accepted reads and safe prior retirement,
+          // immediately before synchronous creation of a fresh command.
+          options.assertFreshPosting?.();
           const command = await client.prepareCapture(
             danceTargetKey(options.scope),
             options.scope.songKey,
