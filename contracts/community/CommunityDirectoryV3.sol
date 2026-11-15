@@ -23,9 +23,15 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
     mapping(bytes32 => Web2Verification) private web2;
     mapping(bytes32 => uint64) private web2Revisions;
     mapping(bytes32 => uint64) private web2RevokedAt;
+    uint64 private web2Generation = 1;
+    uint64 private web2InvalidatedAt;
+    mapping(bytes32 => uint64) private web2AcceptedGenerations;
     mapping(bytes32 => HnsAttachment) private hns;
     mapping(bytes32 => uint64) private hnsRevisions;
     mapping(bytes32 => uint64) private hnsRevokedAt;
+    uint64 private hnsGeneration = 1;
+    uint64 private hnsInvalidatedAt;
+    mapping(bytes32 => uint64) private hnsAcceptedGenerations;
     mapping(address => RegistrySource) private sources;
     mapping(bytes32 => HostingBinding) private bindings;
     mapping(bytes32 => Community) private communities;
@@ -72,6 +78,46 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
         namespaceVerifier = hnsRole;
         listingAuthority = listingRole;
         emit VerificationRolesChanged(web2Role, hnsRole, listingRole);
+    }
+
+    function invalidateWeb2Proofs(address replacementVerifier) external override onlyAdmin {
+        if (
+            replacementVerifier == address(0) || replacementVerifier == web2Verifier
+                || replacementVerifier == registrar.account
+        ) revert InvalidConfiguration();
+        address previous = web2Verifier;
+        web2Verifier = replacementVerifier;
+        web2InvalidatedAt = uint64(block.timestamp);
+        emit Web2ProofsInvalidated(previous, replacementVerifier, ++web2Generation, web2InvalidatedAt);
+    }
+
+    function invalidateHnsProofs(address replacementVerifier) external override onlyAdmin {
+        if (
+            replacementVerifier == address(0) || replacementVerifier == namespaceVerifier
+                || replacementVerifier == registrar.account
+        ) revert InvalidConfiguration();
+        address previous = namespaceVerifier;
+        namespaceVerifier = replacementVerifier;
+        hnsInvalidatedAt = uint64(block.timestamp);
+        emit HnsProofsInvalidated(previous, replacementVerifier, ++hnsGeneration, hnsInvalidatedAt);
+    }
+
+    function getWeb2ProofAuthority() external view override returns (address, uint64, uint64) {
+        return (web2Verifier, web2Generation, web2InvalidatedAt);
+    }
+
+    function getHnsProofAuthority() external view override returns (address, uint64, uint64) {
+        return (namespaceVerifier, hnsGeneration, hnsInvalidatedAt);
+    }
+
+    function getWeb2ProofGeneration(bytes32 id) external view override returns (uint64) {
+        _community(id);
+        return web2AcceptedGenerations[id];
+    }
+
+    function getHnsProofGeneration(bytes32 id) external view override returns (uint64) {
+        _community(id);
+        return hnsAcceptedGenerations[id];
     }
 
     function configureRegistrar(address account, uint64 validUntil, uint64 totalLimit, uint64 expectedRevision)
@@ -266,12 +312,16 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
                 || proof.evidenceSha256 == bytes32(0)
         ) revert InvalidVerification();
         _validateTime(proof.observedAt, proof.validUntil, web2[id].observedAt, MAX_WEB2_AGE, web2Revisions[id] != 0);
-        if (proof.observedAt < originUpdatedAt[id] || (web2Revisions[id] != 0 && proof.observedAt <= web2RevokedAt[id]))
-        {
+        if (
+            proof.observedAt < originUpdatedAt[id] || (web2Revisions[id] != 0 && proof.observedAt <= web2RevokedAt[id])
+                || (web2Generation > 1 && proof.observedAt <= web2InvalidatedAt)
+        ) {
             revert InvalidVerification();
         }
         web2[id] = proof;
+        web2AcceptedGenerations[id] = web2Generation;
         emit Web2Verified(id, ++web2Revisions[id], proof);
+        emit Web2ProofGenerationAccepted(id, web2Revisions[id], web2Generation);
     }
 
     function revokeWeb2(bytes32 id, uint64 expectedRevision, bytes32 reasonSha256) external override {
@@ -309,8 +359,10 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
         if (
             proof.observedAt < controllerUpdatedAt[id]
                 || (hnsRevisions[id] != 0 && proof.observedAt <= hnsRevokedAt[id])
+                || (hnsGeneration > 1 && proof.observedAt <= hnsInvalidatedAt)
         ) revert InvalidVerification();
         hns[id] = proof;
+        hnsAcceptedGenerations[id] = hnsGeneration;
         community.registry = proof.registry;
         community.tldHash = sha256(bytes(tld));
         // These V1 fields are informational compatibility only. V3 verification
@@ -325,6 +377,7 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
         );
         community.verificationRevision = ++hnsRevisions[id];
         emit HnsAttached(id, hnsRevisions[id], proof);
+        emit HnsProofGenerationAccepted(id, hnsRevisions[id], hnsGeneration);
     }
 
     function revokeHns(bytes32 id, uint64 expectedRevision, bytes32 reasonSha256) external override {
@@ -410,7 +463,13 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
             ++origins[id].controllerRevision;
             controllerUpdatedAt[id] = uint64(block.timestamp);
             originUpdatedAt[id] = uint64(block.timestamp);
-            if (community.configurationRevision != 0) ++origins[id].revision;
+            if (community.configurationRevision != 0) {
+                ++origins[id].revision;
+                community.listed = false;
+                emit ListingChanged(
+                    id, ++community.listingRevision, false, keccak256("pirate.directory/controller-transfer")
+                );
+            }
         }
         community.configuration = configuration;
         uint64 revision = ++community.configurationRevision;
@@ -438,15 +497,15 @@ contract CommunityDirectoryV3 is ICommunityDirectoryV3 {
     function isWeb2Verified(bytes32 id) public view override returns (bool) {
         Web2Verification memory proof = web2[id];
         return communities[id].configurationRevision != 0 && web2Revisions[id] != 0
-            && proof.originRevision == origins[id].revision
+            && web2AcceptedGenerations[id] == web2Generation && proof.originRevision == origins[id].revision
             && proof.controllerRevision == origins[id].controllerRevision && block.timestamp < proof.validUntil;
     }
 
     function isHnsVerified(bytes32 id) public view override returns (bool) {
         HnsAttachment memory proof = hns[id];
         return communities[id].configurationRevision != 0 && hnsRevisions[id] != 0
-            && proof.controllerRevision == origins[id].controllerRevision && block.timestamp < proof.validUntil
-            && sources[proof.registry].runtimeCodeHash != bytes32(0)
+            && hnsAcceptedGenerations[id] == hnsGeneration && proof.controllerRevision == origins[id].controllerRevision
+            && block.timestamp < proof.validUntil && sources[proof.registry].runtimeCodeHash != bytes32(0)
             && proof.registry.codehash == sources[proof.registry].runtimeCodeHash;
     }
 }

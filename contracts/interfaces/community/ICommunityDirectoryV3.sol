@@ -67,12 +67,29 @@ interface ICommunityDirectoryV3 is ICommunityDirectoryV1 {
     event RegistryAdmitted(address indexed registry, RegistrySource source);
     event HnsAttached(bytes32 indexed communityId, uint64 attachmentRevision, HnsAttachment attachment);
     event HnsRevoked(bytes32 indexed communityId, uint64 attachmentRevision, bytes32 reasonSha256);
+    event Web2ProofsInvalidated(
+        address indexed previousVerifier, address indexed newVerifier, uint64 generation, uint64 invalidatedAt
+    );
+    event HnsProofsInvalidated(
+        address indexed previousVerifier, address indexed newVerifier, uint64 generation, uint64 invalidatedAt
+    );
+    event Web2ProofGenerationAccepted(bytes32 indexed communityId, uint64 verificationRevision, uint64 generation);
+    event HnsProofGenerationAccepted(bytes32 indexed communityId, uint64 attachmentRevision, uint64 generation);
     function admin() external view returns (address);
     function pendingAdmin() external view returns (address);
     function proposeAdmin(address next) external;
     function acceptAdmin() external;
     function web2Verifier() external view returns (address);
     function setVerificationRoles(address web2, address hns, address listing) external;
+    /// @notice Emergency replacement invalidates all proofs of only the selected type.
+    /// @dev Replacement must differ from the current verifier. Reapproval requires
+    /// an observation strictly later than the invalidation timestamp.
+    function invalidateWeb2Proofs(address replacementVerifier) external;
+    function invalidateHnsProofs(address replacementVerifier) external;
+    function getWeb2ProofAuthority() external view returns (address verifier, uint64 generation, uint64 invalidatedAt);
+    function getHnsProofAuthority() external view returns (address verifier, uint64 generation, uint64 invalidatedAt);
+    function getWeb2ProofGeneration(bytes32 communityId) external view returns (uint64);
+    function getHnsProofGeneration(bytes32 communityId) external view returns (uint64);
     function configureRegistrar(address account, uint64 validUntil, uint64 totalLimit, uint64 expectedRevision) external;
     function registrarPermission() external view returns (RegistrarPermission memory);
     function registerHostedCommunity(
