@@ -16,6 +16,8 @@ import {
   canonicalPublication,
   type CanonicalIntentPorts,
 } from "../../packages/recognition/canonical-intent.ts";
+import type { Recording } from "../../packages/recognition/model.ts";
+import type { Reservation, OriginalCall } from "../../packages/recognition/reservation-store.ts";
 import type { CanonicalCommunity } from "../../packages/recognition/canonical-community.ts";
 import { reservationClient } from "../../packages/recognition/reservation-client.ts";
 import {
@@ -84,7 +86,8 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string } = {}) {
+  const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion";
   const community = await communityRuntime(),
     mf = new Miniflare({
       modules: true,
@@ -189,7 +192,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         journal.restoreAnchorSha256,
       )
       .run();
-    chain = await web2SongChain(recognition,{contractController:options.contractController});
+    chain = await web2SongChain(recognition,{contractController:options.contractController,evidenceDirectory:evidenceDirectory+"/first-song"});
     const c = chain;
     const deployment = c.deployment,
       now = Math.floor(Date.now() / 1000),
@@ -521,6 +524,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           ],
           [recognition.origin, (request: Request) => catalog.fetch(request)],
         ]),
+        evidenceDirectory+"/http",
       );
     // Node's real Request has no incoming Cloudflare metadata; handlers do not read it.
     let acceptedPin: SignedServiceRequest | undefined;
@@ -632,7 +636,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           .all<ExternalOperation>()
       ).results;
     }
-    async function publish(account: Account, { restart = false, stopAfterLostPin=false,stopAfterLostBroadcast=false,stopWhenHeld=false } = {}) {
+    async function publish(account: Account, { restart = false, stopAfterLostPin=false,stopAfterLostBroadcast=false,stopWhenHeld=false,stopAtPendingRecording=false } = {}) {
       if (restart || stopAfterLostBroadcast) c.loseNextBroadcastAcknowledgement(stopAfterLostBroadcast);
       const reserved = await reserve(account);
       assert.equal(reserved.status, 201, await reserved.clone().text());
@@ -683,6 +687,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       ) {
         await catalog.scheduled();
         for (let n = 0; n < 6 && wakes.length; n++) {
+          if(stopAtPendingRecording && wakes[0]!.kind==="recording")return {job:await loadJob(community.db,jobId),jobId,submissionId,audio};
           const wake = wakes.shift()!;
           await catalog.queue({
             messages: [
@@ -745,9 +750,9 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           } catch (error) {
             diagnostic = error instanceof Error ? error.stack : String(error);
           }
-        await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
+        await mkdir(evidenceDirectory+"/first-song", { recursive: true });
         await writeFile(
-          `.local/web2-owner-signing-implementation/completion/first-song/failed-${submissionId}.json`,
+          `${evidenceDirectory}/first-song/failed-${submissionId}.json`,
           JSON.stringify({ job, operations: ops, diagnostic }, null, 2),
         );
         assert.fail(
@@ -793,6 +798,23 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       login,
       publish,
       reserve,
+      async recognitionSnapshot(jobId:string) {
+        const reservation=(await recognitionDb.prepare("SELECT * FROM shared_recognition_reservations WHERE job_id=?").bind(jobId).first<Reservation>())!;
+        assert(reservation);
+        const recording=(await recognitionDb.prepare("SELECT * FROM shared_recognition_recordings WHERE recording_id=?").bind(reservation.recording_id).first<Recording>())!;
+        const originalCall=(await recognitionDb.prepare("SELECT * FROM shared_recognition_original_calls WHERE reservation_id=?").bind(reservation.reservation_id).first<OriginalCall>())!;
+        assert(recording&&originalCall);
+        return {reservation,recording,originalCall,authorizationBytes:env.OWNER_AUTHORIZATION_JSON,attachmentBytes:env.WEB2_PUBLISHING_ATTACHMENT_JSON,operations:await operations(jobId)};
+      },
+      async recognitionStatus(jobId:string) {
+        const {intent}=await readCanonicalIntent(canonicalPorts(),jobId);
+        return reservationClient({profile:recognition,publisher:web2Publisher,current:async()=>{assert.equal(canonical((await readCanonicalIntent(canonicalPorts(),jobId)).intent),canonical(intent));},beforeSend:async()=>{},transport:request=>http!.transport(request)}).statusEvidence(intent);
+      },
+      async deliverPendingRecording(recordingId:string) {
+        const index=wakes.findIndex(w=>w.kind==="recording"&&w.recordingId===recordingId);assert(index>=0);
+        const body=wakes.splice(index,1)[0]!;let outcome="";
+        await catalog.queue({messages:[{body,ack(){outcome="ack";},retry(){outcome="retry";wakes.push(body);}} as Message<RecognitionWake>]});return outcome;
+      },
       managedAdmission,healthRequests,communityId:grant.communityId,ownerGrantDigest:grant.sha256,
       managedHealth:(changed:{community?:string;grant?:string}={})=>http!.transport(new Request(deployment.managedOrigin+"/health",{headers:{"x-pirate-community":changed.community ?? grant.communityId,"x-pirate-owner-grant":changed.grant ?? grant.sha256}})),
       managedReservations:async()=>(await managedDb.prepare("SELECT reservation_id,request_hash,asset,amount,status FROM spending_reservations WHERE scope LIKE 'owner:%'").all()).results,
@@ -821,8 +843,8 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
           checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),sourceTreeDirty:true,
           configurationDigest:hashJson(c.current()),authorizationDigest:hashJson(ownerAuthorization),grantDigest:grant.sha256,
           registrationTransaction:c.original.transactionHash,registrationReceipt,effects:{...c.effects},evidence};
-        await mkdir(".local/web2-owner-signing-implementation/completion/recovery",{recursive:true});
-        await writeFile(`.local/web2-owner-signing-implementation/completion/recovery/${label}-${Date.now()}.json`,JSON.stringify(artifact,(_key,value)=>typeof value==="bigint"?String(value):value,2));
+        await mkdir(evidenceDirectory+"/recovery",{recursive:true});
+        await writeFile(`${evidenceDirectory}/recovery/${label}-${Date.now()}.json`,JSON.stringify(artifact,(_key,value)=>typeof value==="bigint"?String(value):value,2));
       },
       submissionCount:async()=>(await community.db.prepare("SELECT COUNT(*) AS n FROM media_submissions").first<{n:number}>())!.n,
       async changeOwnerProof(mutation:"owner"|"policy"|"domain"|"window"|"text-hex"|"unavailable"|"admission"|"managed-grant"|"authority-during-await"|"expiry-during-await") {
@@ -1304,9 +1326,9 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
               }
             : { kind: "actual in-process handler composition" },
         };
-        await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
+        await mkdir(evidenceDirectory+"/first-song", { recursive: true });
         await writeFile(
-          `.local/web2-owner-signing-implementation/completion/first-song/${label}-${Date.now()}.json`,
+          `${evidenceDirectory}/first-song/${label}-${Date.now()}.json`,
           JSON.stringify(artifact, null, 2),
         );
       },

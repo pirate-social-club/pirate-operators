@@ -43,7 +43,8 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean} = {}) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string} = {}) {
+  const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion/first-song";
   const portReservation = createServer();
   portReservation.listen(0, "127.0.0.1");
   await once(portReservation, "listening");
@@ -180,9 +181,9 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         clearTimeout(deadline);
       }
     }
-    await mkdir(".local/web2-owner-signing-implementation/completion/first-song", { recursive: true });
+    await mkdir(evidenceDirectory, { recursive: true });
     await writeFile(
-      `.local/web2-owner-signing-implementation/completion/first-song/anvil-${child.pid}-${port}-${startedAt.replace(/[^0-9]/g,"")}.json`,
+      `${evidenceDirectory}/anvil-${child.pid}-${port}-${startedAt.replace(/[^0-9]/g,"")}.json`,
       JSON.stringify(
         {
           pid: child.pid,

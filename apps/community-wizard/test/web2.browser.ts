@@ -19,7 +19,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       { name: "wizard_fixture", value: "paired", url: f.origin },
     ]);
     // Controlled normal SDK iframe transport. No passkey/account emulator.
-    const penpal = await readFile("apps/web/node_modules/penpal/dist/penpal.mjs", "utf8");
+    const penpal = await readFile(new URL(import.meta.resolve("penpal")), "utf8");
     let cancel = true, changeAfterSign = false, accountChanged = false;
     await context.exposeBinding("wizardFixtureAccount",()=>({status:"connected",network:"testnet",address:accountChanged?f.nominatedOwner:f.prepareInput.controller}));
     const signedTypes: string[] = [];
