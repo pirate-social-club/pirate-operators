@@ -2,6 +2,33 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { web2FirstSongFixture } from "./fixtures/web2-first-song.ts";
 
+test("V2 ERC1271 controller authorization passes actual first-song HTTP, D1, canonical witnesses and publication", { timeout: 120000 }, async (t) => {
+  const f = await web2FirstSongFixture({ http: true, authorizationVersion: 2, contractController:true });
+  t.after(f.close);
+  const owner=await f.login();
+  assert.equal(owner.session.publisher,true);
+  const song = await f.publish(owner);
+  assert.equal(song.job.phase, "published");
+  assert.equal(f.effects.broadcasts, 1);
+  await f.assertPublicSong(song);
+  await f.writeArtifact("owner-v2", song);
+});
+
+test("V2 owner refuses changed fields, text-hex signing, unavailable verification and authority changes during verification", { timeout: 120000 }, async (t) => {
+  const f = await web2FirstSongFixture({ http: true, authorizationVersion: 2 });
+  t.after(f.close);
+  const owner = await f.login();
+  assert.equal(owner.session.publisher,true);
+  for (const mutation of ["owner", "policy", "domain", "window", "text-hex", "unavailable", "admission", "managed-grant", "authority-during-await", "expiry-during-await"] as const) {
+    const before = { ...f.effects }, count=await f.submissionCount();
+    await f.changeOwnerProof(mutation);
+    const response = await f.reserve(owner);
+    assert([403,409,503].includes(response.status),mutation+": "+response.status+" "+await response.clone().text());
+    assert.equal(await f.submissionCount(),count,mutation);
+    assert.deepEqual(f.effects, before, mutation);
+  }
+});
+
 test(
   "Web2 first song uses plain SIWE and actual owner publication, catalog, feed and media",
   { timeout: 120000 },

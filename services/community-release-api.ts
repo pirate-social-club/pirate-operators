@@ -179,6 +179,7 @@ export async function communityReleaseApi(
           runtime.ports.ownerAuthorization,
           runtime.config,
           session.wallet,
+          undefined, runtime.ports.ownerVerification,
         );
       } else await requireCuratedOwner(env.DB, runtime.config, session.wallet);
       await resumeFirstSongAdmission(runtime.ports, id);
@@ -238,6 +239,7 @@ export async function communityReleaseApi(
         ports.ownerAuthorization,
         config,
         session.wallet,
+        undefined, ports.ownerVerification,
       )
     : undefined;
   if (!owner) await requireCuratedOwner(env.DB, config, session.wallet);
@@ -249,6 +251,7 @@ export async function communityReleaseApi(
     );
     const body = await jsonBody(request),
       key = request.headers.get("idempotency-key") ?? "";
+    if (ownerAuthorization) await requireAuthorizedOwner(ports.ownerAuthorization,config,session.wallet,undefined,ports.ownerVerification);
     const row = ownerAuthorization
       ? await reserveOwnerSubmission(
           env.DB,
@@ -271,6 +274,7 @@ export async function communityReleaseApi(
   insist(upload?.[2] === "seal", "not_found", 404);
   exact(await jsonBody(request), []);
   await requireStems(env.DB, env.MEDIA, upload[1]!);
+  if (ownerAuthorization) await requireAuthorizedOwner(ports.ownerAuthorization,config,session.wallet,undefined,ports.ownerVerification);
   const sealed = await sealSubmission(
     env.DB,
     env.MEDIA,

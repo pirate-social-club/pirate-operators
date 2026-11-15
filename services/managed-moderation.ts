@@ -66,6 +66,8 @@ export interface ManagedEnv {
    * registration client or creator service is involved.
    */
   OWNER_GRANT_JSON?: string;
+  WEB2_PUBLISHING_SELECTION_SHA256?: string;
+  OWNER_GRANT_ADMISSION_REFERENCE?: string;
 }
 /** The configured owner grant, or undefined when absent or invalid. */
 function ownerGrant(env: ManagedEnv): OwnerBudgetGrant | undefined {
@@ -253,8 +255,10 @@ export default {
                 v.schema==="pirate.community-deployment/2"&&object(v.directoryProfile).communityId===id);
               insist(selected,"canonical_deployment_unconfigured",503);
               const deployment=validateCommunityDeploymentProfile(selected);
+              const chainClient = megaethReadClient(undefined,deployment.rpcUrl);
               return canonicalCommunityClient({signer:config.signer,
-                chain:{client:megaethReadClient(undefined,deployment.rpcUrl),
+                chain:{client:chainClient,ownerVerification:isWeb2Deployment(deployment) ? {client:chainClient,currentConfiguration:()=>config.currentConfiguration(pairing),
+                  now:()=>Math.floor(Date.now()/1000),maxSafeBlockAgeSeconds:BigInt(deployment.freshness.maxSafeBlockAgeSeconds)} : undefined,
                   posts:{...deployment.posts,deploymentBlock:BigInt(deployment.posts.deploymentBlock)},ipfs:communityIpfsTransport(deployment)},
                 currentConfiguration:()=>config.currentConfiguration(pairing),transport:env.CATALOG_CANONICAL_TRANSPORT});
             };
@@ -323,10 +327,13 @@ export default {
           ownerRelease =
             owner &&
             env.FILEBASE_IPFS_TOKEN &&
-            owner.expiresAt > Math.floor(Date.now() / 1000)
+            owner.validFrom <= Math.floor(Date.now()/1000) && owner.expiresAt > Math.floor(Date.now() / 1000) &&
+            ((!env.WEB2_PUBLISHING_SELECTION_SHA256 && !env.OWNER_GRANT_ADMISSION_REFERENCE) ||
+              (/^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_SELECTION_SHA256 ?? "") && env.OWNER_GRANT_ADMISSION_REFERENCE))
               ? {
                   configured: true,
                   grantSha256: owner.sha256,
+                  ...(env.WEB2_PUBLISHING_SELECTION_SHA256 ? {selectionDigest:env.WEB2_PUBLISHING_SELECTION_SHA256,admissionReference:env.OWNER_GRANT_ADMISSION_REFERENCE} : {}),
                   expiresAt: owner.expiresAt,
                 }
               : { configured: false };

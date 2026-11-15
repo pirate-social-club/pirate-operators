@@ -1,9 +1,12 @@
+import { web2OwnerAuthorizationData } from "./web2-first-song-chain.ts";
+import type { OwnerAuthorization } from "../../packages/community/owner-authorization.ts";
+import { execFileSync } from "node:child_process";
 // Actual application/managed/catalog handlers, D1/R2 and local V3/Posts RPC.
 // External ACRCloud and IPFS/Filebase are explicit transport simulations.
 import assert from "node:assert/strict";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { Miniflare } from "miniflare";
-import { sha256, parseTransaction, type Hex } from "viem";
+import { sha256, hashTypedData, parseTransaction, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { communityRuntime } from "../community-runtime.ts";
 import { canonicalHttpFixture } from "./canonical-http.ts";
@@ -80,7 +83,7 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean } = {}) {
   const community = await communityRuntime(),
     mf = new Miniflare({
       modules: true,
@@ -185,7 +188,7 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
         journal.restoreAnchorSha256,
       )
       .run();
-    chain = await web2SongChain(recognition);
+    chain = await web2SongChain(recognition,{contractController:options.contractController});
     const c = chain;
     const deployment = c.deployment,
       now = Math.floor(Date.now() / 1000),
@@ -212,8 +215,8 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
         },
       },
       grant = validateOwnerGrant({ ...draft, sha256: ownerGrantDigest(draft) }),
-      authorization = {
-        schema: "pirate.owner-publishing-authorization/1",
+      authorization: OwnerAuthorization = {
+        schema: options.authorizationVersion === 2 ? "pirate.owner-publishing-authorization/2" : "pirate.owner-publishing-authorization/1",
         communityId: c.profile.communityId,
         ownerWallet: grant.ownerWallet,
         policy: grant.policy,
@@ -222,9 +225,9 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       },
       ownerAuthorization = {
         authorization,
-        signature: await web2Controller.signMessage({
-          message: { raw: hashJson(authorization) as Hex },
-        }),
+        signature: options.authorizationVersion === 2
+          ? await web2Controller.signTypedData(web2OwnerAuthorizationData(authorization,c.current()))
+          : await web2Controller.signMessage({message:{raw:hashJson(authorization) as Hex}}),
       };
     let losePinAck = false,
       lostPin = false,
@@ -326,6 +329,8 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
     const canonicalChain: import("../../packages/recognition/canonical-chain.ts").CanonicalChainInputs =
       {
         client: c.client,
+        ownerVerification:{client:megaethReadClient(undefined,deployment.rpcUrl),currentConfiguration:current,
+          now:()=>Math.floor(Date.now()/1000),maxSafeBlockAgeSeconds:BigInt(deployment.freshness.maxSafeBlockAgeSeconds)},
         posts: {
           ...deployment.posts,
           deploymentBlock: BigInt(deployment.posts.deploymentBlock),
@@ -347,6 +352,14 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       insist(row, "owner_account_fence_changed", 403);
     };
     let catalog: ReturnType<typeof sharedRecognitionRuntime>;
+    const scope = {schema:"pirate.web2-owner-grant-scope/1" as const,enrollmentId:hashText("actual-local-fixture-enrollment"),
+      installationId:c.profile.installationId,hostInstallationId:"web2-first-song-fixture",deploymentDigest:hashJson(deployment),
+      communityId:c.profile.communityId,origin:deployment.origin,controller:c.current().controller,ownerWallet:grant.ownerWallet as `0x${string}`,
+      policy:grant.policy,chainId:6343 as const,postsContract:c.current().postsContract,publisher:c.current().publisher};
+    const selected={schema:"pirate.web2-configured-owner-grant/1" as const,scope,grant,admissionReference:"explicit-local-fixture-admission"},
+      selection={...selected,selectionDigest:hashJson(selected)},
+      attachmentBody={schema:"pirate.web2-publishing-attachment/1" as const,selection,authorization:ownerAuthorization,custodyBindingDigest:hashText("explicit-public-test-publisher-binding")},
+      attachment={...attachmentBody,digest:hashJson(attachmentBody)};
     const env = {
       DB: community.db,
       MEDIA: community.media,
@@ -363,6 +376,8 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       MANAGED_PROFILE_HASH: hashText("actual Web2 fixture managed"),
       OWNER_GRANT_JSON: JSON.stringify(grant),
       OWNER_AUTHORIZATION_JSON: JSON.stringify(ownerAuthorization),
+      ...(options.authorizationVersion === 2 ? {WEB2_PUBLISHING_ATTACHMENT_JSON:JSON.stringify(attachment),WEB2_PUBLISHING_ATTACHMENT_SHA256:attachment.digest,
+        WEB2_PUBLISHING_SELECTION_SHA256:selection.selectionDigest,OWNER_GRANT_ADMISSION_REFERENCE:selection.admissionReference} : {}),
       RECOGNITION_PROFILE_JSON: JSON.stringify(recognition),
       CATALOG_ACCOUNT_FENCE: currentAccount,
       CATALOG_TRANSPORT: (request: Request) =>
@@ -448,6 +463,8 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       OPENAI_API_KEY: "excluded",
       MODERATION_SIGNER_PRIVATE_KEY: `0x${"41".repeat(32)}`,
       OWNER_GRANT_JSON: JSON.stringify(grant),
+      ...(options.authorizationVersion === 2 ? {WEB2_PUBLISHING_SELECTION_SHA256:env.WEB2_PUBLISHING_SELECTION_SHA256,
+        OWNER_GRANT_ADMISSION_REFERENCE:env.OWNER_GRANT_ADMISSION_REFERENCE} : {}),
       FILEBASE_IPFS_TOKEN: "explicit-fixture-token",
       PIN_TRANSPORT: pinTransport,
       CATALOG_CANONICAL_TRANSPORT: (request: Request) =>
@@ -554,8 +571,9 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
         200,
         await sessionResponse.clone().text(),
       );
-      const session = (await sessionResponse.json()) as { csrf: string };
+      const session = (await sessionResponse.json()) as { csrf: string; publisher:boolean; mossAddress:string };
       return {
+        session,
         challenge,
         cookie,
         write: (
@@ -721,7 +739,7 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
           } catch (error) {
             diagnostic = error instanceof Error ? error.stack : String(error);
           }
-        await mkdir(".local/web2-first-song", { recursive: true });
+        await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
         await writeFile(
           `.local/web2-first-song/failed-${submissionId}.json`,
           JSON.stringify({ job, operations: ops, diagnostic }, null, 2),
@@ -769,6 +787,44 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
       login,
       publish,
       reserve,
+      submissionCount:async()=>(await community.db.prepare("SELECT COUNT(*) AS n FROM media_submissions").first<{n:number}>())!.n,
+      async changeOwnerProof(mutation:"owner"|"policy"|"domain"|"window"|"text-hex"|"unavailable"|"admission"|"managed-grant"|"authority-during-await"|"expiry-during-await") {
+        c.unavailable(false);
+        managedEnv.OWNER_GRANT_ADMISSION_REFERENCE=selection.admissionReference;
+        managedEnv.OWNER_GRANT_JSON=env.OWNER_GRANT_JSON;
+        if(mutation === "admission") managedEnv.OWNER_GRANT_ADMISSION_REFERENCE="different-local-fixture-admission";
+        if(mutation === "managed-grant") {
+          const changed={...grant,destination:{...grant.destination,publisher:web2Other.address.toLowerCase()}};
+          changed.sha256=ownerGrantDigest(changed);managedEnv.OWNER_GRANT_JSON=JSON.stringify(changed);
+        }
+        const a=structuredClone(authorization), signed=structuredClone(ownerAuthorization);
+        if (mutation === "owner") a.ownerWallet=web2Other.address.toLowerCase();
+        if (mutation === "policy") a.policy={...a.policy,sha256:hashText("changed policy")};
+        if (mutation === "window") a.expiresAt+=1;
+        signed.authorization=a;
+        if (mutation === "domain") {
+          const data=web2OwnerAuthorizationData(a,c.current());
+          signed.signature=await web2Controller.signTypedData({...data,domain:{...data.domain,verifyingContract:web2Other.address}});
+        }
+        if (mutation === "text-hex") signed.signature=await web2Controller.signMessage({message:hashTypedData(web2OwnerAuthorizationData(a,c.current()))});
+        if (mutation === "unavailable") c.unavailable(true);
+        if (mutation === "authority-during-await") c.afterNextVerification(async()=>{await c.nextRevision();});
+        if (mutation === "expiry-during-await") {
+          // Use an independently signed short window; delay the real RPC reply.
+          // Both grant and authorization stay equal, so expiry is the refusal.
+          a.expiresAt=Math.floor(Date.now()/1000)+2;
+          signed.signature=await web2Controller.signTypedData(web2OwnerAuthorizationData(a,c.current()));
+          const short={...grant,expiresAt:a.expiresAt};short.sha256=ownerGrantDigest(short);
+          env.OWNER_GRANT_JSON=JSON.stringify(short);managedEnv.OWNER_GRANT_JSON=JSON.stringify(short);
+          c.afterNextVerification(async()=>{await new Promise(resolve=>setTimeout(resolve,2100));});
+        }
+        env.OWNER_AUTHORIZATION_JSON=JSON.stringify(signed);
+        const boundGrant=JSON.parse(env.OWNER_GRANT_JSON!),nextSelection={...selected,grant:boundGrant},
+          nextSelected={...nextSelection,selectionDigest:hashJson(nextSelection)},
+          body={...attachmentBody,selection:nextSelected,authorization:signed},nextAttachment={...body,digest:hashJson(body)};
+        env.WEB2_PUBLISHING_ATTACHMENT_JSON=JSON.stringify(nextAttachment);env.WEB2_PUBLISHING_ATTACHMENT_SHA256=nextAttachment.digest;
+        env.WEB2_PUBLISHING_SELECTION_SHA256=nextSelected.selectionDigest;managedEnv.WEB2_PUBLISHING_SELECTION_SHA256=nextSelected.selectionDigest;
+      },
       effects: c.effects,
       async discovery() {
         const value = await read();
@@ -1175,6 +1231,8 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
         );
         const artifact = {
           schema: "pirate.web2-first-song-evidence/1",
+          checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
+          authorizationDigest:hashJson(ownerAuthorization),grantDigest:grant.sha256,
           scope:
             "actual application integration; runtime objects reconstructed, no installed Linux or backup/restore claim",
           externalSimulations: [
@@ -1209,9 +1267,9 @@ export async function web2FirstSongFixture(options: { http?: boolean } = {}) {
               }
             : { kind: "actual in-process handler composition" },
         };
-        await mkdir(".local/web2-first-song", { recursive: true });
+        await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
         await writeFile(
-          `.local/web2-first-song/${label}.json`,
+          `.local/web2-owner-signing-implementation/first-song/${label}.json`,
           JSON.stringify(artifact, null, 2),
         );
       },

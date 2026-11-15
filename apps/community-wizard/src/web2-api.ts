@@ -11,6 +11,10 @@ export type Web2Action =
   | "redeem"
   | "reconcile"
   | "topup"
+  | "publishing-prepare"
+  | "publishing-authorize"
+  | "publishing-attach"
+  | "publishing-reconcile"
   | "installation-prepare"
   | "install"
   | "installation-status";
@@ -20,6 +24,10 @@ const actions: readonly string[] = [
   "redeem",
   "reconcile",
   "topup",
+  "publishing-prepare",
+  "publishing-authorize",
+  "publishing-attach",
+  "publishing-reconcile",
   "installation-prepare",
   "install",
   "installation-status",

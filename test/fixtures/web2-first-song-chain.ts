@@ -43,7 +43,7 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean} = {}) {
   const portReservation = createServer();
   portReservation.listen(0, "127.0.0.1");
   await once(portReservation, "listening");
@@ -96,6 +96,7 @@ export async function web2SongChain(recognition: RecognitionProfile) {
   let unavailable = false,
     loseBroadcastAck = false,
     broadcastAckLost = false;
+  let afterVerification: (()=>Promise<void>) | undefined;
   const broadcastTransactions: Hex[] = [];
   const gateway = httpServer(async (req, res) => {
     try {
@@ -127,6 +128,9 @@ export async function web2SongChain(recognition: RecognitionProfile) {
           body,
         });
         const bytes = Buffer.from(await response.arrayBuffer());
+        if ((Array.isArray(calls) ? calls : [calls]).some(c=>c.method === "eth_call") && afterVerification) {
+          const after=afterVerification;afterVerification=undefined;await after();
+        }
         if (
           broadcast &&
           loseBroadcastAck &&
@@ -174,9 +178,9 @@ export async function web2SongChain(recognition: RecognitionProfile) {
         clearTimeout(deadline);
       }
     }
-    await mkdir(".local/web2-first-song", { recursive: true });
+    await mkdir(".local/web2-owner-signing-implementation/first-song", { recursive: true });
     await writeFile(
-      `.local/web2-first-song/anvil-${child.pid}.json`,
+      `.local/web2-owner-signing-implementation/first-song/anvil-${child.pid}.json`,
       JSON.stringify(
         {
           pid: child.pid,
@@ -290,6 +294,13 @@ export async function web2SongChain(recognition: RecognitionProfile) {
       ),
       installationId: hashText("actual Web2 first-song installation"),
     });
+    let controller = web2Controller.address.toLowerCase() as Address;
+    if(options.contractController) {
+      const account=await artifact("MockAccount"), deployed=await deploy(account,[]);
+      await client.waitForTransactionReceipt({hash:await wallet.writeContract({address:deployed.address,abi:account.abi,
+        functionName:"initialize",args:[web2Controller.address],gasPrice:1000000n})});
+      controller=deployed.address;
+    }
     let config = validateWeb2Configuration(
       {
         schema: "pirate.community-config/4",
@@ -300,7 +311,7 @@ export async function web2SongChain(recognition: RecognitionProfile) {
         installationId: profile.installationId,
         configurationRevision: 1,
         postsContract: posts.address,
-        controller: web2Controller.address.toLowerCase(),
+        controller,
         publisher: web2Publisher.address.toLowerCase(),
         operatorPayments: "0x" + "0".repeat(40),
         learningRecords: "0x" + "0".repeat(40),
@@ -413,6 +424,7 @@ export async function web2SongChain(recognition: RecognitionProfile) {
       },
       broadcastAcknowledgementLost: () => broadcastAckLost,
       current: () => config,
+      afterNextVerification:(action:()=>Promise<void>)=>{afterVerification=action;},
       unavailable: (value: boolean) => {
         unavailable = value;
       },
@@ -473,4 +485,16 @@ export async function web2SongChain(recognition: RecognitionProfile) {
     await close();
     throw error;
   }
+}
+
+/** Independent fixture projection of the public V2 contract. It deliberately
+ * does not call the production payload builder used by verification. */
+export function web2OwnerAuthorizationData(a: import("../../packages/community/owner-authorization.ts").OwnerAuthorization,
+  config: import("../../packages/community/config-manifest.ts").CommunityConfig) {
+  return {domain:{name:"Pirate Owner Publishing Authorization",version:"2",chainId:config.chainId,verifyingContract:config.directory as Address},
+    primaryType:"OwnerPublishingAuthorization" as const,types:{OwnerPublishingAuthorization:[
+      {name:"schema",type:"string"},{name:"communityId",type:"bytes32"},{name:"ownerWallet",type:"address"},
+      {name:"policyVersion",type:"string"},{name:"policySha256",type:"bytes32"},{name:"validFrom",type:"uint64"},{name:"expiresAt",type:"uint64"}]},
+    message:{schema:a.schema,communityId:a.communityId as Hex,ownerWallet:a.ownerWallet as Address,policyVersion:a.policy.version,
+      policySha256:a.policy.sha256 as Hex,validFrom:BigInt(a.validFrom),expiresAt:BigInt(a.expiresAt)}};
 }

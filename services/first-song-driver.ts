@@ -1,3 +1,5 @@
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import type { OwnerVerification } from "../packages/community/owner-authorization-verifier.ts";
 import { catalogOwner } from "../packages/community/owner-policy.ts";
 import { catalogPublication, type CatalogPublicationPorts } from "../packages/community/catalog-publication.ts";
 import { requireExecutionProfile } from "../packages/community/publication-profile.ts";
@@ -56,6 +58,7 @@ export interface FirstSongDriverPorts {
   checkServices(): Promise<void>;
   /** Controller-signed owner authorization; required under the unregistered owner policy. */
   ownerAuthorization?: unknown;
+  ownerVerification?: OwnerVerification;
   catalog?: CatalogPublicationPorts;
   clock?: import("../packages/community/publication.ts").PublicationClock;
 }
@@ -116,6 +119,11 @@ const releaseBinding = (ports: FirstSongDriverPorts) => {
 export function firstSongDriver(
   ports: FirstSongDriverPorts,
 ): PublicationDriver {
+  async function authorizeOwner() {
+    if (!ports.release.ownerGrant) return;
+    await requireAuthorizedOwner(ports.ownerAuthorization, ports.managed.configuration,
+      ports.release.ownerGrant.ownerWallet, undefined, ports.ownerVerification);
+  }
   const load = async (operation: ExternalOperation) => {
     const input = await publicationInput(
       ports.db,
@@ -180,6 +188,7 @@ export function firstSongDriver(
       requireExecutionProfile(input.authority, ports);
       if (step !== "admission")
         await requireStems(ports.db, ports.media, input.row.submission_id);
+      await authorizeOwner();
       return requestValue(
         input,
         step,
@@ -190,12 +199,14 @@ export function firstSongDriver(
     async prepare(operation,job) {
       const input = await load(operation);
       await ports.checkServices();
+      await authorizeOwner();
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
         insist(ports.catalog, "recognition_runtime_unconfigured",503);
         return {replay:{kind:"provider_idempotency",provider:"pirate-recognition-reservation/1",key:operation.operation_id},payload:{intentHash:input.job.input_hash}};
       }
       if (operation.step === "publication") {
         await validateMedia(input);
+        await authorizeOwner();
         return preparePosting(operation, ports.posting);
       }
       return {
@@ -213,6 +224,7 @@ export function firstSongDriver(
     async execute(operation,job) {
       const input = await load(operation);
       await ports.checkServices();
+      await authorizeOwner();
       if (operation.step === "catalog_reserve" || operation.step === "catalog_confirm") {
         insist(ports.catalog,"recognition_runtime_unconfigured",503);
         const c=await catalogPublication(ports.catalog,operation,job?.lease_token);
@@ -233,9 +245,10 @@ export function firstSongDriver(
         await validateMedia(input);
         if (catalogOwner(ports.managed.configuration.policies.admission)) {
           insist(ports.catalog,"recognition_runtime_unconfigured",503);
-          return executePosting(operation,{...ports.posting,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind();}});
+          return executePosting(operation,{...ports.posting,catalogBeforeBroadcast:async()=>{await (await catalogPublication(ports.catalog!,operation,job?.lease_token)).bind(); await authorizeOwner();}});
         }
-        return executePosting(operation, ports.posting);
+        await authorizeOwner();
+        return executePosting(operation, {...ports.posting,catalogBeforeBroadcast:authorizeOwner});
       }
       return confirmed(
         await releasePin(
