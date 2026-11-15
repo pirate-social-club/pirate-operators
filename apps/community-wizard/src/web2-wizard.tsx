@@ -29,8 +29,8 @@ export function Web2Wizard() {
     [reviewed, setReviewed] = createSignal(false);
   const view = () => snapshot()?.view;
   const locked = () => busy() || Boolean(view()?.busy);
-  async function perform(work: () => Promise<Web2Snapshot>) {
-    if (locked()) return;
+  async function perform(work: () => Promise<Web2Snapshot>, readOnly = false) {
+    if (busy() || (!readOnly && view()?.busy)) return;
     setBusy(true);
     setError("");
     try {
@@ -382,8 +382,8 @@ export function Web2Wizard() {
           </p>
         </Show>
         <button
-          disabled={locked()}
-          onClick={() => void perform(() => api.state())}
+          disabled={busy()}
+          onClick={() => void perform(() => api.state(), true)}
         >
           Refresh retained setup
         </button>

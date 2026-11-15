@@ -132,6 +132,43 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       page.getByText("Setup state: funded", { exact: true }),
     ).toBeVisible();
     expect(f.broadcasts()).toBe(before);
+    const gate = f.holdNextStatus();
+    let forwarded: Promise<unknown> = Promise.resolve();
+    await page.route(
+      "**/api/web2/reconcile",
+      async (route) => {
+        forwarded = route.fetch();
+        void forwarded.catch(() => {});
+        await gate.entered;
+        await route.abort("failed");
+      },
+      { times: 1 },
+    );
+    await page
+      .getByRole("button", { name: "Reconcile original enrollment" })
+      .click();
+    await gate.entered;
+    // The server is actually awaiting its hosted response after the browser
+    // loses its reply. Reads remain usable; mutations stay locked.
+    await expect(
+      page.getByRole("button", { name: "Refresh retained setup" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", {
+        name: "Retry original gas allocation",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    gate.release();
+    await forwarded;
+    await page.getByRole("button", { name: "Refresh retained setup" }).click();
+    await expect(
+      page.getByRole("button", {
+        name: "Retry original gas allocation",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    expect(f.broadcasts()).toBe(before);
     await expect(
       page.getByText("The real Linux Web2 installer is unavailable.", {
         exact: false,
