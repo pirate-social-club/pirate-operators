@@ -9,6 +9,8 @@ import { join } from "node:path";
 import { SetupError } from "./model.ts";
 import type { Setup } from "./setup.ts";
 import type { LinuxSetup } from "./linux-setup.ts";
+import type { Web2Setup } from "./web2-setup.ts";
+import { CommunityError } from "../../../packages/community/common.ts";
 import { LinuxInputError } from "../../../packages/community-setup/shared-linux-profile.ts";
 
 async function body(req: IncomingMessage, limit = 24_576) {
@@ -46,6 +48,8 @@ export function createWizardServer(
     stateProtection?: boolean;
   },
   integrations: {
+    web2?: Web2Setup;
+    authorizeWeb2?: (request: IncomingMessage, action: "read" | "write") => Promise<void>;
     linux?: LinuxSetup;
     authorizeLinux?: (
       request: IncomingMessage,
@@ -53,6 +57,8 @@ export function createWizardServer(
     ) => Promise<void>;
   } = {},
 ) {
+  if (integrations.web2 && !integrations.authorizeWeb2)
+    throw new SetupError("Web2 setup requires an actual paired authenticated operator channel.", 503);
   if (integrations.linux && !integrations.authorizeLinux)
     throw new SetupError(
       "Linux setup requires an actual authenticated operator session or paired SSH-forwarded channel; loopback and CSRF alone are insufficient.",
@@ -98,17 +104,26 @@ export function createWizardServer(
               capabilities: await integrations.linux.capabilities(),
               csrf,
               legacyAvailable: Boolean(setup),
+              web2Available: Boolean(integrations.web2),
             }
           : {
               available: false,
               csrf,
               legacyAvailable: Boolean(setup),
+              web2Available: Boolean(integrations.web2),
               correction:
                 "The Linux deployment and naming adapters are not connected to this runner. Saved settings or credentials cannot deploy an application until its owning backend is installed.",
             };
       if (req.method === "GET" && path === "/api/linux/state") {
+        if (integrations.web2) await integrations.authorizeWeb2!(req, "read");
         if (integrations.linux) await integrations.authorizeLinux!(req, "read");
         json(200, await linuxState());
+        return;
+      }
+      if (req.method === "GET" && path === "/api/web2/state") {
+        if (!integrations.web2) throw new CommunityError("web2_setup_unavailable", 503);
+        await integrations.authorizeWeb2!(req, "read");
+        json(200, { available: true, csrf, view: integrations.web2.snapshot() });
         return;
       }
       if (req.method === "GET" && path === "/api/state") {
@@ -129,6 +144,13 @@ export function createWizardServer(
           !timingSafeEqual(Buffer.from(supplied), Buffer.from(csrf))
         )
           throw new SetupError("Setup session expired. Reload the page.", 403);
+        if (path.startsWith("/api/web2/")) {
+          if (!integrations.web2) throw new CommunityError("web2_setup_unavailable", 503);
+          await integrations.authorizeWeb2!(req, "write");
+          const view = await integrations.web2.send(path.slice("/api/web2/".length), await body(req, 196_608));
+          json(200, { available: true, csrf, view });
+          return;
+        }
         if (path.startsWith("/api/linux/")) {
           await integrations.authorizeLinux?.(req, "write");
           const linux = integrations.linux;
@@ -230,7 +252,9 @@ export function createWizardServer(
         );
       else throw new SetupError("Not found.", 404);
     } catch (error) {
-      if (error instanceof LinuxInputError)
+      if (error instanceof CommunityError)
+        json(error.status, { code: error.code, error: web2Corrections[error.code] ?? "This Web2 step did not complete. Retain the original request and reconcile before retrying." });
+      else if (error instanceof LinuxInputError)
         json(error.code === "operator_pairing_required" ? 401 : 409, {
           error: error.correction,
           code: error.code,
@@ -252,6 +276,19 @@ export function createWizardServer(
   server.headersTimeout = 10_000;
   return server;
 }
+
+const web2Corrections: Record<string,string> = {
+  web2_setup_unavailable: "The hosted Web2 setup adapter is not connected to this runner.",
+  web2_installation_unavailable: "The real Linux Web2 installer is unavailable. Enrollment is retained; nothing is reported installed.",
+  hosted_signing_request_changed: "The service returned different signing terms. No wallet request is authorized. Reconnect to the selected service.",
+  web2_revision_changed: "Another tab or request advanced setup. Refresh the original runner before continuing.",
+  web2_original_selection_changed: "This runner retains an existing community request. Reconcile that original instead of replacing it.",
+  hosted_request_refused: "The hosted service refused this step or is unavailable. Keep the original request and check enrollment status.",
+  pilot_notice_required: "Read and accept the selected pilot notice before preparation.",
+  invalid_invite: "Use the complete 64-character invitation from the pilot service.",
+  hosted_invitation_refused: "The service refused this invitation before preparation. You may correct it while keeping this community selection.",
+  hosted_authorization_refused: "The service rejected the authorization before new effects. Select the named account and authorize again; the community request is retained.",
+};
 async function asset(res: ServerResponse, path: string, type: string) {
   const contents = await readFile(path);
   res.writeHead(200, { "Content-Type": type }).end(contents);

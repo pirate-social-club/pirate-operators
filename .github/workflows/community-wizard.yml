@@ -20,11 +20,24 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/community-wizard/package-lock.json
+      - uses: foundry-rs/foundry-toolchain@v1
+        id: foundry
+        continue-on-error: true
+        with:
+          version: v1.9.0
+      - name: Retry pinned Foundry installation
+        if: steps.foundry.outcome == 'failure'
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
       - name: Install shared package and wizard dependencies
         working-directory: .
         run: |
           npm ci --ignore-scripts
           npm ci --ignore-scripts --prefix apps/community-wizard
+      - name: Build actual contracts for the Web2 browser journey
+        working-directory: .
+        run: forge build
       - run: npx playwright install --with-deps chromium
       - run: npm run check
       - run: npm run test:browser
