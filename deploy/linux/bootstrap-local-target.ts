@@ -62,7 +62,10 @@ export async function startPairedOperator(value:PairedOperatorInputs){
     assert(!closed && (req.socket.remoteAddress==="127.0.0.1" || req.socket.remoteAddress==="::ffff:127.0.0.1"));
     assert(req.headers.host==="127.0.0.1:"+input.frontPort && (!req.headers.origin || req.headers.origin===origin));
     assert(req.headers["sec-fetch-site"]!=="cross-site");
-    res.setHeader("Cache-Control","no-store");res.setHeader("Referrer-Policy","no-referrer");
+    // Ordinary same-origin form navigation needs a non-opaque Origin. With
+    // no-referrer Chrome sends Origin:null and the exact-origin guard refuses.
+    // same-origin still withholds referrers from every cross-origin destination.
+    res.setHeader("Cache-Control","no-store");res.setHeader("Referrer-Policy","same-origin");
     if(!paired && req.method==="GET" && new URL(req.url??"/",origin).pathname==="/"){
       res.setHeader("Content-Type","text/html; charset=utf-8");
       res.end('<!doctype html><meta name="viewport" content="width=device-width"><title>Connect this operator</title><form method="post" action="/pair"><label>Private operator pairing code <input name="code" type="password" autocomplete="off" required></label><button>Connect</button></form>');return;
