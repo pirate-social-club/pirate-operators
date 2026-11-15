@@ -70,8 +70,24 @@ other retained cases keep their existing in-process real-handler composition.
 This avoids repeating the complete HTTP publication journey for every unrelated
 policy assertion. Their production handlers and assertions remain unchanged.
 
-The affected strict transitive production and test types pass. Two earlier whole
-root type commands reached their finite limits without diagnostics, so complete
-root types and final runtime qualification are still outstanding at this source
-checkpoint. Independent source review may proceed in parallel with the focused
-checks. No installed-host or live-provider readiness is claimed.
+At source checkpoint e76b602, the default complete root type check passes in
+6.6 seconds. The three selected actual HTTP cases pass in 131.4 seconds with no
+failure, cancellation or skip. Ordinary and lost-acknowledgement publication each
+retain one broadcast, one catalog upload and three pins. Their artifacts retain
+original signed recognition envelopes and public transaction/manifest witnesses,
+with independently checked SHA-256 commitments. The other four first-song cases
+remain required in hosted CI; this focused run is not a full-suite result.
+
+All eleven real Wizard integration cases also pass in 12.2 seconds. The existing
+first case now verifies valid checksummed input becomes canonical lowercase,
+while malformed input produces a field-specific correction before preparation
+or effects. The correction is separately preserved in b0d7d19.
+
+Two earlier whole-root type attempts reached finite limits without diagnostics.
+A later targeted check identified a missing type import during protocol
+extraction; that import is corrected. The exact reason those earlier whole
+checks did not exit with diagnostics is unproven. Their incomplete receipts stay
+separate from the direct successful default local check above.
+
+Final independent review and exact-head hosted CI remain mandatory. No
+installed-host or live-provider readiness is claimed.
