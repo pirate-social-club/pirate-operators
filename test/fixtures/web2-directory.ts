@@ -119,6 +119,8 @@ export async function web2DirectoryFixture(
     web2VerifiedAtBlock: true,
     hnsVerifiedAtBlock: false,
     listed: true,
+    web2ObservedAt: 65536n,
+    hnsObservedAt: 65536n,
     web2ValidUntil: 65536n + 3600n,
     hnsValidUntil: 0n,
     blockTags: [] as string[],
@@ -132,6 +134,22 @@ export async function web2DirectoryFixture(
     queries: [] as Hex[],
     logRanges: [] as [bigint, bigint][],
     mutate: undefined as (() => void) | undefined,
+  };
+  // Independent RPC facts allow the reader tests to detect contradictory
+  // validity claims. This fixture does not implement generation validation.
+  const authority = {
+    web2: {
+      verifier: a("8"),
+      generation: 1n,
+      invalidatedAt: 0n,
+      acceptedGeneration: 1n as bigint | undefined,
+    },
+    hns: {
+      verifier: a("9"),
+      generation: 1n,
+      invalidatedAt: 0n,
+      acceptedGeneration: undefined as bigint | undefined,
+    },
   };
   const event = (name: string) => {
     const e = abi.find((x) => x.type === "event" && x.name === name);
@@ -309,6 +327,38 @@ export async function web2DirectoryFixture(
             call.functionName,
             String(params?.[1]),
           ]);
+          if (
+            call.functionName === "getWeb2ProofAuthority" ||
+            call.functionName === "getHnsProofAuthority"
+          ) {
+            const proofAuthority =
+              call.functionName === "getWeb2ProofAuthority"
+                ? authority.web2
+                : authority.hns;
+            return encodeFunctionResult({
+              abi,
+              functionName: call.functionName,
+              result: [
+                proofAuthority.verifier,
+                proofAuthority.generation,
+                proofAuthority.invalidatedAt,
+              ],
+            });
+          }
+          if (
+            call.functionName === "getWeb2ProofGeneration" ||
+            call.functionName === "getHnsProofGeneration"
+          ) {
+            return encodeFunctionResult({
+              abi,
+              functionName: call.functionName,
+              result:
+                call.functionName === "getWeb2ProofGeneration"
+                  ? (authority.web2.acceptedGeneration ?? 1n)
+                  : (authority.hns.acceptedGeneration ??
+                    (state.hnsValidUntil === 0n ? 0n : 1n)),
+            });
+          }
           if (call.functionName === "getBinding")
             return encodeFunctionResult({
               abi,
@@ -346,7 +396,7 @@ export async function web2DirectoryFixture(
                 {
                   originRevision: r.origin.revision,
                   controllerRevision: r.origin.controllerRevision,
-                  observedAt: 65536n,
+                  observedAt: state.web2ObservedAt,
                   validUntil: state.web2ValidUntil,
                   evidenceSha256: h("7"),
                 },
@@ -366,7 +416,7 @@ export async function web2DirectoryFixture(
                   controllerRevision: r.origin.controllerRevision,
                   hnsHeight: 1n,
                   hnsBlockHash: h("c"),
-                  observedAt: 65536n,
+                  observedAt: state.hnsObservedAt,
                   validUntil: state.hnsValidUntil,
                   evidenceSha256: h("6"),
                 },
@@ -404,6 +454,7 @@ export async function web2DirectoryFixture(
     profile,
     records,
     state,
+    authority,
     client,
     // Deliberately tiny fixture-only freshness budget, never a live default.
     policy: { now: () => state.now, maxSafeBlockAgeSeconds: 100n },

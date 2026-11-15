@@ -30,7 +30,12 @@ updates the canonical origin commitment with the controller's expected config
 revision. Ordinary `configure` keeps the origin. Controller changes retain the
 two-step exact-configuration transfer. An origin change increments origin revision;
 a controller change increments both origin revision and controller revision.
-Neither can resurrect old proof after A→B→A. Observations cannot predate the
+For an existing community it also clears listing, increments listing revision
+even if already unlisted, and emits `ListingChanged` with `listed=false` and
+`reasonSha256=keccak256("pirate.directory/controller-transfer")`. Initial
+registration keeps listing revision zero and emits no delisting. A transfer
+back requires fresh proofs and a new listing approval; neither revives.
+Origin/controller round trips cannot resurrect old proof. Observations cannot predate the
 address/controller binding update, even when supplied with its new revision. Publisher or content-only changes
 increment config revision without needlessly revoking valid address proof.
 Origin bytes are canonical HTTPS origin UTF-8; `originSha256 = SHA256(bytes)`.
@@ -114,11 +119,45 @@ adoption, real address proof service, invites/top-ups, deployment and browser
 acceptance remain later integration gates. The attachment tests use a named
 stand-in verifier/registry, not claimed live HNS interoperability.
 
-Verifier rotation immediately removes old-role write access. Existing bounded
+Routine `setVerificationRoles` rotation immediately removes old-role write access. Existing bounded
 attestations remain valid until expiry or explicit per-community revocation by
 the new verifier. Rotation does not silently re-list, erase history or assert
 that all earlier observations were false. Registrar separation is checked in
 both rotation directions.
+
+An emergency uses `invalidateWeb2Proofs(replacementVerifier)` or
+`invalidateHnsProofs(replacementVerifier)`, restricted to admin. The action
+atomically replaces only the affected verifier, increments only that proof
+type's generation and records `block.timestamp` as its invalidation time.
+Zero, current-verifier and registrar addresses refuse without mutation. There
+is no same-key invalidation exception. Listing, configuration, community proof
+revisions, stored proof tuples and the other proof type remain unchanged.
+
+Each proof type starts in generation 1. Acceptance stores that current generation
+beside the unchanged proof struct; a community with no accepted proof has
+generation 0. Validity additionally requires accepted generation equal to the
+current generation. Emergency invalidation therefore removes all old proofs of
+that type immediately without walking communities or deleting evidence.
+`getWeb2ProofAuthority()` and `getHnsProofAuthority()` return
+`(verifier,generation,invalidatedAt)`; `getWeb2ProofGeneration(id)` and
+`getHnsProofGeneration(id)` return the last accepted generation. Existing proof
+getters retain their exact return shapes. Each acceptance emits
+`Web2ProofGenerationAccepted` or `HnsProofGenerationAccepted` with community ID,
+proof revision and accepted generation beside its existing proof event.
+`Web2ProofsInvalidated` and `HnsProofsInvalidated` identify previous/new verifiers,
+new generation and cutoff; role observers must consume these emergency events
+as well as the routine `VerificationRolesChanged` event.
+
+After emergency invalidation, a newly accepted proof must have `observedAt`
+strictly later than that proof type's invalidation time, in addition to all
+existing observation, binding, revocation and expiry rules. This also applies
+to a community's first proof. Old-verifier pending calls lose authority; a new
+verifier cannot resubmit their old observations. An observation at the cutoff,
+including one in the same block, refuses. Returning to an earlier verifier
+never resets the generation or cutoff and cannot revive earlier proofs.
+Recovery requires a later observation from the then-current verifier, and
+never restores a delisting. Routine role rotation does not reset these emergency
+watermarks or generations.
 
 ## Concrete source selection and joins
 
@@ -166,16 +205,22 @@ awaits, and the clock is sampled again after all reads and the canonical recheck
 A clock regression during the read refuses the result.
 
 There are no bare `discoverable`, `web2Verified` or `hnsVerified` fields on the
-reader result. `verificationSnapshot` is an immutable, versioned historical fact
+reader result. `verificationSnapshot` uses `pirate.directory-verification-snapshot/2`
+and is an immutable, versioned historical fact
 bound to the source profile, safe block number/hash/timestamp, capture time,
-listing state, both verification revisions and the complete Web2/HNS proof
+listing state/revision, both verification revisions, each proof type's current
+verifier/generation/invalidation time, each proof's accepted generation, and the complete Web2/HNS proof
 tuples (including original observation and expiry). `verifiedAtBlock` and
 `discoverableAtBlock` describe that block only. All proof/state reads use the
 same captured block; the final recheck also requires its unchanged timestamp.
+Claimed at-block validity with a mismatched generation or observation at/before
+an emergency cutoff refuses as an inconsistent snapshot. There is no `/1`
+snapshot adoption or cache fallback.
 
 `eligibility` is evaluated at completion. When the snapshot age is within the
 explicit maximum (inclusive), each proof requires its original at-block validity
-and `evaluatedAt < validUntil`. Discovery requires listing plus either proof.
+and `evaluatedAt < validUntil`, matching accepted/current generation and a
+post-invalidation observation where an emergency has occurred. Discovery requires listing plus either proof.
 Expiry of one proof leaves the other independently usable; delisting or a false
 at-block verification cannot be undone by a future deadline. A stale safe block
 or a clock behind the snapshot yields `status: "unavailable"` with a reason,
@@ -212,62 +257,38 @@ immutable substitutions and EIP-170 size. It emits the ABI, source metadata,
 ABI SHA-256 (compact JSON bytes), runtime Keccak and actual runtime into
 `packages/community/generated/directory-v3.ts`. A second generation must be
 byte-identical. Formatting source changes metadata and requires regeneration.
+The generator also checks every current source hash against compiler metadata
+and refuses stale compiler artifacts before writing generated pins.
 
-## Checkpoint evidence and limits
+## Qualification
 
-On November 14 the focused offline community Forge run passed all 110 cases
-(24 new V3 cases, 86 retained community cases), with no failures or skips:
+Local qualification on November 15 passed the complete Directory V3 file
+(27 tests), all community Solidity suites (113 tests, including those 27),
+and the complete consent caller suite (11 tests), with no skips or failures.
+The pinned offline Solidity 0.8.30/Cancun/optimizer-200 build generated identical
+output twice. Independent artifact checks confirmed the ABI, source metadata,
+runtime identity and EIP-170 size: 20,171 bytes, with 4,405 bytes of headroom.
 
-```
-forge test --offline --match-path 'test/solidity/community/*.t.sol'
-node_modules/.bin/tsc --noEmit
-node --test --test-concurrency=2 test/web2-directory.test.ts test/directory-reader.test.ts test/directory-pages.test.ts test/configuration-index.test.ts test/shared-directory.test.ts test/shared-directory-registration.test.ts
-```
+| Generated pin      | Value                                                                |
+| ------------------ | -------------------------------------------------------------------- |
+| Runtime Keccak-256 | `0x79e29292b6b6108646c977e795ef2c1670f543e24c3dad0b47d846fe6a4e1973` |
+| ABI SHA-256        | `0x4fba8e677f4acd83f77151dde8f5cc39900b2b427f809892dfea8369f6972935` |
 
-The six-file Node run passed 62 cases, including 21 new V3 cases. The V3 cases
-were rerun after final source formatting and compiled-output regeneration.
-TypeScript and scoped Forge/Prettier checks passed. Two generations produced
-identical output. Final runtime size is 18,518 bytes, below 24,576. ABI SHA-256 is
-`17c0c51a18f76bbf5fa7600565c08157443a02c7cdb84a9e81e8784e681ba7b5`;
-runtime Keccak is
-`a6647ba9f3dbe9e5a940eb493dba7a780664e04062d81472ce9adbc06c3f016e`.
-These are compiled local artifacts, not a deployed contract or gas estimate.
+Full root types passed with the existing root and web dependencies. A combined
+12-file reader/service run passed 131 of 133 cases; the first-song case reached
+its 120-second limit and the paired Wizard case hit its fixture HTTP deadline.
+Both cases then passed unchanged when run serially, in 61.765 and 34.827 seconds,
+with their original limits and assertions. All five new authority-reader cases
+passed. The failed combined run is retained and is not reported as green.
 
-The integration coordinator explicitly kept the broad application-check slot
-with CI and authorized this focused draft checkpoint. The full `npm run check`,
-current candidate hosted CI, independent source review, integrated application
-acceptance and live proof/service/funding checks remain required and are not
-claimed here. Earlier V2 full-suite results are predecessor evidence only.
-The transition test publishes a Video manifest commitment to a song tuple through
-PostsV1; it does not execute the separately owned Dance consent/review flow.
+Earlier confined-run failures were `listen EPERM` on loopback and missing web
+dependency resolution. Correcting runner access and dependency links required
+no behavioral source change. Retained commands, outputs, artifacts and exact
+source hashes distinguish those failed attempts from the successful checks.
+Independent source and generated-artifact review found no blocking finding.
 
-The subsequent caller-only expiry repair leaves the contract, interface, generator
-and generated ABI/runtime byte-identical to `e8926ec`. Its focused Web2 suite
-passes all 34 cases (the original 21 plus 13 expiry/freshness/clock cases), with
-no failures, skips or cancellations; root TypeScript and scoped Prettier checks
-pass. Cases include stalled and future snapshots, exact expiry/age boundaries,
-both single-proof directions, both expired, time advancing during async reads,
-policy mutation, clock regression and retained-snapshot reevaluation. Earlier
-Solidity/other suite results remain evidence for their unchanged source; no
-new full application, deployment or live freshness-policy acceptance is claimed.
-
-The subsequent normal merge of main
-`9374f4c6abd0fa98c5ac1a5d53b6afde09e6b99c` retains the exact V3 contract,
-interface, generator and generated artifact bytes from `1b63f4a`. It adopts
-Web2 configuration `/4` and the existing catalog recognition profile described
-above. Five added cases cover schema confusion, catalog signed enrollment and
-authenticated replay, missing/tampered pins, role collisions and unchanged
-noncatalog keys. The nine selected Node files passed 95 cases; the Web2 file
-passed all 39 cases again after the final type correction. TypeScript, all
-110 community Solidity cases and scoped formatting passed. Regeneration from
-the offline compiler artifact reproduced the committed generated file exactly.
-The broad application and six-suite hosted CI gates must qualify this merged
-candidate separately; no application adoption or deployment is claimed here.
-
-Hosted run `43674313845` found 17 Linux authority/producer failures because the
-static runtime guard still pinned the prior reader file. The successor updates
-only that expected SHA-256 to the actual reviewed reader bytes; the byte guard
-and all authority assertions remain intact. All 17 original cases pass locally
-with their required private temporary directory. A first invocation without
-that required directory failed before exercising the guard. Full hosted CI must
-run again on the pin-repair successor; the earlier run is retained as failed.
+Complete current-base CI with all six suites and release-ready, downstream
+deployment selection and real proof/service acceptance remain required. These
+local results do not qualify a deployment or upgrade an existing Directory
+instance. Run heavy local first-song and Wizard fixtures serially when sharing
+this development host; their existing time limits remain unchanged.

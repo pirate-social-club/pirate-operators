@@ -29,6 +29,16 @@ export function generateDirectoryV3() {
   ) {
     throw new Error("wrong_directory_build_profile");
   }
+  // A source-only checkpoint may retain an older out/ tree. Never publish its
+  // ABI/runtime pins as though they were compiled from the current sources.
+  for (const [path, source] of Object.entries(metadata.sources)) {
+    if (
+      keccak256(readFileSync(path)) !==
+      (source as { keccak256: string }).keccak256
+    ) {
+      throw new Error(`stale_directory_build_source:${path}`);
+    }
+  }
   const runtime: unknown = artifact.deployedBytecode.object;
   if (
     typeof runtime !== "string" ||
@@ -41,9 +51,16 @@ export function generateDirectoryV3() {
   const abi = artifact.abi;
   if (
     !Array.isArray(abi) ||
-    !abi.some(
-      (entry) =>
-        entry.type === "function" && entry.name === "registerHostedCommunity",
+    ![
+      "registerHostedCommunity",
+      "invalidateWeb2Proofs",
+      "invalidateHnsProofs",
+      "getWeb2ProofAuthority",
+      "getHnsProofAuthority",
+      "getWeb2ProofGeneration",
+      "getHnsProofGeneration",
+    ].every((name) =>
+      abi.some((entry) => entry.type === "function" && entry.name === name),
     )
   ) {
     throw new Error("wrong_directory_abi");

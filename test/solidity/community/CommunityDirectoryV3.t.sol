@@ -110,6 +110,7 @@ contract CommunityDirectoryV3Test {
         bytes32 id = enroll(KEY);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         require(logs.length == 5);
+        require(d.getCommunity(id).listingRevision == 0);
         require(logs[1].topics[0] == keccak256("CommunityBound(bytes32,(bytes32,bytes32))") && logs[1].topics[1] == id);
         D.HostingBinding memory b = abi.decode(logs[1].data, (D.HostingBinding));
         require(b.communityKey == KEY && b.installationId == INSTALL);
@@ -311,10 +312,12 @@ contract CommunityDirectoryV3Test {
     function testPublisherChangeDoesNotInvalidateAddressProof() public {
         bytes32 id = enroll(KEY);
         verify(id);
+        attach(id);
         listing(id, true);
         vm.prank(CONTROLLER);
         d.configure(id, 1, config(CONTROLLER, OTHER));
         require(d.isDiscoverable(id) && d.getOrigin(id).revision == 1 && d.getCommunity(id).configurationRevision == 2);
+        require(d.getCommunity(id).listed && d.getCommunity(id).listingRevision == 1 && d.isHnsVerified(id));
     }
 
     function testControllerRoundTripCannotReviveWeb2OrHnsProof() public {
@@ -323,14 +326,159 @@ contract CommunityDirectoryV3Test {
         attach(id);
         listing(id, true);
         D.Web2Verification memory old = webProof(id);
+        vm.recordLogs();
         transfer(id, CONTROLLER, OTHER);
-        require(!d.isDiscoverable(id));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 listingEvents;
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].topics[0] != keccak256("ListingChanged(bytes32,uint64,bool,bytes32)")) continue;
+            require(logs[i].emitter == address(d) && logs[i].topics[1] == id);
+            (uint64 revision, bool listed, bytes32 reason) = abi.decode(logs[i].data, (uint64, bool, bytes32));
+            require(revision == 2 && !listed && reason == keccak256("pirate.directory/controller-transfer"));
+            ++listingEvents;
+        }
+        require(listingEvents == 1);
+        require(!d.isDiscoverable(id) && !d.getCommunity(id).listed && d.getCommunity(id).listingRevision == 2);
+        require(!d.isWeb2Verified(id) && !d.isHnsVerified(id));
         transfer(id, OTHER, CONTROLLER);
-        require(!d.isDiscoverable(id));
+        require(!d.isDiscoverable(id) && !d.getCommunity(id).listed && d.getCommunity(id).listingRevision == 3);
+        require(!d.isWeb2Verified(id) && !d.isHnsVerified(id));
         require(d.getOrigin(id).controllerRevision == 3);
         vm.prank(WEB2);
         vm.expectRevert(V1.InvalidVerification.selector);
         d.verifyWeb2(id, 1, old);
+        vm.warp(block.timestamp + 1);
+        verify(id);
+        attach(id);
+        require(d.isWeb2Verified(id) && d.isHnsVerified(id) && !d.isDiscoverable(id));
+        listing(id, true);
+        require(d.isDiscoverable(id) && d.getCommunity(id).listingRevision == 4);
+    }
+
+    // Failure cases: accepted proofs surviving replacement; pending writes from
+    // the old key; first proofs bypassing the cutoff; same-block observations;
+    // cross-type invalidation; key round trips reviving old observations;
+    // same-key/unauthorized replacement and proof recovery silently relisting.
+    function testWeb2EmergencyReplacementRejectsPendingAndSameBlockProofsAndRecovers() public {
+        bytes32 id = enroll(KEY);
+        bytes32 pendingId = enroll(keccak256("pending-web2"));
+        verify(id);
+        attach(id);
+        listing(id, true);
+        D.Web2Verification memory pending = webProof(pendingId);
+        vm.warp(10100);
+        vm.recordLogs();
+        d.invalidateWeb2Proofs(OTHER);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1);
+        require(logs[0].topics[0] == keccak256("Web2ProofsInvalidated(address,address,uint64,uint64)"));
+        require(logs[0].topics[1] == bytes32(uint256(uint160(WEB2))));
+        require(logs[0].topics[2] == bytes32(uint256(uint160(OTHER))));
+        (uint64 generation, uint64 invalidatedAt) = abi.decode(logs[0].data, (uint64, uint64));
+        require(generation == 2 && invalidatedAt == 10100);
+        (address verifier, uint64 current, uint64 cutoff) = d.getWeb2ProofAuthority();
+        require(verifier == OTHER && current == 2 && cutoff == 10100);
+        require(d.getWeb2ProofGeneration(id) == 1 && d.getWeb2ProofGeneration(pendingId) == 0);
+        require(!d.isWeb2Verified(id) && d.isHnsVerified(id) && d.isDiscoverable(id));
+        require(d.getHnsProofGeneration(id) == 1 && d.getCommunity(id).listingRevision == 1);
+        vm.prank(WEB2);
+        vm.expectRevert(V1.Unauthorized.selector);
+        d.verifyWeb2(pendingId, 0, pending);
+        vm.prank(OTHER);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.verifyWeb2(pendingId, 0, pending);
+        pending = webProof(pendingId);
+        vm.prank(OTHER);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.verifyWeb2(pendingId, 0, pending);
+        d.invalidateWeb2Proofs(WEB2);
+        require(!d.isWeb2Verified(id) && d.getWeb2ProofGeneration(id) == 1);
+        vm.prank(WEB2);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.verifyWeb2(pendingId, 0, pending);
+        vm.warp(10101);
+        verify(id);
+        verify(pendingId);
+        require(d.isWeb2Verified(id) && d.isWeb2Verified(pendingId));
+        require(d.getWeb2ProofGeneration(id) == 3 && d.getWeb2ProofGeneration(pendingId) == 3);
+        require(!d.isDiscoverable(pendingId) && d.isDiscoverable(id));
+        (, uint64 hnsGeneration, uint64 hnsCutoff) = d.getHnsProofAuthority();
+        require(hnsGeneration == 1 && hnsCutoff == 0);
+    }
+
+    function testHnsEmergencyReplacementIsIndependentAndRequiresLaterObservation() public {
+        bytes32 id = enroll(KEY);
+        bytes32 pendingId = enroll(keccak256("pending-hns"));
+        verify(id);
+        D.HnsAttachment memory proof = attach(id);
+        listing(id, true);
+        vm.warp(10100);
+        vm.recordLogs();
+        d.invalidateHnsProofs(OTHER);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        require(logs.length == 1);
+        require(logs[0].topics[0] == keccak256("HnsProofsInvalidated(address,address,uint64,uint64)"));
+        require(logs[0].topics[1] == bytes32(uint256(uint160(HNS))));
+        require(logs[0].topics[2] == bytes32(uint256(uint160(OTHER))));
+        (uint64 generation, uint64 invalidatedAt) = abi.decode(logs[0].data, (uint64, uint64));
+        require(generation == 2 && invalidatedAt == 10100);
+        (address verifier, uint64 current, uint64 cutoff) = d.getHnsProofAuthority();
+        require(verifier == OTHER && current == 2 && cutoff == 10100);
+        require(!d.isHnsVerified(id) && d.isWeb2Verified(id) && d.isDiscoverable(id));
+        require(d.getHnsProofGeneration(id) == 1 && d.getHnsProofGeneration(pendingId) == 0);
+        vm.prank(HNS);
+        vm.expectRevert(V1.Unauthorized.selector);
+        d.attachHns(pendingId, "fixture", 0, proof);
+        vm.prank(OTHER);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.attachHns(pendingId, "fixture", 0, proof);
+        proof.observedAt = 10100;
+        proof.validUntil = 10100 + 1 days;
+        vm.prank(OTHER);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.attachHns(pendingId, "fixture", 0, proof);
+        d.invalidateHnsProofs(HNS);
+        require(!d.isHnsVerified(id) && d.getHnsProofGeneration(id) == 1);
+        vm.prank(HNS);
+        vm.expectRevert(V1.InvalidVerification.selector);
+        d.attachHns(pendingId, "fixture", 0, proof);
+        listing(id, false);
+        vm.warp(10101);
+        proof.observedAt = 10101;
+        proof.validUntil = 10101 + 1 days;
+        vm.prank(HNS);
+        d.attachHns(id, "fixture", 1, proof);
+        vm.prank(HNS);
+        d.attachHns(pendingId, "fixture", 0, proof);
+        require(d.isHnsVerified(id) && d.isHnsVerified(pendingId) && !d.isDiscoverable(id));
+        require(d.getHnsProofGeneration(id) == 3 && d.getHnsProofGeneration(pendingId) == 3);
+        (, uint64 web2Generation, uint64 web2Cutoff) = d.getWeb2ProofAuthority();
+        require(web2Generation == 1 && web2Cutoff == 0 && d.getWeb2ProofGeneration(id) == 1);
+    }
+
+    function testEmergencyReplacementRequiresAdminAndDifferentNonRegistrarVerifier() public {
+        vm.prank(WEB2);
+        vm.expectRevert(V1.Unauthorized.selector);
+        d.invalidateWeb2Proofs(OTHER);
+        vm.prank(HNS);
+        vm.expectRevert(V1.Unauthorized.selector);
+        d.invalidateHnsProofs(OTHER);
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateWeb2Proofs(WEB2);
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateHnsProofs(HNS);
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateWeb2Proofs(address(0));
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateHnsProofs(address(0));
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateWeb2Proofs(REGISTRAR);
+        vm.expectRevert(V1.InvalidConfiguration.selector);
+        d.invalidateHnsProofs(REGISTRAR);
+        (address web2Role, uint64 web2Generation, uint64 web2Cutoff) = d.getWeb2ProofAuthority();
+        (address hnsRole, uint64 hnsGeneration, uint64 hnsCutoff) = d.getHnsProofAuthority();
+        require(web2Role == WEB2 && web2Generation == 1 && web2Cutoff == 0);
+        require(hnsRole == HNS && hnsGeneration == 1 && hnsCutoff == 0);
     }
 
     function testHnsExpiryCannotRemoveValidWeb2DiscoveryOrRelist() public {
