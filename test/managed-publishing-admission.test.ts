@@ -245,3 +245,38 @@ test("revocation during real canonical readiness blocks the managed HTTP ADD bef
     await f.artifact("v2-real-managed-dispatch-gate");
   } finally { await f.close(); }
 });
+
+
+// Correction-v3: captured authority must expire inside the actual D1 transaction. UNRUN.
+test("database-time expiry refuses a captured live admission predicate without consuming counters and retains authenticated replay", async () => {
+  const f = await managedServicesFixture({ grantSeconds: 30 });
+  try {
+    await f.prepare(); await f.attach();
+    const g = f.registration.grant, gate = f.admissionGate(), live = {
+      operationId: "v3-live-pin-original", requestHash: hashText("independent v3 live pin request"), asset: "pin_adds" as const, requested: "1",
+    }, delayed = { ...live, operationId: "v3-captured-expired-pin", requestHash: hashText("independent v3 delayed pin request") };
+    // Exercise the committed shared lazy supplier and actual budget transaction positively.
+    await reserveOwnerBudget(f.db, g, live.asset, live.operationId, live.requestHash, live.requested, undefined,
+      () => gate.reservationCondition(g, live));
+    assert.equal(await f.reservationCount(live.operationId), 1);
+    const captured = await gate.reservationCondition(g, delayed), before = await f.budgets();
+    await f.waitForDatabaseExpiry();
+    // Bypass only the JS sampling to expose the reservation's actual SQL fence.
+    await assert.rejects(f.reserveWithGateCondition(delayed, captured), /managed_admission_not_current/);
+    assert.equal(await f.reservationCount(delayed.operationId), 0);
+    assert.deepEqual(await f.budgets(), before);
+    let liveSupplierCalls = 0;
+    const unavailable = async () => { liveSupplierCalls++; throw Error("expired live supplier must not run for an identical original"); };
+    await reserveOwnerBudget(f.db, g, live.asset, live.operationId, live.requestHash, live.requested, undefined, unavailable);
+    assert.equal(liveSupplierCalls, 0);
+    await assert.rejects(reserveOwnerBudget(f.db, g, live.asset, live.operationId, hashText("conflicting v3 replay"), live.requested,
+      undefined, unavailable), /reservation_conflict/);
+    assert.equal(liveSupplierCalls, 0);
+    await settleOwnerBudget(f.db, g, live.asset, live.operationId, "1");
+    const settled = await f.db.prepare("SELECT status,actual FROM spending_reservations WHERE reservation_id=?")
+      .bind(live.operationId).first<{ status: string; actual: string }>();
+    assert.deepEqual(settled, { status: "settled", actual: "1" });
+    assert.equal((await (await f.reconcile()).json()).state, "attached");
+    await f.artifact("v3-database-expiry-and-retained-settlement");
+  } finally { await f.close(); }
+});

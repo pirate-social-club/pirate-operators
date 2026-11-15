@@ -60,12 +60,16 @@ export function configuredPublishingAdmission(env: ManagedPublishingAdmissionEnv
         await current(original);
         insist((await journal.observation(original, digest)).state === "attached", "managed_attachment_unavailable", 503);
         requireOwnerGrantTime(original.grant); unchanged();
+        // The captured predicate can wait before reserveBudget commits. Fence
+        // the exact original window with D1 time in that SAME transaction.
         return { clause: `EXISTS(SELECT 1 FROM managed_publishing_registrations r
           JOIN managed_publishing_admissions a ON a.admission_reference=r.admission_reference
           JOIN managed_publishing_installation i ON i.origin=?
           WHERE r.admission_reference=? AND json_extract(r.record_json,'$.body')=? AND r.state='active' AND a.state='attached'
-          AND a.selection_digest=? AND a.registration_json=? AND i.epoch=? AND i.restore_anchor_sha256=?)`,
-          binds: [config.origin, original.admissionReference, record, digest, revision, config.journal.epoch, config.journal.restoreAnchorSha256],
+          AND a.selection_digest=? AND a.registration_json=? AND i.epoch=? AND i.restore_anchor_sha256=?
+          AND unixepoch()>=? AND unixepoch()<?)`,
+          binds: [config.origin, original.admissionReference, record, digest, revision, config.journal.epoch, config.journal.restoreAnchorSha256,
+            original.grant.validFrom, original.grant.expiresAt],
           code: "managed_admission_not_current" };
       },
       async beforeDispatch(grant, operation) {

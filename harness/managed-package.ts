@@ -356,8 +356,9 @@ export function managedFreshStackIdentity(input: {
     i.state.store === "pirate-encrypted-local" && i.state.stack === i.prefix, "fresh_managed_stack_identity_required");
   bytes32(i.planId); return i;
 }
-/** Our bounded intake shape, not a frozen W1 asset/export declaration. Root must
- * supply the final W1 Vite manifest pin/entry/CSP before any package gate. */
+/** Bounded intake for W1's committed moss-signing.html / manifest contract.
+ * Root must supply and verify the actual emitted artifact/manifest pin before
+ * any package gate. No artifact is built or inferred by this declaration. */
 export interface OperatorSigningBuildInputs {
   directory: string; manifestPath: string; manifestSha256: Hex; entryKey: string; htmlFile: string;
   origin: string; contentSecurityPolicy: string;

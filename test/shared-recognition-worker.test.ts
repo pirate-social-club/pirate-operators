@@ -142,3 +142,26 @@ test("retained recognition status survives admission revocation and removal with
     await f.artifact("v2-retained-recognition-status");
   } finally { await f.close(); }
 });
+
+
+// Correction-v3: real signed malformed inputs, real empty D1, no installation row. UNRUN.
+test("signed recognition journal digests reject every terminal line separator before provisioning any installation", async () => {
+  const f = await managedServicesFixture();
+  try {
+    for (const field of ["epoch", "restoreAnchorSha256"] as const) {
+      for (const suffix of ["\n", "\r\n", "\u2028", "\u2029"]) {
+        await f.withRecognitionJournalCandidate(field, suffix, async ({ db, provision }) => {
+          const count = async () => (await db.prepare("SELECT count(*) AS n FROM shared_recognition_installation").first<{ n: number }>())!.n;
+          assert.equal(await count(), 0);
+          await assert.rejects(provision());
+          assert.equal(await count(), 0, `${field}:${JSON.stringify(suffix)}`);
+        });
+      }
+    }
+    await f.withRecognitionJournalCandidate("epoch", "", async ({ db, provision }) => {
+      await provision();
+      assert.equal((await db.prepare("SELECT count(*) AS n FROM shared_recognition_installation").first<{ n: number }>())!.n, 1);
+    });
+    await f.artifact("v3-recognition-pre-row-digest-refusals");
+  } finally { await f.close(); }
+});

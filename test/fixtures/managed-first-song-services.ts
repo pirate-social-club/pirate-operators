@@ -7,11 +7,11 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile, mkdir, readdir, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { sha256, type Hex } from "viem";
@@ -68,6 +68,7 @@ async function bundle(entry: string) {
   return result.outputFiles[0]!.text;
 }
 export async function managedServicesFixture(options: { grantSeconds?: number } = {}) {
+  const journalCandidateEvidence: { field: string; suffix: string; installationRows: number }[] = [];
   const cleanups: Array<() => Promise<void>> = []; let closed = false;
   async function close() {
     if (closed) return; closed = true;
@@ -286,7 +287,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       async reserveWithGateCondition(original: { operationId: string; requestHash: Hex; asset: "pin_adds"; requested: string }, condition: ReservationCondition) {
         const owner = ownerWindowCondition(grant);
         // Tests the adapter predicate against actual existing D1 transaction
-        // guards, not W1's still-pending lazy supplier call signature.
+        // guards. The v3 live/replay case separately uses W1's committed lazy supplier.
         await reserveBudget(db, original.operationId, original.requestHash, [ownerBudgetKey(grant, original.asset)], original.requested,
           { clause: `(${owner.clause}) AND (${condition.clause})`, binds: [...owner.binds, ...condition.binds], code: condition.code });
       },
@@ -298,6 +299,29 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
             nonce: hashText(randomUUID()), issuedAt, expiresAt: issuedAt + 120 }, { context, role: "audio" });
         return http!.transport(new Request(registration.serviceOrigin + "/v1/owner-releases/pin", { method: "POST",
           headers: { "content-type": "application/json" }, body: canonical(signed) }));
+      },
+      async waitForDatabaseExpiry() {
+        const deadline = Date.now() + 60000;
+        for (;;) {
+          const row = await db.prepare("SELECT unixepoch() AS now").first<{ now: number }>();
+          assert(row); if (row.now >= grant.expiresAt) return;
+          assert(Date.now() < deadline, "actual D1 clock did not reach the original expiry");
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      },
+      async withRecognitionJournalCandidate(field: "epoch" | "restoreAnchorSha256", suffix: string,
+        inspect: (input: { db: D1Database; provision(): Promise<void> }) => Promise<void>) {
+        const isolated = new Miniflare({ modules: true, script: "export default { fetch() { return new Response(null, {status:404}); } };",
+          compatibilityDate: "2026-08-06", d1Databases: ["DB"] });
+        try {
+          const db = await isolated.getD1Database("DB"); await schema(db, "packages/recognition/schema.sql");
+          // Deliberately malformed signed wire JSON, not a cast pretending the digest is valid.
+          const candidate = JSON.parse(canonical(recognition)); candidate.journal[field] += suffix;
+          const record = sign(candidate);
+          await inspect({ db, provision: () => provisionSharedRecognitionInputs(db, record, trust) });
+          const count = await db.prepare("SELECT count(*) AS n FROM shared_recognition_installation").first<{ n: number }>();
+          assert(count); journalCandidateEvidence.push({ field, suffix: JSON.stringify(suffix), installationRows: count.n });
+        } finally { await isolated.dispose(); }
       },
       waitPastGrantExpiry: () => new Promise<void>(resolve => setTimeout(resolve, Math.max(0, (grant.expiresAt + 1) * 1000 - Date.now()))),
       async replaceActualPublisherKey() { assert(root); await writeFile(join(root, "keys/publisher"), Buffer.from("52".repeat(32), "hex"), { mode: 0o600 }); },
@@ -443,7 +467,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
         const directory = `.local/managed-first-song-service-tests/${runId}`;
         await mkdir(directory, { recursive: true });
         await writeFile(`${directory}/${label}.json`, JSON.stringify({ schema: "pirate.managed-service-integration-evidence/1",
-          label, runId, pinAdds, sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
+          label, runId, pinAdds, journalCandidateEvidence, sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
           sourceStatus: (await promisify(execFile)("git", ["status", "--short"])).stdout,
           runnerOutcome: "external test runner completion and cleanup required", providerEffects: { uploads, identifies }, registrationTransaction: chain.original.transactionHash, selectionDigest: selection.selectionDigest, grantDigest: grant.sha256,
           admissions: await rows(), budgets: await budgets(), providerRequests, attachCalls, crossed, http: http!.evidence }, null, 2));
@@ -462,7 +486,7 @@ export async function signingHelperBoundaryFixture() {
     origin = "https://managed-signing.fixture.example";
   await mkdir(assets); await writeFile(join(directory, "operator-signing"), entry); await writeFile(join(assets, "helper-fixture.js"), chunk);
   const script = await bundle("services/managed-publishing-worker.ts"), profile = { schema: "pirate.operator-signing-closure/1", origin,
-    contentSecurityPolicy: "default-src 'none'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'",
+    contentSecurityPolicy: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com; frame-src https://*.megaeth.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     files: [{ path: "/operator-signing", sha256: sha256(entry), contentType: "text/html" },
       { path: "/assets/helper-fixture.js", sha256: sha256(chunk), contentType: "text/javascript" }] };
   const options = () => ({ modules: true, script, compatibilityDate: "2026-08-06", compatibilityFlags: ["nodejs_compat"],
@@ -471,11 +495,61 @@ export async function signingHelperBoundaryFixture() {
     bindings: { MANAGED_PUBLISHING_PROFILE: "operator-signing-only", OPERATOR_SIGNING_PROFILE_JSON: canonical(profile) } });
   const runtime = new Miniflare(options());
   return { entry, fetch: (path: string, init?: RequestInit) => runtime.dispatchFetch(origin + path, init),
+    async changeCsp(value: string) { profile.contentSecurityPolicy = value; await runtime.setOptions(options()); },
     async tamperChunk() { await writeFile(join(assets, "helper-fixture.js"), "changed bytes"); await runtime.setOptions(options()); },
     async artifact(label: string) {
       const output = `.local/managed-first-song-service-tests/static-${randomUUID()}`; await mkdir(output, { recursive: true });
       await writeFile(join(output, label + ".json"), JSON.stringify({ label, profile, bundleSha256: hashText(script),
         sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
-        limitation: "static boundary only; final W1 asset contract and actual MOSS prompt UNRUN" }, null, 2));
+        limitation: "static boundary only; actual emitted W1 closure packaging and real MOSS prompt UNRUN" }, null, 2));
     }, close: () => runtime.dispose() };
+}
+
+
+/** Actual packaged entry, actual pinned Alchemy imports. Negative-only local
+ * process: no credentials, provider simulation, Stack runner or deployment. */
+export async function managedPackageEntryBoundaryFixture() {
+  const directory = await mkdtemp(join(tmpdir(), "pirate-managed-entry-")), entry = join(directory, "alchemy.run.mjs"),
+    outcomes: unknown[] = [], state = join(directory, ".alchemy"), prefix = "pirate-managed-v3-fixture",
+    planId = hashText("independent v3 reviewed configuration fixture plan");
+  await mkdir(join(state, "state", "pirate-managed-firstsong-20261105"), { recursive: true });
+  await writeFile(join(state, "state", "pirate-managed-firstsong-20261105", "sentinel"), "test-local historical sentinel, never a real state store");
+  await symlink(fileURLToPath(new URL("../../apps/community-wizard/node_modules", import.meta.url)), join(directory, "node_modules"), "dir");
+  await build({ entryPoints: ["apps/managed-moderation/alchemy.run.ts"], outfile: entry, bundle: true, platform: "node", format: "esm",
+    packages: "external", target: "node24", logLevel: "silent" });
+  async function stateSnapshot() {
+    const files = (await readdir(state, { recursive: true, withFileTypes: true })).filter(item => item.isFile());
+    return Promise.all(files.sort((a, b) => join(a.parentPath, a.name).localeCompare(join(b.parentPath, b.name))).map(async item => {
+      const path = join(item.parentPath, item.name); return { path: path.slice(state.length + 1), sha256: sha256(await readFile(path)) };
+    }));
+  }
+  return {
+    async importPackagedEntry(profile: "managed-web2" | "operator-signing-only", selector: string | undefined) {
+      // An independent minimal fresh-package marker is enough to require selection.
+      // This is intentionally not a deployable backend/helper package.
+      const pkg = { schema: profile === "managed-web2" ? "pirate.managed-web2-services-package/1" : "pirate.managed-signing-helper-package/1",
+        packageProfile: profile, prefix,
+        identity: { prefix, packageProfile: profile, planId, state: { store: "pirate-encrypted-local", stack: prefix } } },
+        bytes = Buffer.from(JSON.stringify(pkg));
+      await writeFile(join(directory, "managed-web2-package.json"), bytes);
+      const beforeState = await stateSnapshot(), env: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH, NO_COLOR: "1", XDG_CONFIG_HOME: join(directory, "config"),
+        MANAGED_WEB2_PREFIX: prefix, MANAGED_WEB2_PLAN_ID: planId, MANAGED_WEB2_PACKAGE_DIGEST: sha256(bytes),
+      };
+      if (selector !== undefined) env.MANAGED_SERVICE_PACKAGE_PROFILE = selector;
+      const driver = `try { await import(${JSON.stringify(pathToFileURL(entry).href)}); console.log(JSON.stringify({initialized:true})); }
+        catch(error) { console.log(JSON.stringify({error:error instanceof Error?error.message:String(error)})); }`;
+      const result = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", driver], { cwd: directory, env, timeout: 30000 });
+      const outcome: unknown = JSON.parse(result.stdout.trim().split("\n").at(-1)!), afterState = await stateSnapshot();
+      outcomes.push({ profile, selector: selector ?? null, outcome, beforeState, afterState });
+      return { outcome, beforeState, afterState };
+    },
+    async artifact(label: string) {
+      const output = `.local/managed-first-song-service-tests/entry-${randomUUID()}`; await mkdir(output, { recursive: true });
+      await writeFile(join(output, label + ".json"), JSON.stringify({ label, outcomes,
+        entrySha256: sha256(await readFile(entry)), sourceRevision: (await promisify(execFile)("git", ["rev-parse", "HEAD"])).stdout.trim(),
+        boundary: "actual entry import rejects before its Stack/default initializer; isolated state sentinel unchanged; no provider or deployment runner invoked" }, null, 2));
+    },
+    close: () => rm(directory, { recursive: true, force: true }),
+  };
 }

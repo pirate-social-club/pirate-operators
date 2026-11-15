@@ -12,6 +12,13 @@ import { encryptedLocalState } from "./encrypted-state.ts";
 // identity, migrations, entrypoint and default bindings remain unchanged.
 const selectedProfile = process.env.MANAGED_SERVICE_PACKAGE_PROFILE;
 const helperOnly = selectedProfile === "operator-signing-only", fresh = selectedProfile === "managed-web2";
+// A generated fresh package must never inherit the historical stack because
+// its selector was omitted. Read only this package-local marker before either
+// provider construction or encrypted state initialization; do not hide IO errors.
+let packageBytes: Buffer | undefined;
+try { packageBytes = readFileSync(new URL("./managed-web2-package.json", import.meta.url)); }
+catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+if (packageBytes !== undefined && !fresh && !helperOnly) throw new Error("managed_package_profile_required");
 if (selectedProfile && !fresh && !helperOnly) throw new Error("unknown_managed_service_package_profile");
 const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || helperOnly ? process.env.MANAGED_WEB2_PREFIX! : historicalPrefix;
 // Before state/provider initialization, bind the reviewed generated package,
@@ -20,7 +27,7 @@ const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || 
 const selectedPackage = fresh || helperOnly ? (() => {
   if (!/^pirate-[a-z0-9-]{1,48}(?![\s\S])/.test(prefix ?? "") || prefix.startsWith(historicalPrefix))
     throw new Error("fresh_managed_stack_identity_required");
-  const bytes = readFileSync(new URL("./managed-web2-package.json", import.meta.url));
+  const bytes = packageBytes ?? readFileSync(new URL("./managed-web2-package.json", import.meta.url));
   if (bytes.length > 2 * 1024 * 1024 || "0x" + createHash("sha256").update(bytes).digest("hex") !== process.env.MANAGED_WEB2_PACKAGE_DIGEST)
     throw new Error("managed_package_pin_changed");
   const p = JSON.parse(bytes.toString("utf8")), i = p.identity;

@@ -4,6 +4,9 @@ Status: source-only composition, unqualified. No build, typecheck, integration
 case, migration, Alchemy apply or deployment has been run for this change.
 The installed native first-song qualification is historical evidence for its
 own immutable release; it does not qualify this service composition.
+Both product PR merges are held until owner morning, including changes to
+Alchemy/deployment settings even if later gates pass. Physical MOSS and live
+inputs also wait morning. This source packet authorizes no deployment or merge.
 
 This profile is the managed Web2 first-song service subset: a per-community
 Pirate grant admission service, existing owner pins-only release handlers and
@@ -59,7 +62,9 @@ reconcile its retained rows before a further controlled attempt. No HTTP path
 invokes provisioning or recreates a missing installation.
 
 `provisionSharedRecognitionInputs` explicitly admits the separate recognition
-D1 installation. Its signed configuration supplies the public recognition
+D1 installation. Both signed journal digests must be complete canonical bytes32
+strings; LF, CRLF and Unicode line terminators refuse before an installation row
+is created. Its signed configuration supplies the public recognition
 profile, provider-project binding, epoch/restore anchor, explicit finite
 service/community quotas and admitted signed community registrations. Actual
 ACRCloud identify credentials, catalog token and recognition signer are
@@ -128,8 +133,9 @@ GET `/health` is refused without both exact scope headers. The owning
 runtime consumer must add `x-pirate-community` and `x-pirate-owner-grant` for a
 scoped health read; the scoped response checks an attached original, current
 authority, lifetime and release credential/signer configuration. This consumer
-join remains with W1; it is not implemented by changing the historical runtime
-in this source slice.
+is present in the combined committed source at
+`services/first-song-runtime.ts`; exact-candidate behavior remains UNRUN. This
+source slice does not edit that shared consumer.
 
 ## Worker composition and package selection
 
@@ -138,9 +144,9 @@ in this source slice.
 missing fresh admission to a static grant. The fresh profile accepts catalog
 owner release paths and delegates them to the existing managed handler with
 one trusted journal-selected grant/pairing/deployment. Canonical calls and pin
-dispatch require the shared managed admission gate. Its final W1 implementation
-is still a required join, not qualified source in this packet. The historical profiles retain
-the existing registered/static-owner behavior. Historical automated moderation
+dispatch require the shared managed admission gate. Its final interface and
+consumer are present in the combined base; integration checks remain UNRUN.
+The historical profiles retain the existing registered/static-owner behavior. Historical automated moderation
 is not enabled in the fresh catalog profile.
 
 `services/shared-recognition-worker.ts` exports real awaited fetch, typed queue
@@ -150,8 +156,12 @@ Its canonical clients select only admitted pinned deployments. The separate
 recognition DB holds recognition journals; `ADMISSION_DB` is the managed D1
 binding used to recheck the exact active attached grant before and after
 canonical reads for new effects. Signed status requests retain original identity
-authentication without applying a new-effect eligibility decision; queued work
-still checks live admission. There is no isolate-global mutable authority registry.
+authentication without applying a new-effect eligibility decision. Entry and
+canonical boundaries check live admission for new work. Alpha separately owns
+the pending shared asynchronous upload/adapter live-effect callback repair;
+its final source pin and combined effect-boundary checks are required. Identity
+checks alone after a delayed await do not authorize a fresh upload. Retained
+read/status must still work. There is no isolate-global mutable authority registry.
 The existing runtime retains its policy, quota and receipt behavior. Cron
 recovery enqueues existing due originals; it does not generate outcomes.
 Unsupported cancellation/withdrawal refuses instead of fabricating evidence.
@@ -174,7 +184,11 @@ Alchemy remains the sole infrastructure owner. A fresh package requires
 The historical `pirate-managed-firstsong-20261105` prefix and its entire resource
 namespace are forbidden for both new profiles. Package identity binds profile,
 plan, prefix and `pirate-encrypted-local` state stack. Alchemy validates the
-actual generated package bytes and selected env identity before initializing
+presence of the generated `managed-web2-package.json` first: a missing, empty
+or incompatible profile selector refuses before any stack/state/provider
+initialization for both fresh service and signing-only packages. Historical
+defaults apply only without that fresh package marker. It then validates actual
+generated package bytes and selected env identity before initializing
 state/providers; the same checked prefix is passed to Alchemy.Stack and the
 existing encrypted store uses state/<stack>/<stage>. Its separate encrypted stack owns managed D1/R2/Queue
 and the independently scoped recognition D1/Queue/Worker/consumer/cron. Both new
@@ -204,8 +218,9 @@ and W1's existing `createWeb2PublisherProofSigner` for exact enrollment proof.
 The signer reconstructs only the retained enrollment challenge and keeps its
 original lease/generation/address checks. It is not an arbitrary signing API.
 
-Integration must join the three frozen W1 modules and scoped health consumer,
-assign/apply reviewed schema ordinals, provision real signed registrations and
+Integration must qualify the committed W1 modules and scoped health consumer,
+join Alpha's final shared live-effect callback repair, assign/apply reviewed
+schema ordinals, provision real signed registrations and
 custody references, install per-installation credentials, configure real
 provider association/credentials and dedicated signers, qualify origins and
 perform exact-candidate types, bundle/schema/dependency checks, HTTP/D1/queue/
@@ -224,27 +239,36 @@ an installation requires explicit treatment of each retained store and outside
 provider obligation; deleting local state does not prove external deletion.
 
 
-## Shared effect gate: required W1 join
+## Shared effect gate and atomic original window
 
-The own adapter is typed through `ManagedEnv["MANAGED_ADMISSION_GATE"]`. That
-property and its shared type are W1-owned and not present as a final source pin
-in this correction base. No duplicate shared declaration or unsafe cast supplies
-it. The agreed methods are `reservationCondition(grant, original)` returning the
-existing ReservationCondition and `beforeDispatch(grant, original)` returning
-Promise<void>. Reservation original binds operationId, requestHash, asset and
-requested; dispatch original binds operationId and requestHash. The closure
-captures the exact authenticated registration revision, selection digest,
-admission reference, community and publisher from trusted configuration/D1.
+The combined base contains W1's final `ManagedAdmissionGate` in
+`packages/release/managed-admission-gate.ts`, exposed through
+`ManagedEnv["MANAGED_ADMISSION_GATE"]`. The own adapter uses that shared type;
+there is no duplicate wire/grant declaration. Its methods are
+`reservationCondition(grant, original)` returning ReservationCondition and
+`beforeDispatch(grant, original)` returning Promise<void>. Reservation original
+binds operationId, requestHash, asset and requested; dispatch original binds
+operationId and requestHash. The closure captures the exact authenticated
+registration revision, selection digest, admission reference, community and
+publisher from trusted configuration/D1.
 
-Root/W1 must supply reservationCondition lazily inside reserveOwnerBudget only
-AFTER authenticating/checking an existing original reservation. The resulting
-predicate must be ANDed with ownerWindowCondition inside the same D1 reservation
-transaction. It must never replace the owner-window predicate or run eagerly on
-replay. beforeDispatch must run after the final awaited preflights immediately
-before the actual ADD/send. Post-response refusal cannot fence a paid effect.
-Replay/status/settlement may bypass new-effect eligibility, never authentication.
-The wrapper injects the adapter but cannot qualify an unjoined shared consumer.
-The prepared real HTTP ADD regression remains UNRUN until W1 joins that boundary.
+The committed `reserveOwnerBudget` invokes the supplier lazily only AFTER
+checking an existing original's request hash and amount, and ANDs its result
+with `ownerWindowCondition` in the SAME D1 reservation transaction. The own
+predicate additionally requires `unixepoch() >= original.validFrom` and
+`unixepoch() < original.expiresAt` alongside active original/revision, attached
+selection and journal epoch/anchor checks. Thus expiry while a captured condition
+waits cannot consume a reservation or counters. It neither replaces the owner
+window predicate nor chooses new limits/windows. Identical authenticated replay
+and settlement retain their original interpretation after expiry. Conflicting
+replay still refuses; new work and final dispatch need live authority.
+
+The shared consumer's `beforeDispatch` belongs after final awaited preflights
+and immediately before actual paid ADD/send. A post-response refusal cannot
+fence that effect. Source presence is not runtime qualification: actual HTTP,
+D1 captured-condition expiry, lazy replay, settlement and dispatch regressions
+are UNRUN. Alpha's separate asynchronous recognition live-effect repair remains
+a required shared source join; this slice does not edit its runtime/adapter.
 
 ## Narrow signing-only HTTPS component
 
@@ -254,19 +278,37 @@ imports or env/D1/key/provider initialization. Every backend/health route and
 queue/scheduled handler is unavailable in that profile. No grant, database,
 provider credential, publisher key or funding input is needed to serve it.
 Historical profiles keep their original routes. The static handler enforces
-exact HTTPS origin/Host, GET/HEAD, no query/encoded path aliases, fixed closure
-paths, response digest pins, bounded files and configured CSP; it forwards no
-incoming cookies, authorization or signing data to the ASSETS binding.
+exact HTTPS origin/Host, GET/HEAD, fixed closure paths, response digest pins
+and bounded files. The entry requires exactly
+`/operator-signing?openerOrigin=` plus encodeURIComponent of the canonical public
+`http://127.0.0.1:<explicit nonzero port <=65535>` origin. No localhost, IPv6,
+duplicate/extra parameter, encoded key alias or alternate query encoding is
+accepted. Assets remain queryless and encoded path aliases refuse. URL-normalized
+dot paths outside the static route remain backend-unavailable 503 with no data.
+It forwards no incoming cookies, authorization or signing data to the ASSETS binding.
 
 W1 owns moss-signing.html, its JavaScript and the exact opener origin/source,
-nonce, requestDigest and controller handshake. Root must provide the final
-reviewed build directory, manifest path/digest, manifest entry key, emitted
-moss-signing.html location, transitive dependency closure and response CSP.
-OperatorSigningBuildInputs is this packager's bounded intake shape, not a claim
-that W1's final export/asset contract has frozen. The helper packager generates
-no HTML/JS source and copies only that reviewed emitted closure. Until that
-contract is supplied, helper package/browser gates remain blocked and UNRUN;
-synthetic static-boundary fixture assets do not prove the real MOSS handshake.
+nonce, requestDigest and controller handshake. The committed source contract selects
+`apps/community-wizard/dist/moss-signing.html` and its `.vite/manifest.json` entry
+`moss-signing.html`, including recursive imports, dynamicImports, css and assets.
+Root must still supply and verify the actual emitted artifact and manifest
+digest before packaging; no build was performed here. OperatorSigningBuildInputs
+is this packager's bounded intake shape. The helper packager generates no HTML/JS
+source and copies only the reviewed emitted closure. Synthetic static-boundary
+fixture assets do not prove the real MOSS handshake.
+
+The exact committed CSP is `default-src 'none'; script-src 'self'; style-src
+'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com; frame-src
+https://*.megaeth.com; base-uri 'none'; form-action 'none'; frame-ancestors
+'none'`. Responses use Referrer-Policy strict-origin, X-Content-Type-Options
+nosniff, Cache-Control no-store, X-Frame-Options DENY and
+Cross-Origin-Opener-Policy unsafe-none. Permissions-Policy is
+`publickey-credentials-get=(self "https://account.megaeth.com"),
+publickey-credentials-create=(self "https://account.megaeth.com")`. The Worker
+requires that exact CSP, including only the specified MegaETH wildcards. This
+keeps the bound opener intact; the postMessage source/origin/nonce/digest/
+controller checks stay in W1's source. Raw requests and signing channel data do
+not enter the URL or ASSETS request.
 
 A qualified local top-level HTTPS signing-helper component may be tested with
 real MOSS before a public VPS, public domain or full managed backend. The first

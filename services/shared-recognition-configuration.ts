@@ -7,7 +7,7 @@ import { parsePlan } from "../packages/community/hosted-enrollment.ts";
 import { bindWeb2RegistrationTransaction, observeWeb2Registration } from "../packages/community/web2-registration-chain.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
 import { communityIpfsTransport } from "./community-deployment-profile.ts";
-import { authenticatedManagedRegistration, managedPublishingConfiguration, ManagedPublishingJournal, selectionFor, requireDedicatedManagedSigner, type ManagedPublishingConfiguration, type ManagedPublishingRegistration } from "../packages/release/managed-publishing-admission.ts";
+import { authenticatedManagedRegistration, managedDigest, managedPublishingConfiguration, ManagedPublishingJournal, selectionFor, requireDedicatedManagedSigner, type ManagedPublishingConfiguration, type ManagedPublishingRegistration } from "../packages/release/managed-publishing-admission.ts";
 import { verifyRecord, type SignedRecord, type TrustAnchor } from "../deploy/linux/installed-records.ts";
 import { recognitionProfile, type RecognitionProfile } from "../packages/recognition/intent.ts";
 import { validateProviderBinding, type ManagedCatalogBinding } from "../packages/recognition/provider-binding.ts";
@@ -74,7 +74,7 @@ export function trustedRecognitionConfiguration(record: SignedRecord<SharedRecog
   exact(object(c.journal), ["epoch", "restoreAnchorSha256"]); exact(object(c.quotas), ["service", "community"]);
   insist(c.schema === "pirate.shared-recognition-service/1" && Array.isArray(c.communities) && c.communities.length > 0 &&
     c.communities.length <= 100, "recognition_configuration_unavailable", 503);
-  const profile = recognitionProfile(c.profile); bytes32(c.journal.epoch); bytes32(c.journal.restoreAnchorSha256);
+  const profile = recognitionProfile(c.profile); managedDigest(c.journal.epoch); managedDigest(c.journal.restoreAnchorSha256);
   integer(c.quotas.service, 1, 1000000); integer(c.quotas.community, 1, c.quotas.service);
   const communities = c.communities.map(r => authenticatedManagedRegistration(r, trust));
   insist(new Set(communities.map(r => r.scope.communityId)).size === communities.length && canonical(profile) === canonical(c.profile),

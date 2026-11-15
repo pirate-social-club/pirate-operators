@@ -1,6 +1,7 @@
 /** Explicit profile wrapper. Existing registered/static owner composition stays
  * in managed-moderation.ts; fresh Web2 uses only journal-admitted owner grants. */
 import { sha256 } from "viem";
+import { loopbackSigningOpener } from "../apps/community-wizard/src/web2-moss-window.ts";
 import type { ManagedEnv } from "./managed-moderation.ts";
 import { bytes32, CommunityError, exact, insist, jsonBody, object } from "../packages/community/common.ts";
 import type { ManagedPublishingAdmissionEnv } from "./managed-publishing-admission.ts";
@@ -23,12 +24,14 @@ export interface OperatorSigningClosure {
   contentSecurityPolicy: string;
   files: { path: string; sha256: string; contentType: string }[];
 }
+// Exact committed W1 response contract. Wildcards are confined to MegaETH's
+// required SDK endpoints; configuration cannot select a broader policy.
+const signingContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com; frame-src https://*.megaeth.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 export function operatorSigningClosure(input: OperatorSigningClosure) {
   const p = structuredClone(input); exact(object(p), ["schema", "origin", "contentSecurityPolicy", "files"]);
   const origin = new URL(p.origin);
   insist(p.schema === "pirate.operator-signing-closure/1" && origin.protocol === "https:" && p.origin === origin.origin &&
-    typeof p.contentSecurityPolicy === "string" && p.contentSecurityPolicy.length > 0 && p.contentSecurityPolicy.length <= 4096 &&
-    !/[\x00-\x1f\x7f\u2028\u2029*]/.test(p.contentSecurityPolicy) && Array.isArray(p.files) && p.files.length > 0 && p.files.length <= 64,
+    p.contentSecurityPolicy === signingContentSecurityPolicy && Array.isArray(p.files) && p.files.length > 0 && p.files.length <= 64,
     "operator_signing_closure_unavailable", 503);
   for (const file of p.files) {
     exact(object(file), ["path", "sha256", "contentType"]);
@@ -45,7 +48,15 @@ async function signingAsset(request: Request, env: Pick<ManagedPublishingEnv, "O
     "operator_signing_closure_unavailable", 503);
   const profile = operatorSigningClosure(JSON.parse(env.OPERATOR_SIGNING_PROFILE_JSON)), url = new URL(request.url), host = request.headers.get("host");
   insist(url.origin === profile.origin && (host === null || host === url.host), "operator_signing_wrong_origin", 403);
-  insist(!url.search && !url.hash && !url.pathname.includes("%"), "operator_signing_path_invalid", 404);
+  insist(!url.hash && !url.pathname.includes("%"), "operator_signing_path_invalid", 404);
+  if (url.pathname === "/operator-signing") {
+    let opener: string;
+    try { opener = loopbackSigningOpener(url.searchParams.get("openerOrigin") ?? ""); }
+    catch { throw new CommunityError("operator_signing_opener_invalid", 404); }
+    // Match the committed browser's sole public-metadata URL exactly, rejecting
+    // duplicate/extra parameters, encoded key aliases and alternate encodings.
+    insist(url.search === "?openerOrigin=" + encodeURIComponent(opener), "operator_signing_opener_invalid", 404);
+  } else insist(!url.search, "operator_signing_path_invalid", 404);
   insist(request.method === "GET" || request.method === "HEAD", "operator_signing_method_unavailable", 405);
   const file = profile.files.find(file => file.path === url.pathname); insist(file, "operator_signing_asset_not_found", 404);
   // Send no incoming cookies, auth, nonce or signing payload to the assets binding.
@@ -59,7 +70,8 @@ async function signingAsset(request: Request, env: Pick<ManagedPublishingEnv, "O
   insist(sha256(bytes) === file.sha256, "operator_signing_asset_changed", 503);
   return new Response(request.method === "HEAD" ? null : bytes, { headers: { "content-type": file.contentType,
     "cache-control": "no-store", "content-security-policy": profile.contentSecurityPolicy, "x-content-type-options": "nosniff",
-    "referrer-policy": "no-referrer", "x-frame-options": "DENY" } });
+    "referrer-policy": "strict-origin", "x-frame-options": "DENY", "cross-origin-opener-policy": "unsafe-none",
+    "permissions-policy": 'publickey-credentials-get=(self "https://account.megaeth.com"), publickey-credentials-create=(self "https://account.megaeth.com")' } });
 }
 function historical(env: ManagedPublishingEnv) {
   insist(["managed-web2", "historical-registered", "historical-owner"].includes(env.MANAGED_PUBLISHING_PROFILE), "managed_profile_unavailable", 503);

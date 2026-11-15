@@ -94,15 +94,19 @@ test("bundled signing-only profile serves only a pinned static closure with no b
   const { signingHelperBoundaryFixture } = await import("./fixtures/managed-first-song-services.ts");
   const f = await signingHelperBoundaryFixture();
   try {
-    const entry = await f.fetch("/operator-signing"); assert.equal(entry.status, 200);
+    const entryPath = "/operator-signing?openerOrigin=" + encodeURIComponent("http://127.0.0.1:43123");
+    const entry = await f.fetch(entryPath); assert.equal(entry.status, 200);
     assert.deepEqual(new Uint8Array(await entry.arrayBuffer()), f.entry);
     assert.equal((await f.fetch("/assets/helper-fixture.js")).status, 200);
     for (const path of ["/health", "/v1/managed-publishing/prepare", "/api/auth/challenge", "/unknown"])
       assert.equal((await f.fetch(path)).status, 503);
-    for (const path of ["/assets/unknown.js", "/assets/%2e%2e/private", "/operator-signing?key=anything"])
+    for (const path of ["/assets/unknown.js", "/assets/%2Fprivate.js", "/assets/%252e%252e/private", "/operator-signing?key=anything"])
       assert.ok([403, 404].includes((await f.fetch(path)).status));
-    assert.equal((await f.fetch("/operator-signing", { method: "POST" })).status, 405);
-    assert.equal((await f.fetch("/operator-signing", { headers: { host: "wrong.invalid" } })).status, 403);
+    // URL canonicalization moves this path outside the asset route; it remains explicitly unavailable.
+    const normalized = await f.fetch("/assets/%2e%2e/private"); assert.equal(normalized.status, 503);
+    assert.deepEqual(await normalized.json(), { error: "operator_signing_backend_unavailable" });
+    assert.equal((await f.fetch(entryPath, { method: "POST" })).status, 405);
+    assert.equal((await f.fetch(entryPath, { headers: { host: "wrong.invalid" } })).status, 403);
     await f.tamperChunk(); assert.equal((await f.fetch("/assets/helper-fixture.js")).status, 503);
     await f.artifact("v2-keyless-static-boundary");
   } finally { await f.close(); }
@@ -116,4 +120,53 @@ test("fresh package identity refuses the historical namespace, terminators and a
   for (const prefix of ["pirate-managed-firstsong-20261105", "pirate-managed-firstsong-20261105-db", selected.prefix + "\n", selected.prefix + "\u2028"])
     assert.throws(() => managedFreshStackIdentity({ ...selected, prefix, state: { ...selected.state, stack: prefix } }));
   assert.throws(() => managedFreshStackIdentity({ ...selected, state: { ...selected.state, stack: "pirate-managed-firstsong-20261105" } }));
+});
+
+
+// Correction-v3: literal expected browser contract, independent of the worker validator. UNRUN.
+test("signing helper accepts only the exact public loopback entry query and emits the final W1 response policy", async () => {
+  const { signingHelperBoundaryFixture } = await import("./fixtures/managed-first-song-services.ts"), f = await signingHelperBoundaryFixture();
+  try {
+    const query = "?openerOrigin=" + encodeURIComponent("http://127.0.0.1:43123"), expected = {
+      "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' https://*.megaeth.com; frame-src https://*.megaeth.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "referrer-policy": "strict-origin", "x-content-type-options": "nosniff", "cache-control": "no-store", "x-frame-options": "DENY",
+      "cross-origin-opener-policy": "unsafe-none",
+      "permissions-policy": 'publickey-credentials-get=(self "https://account.megaeth.com"), publickey-credentials-create=(self "https://account.megaeth.com")',
+    };
+    for (const path of ["/operator-signing" + query, "/assets/helper-fixture.js"]) {
+      const response = await f.fetch(path); assert.equal(response.status, 200);
+      for (const [name, value] of Object.entries(expected)) assert.equal(response.headers.get(name), value, name);
+    }
+    const head = await f.fetch("/operator-signing" + query, { method: "HEAD" }); assert.equal(head.status, 200); assert.equal(await head.text(), "");
+    for (const tail of ["", "?", query + "&openerOrigin=" + encodeURIComponent("http://127.0.0.1:43124"), query + "&nonce=private",
+      "?%6fpenerOrigin=" + encodeURIComponent("http://127.0.0.1:43123"), "?openerOrigin=http://127.0.0.1:43123",
+      "?openerOrigin=" + encodeURIComponent("http://localhost:43123"), "?openerOrigin=" + encodeURIComponent("http://[::1]:43123"),
+      "?openerOrigin=" + encodeURIComponent("http://127.0.0.1"), "?openerOrigin=" + encodeURIComponent("http://127.0.0.1:0"),
+      "?openerOrigin=" + encodeURIComponent("http://127.0.0.1:65536"), "?openerOrigin=" + encodeURIComponent("http://127.0.0.1:43123/"),
+      "?openerOrigin=" + encodeURIComponent("http://127.0.0.1:43123\n"), query.replace(/%3A/g, "%3a")]) {
+      assert.ok([403, 404].includes((await f.fetch("/operator-signing" + tail)).status), tail);
+    }
+    for (const path of ["/assets/helper-fixture.js" + query, "/assets/%68elper-fixture.js", "/assets/helper-fixture%2ejs"])
+      assert.equal((await f.fetch(path)).status, 404, path);
+    await f.changeCsp("default-src 'none'; script-src *");
+    assert.equal((await f.fetch("/operator-signing" + query)).status, 503);
+    await f.artifact("v3-final-helper-http-contract");
+  } finally { await f.close(); }
+});
+
+test("actual fresh packaged Alchemy entry refuses absent and incompatible profile selection before stack construction", async () => {
+  const { managedPackageEntryBoundaryFixture } = await import("./fixtures/managed-first-song-services.ts"), f = await managedPackageEntryBoundaryFixture();
+  try {
+    for (const profile of ["managed-web2", "operator-signing-only"] as const) {
+      for (const selector of [undefined, "", "historical-owner"]) {
+        const result = await f.importPackagedEntry(profile, selector);
+        assert.deepEqual(result.outcome, { error: "managed_package_profile_required" });
+        assert.deepEqual(result.afterState, result.beforeState);
+      }
+      const result = await f.importPackagedEntry(profile, profile === "managed-web2" ? "operator-signing-only" : "managed-web2");
+      assert.deepEqual(result.outcome, { error: "managed_package_stack_changed" });
+      assert.deepEqual(result.afterState, result.beforeState);
+    }
+    await f.artifact("v3-packaged-entry-early-refusal");
+  } finally { await f.close(); }
 });
