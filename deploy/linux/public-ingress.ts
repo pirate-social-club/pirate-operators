@@ -409,10 +409,40 @@ export async function startPublicIngress(
 }
 
 /** A real application response over verified upstream TLS, not a readiness flag. */
+class ApplicationBootPending extends Error {}
+
+/** Read-only startup wait. No create/start, journal replacement or TLS fallback.
+ * Only a not-yet-listening connection, timeout or explicit503 can be retried. */
+export async function waitForCommunityIngress(
+  ingress: PublicIngress,
+  expectedCommunityId: string,
+  assertCurrent: () => Promise<void>,
+) {
+  const signal = AbortSignal.timeout(60000);
+  for (;;) {
+    signal.throwIfAborted();
+    await assertCurrent();
+    signal.throwIfAborted();
+    try {
+      await inspectCommunityIngress(ingress, expectedCommunityId, false, signal);
+    } catch (error) {
+      const notListening = error instanceof Error && "code" in error &&
+        ["ECONNREFUSED", "ECONNRESET", "EPIPE"].includes(String(error.code));
+      if (!(error instanceof ApplicationBootPending) && !notListening) throw error;
+      await delay(250, undefined, { signal });
+      continue;
+    }
+    await assertCurrent();
+    signal.throwIfAborted();
+    return;
+  }
+}
+
 export async function inspectCommunityIngress(
   ingress: PublicIngress,
   expectedCommunityId: string,
   throughIngress = false,
+  signal?: AbortSignal,
 ) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
@@ -441,6 +471,7 @@ export async function inspectCommunityIngress(
         path: "/api/public/community",
         headers: { Host: new URL(ingress.origin).host },
         timeout: 5000,
+        signal,
       },
       (res) => {
         let body = "";
@@ -452,6 +483,7 @@ export async function inspectCommunityIngress(
         res.once("error", reject);
         res.once("end", () => {
           try {
+            if (res.statusCode === 503) throw new ApplicationBootPending("application_boot_pending");
             assert(res.statusCode === 200, "application_readback_unavailable");
             const actual: unknown = JSON.parse(body);
             assert(
@@ -470,7 +502,7 @@ export async function inspectCommunityIngress(
     );
     req.once("error", reject);
     req.once("timeout", () =>
-      req.destroy(new Error("application_readback_timeout")),
+      req.destroy(new ApplicationBootPending("application_readback_timeout")),
     );
     req.end();
   });

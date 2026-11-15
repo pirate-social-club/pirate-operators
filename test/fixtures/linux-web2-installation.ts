@@ -81,9 +81,14 @@ export async function ingressFixture() {
   const trusted = await certificate("trusted"),
     untrusted = await certificate("untrusted");
   let requests = 0;
+  let communityResponse: { status: number; communityId?: string } | undefined;
   const upstream = createServer(trusted, (req, res) => {
     requests++;
     res.setHeader("Content-Type", "application/json");
+    if (req.url === "/api/public/community" && communityResponse) {
+      res.writeHead(communityResponse.status).end(JSON.stringify({ communityId: communityResponse.communityId }));
+      return;
+    }
     res.end(JSON.stringify({ headers: req.headers, url: req.url }));
   });
   upstream.listen(0, "127.0.0.1");
@@ -189,6 +194,9 @@ export async function ingressFixture() {
       ready,
       rootCertificate,
       requests: () => requests,
+      setCommunityResponse(status: number, communityId?: string) {
+        communityResponse = { status, communityId };
+      },
       async preflight() {
         const args = [
           "--config",

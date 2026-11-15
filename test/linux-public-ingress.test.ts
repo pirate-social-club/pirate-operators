@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile, writeFile, rename } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   hash,
@@ -10,8 +10,48 @@ import {
 import {
   retainPublicIngress,
   startPublicIngress,
+  waitForCommunityIngress,
 } from "../deploy/linux/public-ingress.ts";
 import { ingressFixture } from "./fixtures/linux-web2-installation.ts";
+
+// The native launcher verifies and initializes real storage after Docker start.
+// Its TLS listener must become ready without repeating any installation action.
+test("native startup waits for the exact HTTPS community and refuses changed authority, identity or trust", { timeout: 20000 }, async () => {
+  const f = await ingressFixture(), communityId = "0x" + "42".repeat(32);
+  let refreshes = 0;
+  const current = async () => { await f.lease.assertHeld(); refreshes++; };
+  try {
+    f.setCommunityResponse(503);
+    const ready = setTimeout(() => f.setCommunityResponse(200, communityId), 500);
+    try { await waitForCommunityIngress(f.ingress, communityId, current); }
+    finally { clearTimeout(ready); }
+    assert(f.requests() >= 2);
+    assert(refreshes >= 3, "authority is checked during waiting and after success");
+    const observedReadyRequests = f.requests();
+    f.setCommunityResponse(200, "0x" + "43".repeat(32));
+    await assert.rejects(waitForCommunityIngress(f.ingress, communityId, current), /actual_application_community_changed/);
+    assert.equal(f.requests(), observedReadyRequests + 1, "a different community is never retried");
+    f.setCommunityResponse(403);
+    const beforeDenied = f.requests();
+    await assert.rejects(waitForCommunityIngress(f.ingress, communityId, current), /application_readback_unavailable/);
+    assert.equal(f.requests(), beforeDenied + 1, "an authorization refusal is never retried");
+    f.setCommunityResponse(503);
+    const beforeRevocation = f.requests();
+    let checks = 0;
+    await assert.rejects(waitForCommunityIngress(f.ingress, communityId, async () => {
+      await current();
+      if (++checks === 2) throw Error("original_authority_revoked");
+    }), /original_authority_revoked/);
+    assert.equal(f.requests(), beforeRevocation + 1);
+    f.setCommunityResponse(200, communityId);
+    f.replaceUpstreamTrust(false);
+    const beforeBadTrust = f.requests();
+    await assert.rejects(waitForCommunityIngress(f.ingress, communityId, current));
+    assert.equal(f.requests(), beforeBadTrust, "an untrusted TLS peer never reaches the application");
+    await mkdir(".local/linux-web2-installation", { recursive: true });
+    await writeFile(".local/linux-web2-installation/startup-readiness.json", JSON.stringify({ realTLS: true, observedReadyRequests, identityMismatchRefused: true, authorizationRefused: true, revokedWhileWaiting: true, untrustedTLSRefused: true, installationActionsRepeated: 0, scope: "HTTPS protocol fixture, not installed journey acceptance" }) + "\n");
+  } finally { await f.close(); }
+});
 
 test("Web2 Caddy uses verified upstream TLS, exact Host, private-route refusal and persistent TLS on restart", async (t) => {
   const f = await ingressFixture();

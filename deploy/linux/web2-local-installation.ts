@@ -49,6 +49,7 @@ import {
   publicIngressFrom,
   retainPublicIngress,
   startPublicIngress,
+  waitForCommunityIngress,
   type PublicIngress,
 } from "./public-ingress.ts";
 import {
@@ -436,9 +437,10 @@ export async function createWeb2Installation(
         await retainPublicIngress(ingress, lease);
         await current();
         await controller.start(AbortSignal.timeout(120000), current);
-        await inspectCommunityIngress(
+        await waitForCommunityIngress(
           ingress,
           body.draft.enrollment.communityId,
+          current,
         );
         await current();
         if (edge) {
