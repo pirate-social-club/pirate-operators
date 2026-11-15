@@ -46,6 +46,9 @@ export interface Web2LocalInstallationConfiguration {
 /** W1 supplies the Wizard implementation; this module owns the paired transport. */
 export interface Web2BootstrapInputs {
   binding: Web2RuntimeBindingInputs;
+  /** Release only the foreground control lock after its listeners have stopped.
+   * Persistent containers and whole-writer backup barriers remain untouched. */
+  closeControl(): Promise<void>;
   createWizard(input: {
     directory: string;
     dist: string;
@@ -244,6 +247,7 @@ export async function launchWeb2LocalInstallation(
           // Stop explicit service ingress first; closing only setup never does so.
           await installation.shutdownService();
           await closeSetup();
+          await inputs.closeControl();
         })().catch((error) => {
           serviceStop = undefined;
           throw error;
@@ -253,10 +257,12 @@ export async function launchWeb2LocalInstallation(
     secret.fill(0);
     try {
       await installation.shutdownService();
+      await inputs.closeControl();
     } catch (cleanup) {
-      throw new Web2ServiceStartupFailure([error, cleanup], () =>
-        installation.shutdownService(),
-      );
+      throw new Web2ServiceStartupFailure([error, cleanup], async () => {
+        await installation.shutdownService();
+        await inputs.closeControl();
+      });
     }
     throw error;
   }

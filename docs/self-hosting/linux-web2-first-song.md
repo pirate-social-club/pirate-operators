@@ -44,6 +44,18 @@ does not authorize starting the community.
 The historical local-install entrypoint remains closed to this new profile;
 the explicit Web2 service is the owning process.
 
+The installed backend acquires `acquireWeb2ServiceControl` and supplies its
+`lease` and `closeControl` to the foreground service. Its stable private
+`active-web2-service.json` excludes a competing control process; every clean boot
+gets a separate retained operation journal. Only after ingress and paired setup
+have stopped does service shutdown close this control lock. App containers and
+data remain running, and backup/whole-writer barriers are never cleared by this
+API. A crashed service retains its lock and refuses automatic takeover. That
+case needs explicit reconciliation; ordinary clean restart needs neither backup
+clearance nor a new enrollment. The process-level integration check proves two
+clean boots, refusal of a concurrent owner and refusal after a killed owner;
+it does not qualify the full installed application's restart.
+
 Hosted status is a hint identifying the original transaction, not a signed chain
 proof. The installer authenticates its exact transaction, accepted Directory V3
 source/deployment, receipt, event, safe block and current configuration. Controller,

@@ -10,13 +10,131 @@ import {
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import type { PublicClient, Hex } from "viem";
+import { acquireWeb2ServiceControl } from "../deploy/linux/web2-service-lease.ts";
 import { authenticateWeb2Enrollment } from "../deploy/linux/web2-profile-authority.ts";
 import {
   installationAuthorityFixture,
   availablePort,
 } from "./fixtures/linux-web2-installation.ts";
+
+// Observable process lifetime, rather than a mocked lock: two clean foreground
+// boots must retain one installation while a competitor/crash cannot take it.
+test(
+  "Web2 service control supports clean process restart and refuses competing or crashed ownership",
+  { timeout: 20000 },
+  async (t) => {
+    assert(process.env.TMPDIR);
+    const root = await mkdtemp(join(process.env.TMPDIR, "web2-control-"));
+    const module = new URL(
+      "../deploy/linux/web2-service-lease.ts",
+      import.meta.url,
+    ).href;
+    const children: ReturnType<typeof spawn>[] = [];
+    t.after(async () => {
+      for (const child of children)
+        if (child.exitCode === null && child.signalCode === null) {
+          const terminal = once(child, "exit");
+          child.kill("SIGKILL");
+          await terminal;
+        }
+    });
+    async function boot(directory: string) {
+      const script = `import {acquireWeb2ServiceControl} from ${JSON.stringify(module)};
+      const control=await acquireWeb2ServiceControl(process.argv[1],"restart-fixture");
+      process.stdout.write(JSON.stringify({operationId:control.lease.operationId,directory:control.lease.directory})+"\\n");
+      for await(const data of process.stdin){
+        if(data.toString().trim()!=="stop")throw Error("unexpected fixture command");
+        await control.lease.record("fixture-foreground-stopped",{persistentContainersUntouched:true});
+        await control.closeControl();
+        break;
+      }`;
+      const child = spawn(
+        process.execPath,
+        ["--input-type=module", "-e", script, directory],
+        { stdio: ["pipe", "pipe", "pipe"] },
+      );
+      children.push(child);
+      const terminal = once(child, "exit");
+      let output = "",
+        errors = "";
+      child.stderr!.on("data", (chunk) => {
+        errors += chunk;
+      });
+      const ready = new Promise<{ operationId: string; directory: string }>(
+        (resolve, reject) => {
+          child.stdout!.on("data", (chunk) => {
+            output += chunk;
+            if (output.includes("\n")) resolve(JSON.parse(output.trim()));
+          });
+          child.once("error", reject);
+          child.once("exit", (code) =>
+            reject(Error("fixture exited before ready: " + code + errors)),
+          );
+        },
+      );
+      return { child, terminal, ready, errors: () => errors };
+    }
+    const clean = join(root, "clean");
+    await mkdir(clean, { mode: 0o700 });
+    const first = await boot(clean),
+      a = await first.ready;
+    const originalLock = await readFile(
+      join(clean, "active-web2-service.json"),
+    );
+    const firstBootOriginal = await readFile(
+      join(a.directory, "active-operation.json"),
+    );
+    await assert.rejects(acquireWeb2ServiceControl(clean, "restart-fixture"), {
+      code: "EEXIST",
+    });
+    assert.deepEqual(
+      await readFile(join(clean, "active-web2-service.json")),
+      originalLock,
+    );
+    first.child.stdin!.end("stop\n");
+    assert.deepEqual(await first.terminal, [0, null], first.errors());
+    const second = await boot(clean),
+      b = await second.ready;
+    assert.notEqual(a.operationId, b.operationId);
+    assert.notEqual(a.directory, b.directory);
+    assert.deepEqual(
+      await readFile(join(a.directory, "active-operation.json")),
+      firstBootOriginal,
+      "the first boot journal is preserved",
+    );
+    second.child.stdin!.end("stop\n");
+    assert.deepEqual(await second.terminal, [0, null], second.errors());
+    const crashed = join(root, "crashed");
+    await mkdir(crashed, { mode: 0o700 });
+    const third = await boot(crashed);
+    await third.ready;
+    const crashLock = await readFile(join(crashed, "active-web2-service.json"));
+    third.child.kill("SIGKILL");
+    assert.deepEqual(await third.terminal, [null, "SIGKILL"]);
+    await assert.rejects(
+      acquireWeb2ServiceControl(crashed, "restart-fixture"),
+      { code: "EEXIST" },
+    );
+    assert.deepEqual(
+      await readFile(join(crashed, "active-web2-service.json")),
+      crashLock,
+    );
+    await mkdir(".local/linux-web2-installation", { recursive: true });
+    await writeFile(
+      ".local/linux-web2-installation/service-control-restart.json",
+      JSON.stringify({
+        root,
+        boots: [a, b],
+        competitorRefused: true,
+        crashRefused: true,
+        persistentResourcesNotControlledByLease: true,
+      }) + "\n",
+    );
+  },
+);
 
 test(
   "Web2 installation authenticates the original safe enrollment and refuses changed source, configuration or stale evidence",
