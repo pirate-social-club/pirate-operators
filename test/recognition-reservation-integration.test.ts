@@ -104,10 +104,20 @@ for(const boundary of ['loseReserveAck','loseBindAck','loseCommitAck'] as const)
     if(boundary==='loseCommitAck') {
       const confirm=(await rows(song.app.f.community.db,'external_operations')).find(r=>r.step==='catalog_confirm')!;
       const reconciliations=(await rows(song.app.f.community.db,'external_operation_reconciliations')).filter(r=>r.operation_id===confirm.operation_id);
-      assert.equal(reconciliations.length,1);
-      const proof=JSON.parse(JSON.parse(String(reconciliations[0]!.proof_json)).absenceProof);
-      const payload=await verifyReservation(proof.receipt,f.profile,{requestSha256:hashJson(proof.request),
-        intentSha256:hashJson(song.intent),communityId:song.intent.communityId,state:'committed'},proof.receipt.payload.issuedAt);
+      // A signed completed status is observed directly: it is not absence and
+      // must not cause another commit send merely to build a local receipt.
+      assert.equal(reconciliations.length,0);
+      assert.ok(o.promotion_receipt_json);
+      const receipt=JSON.parse(o.promotion_receipt_json);
+      const statusRequests=await Promise.all(f.requests.filter(request=>new URL(request.url).pathname==='/v1/reservations/status')
+        .map(async request=>JSON.parse(await request.clone().text())));
+      const statusRequest=statusRequests.find(request=>hashJson(request)===receipt.payload.requestSha256);
+      assert.ok(statusRequest,'stored completion receipt must bind an actual observed status request');
+      assert.equal(statusRequest.authorization.action,'intent_status');
+      const payload=await verifyReservation(receipt,f.profile,{requestSha256:hashJson(statusRequest),
+        intentSha256:hashJson(song.intent),communityId:song.intent.communityId,state:'committed',
+        purpose:'accepted_intent',recordingState:'ready',postingSha256:hashJson(posting)},receipt.payload.issuedAt);
+      assert.equal(f.requests.filter(request=>new URL(request.url).pathname==='/v1/reservations/commit').length,1);
       const published=(await rows(f.db,'shared_recognition_publications'))[0]!;
       assert.equal(payload.publicationSha256,hashJson(JSON.parse(String(published.publication_json))));
     }
