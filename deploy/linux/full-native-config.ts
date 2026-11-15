@@ -40,9 +40,9 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   for(const key of ["database","objects","jobs","scheduler"])assert(g.stateRoots[key]?.startsWith("/"),"native_durable_root_required");
   const module=(file:string)=>{assert(/^[A-Za-z0-9_.-]+$/.test(file));return g.releaseRoot+"/"+file;};
   const disk=(name:string,path:string)=>`(name=${q(name)},disk=(path=${q(path)},writable=true,allowDotfiles=true))`;
-  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string,outbound="deny")=>
+  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string,outbound="deny",experimental=false)=>
     `(name=${q(name)},worker=(modules=[(name="entry.mjs",esModule=embed ${q(module(file))})],compatibilityDate="2026-11-04",
-       compatibilityFlags=["nodejs_compat","service_binding_extra_handlers"],bindings=[${bindings}],
+       compatibilityFlags=${JSON.stringify(["nodejs_compat","service_binding_extra_handlers",...(experimental?["experimental"]:[])])},bindings=[${bindings}],
        ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
   const ns=(service:string,cls:string,key:string)=>`(className=${q(cls)},uniqueKey=${q(key)},enableSql=true)`;
   const doBinding=(name:string,service:string,cls:string)=>`(name=${q(name)},durableObjectNamespace=(serviceName=${q(service)},className=${q(cls)}))`;
@@ -67,10 +67,10 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   }
   const services=[
     objectEntry("d1-entry","d1-backend","D1DatabaseObject","database-"+scope),
-    worker("d1-backend","database.worker.js","",ns("d1-backend","D1DatabaseObject","database-v1-"+scope),"database-storage"),
+    worker("d1-backend","database.worker.js","",ns("d1-backend","D1DatabaseObject","database-v1-"+scope),"database-storage","deny",true),
     objectEntry("media-entry","media-backend","R2BucketObject","objects-"+scope),
     worker("media-backend","bucket.worker.js",`(name="MINIFLARE_BLOBS",service="object-storage")`,
-      ns("media-backend","R2BucketObject","objects-v1-"+scope),"object-storage"),
+      ns("media-backend","R2BucketObject","objects-v1-"+scope),"object-storage","deny",true),
     worker("queue","queue.mjs",doBinding("QUEUE_STATE","queue","PersistentQueue")+
       ',(name="CONSUMER",service="application"),(name="QUEUE_CONFIGURATION",text='+q(JSON.stringify(g.queueConfiguration))+')',
       ns("queue","PersistentQueue","queue-v1-"+scope),"queue-storage"),
