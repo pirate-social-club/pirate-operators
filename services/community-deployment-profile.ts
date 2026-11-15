@@ -3,7 +3,7 @@ import {parseWeb2ProfileDocument,web2ProfileDocument} from "../packages/communit
 import {parseSharedProfileDocument,sharedProfileDocument} from "../packages/community/shared-directory.ts";
 import { bytes32, insist, object, text } from "../packages/community/common.ts";
 import { address, communityId } from "../packages/community/manifest-core.ts";
-import { publicGateways } from "../packages/community/ipfs.ts";
+import { publicGateways, type IpfsTransport } from "../packages/community/ipfs.ts";
 
 /** Server-owned deployment inputs; hosting origin supplies no naming authority. */
 export interface HistoricalCommunityDeploymentProfile {
@@ -145,11 +145,11 @@ export function readCommunityDeploymentProfile(value: string): CommunityDeployme
 
 /** The existing CID, digest, size and canonical-document checks remain upstream.
  * Only the configured public-content endpoint changes; no response is supplied here. */
-export function communityIpfsTransport(deployment: CommunityDeploymentProfile) {
+export function communityIpfsTransport(deployment: CommunityDeploymentProfile, send: IpfsTransport = fetch) {
   return (request: Request) => {
     const url = new URL(request.url), index = publicGateways.indexOf(url.origin as typeof publicGateways[number]);
     insist(index >= 0 && url.pathname.startsWith("/ipfs/"), "unconfigured_public_content_endpoint", 503);
     const gateway = deployment.ipfsGateways[index % deployment.ipfsGateways.length]!;
-    return fetch(new Request(new URL(url.pathname, gateway), request));
+    return send(new Request(new URL(url.pathname, gateway), request));
   };
 }
