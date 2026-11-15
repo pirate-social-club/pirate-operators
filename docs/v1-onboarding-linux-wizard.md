@@ -1,17 +1,56 @@
 # Ordered HTTPS setup and separate HNS onboarding
 
+## Hosted Wizard failure plan, November 15
+
+Before implementing the consumer, qualify the actual paired HTTP controller,
+hosted service, D1 and disposable chain together. A changed signing domain,
+registration commitment, controller, publisher, origin, configuration URI,
+notice, policy, enrollment ID or lifetime must be rejected before the browser
+receives a signing request. Unknown replies retain the original preparation and
+authorization. Restart and explicit reconciliation must not create another
+community, registration or transfer. Distinct nonzero funding recipients each
+authorize the exact enrollment; a shared account signs once.
+
+The private original must survive ordinary runner reconstruction. Missing,
+corrupt, oversized, symlinked or public state must fail closed without deleting
+it. Public state never includes the invitation, signatures or signed raw
+transactions. Concurrent tabs serialize against the same revision. Host,
+paired-channel authorization, Origin and CSRF checks precede mutation; bounded
+request and response reads must also bound stalled transports.
+
+Installation requires the Linux-owned port and actual consumed registration.
+Persist the exact draft and returned plan before apply; later funding status is
+a separate view and must not change that draft on retry. An unavailable native
+port reports unavailable, never installed. Tests must retain actual receipt,
+identity, request and browser artifacts. Simulated external wallet/content
+transport is named and is not native installation or public-host acceptance.
+
 The later approved [checkpoint 1 delivery decisions](self-hosting/checkpoint-1-pilot-delivery-20261114.md)
 govern the invited pilot's hosting, gas funding, service responsibilities and
 checkpoint order. Pirate funds capped publisher/controller top-ups; those
 community accounts submit their own publications/configuration changes. Pirate
 does not become the community publisher. The runtime gaps below remain open.
 
-## Status and precedence, 2026-11-14
+## Status and precedence, 2026-11-15
 
-This is the required onboarding contract and a pending-interface proposal. It
-does not establish an implemented pending-community profile, supported hosting
-adapter or working deployment. Runtime acceptance of this ordered flow is UNRUN.
-No fresh genuine host target or readiness has been established for this proposal.
+This is the required onboarding contract. The application/runtime and standalone
+hosted enrollment service are merged and CI-qualified source in PR61 and PR60.
+The hosted Wizard client/server/UI candidate has type checks, written real
+integration/browser cases and pending runtime qualification. It does not establish
+a supported installed host. Runtime acceptance of the complete fresh-host journey
+is UNRUN; no public DNS/ACME, external provider or real-device readiness is inferred.
+
+Fresh bootstrap supplies actual source/tools, shared Directory/Posts/service
+context and private host-only paths, without a prebound community identity.
+The Wizard persists its actual community/Directory installation IDs and exact
+configuration before external effects, then prepares/signs/redeems/reconciles
+the hosted enrollment. It persists the receipt-bearing LinuxWeb2Draft before
+calling the Linux-owned installation prepare port. That producer must bind and
+authenticate the actual runtime and host admission from this original draft;
+a strict installer requiring that future draft during bootstrap would be circular.
+The host installation reference remains distinct from the Directory installation
+ID. Closing this Wizard borrows no right to release the persistent service lease.
+Public status is a view, not chain authority or a fresh native-health proof.
 
 The workspace instructions dated 2026-11-14 select one documented Linux profile,
 fresh installation, browser operator setup, real authentication and eligible
