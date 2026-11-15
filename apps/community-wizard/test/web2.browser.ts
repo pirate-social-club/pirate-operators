@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { hostedWizardFixture } from "../../../test/fixtures/web2-hosted-wizard.ts";
 
 test("actual hosted Web2 enrollment and gas authorization resume in the browser without reporting a missing installer as running", async ({
@@ -162,7 +163,11 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       body: JSON.stringify(requests),
       contentType: "application/json",
     });
-    await f.artifact("browser", await f.state());
+    const artifact = await f.artifact("browser", await f.state());
+    await info.attach("execution-evidence.json", {
+      path: resolve(artifact),
+      contentType: "application/json",
+    });
   } finally {
     await f.close();
     process.chdir(previous);
