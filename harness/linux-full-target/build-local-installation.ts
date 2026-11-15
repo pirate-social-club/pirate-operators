@@ -136,6 +136,11 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   // The backend is observed as source only. esbuild discovers import edges;
   // emitted diagnostic bytes are NOT installed or used as compiled provenance.
   const graph=await build({stdin:{contents:backend.body.toString("utf8"),resolveDir:root,sourcefile:"backend.ts",loader:"ts"},
+   // The installed entrypoint is loaded BEFORE it imports the backend. Its
+   // eager imports need the same retained package closure, even when the
+   // backend does not call their historical exports.
+   entryPoints:[join(root,o.profile==="web2-first-song/1"?"deploy/linux/web2-service.ts":"deploy/linux/local-install-main.ts")],
+   outdir:join(o.outputDirectory,"analysis-only"),
    bundle:true,write:false,platform:"node",format:"esm",target:"es2024",metafile:true,packages:"external",
    external:["node:*","cloudflare:*","miniflare:*"],logLevel:"silent"});
   assert(graph.metafile);
