@@ -260,7 +260,9 @@ export async function runWeb2Native(configPath: string) {
     await syncDirectory(scratch);
     await current();
     assert(!stopped, "web2_native_cancelled");
-    const child = spawn(executable, ["serve", "--experimental", file], {
+    // The signed graph uses absolute schema/module paths. Cap'n Proto resolves
+    // leading-slash imports against an explicit import root, not the host root.
+    const child = spawn(executable, ["serve", "--experimental", "--import-path", "/", file], {
       cwd: release.root,
       env: { PATH: "/usr/bin:/bin", TZ: "UTC" },
       stdio: ["ignore", "inherit", "inherit"],
