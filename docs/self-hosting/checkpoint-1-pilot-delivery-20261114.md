@@ -306,6 +306,65 @@ joins the first-song runtime and invited hosted enrollment; selected-host
 acceptance remains open. Defer further plan-review loops unless a concrete
 implementation finding changes an accepted boundary.
 
+## Additional addresses (deferred, after the Web2 pilot)
+
+The workspace_owner approved these three separate levels on November 15, 2026.
+None changes the order, dependencies or acceptance of checkpoints 1–5. The ENS
+read-only mirror may follow the first-song pilot; verified naming and interactive
+additional addresses are separate deferred work, not new pilot prerequisites.
+
+1. ENS read-only mirror. Point a `.eth` name's contenthash at the published IPFS
+   release. Authenticated actions open the canonical HTTPS application. This
+   requires no Pirate contract change or mirror login. Updating a direct IPFS
+   contenthash requires an Ethereum mainnet transaction paid by the name's owner;
+   an updatable pointer has its own publishing, signing and availability policy.
+   Verify release bytes, retention and retrieval before updating the pointer.
+2. ENS as a verified community name. Directory V3 has separate Web2 verification
+   and HNS attachment state; neither represents ENS evidence. Before a lasting
+   deployment, decide whether its successor adds an ENS attachment or generalizes
+   naming attachments with explicit protocol types while retaining HNS. The
+   disposable testnet V3 need not change now. Define current ENS control, expiry,
+   resolver/delegation changes, evidence freshness and revocation before Pirate's
+   verifier attests the binding on MegaETH. Preserve community/content identity
+   and independent listing approval. Reading Ethereum state is a useful basis;
+   it does not by itself define or qualify the attestation policy. The order of
+   verified ENS versus HNS remains a later decision. ENS member subnames are a
+   separate issuance design, not implied by attaching a community's ENS name.
+3. Interactive additional addresses. Combine HNS, ENS and native IPFS application
+   access into one milestone. Define controller-approved addresses and address-
+   bound login, session audience, refresh, revocation and API authorization.
+   Cross-site page/API deployments must work with third-party cookies blocked;
+   design short-lived audience-bound token sessions for that path, including
+   storage, replay and logout behavior. Do not weaken the current canonical
+   host-only cookie/CSRF boundary; an additional HTTPS address with its own
+   same-origin API may retain a separate cookie session. Qualify MOSS connection,
+   sign-in, signing and consent on every supported browser/address type. The
+   current client uses MOSS-signed SIWE; MOSS's optional authenticate JWT is also
+   bound to the requesting host and cannot be replayed as another host's login.
+   Reading a mirror successfully does not establish interactive acceptance.
+
+Freedom provides a strong native verification path: Colibri verifies the ENS
+resolution to its content reference, and native IPFS retrieval verifies the
+content against its CID. This authenticates the name-to-content binding and
+retrieved application bytes without trusting a third-party HTTPS content gateway
+to serve the code faithfully. Freedom preserves the ENS name as the page origin
+across content updates. Acceptance must record that the Colibri-verified path was
+used; a fallback resolver must not be presented as the same proof. This is an
+existing browser capability, separate from the deferred Pirate/MOSS integration.
+
+An ordinary third-party HTTPS gateway remains a distinct trust path: without
+independent content verification it can serve altered application code. The plan
+must distinguish that access from Freedom's verified native access. Wallet/API
+compatibility and service availability remain separate from name/content proof.
+
+Swarm is a later storage mirror with its own release packaging, retention/postage
+and retrieval acceptance. It changes none of checkpoints 1–5.
+
+References: [ENS contenthash](https://docs.ens.domains/ensip/7/),
+[MOSS authentication](https://moss.megaeth.com/developers/concepts/authentication),
+[Freedom native IPFS](https://github.com/pirate-social-club/freedom-browser/blob/main/docs/protocols/ipfs.md)
+and [Colibri verification](https://github.com/corpus-core/colibri-stateless).
+
 ## Later naming gateway and refresh policy
 
 Select a constrained gateway holding the naming registry's admin role. It
