@@ -106,7 +106,8 @@ test("a delayed original arriving after signed absence cannot turn the same-oper
       if(new URL(req.url).pathname.endsWith("/status")&&response.ok) {
         const body=await response.clone().json() as {receipt:{payload:{purpose:string}}};
         if(body.receipt.payload.purpose==="reservation_absent") {
-          arrivals++;assert.equal((await f.fetch(delayed.clone())).status,202);
+          const original=new Request(delayed.url,{method:delayed.method,headers:delayed.headers,body:await delayed.clone().arrayBuffer()});
+          arrivals++;assert.equal((await f.fetch(original)).status,202);
         }
       }
       return response;
