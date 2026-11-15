@@ -81,6 +81,8 @@ export async function hostedWizardFixture(
     dropPrepare = false,
     changePrepare = false;
   const origins: string[] = [];
+  let nextStatusGate: { enter: () => void; wait: Promise<void> } | undefined;
+  const statusReleases = new Set<() => void>();
   const nativeDirectory = resolve(".local/web2-hosted-wizard/native");
   const nativePath = join(
     nativeDirectory,
@@ -232,6 +234,12 @@ export async function hostedWizardFixture(
     const before = chain.effects.broadcasts;
     const transport: typeof fetch = async (url, init) => {
       const request = new Request(url, init);
+      if (request.url.endsWith("/status") && nextStatusGate) {
+        const gate = nextStatusGate;
+        nextStatusGate = undefined;
+        gate.enter();
+        await gate.wait;
+      }
       const response = await (
         new URL(request.url).pathname === "/initial-topup"
           ? funding
@@ -442,6 +450,22 @@ export async function hostedWizardFixture(
       changePrepareReply: () => {
         changePrepare = true;
       },
+      holdNextStatus() {
+        let enter!: () => void, resolve!: () => void;
+        const entered = new Promise<void>((done) => {
+            enter = done;
+          }),
+          wait = new Promise<void>((done) => {
+            resolve = done;
+          });
+        const release = () => {
+          statusReleases.delete(release);
+          resolve();
+        };
+        statusReleases.add(release);
+        nextStatusGate = { enter, wait };
+        return { entered, release };
+      },
       broadcasts: () => chain.effects.broadcasts - before,
       preparationCount: async () =>
         (await db
@@ -506,6 +530,7 @@ export async function hostedWizardFixture(
         return artifactPath;
       },
       async close() {
+        for (const release of statusReleases) release();
         const results = await Promise.allSettled([
           stopServer(),
           mf.dispose(),

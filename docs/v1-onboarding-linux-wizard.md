@@ -68,6 +68,15 @@ replaced the supplied Host with the URL host. The fixture now sends actual
 node:http bytes; the production guard and expected 403 remain unchanged, and
 all eleven cases pass. The original log and JUnit remain retained separately.
 
+The UI successor `29dc9bf` keeps read-only refresh available when an earlier
+browser reply was lost and the real server operation is still busy. Mutation
+controls remain locked. A held actual hosted response verifies refresh and
+subsequent recovery without another broadcast; the Web2 plus retained browser
+cases pass in 8.8 seconds after a 549-millisecond build. Types pass. The unchanged
+server cases retain their source-bound qualification above. The initial `8fe54d8`
+hosted run passed all six suites, but the corrected UI successor still requires
+its own exact-head hosted qualification before merge.
+
 Repeat with the repository's pinned Node, Foundry and Chromium prerequisites:
 `forge build --offline`, then
 `node --test --test-concurrency=1 test/web2-hosted-wizard.test.ts` from the root.
