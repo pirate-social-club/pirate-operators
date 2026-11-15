@@ -36,6 +36,7 @@ import {
 } from "./web2-profile-authority.ts";
 import {
   web2NativeOriginal,
+  web2ApplicationReleaseBody,
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
 import { communityIpfsTransport } from "../../services/community-deployment-profile.ts";
@@ -44,6 +45,7 @@ import { setTimeout as delay } from "node:timers/promises";
 export interface Web2LaunchConfiguration {
   schema: "pirate.linux-web2-launch/1";
   release: SignedRecord<FullRelease>;
+  applicationRelease: Web2NativeOriginal["release"];
   trust: TrustAnchor;
   currentAdmissionFile: string;
   minimumGeneration: number;
@@ -110,9 +112,13 @@ async function privateReady(socketPath: string) {
 }
 
 export async function runWeb2Native(configPath: string) {
-  const config = await readPrivateJSON<Web2LaunchConfiguration>(configPath);
+  const config = await readPrivateJSON<Web2LaunchConfiguration>(
+    configPath,
+    16 * 1024 ** 2,
+  );
   assert(config.schema === "pirate.linux-web2-launch/1");
   assert.deepEqual(Object.keys(config).sort(), [
+    "applicationRelease",
     "currentAdmissionFile",
     "maintenanceDirectory",
     "minimumGeneration",
@@ -133,10 +139,15 @@ export async function runWeb2Native(configPath: string) {
   const original: Web2NativeOriginal = {
     schema: "pirate.web2-native-application-original/1",
     record: signed,
-    release: config.release,
+    release: config.applicationRelease,
     trust: config.trust,
     durableScope: graph.durableScope,
   };
+  assert(
+    canonicalDigest(config.applicationRelease.body) ===
+      canonicalDigest(web2ApplicationReleaseBody(release)),
+    "application_release_identity_changed",
+  );
   await web2NativeOriginal(JSON.stringify(original));
   const plan = original.record.body,
     deployment = plan.draft.deployment;

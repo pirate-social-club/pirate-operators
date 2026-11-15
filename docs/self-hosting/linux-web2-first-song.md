@@ -23,6 +23,16 @@ policy fixes its paths, target, expected HTTPS origin, artifact pins, issuer and
 finite validity. The paired Wizard can therefore create and retain a fresh
 community key and Directory installation ID before a runtime exists.
 
+Full host inventories are explicitly bounded to 16 MiB at the affected control
+record reads; the ordinary private-record limit remains 1 MiB. The binder also
+signs a separate compact application release identity, containing only schema,
+source/artifact digests and the installation/durable-scope/Directory binding.
+That exact signature is retained with the bound result and handed to the native
+launcher. The app never accepts a redacted full signature or carries the host
+file inventory into D1. The host independently verifies the full immutable
+inventory, and the launcher requires the compact identity to match that release.
+The app-original limit stays 1 MiB; the issuer key stays outside its container.
+
 Only after the Wizard durably retains its original receipt-bearing install draft
 does `prepare(draft)` invoke the host binder. The binder independently verifies
 the actual enrollment and host, persists the exact binding intent, signs the

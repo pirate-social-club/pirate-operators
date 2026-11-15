@@ -30,6 +30,26 @@ export interface Web2NativeOriginal {
   durableScope: string;
 }
 
+/** A separately signed app identity. The host still verifies the FULL artifact
+ * inventory; never redact a signed body or send that inventory into app D1. */
+export function web2ApplicationReleaseBody(
+  release: Pick<
+    FullRelease,
+    "schema" | "artifactDigest" | "sourceDigest" | "graph"
+  >,
+): Web2NativeOriginal["release"]["body"] {
+  return {
+    schema: release.schema,
+    artifactDigest: release.artifactDigest,
+    sourceDigest: release.sourceDigest,
+    graph: {
+      installationId: release.graph.installationId,
+      durableScope: release.graph.durableScope,
+      directoryRuntimeBinding: release.graph.directoryRuntimeBinding,
+    },
+  };
+}
+
 /** Only the installed server binding is trusted to supply this public key.
  * A document sent in a request can never select this trust anchor. */
 export async function web2NativeOriginal(
@@ -55,6 +75,12 @@ export async function web2NativeOriginal(
   await verifyNativeRecord(input.release, input.trust);
   const body = input.record.body,
     release = input.release.body;
+  exact(object(release), ["schema", "artifactDigest", "sourceDigest", "graph"]);
+  exact(object(release.graph), [
+    "installationId",
+    "durableScope",
+    "directoryRuntimeBinding",
+  ]);
   exact(object(body), [
     "schema",
     "planId",

@@ -7,8 +7,9 @@ import {profileDigest} from "./profile-canonical.ts";
 export interface SignedRecord<T> { schema: "pirate.local-signed-record/1"; keyId: string; body: T; signature: string }
 export interface TrustAnchor { keyId: string; spki: string }
 export const canonicalDigest = profileDigest;
-export async function readPrivateJSON<T>(path: string): Promise<T> {
-  const file = await privateFile(path, 2 ** 20);
+export async function readPrivateJSON<T>(path: string,maxBytes=2**20): Promise<T> {
+  assert(Number.isSafeInteger(maxBytes) && maxBytes>0 && maxBytes<=16*1024**2,"private_record_bound_invalid");
+  const file = await privateFile(path,maxBytes);
   try {
     const a = await file.stat({bigint:true}), bytes = await file.readFile(), b = await file.stat({bigint:true});
     assert(a.dev===b.dev && a.ino===b.ino && a.size===b.size && a.mtimeNs===b.mtimeNs && a.ctimeNs===b.ctimeNs, "record_changed");

@@ -51,10 +51,15 @@ import {
   startPublicIngress,
   type PublicIngress,
 } from "./public-ingress.ts";
+import {
+  web2ApplicationReleaseBody,
+  type Web2NativeOriginal,
+} from "../../packages/community/web2-native-business-binding.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
 export interface Web2InstallationHostInputs {
   release: SignedRecord<FullRelease>;
+  applicationRelease: Web2NativeOriginal["release"];
   trust: TrustAnchor;
   lease: OperationLease;
   target: InstalledTarget;
@@ -82,6 +87,7 @@ export async function createWeb2Installation(
   const { lease, signProfile, now } = input;
   const selected = structuredClone({
     release: input.release,
+    applicationRelease: input.applicationRelease,
     trust: input.trust,
     target: input.target,
     currentAdmissionFile: input.currentAdmissionFile,
@@ -99,6 +105,12 @@ export async function createWeb2Installation(
   assert(
     release.schema === "pirate.complete-linux-web2-release/1",
     "explicit_web2_release_required",
+  );
+  assert(
+    canonicalDigest(
+      verifyRecord(selected.applicationRelease, selected.trust),
+    ) === canonicalDigest(web2ApplicationReleaseBody(release)),
+    "application_release_identity_changed",
   );
   assert(
     lease.installationId === release.graph.installationId &&
@@ -398,6 +410,7 @@ export async function createWeb2Installation(
         await retain(selected.planDirectory, "web2-launch", {
           schema: "pirate.linux-web2-launch/1",
           release: selected.release,
+          applicationRelease: selected.applicationRelease,
           trust: selected.trust,
           currentAdmissionFile: selected.currentAdmissionFile,
           minimumGeneration: body.generation,

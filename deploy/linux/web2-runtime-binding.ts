@@ -42,6 +42,10 @@ import {
 } from "./web2-profile-authority.ts";
 import type { NativeGraph } from "./full-native-config.ts";
 import type { Web2InstallationHostInputs } from "./web2-local-installation.ts";
+import {
+  web2ApplicationReleaseBody,
+  type Web2NativeOriginal,
+} from "../../packages/community/web2-native-business-binding.ts";
 
 export interface Web2RuntimeBindingPolicy {
   schema: "pirate.web2-runtime-binding-policy/1";
@@ -68,6 +72,9 @@ export interface Web2RuntimeBindingInputs {
   chain: Web2ChainAuthority;
   now: () => number;
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
+  signApplicationRelease(
+    body: Web2NativeOriginal["release"]["body"],
+  ): Promise<Web2NativeOriginal["release"]>;
   signAdmission(
     body: Web2HostAdmission,
   ): Promise<SignedRecord<Web2HostAdmission>>;
@@ -88,6 +95,7 @@ interface BoundRuntime {
   schema: "pirate.web2-bound-runtime/1";
   intent: BindingIntent;
   release: SignedRecord<FullRelease>;
+  applicationRelease: Web2NativeOriginal["release"];
   admission: SignedRecord<Web2HostAdmission>;
 }
 
@@ -102,6 +110,7 @@ export async function retainWeb2Record(
   assert(/^[a-z0-9-]{1,120}(?![\s\S])/.test(name));
   const path = join(directory, name + ".json"),
     bytes = Buffer.from(JSON.stringify(value) + "\n");
+  assert(bytes.length <= 16 * 1024 ** 2, "web2_control_record_too_large");
   let file;
   try {
     file = await open(
@@ -114,7 +123,7 @@ export async function retainWeb2Record(
     );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    const existing = await privateFile(path, 1024 ** 2);
+    const existing = await privateFile(path, 16 * 1024 ** 2);
     try {
       assert(
         (await existing.readFile()).equals(bytes),
@@ -137,7 +146,7 @@ export async function retainWeb2Record(
 }
 export async function optionalWeb2Record<T>(path: string): Promise<T | null> {
   try {
-    return await readPrivateJSON<T>(path);
+    return await readPrivateJSON<T>(path, 16 * 1024 ** 2);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
@@ -150,7 +159,14 @@ export const web2TargetDigest = (
 ) => canonicalDigest({ target, ingress, nativeRuntimeDirectory });
 
 export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
-  const { lease, now, signRelease, signAdmission, signProfile } = input;
+  const {
+    lease,
+    now,
+    signRelease,
+    signApplicationRelease,
+    signAdmission,
+    signProfile,
+  } = input;
   const captured = structuredClone({
     bootstrap: input.bootstrap,
     trust: input.trust,
@@ -310,6 +326,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       "runtime_issuer_changed_body",
     );
     await verifyInstalledRelease(bound.release, captured.trust);
+    assert(
+      canonicalDigest(
+        verifyRecord(bound.applicationRelease, captured.trust),
+      ) === canonicalDigest(web2ApplicationReleaseBody(bound.intent.release)),
+      "application_release_identity_changed",
+    );
     await authenticate(draft);
     await retainWeb2Record(
       policy.bindingDirectory,
@@ -351,6 +373,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     });
     return {
       release: bound.release,
+      applicationRelease: bound.applicationRelease,
       trust: captured.trust,
       lease,
       target: structuredClone(policy.target),
@@ -410,12 +433,18 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         );
         await authenticate(draft);
         const release = await signRelease(structuredClone(intent.release)),
+          applicationRelease = await signApplicationRelease(
+            web2ApplicationReleaseBody(intent.release),
+          ),
           admission = await signAdmission(structuredClone(intent.admission));
         assert(
           canonicalDigest(verifyRecord(release, captured.trust)) ===
             canonicalDigest(intent.release) &&
             canonicalDigest(verifyRecord(admission, captured.trust)) ===
-              canonicalDigest(intent.admission),
+              canonicalDigest(intent.admission) &&
+            canonicalDigest(
+              verifyRecord(applicationRelease, captured.trust),
+            ) === canonicalDigest(web2ApplicationReleaseBody(intent.release)),
           "runtime_issuer_changed_body",
         );
         await authenticate(draft);
@@ -424,6 +453,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
           schema: "pirate.web2-bound-runtime/1",
           intent,
           release,
+          applicationRelease,
           admission,
         };
         await retainWeb2Record(

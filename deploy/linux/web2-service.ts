@@ -303,10 +303,10 @@ export async function runWeb2Service(configurationFile: string) {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   try {
-    const config =
-      await readPrivateJSON<Web2LocalInstallationConfiguration>(
-        configurationFile,
-      );
+    const config = await readPrivateJSON<Web2LocalInstallationConfiguration>(
+      configurationFile,
+      16 * 1024 ** 2,
+    );
     try {
       const session = await launchWeb2LocalInstallation(
         config,

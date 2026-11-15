@@ -442,7 +442,7 @@ test(
     const { nativeBusinessTransition } = await import(
       "../packages/community/native-business-transition.ts"
     );
-    const { initializeWeb2NativeOriginal } = await import(
+    const { initializeWeb2NativeOriginal, web2NativeOriginal } = await import(
       "../packages/community/web2-native-business-binding.ts"
     );
     const { nativeCanonical, nativeDigest } = await import(
@@ -506,6 +506,20 @@ test(
     };
     const raw = nativeCanonical(original),
       digest = await initializeWeb2NativeOriginal(database.db, raw);
+    await assert.rejects(
+      web2NativeOriginal(
+        nativeCanonical({
+          ...original,
+          release: signRecord(
+            { ...release, files: { "host-inventory": "a".repeat(64) } },
+            trust,
+            privateKey,
+          ),
+        }),
+      ),
+      /invalid_fields/,
+      "a separately signed app identity cannot carry the host artifact inventory",
+    );
     const env = {
       ...database.env,
       COMMUNITY_NAME: f.draft.name,
