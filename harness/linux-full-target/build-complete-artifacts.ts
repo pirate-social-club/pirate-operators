@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {mkdir,writeFile,readFile,realpath,chmod,lstat,readdir} from "node:fs/promises";
 import {join,dirname,extname} from "node:path";
-import {createHash} from "node:crypto";
+import {createHash,X509Certificate} from "node:crypto";
 import {buildCommunityArtifacts} from "../community-artifacts.ts";
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import type {OperationLease} from "../../deploy/linux/backend-state.ts";
@@ -80,6 +80,17 @@ export async function buildCompleteLinuxArtifacts(input:{
  for(const row of [...input.nativeModules,...input.licenses]){const body=await readFile(row.path);assert.equal(sha(body),row.sha256);await write(row.output,body);}
  const node=await readFile(input.node);assert.equal(sha(node),input.nodeSha256);
  await write("toolchain/node",node);await chmod(join(input.output,"toolchain/node"),0o555);
+ // The slim image has no OS trust store. Use only the bundled Mozilla roots
+ // from the verified Node executable, never ambient host or extra CA files.
+ const rootsOutput=await runOwnedCommand({lease:input.lease,executable:join(input.output,"toolchain/node"),executableSha256:input.nodeSha256,
+  argv:["--input-type=commonjs","-e","process.stdout.write(JSON.stringify(require('node:tls').rootCertificates))"],
+  environment:{HOME:process.env.HOME,PATH:"/usr/bin:/bin",TZ:"UTC"},cwd:input.sourceRoot,
+  outputDirectory:input.rawOutputDirectory,name:"node-bundled-root-certificates",seconds:30,signal:input.signal,completedMetadataChild:true});
+ assert((await lstat(rootsOutput.stdoutPath)).size<=1024*1024,"bundled_ca_output_too_large");
+ const roots:unknown=JSON.parse(await readFile(rootsOutput.stdoutPath,"utf8"));
+ assert(Array.isArray(roots) && roots.length>0 && roots.length<=1024,"bundled_ca_store_required");
+ for(const pem of roots){assert(typeof pem==="string" && pem.startsWith("-----BEGIN CERTIFICATE-----") && pem.trimEnd().endsWith("-----END CERTIFICATE-----"),"bundled_ca_pem_invalid");new X509Certificate(pem);}
+ await write("toolchain/ca-certificates.crt",Buffer.from(roots.join("\n")+"\n"));
  for(const row of input.toolchainModules){
   assert(row.output.startsWith("toolchain/node_modules/"),"pinned_loader_closure_layout_required");
   const body=await readFile(row.source);assert.equal(sha(body),row.sha256);await write(row.output,body);
