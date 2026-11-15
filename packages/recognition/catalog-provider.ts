@@ -57,7 +57,7 @@ export function acrCatalog(
     insist(r.namespace === namespace, "recognition_namespace_mismatch", 403);
     const request = new Request(url, {
       method,
-      redirect: "error",
+      redirect: "manual",
       signal: AbortSignal.any([signal, AbortSignal.timeout(30000)]),
       headers: {
         accept: "application/json",

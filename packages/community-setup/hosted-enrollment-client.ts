@@ -115,7 +115,7 @@ export function createHostedEnrollmentClient(
       response = await bounded(
         transport(policy.serviceOrigin + path, {
           method: "POST",
-          redirect: "error",
+          redirect: "manual",
           credentials: "omit",
           cache: "no-store",
           headers: { "content-type": "application/json" },

@@ -102,6 +102,25 @@ export function sharedReservationService(ports:SharedReservationPorts) {
         if(action==='intent_reserve') {
           r=await s.accept(p); await ports.wake(id);
         } else r=await s.snapshot(id,a.communityId);
+        if(action==='intent_status'&&!r) {
+          // A joined snapshot can disappear while a reservation still exists.
+          // Check both original unique identities directly on a fresh primary.
+          const absent=async()=>await ports.db.withSession('first-primary').prepare(`SELECT reservation_id FROM shared_recognition_reservations
+            WHERE reservation_id=? OR (namespace=? AND community_id=? AND job_id=?) LIMIT 1`)
+            .bind(id,profile.namespace,a.communityId,p.jobId).first()===null;
+          insist(await absent(),"recognition_reservation_conflict",409);
+          const issuedAt=Math.floor(now()/1000),payload:ReservationReceipt={
+            schema:'pirate.recognition-reservation-receipt/1',purpose:'reservation_absent',
+            namespace:profile.namespace,profileSha256:profile.sha256,communityId:a.communityId,
+            configurationRevision:a.configurationRevision,requestSha256:wireHash,intentSha256:hashJson(p),reservationId:id,
+            recordingId:null,state:'absent',recordingState:null,postingSha256:null,publicationSha256:null,
+            issuedAt,expiresAt:Math.min(issuedAt+60,auth.authorization.expiresAt),
+          };
+          const receipt=await signReservation(ports.signer,payload);
+          await fresh(a,p);
+          insist(await absent()&&payload.expiresAt>Math.floor(now()/1000),"recognition_reservation_changed",409);
+          return reply({receipt});
+        }
         insist(r?.intent_json===canonical(p),"recognition_reservation_conflict",409);
         if(action==='intent_bind'||action==='intent_commit') {
           const posting=await ports.verifyPosting(a,p,body.posting);

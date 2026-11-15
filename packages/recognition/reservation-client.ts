@@ -22,13 +22,15 @@ export function reservationClient(ports:ReservationClientPorts) {
       configurationRevision:p.configurationRevision,nonce:nonce?bytes32(nonce):hashJson({nonce:token()}),issuedAt,expiresAt:issuedAt+120,
     },{jobId:p.jobId,...(posting?{posting}:{})});
     await ports.current(p);await ports.beforeSend(p);
-    const response=await (ports.transport??fetch)(new Request(profile.origin+path,{method:'POST',redirect:'error',
+    const response=await (ports.transport??fetch)(new Request(profile.origin+path,{method:'POST',redirect:'manual',
       signal:AbortSignal.timeout(30000),headers:{'content-type':'application/json'},body:canonical(wire)}));
     insist(response.ok,"recognition_catalog_pending",503);
     const receipt=object(await response.json()).receipt;
+    const purpose=action==='intent_status'&&object(object(receipt).payload).purpose==='reservation_absent'?'reservation_absent':
+      action==='intent_bind'?'posting_bound':action==='intent_commit'?'publication_promoted':'accepted_intent';
     const payload=await verifyReservation(receipt,profile,{communityId:p.communityId,configurationRevision:p.configurationRevision,
       intentSha256:hashJson(p),reservationId:reservationId(p),requestSha256:hashJson(wire),
-      purpose:action==='intent_bind'?'posting_bound':action==='intent_commit'?'publication_promoted':'accepted_intent'},Math.floor(now()/1000));
+      purpose},Math.floor(now()/1000));
     await ports.current(p);await ports.beforeSend(p);
     insist(payload.expiresAt>Math.floor(now()/1000),"recognition_reservation_expired",403);
     return {payload,receipt,request:wire};
@@ -39,6 +41,7 @@ export function reservationClient(ports:ReservationClientPorts) {
   return {
     async reserve(p:AcceptedIntent) { return ready((await request(p,'/v1/reservations','intent_reserve')).payload); },
     async status(p:AcceptedIntent) {return (await request(p,'/v1/reservations/status','intent_status')).payload;},
+    async statusEvidence(p:AcceptedIntent) {return request(p,'/v1/reservations/status','intent_status');},
     async ready(p:AcceptedIntent) {return ready((await request(p,'/v1/reservations/status','intent_status')).payload);},
     /** Preserve the original service signature and caller challenge across the
      * community proxy; a publisher response alone is not catalog readiness. */

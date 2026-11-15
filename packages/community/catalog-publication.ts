@@ -37,7 +37,13 @@ export async function catalogPublication(ports:CatalogPublicationPorts,operation
   };
   return {
     async reserve(mode:'execute'|'reconcile'):Promise<Reconciliation> {
-      const r=mode==='execute'?await client.reserve(p):await client.status(p);
+      let r;
+      if(mode==='execute')r=await client.reserve(p);
+      else {
+        const evidence=await client.statusEvidence(p);
+        if(evidence.payload.purpose==='reservation_absent')return {kind:'absent',proof:canonical({request:evidence.request,receipt:evidence.receipt})};
+        r=evidence.payload;
+      }
       if(!['ready','committing','committed'].includes(r.state)||r.recordingState!=='ready') return {kind:'unknown'};
       await ports.db.prepare("UPDATE publication_catalog_obligations SET state='reserved' WHERE job_id=? AND intent_sha256=? AND state='pending'")
         .bind(p.jobId,hashJson(p)).run();
@@ -57,15 +63,16 @@ export async function catalogPublication(ports:CatalogPublicationPorts,operation
     async commit(mode:'execute'|'reconcile'):Promise<Reconciliation> {
       await retainCatalogChainReceipt(ports.db,p);
       const obligation=await catalogObligation(ports.db,p.jobId),posting=await canonicalPosting(ports,p,JSON.parse(obligation.posting_json!));
-      const r=mode==='execute'?await client.commit(p,posting):{payload:await client.status(p),receipt:null};
-      if(r.payload.state!=='committed') return r.payload.state==='committing'&&mode==='reconcile' ? {kind:'absent',proof:canonical({reservationId:r.payload.reservationId,postingSha256:r.payload.postingSha256,state:r.payload.state})} : {kind:'unknown'};
+      const r=mode==='execute'?await client.commit(p,posting):await client.statusEvidence(p);
+      const proof=()=>canonical({request:r.request,receipt:r.receipt});
+      if(r.payload.state!=='committed') return r.payload.state==='committing'&&mode==='reconcile' ? {kind:'absent',proof:proof()} : {kind:'unknown'};
       insist(r.payload.recordingState==='ready'&&r.payload.postingSha256===hashJson(posting)&&r.payload.publicationSha256,"catalog_promotion_pending",503);
       if(mode==='execute') await ports.db.prepare(`UPDATE publication_catalog_obligations SET state='complete',promotion_receipt_json=?
         WHERE job_id=? AND intent_sha256=? AND chain_receipt_json IS NOT NULL AND posting_json=? AND state='receipt' AND promotion_receipt_json IS NULL`)
         .bind(canonical(r.receipt),p.jobId,hashJson(p),canonical(posting)).run();
       // A lost commit reply is recovered through the same commit operation on execute;
       // read-only reconciliation cannot manufacture a missing local promotion receipt.
-      if((await catalogObligation(ports.db,p.jobId)).state!=='complete') return {kind:'absent',proof:'central_committed_local_ack_pending'};
+      if((await catalogObligation(ports.db,p.jobId)).state!=='complete') return {kind:'absent',proof:proof()};
       return stable(r.payload);
     },
   };

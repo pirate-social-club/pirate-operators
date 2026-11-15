@@ -146,7 +146,7 @@ export function canonicalCommunityClient(
     const response = await (inputs.transport ?? fetch)(
       new Request(config.app.origin + canonicalPath, {
         method: "POST",
-        redirect: "error",
+        redirect: "manual",
         signal: deadline,
         headers: { "content-type": "application/json" },
         body: canonical(wire),
