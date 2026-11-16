@@ -97,6 +97,7 @@ export async function recognitionFixture(
       excludedVideo = false,
       catalogOutage = false,
       indexLag = false,
+      listingLag = false,
       verificationLag = false,
       loseVerification = false,
       loseVerificationReturn = false;
@@ -206,7 +207,7 @@ export async function recognitionFixture(
         }
         if (catalogOutage) return new Response(null, { status: 503 });
         return Response.json({
-          data: [...rows.values()]
+          data: (listingLag ? [] : [...rows.values()])
             .filter((r) => r.title === url.searchParams.get("search"))
             .map((r) => (indexLag ? { ...r, state: 0 } : r)),
           next_page_url: null,
@@ -383,6 +384,7 @@ export async function recognitionFixture(
         excludedVideo?: boolean;
         catalogOutage?: boolean;
         indexLag?: boolean;
+        listingLag?: boolean;
         verificationLag?: boolean;
         loseVerification?: boolean;
         loseVerificationReturn?: boolean;
@@ -395,6 +397,7 @@ export async function recognitionFixture(
         excludedVideo = flags.excludedVideo ?? excludedVideo;
         catalogOutage = flags.catalogOutage ?? catalogOutage;
         indexLag = flags.indexLag ?? indexLag;
+        listingLag = flags.listingLag ?? listingLag;
         verificationLag = flags.verificationLag ?? verificationLag;
         loseVerification = flags.loseVerification ?? loseVerification;
         loseVerificationReturn =
