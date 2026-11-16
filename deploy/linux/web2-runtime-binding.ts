@@ -75,6 +75,7 @@ export interface Web2RuntimeBindingInputs {
   policy: SignedRecord<Web2RuntimeBindingPolicy>;
   lease: OperationLease;
   chain: Web2ChainAuthority;
+  /** Unix epoch milliseconds for the host binding policy and its validity window. */
   now: () => number;
   /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
   publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
@@ -199,7 +200,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   );
   const publishing = input.publishing ? await createWeb2PublishingSetup(input.publishing.directory, {
     hostInstallationId:policy.installationId,publisher:input.publishing.publisher,
-    publishing:{chain,grants:input.publishing.grants},now,
+    publishing:{chain,grants:input.publishing.grants},now:()=>Math.floor(now()/1000),
   }) : null;
   const ingress = publicIngressFrom(policy.ingress);
   assert(

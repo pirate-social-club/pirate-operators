@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { walletAuthorityFixture, type AuthorityState } from "./fixtures/wallet-account-authority.ts";
 import { CommunityError } from "../packages/community/common.ts";
+import { verifyOwnerTypedAuthorization } from "../packages/community/owner-authorization-verifier.ts";
 
 for(const kind of ["owner","enrollment"] as const) {
   for(const state of ["code-deny","code-revert","delegated-deny","delegated-revert"] as const) test(`${kind}: ${state} cannot downgrade to a valid raw account key`,{timeout:60000},async(t)=>{
@@ -42,3 +43,22 @@ for(const kind of ["owner","enrollment"] as const) {
     assert.equal(f.methods.slice(methods).some(m=>m.startsWith("eth_send")),false);
   });
 }
+
+// Keep the actual verifier's unit/freshness contract strict when a caller adapts
+// a millisecond host clock. The installed binder journey covers that caller.
+test("owner: Unix-second safe views accept fresh evidence and refuse future, stale or millisecond clocks", {timeout:60000}, async(t)=>{
+  const f=await walletAuthorityFixture();t.after(f.close);await f.setState("plain");
+  const safe=await f.client.getBlock({blockTag:"safe"}), seconds=Number(safe.timestamp), start=f.methods.length;
+  const verify=(now:number)=>verifyOwnerTypedAuthorization({authorization:f.authorization,signature:f.proofs.owner},f.config,{
+    client:f.client,currentConfiguration:async()=>f.config,now:()=>now,maxSafeBlockAgeSeconds:300n,
+  });
+  await verify(seconds);await verify(seconds+300);
+  const refused=[];
+  for(const [kind,clock]of [["future",seconds-1],["stale",seconds+301],["milliseconds",seconds*1000]] as const){
+    await assert.rejects(verify(clock),error=>error instanceof CommunityError&&error.code==="owner_authorization_safe_view_unavailable"&&error.status===503);
+    refused.push(kind);
+  }
+  assert.equal(f.methods.slice(start).some(method=>method.startsWith("eth_send")),false);
+  await f.artifact("owner-clock-freshness",{safeBlock:String(safe.number),safeHash:safe.hash,safeTimestamp:seconds,
+    exactFreshnessBoundaryAccepted:true,refused,signatureDigest:f.digest(f.proofs.owner),readOnly:true});
+});

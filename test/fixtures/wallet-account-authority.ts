@@ -93,7 +93,7 @@ export async function walletAuthorityFixture() {
       if(state.startsWith("code-"))assert(code&&code!=="0x");
       return {state,code:code??"0x",codeHash:code?keccak256(code):null,safeBlock:safe.number,safeHash:safe.hash,delegationTransaction:transaction};
     };
-    return {client,config,policy,enrollment,ownerData,enrollmentData,proofs,methods,blockedCalls,setState,close,artifact,
+    return {client,config,policy,enrollment,authorization,ownerData,enrollmentData,proofs,methods,blockedCalls,setState,close,artifact,
       actor:lower(f.accounts.controller.address),failEthCall:(value:boolean)=>{failCall=value;},
       async rawMatches(kind:"owner"|"enrollment"){const recovered=kind==="owner"?await recoverTypedDataAddress({...ownerData,signature:proofs.owner}):await recoverTypedDataAddress({...enrollmentData,signature:proofs.enrollment});return lower(recovered)===lower(f.accounts.controller.address);},
       async verify(kind:"owner"|"enrollment",signature:Hex=proofs[kind]) {
