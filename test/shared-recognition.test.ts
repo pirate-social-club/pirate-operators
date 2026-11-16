@@ -174,7 +174,7 @@ test("lost successful upload response survives restart and never purchases a sec
     await f.dispose();
   }
 });
-test("provider outage and processing lag hold enrollment without duplicate uploads", async () => {
+test("provider outage, empty listing and processing lag retain one upload through restart", async (t) => {
   const f = await recognitionFixture();
   try {
     const a = await f.enroll();
@@ -183,7 +183,26 @@ test("provider outage and processing lag hold enrollment without duplicate uploa
     assert.equal(f.counts().uploads, 0);
     f.flags({ catalogOutage: false });
     assert.equal(await f.run(a.body.recordingId), "progress");
-    f.flags({ indexLag: true });
+    const accepted = await f.store().get(a.body.recordingId);
+    assert.ok(accepted?.provider_file_id && accepted.provider_match_id);
+    const identity = (row: NonNullable<typeof accepted>) => ({
+      recordingId: row.recording_id,
+      audioSha256: row.audio_sha256,
+      fileId: row.provider_file_id,
+      matchId: row.provider_match_id,
+    });
+    const originalIdentity = identity(accepted);
+    f.flags({ listingLag: true });
+    for (let restart = 0; restart < 2; restart++) {
+      assert.equal(await f.run(a.body.recordingId), "waiting");
+      const pending = await f.store().get(a.body.recordingId);
+      assert.ok(pending);
+      assert.equal(pending.state, "processing");
+      assert.deepEqual(identity(pending), originalIdentity);
+      assert.deepEqual(f.counts(), { uploads: 1, deletes: 0, identify: 0 });
+      f.restart();
+    }
+    f.flags({ listingLag: false, indexLag: true });
     assert.equal(await f.run(a.body.recordingId), "waiting");
     assert.equal(
       (await f.store().get(a.body.recordingId))!.state,
@@ -194,6 +213,16 @@ test("provider outage and processing lag hold enrollment without duplicate uploa
     f.flags({ indexLag: false });
     assert.equal(await f.run(a.body.recordingId), "ready");
     assert.deepEqual(f.counts(), { uploads: 1, deletes: 0, identify: 1 });
+    const ready = await f.store().get(a.body.recordingId);
+    assert.ok(ready);
+    assert.deepEqual(identity(ready), originalIdentity);
+    t.diagnostic(JSON.stringify({
+      artifact: "accepted-upload-empty-listing-restart/1",
+      ...originalIdentity,
+      emptyListingRestarts: 2,
+      finalState: ready.state,
+      effects: f.counts(),
+    }));
   } finally {
     await f.dispose();
   }
