@@ -33,8 +33,9 @@ async function childIdentities() {
   return rows;
 }
 export async function walletAuthorityFixture() {
+  const packet=process.env.PIRATE_WALLET_AUTHORITY_EVIDENCE_DIRECTORY??".local/wallet-account-authority-evidence";
+  await mkdir(packet,{recursive:true});
   const f=await hostedFixture(),children=await childIdentities();
-  const packet=".local/wallet-authority-verifier-20261116";
   const chain=defineChain({id:6343,name:"Owned wallet authority fixture",nativeCurrency:{name:"Test Ether",symbol:"ETH",decimals:18},rpcUrls:{default:{http:[f.local.transport.url!]}}});
   const methods:string[]=[],blockedCalls:string[]=[];let failCall=false,serverClosed=false;
   const proxy=createServer(async(req,res)=>{
