@@ -735,3 +735,25 @@ test(
     }
   },
 );
+
+// Regression specified before repairing the generic cancellation bypass.
+test("V5 sender hold includes cancellation and keeps the unresolved nonce prefix", async () => {
+  const n = node();
+  try {
+    const store = journal();
+    const original = await allocated(store, n);
+    const imported: TxRow = { ...original, kind: "record_publication_grant",
+      withheld: { reason: "publication_local_stop", at: 1800000000 } };
+    store.set(key(imported), imported);
+    assert.equal(n.state.sent.length, 0);
+    await recoverTransactions(env, store, async () => true, gate({ value: true }))
+      .catch(error => assert.match(String(error), /publication_v5_sender_not_admitted/));
+    assert.equal(n.state.sent.length, 0, "an unqualified V5 row cannot send a cancellation");
+    const held = txRow(store, imported.nonce)!;
+    assert.equal(held.raw, imported.raw);
+    assert.equal(held.hash, imported.hash);
+    assert.equal(held.broadcast, "none");
+    assert.equal(held.cancellation, undefined);
+    assert.equal(held.mined, null);
+  } finally { n.restore(); }
+});
