@@ -229,6 +229,20 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
   let db = await runtime.getD1Database("DB", "managed"), recognitionDb = await runtime.getD1Database("DB", "recognition");
   const rows = async () => (await db.prepare("SELECT * FROM managed_publishing_admissions ORDER BY original_id").all()).results;
   const budgets = async () => (await db.prepare("SELECT * FROM spending_budgets ORDER BY scope,period,asset").all()).results;
+  function recognitionRecoveryWakes() {
+    const woken = new Set<string>(); let nextRecovery = 0;
+    return async () => {
+      const { results } = await recognitionDb.prepare("SELECT recording_id,state,attempt,lease_until FROM shared_recognition_recordings ORDER BY recording_id")
+        .all<Pick<Recording, "recording_id" | "state" | "attempt" | "lease_until">>();
+      const now = Date.now(), phases = results.length ? results.map(r => `${r.recording_id}:${r.state}`) : ["before-recording"];
+      if (results.some(r => r.lease_until > now) || (results.length && results.every(r => ["ready", "failed", "deleted"].includes(r.state)))) return;
+      // Polling must not flood the serial broker with duplicate reservations.
+      // A new attempt is ownership evidence, never permission for another wake.
+      if (phases.every(phase => woken.has(phase)) && now < nextRecovery) return;
+      phases.forEach(phase => woken.add(phase)); nextRecovery = now + 60000;
+      assert.equal((await (await runtime.getWorker("recognition")).scheduled()).outcome, "ok");
+    };
+  }
   let http: Awaited<ReturnType<typeof canonicalHttpFixture>> | undefined;
   try {
     for (const name of ["0001_managed.sql", "0002_release_operations.sql", "0003_owner_curated.sql", "0004_owner_budget_windows.sql"])
@@ -437,11 +451,9 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       recognitionClient: client, providerEffects: () => ({ uploads, identifies, deletes }), loseNextUploadReply: () => { lostUpload = true; },
       loseNextIdentifyReply: () => { lostIdentify = true; }, setProviderOutage: (value: boolean) => { providerOutage = value; },
       async waitForUploadCall() {
-        const deadline = Date.now() + 120000;
+        const deadline = Date.now() + 120000, recover = recognitionRecoveryWakes();
         while (uploads === 0 && Date.now() < deadline) {
-          // Production cron wakes existing due originals; it neither creates a
-          // replacement nor retries a provider purchase directly. Await it.
-          await (await runtime.getWorker("recognition")).scheduled();
+          await recover();
           await new Promise(resolve => setTimeout(resolve, 250));
         }
         assert(uploads > 0, "actual catalog upload transport was never reached");
@@ -478,6 +490,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       reservationIdentity: (intent: AcceptedIntent) => recognitionDb.prepare("SELECT reservation_id,intent_json FROM shared_recognition_reservations WHERE reservation_id=?")
         .bind(reservationId(intent)).first<{ reservation_id: string; intent_json: string }>(),
       async waitRecognitionReady(intent: AcceptedIntent) {
+        const recover = recognitionRecoveryWakes();
         for (let attempt = 0; attempt < 200; attempt++) {
           try {
             const status = await client().status(intent);
@@ -487,7 +500,7 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
             // retries a reservation or an outside provider purchase.
             if (!(error instanceof CommunityError && error.code === "recognition_catalog_pending")) throw error;
           }
-          if (attempt % 10 === 0) await (await runtime.getWorker("recognition")).scheduled();
+          if (attempt % 10 === 0) await recover();
           await new Promise(resolve => setTimeout(resolve, 50));
         }
         throw Error("actual recognition original did not become ready");

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { managedServicesFixture } from "./fixtures/managed-first-song-services.ts";
+import { CommunityError } from "../packages/community/common.ts";
 
 test("bundled fetch, queue and scheduled use the admitted journal and awaited recovery", async () => {
   const f = await managedServicesFixture();
@@ -77,15 +78,17 @@ test("a delayed scheduler and duplicate delivery advance one real accepted origi
 test("lost provider upload reply reconciles the same recording after restart without another upload", async () => {
   const f = await managedServicesFixture();
   try {
-    await f.prepare(); await f.attach();
+    assert.equal((await f.prepare()).status, 200); assert.equal((await f.attach()).status, 200);
     const intent = await f.acceptCanonicalIntent(); f.loseNextUploadReply();
-    await assert.rejects(f.recognitionClient().reserve(intent));
+    await assert.rejects(f.recognitionClient().reserve(intent), error => error instanceof CommunityError && error.code === "catalog_pending");
+    const original = await f.reservationOriginal(intent); assert(original);
     await f.waitForUploadCall();
     await f.restartRecognition();
     assert.equal((await (await f.recognitionWorker()).scheduled()).outcome, "ok");
     const ready = await f.waitRecognitionReady(intent);
     assert.equal(ready.recordingState, "ready");
     assert.equal(f.providerEffects().uploads, 1);
+    assert.deepEqual(await f.reservationOriginal(intent), original);
     await f.artifact("catalog-upload-unknown-reconciliation");
   } finally { await f.close(); }
 });
