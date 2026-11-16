@@ -27,6 +27,8 @@ import {
   rpc,
 } from "./chain.ts";
 import type { Env, Store } from "./runtime.ts";
+import { capturedFee, same, publicationDisposition, type CapturedPublicationFeeV1,
+  type PublicationDispositionV1 } from "./publication-command-contract.ts";
 
 /** Record intents are sent in order by the publisher (services/records.ts), never by recovery. */
 export type TxKind =
@@ -40,7 +42,10 @@ export type TxKind =
   | "record_enroll"
   | "record_revoke"
   | "record_authorize"
-  | "record_result";
+  | "record_result"
+  | "record_publication_grant"
+  | "record_publication_withdrawal"
+  | "record_result_v5";
 /** A signed EIP-7702 authorization, as JSON stores it. */
 export interface StoredAuthorization {
   address: Address;
@@ -50,7 +55,19 @@ export interface StoredAuthorization {
   s: Hex;
   yParity: number;
 }
+export const isPublicationV5Kind = (kind: TxKind) =>
+  kind === "record_publication_grant" || kind === "record_publication_withdrawal" || kind === "record_result_v5";
+const publicationPrefixHeld = (store: TxStore, nonce?: number) =>
+  store.entries("tx:").some(({value}) => {
+    const row = value as TxRow;
+    return isPublicationV5Kind(row.kind) && (nonce === undefined || row.nonce <= nonce);
+  });
+
+export interface PublicationReceiptProof {
+  proofHash: Hex; blockHash: Hex; blockNumber: string; state: "recorded" | "reverted";
+}
 export interface Intent {
+  publicationV1?: CapturedPublicationFeeV1;
   kind: TxKind;
   ref: string;
   to: Address;
@@ -61,6 +78,9 @@ export interface Intent {
   authorizationList?: StoredAuthorization[];
 }
 export interface TxRow {
+  publicationV1?: CapturedPublicationFeeV1;
+  publicationReceipt?: PublicationReceiptProof;
+  publicationRevision?: number;
   nonce: number;
   kind: TxKind;
   ref: string;
@@ -226,6 +246,64 @@ export function enqueue(
   return intent;
 }
 
+/** First slice stages only: no V5 sender is admitted by this function. */
+export function enqueuePublicationCommand(
+  store: TxStore, kind: TxKind, ref: string, to: Address, data: Hex,
+  captured: CapturedPublicationFeeV1,
+) {
+  check(isPublicationV5Kind(kind), "publication_kind_invalid");
+  const fee = capturedFee(captured), old = intentOf(store,kind,ref);
+  check(!old || (old.to === to && old.data === data && old.gas === fee.gas &&
+    old.authorizationList === undefined && same(old.publicationV1,fee)),
+    "publication_intent_changed");
+  if (old) return old;
+  check(!store.entries("tx:").some(({value}) => {
+    const row = value as TxRow; return row.kind === kind && row.ref === ref;
+  }), "publication_orphan_transaction");
+  const intent = enqueue(store,kind,ref,to,data,BigInt(fee.gas));
+  const next = {...intent,publicationV1:fee};
+  store.set(intentKey(kind,ref),next);
+  return next;
+}
+/** Called only after the exact original canonical receipt/event decoder. */
+export function notePublicationReceipt(store: TxStore, nonce: number, hash: Hex,
+  proof: PublicationReceiptProof, expected: PublicationDispositionV1) {
+  return store.transaction(() => {
+    const row = txRow(store,nonce);
+    check(row && isPublicationV5Kind(row.kind) && row.hash === hash &&
+      row.publicationV1, "publication_original_changed");
+    const current = publicationDisposition(row);
+    if (!same(current,expected)) return false;
+    const block = Number(BigInt(proof.blockNumber));
+    check(Number.isSafeInteger(block) && block >= 0, "publication_block_invalid");
+    const status = proof.state === "recorded" ? "success" : "reverted";
+    if (same(row.publicationReceipt??null,proof) && row.mined?.status === status &&
+      row.mined.block === block) return true;
+    if (current.revision === Number.MAX_SAFE_INTEGER) return false;
+    // A verified canonical original receipt overrides an older cancellation
+    // or superseded inference. The caller retains that prior disposition.
+    const cancellation = row.cancellation ? (({status:_status,...saved}) => saved)(row.cancellation) : undefined;
+    store.set(txKey(nonce),{...row,cancellation,publicationReceipt:proof,
+      publicationRevision:current.revision+1,mined:{status,block}});
+    return true;
+  });
+}
+export function clearPublicationReceipt(store: TxStore, nonce: number, proofHash: Hex,
+  expected: PublicationDispositionV1) {
+  return store.transaction(() => {
+    const row = txRow(store,nonce);
+    check(row && isPublicationV5Kind(row.kind), "publication_original_changed");
+    const current = publicationDisposition(row);
+    if (!same(current,expected) || current.revision === Number.MAX_SAFE_INTEGER ||
+      !row.publicationReceipt || row.publicationReceipt.proofHash !== proofHash) return false;
+    check(row.mined?.status === "success" || row.mined?.status === "reverted",
+      "publication_nonce_disposition_changed");
+    const {publicationReceipt: _proof, ...rest} = row;
+    store.set(txKey(nonce),{...rest,mined:null,publicationRevision:current.revision+1});
+    return true;
+  });
+}
+
 /**
  * Removes an intent that never received a nonce, so no path can dispatch it:
  * recovery never allocates for record intents, and a dispatch already past
@@ -241,6 +319,7 @@ export function discardUnallocated(store: TxStore, kind: TxKind, ref: string) {
 }
 
 function markMined(store: TxStore, nonce: number, receipt: Receipt) {
+  check(!isPublicationV5Kind(txRow(store,nonce)!.kind), "publication_original_reconciler_required");
   store.set(txKey(nonce), {
     ...txRow(store, nonce)!,
     mined: {
@@ -251,6 +330,7 @@ function markMined(store: TxStore, nonce: number, receipt: Receipt) {
 }
 /** The nonce was consumed by the cancellation, never by the withheld work. */
 function markCancelled(store: TxStore, nonce: number, receipt: Receipt) {
+  check(!isPublicationV5Kind(txRow(store,nonce)!.kind), "publication_original_reconciler_required");
   const row = txRow(store, nonce)!;
   store.set(txKey(nonce), {
     ...row,
@@ -311,7 +391,7 @@ async function signed(env: Env, store: TxStore, nonce: number) {
     raw,
     hash: keccak256(raw),
     // A result row from before the marker, signed only now, was never sent.
-    ...(current.kind === "record_result" &&
+    ...((current.kind === "record_result" || isPublicationV5Kind(current.kind)) &&
     current.broadcast === undefined &&
     current.raw === undefined &&
     current.hash === undefined
@@ -338,8 +418,10 @@ export async function dispatch(
   limits?: FeeLimits,
   gate?: SendGate,
 ) {
+  check(!isPublicationV5Kind(kind), "publication_v5_sender_not_admitted");
   let intent = intentOf(store, kind, ref);
   if (!intent) return undefined;
+  check(!publicationPrefixHeld(store,intent.nonce??undefined), "publication_v5_nonce_prefix_held");
   if (intent.nonce === null) {
     const fee = await gasPrice(env.RPC_URL);
     check(!limits || fee <= limits.maxFeePerGas, "gas_price_above_limit");
@@ -359,6 +441,7 @@ export async function dispatch(
     const allocated = store.transaction(() => {
       const current = intentOf(store, kind, ref);
       if (!current || current.nonce !== null) return current;
+      check(!publicationPrefixHeld(store), "publication_v5_nonce_prefix_held");
       if (gate?.recorded(kind, ref)) return undefined;
       const maxFeePerGas = current.authorizationList
         ? limits && limits.maxFeePerGas < fee * 2n
@@ -392,7 +475,8 @@ export async function dispatch(
         ...(current.authorizationList
           ? { authorizationList: current.authorizationList }
           : {}),
-        ...(kind === "record_result" ? { broadcast: "none" as const } : {}),
+        ...((kind === "record_result" || isPublicationV5Kind(kind)) ? { broadcast: "none" as const } : {}),
+        ...(isPublicationV5Kind(kind) ? {publicationV1:current.publicationV1,publicationRevision:0} : {}),
         mined: null,
       } satisfies TxRow);
       const next = { ...current, nonce };
@@ -420,6 +504,7 @@ export async function dispatch(
  */
 async function send(env: Env, store: TxStore, nonce: number, gate?: SendGate) {
   const row = txRow(store, nonce)!;
+  check(!isPublicationV5Kind(row.kind), "publication_v5_sender_not_admitted");
   if (row.mined) return row;
   if (row.withheld) return settleWithheld(env, store, nonce, gate);
   return sendOwn(env, store, nonce, gate);
@@ -469,6 +554,8 @@ async function sendOwn(
   nonce: number,
   gate?: SendGate,
 ): Promise<TxRow> {
+  check(!isPublicationV5Kind(txRow(store,nonce)!.kind), "publication_v5_sender_not_admitted");
+  check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
   const row = await signed(env, store, nonce);
   if (row.mined) return row;
   await checkDataFee(env, row.chainId, ownPriced(row));
@@ -484,6 +571,8 @@ async function sendOwn(
   if (gate?.recorded(current.kind, current.ref))
     current = markWithheld(store, nonce, gate.reason);
   if (current.withheld) return settleWithheld(env, store, nonce, gate);
+  check(!isPublicationV5Kind(current.kind), "publication_v5_sender_not_admitted");
+  check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
   if (current.broadcast === "none")
     store.set(txKey(nonce), { ...current, broadcast: "attempted" });
   const receipt = await sendRaw(
@@ -550,6 +639,7 @@ async function settleWithheld(
   gate?: SendGate,
 ): Promise<TxRow> {
   let row = txRow(store, nonce)!;
+  if (publicationPrefixHeld(store,nonce)) return row;
   if (row.mined) return row;
   try {
     const operator = privateKeyToAccount(env.PRIVATE_KEY).address;
@@ -652,13 +742,16 @@ async function settleWithheld(
     const cancellation = row.cancellation!;
     await checkDataFee(env, row.chainId, () => unsignedCancellation(row));
     // Its receipt settles the row only once deep enough (above).
-    if (!(await receiptOf(env.RPC_URL, cancellation.hash!)))
+    if (!(await receiptOf(env.RPC_URL, cancellation.hash!))) {
+      check(!isPublicationV5Kind(txRow(store,nonce)!.kind), "publication_v5_sender_not_admitted");
+      check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
       await sendRaw(
         env.RPC_URL,
         cancellation.raw!,
         cancellation.hash!,
         realtime(env),
       );
+    }
     warn("operator_cancellation_pending", row, {
       cancellation: cancellation.hash,
     });
@@ -687,6 +780,7 @@ export async function recheckSuperseded(
   force = false,
 ) {
   const row = txRow(store, nonce);
+  if (row && isPublicationV5Kind(row.kind)) return row;
   if (row?.mined?.status !== "superseded") return row;
   const now = journalNow(store),
     since = row.withheld?.supersededAt ?? now;
@@ -728,6 +822,7 @@ export async function settleWithheldTransactions(
 ) {
   for (const { value } of store.entries("tx:")) {
     const row = value as TxRow;
+    if (isPublicationV5Kind(row.kind)) break;
     if (!row.withheld) continue;
     if (row.mined?.status === "superseded")
       await recheckSuperseded(env, store, row.nonce).catch(() => undefined);
@@ -748,6 +843,8 @@ async function prepareCancellation(
   nonce: number,
   limits: FeeLimits,
 ) {
+  check(!isPublicationV5Kind(txRow(store,nonce)!.kind), "publication_v5_sender_not_admitted");
+  check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
   const operator = privateKeyToAccount(env.PRIVATE_KEY).address;
   const fee = await gasPrice(env.RPC_URL);
   check(fee <= limits.maxFeePerGas, "gas_price_above_limit");
@@ -758,6 +855,7 @@ async function prepareCancellation(
   );
   return store.transaction(() => {
     const row = txRow(store, nonce)!;
+    check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
     if (row.mined || row.cancellation || !row.withheld || !provenUnsent(row))
       return row;
     check(gas <= BigInt(row.gas), "cancellation_gas_above_limit");
@@ -788,6 +886,8 @@ const unsignedCancellation = (row: TxRow) =>
 /** Deterministic, like `signed`: a crash before storing the bytes re-signs identically. */
 async function signedCancellation(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce)!;
+  check(!isPublicationV5Kind(row.kind), "publication_v5_sender_not_admitted");
+  check(!publicationPrefixHeld(store,nonce), "publication_v5_nonce_prefix_held");
   const cancellation = row.cancellation!;
   if (cancellation.raw && cancellation.hash) return row;
   const raw = await privateKeyToAccount(env.PRIVATE_KEY).signTransaction({
@@ -824,13 +924,16 @@ export async function recoverTransactions(
   let resolved = 0;
   for (const { value } of store.entries("intent:")) {
     const intent = value as Intent;
-    if (intent.nonce === null && !intent.kind.startsWith("record_"))
+    if (intent.nonce === null && !intent.kind.startsWith("record_") && !publicationPrefixHeld(store))
       await dispatch(env, store, intent.kind, intent.ref).catch(
         () => undefined,
       );
   }
   for (const { value } of store.entries("tx:")) {
     let row = value as TxRow;
+    // First slice holds the whole V5 prefix, even a legacy inferred mined
+    // flag. Exact original observation is available through its own module.
+    if (isPublicationV5Kind(row.kind)) break;
     if (row.mined) continue;
     // A failed withdrawal read throws here, before anything is sent.
     if (gate) row = await withhold(env, store, row.nonce, gate);
@@ -854,6 +957,7 @@ export async function recoverTransactions(
 /** Refreshes one nonce's mined state from its receipt without rebroadcasting. */
 export async function refresh(env: Env, store: TxStore, nonce: number) {
   const row = txRow(store, nonce);
+  if (row && isPublicationV5Kind(row.kind)) return row;
   if (!row || row.mined || !row.hash) return row;
   const receipt = await receiptOf(env.RPC_URL, row.hash);
   if (receipt) markMined(store, nonce, receipt);
