@@ -51,6 +51,7 @@ import { readCanonicalIntent } from "../../packages/recognition/canonical-intent
 import { reservationClient } from "../../packages/recognition/reservation-client.ts";
 import { reservationId, type AcceptedIntent } from "../../packages/recognition/intent.ts";
 import { validateOwnerAuthorization } from "../../packages/community/owner-authorization.ts";
+import { ownerAuthorizationTypedData, type OwnerAuthorization } from "../../packages/community/owner-authorization-typed-data.ts";
 import { leaseJob } from "../../packages/community/publication-store.ts";
 import type { CatalogPublicationPorts } from "../../packages/community/catalog-publication.ts";
 import type { AccountSession } from "../../packages/community/accounts.ts";
@@ -93,7 +94,7 @@ async function bundle(entry: string) {
     target: "es2024", external: ["node:*"], logLevel: "silent" });
   return result.outputFiles[0]!.text;
 }
-export async function managedServicesFixture(options: { grantSeconds?: number } = {}) {
+export async function managedServicesFixture(options: { grantSeconds?: number; typedOwnerAuthorization?: boolean } = {}) {
   const journalCandidateEvidence: { field: string; suffix: string; installationRows: number }[] = [];
   const cleanups: Array<() => Promise<void>> = []; let closed = false;
   async function close() {
@@ -291,13 +292,22 @@ export async function managedServicesFixture(options: { grantSeconds?: number } 
       registrationGas: "3000000", topupGas: "50000", maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1000000", extraFeeCeiling: "0", extraFeeField: "none",
       globalCeiling: "1000000000000000000", communityCeiling: "500000000000000000", recipientCeiling: "200000000000000000",
       controllerInitialWei: "10000000000000000", publisherInitialWei: "10000000000000000" };
-    const authorizationBody = { schema: "pirate.owner-publishing-authorization/1", communityId: grant.communityId,
-      ownerWallet: grant.ownerWallet, policy: grant.policy, validFrom: grant.validFrom, expiresAt: grant.expiresAt },
-      signedOwner = { authorization: authorizationBody, signature: await web2Controller.signMessage({ message: { raw: hashJson(authorizationBody) } }) },
-      authorization = (await validateOwnerAuthorization(signedOwner, chain.current())).authorization,
-      current = () => readPinnedManagedCommunity(registration),
+    const current = () => readPinnedManagedCommunity(registration),
+      ownerVerification = { client: chain.client, currentConfiguration: current, now: () => Math.floor(Date.now() / 1000),
+        maxSafeBlockAgeSeconds: BigInt(chain.deployment.freshness.maxSafeBlockAgeSeconds) },
+      authorizationBody: OwnerAuthorization = { schema: options.typedOwnerAuthorization ? "pirate.owner-publishing-authorization/2" : "pirate.owner-publishing-authorization/1", communityId: grant.communityId,
+        ownerWallet: grant.ownerWallet, policy: grant.policy, validFrom: grant.validFrom, expiresAt: grant.expiresAt },
+      signedOwner = { authorization: authorizationBody, signature: options.typedOwnerAuthorization
+        ? await web2Controller.signTypedData(ownerAuthorizationTypedData(authorizationBody, chain.current()))
+        : await web2Controller.signMessage({ message: { raw: hashJson(authorizationBody) } }) },
+      authorization = (await validateOwnerAuthorization(signedOwner, chain.current(), ownerVerification)).authorization,
+      attachmentBody = { schema: "pirate.web2-publishing-attachment/1" as const, selection, authorization: signedOwner,
+        custodyBindingDigest: registration.custody.custodyBindingDigest },
+      attachment = { ...attachmentBody, digest: hashJson(attachmentBody) },
       ports = ownerSongRuntime({ DB: community.db, MEDIA: community.media, COMMUNITY_PUBLISHER_PRIVATE_KEY: `0x${"11".repeat(32)}`,
         MANAGED_PROFILE_HASH: managedBindings.SERVICE_PROFILE_HASH, OWNER_GRANT_JSON: canonical(grant), OWNER_AUTHORIZATION_JSON: canonical(signedOwner),
+        ...(options.typedOwnerAuthorization ? { WEB2_PUBLISHING_ATTACHMENT_JSON: canonical(attachment), WEB2_PUBLISHING_ATTACHMENT_SHA256: attachment.digest,
+          WEB2_PUBLISHING_SELECTION_SHA256: selection.selectionDigest, OWNER_GRANT_ADMISSION_REFERENCE: selection.admissionReference } : {}),
         RECOGNITION_PROFILE_JSON: canonical(profile), CATALOG_TRANSPORT: request => http!.transport(request),
         CATALOG_ACCOUNT_FENCE: async (account, wallet, author) => {
           const row = await community.db.prepare(`SELECT a.account_id FROM community_accounts a JOIN credential_bindings b ON b.account_id=a.account_id

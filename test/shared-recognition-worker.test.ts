@@ -51,7 +51,7 @@ test("bundled handlers refuse missing/mismatched installation, profile, schema a
 
 
 test("a delayed scheduler and duplicate delivery advance one real accepted original without duplicate catalog effects", async () => {
-  const f = await managedServicesFixture();
+  const f = await managedServicesFixture({ typedOwnerAuthorization: true });
   try {
     await f.prepare(); await f.attach();
     await f.setWakeDelivery(false);

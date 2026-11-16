@@ -129,9 +129,11 @@ export function configuredRecognitionRuntime(env: SharedRecognitionEnv, purpose:
       insist(canonical(config.policies.recognition) === canonical(c.profile), "recognition_profile_changed", 403);
       return config;
     };
+    const client = megaethReadClient(undefined, d.rpcUrl);
     communities.set(r.scope.communityId, canonicalCommunityClient({ signer, currentConfiguration,
-      chain: { client: megaethReadClient(undefined, d.rpcUrl), posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) },
-        ipfs: communityIpfsTransport(d) } }));
+      chain: { client, ownerVerification: { client, currentConfiguration, now: () => Math.floor(Date.now() / 1000),
+        maxSafeBlockAgeSeconds: BigInt(d.freshness.maxSafeBlockAgeSeconds) },
+        posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) }, ipfs: communityIpfsTransport(d) } }));
   }
   return sharedRecognitionRuntime({ db: env.DB, queue: env.JOBS, profile: c.profile, signer, credentials, binding: c.binding,
     catalogToken, communities, quotas: c.quotas, journal: c.journal,
