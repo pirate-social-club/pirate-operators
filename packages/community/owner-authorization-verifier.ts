@@ -1,4 +1,5 @@
 import type { PublicClient } from "viem";
+import { verifyAccountTypedData } from "./account-signature-verifier.ts";
 import { canonical, CommunityError, insist } from "./common.ts";
 import type { CommunityConfig } from "./config-manifest.ts";
 import {
@@ -45,8 +46,8 @@ export async function verifyOwnerTypedAuthorization(
       503,
     );
     fresh();
-    const valid = await v.client.verifyTypedData({
-      ...ownerAuthorizationTypedData(record.authorization, config),
+    const valid = await verifyAccountTypedData(v.client,{
+      data:ownerAuthorizationTypedData(record.authorization, config),
       address: config.controller as `0x${string}`,
       signature: record.signature,
       blockNumber: safe.number,

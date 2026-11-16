@@ -1,3 +1,4 @@
+import { verifyAccountTypedData } from "./account-signature-verifier.ts";
 import {
   keccak256,
   type Address,
@@ -392,8 +393,8 @@ export async function verifyEnrollmentProof(
     proof = signature(sig),
     typed = enrollmentTypedData(owned);
   const block = await safeView(client, p, clock);
-  const valid = await client.verifyTypedData({
-    ...typed, address: signer, signature: proof, blockNumber: block.number,
+  const valid = await verifyAccountTypedData(client,{
+    data:typed, address: signer, signature: proof, blockNumber: block.number,
   });
   insist(
     (await client.getBlock({ blockNumber: block.number })).hash === block.hash,
