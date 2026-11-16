@@ -1,3 +1,5 @@
+import { prepareInitialLearningV5 } from "../services/learning-v5-publication.ts";
+import type { BoundPublicationGrantV1 } from "../packages/protocol/publication-runtime-v1.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -546,4 +548,64 @@ test("fixed V2 capture and source vectors agree with actual Solidity Wire", () =
     danceSourceHash(d, source),
     "0x201fee527872f0ad873918fbf89ddd330c5d259b633d727e7b58886ffe014170",
   );
+});
+
+// Boundary cases recorded before the proposed runtime adapter was installed.
+// This extends the retained compiler-derived wire vectors, not live permission.
+test("initial V5 publication binds original consent and all three contract arguments", (t) => {
+  const { grantId: _oldGrant, ...facts } = result();
+  const consent = preparePublicationGrant(31337n, registry, grant, "0x");
+  const binding: BoundPublicationGrantV1 = {
+    schema: "pirate.bound-publication-grant/1",
+    source: { schema: "pirate.publication-source/1", resultsVersion: 5,
+      chainId: 31337, communityId: grant.communityId, installationId: "vector-installation",
+      directory: learner, directoryRuntimeHash: digest("a"), registry,
+      registryRuntimeHash: grant.publicationTargetRuntimeHash, releaseSelectionSha256: digest("b") },
+    grantId: consent.digest, grant: { ...grant, purpose: "karaoke-results" },
+    recordedAtS: grant.issuedAt, boundAtS: grant.validAfter, localFenceGeneration: "0",
+  };
+  const outcomes = "0x0001012710" as const;
+  const prepared = prepareInitialLearningV5(facts, outcomes, binding, "7");
+  const decoded = decodeFunctionData({ abi: learningResultsV5Abi, data: prepared.calldata });
+  assert.equal(decoded.functionName, "publish");
+  assert.deepEqual(decoded.args, [{ ...facts, grantId: consent.digest }, outcomes, 7n]);
+  assert.equal(prepared.result.grantId, consent.digest);
+  // Reconstruct the protocol commitment independently from the compiled ABI.
+  const publish = learningResultsV5Abi.find(x => x.type === "function" && x.name === "publish")!;
+  const expectedCommitment = keccak256(encodeAbiParameters(
+    [{ type: "bytes32" }, publish.inputs[0], { type: "bytes" }],
+    [keccak256("0x7069726174652e6c6561726e696e672d726573756c742f35"),
+      { ...facts, grantId: consent.digest }, outcomes],
+  ));
+  assert.equal(prepared.commitment, expectedCommitment);
+  for (const oldField of ["grantId", "enrollmentId", "authorizationId"]) {
+    assert.throws(() => prepareInitialLearningV5(
+      { ...facts, [oldField]: digest("c") }, outcomes, binding, "7"), /invalid_v5_binding/);
+  }
+  for (const changed of [
+    { ...binding, grantId: digest("d") },
+    { ...binding, boundAtS: grant.expiresAt },
+    { ...binding, recordedAtS: "1800000001" },
+    { ...binding, source: { ...binding.source, communityId: digest("a") } },
+    { ...binding, source: { ...binding.source, registryRuntimeHash: digest("a") } },
+  ]) assert.throws(() => prepareInitialLearningV5(facts, outcomes, changed, "7"), /invalid_v5_publication/);
+  for (const changed of [
+    { ...facts, activity: 2 },
+    { ...facts, learner: publisherB },
+    { ...facts, startedAt: 1800000001n },
+    { ...facts, completedAt: 1799999999n },
+    { ...facts, revision: 2 },
+    { ...facts, supersedes: digest("a") },
+  ]) assert.throws(() => prepareInitialLearningV5(changed, outcomes, binding, "7"), /invalid_v5_publication/);
+  assert.throws(() => prepareInitialLearningV5(facts, outcomes, binding, "0"), /invalid_v5_publication/);
+  const studyGrant = { ...grant, purpose: "study-results" as const };
+  const studyConsent = preparePublicationGrant(31337n, registry, studyGrant, "0x");
+  const study = prepareInitialLearningV5({ ...facts, activity: 2 }, outcomes,
+    { ...binding, grant: studyGrant, grantId: studyConsent.digest }, "7");
+  assert.equal(study.result.grantId, studyConsent.digest);
+  assert.equal(study.result.activity, 2);
+  t.diagnostic(JSON.stringify({ artifact: "initial-v5-publication-wire/1",
+    configurationRevision: "7", grantId: consent.digest, commitment: expectedCommitment,
+    studyGrantId: studyConsent.digest, calldataSha256: createHash("sha256").update(prepared.calldata).digest("hex"),
+    eligibility: "not-asserted", effects: 0 }));
 });
