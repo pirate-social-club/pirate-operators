@@ -1,3 +1,4 @@
+import { ownedManagedPackageDependencies } from "./managed-package-dependencies.ts";
 // New integration composition; reuses existing local chain/HTTP/D1 helpers.
 // Public test keys are disposable-chain-only. SOURCE ONLY / ALL UNRUN.
 // Provider shape / MP3 construction adapted from recognition-reservation-fixture.ts
@@ -600,7 +601,8 @@ export async function managedPackageEntryBoundaryFixture() {
     planId = hashText("independent v3 reviewed configuration fixture plan");
   await mkdir(join(state, "state", "pirate-managed-firstsong-20261105"), { recursive: true });
   await writeFile(join(state, "state", "pirate-managed-firstsong-20261105", "sentinel"), "test-local historical sentinel, never a real state store");
-  await symlink(fileURLToPath(new URL("../../apps/community-wizard/node_modules", import.meta.url)), join(directory, "node_modules"), "dir");
+  const dependencies = await ownedManagedPackageDependencies(); await dependencies.verify();
+  await symlink(dependencies.modules, join(directory, "node_modules"), "dir");
   await build({ entryPoints: ["apps/managed-moderation/alchemy.run.ts"], outfile: entry, bundle: true, platform: "node", format: "esm",
     packages: "external", target: "node24", logLevel: "silent" });
   async function stateSnapshot() {

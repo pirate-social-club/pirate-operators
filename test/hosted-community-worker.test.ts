@@ -234,3 +234,21 @@ test("public hosted signer ports refuse known local fixture keys before any sign
     assert.equal((await f.db.prepare("SELECT count(*) AS n FROM hosted_operations").first<{n:number}>())!.n, 0);
   } finally { await f.close(); }
 });
+
+test("fresh hosted package retains its explicit owned-lock dependency selection through its writer", async () => {
+  const f = await hostedFixture({}, { packaged: true });
+  try {
+    assert(f.worker);
+    const { writeHostedCommunityPackage } = await import("../harness/managed-package.ts");
+    const { realpath, readFile, mkdtemp } = await import("node:fs/promises"), { join, resolve } = await import("node:path"), { tmpdir } = await import("node:os"), { createHash } = await import("node:crypto");
+    const selected = f.worker.pkg.dependencyInput;
+    assert.equal(selected.provenance.kind, "owned-committed-lock");
+    assert.equal(await realpath(selected.modules), await realpath(resolve("apps/community-wizard/node_modules")));
+    assert.equal(selected.provenance.lockSha256, createHash("sha256").update(await readFile("apps/community-wizard/package-lock.json")).digest("hex"));
+    const fresh = await mkdtemp(join(tmpdir(), "hosted-wrong-dependencies-"));
+    await assert.rejects(writeHostedCommunityPackage(fresh, f.worker.pkg, { ...selected, modules: resolve("node_modules") }), /fresh_dependency_selection_changed/);
+    await assert.rejects(readFile(join(fresh, "deployment/managed-web2-package.json")), { code: "ENOENT" });
+    assert.equal((await f.post("/status", (await f.prepare(await f.invite())).auth)).status, 200);
+    await f.worker.evidence("owned-lock-package-selection", { provenance: selected.provenance, wrongSelectionRefused: true });
+  } finally { await f.close(); }
+});

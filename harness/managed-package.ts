@@ -275,6 +275,29 @@ export async function writeManagedPackage(
   return cwd;
 }
 
+export interface ManagedPackageDependencyInput {
+  readonly modules: string;
+  verify(): Promise<void>;
+  readonly provenance: Readonly<{ kind: string; modules: string; manifestSha256: string; lockSha256: string; installedLockSha256?: string; treeSha256?: string }>;
+}
+async function freshPackageDependencies(input?: ManagedPackageDependencyInput) {
+  if (!input) return Object.freeze({ modules: managedDependencyModules, verify: verifyManagedDependencies,
+    provenance: Object.freeze({ kind: "historical-retained", modules: managedDependencyModules,
+      manifestSha256: hashText(await readFile("apps/managed-moderation/package.json", "utf8")).slice(2),
+      lockSha256: hashText(await readFile("apps/managed-moderation/package-lock.json", "utf8")).slice(2) }) });
+  insist(input.modules === input.provenance.modules && input.modules === await realpath(input.modules), "fresh_dependency_input_changed");
+  const modules = input.modules, provenance = Object.freeze(structuredClone(input.provenance));
+  await input.verify();
+  return Object.freeze({ modules, provenance, async verify() {
+    insist(input.modules === modules && canonical(input.provenance) === canonical(provenance) && await realpath(modules) === modules, "fresh_dependency_input_changed");
+    await input.verify();
+  } });
+}
+async function freshWriterDependencies(selected: ManagedPackageDependencyInput, override?: Parameters<typeof writeManagedPackage>[3]) {
+  insist(!override || override.modules === selected.modules && override.verify === selected.verify, "fresh_dependency_selection_changed");
+  await selected.verify(); return selected;
+}
+
 import { managedPublishingConfiguration, type ManagedPublishingConfiguration } from "../packages/release/managed-publishing-admission.ts";
 import { trustedRecognitionConfiguration, type SharedRecognitionConfiguration } from "../services/shared-recognition-configuration.ts";
 import type { SignedRecord, TrustAnchor } from "../deploy/linux/installed-records.ts";
@@ -285,10 +308,10 @@ export async function managedWeb2ServicesPackage(input: {
   prefix: string; planId: Hex; operatorSigning?: OperatorSigningBuildInputs; publishing: ManagedPublishingConfiguration;
   recognition: SignedRecord<SharedRecognitionConfiguration>; trust: TrustAnchor;
   admissionMigrationName: string; recognitionMigrationName: string;
-}) {
+}, dependencies?: ManagedPackageDependencyInput) {
   const selected = structuredClone(input), identity = managedFreshStackIdentity({ prefix: input.prefix, planId: input.planId,
     packageProfile: "managed-web2", state: { store: "pirate-encrypted-local", stack: input.prefix } });
-  await verifyManagedDependencies();
+  const dependencyInput = await freshPackageDependencies(dependencies); await dependencyInput.verify();
   const publishing = managedPublishingConfiguration(selected.publishing, selected.trust),
     recognition = trustedRecognitionConfiguration(selected.recognition, selected.trust);
 
@@ -318,13 +341,13 @@ export async function managedWeb2ServicesPackage(input: {
     publishing, recognition: selected.recognition, trust: selected.trust,
     admissionMigrationName: selected.admissionMigrationName, recognitionMigrationName: selected.recognitionMigrationName,
     migrations, sourceHashes, dependencies: { manifest: sourceHashes["apps/managed-moderation/package.json"],
-      lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: "verifyManagedDependencies" },
+      lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: dependencyInput.provenance.kind, selection: dependencyInput.provenance },
     bundles: bundles.map((b, i) => ({ path: i === 0 ? "worker/worker.mjs" : "worker/recognition.mjs",
       sha256: hashText(b.outputFiles![0]!.text), bytes: b.outputFiles![0]!.contents.length })),
     compatibilityDate: "2026-11-15", provisioning: "separate explicit signed admission and journal provisioning required",
     recovery: "Retain exact D1 journals and encrypted Alchemy state; unknown provider sends never authorize a replacement.",
   };
-  return { profile, profileHash: hashJson(profile), bytes: bundles[0]!.outputFiles![0]!.contents,
+  return { dependencyInput, profile, profileHash: hashJson(profile), bytes: bundles[0]!.outputFiles![0]!.contents,
     recognitionBytes: bundles[1]!.outputFiles![0]!.contents, signingAssets: helper?.files ?? [] };
 }
 export async function writeManagedWeb2ServicesPackage(directory: string, pkg: Awaited<ReturnType<typeof managedWeb2ServicesPackage>>,
@@ -334,7 +357,7 @@ export async function writeManagedWeb2ServicesPackage(directory: string, pkg: Aw
     hashText(new TextDecoder("utf-8", { fatal: true }).decode(pkg.recognitionBytes)) === pkg.profile.bundles[1]!.sha256, "managed_web2_package_changed");
   managedFreshStackIdentity(pkg.profile.identity);
   await newManagedPackageDirectory(directory);
-  const cwd = await writeManagedPackage(directory, pkg.bytes, pkg.profile.migrations, dependencies);
+  const cwd = await writeManagedPackage(directory, pkg.bytes, pkg.profile.migrations, await freshWriterDependencies(pkg.dependencyInput, dependencies));
   await privateDirectory(join(cwd, "recognition-migrations"));
   await writeFile(join(cwd, "worker/recognition.mjs"), pkg.recognitionBytes, { mode: 0o600 });
   await copyFile("packages/release/schema/managed-publishing-admission.sql", join(cwd, "migrations", pkg.profile.admissionMigrationName));
@@ -412,9 +435,9 @@ async function writeSigningAssets(cwd: string, closure: import("../services/mana
     await writeFile(target, file.bytes, { mode: 0o600 });
   }
 }
-export async function managedSigningHelperPackage(input: { identity: Parameters<typeof managedFreshStackIdentity>[0]; assets: OperatorSigningBuildInputs }) {
+export async function managedSigningHelperPackage(input: { identity: Parameters<typeof managedFreshStackIdentity>[0]; assets: OperatorSigningBuildInputs }, dependencies?: ManagedPackageDependencyInput) {
   const identity = managedFreshStackIdentity(input.identity); insist(identity.packageProfile === "operator-signing-only", "operator_signing_profile_required");
-  await verifyManagedDependencies(); const helper = await pinnedOperatorSigningAssets(input.assets),
+  const dependencyInput = await freshPackageDependencies(dependencies); await dependencyInput.verify(); const helper = await pinnedOperatorSigningAssets(input.assets),
     bundle = await build({ entryPoints: ["services/managed-publishing-worker.ts"], bundle: true, write: false, platform: "browser", format: "esm",
       target: "es2024", external: ["node:*"], metafile: true, logLevel: "silent" });
   const sourceHashes = { ...helper.sourceHashes, ...Object.fromEntries(await Promise.all([
@@ -424,8 +447,8 @@ export async function managedSigningHelperPackage(input: { identity: Parameters<
     "apps/managed-moderation/package-lock.json", "package.json", "package-lock.json",
   ].map(async path => [path, sha256(new Uint8Array(await readFile(path)))]))) };
   const bytes = bundle.outputFiles![0]!.contents, profile = { schema: "pirate.managed-signing-helper-package/1", packageProfile: identity.packageProfile,
-    prefix: identity.prefix, identity, operatorSigning: helper.closure, sourceHashes, bundleSha256: sha256(bytes), compatibilityDate: "2026-11-15" };
-  return { profile, profileHash: hashJson(profile), bytes, signingAssets: helper.files };
+    prefix: identity.prefix, identity, operatorSigning: helper.closure, sourceHashes, bundleSha256: sha256(bytes), dependencies: dependencyInput.provenance, compatibilityDate: "2026-11-15" };
+  return { dependencyInput, profile, profileHash: hashJson(profile), bytes, signingAssets: helper.files };
 }
 export async function writeManagedSigningHelperPackage(directory: string, pkg: Awaited<ReturnType<typeof managedSigningHelperPackage>>,
   dependencies?: Parameters<typeof writeManagedPackage>[3]) {
@@ -433,7 +456,7 @@ export async function writeManagedSigningHelperPackage(directory: string, pkg: A
   insist(pkg.profile.packageProfile === "operator-signing-only" && hashJson(pkg.profile) === pkg.profileHash && sha256(pkg.bytes) === pkg.profile.bundleSha256,
     "operator_signing_package_changed");
   await newManagedPackageDirectory(directory);
-  const cwd = await writeManagedPackage(directory, pkg.bytes, [], dependencies);
+  const cwd = await writeManagedPackage(directory, pkg.bytes, [], await freshWriterDependencies(pkg.dependencyInput, dependencies));
   await writeSigningAssets(cwd, pkg.profile.operatorSigning, pkg.signingAssets);
   await writeFile(join(cwd, "managed-web2-package.json"), canonical(pkg.profile), { mode: 0o600 }); return cwd;
 }
@@ -457,10 +480,10 @@ import { policyDocument, type HostedPolicy } from "../packages/community/hosted-
 /** Separate fresh hosted D1, no adoption of historical or managed journals. */
 export async function hostedCommunityPackage(input: {
   identity: Parameters<typeof managedFreshStackIdentity>[0]; policy: HostedPolicy; rpcUrl: string; configurationGateway: string;
-}) {
+}, dependencies?: ManagedPackageDependencyInput) {
   const selected = structuredClone(input), identity = managedFreshStackIdentity(selected.identity);
   insist(identity.packageProfile === "hosted-enrollment", "hosted_package_profile_required");
-  await verifyManagedDependencies();
+  const dependencyInput = await freshPackageDependencies(dependencies); await dependencyInput.verify();
   const sql = new Uint8Array(await readFile("packages/community/schema/hosted-enrollment.sql"));
   // Use the retained installed format's actual name/hash parser, rather than a
   // second ledger algorithm. Only a generated local copy receives an ordinal.
@@ -468,7 +491,7 @@ export async function hostedCommunityPackage(input: {
   let migrations: { name: string; hash: string }[];
   try {
     await writeFile(join(dir, "0001_hosted_enrollment.sql"), sql, { mode: 0o600 });
-    const wizard = createRequire(resolve("apps/community-wizard/package.json")), cloud = createRequire(wizard.resolve("@alchemy.run/cloudflare/D1/Database")),
+    const wizard = createRequire(join(dependencyInput.modules, "../package.json")), cloud = createRequire(wizard.resolve("@alchemy.run/cloudflare/D1/Database")),
       E = await import(pathToFileURL(wizard.resolve("effect/Effect")).href),
       N = await import(pathToFileURL(wizard.resolve("@effect/platform-node/NodeServices")).href),
       M = await import(pathToFileURL(cloud.resolve("@alchemy.run/sql/Migrations")).href);
@@ -488,8 +511,8 @@ export async function hostedCommunityPackage(input: {
   const sourceHashes = Object.fromEntries(await Promise.all(sources.map(async path => [path, sha256(new Uint8Array(await readFile(path)))])));
   const bytes = bundle.outputFiles[0]!.contents, profile = { schema: "pirate.hosted-community-package/1", packageProfile: "hosted-enrollment" as const,
     prefix: identity.prefix, identity, configuration, sourceHashes, migrations, bundleSha256: sha256(bytes), compatibilityDate: "2026-08-06",
-    dependencies: { manifest: sourceHashes["apps/managed-moderation/package.json"], lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: "verifyManagedDependencies" } };
-  return { profile, profileHash: hashJson(profile), bytes, sql };
+    dependencies: { manifest: sourceHashes["apps/managed-moderation/package.json"], lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: dependencyInput.provenance.kind, selection: dependencyInput.provenance } };
+  return { dependencyInput, profile, profileHash: hashJson(profile), bytes, sql };
 }
 export async function writeHostedCommunityPackage(directory: string, pkg: Awaited<ReturnType<typeof hostedCommunityPackage>>,
   dependencies?: Parameters<typeof writeManagedPackage>[3]) {
@@ -500,7 +523,7 @@ export async function writeHostedCommunityPackage(directory: string, pkg: Awaite
     config.schemaContext.migrations.length === 1 && config.schemaContext.migrations[0]!.hash === sha256(pkg.sql).slice(2) &&
     canonical(pkg.profile.migrations) === canonical(config.schemaContext.migrations), "hosted_package_changed");
   await newManagedPackageDirectory(directory);
-  const cwd = await writeManagedPackage(directory, pkg.bytes, [], dependencies);
+  const cwd = await writeManagedPackage(directory, pkg.bytes, [], await freshWriterDependencies(pkg.dependencyInput, dependencies));
   await writeFile(join(cwd, "migrations/0001_hosted_enrollment.sql"), pkg.sql, { mode: 0o600 });
   await writeFile(join(cwd, "managed-web2-package.json"), canonical(pkg.profile), { mode: 0o600 });
   return cwd;

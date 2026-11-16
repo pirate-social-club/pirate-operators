@@ -417,3 +417,15 @@ transactions/funds and complete required CI remain separate unqualified gates.
 Local real-MOSS component testing can precede a public domain/full backend; no
 browser/prompt/passkey action is performed by this qualification. Both product
 merges remain held for owner morning. Backup/restore/upgrades remain deferred.
+
+
+Fresh package constructors may take an explicit verified dependency input. Their
+returned selection is retained through the writer and actual SDK/migrator imports;
+a different writer input refuses. The historical/default retained preservation
+verifier remains unchanged. Clean CI fixtures explicitly select their own
+committed-lock installed Alchemy tree, validate installed npm metadata/locked
+versions and capture the real selected file closure, then recheck those bytes
+before packaging. This is owned-install provenance, not an invented historical
+preservation record. No HOME retarget, private-record bootstrap, install, no-op
+verifier or default-profile rewrite supplies missing dependencies. Actual affected
+qualification remains revision-specific and separate from static compilation.

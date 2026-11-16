@@ -204,3 +204,38 @@ test("selected Alchemy profiles resolve required redacted bindings while fresh c
     await f.artifact("v4-actual-profile-config-resolution");
   } finally { await f.close(); }
 });
+
+test("fresh package dependencies require a real owned committed-lock installation", async () => {
+  const { ownedManagedPackageDependencies } = await import("./fixtures/managed-package-dependencies.ts"),
+    { managedSigningHelperPackage } = await import("../harness/managed-package.ts"),
+    { resolve } = await import("node:path");
+  const selected = await ownedManagedPackageDependencies();
+  await selected.verify();
+  assert.equal(selected.provenance.kind, "owned-committed-lock");
+  await assert.rejects(ownedManagedPackageDependencies(resolve("node_modules")), /owned_dependency_directory_required/);
+  await assert.rejects(managedSigningHelperPackage({ identity: { prefix: "pirate-dependency-refusal", packageProfile: "operator-signing-only", planId: `0x${"ab".repeat(32)}`, state: { store: "pirate-encrypted-local", stack: "pirate-dependency-refusal" } },
+    assets: { directory: "absent", manifestPath: ".vite/manifest.json", manifestSha256: `0x${"cd".repeat(32)}`, entryKey: "moss-signing.html", htmlFile: "moss-signing.html", origin: "https://signing.fixture.example", contentSecurityPolicy: "absent" } },
+    { ...selected, modules: resolve("node_modules") }), /fresh_dependency_input_changed/);
+});
+
+test("verified owned dependency input refuses a newly introduced nested resolution shadow", async () => {
+  const { lockedPackageDependencyInput } = await import("./fixtures/managed-package-dependencies.ts"),
+    { mkdtemp, mkdir, cp, writeFile, copyFile } = await import("node:fs/promises"), { tmpdir } = await import("node:os"),
+    { join, resolve } = await import("node:path"), { promisify } = await import("node:util"), { execFile } = await import("node:child_process");
+  const directory = await mkdtemp(join(tmpdir(), "real-owned-resolution-")), modules = join(directory, "node_modules");
+  await mkdir(modules);
+  // Two small actual locked public packages, not a fabricated resolver/verifier.
+  await cp(resolve("apps/community-wizard/node_modules/merge-anything"), join(modules, "merge-anything"), { recursive: true });
+  await cp(resolve("apps/community-wizard/node_modules/is-what"), join(modules, "is-what"), { recursive: true });
+  await writeFile(join(directory, "package.json"), JSON.stringify({ private: true, dependencies: { "merge-anything": "5.1.7" } }));
+  await copyFile(resolve("apps/community-wizard/package-lock.json"), join(directory, "package-lock.json"));
+  await copyFile(resolve("apps/community-wizard/node_modules/.package-lock.json"), join(modules, ".package-lock.json"));
+  const selected = await lockedPackageDependencyInput(directory, ["merge-anything"]);
+  await selected.verify();
+  const resolveActual = async () => (await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `import {createRequire} from 'node:module';console.log(createRequire(${JSON.stringify(join(modules, "merge-anything/package.json"))}).resolve('is-what'));`], { timeout: 10000 })).stdout.trim();
+  const original = await resolveActual(); assert(original.startsWith(join(modules, "is-what")));
+  await mkdir(join(modules, "merge-anything/node_modules"));
+  await cp(join(modules, "is-what"), join(modules, "merge-anything/node_modules/is-what"), { recursive: true });
+  assert.notEqual(await resolveActual(), original);
+  await assert.rejects(selected.verify(), /owned_dependency_input_changed/);
+});

@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { object } from "../../packages/community/common.ts";
+import { ownedManagedPackageDependencies } from "./managed-package-dependencies.ts";
 import { hostedCommunityPackage, writeHostedCommunityPackage } from "../../harness/managed-package.ts";
 import assert from "node:assert/strict";
 import solc from "solc";
@@ -367,12 +368,12 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const evidence = async (label: string, value: unknown) => writeFile(join(evidenceDirectory, label + ".json"), JSON.stringify(value, null, 2), { mode: 0o600 });
     const packageInput = { identity: { prefix: "pirate-hosted-local-fixture", packageProfile: "hosted-enrollment" as const, planId: publicId(),
       state: { store: "pirate-encrypted-local" as const, stack: "pirate-hosted-local-fixture" } }, policy, rpcUrl: proxyUrl + "/", configurationGateway: proxyUrl + "/ipfs/" };
-    const pkg = options.packaged ? await hostedCommunityPackage(packageInput) : undefined;
+    const pkg = options.packaged ? await hostedCommunityPackage(packageInput, await ownedManagedPackageDependencies()) : undefined;
     const packageDirectory = pkg ? await mkdtemp(join(tmpdir(), "hosted-worker-package-")) : undefined;
     const cwd = pkg ? await writeHostedCommunityPackage(packageDirectory!, pkg) : undefined;
     const repeatMigrations = async () => {
       assert(cwd);
-      const wizard = createRequire(resolve("apps/community-wizard/package.json")), cloud = createRequire(wizard.resolve("@alchemy.run/cloudflare/D1/Database")),
+      const wizard = createRequire(join(cwd, "package.json")), cloud = createRequire(wizard.resolve("@alchemy.run/cloudflare/D1/Database")),
         E = await import(pathToFileURL(wizard.resolve("effect/Effect")).href), N = await import(pathToFileURL(wizard.resolve("@effect/platform-node/NodeServices")).href),
         M = await import(pathToFileURL(cloud.resolve("@alchemy.run/sql/Migrations")).href), S = await import(pathToFileURL(cloud.resolve("@alchemy.run/sql/SqlFile")).href),
         A = await import(pathToFileURL(wizard.resolve("@alchemy.run/cloudflare/D1/ApplyMigrations")).href);
