@@ -231,7 +231,6 @@ export function AppSidebar(props: AppSidebarProps) {
           >
             {(account) => (
               <button
-                aria-label={account.label}
                 aria-haspopup="dialog"
                 onClick={account.onClick}
                 type="button"
