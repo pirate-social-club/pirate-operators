@@ -18,6 +18,19 @@ const preview: Preview = {
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },
+    options: {
+      storySort: {
+        order: [
+          "Screens",
+          ["Shell", "Wallet", "Studying", "Karaoke"],
+          "Flows",
+          ["Shell", "Studying", "Karaoke", "Dance"],
+          "Checkpoint",
+          ["Community"],
+          "*",
+        ],
+      },
+    },
   },
 };
 
