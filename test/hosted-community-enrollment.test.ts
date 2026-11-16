@@ -251,8 +251,9 @@ test("code-free ERC8010 enrollment verification executes locally without a publi
     f.state.failRpc = true;
     await assert.rejects(verifyEnrollmentProof(f.runtime.client, f.policy, p.e, lower(controller.address), wrapped, f.runtime.now));
     assert.equal(f.state.sendCount, 0);
-    await mkdir(".local/web2-owner-signing-implementation/enrollment",{recursive:true});
-    await writeFile(".local/web2-owner-signing-implementation/enrollment/account-proof.json",JSON.stringify({
+    const evidenceDirectory = process.env.PIRATE_WALLET_AUTHORITY_EVIDENCE_DIRECTORY ?? ".local/web2-owner-signing-implementation/enrollment";
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(`${evidenceDirectory}/account-proof.json`,JSON.stringify({
       checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
       scope:"Disposable Anvil, actual account/initializer and public-client read execution; no MOSS or public-provider acceptance",
       enrollmentId:p.e.id,configurationDigest:hashJson(p.e.plan.config),proofDigest:hashText(wrapped),
