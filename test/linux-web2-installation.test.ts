@@ -10,7 +10,7 @@ import {
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { join } from "node:path";
 import type { PublicClient, Hex } from "viem";
 import { acquireWeb2ServiceControl } from "../deploy/linux/web2-service-lease.ts";
@@ -585,6 +585,22 @@ test(
     };
     const raw = nativeCanonical(original),
       digest = await initializeWeb2NativeOriginal(database.db, raw);
+    // The optional attachment digest is part of both independently signed
+    // originals. A newer parser must still accept the unmodified V1 original.
+    const attachmentDigest = `0x${"a7".repeat(32)}` as Hex;
+    const attached = {
+      ...original,
+      record: signRecord({ ...body, publishingAttachmentDigest: attachmentDigest }, trust, privateKey),
+      release: signRecord({ ...release, publishingAttachmentDigest: attachmentDigest }, trust, privateKey),
+    };
+    assert.equal((await web2NativeOriginal(nativeCanonical(attached))).record.body.publishingAttachmentDigest, attachmentDigest);
+    await assert.rejects(web2NativeOriginal(nativeCanonical({
+      ...attached, release: original.release,
+    })), /web2_native_original_binding_changed/);
+    await assert.rejects(web2NativeOriginal(nativeCanonical({
+      ...attached, record: signRecord({ ...body, publishingAttachmentDigest: `0x${"a8".repeat(32)}` },trust,privateKey),
+    })), /web2_native_original_binding_changed/);
+    assert.equal(await initializeWeb2NativeOriginal(database.db, raw), digest);
     await assert.rejects(
       web2NativeOriginal(
         nativeCanonical({
@@ -607,6 +623,9 @@ test(
     };
     const call = (path: string, init: RequestInit = {}) =>
       application.fetch(new Request(f.draft.origin + path, init), env);
+    const changedAttachment=await application.fetch(new Request(f.draft.origin+"/api/session"),{...env,WEB2_PUBLISHING_ATTACHMENT_SHA256:attachmentDigest});
+    assert.equal(changedAttachment.status,503);
+    assert.deepEqual(await changedAttachment.json(),{error:"web2_publishing_attachment_changed"});
     const post = (path: string, value: unknown) =>
       call(path, {
         method: "POST",
@@ -672,11 +691,16 @@ test(
       ),
       /web2_native_original_changed/,
     );
+    await mkdir(".local/web2-owner-signing-implementation/native",{recursive:true});
     await writeFile(
-      ".local/linux-web2-installation/native-original.json",
+      ".local/web2-owner-signing-implementation/native/original.json",
       JSON.stringify({
         digest,
         planDigest: canonicalDigest(body),
+        checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
+        publishingAttachmentDigest:attachmentDigest,
+        attachmentOriginalDigest:nativeDigest(attached),
+        registrationTransaction:f.chain.original.transactionHash,
         originalRetained: true,
         actualSessionBound: true,
         changedOriginalRefused: true,

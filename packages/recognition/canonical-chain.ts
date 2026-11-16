@@ -1,3 +1,4 @@
+import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import {
   decodeFunctionData,
   keccak256,
@@ -32,11 +33,12 @@ import {
 } from "./intent.ts";
 import { verifiedPublication } from "./model.ts";
 import { requireSameCanonicalSource } from "./canonical-community.ts";
-import { requireAuthorizedOwner } from "../community/owner-authorization.ts";
+import { requireOwnerIdentity } from "../community/owner-authorization.ts";
 
 /** Managed-owned inputs. Neither RPC nor bytecode pins come from the publisher's response. */
 export interface CanonicalChainInputs {
   client: PublicClient;
+  ownerVerification?: OwnerVerification;
   posts: PostsProfile;
   ipfs?: IpfsTransport;
 }
@@ -144,11 +146,13 @@ export async function independentCanonicalPublication(
   exact(witness, ["intent", "posting", "publication", "ownerAuthorization"]);
   const p = acceptedIntent(witness.intent),
     value = verifiedPublication(witness.publication);
-  const owner = await requireAuthorizedOwner(
+  const owner = await requireOwnerIdentity(
     witness.ownerAuthorization,
     config,
     p.creatorKey.slice("eip155:6343:".length),
+    chain.ownerVerification,
   );
+  insist(Math.floor(p.acceptedAt/1000)>=owner.validFrom&&Math.floor(p.acceptedAt/1000)<owner.expiresAt,"recognition_original_owner_window_changed",403);
   insist(
     hashJson(owner) === p.ownerAuthorizationSha256,
     "recognition_owner_authority_changed",
@@ -208,5 +212,6 @@ export async function independentCanonicalPublication(
     "recognition_public_manifest_changed",
     409,
   );
+  await requireOwnerIdentity(witness.ownerAuthorization, config, owner.ownerWallet, chain.ownerVerification);
   return { intent: p, posting, publication: value };
 }

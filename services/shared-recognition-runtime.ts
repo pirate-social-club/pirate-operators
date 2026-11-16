@@ -1,4 +1,5 @@
 import { sha256 } from "viem";
+import { ownerAuthorizationRecord } from "../packages/community/owner-authorization-typed-data.ts";
 import type { PrivateKeyAccount } from "viem/accounts";
 import { bytes32, canonical, hashJson, insist } from "../packages/community/common.ts";
 import { readMp3Probe, readMp3FrameWindow } from "../packages/moderation/mp3-windows.ts";
@@ -79,7 +80,19 @@ export function sharedRecognitionRuntime(inputs:SharedRecognitionRuntimeInputs) 
     verifyWithdrawal:(a,p)=>inputs.withdrawal(localCommunity(a.communityId),p),
     async resolveEnrollment(){throw new Error('recognition_reservation_required');},
     wake:wakeRecording,
-    enrollment:{catalog,readAudio,verify,authorizeSource:async p=>{await source(p);},recoverVerification:async r=>{const receipt=await store().verificationReceipt(r);return receipt?verificationFromReceipt(r,receipt):null;},
+    enrollment:{catalog,readAudio,verify,authorizeSource:async p=>{await source(p);},
+      authorizeUpload:async p=>{
+        const ports=community(p.communityId),accepted=await ports.source(p),snapshot=await ports.read(accepted.jobId);
+        // The trusted canonical read verifies the current controller signature,
+        // scope, account and original intent through the pinned local/HTTP reader.
+        insist(canonical(snapshot.intent)===canonical(accepted),"recognition_source_changed",409);
+        const {authorization}=ownerAuthorizationRecord(snapshot.ownerAuthorization);
+        insist(hashJson(authorization)===accepted.ownerAuthorizationSha256,"recognition_owner_authority_changed",403);
+        return ()=>{
+          const at=Math.floor(now()/1000);
+          insist(at>=authorization.validFrom&&at<authorization.expiresAt,"owner_authorization_outside_window",403);
+        };
+      },recoverVerification:async r=>{const receipt=await store().verificationReceipt(r);return receipt?verificationFromReceipt(r,receipt):null;},
       authorizeEffect:async(effect,r)=>{await installation();validateProviderBinding(binding,profile,credentials);await quota(effect,r);
         if(effect==='verify') {const p=await store().source(r.recording_id);insist(p,'recognition_source_changed',409);
           await community(p.communityId).authorize(p,hashJson({recordingId:r.recording_id,attempt:r.attempt,purpose:'verify'}));}

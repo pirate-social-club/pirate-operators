@@ -1,7 +1,9 @@
+import type {ManagedAdmissionGate} from "../packages/release/managed-admission-gate.ts";
 import { createPublicClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   bytes32,
+  CommunityError,
   exact,
   insist,
   integer,
@@ -37,7 +39,13 @@ import { adoptCuratedAdmission } from "../packages/moderation/adopt-curated.ts";
 import type { CatalogOwnerReleaseInputs } from "../packages/release/catalog-owner-release.ts";
 import { canonicalCommunityClient } from "../packages/recognition/canonical-transport.ts";
 import { megaethReadClient } from "../packages/community/chain.ts";
+const unavailableAdmissionGate:ManagedAdmissionGate={
+  async reservationCondition(){throw new CommunityError("managed_admission_gate_unavailable",503);},
+  async beforeDispatch(){throw new CommunityError("managed_admission_gate_unavailable",503);},
+};
 export interface ManagedEnv {
+  /** Authenticated private NEW-effect composition; never parsed from requests. */
+  MANAGED_ADMISSION_GATE?: ManagedAdmissionGate;
   /** Trusted service composition for the external pinning provider. */
   PIN_TRANSPORT?: IpfsTransport;
   CATALOG_RELEASE_INPUTS?: CatalogOwnerReleaseInputs;
@@ -66,6 +74,8 @@ export interface ManagedEnv {
    * registration client or creator service is involved.
    */
   OWNER_GRANT_JSON?: string;
+  WEB2_PUBLISHING_SELECTION_SHA256?: string;
+  OWNER_GRANT_ADMISSION_REFERENCE?: string;
 }
 /** The configured owner grant, or undefined when absent or invalid. */
 function ownerGrant(env: ManagedEnv): OwnerBudgetGrant | undefined {
@@ -238,6 +248,7 @@ export default {
           503,
         );
         return ownerReleaseFetch(request, env.DB, env.MEDIA, {
+          admissionGate:env.WEB2_PUBLISHING_SELECTION_SHA256 ? (env.MANAGED_ADMISSION_GATE ?? unavailableAdmissionGate) : env.MANAGED_ADMISSION_GATE,
           origin: config.serviceOrigin,
           ownerGrant: config.ownerGrant,
           pairings: config.pairings,
@@ -253,8 +264,10 @@ export default {
                 v.schema==="pirate.community-deployment/2"&&object(v.directoryProfile).communityId===id);
               insist(selected,"canonical_deployment_unconfigured",503);
               const deployment=validateCommunityDeploymentProfile(selected);
+              const chainClient = megaethReadClient(undefined,deployment.rpcUrl);
               return canonicalCommunityClient({signer:config.signer,
-                chain:{client:megaethReadClient(undefined,deployment.rpcUrl),
+                chain:{client:chainClient,ownerVerification:isWeb2Deployment(deployment) ? {client:chainClient,currentConfiguration:()=>config.currentConfiguration(pairing),
+                  now:()=>Math.floor(Date.now()/1000),maxSafeBlockAgeSeconds:BigInt(deployment.freshness.maxSafeBlockAgeSeconds)} : undefined,
                   posts:{...deployment.posts,deploymentBlock:BigInt(deployment.posts.deploymentBlock)},ipfs:communityIpfsTransport(deployment)},
                 currentConfiguration:()=>config.currentConfiguration(pairing),transport:env.CATALOG_CANONICAL_TRANSPORT});
             };
@@ -319,14 +332,21 @@ export default {
         } catch {
           /* Moderation health remains distinct from release configuration. */
         }
+        if(env.WEB2_PUBLISHING_SELECTION_SHA256 && (!config.ownerGrant ||
+          request.headers.get("x-pirate-community")!==config.ownerGrant.communityId || request.headers.get("x-pirate-owner-grant")!==config.ownerGrant.sha256))
+          return Response.json({error:"managed_health_scope_mismatch"},{status:403,headers:{"cache-control":"no-store"}});
         const owner = config.ownerGrant,
           ownerRelease =
             owner &&
             env.FILEBASE_IPFS_TOKEN &&
-            owner.expiresAt > Math.floor(Date.now() / 1000)
+            (!env.WEB2_PUBLISHING_SELECTION_SHA256 || env.MANAGED_ADMISSION_GATE) &&
+            owner.validFrom <= Math.floor(Date.now()/1000) && owner.expiresAt > Math.floor(Date.now() / 1000) &&
+            ((!env.WEB2_PUBLISHING_SELECTION_SHA256 && !env.OWNER_GRANT_ADMISSION_REFERENCE) ||
+              (/^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_SELECTION_SHA256 ?? "") && env.OWNER_GRANT_ADMISSION_REFERENCE))
               ? {
                   configured: true,
                   grantSha256: owner.sha256,
+                  ...(env.WEB2_PUBLISHING_SELECTION_SHA256 ? {selectionDigest:env.WEB2_PUBLISHING_SELECTION_SHA256,admissionReference:env.OWNER_GRANT_ADMISSION_REFERENCE} : {}),
                   expiresAt: owner.expiresAt,
                 }
               : { configured: false };

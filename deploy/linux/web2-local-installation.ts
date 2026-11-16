@@ -241,6 +241,7 @@ export async function createWeb2Installation(
     const record =
         await readPrivateJSON<SignedRecord<Web2InstallPlan>>(originalPath),
       body = verifyRecord(record, selected.trust);
+    assert.deepEqual(Object.keys(body).sort(), ["schema","planId","installationId","durableScope","generation","draft","releaseArtifactDigest","releaseSourceDigest","targetDigest","hostFingerprint","enrollment","registrationAuthority",...(Object.hasOwn(body,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : [])].sort(),"original_web2_installation_fields_changed");
     assert(
       body.schema === "pirate.linux-web2-install-plan/1" &&
         body.planId === selection.planId &&
@@ -249,6 +250,7 @@ export async function createWeb2Installation(
         body.durableScope === release.graph.durableScope &&
         body.releaseArtifactDigest === release.artifactDigest &&
         body.releaseSourceDigest === release.sourceDigest &&
+        body.publishingAttachmentDigest === selected.applicationRelease.body.publishingAttachmentDigest &&
         body.targetDigest === targetDigest &&
         body.hostFingerprint === selected.hostFingerprint,
       "original_web2_installation_changed",
@@ -368,6 +370,7 @@ export async function createWeb2Installation(
           draft,
           releaseArtifactDigest: release.artifactDigest,
           releaseSourceDigest: release.sourceDigest,
+          ...(selected.applicationRelease.body.publishingAttachmentDigest ? {publishingAttachmentDigest:selected.applicationRelease.body.publishingAttachmentDigest} : {}),
           targetDigest,
           hostFingerprint: selected.hostFingerprint,
           enrollment: current.evidence,

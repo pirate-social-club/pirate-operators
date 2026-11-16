@@ -323,3 +323,72 @@ export async function installationAuthorityFixture() {
     throw error;
   }
 }
+
+/** Explicit local Pirate admission and provisioned public test key boundary.
+ * This is not a production issuer or a MOSS/passkey simulation. Real signing,
+ * filesystem originals, lease and admission-reply recovery run in product code. */
+export async function operatorSigningFixture(
+  directory: string,
+  policy: import("../../packages/community/hosted-enrollment.ts").HostedPolicy,
+  options:{grantWindowSeconds?:number}={},
+) {
+  const { createWeb2PublisherProofSigner } = await import("../../deploy/linux/web2-publisher-proof.ts");
+  const { hashJson, canonical } = await import("../../packages/community/common.ts");
+  const { ownerGrantDigest, validateOwnerGrant } = await import("../../packages/release/owner-grant.ts");
+  const { web2Publisher } = await import("./web2-first-song-chain.ts");
+  const holder = await processIdentity(process.pid);
+  assert(holder);
+  const lease = await acquireOperation(directory,"operator-signing-fixture","wizard-host-fixture",{testOnly:true},holder.pidNamespace);
+  const binding = {keyReference:"public-test-publisher",generation:1,installationId:lease.installationId,publisher:web2Publisher.address.toLowerCase() as `0x${string}`};
+  let custodyUnavailable = false;
+  const publisher = createWeb2PublisherProofSigner({
+    ...binding,policy,lease,now:()=>Math.floor(Date.now()/1000),currentBinding:async()=>{
+      if(custodyUnavailable) {const {CommunityError}=await import("../../packages/community/common.ts");throw new CommunityError("publisher_custody_binding_unavailable",503);}
+      return {...binding};
+    },
+    key:{async withKey(ref,generation,action) {
+      assert.equal(ref,binding.keyReference);assert.equal(generation,binding.generation);
+      const bytes = Buffer.from("11".repeat(32),"hex");
+      try {return await action(bytes);} finally {bytes.fill(0);}
+    }},
+  });
+  type Selection = import("../../deploy/linux/web2-operator-inputs.ts").ConfiguredGrantSelection;
+  type Scope = import("../../deploy/linux/web2-operator-inputs.ts").OwnerGrantScope;
+  const from = Math.floor(Date.now()/1000)-60, until = Math.floor(Date.now()/1000)+(options.grantWindowSeconds ?? 3600);
+  let selected: Selection | undefined, loseReply: false | "before" | "after" = false, wrongPublisher = false, unknown = false, effects = 0;
+  const admission = join(directory,"fixture-managed-grant-admission.json");
+  async function observation(digest:`0x${string}`) {
+    assert(selected && selected.selectionDigest === digest,"fixture selection required");
+    let exists = false;
+    try { assert.equal(await readFile(admission,"utf8"),canonical(selected));exists=true; }
+    catch(error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    return {selectionDigest:digest,grantDigest:selected.grant.sha256,admissionReference:selected.admissionReference,state:unknown ? "unknown" as const : exists ? "attached" as const : "absent" as const};
+  }
+  const grants: import("../../deploy/linux/web2-operator-inputs.ts").ManagedOwnerGrantPort = {
+    async prepare(scope: Scope) {
+      const body = {schema:"pirate.owner-publishing-grant/1" as const,communityId:scope.communityId,communityOrigin:scope.origin,
+        ownerWallet:scope.ownerWallet,policy:scope.policy,destination:{chainId:scope.chainId,postsContract:scope.postsContract,publisher:scope.publisher},
+        validFrom:from,expiresAt:until,limits:{songs:3,pinAdds:15,pinBytes:"67108864",recognitionRequests:12,postFeeWei:"90000000000000"}};
+      const grant = validateOwnerGrant({...body,sha256:ownerGrantDigest(body as import("../../packages/release/owner-grant.ts").OwnerBudgetGrant)});
+      const value = {schema:"pirate.web2-configured-owner-grant/1" as const,scope,grant,admissionReference:"explicit-local-fixture-admission"};
+      const next = {...value,selectionDigest:hashJson(value)};
+      if (!selected) selected=next;
+      if (wrongPublisher) {
+        const changed = {...next,grant:{...grant,destination:{...grant.destination,publisher:scope.controller}}};
+        changed.grant.sha256=ownerGrantDigest(changed.grant);
+        const {selectionDigest:_,...changedBody}=changed;
+        return {...changed,selectionDigest:hashJson(changedBody)};
+      }
+      return structuredClone(next);
+    },
+    reconcile:observation,
+    async attach(digest) {
+      if(loseReply === "before") {loseReply=false;throw Error("explicit fixture lost before acceptance");}
+      if ((await observation(digest)).state === "absent") {await writeFile(admission,canonical(selected),{mode:0o600,flag:"wx"});effects++;}
+      if (loseReply) {loseReply=false;throw Error("explicit fixture lost admission reply");}
+      return observation(digest);
+    },
+  };
+  return {publisher,grants,attachmentUnknown:(value:boolean)=>{unknown=value;},custodyUnavailable:()=>{custodyUnavailable=true;},waitForGrantExpiry:async()=>{const delay=until*1000-Date.now()+30;if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));},loseAttachmentReply:(outcome:"before"|"after"="after")=>{loseReply=outcome;},attachmentEffects:()=>effects,
+    changeGrantSelection:(_kind:"publisher")=>{wrongPublisher=true;}};
+}

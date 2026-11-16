@@ -12,6 +12,7 @@ import {
   reserveBudget,
   settleBudget,
   type BudgetKey,
+  type ReservationCondition,
 } from "../community/budgets.ts";
 import { ownerOnly } from "../community/owner-policy.ts";
 
@@ -278,9 +279,10 @@ export async function reserveOwnerBudget(
   reservationId: string,
   requestHash: string,
   requested: string,
-  now = Math.floor(Date.now() / 1000),
+  now?: number,
+  admissionCondition?: () => Promise<ReservationCondition>,
 ) {
-  const key = ownerBudgetKey(grant, asset);
+  const key = ownerBudgetKey(grant, asset),sample=()=>now ?? Math.floor(Date.now()/1000);
   // An existing reservation is replayed without a currently valid grant: it is
   // reconciliation of spending already authorized, not new spending.
   const existing = await db
@@ -297,15 +299,20 @@ export async function reserveOwnerBudget(
     );
     return key;
   }
-  requireOwnerGrantTime(grant, now);
-  await claimOwnerWindow(db, grant, now);
+  requireOwnerGrantTime(grant, sample());
+  await claimOwnerWindow(db, grant, sample());
+  // Lazy: original identity comparison above precedes any live admission read.
+  // Never replace the owner-window predicate with a service admission precheck.
+  const extra=await admissionCondition?.(),window=ownerWindowCondition(grant);
+  requireOwnerGrantTime(grant,sample());
+  const condition=extra ? {clause:`(${window.clause}) AND (${extra.clause})`,binds:[...window.binds,...extra.binds],code:extra.code} : window;
   await reserveBudget(
     db,
     reservationId,
     requestHash,
     [key],
     requested,
-    ownerWindowCondition(grant),
+    condition,
   );
   return key;
 }

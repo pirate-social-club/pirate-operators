@@ -1,3 +1,4 @@
+import type {ManagedAdmissionGate} from "./managed-admission-gate.ts";
 import { sha256 } from "viem";
 import { canonical, hashJson, insist } from "../community/common.ts";
 import type { CommunityConfig } from "../community/config-manifest.ts";
@@ -14,7 +15,7 @@ export interface CatalogOwnerReleaseInputs {
   recognition(communityId:string):Promise<Pick<ReservationClient,"ready">>;
 }
 export async function establishCatalogOwnerRelease(db:D1Database,context:ReleaseContext,grant:OwnerBudgetGrant,config:CommunityConfig,
-  inputs:CatalogOwnerReleaseInputs,now:number,mode:'execute'|'reconcile'):Promise<AdmittedRelease|null> {
+  inputs:CatalogOwnerReleaseInputs,now:number|undefined,mode:'execute'|'reconcile',admissionGate?:ManagedAdmissionGate):Promise<AdmittedRelease|null> {
   const ports=canonicalCommunity(await inputs.canonical(config.communityId)),snapshot=await ports.read(context.jobId),{intent:p,config:fresh}=snapshot;
   insist(canonical(fresh)===canonical(config)&&context.recipient===grant.ownerWallet&&
     context.postId===p.postId&&context.authorId===snapshot.context.authorId&&context.admissionId===snapshot.context.admissionId&&
@@ -27,7 +28,7 @@ export async function establishCatalogOwnerRelease(db:D1Database,context:Release
     .first<{release_key:string;request_hash:string;context_json:string;admission_sha256:string;created_at:number}>();
   if(mode==='reconcile'&&!prior)return null;
   if(mode==='execute') {
-    await reserveOwnerBudget(db,grant,'songs',`owner-song:${p.jobId}`,requestHash,'1',now);
+    await reserveOwnerBudget(db,grant,'songs',`owner-song:${p.jobId}`,requestHash,'1',now,admissionGate ? ()=>admissionGate.reservationCondition(grant,{operationId:`owner-song:${p.jobId}`,requestHash,asset:'songs',requested:'1'}) : undefined);
     await db.prepare(`INSERT INTO owner_releases(job_id,release_key,owner_scope,request_hash,context_json,admission_sha256,created_at)
       VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`).bind(p.jobId,key,scope,requestHash,canonical(context),evidence,Math.floor(p.acceptedAt/1000)).run();
   }

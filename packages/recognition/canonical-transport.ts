@@ -1,3 +1,4 @@
+import type { OwnerVerification } from "../community/owner-authorization-verifier.ts";
 import {
   canonicalPath,
   signCanonicalRequest,
@@ -20,7 +21,7 @@ import {
 import type { CommunityConfig } from "../community/config-manifest.ts";
 import { address } from "../community/manifest-core.ts";
 import { validateLyrics } from "../community/lyric-manifest.ts";
-import { requireAuthorizedOwner } from "../community/owner-authorization.ts";
+import { requireOwnerIdentity } from "../community/owner-authorization.ts";
 import { recognitionRequestTypes } from "./authorization.ts";
 import type { ReleaseContext } from "../release/authority.ts";
 import { acceptedIntent, reservationId } from "./intent.ts";
@@ -45,6 +46,7 @@ import { requireSameCanonicalSource } from "./canonical-community.ts";
 async function snapshot(
   input: unknown,
   config: CommunityConfig,
+  verification?: OwnerVerification,
 ): Promise<CanonicalSnapshot> {
   const v = object(input);
   exact(v, [
@@ -58,11 +60,13 @@ async function snapshot(
   const intent = acceptedIntent(v.intent),
     c = object(v.context);
   requireFirstSongRevision(intent.publicationRevision);
-  const owner = await requireAuthorizedOwner(
+  const owner = await requireOwnerIdentity(
     v.ownerAuthorization,
     config,
     intent.creatorKey.slice("eip155:6343:".length),
+    verification,
   );
+  insist(Math.floor(intent.acceptedAt/1000)>=owner.validFrom&&Math.floor(intent.acceptedAt/1000)<owner.expiresAt,"recognition_original_owner_window_changed",403);
   insist(
     hashJson(owner) === intent.ownerAuthorizationSha256,
     "recognition_owner_authority_changed",
@@ -193,13 +197,13 @@ export function canonicalCommunityClient(
     currentConfiguration: () => inputs.currentConfiguration(),
     async read(jobId) {
       const r = await call("read", { jobId }),
-        value = await snapshot(r.data, r.config);
+        value = await snapshot(r.data, r.config, inputs.chain.ownerVerification);
       insist(value.intent.jobId === jobId, "canonical_snapshot_changed", 409);
       return value;
     },
     async source(p) {
       const response = await call("source", sourceBody(p)),
-        value = await snapshot(response.data, response.config);
+        value = await snapshot(response.data, response.config, inputs.chain.ownerVerification);
       return requireSameCanonicalSource(value.intent, p);
     },
     async posting(p, claimed) {

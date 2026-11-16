@@ -1,3 +1,4 @@
+import type {ManagedAdmissionGate} from "./managed-admission-gate.ts";
 import {
   bytes32,
   canonical,
@@ -111,11 +112,13 @@ export async function establishOwnerRelease(
   grant: OwnerBudgetGrant,
   config: CommunityConfig,
   providerEndpoint: string,
-  now = Math.floor(Date.now() / 1000),
+  now: number | undefined = undefined,
   mode: "execute" | "reconcile" = "execute",
   catalog?: CatalogOwnerReleaseInputs,
+  admissionGate?: ManagedAdmissionGate,
 ): Promise<AdmittedRelease | null> {
   requireOwnerGrantScope(grant, config);
+  const observedAt=now ?? Math.floor(Date.now()/1000);
   const context = ownerContext(input);
   insist(
     context.recipient === grant.ownerWallet,
@@ -132,7 +135,7 @@ export async function establishOwnerRelease(
   );
   if (catalogOwner(config.policies.admission)) {
     insist(catalog,"recognition_release_unconfigured",503);
-    return establishCatalogOwnerRelease(db,context,grant,config,catalog,now,mode);
+    return establishCatalogOwnerRelease(db,context,grant,config,catalog,now,mode,admissionGate);
   }
   const key = ownerReleaseKey(grant, context.jobId),
     scope = ownerBudgetKey(grant, "songs").scope;
@@ -193,7 +196,7 @@ export async function establishOwnerRelease(
       maxAgeSeconds: UNREGISTERED_OWNER_POLICY.recognition.maximumAgeSeconds,
       policyVersion: config.policies.admission.version,
     },
-    mode === "reconcile" ? prior!.created_at : now,
+    mode === "reconcile" ? prior!.created_at : observedAt,
   );
   insist(
     decision.decision === "publish",
@@ -218,6 +221,7 @@ export async function establishOwnerRelease(
       requestHash,
       "1",
       now,
+      admissionGate ? ()=>admissionGate.reservationCondition(grant,{operationId:`owner-song:${context.jobId}`,requestHash,asset:"songs",requested:"1"}) : undefined,
     );
     await db
       .prepare(
@@ -230,7 +234,7 @@ export async function establishOwnerRelease(
         requestHash,
         canonical(context),
         evidenceSha256,
-        now,
+        observedAt,
       )
       .run();
   }
@@ -274,6 +278,7 @@ export interface OwnerReleaseService {
   acrEndpoint: string;
   pinTransport?: IpfsTransport;
   catalog?: CatalogOwnerReleaseInputs;
+  admissionGate?: ManagedAdmissionGate;
 }
 const reply = (body: unknown, status = 200) =>
   Response.json(body, {
@@ -326,6 +331,7 @@ export async function ownerReleaseFetch(
     requireOwnerGrantScope(grant, current);
     const capturedConfig = hashJson(current),
       capturedPairing = hashJson(pairing);
+    let dispatchOriginal:{operationId:string;requestHash:`0x${string}`}|undefined;
     const authorizePurchase = async () => {
       if (catalogOwner(current.policies.admission)) {
         insist(service.catalog,"recognition_release_unconfigured",503);
@@ -347,6 +353,10 @@ export async function ownerReleaseFetch(
         "community_authority_changed",
         403,
       );
+      if(service.admissionGate) {
+        insist(dispatchOriginal,"managed_admission_original_unavailable",503);
+        await service.admissionGate.beforeDispatch(grant,dispatchOriginal);
+      }
       const now = Math.floor(Date.now() / 1000);
       insist(
         grant.expiresAt > now && authorization.expiresAt > now,
@@ -367,9 +377,10 @@ export async function ownerReleaseFetch(
       grant,
       current,
       service.acrEndpoint,
-      Math.floor(Date.now() / 1000),
+      undefined,
       route.mode,
       service.catalog,
+      service.admissionGate,
     );
     if (!release) return reply({ state: "absent" }, 404);
     const role = text(body.role, 32) as ReleaseRole;
@@ -386,6 +397,7 @@ export async function ownerReleaseFetch(
     const artifact = await releaseArtifact(db, artifactMedia, release, role);
     const operationId = pinOperationId(release.grant.sha256, role),
       reservation = hashJson({ operationId, intent: artifact.intent });
+    dispatchOriginal={operationId,requestHash:reservation};
     if (route.mode === "execute") {
       await reserveOwnerBudget(
         db,
@@ -394,6 +406,8 @@ export async function ownerReleaseFetch(
         `${operationId}:adds`,
         reservation,
         "1",
+        undefined,
+        service.admissionGate ? ()=>service.admissionGate!.reservationCondition(grant,{operationId:`${operationId}:adds`,requestHash:reservation,asset:"pin_adds",requested:"1"}) : undefined,
       );
       await reserveOwnerBudget(
         db,
@@ -402,6 +416,8 @@ export async function ownerReleaseFetch(
         `${operationId}:bytes`,
         reservation,
         String(artifact.bytes.length),
+        undefined,
+        service.admissionGate ? ()=>service.admissionGate!.reservationCondition(grant,{operationId:`${operationId}:bytes`,requestHash:reservation,asset:"pin_bytes",requested:String(artifact.bytes.length)}) : undefined,
       );
     }
     const result = await fundedPin(

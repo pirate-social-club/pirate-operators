@@ -1,8 +1,5 @@
+import { verifyAccountTypedData } from "./account-signature-verifier.ts";
 import {
-  BaseError,
-  ContractFunctionRevertedError,
-  hashTypedData,
-  recoverTypedDataAddress,
   keccak256,
   type Address,
   type Hex,
@@ -395,52 +392,15 @@ export async function verifyEnrollmentProof(
     signer = address(actor),
     proof = signature(sig),
     typed = enrollmentTypedData(owned);
-  const block = await safeView(client, p, clock),
-    code = await client.getCode({ address: signer, blockNumber: block.number });
-  if (code && code !== "0x") {
-    let result;
-    try {
-      result = await client.readContract({
-        address: signer,
-        abi: [
-          {
-            type: "function",
-            name: "isValidSignature",
-            stateMutability: "view",
-            inputs: [
-              { name: "hash", type: "bytes32" },
-              { name: "signature", type: "bytes" },
-            ],
-            outputs: [{ name: "", type: "bytes4" }],
-          },
-        ],
-        functionName: "isValidSignature",
-        args: [hashTypedData(typed), proof],
-        blockNumber: block.number,
-      });
-    } catch (error) {
-      if (
-        error instanceof BaseError &&
-        error.walk((e) => e instanceof ContractFunctionRevertedError) instanceof
-          ContractFunctionRevertedError
-      )
-        insist(false, "controller_proof_invalid", 403);
-      throw error;
-    }
-    insist(result === "0x1626ba7e", "controller_proof_invalid", 403);
-  } else {
-    let recovered: Address;
-    try {
-      recovered = await recoverTypedDataAddress({ ...typed, signature: proof });
-    } catch {
-      insist(false, "controller_proof_invalid", 403);
-    }
-    insist(recovered.toLowerCase() === signer, "controller_proof_invalid", 403);
-  }
+  const block = await safeView(client, p, clock);
+  const valid = await verifyAccountTypedData(client,{
+    data:typed, address: signer, signature: proof, blockNumber: block.number,
+  });
   insist(
     (await client.getBlock({ blockNumber: block.number })).hash === block.hash,
     "hosted_chain_reorganized",
     503,
   );
   assertFreshBlock(block, p, clock());
+  insist(valid, "controller_proof_invalid", 403);
 }

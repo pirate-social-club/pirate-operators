@@ -29,7 +29,7 @@ import {
   type FirstPublication,
 } from "./post-chain.ts";
 import { syncPublicPosts, indexedPublicPosts } from "./post-index.ts";
-import { configureBudget, reserveBudget, settleBudget } from "./budgets.ts";
+import { configureBudget, reserveBudget, settleBudget, type ReservationCondition } from "./budgets.ts";
 import {
   reserveOwnerBudget,
   settleOwnerBudget,
@@ -62,6 +62,10 @@ export interface PostingPorts {
   ownerGrant?: OwnerBudgetGrant;
   /** Mandatory for the new policy, called after all async fee/RPC checks at send. */
   catalogBeforeBroadcast?():Promise<void>;
+  /** Only NEW fee reservations ask for fresh owner eligibility. Replays retain
+   * their original identity and remain readable/settleable after expiry. */
+  ownerReservationCondition?(operation:ExternalOperation,requested:string):Promise<ReservationCondition>;
+  beforeBroadcast?(operation:ExternalOperation):Promise<void>;
 }
 function intent(operation: ExternalOperation): FirstPublication {
   const request = object(JSON.parse(operation.request_json)),
@@ -346,6 +350,8 @@ export async function executePosting(
         operation.operation_id + ":fee",
         operation.request_hash,
         tx.maximumFee,
+        undefined,
+        ports.ownerReservationCondition ? ()=>ports.ownerReservationCondition!(operation,tx.maximumFee) : undefined,
       );
     } catch (error) {
       if (!ownerPostingRefusal(error)) throw error;
@@ -389,6 +395,7 @@ export async function executePosting(
     insist(ports.catalogBeforeBroadcast,"catalog_pending",503);
     await ports.catalogBeforeBroadcast();
   }
+  await ports.beforeBroadcast?.(operation);
   try {
     const hash = await ports.client.sendRawTransaction({
       serializedTransaction: tx.raw,

@@ -25,6 +25,12 @@ const config=await readPrivateJSON<{
   mode:"initialize"|"serve"|"cold-reconcile";configurationDirectory:string;coldReceiptPath?:string;
 }>(args[0]!);
 const release=await verifyInstalledRelease(config.release,config.trust),graph=release.graph;
+// The Web2 launcher owns its distinct signed original. Refuse it here before
+// creating runtime state; never reinterpret it as a historical installation.
+function historicalRelease(record:SignedRecord<FullRelease>): asserts record is SignedRecord<FullRelease & {schema:"pirate.complete-linux-release/1"}> {
+  assert(record.body.schema === "pirate.complete-linux-release/1","historical_full_release_required");
+}
+historicalRelease(config.release);
 assert(["initialize","serve","cold-reconcile"].includes(config.mode));
 assert(graph.installationId===config.expectedInstallationId);
 // This input is a private /run parent, never a persistent journal/data root.

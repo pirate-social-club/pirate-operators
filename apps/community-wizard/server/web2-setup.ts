@@ -1,4 +1,12 @@
 import {
+  createWeb2PublishingSetup,
+  prepareWeb2WizardRegistration,
+  type Web2PublishingInputs,
+  type Web2PublishingView,
+} from "./web2-publishing-setup.ts";
+import type { PublisherProofSigner } from "../../../deploy/linux/web2-operator-inputs.ts";
+import { ownerOnly } from "../../../packages/community/owner-policy.ts";
+import {
   createWeb2Journal,
   web2Wire as wire,
   type SelectionInput,
@@ -20,26 +28,14 @@ import {
   insist,
   integer,
   object,
-  publicId,
   text,
 } from "../../../packages/community/common.ts";
 import {
   address,
   httpsOrigin,
 } from "../../../packages/community/manifest-core.ts";
-import { directoryInstanceId } from "../../../packages/community/shared-identity.ts";
+import type { Web2CommunityConfig } from "../../../packages/community/web2-config-manifest.ts";
 import {
-  parseWeb2ProfileDocument,
-  web2ProfileDocument,
-} from "../../../packages/community/web2-directory.ts";
-import {
-  validateWeb2Configuration,
-  type Web2CommunityConfig,
-} from "../../../packages/community/web2-config-manifest.ts";
-import { preparePin } from "../../../packages/community/ipfs.ts";
-import { prepareWeb2Registration } from "../../../packages/community/web2-registration-chain.ts";
-import {
-  assertDeployment,
   ownPolicy,
   parsePlan,
   planDocument,
@@ -56,11 +52,7 @@ import {
   type LinuxWeb2Observation,
   type LinuxWeb2PlanSummary,
 } from "../../../packages/community-setup/linux-web2-profile.ts";
-import {
-  isWeb2Deployment,
-  validateCommunityDeploymentProfile,
-  type Web2CommunityDeploymentProfile,
-} from "../../../services/community-deployment-profile.ts";
+import type { Web2CommunityDeploymentProfile } from "../../../services/community-deployment-profile.ts";
 
 function inputAddress(value: unknown, role: "controller" | "publisher") {
   insist(
@@ -76,10 +68,17 @@ export interface Web2WizardView {
   revision: number;
   phase: Phase;
   busy: boolean;
+  signingOrigin:string|null;
+  serverPublisher: {
+    address: `0x${string}`;
+    custodyBindingDigest: `0x${string}`;
+  } | null;
+  publishing: Web2PublishingView;
   notice: string;
   policy: {
     chainId: number;
     serviceOrigin: string;
+    admissionPolicy: { version: string; sha256: string };
     controllerInitialWei: string;
     publisherInitialWei: string;
   };
@@ -102,6 +101,10 @@ export interface Web2WizardView {
 }
 export interface Web2SetupInputs {
   policy: HostedPolicy;
+  /** Exact public HTTPS helper origin, from authenticated host configuration. */
+  signingOrigin?:string;
+  publisherProof?: PublisherProofSigner;
+  publishing?: Web2PublishingInputs;
   notice: string;
   /** Actual shared deployment inputs, before any community exists. No dummy ID. */
   deployment: Omit<
@@ -162,6 +165,7 @@ export async function createWeb2Setup(
     "policies",
   ]);
   const notice = input.notice;
+  const signingOrigin=input.signingOrigin === undefined ? null : httpsOrigin(input.signingOrigin);
   const { journal, save, checkInstallationPlan, checkObservation } =
     await createWeb2Journal(
       directoryInput,
@@ -170,6 +174,15 @@ export async function createWeb2Setup(
       clock,
     );
   const client = createHostedEnrollmentClient(policy, input.transport, clock);
+  const publishing = await createWeb2PublishingSetup(directoryInput, {
+    hostInstallationId: input.hostInstallationId,
+    publisher: input.publisherProof,
+    publishing: input.publishing,
+    now: clock,
+  });
+  const serverPublisher = input.publisherProof
+    ? await input.publisherProof.selected()
+    : null;
   let busy = false,
     active: Promise<unknown> = Promise.resolve();
   function snapshot(): Web2WizardView {
@@ -181,10 +194,14 @@ export async function createWeb2Setup(
       revision: journal.revision,
       phase: journal.phase,
       busy,
+      signingOrigin,
+      serverPublisher,
+      publishing: publishing.snapshot(),
       notice,
       policy: {
         chainId: policy.deployment.chainId,
         serviceOrigin: policy.serviceOrigin,
+        admissionPolicy: configuration.policies.admission,
         controllerInitialWei: policy.controllerInitialWei,
         publisherInitialWei: policy.publisherInitialWei,
       },
@@ -217,6 +234,24 @@ export async function createWeb2Setup(
             state: journal.observation.state,
           }
         : null,
+    });
+  }
+  function enrollmentDraft() {
+    insist(
+      journal.request &&
+        journal.enrollment &&
+        journal.deployment &&
+        journal.plan,
+      "safe_registration_required",
+      409,
+    );
+    return linuxWeb2DraftFrom({
+      schema: "pirate.linux-web2-draft/1",
+      name: journal.request.name,
+      origin: journal.request.origin,
+      deployment: journal.deployment,
+      enrollment: journal.enrollment,
+      configuration: journal.plan.config,
     });
   }
   async function run(action: string, value: unknown) {
@@ -268,6 +303,26 @@ export async function createWeb2Setup(
           controller: inputAddress(body.controller, "controller"),
           publisher: inputAddress(body.publisher, "publisher"),
         };
+        if (!journal.request) {
+          insist(
+            input.publisherProof && serverPublisher,
+            "publisher_custody_binding_unavailable",
+            503,
+          );
+          const selectedPublisher = await input.publisherProof.selected();
+          insist(
+            canonical(selectedPublisher) === canonical(serverPublisher) &&
+              selected.publisher === serverPublisher.address &&
+              selected.controller !== serverPublisher.address,
+            "web2_server_publisher_changed",
+            409,
+          );
+          insist(
+            ownerOnly(configuration.policies.admission),
+            "web2_first_song_configuration_required",
+            409,
+          );
+        }
         const inviteToken = text(body.inviteToken, 1024);
         insist(/^[a-f0-9]{64}$/.test(inviteToken), "invalid_invite");
         if (journal.request) {
@@ -283,63 +338,12 @@ export async function createWeb2Setup(
           journal.inviteToken = inviteToken;
           journal.invitationRefused = false;
         } else {
-          const communityKey = publicId(),
-            installationId = publicId();
-          const profile = parseWeb2ProfileDocument({
-            ...policy.deployment,
-            deploymentBlock: String(policy.deployment.deploymentBlock),
-            communityKey,
-            installationId,
-            communityId: directoryInstanceId(
-              policy.deployment.chainId,
-              communityKey,
-            ),
-          });
-          const config = validateWeb2Configuration(
-            {
-              schema: "pirate.community-config/4",
-              chainId: profile.chainId,
-              directory: profile.directory,
-              communityKey,
-              communityId: profile.communityId,
-              installationId,
-              controller: selected.controller,
-              publisher: selected.publisher,
-              configurationRevision: 1,
-              postsContract: template.posts.address,
-              operatorPayments: configuration.operatorPayments,
-              learningRecords: "0x0000000000000000000000000000000000000000",
-              app: { label: name, origin: selected.origin },
-              feed: {
-                signingKeyId: configuration.signingKeyId,
-                endpoint: selected.origin + "/api/feed",
-              },
-              policies: configuration.policies,
-              publisherRevocations: [],
-            },
-            profile,
+          const { plan, deployment } = await prepareWeb2WizardRegistration(
+            policy,
+            configuration,
+            template,
+            selected,
           );
-          const pin = await preparePin(
-            new TextEncoder().encode(canonical(config)),
-            "application/json",
-          );
-          const plan = prepareWeb2Registration(
-            profile,
-            config,
-            pin.uri,
-            policy.registrar,
-            BigInt(policy.registrarRevision),
-          );
-          assertDeployment(policy, plan);
-          const deployment = validateCommunityDeploymentProfile({
-            ...template,
-            schema: "pirate.community-deployment/2",
-            name,
-            origin: selected.origin,
-            planId: plan.commitment.slice(2),
-            directoryProfile: web2ProfileDocument(profile),
-          });
-          insist(isWeb2Deployment(deployment), "web2_deployment_required");
           journal.request = selected;
           journal.inviteToken = inviteToken;
           journal.plan = wire(planDocument(plan));
@@ -398,6 +402,12 @@ export async function createWeb2Setup(
         );
         if (action === "topup" && Object.hasOwn(body, "proofs")) {
           insist(
+            journal.recipientProofs !== null &&
+              canonical(body.proofs) === canonical(journal.recipientProofs),
+            "web2_browser_publisher_proof_refused",
+            403,
+          );
+          insist(
             Array.isArray(body.proofs) && body.proofs.length <= 2,
             "recipient_proofs_required",
           );
@@ -416,6 +426,50 @@ export async function createWeb2Setup(
             409,
           );
           journal.recipientProofs = proofs;
+        }
+        if (action === "topup" && !journal.recipientProofs) {
+          insist(
+            input.publisherProof && serverPublisher,
+            "publisher_custody_binding_unavailable",
+            503,
+          );
+          const e = parseEnrollment(journal.prepared.enrollment),
+            proofs = [];
+          for (const r of initialRecipients(e, policy).filter(
+            (r) => r.value > 0n,
+          )) {
+            if (r.address === e.plan.config.controller)
+              proofs.push({
+                recipient: r.address,
+                signature: journal.controllerSignature,
+              });
+            else {
+              insist(
+                r.address === serverPublisher.address,
+                "web2_server_publisher_changed",
+                409,
+              );
+              const proof = await input.publisherProof.signEnrollment({
+                operationId: hashJson({
+                  enrollmentId: e.id,
+                  purpose: "publisher-enrollment-proof",
+                  custodyBindingDigest: serverPublisher.custodyBindingDigest,
+                }),
+                prepared: structuredClone(journal.prepared),
+              });
+              insist(
+                proof.recipient === r.address,
+                "web2_server_publisher_changed",
+                409,
+              );
+              proofs.push({
+                recipient: r.address,
+                signature: signature(proof.signature),
+              });
+            }
+          }
+          journal.recipientProofs = proofs;
+          await save();
         }
         if (action === "topup")
           insist(journal.recipientProofs, "recipient_proofs_required", 409);
@@ -449,6 +503,17 @@ export async function createWeb2Setup(
                   )
                 ? "registered"
                 : "pending";
+      } else if (action.startsWith("publishing-")) {
+        insist(
+          journal.request &&
+            journal.enrollment &&
+            journal.deployment &&
+            journal.plan,
+          "safe_registration_required",
+          409,
+        );
+        const draft = enrollmentDraft();
+        await publishing.act(action, body, draft);
       } else if (
         action === "installation-prepare" ||
         action === "install" ||
@@ -461,24 +526,8 @@ export async function createWeb2Setup(
         );
         if (action !== "installation-prepare")
           insist(journal.installPlan, "web2_installation_review_required", 409);
-        if (!journal.installDraft) {
-          insist(
-            journal.request &&
-              journal.enrollment &&
-              journal.deployment &&
-              journal.plan,
-            "safe_registration_required",
-            409,
-          );
-          journal.installDraft = linuxWeb2DraftFrom({
-            schema: "pirate.linux-web2-draft/1",
-            name: journal.request.name,
-            origin: journal.request.origin,
-            deployment: journal.deployment,
-            enrollment: journal.enrollment,
-            configuration: journal.plan.config,
-          });
-        }
+        await publishing.attachment(enrollmentDraft());
+        if (!journal.installDraft) journal.installDraft = enrollmentDraft();
         journal.revision++;
         journal.pending = action;
         await save();
@@ -556,6 +605,7 @@ export async function createWeb2Setup(
   }
   return {
     snapshot,
+    publishingAttachment: publishing.attachment,
     send(action: string, value: unknown) {
       if (busy)
         return Promise.reject(new CommunityError("web2_revision_changed", 409));

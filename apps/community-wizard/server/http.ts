@@ -75,10 +75,11 @@ export function createWizardServer(
       origin = `http://${host}`;
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader("Referrer-Policy", integrations.web2 ? "strict-origin" : "no-referrer");
+    if (integrations.web2) res.setHeader("Permissions-Policy", 'publickey-credentials-create=(self "https://account.megaeth.com"), publickey-credentials-get=(self "https://account.megaeth.com")');
     res.setHeader(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'${integrations.web2 ? " https://*.megaeth.com; frame-src https://*.megaeth.com" : ""}; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
     );
     const json = (status: number, value: unknown) => {
       res
@@ -278,6 +279,12 @@ export function createWizardServer(
 }
 
 const web2Corrections: Record<string,string> = {
+  publisher_custody_binding_unavailable:"The preprovisioned server publisher custody binding is unavailable. No new enrollment or gas allocation is authorized.",
+  web2_publishing_authority_unavailable:"Authenticated Pirate grant selection and admission are unavailable. Retain this enrollment; publishing and installation are unavailable.",
+  web2_managed_grant_admission_unavailable:"The managed service has not confirmed this exact grant admission. Reconcile the retained attachment before retrying.",
+  web2_browser_publisher_proof_refused:"The server publisher must sign through its configured custody binding. Browser publisher proofs cannot authorize a new gas allocation.",
+  web2_original_authorization_changed:"This runner already retains the accepted authorization. Reload and reconcile its original bytes.",
+  web2_publishing_attachment_required:"Complete the separate owner review and reconcile managed grant admission before installation.",
   web2_controller_address_invalid: "Enter a complete controller address with a valid checksum, or use its lowercase form. Nothing new was prepared.",
   web2_publisher_address_invalid: "Enter a complete publisher address with a valid checksum, or use its lowercase form. Nothing new was prepared.",
   web2_setup_unavailable: "The hosted Web2 setup adapter is not connected to this runner.",

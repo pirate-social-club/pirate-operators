@@ -374,6 +374,7 @@ test("a signed-in learner, a missing CSRF token and a foreign Origin are refused
 test("the production runtime selects owner mode from the configuration policy and checks only the managed owner release", async () => {
   const configuration = validateConfig({
     ...baselineConfiguration,
+    publisher: privateKeyToAccount(`0x${"12".repeat(32)}`).address.toLowerCase(),
     communityId: firstSong.directoryProfile.communityId,
     registry: firstSong.directoryProfile.registry,
     directory: firstSong.directoryProfile.directory,

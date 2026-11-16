@@ -59,7 +59,7 @@ export async function buildCompleteLinuxArtifacts(input:{
    argv:[join(input.sourceRoot,source!),"--bundle",output==="full-launch.mjs"?"--platform=node":web2?"--platform=browser":"--platform=neutral","--format=esm","--target=es2024","--external:cloudflare:workers","--external:node:*",
     "--outfile="+join(input.output,output!)],
    environment:input.environment,cwd:input.sourceRoot,outputDirectory:input.rawOutputDirectory,
-   name:"bundle-"+output!.replace(/[^A-Za-z0-9_-]/g,"-"),seconds:90,signal:input.signal});
+   name:"bundle-"+output!.replace(/[^A-Za-z0-9_-]/g,"-"),seconds:90,signal:input.signal,completedArtifactChild:true});
   files[output!]=sha(await readFile(join(input.output,output!)));
   await chmod(join(input.output,output!),0o444);
  }

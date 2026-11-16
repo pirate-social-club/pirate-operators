@@ -84,6 +84,8 @@ export interface Web2InstallPlan {
   draft: LinuxWeb2Draft;
   releaseArtifactDigest: string;
   releaseSourceDigest: string;
+  /** Optional only for retained pre-attachment plans. New owner bindings require it. */
+  publishingAttachmentDigest?: Hex;
   targetDigest: string;
   hostFingerprint: string;
   enrollment: Web2EnrollmentEvidence;
