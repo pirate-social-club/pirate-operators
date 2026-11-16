@@ -31,6 +31,7 @@ import {
   settleOperation,
   requireActive,
   type HostedOperation,
+  type HostedSchemaContext,
 } from "./hosted-enrollment-store.ts";
 
 export interface HostedUnsignedTransaction {
@@ -50,6 +51,7 @@ export interface HostedSigner {
   signTransaction(transaction: HostedUnsignedTransaction): Promise<Hex>;
 }
 export interface HostedRuntime {
+  readonly schemaContext?: HostedSchemaContext;
   db: D1Database;
   policy: Readonly<HostedPolicy>;
   client: PublicClient;

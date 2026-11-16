@@ -344,7 +344,76 @@ Wizard Host/Origin rules or place keys/tokens in helper URLs or a JavaScript bri
 
 The full public managed backend separately needs reviewed actual D1, queues,
 provider/custody configuration, genuine admission/policy and deployment pins.
-Public hosted enrollment/top-up factories are NOT mounted by this fourteen-path
-Worker/Alchemy slice. A real registrar/funder Worker, routes/resources, caps,
-funds, actual contract deployments/source pins and managed roles are missing
-joins, not just missing URLs or keys. They are not added or deployed here.
+The separate `hosted-enrollment` package composes the existing public prepare,
+redeem, status and initial-topup factories in its own Worker and D1. It does not
+share managed/recognition state or add enrollment routes to the signing helper.
+Actual registrar/funder admission, reviewed policy/caps, funds, deployed contract
+pins and managed roles still require provisioning and live acceptance. No service
+is deployed by this source or its disposable local qualification.
+
+
+## Separate hosted enrollment package
+
+`hostedCommunityPackage` and `writeHostedCommunityPackage` in the existing harness
+packager generate a fresh `hosted-enrollment` profile, bundled Worker, complete
+source/dependency pins and one generated `0001_hosted_enrollment.sql` copy. Source
+SQL remains unchanged, unnumbered and unapplied to existing deployments. The
+explicit MANAGED_SERVICE_PACKAGE_PROFILE, package digest, prefix and plan must
+match its marker and separate encrypted Alchemy namespace before state/provider
+initialization. Historical, managed-web2 and operator-signing-only selections keep
+their prior resources. This profile collects only HostedDatabase and HostedService;
+no media, queue, cron, helper assets, issuer, admin, publisher or verifier key.
+
+The Worker exposes exactly POST /prepare, /redeem, /status and /initial-topup using
+the existing factories, proofs, immutable-original operation logic, safe-chain
+receipt observation and budget rules. Requests cannot choose policy, RPC, keys,
+transport or schema context. There is no HTTP invitation/admin/signing/debug or
+ready-health endpoint. Private provisionHostedInvite remains the separately
+controlled producer; HTTP traffic never initializes or repairs schema or invites.
+Unknown dispatch/replies retain the original transaction/nonce and never imply
+absence, replacement, funding readiness or a made-up receipt.
+
+The selected server configuration binds the full existing HostedPolicy, exact
+pinned deployment/source/ABI/code identity, explicit RPC and immutable public IPFS
+configuration gateway, and private HostedSchemaContext. Only HTTPS is admitted
+except explicit disposable31337 loopback transports. Transport redirects refuse;
+configuration bytes remain bounded and checked by the existing CID/digest logic.
+No incoming cookie/auth header is forwarded. The package digest pins bytes; it is
+not independent issuer/admission/role authorization. Missing real policy/caps,
+roles/deployment/transport remain unavailable and must be supplied under a separate
+reviewed provisioning action. No fixture is a live default.
+
+HOSTED_REGISTRAR_PRIVATE_KEY and HOSTED_FUNDER_PRIVATE_KEY are separately named
+optional Config.Redacted bindings. If missing, Alchemy omits them; it inserts no
+blank/dummy credential. Public role addresses come from validated policy, so
+read-only authenticated status and already-broadcast receipt reconciliation do
+not need current signing keys. Only the matching role's signTransaction reads and
+decodes its selected secret, signs exactly the supplied frozen transaction, and
+rechecks its captured binding. It neither allocates nonce/gas nor broadcasts.
+Absent/wrong keys refuse fresh signing while retaining any original/reservation.
+No operator key input, key creation/rotation, Infisical export or treasury key is
+added. Actual Infisical/custody delivery and any public signed action are held.
+
+Raw-v1 private factories preserve the unchanged HOSTED_SCHEMA_SHA256 and business
+version/budget namespace checks. The packaged Worker always supplies the captured
+private Alchemy context; it is excluded from wire policy/signatures and cloned/
+frozen before awaits. The context admits only __alchemy_migrations, the exact
+installed SQLite metadata DDL and complete one-row selected SQL name/hash ledger.
+It also checks the actual D1 internal metadata shape, then excludes only verified
+Alchemy metadata before the existing fixed business fingerprint. Missing/extra/
+duplicate/changed/stamped history, altered DDL and unknown objects refuse without
+schema repair, state adoption, filtering wrappers or counter reset. The installed
+Alchemy record parser generates ledger pins from exact copied SQL. Local tests
+use the real installed migration pipeline and disposable D1, including repeat and
+drift/refusal checks; that does not reserve a global migration ordinal.
+
+The composition qualification packet records actual source-revision commands and
+results, including first failures. Prior v4 passes remain their original evidence.
+The new hosted Worker/profile/fixture compatibility date is consistently2026-08-06,
+the actual installed engine profile selected by Root after retained16/15 failures.
+Other qualified profile dates remain unchanged. Real MOSS, cloud Plan/apply, public TLS/VPS/backend,
+actual provider/Infisical/key/admission provisioning, public-chain contracts,
+transactions/funds and complete required CI remain separate unqualified gates.
+Local real-MOSS component testing can precede a public domain/full backend; no
+browser/prompt/passkey action is performed by this qualification. Both product
+merges remain held for owner morning. Backup/restore/upgrades remain deferred.

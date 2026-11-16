@@ -4,6 +4,7 @@ import * as Alchemy from "alchemy";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
+import * as Option from "effect/Option";
 // Same product repository, established encrypted state implementation.
 // The packaging step copies these helpers beside this isolated stack.
 import { encryptedLocalState } from "./encrypted-state.ts";
@@ -11,20 +12,20 @@ import { encryptedLocalState } from "./encrypted-state.ts";
 // Fresh packages select a separate encrypted stack explicitly. Historical
 // identity, migrations, entrypoint and default bindings remain unchanged.
 const selectedProfile = process.env.MANAGED_SERVICE_PACKAGE_PROFILE;
-const helperOnly = selectedProfile === "operator-signing-only", fresh = selectedProfile === "managed-web2";
+const helperOnly = selectedProfile === "operator-signing-only", fresh = selectedProfile === "managed-web2", hosted = selectedProfile === "hosted-enrollment";
 // A generated fresh package must never inherit the historical stack because
 // its selector was omitted. Read only this package-local marker before either
 // provider construction or encrypted state initialization; do not hide IO errors.
 let packageBytes: Buffer | undefined;
 try { packageBytes = readFileSync(new URL("./managed-web2-package.json", import.meta.url)); }
 catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
-if (packageBytes !== undefined && !fresh && !helperOnly) throw new Error("managed_package_profile_required");
-if (selectedProfile && !fresh && !helperOnly) throw new Error("unknown_managed_service_package_profile");
-const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || helperOnly ? process.env.MANAGED_WEB2_PREFIX! : historicalPrefix;
+if (packageBytes !== undefined && !fresh && !helperOnly && !hosted) throw new Error("managed_package_profile_required");
+if (selectedProfile && !fresh && !helperOnly && !hosted) throw new Error("unknown_managed_service_package_profile");
+const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || helperOnly || hosted ? process.env.MANAGED_WEB2_PREFIX! : historicalPrefix;
 // Before state/provider initialization, bind the reviewed generated package,
 // explicit plan and actual Alchemy.Stack namespace. Existing encrypted local
 // state stores resources under state/<stack>/<stage>; Stack uses this same prefix.
-const selectedPackage = fresh || helperOnly ? (() => {
+const selectedPackage = fresh || helperOnly || hosted ? (() => {
   if (!/^pirate-[a-z0-9-]{1,48}(?![\s\S])/.test(prefix ?? "") || prefix.startsWith(historicalPrefix))
     throw new Error("fresh_managed_stack_identity_required");
   const bytes = packageBytes ?? readFileSync(new URL("./managed-web2-package.json", import.meta.url));
@@ -34,6 +35,7 @@ const selectedPackage = fresh || helperOnly ? (() => {
   if (p.prefix !== prefix || p.packageProfile !== selectedProfile || i.prefix !== prefix || i.packageProfile !== selectedProfile ||
     i.planId !== process.env.MANAGED_WEB2_PLAN_ID || !/^0x[0-9a-f]{64}(?![\s\S])/.test(i.planId) ||
     i.state.store !== "pirate-encrypted-local" || i.state.stack !== prefix) throw new Error("managed_package_stack_changed");
+  if (hosted && (p.schema !== "pirate.hosted-community-package/1" || p.operatorSigning || p.configuration?.schema !== "pirate.hosted-community-runtime/1")) throw new Error("hosted_package_profile_required");
   return p;
 })() : undefined;
 const signingAssets = selectedPackage?.operatorSigning ? {
@@ -42,6 +44,26 @@ const signingAssets = selectedPackage?.operatorSigning ? {
 // The selected production resource program is also collected by offline package
 // qualification using Alchemy's actual StackContext and Config resolution.
 export const selectedManagedResources = Effect.gen(function* () {
+    if (hosted) {
+      if (selectedPackage?.schema !== "pirate.hosted-community-package/1" || selectedPackage.operatorSigning ||
+        selectedPackage.configuration?.schema !== "pirate.hosted-community-runtime/1") throw new Error("hosted_package_profile_required");
+      const db = yield* Cloudflare.D1.Database("HostedDatabase", { name: `${prefix}-hosted-db`, migrations: "./migrations" });
+      const registrar = yield* Config.option(Config.Redacted("HOSTED_REGISTRAR_PRIVATE_KEY"));
+      const funder = yield* Config.option(Config.Redacted("HOSTED_FUNDER_PRIVATE_KEY"));
+      const app = yield* Cloudflare.Worker("HostedService", {
+        name: prefix, main: "./worker/worker.mjs", bundle: false,
+        compatibility: { date: "2026-08-06", flags: ["nodejs_compat", "global_fetch_strictly_public"] },
+        workersDev: { enabled: true, previewsEnabled: false }, limits: { cpuMs: 30000 },
+        observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true }, traces: { enabled: true, headSamplingRate: 0.1 } },
+        env: { DB: db, HOSTED_COMMUNITY_PROFILE: "hosted-enrollment",
+          HOSTED_COMMUNITY_CONFIGURATION_JSON: JSON.stringify(selectedPackage.configuration),
+          HOSTED_COMMUNITY_CONFIGURATION_SHA256: "0x" + createHash("sha256").update(JSON.stringify(selectedPackage.configuration)).digest("hex"),
+          ...(Option.isSome(registrar) ? { HOSTED_REGISTRAR_PRIVATE_KEY: registrar.value } : {}),
+          ...(Option.isSome(funder) ? { HOSTED_FUNDER_PRIVATE_KEY: funder.value } : {}),
+        },
+      });
+      return { origin: app.url, database: db.databaseId, profile: "hosted-enrollment", planId: selectedPackage.identity.planId };
+    }
     if (helperOnly) {
       if (!selectedPackage?.operatorSigning) throw new Error("operator_signing_closure_unavailable");
       const helper = yield* Cloudflare.Worker("SigningHelper", {

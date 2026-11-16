@@ -347,12 +347,12 @@ export async function writeManagedWeb2ServicesPackage(directory: string, pkg: Aw
 
 /** Identity is checked before selecting the encrypted Alchemy namespace. */
 export function managedFreshStackIdentity(input: {
-  prefix: string; packageProfile: "managed-web2" | "operator-signing-only"; planId: Hex;
+  prefix: string; packageProfile: "managed-web2" | "operator-signing-only" | "hosted-enrollment"; planId: Hex;
   state: { store: "pirate-encrypted-local"; stack: string };
 }) {
   const i = structuredClone(input); exact(object(i), ["prefix", "packageProfile", "planId", "state"]); exact(object(i.state), ["store", "stack"]);
   insist(/^pirate-[a-z0-9-]{1,48}(?![\s\S])/.test(i.prefix) && !i.prefix.startsWith(managedPrefix) &&
-    ["managed-web2", "operator-signing-only"].includes(i.packageProfile) && i.planId.length === 66 &&
+    ["managed-web2", "operator-signing-only", "hosted-enrollment"].includes(i.packageProfile) && i.planId.length === 66 &&
     i.state.store === "pirate-encrypted-local" && i.state.stack === i.prefix, "fresh_managed_stack_identity_required");
   bytes32(i.planId); return i;
 }
@@ -445,4 +445,63 @@ async function newManagedPackageDirectory(directory: string) {
     throw error;
   }
   throw new Error("fresh_managed_package_directory_required");
+}
+
+import { createRequire } from "node:module";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { pathToFileURL } from "node:url";
+import { hostedCommunityConfiguration } from "../services/hosted-community-runtime.ts";
+import { policyDocument, type HostedPolicy } from "../packages/community/hosted-enrollment.ts";
+
+/** Separate fresh hosted D1, no adoption of historical or managed journals. */
+export async function hostedCommunityPackage(input: {
+  identity: Parameters<typeof managedFreshStackIdentity>[0]; policy: HostedPolicy; rpcUrl: string; configurationGateway: string;
+}) {
+  const selected = structuredClone(input), identity = managedFreshStackIdentity(selected.identity);
+  insist(identity.packageProfile === "hosted-enrollment", "hosted_package_profile_required");
+  await verifyManagedDependencies();
+  const sql = new Uint8Array(await readFile("packages/community/schema/hosted-enrollment.sql"));
+  // Use the retained installed format's actual name/hash parser, rather than a
+  // second ledger algorithm. Only a generated local copy receives an ordinal.
+  const dir = await mkdtemp(join(tmpdir(), "hosted-package-schema-"));
+  let migrations: { name: string; hash: string }[];
+  try {
+    await writeFile(join(dir, "0001_hosted_enrollment.sql"), sql, { mode: 0o600 });
+    const wizard = createRequire(resolve("apps/community-wizard/package.json")), cloud = createRequire(wizard.resolve("@alchemy.run/cloudflare/D1/Database")),
+      E = await import(pathToFileURL(wizard.resolve("effect/Effect")).href),
+      N = await import(pathToFileURL(wizard.resolve("@effect/platform-node/NodeServices")).href),
+      M = await import(pathToFileURL(cloud.resolve("@alchemy.run/sql/Migrations")).href);
+    const records: Array<{ name: string; hash: string }> = await E.runPromise(M.readMigrationRecords(dir).pipe(E.provide(N.layer)));
+    migrations = records.map(row => ({ name: row.name, hash: row.hash }));
+  } finally { await rm(dir, { recursive: true }); }
+  const configuration = hostedCommunityConfiguration({ schema: "pirate.hosted-community-runtime/1", policy: policyDocument(selected.policy),
+    rpcUrl: selected.rpcUrl, configurationGateway: selected.configurationGateway,
+    schemaContext: { schema: "pirate.hosted-schema-alchemy/1", table: "__alchemy_migrations", migrations } });
+  const bundle = await build({ entryPoints: ["services/hosted-community-worker.ts"], bundle: true, write: false,
+    platform: "browser", format: "esm", target: "es2024", external: ["node:*"], minify: true, metafile: true, logLevel: "silent", legalComments: "none" });
+  const sources = [...new Set([...(await ownedModuleGraph("harness/managed-package.ts")),
+    ...Object.keys(bundle.metafile!.inputs).filter(path => !path.includes("node_modules/")), "packages/community/schema/hosted-enrollment.sql",
+    "apps/managed-moderation/alchemy.run.ts", "apps/managed-moderation/encrypted-state.ts", "apps/managed-moderation/protected-data.ts",
+    "apps/managed-moderation/package.json", "apps/managed-moderation/package-lock.json", "package.json", "package-lock.json",
+    "docs/self-hosting/managed-first-song-services.md"])].sort();
+  const sourceHashes = Object.fromEntries(await Promise.all(sources.map(async path => [path, sha256(new Uint8Array(await readFile(path)))])));
+  const bytes = bundle.outputFiles[0]!.contents, profile = { schema: "pirate.hosted-community-package/1", packageProfile: "hosted-enrollment" as const,
+    prefix: identity.prefix, identity, configuration, sourceHashes, migrations, bundleSha256: sha256(bytes), compatibilityDate: "2026-08-06",
+    dependencies: { manifest: sourceHashes["apps/managed-moderation/package.json"], lock: sourceHashes["apps/managed-moderation/package-lock.json"], verifier: "verifyManagedDependencies" } };
+  return { profile, profileHash: hashJson(profile), bytes, sql };
+}
+export async function writeHostedCommunityPackage(directory: string, pkg: Awaited<ReturnType<typeof hostedCommunityPackage>>,
+  dependencies?: Parameters<typeof writeManagedPackage>[3]) {
+  managedFreshStackIdentity(pkg.profile.identity);
+  const config = hostedCommunityConfiguration(pkg.profile.configuration);
+  insist(pkg.profile.packageProfile === "hosted-enrollment" && pkg.profile.identity.packageProfile === "hosted-enrollment" &&
+    pkg.profile.prefix === pkg.profile.identity.prefix && hashJson(pkg.profile) === pkg.profileHash && sha256(pkg.bytes) === pkg.profile.bundleSha256 &&
+    config.schemaContext.migrations.length === 1 && config.schemaContext.migrations[0]!.hash === sha256(pkg.sql).slice(2) &&
+    canonical(pkg.profile.migrations) === canonical(config.schemaContext.migrations), "hosted_package_changed");
+  await newManagedPackageDirectory(directory);
+  const cwd = await writeManagedPackage(directory, pkg.bytes, [], dependencies);
+  await writeFile(join(cwd, "migrations/0001_hosted_enrollment.sql"), pkg.sql, { mode: 0o600 });
+  await writeFile(join(cwd, "managed-web2-package.json"), canonical(pkg.profile), { mode: 0o600 });
+  return cwd;
 }
