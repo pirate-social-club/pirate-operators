@@ -1,3 +1,4 @@
+import { web2ApplicationOriginal } from "./application-native-readback.ts";
 import { nativeBusinessResponse } from "./application-native-readback.ts";
 import { communityCanonicalFetch } from "./community-canonical.ts";
 import { canonicalPath } from "../packages/recognition/canonical-protocol.ts";
@@ -305,6 +306,10 @@ export async function communityFetch(request:Request,env:CommunityEnv,provided?:
   try {
     const actual=provided??dependencies(env), deployment=actual.deployment??deploymentProfile(env);
     if (isWeb2Deployment(deployment)) {
+      if(env.NATIVE_APPLICATION_ORIGINAL_JSON) {
+        const original=await web2ApplicationOriginal(env);
+        insist(original.record.body.publishingAttachmentDigest === env.WEB2_PUBLISHING_ATTACHMENT_SHA256,"web2_publishing_attachment_changed",503);
+      }
       insist(!request.headers.has("X-Pirate-Native-Request"), "web2_native_profile_unqualified", 503);
       insist(!web2ExcludedPath(new URL(request.url).pathname), "feature_unavailable", 404);
     }
@@ -413,6 +418,10 @@ async function communityFetchBusiness(
       const runtime =
         ports.releaseRuntime?.(config) ??
         firstSongRuntime(env, config, freshAuthority(ports,deployment),deployment);
+      if(ownerOnly(config.policies.admission)) {
+        insist(runtime.release.ownerGrant,"owner_grant_unavailable",503);
+        await requireAuthorizedOwner(runtime.ownerAuthorization,config,runtime.release.ownerGrant.ownerWallet,undefined,runtime.ownerVerification);
+      }
       await runtime.checkServices();
       if (web2) insist(canonical(await configuration(true)) === canonical(config), "community_authority_changed", 409);
       return { config, ports: runtime };
@@ -430,6 +439,7 @@ async function communityFetchBusiness(
             runtime.ownerAuthorization,
             config,
             wallet,
+            undefined, runtime.ownerVerification,
           );
           return true;
         }
@@ -730,6 +740,13 @@ async function communityFetchBusiness(
       context,
       ready,
       reply,
+      async()=>{
+        // Authenticated owned uncertain jobs may wake original reconciliation.
+        // Their driver enforces live eligibility only at NEW-effect boundaries.
+        const config=await configuration(true),runtime=ports.releaseRuntime?.(config) ?? firstSongRuntime(env,config,freshAuthority(ports,deployment),deployment);
+        if(web2) insist(canonical(await configuration(true))===canonical(config),"community_authority_changed",409);
+        return {config,ports:runtime};
+      },
     );
     if (release) return release;
     const config = await configuration();

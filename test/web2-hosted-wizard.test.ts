@@ -60,13 +60,13 @@ test("paired Web2 Wizard retains one original across lost redeem reply and resta
     view = await f.send("redeem", { signature: await f.sign(view.challenge!) });
     assert.equal(f.broadcasts(), sent);
     const proofs = await f.recipientProofs(view);
-    view = await f.send("topup", { proofs });
+    view = await f.send("topup", {});
     await f.mine();
     view = await f.send("reconcile", {});
     assert.equal(view.enrollment?.operations.length, 3);
     assert(view.enrollment.operations.every((op) => op.state === "consumed"));
     const funded = f.broadcasts();
-    await f.send("topup", { proofs });
+    await f.send("topup", {});
     assert.equal(f.broadcasts(), funded);
     const unavailable = await f.post("install", {});
     assert.equal(unavailable.status, 503);
@@ -229,7 +229,7 @@ test("losing an initialized original refuses reconstruction rather than allocati
   }
 });
 
-test("one account holding both roles receives one initial allocation through the Wizard", async () => {
+test("a retained same-account original reconciles one initial allocation through the Wizard", async () => {
   const f = await hostedWizardFixture({ sameRecipient: true });
   try {
     let view = await f.prepare();
@@ -238,7 +238,7 @@ test("one account holding both roles receives one initial allocation through the
     view = await f.send("reconcile", {});
     const proofs = await f.recipientProofs(view);
     assert.equal(proofs.length, 1);
-    view = await f.send("topup", { proofs });
+    view = await f.send("topup", {});
     await f.mine();
     view = await f.send("reconcile", {});
     assert.equal(view.enrollment?.operations.length, 2);

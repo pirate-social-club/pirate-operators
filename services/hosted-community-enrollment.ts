@@ -27,6 +27,7 @@ import {
 } from "../packages/community/hosted-enrollment.ts";
 import {
   allOperations,
+  ownHostedSchemaContext,
   assertHostedSchema,
   assertBudgetNamespace,
   findInvite,
@@ -46,6 +47,7 @@ export function ownHostedRuntime(input: HostedRuntime): HostedRuntime {
   return Object.freeze({
     ...input,
     policy: p,
+    schemaContext: input.schemaContext === undefined ? undefined : ownHostedSchemaContext(input.schemaContext),
     registrar: Object.freeze({ ...input.registrar }),
     funder: Object.freeze({ ...input.funder }),
   });
@@ -59,7 +61,7 @@ export async function readHostedRequest(r: HostedRuntime, request: Request) {
   insist(request.method === "POST", "post_required", 405);
   // No cookies or ambient authority; proofs are required on every action.
   insist(!request.headers.has("cookie"), "cookie_authority_not_supported", 403);
-  await assertHostedSchema(r.db);
+  await assertHostedSchema(r.db, r.schemaContext);
   await assertBudgetNamespace(r.db, r.policy);
   return jsonBody(request, 128 * 1024);
 }
@@ -77,6 +79,9 @@ export function hostedResponse(value: unknown, status = 200) {
   );
 }
 export function hostedError(error: unknown) {
+  if (error instanceof Error && !(error instanceof CommunityError)) console.error(JSON.stringify({
+    event: "hosted_unavailable", errorClass: error.name, frame: error.stack?.split("\n")[1]?.trim(),
+  }));
   return hostedResponse(
     {
       error:

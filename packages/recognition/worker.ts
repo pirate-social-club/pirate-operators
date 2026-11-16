@@ -18,6 +18,9 @@ export interface EnrollmentDependencies {
   catalog: RecognitionCatalog;
   /** Required for accepted-intent sources; fresh owner/private-media authority. */
   authorizeSource?(source:VerifiedPublication | AcceptedIntent):Promise<void>;
+  /** Authenticate current owner eligibility and return its synchronous final
+   * window check. Reads/status never invoke this NEW-upload capability. */
+  authorizeUpload?(source:VerifiedPublication | AcceptedIntent):Promise<() => void>;
   /** Bounded server-owned object capability; no caller-selected URL. */
   readAudio(
     publication: VerifiedPublication | AcceptedIntent,
@@ -59,15 +62,25 @@ export async function advanceEnrollment(
     await deps.authorizeEffect(effect, r!);
     signal.throwIfAborted();
     await store.requireClaim(r!);
+    let liveUpload:(() => void)|undefined;
     // A final withdrawal after an asynchronous quota/media read cannot authorize upload.
     if (effect === "upload" || effect === "verify") {
       const source=await store.source(id);
       insist(source,"recognition_association_withdrawn",409);
       if('schema' in source) insist(deps.authorizeSource,"recognition_intent_verifier_unconfigured",503);
       await deps.authorizeSource?.(source);
+      if(effect==="upload") {
+        if('schema' in source)insist(deps.authorizeUpload,"recognition_upload_authorization_unconfigured",503);
+        liveUpload=await deps.authorizeUpload?.(source);
+        if('schema' in source)insist(liveUpload,"recognition_upload_authorization_unconfigured",503);
+      }
       insist(canonical(await store.source(id))===canonical(source),"recognition_source_changed",409);
     }
     await store.requireClaim(r!);
+    signal.throwIfAborted();
+    // The adapter prepares its request before invoking this callback. Sample
+    // expiry after every quota/source/authority/lease await, before its POST.
+    liveUpload?.();
   };
   const accept = async (file: CatalogFile) => {
     insist(

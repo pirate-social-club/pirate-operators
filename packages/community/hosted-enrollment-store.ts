@@ -1,4 +1,4 @@
-import { canonical, hashText, insist, token } from "./common.ts";
+import { canonical, exact, hashText, insist, object, token } from "./common.ts";
 import { sharedBytes32 } from "./shared-identity.ts";
 import {
   configureBudget,
@@ -22,13 +22,51 @@ import type { Hex } from "viem";
 // from the exact unapplied schema. Runtime never repairs or initializes a DB.
 export const HOSTED_SCHEMA_SHA256 =
   "0x5298bcc8f828f30bdbe9fb856625918085dfcb72b33f8256ff0f41b3579f8db4";
-export async function assertHostedSchema(db: D1Database) {
+/** Private package context; never part of policy or an HTTP/signature envelope. */
+export interface HostedSchemaContext {
+  readonly schema: "pirate.hosted-schema-alchemy/1";
+  readonly table: "__alchemy_migrations";
+  readonly migrations: ReadonlyArray<Readonly<{ name: string; hash: string }>>;
+}
+export function ownHostedSchemaContext(input: unknown): HostedSchemaContext {
+  const value = object(structuredClone(input));
+  exact(value, ["schema", "table", "migrations"]);
+  insist(value.schema === "pirate.hosted-schema-alchemy/1" && value.table === "__alchemy_migrations" &&
+    Array.isArray(value.migrations) && value.migrations.length === 1, "hosted_schema_mismatch", 503);
+  const migrations = value.migrations.map(row => {
+    const entry = object(row); exact(entry, ["name", "hash"]);
+    insist(entry.name === "0001_hosted_enrollment.sql" && typeof entry.hash === "string" &&
+      /^[0-9a-f]{64}(?![\s\S])/.test(entry.hash), "hosted_schema_mismatch", 503);
+    return Object.freeze({ name: entry.name, hash: entry.hash });
+  });
+  return Object.freeze({ schema: "pirate.hosted-schema-alchemy/1", table: "__alchemy_migrations", migrations: Object.freeze(migrations) });
+}
+export async function assertHostedSchema(db: D1Database, context?: HostedSchemaContext) {
+  const selected = context === undefined ? undefined : ownHostedSchemaContext(context);
   const rows = await db
     .prepare(
       "SELECT name,type,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' AND name <> '_cf_METADATA' ORDER BY name",
     )
     .all<{ name: string; type: string; sql: string }>();
-  const shape = rows.results.map((r) => ({
+  if (selected) {
+    const internal = await db.prepare("SELECT type,sql FROM sqlite_master WHERE name='_cf_METADATA'").first<{ type: string; sql: string }>();
+    insist(internal?.type === "table" && internal.sql.replace(/\s+/g, " ").trim() ===
+      "CREATE TABLE _cf_METADATA ( key INTEGER PRIMARY KEY, value BLOB )", "hosted_schema_mismatch", 503);
+    const metadata = rows.results.find(row => row.name === selected.table);
+    // Installed @alchemy.run/sql SQLite createTableSql, pinned with the package.
+    // SQLite removes IF NOT EXISTS on storage; the early real migrator gate
+    // records the actual sqlite_master form, not a guessed database fingerprint.
+    const ddl = 'CREATE TABLE "__alchemy_migrations" ( id INTEGER PRIMARY KEY, hash text NOT NULL, created_at numeric, name text, applied_at TEXT )';
+    insist(metadata?.type === "table" && metadata.sql.replace(/\s+/g, " ").trim() === ddl, "hosted_schema_mismatch", 503);
+    const ledger = await db.prepare("SELECT id,hash,created_at,name,applied_at FROM __alchemy_migrations ORDER BY id")
+      .all<{ id: number; hash: string; created_at: unknown; name: string; applied_at: unknown }>();
+    insist(ledger.results.length === selected.migrations.length && ledger.results.every((row, index) => {
+      const expected = selected.migrations[index]!;
+      return row.id === index + 1 && row.hash === expected.hash && row.name === expected.name && row.created_at === null &&
+        typeof row.applied_at === "string" && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?![\s\S])/.test(row.applied_at);
+    }), "hosted_schema_mismatch", 503);
+  }
+  const shape = rows.results.filter(row => !selected || row.name !== selected.table).map((r) => ({
     name: r.name,
     type: r.type,
     sql: r.sql.replace(/\s+/g, " ").trim(),
@@ -60,6 +98,7 @@ export async function provisionHostedInvite(
   p: HostedPolicy,
   input: { id: Hex; token: string; allowanceId: Hex; expiresAt: number },
   now: number,
+  context?: HostedSchemaContext,
 ) {
   const { id, token: secret, allowanceId, expiresAt } = input;
   sharedBytes32(id);
@@ -71,7 +110,7 @@ export async function provisionHostedInvite(
       expiresAt - now <= p.inviteMaxSeconds,
     "invalid_invite_expiry",
   );
-  await assertHostedSchema(db);
+  await assertHostedSchema(db, context);
   const g = token();
   await db.batch([
     db
@@ -102,8 +141,8 @@ export async function assertBudgetNamespace(db: D1Database, p: HostedPolicy) {
     503,
   );
 }
-export async function revokeHostedInvite(db: D1Database, id: Hex) {
-  await assertHostedSchema(db);
+export async function revokeHostedInvite(db: D1Database, id: Hex, context?: HostedSchemaContext) {
+  await assertHostedSchema(db, context);
   await db
     .prepare("UPDATE hosted_invites SET revoked=1 WHERE id=?")
     .bind(sharedBytes32(id))

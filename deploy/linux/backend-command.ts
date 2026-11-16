@@ -17,6 +17,9 @@ export interface OwnedCommandInput {
   /** Pinned read-only build metadata only. A terminal child may finish before
    * /proc observation; its actual exit/output are evidence, never a live ID. */
   completedMetadataChild?: true;
+  /** Pinned local compiler writing only fresh build artifacts. Actual terminal
+   * completion may precede /proc observation; no key or current-authority use. */
+  completedArtifactChild?: true;
 }
 export async function runOwnedCommand(input:OwnedCommandInput) {return runCommand(input);}
 export async function runCurrentAuthorityCommand(input:OwnedCommandInput,assertCurrent:()=>Promise<void>){
@@ -26,6 +29,7 @@ export async function runCurrentAuthorityCommand(input:OwnedCommandInput,assertC
 async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<void>) {
   await input.lease.assertHeld(); assert(!input.signal.aborted,"native_effect_cancelled");
   assert(!input.completedMetadataChild || !assertCurrent,"metadata_completion_cannot_authorize_mutation");
+  assert(!input.completedArtifactChild || (!assertCurrent && !input.keyMaterial),"artifact_completion_cannot_authorize_mutation_or_keys");
   assert(safeId(input.name), "backend_command_name_invalid");
   assert(input.environment.HOME === process.env.HOME, "backend_HOME_changed");
   assert(Object.keys(input.environment).every((key) => ["HOME", "PATH", "TMPDIR", "TZ", "LANG", "NODE_COMPILE_CACHE"].includes(key)),
@@ -83,10 +87,11 @@ async function runCommand(input:OwnedCommandInput,assertCurrent?:()=>Promise<voi
     if(owned)assert(owned.pidNamespace === input.lease.holder.pidNamespace && owned.hostGroup === child.pid && owned.hostSession === child.pid);
     else{
       // Drain the actual child exit event, not a guessed process absence. This
-      // exception never covers a live child, denied namespace read or mutator.
+      // exception never covers a live child, denied namespace read or
+      // current-authority mutator.
       await new Promise<void>(resolve=>setImmediate(resolve));
       const gone=observationError===undefined || ["ENOENT","ESRCH"].includes((observationError as NodeJS.ErrnoException).code??"");
-      assert(input.completedMetadataChild && gone && (child.exitCode!==null || child.signalCode!==null),
+      assert((input.completedMetadataChild || input.completedArtifactChild) && gone && (child.exitCode!==null || child.signalCode!==null),
         "backend_live_child_identity_unproved");
     }
     await input.lease.record(input.name + "-launch", { executable: input.executable, argv: input.argv, owned,

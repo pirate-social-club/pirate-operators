@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hashText, publicId } from "../packages/community/common.ts";
+import { hashJson, hashText, publicId } from "../packages/community/common.ts";
 import { directoryV3Abi } from "../packages/community/web2-directory.ts";
 import { enrollmentTypedData } from "../packages/community/hosted-enrollment.ts";
+import { verifyEnrollmentProof } from "../packages/community/hosted-enrollment.ts";
+import { encodeFunctionData, serializeErc8010Signature, type PublicClient } from "viem";
+import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import {
   allOperations,
   revokeHostedInvite,
@@ -188,6 +192,75 @@ test("real deployed ERC1271 controller proof succeeds and wrong signer fails wit
   } finally {
     await f.close();
   }
+});
+
+test("code-free ERC8010 enrollment verification executes locally without a public write and fences delayed safe views", async () => {
+  const f = await hostedFixture();
+  try {
+    const account = f.compiled.MockAccount!, initializer = f.compiled.MockInitializer!;
+    const deployed = await f.local.waitForTransactionReceipt({ hash: await f.wallet.deployContract({ abi: account.abi, bytecode: account.bytecode }) });
+    const initialized = await f.local.waitForTransactionReceipt({ hash: await f.wallet.deployContract({ abi: initializer.abi, bytecode: initializer.bytecode }) });
+    assert(deployed.contractAddress && initialized.contractAddress);
+    await f.mine();
+    const controller = f.accounts.stranger;
+    const p = await f.prepare(await f.invite({ controller: lower(controller.address) }));
+    const wrapped = serializeErc8010Signature({
+      authorization: await controller.signAuthorization({ contractAddress: deployed.contractAddress, chainId: 0, nonce: await f.local.getTransactionCount({ address: controller.address }) }),
+      address: initialized.contractAddress,
+      data: encodeFunctionData({ abi: initializer.abi, functionName: "activate", args: [controller.address, f.accounts.controller.address] }),
+      signature: await f.accounts.controller.signTypedData(enrollmentTypedData(p.e)),
+    });
+    const before = await f.local.getTransactionCount({ address: controller.address });
+    await verifyEnrollmentProof(f.runtime.client, f.policy, p.e, lower(controller.address), wrapped, f.runtime.now);
+    assert.equal(await f.local.getCode({ address: controller.address }), undefined);
+    assert.equal(await f.local.getTransactionCount({ address: controller.address }), before);
+    assert.equal(f.state.sendCount, 0);
+    await assert.rejects(verifyEnrollmentProof(f.runtime.client, f.policy, p.e, lower(controller.address), `0x${wrapped.slice(4)}`, f.runtime.now));
+    const wrong = serializeErc8010Signature({
+      authorization: await controller.signAuthorization({ contractAddress: deployed.contractAddress, chainId: 0, nonce: before }),
+      address: initialized.contractAddress,
+      data: encodeFunctionData({abi:initializer.abi,functionName:"activate",args:[controller.address,f.accounts.controller.address]}),
+      signature:await f.accounts.publisher.signTypedData(enrollmentTypedData(p.e)),
+    });
+    await assert.rejects(verifyEnrollmentProof(f.runtime.client,f.policy,p.e,lower(controller.address),wrong,f.runtime.now));
+    const delayed = (after: () => void) => new Proxy(f.runtime.client, {
+      get(target, property) {
+        if (property !== "verifyTypedData") return Reflect.get(target, property);
+        return async (request: Parameters<PublicClient["verifyTypedData"]>[0]) => { const result = await target.verifyTypedData(request); after(); return result; };
+      },
+    });
+    const clock = f.state.clock;
+    await assert.rejects(verifyEnrollmentProof(delayed(() => { f.state.clock = p.e.expiresAt; }), f.policy, p.e, lower(controller.address), wrapped, f.runtime.now));
+    f.state.clock = clock;
+    const checkpoint = await f.rpc("evm_snapshot", []);
+    await f.rpc("anvil_mine",["0x40","0x1"]);
+    await f.mine();
+    const reorganized = new Proxy(f.runtime.client, {
+      get(target, property) {
+        if(property !== "verifyTypedData") return Reflect.get(target,property);
+        return async (request:Parameters<PublicClient["verifyTypedData"]>[0])=>{
+          const result=await target.verifyTypedData(request);
+          await f.rpc("evm_revert",[checkpoint]);
+          await f.rpc("anvil_mine",["0x44","0x2"]);
+          await f.mine();
+          return result;
+        };
+      },
+    });
+    await assert.rejects(verifyEnrollmentProof(reorganized,f.policy,p.e,lower(controller.address),wrapped,f.runtime.now),/hosted_chain_reorganized/);
+    f.state.failRpc = true;
+    await assert.rejects(verifyEnrollmentProof(f.runtime.client, f.policy, p.e, lower(controller.address), wrapped, f.runtime.now));
+    assert.equal(f.state.sendCount, 0);
+    const evidenceDirectory = process.env.PIRATE_WALLET_AUTHORITY_EVIDENCE_DIRECTORY ?? ".local/web2-owner-signing-implementation/enrollment";
+    await mkdir(evidenceDirectory,{recursive:true});
+    await writeFile(`${evidenceDirectory}/account-proof.json`,JSON.stringify({
+      checkedRevision:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),
+      scope:"Disposable Anvil, actual account/initializer and public-client read execution; no MOSS or public-provider acceptance",
+      enrollmentId:p.e.id,configurationDigest:hashJson(p.e.plan.config),proofDigest:hashText(wrapped),
+      deploymentTransactions:[deployed.transactionHash,initialized.transactionHash],verificationPublicWrites:f.state.sendCount,
+      accountNonceBefore:before,accountNonceAfter:await f.local.getTransactionCount({address:controller.address}),
+    },null,2));
+  } finally { f.state.failRpc = false; await f.close(); }
 });
 test("replacement invite and installation cannot reset a redeemed lifetime allowance", async () => {
   const f = await hostedFixture();

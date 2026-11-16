@@ -93,11 +93,13 @@ export async function createWeb2BootstrapInstallation(
     apply: (selection) =>
       exclusive(async () => {
         assert(installation, "original_web2_runtime_unavailable");
+        assert(await binder.retained(),"original_web2_runtime_unavailable");
         return installation.apply(selection);
       }),
     status: (selection) =>
       exclusive(async () => {
         assert(installation, "original_web2_runtime_unavailable");
+        assert(await binder.retained(),"original_web2_runtime_unavailable");
         return installation.status(selection);
       }),
     async close() {

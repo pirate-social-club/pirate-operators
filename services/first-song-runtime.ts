@@ -1,4 +1,7 @@
-import { canonical } from "../packages/community/common.ts";
+import { publishingAttachment } from "../deploy/linux/web2-publishing-attachment.ts";
+import { ownerAuthorizationRecord } from "../packages/community/owner-authorization-typed-data.ts";
+import { requireAuthorizedOwner } from "../packages/community/owner-authorization.ts";
+import { canonical, hashJson } from "../packages/community/common.ts";
 import { recognitionProfile } from "../packages/recognition/intent.ts";
 import { privateKeyToAccount } from "viem/accounts";
 import { insist, jsonBody } from "../packages/community/common.ts";
@@ -34,6 +37,10 @@ export interface FirstSongRuntimeEnv {
    */
   OWNER_GRANT_JSON?: string;
   OWNER_AUTHORIZATION_JSON?: string;
+  WEB2_PUBLISHING_ATTACHMENT_SHA256?: string;
+  WEB2_PUBLISHING_ATTACHMENT_JSON?: string;
+  WEB2_PUBLISHING_SELECTION_SHA256?: string;
+  OWNER_GRANT_ADMISSION_REFERENCE?: string;
   RECOGNITION_PROFILE_JSON?: string;
   /** Reviewed existing account fence; missing input fails closed for the new policy. */
   CATALOG_ACCOUNT_FENCE?: (accountId:string,wallet:string,authorId:string)=>Promise<void>;
@@ -75,6 +82,7 @@ export async function managedOwnerReleaseConfigured(
 ) {
   try {
     const response = await managedTransport(env)(new Request(deployment.managedOrigin + "/health", {
+        ...(env.WEB2_PUBLISHING_SELECTION_SHA256 ? {headers:{"x-pirate-community":grant.communityId,"x-pirate-owner-grant":grant.sha256}} : {}),
         redirect: "manual",
         signal: AbortSignal.timeout(15000),
       })),
@@ -84,7 +92,10 @@ export async function managedOwnerReleaseConfigured(
       response.ok &&
       body.profileHash === env.MANAGED_PROFILE_HASH &&
       owner?.configured === true &&
-      owner.grantSha256 === grant.sha256
+      owner.grantSha256 === grant.sha256 &&
+      (!env.WEB2_PUBLISHING_SELECTION_SHA256 || (owner.selectionDigest === env.WEB2_PUBLISHING_SELECTION_SHA256 &&
+        owner.admissionReference === env.OWNER_GRANT_ADMISSION_REFERENCE)) &&
+      Math.floor(Date.now()/1000) >= grant.validFrom && Math.floor(Date.now()/1000) < grant.expiresAt
     );
   } catch {
     return false;
@@ -125,15 +136,37 @@ export function ownerSongRuntime(
   let grant: OwnerBudgetGrant, ownerAuthorization: unknown;
   try {
     grant = validateOwnerGrant(JSON.parse(env.OWNER_GRANT_JSON));
-    ownerAuthorization = JSON.parse(env.OWNER_AUTHORIZATION_JSON);
+    ownerAuthorization = ownerAuthorizationRecord(JSON.parse(env.OWNER_AUTHORIZATION_JSON));
   } catch {
     insist(false, "owner_runtime_unconfigured", 503);
   }
   requireOwnerGrantScope(grant!, configuration);
+  if ((ownerAuthorization as {authorization?:{schema?:string}})?.authorization?.schema === "pirate.owner-publishing-authorization/2") {
+    insist(env.WEB2_PUBLISHING_ATTACHMENT_JSON,"web2_publishing_authority_unavailable",503);
+    let attached:ReturnType<typeof publishingAttachment>;
+    try {attached=publishingAttachment(JSON.parse(env.WEB2_PUBLISHING_ATTACHMENT_JSON));}
+    catch {insist(false,"web2_publishing_authority_unavailable",503);}
+    const scope=attached.selection.scope;
+    insist(configuration.schema === "pirate.community-config/4" && attached.digest === env.WEB2_PUBLISHING_ATTACHMENT_SHA256 &&
+      attached.selection.selectionDigest === env.WEB2_PUBLISHING_SELECTION_SHA256 && attached.selection.admissionReference === env.OWNER_GRANT_ADMISSION_REFERENCE &&
+      canonical(attached.selection.grant) === canonical(grant!) && canonical(attached.authorization) === canonical(ownerAuthorization) &&
+      scope.communityId === configuration.communityId && scope.installationId === configuration.installationId &&
+      scope.origin === configuration.app.origin && scope.controller === configuration.controller && scope.publisher === configuration.publisher &&
+      scope.chainId === configuration.chainId && scope.postsContract === configuration.postsContract &&
+      scope.deploymentDigest === hashJson(deployment),"web2_publishing_attachment_changed",403);
+    const a = ownerAuthorizationRecord(ownerAuthorization).authorization;
+    insist(a.communityId === grant!.communityId && a.ownerWallet === grant!.ownerWallet && canonical(a.policy) === canonical(grant!.policy) &&
+      a.validFrom === grant!.validFrom && a.expiresAt === grant!.expiresAt,"owner_authorization_grant_mismatch",403);
+    insist(/^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_ATTACHMENT_SHA256 ?? "") &&
+      /^0x[0-9a-f]{64}$/.test(env.WEB2_PUBLISHING_SELECTION_SHA256 ?? "") &&
+      env.OWNER_GRANT_ADMISSION_REFERENCE,"web2_publishing_authority_unavailable",503);
+  }
   const publisher = privateKeyToAccount(
       env.COMMUNITY_PUBLISHER_PRIVATE_KEY as `0x${string}`,
     ),
     managed = { origin: deployment.managedOrigin, publisher, configuration, transport: managedTransport(env) };
+  insist(publisher.address.toLowerCase() === configuration.publisher,"publisher_custody_binding_changed",503);
+  const managedChainClient = megaethReadClient(undefined, deployment.rpcUrl);
   const runtime: FirstSongDriverPorts = {
     db: env.DB,
     media: env.MEDIA,
@@ -141,11 +174,16 @@ export function ownerSongRuntime(
     release: { client: managed, grantHash: grant!.sha256, ownerGrant: grant!, ipfs: communityIpfsTransport(deployment) },
     posting: {
       db: env.DB,
-      client: megaethReadClient(undefined, deployment.rpcUrl),
+      client: managedChainClient,
       publisher,
       profile: publicPostsProfile(deployment),
       config: configuration,
       currentConfiguration,
+      ownerReservationCondition:async()=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        return {clause:"unixepoch()>=? AND unixepoch()<?",binds:[Math.max(owner.validFrom,grant!.validFrom),Math.min(owner.expiresAt,grant!.expiresAt)],code:"owner_authorization_outside_window"};
+      },
+      beforeBroadcast:async()=>{await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);},
       bounds: {
         period: `owner-${grant!.validFrom}-${grant!.expiresAt}`,
         ...postingLimits,
@@ -155,6 +193,11 @@ export function ownerSongRuntime(
     },
     acrEndpoint: "https://identify-eu-west-1.acrcloud.com/v1/identify",
     ownerAuthorization,
+    ownerVerification: isWeb2Deployment(deployment) ? {
+      client: managedChainClient, currentConfiguration,
+      now: () => Math.floor(Date.now() / 1000),
+      maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds),
+    } : undefined,
     async checkServices() {
       insist(await managedReady(grant!), "release_service_unavailable", 503);
     },
@@ -170,9 +213,18 @@ export function ownerSongRuntime(
       "recognition_deployment_profile_changed",503);
     const pin=recognitionProfile(JSON.parse(env.RECOGNITION_PROFILE_JSON));
     insist(canonical(pin)===canonical(configuration.policies.recognition) && pin.signer!==grant!.ownerWallet,"recognition_pin_changed",503);
-    runtime.catalog={db:env.DB,media:env.MEDIA,currentConfiguration,ownerAuthorization:async()=>ownerAuthorization,
-      posting:runtime.posting,publisher,transport:env.CATALOG_TRANSPORT,currentAccount:env.CATALOG_ACCOUNT_FENCE,
-      authorizeRecognition:async(id,request)=>{requireOwnerGrantScope(grant!,await currentConfiguration());await reserveOwnerBudget(env.DB,grant!,"recognition_requests",id,request,"1");}};
+    runtime.catalog={db:env.DB,media:env.MEDIA,currentConfiguration,ownerAuthorization:async()=>ownerAuthorization,ownerVerification:runtime.ownerVerification,
+      posting:runtime.posting,publisher,transport:env.CATALOG_TRANSPORT,
+      beforeCatalogDispatch:async(_operation,finalFence)=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        await finalFence();
+        const now=Math.floor(Date.now()/1000);
+        insist(now>=owner.validFrom&&now<owner.expiresAt,"owner_authorization_outside_window",403);
+      },currentAccount:env.CATALOG_ACCOUNT_FENCE,
+      authorizeRecognition:async(id,request)=>{requireOwnerGrantScope(grant!,await currentConfiguration());await reserveOwnerBudget(env.DB,grant!,"recognition_requests",id,request,"1",undefined,async()=>{
+        const owner=await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);
+        return {clause:"unixepoch()>=? AND unixepoch()<?",binds:[Math.max(owner.validFrom,grant!.validFrom),Math.min(owner.expiresAt,grant!.expiresAt)],code:"owner_authorization_outside_window"};
+      });await requireAuthorizedOwner(ownerAuthorization,configuration,grant!.ownerWallet,undefined,runtime.ownerVerification);}};
   }
   return runtime;
 }

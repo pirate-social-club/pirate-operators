@@ -8,6 +8,7 @@ import { sha256 } from "viem";
  * origins map to loopback. This does not claim public DNS/TLS acceptance. */
 export async function canonicalHttpFixture(
   routes: ReadonlyMap<string, (request: Request) => Promise<Response>>,
+  evidenceDirectory=".local/web2-canonical",
 ) {
   const evidence: Array<Record<string, unknown>> = [];
   const server = createServer(async (incoming, outgoing) => {
@@ -70,9 +71,9 @@ export async function canonicalHttpFixture(
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const port = (server.address() as { port: number }).port;
-  await mkdir(".local/web2-canonical", { recursive: true });
+  await mkdir(evidenceDirectory, { recursive: true });
   await writeFile(
-    `.local/web2-canonical/http-${process.pid}-${port}.json`,
+    `${evidenceDirectory}/http-${process.pid}-${port}.json`,
     JSON.stringify({ pid: process.pid, port, state: "running" }),
   );
   return {
@@ -130,7 +131,7 @@ export async function canonicalHttpFixture(
         server.close((error) => (error ? reject(error) : resolve())),
       );
       await writeFile(
-        `.local/web2-canonical/http-${process.pid}-${port}.json`,
+        `${evidenceDirectory}/http-${process.pid}-${port}.json`,
         JSON.stringify({ pid: process.pid, port, state: "closed" }),
       );
     },

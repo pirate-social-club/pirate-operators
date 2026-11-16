@@ -1,16 +1,80 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "@alchemy.run/cloudflare";
 import * as Effect from "effect/Effect";
 import * as Config from "effect/Config";
+import * as Option from "effect/Option";
 // Same product repository, established encrypted state implementation.
 // The packaging step copies these helpers beside this isolated stack.
 import { encryptedLocalState } from "./encrypted-state.ts";
 
-const prefix = "pirate-managed-firstsong-20261105";
-export default Alchemy.Stack(
-  prefix,
-  { providers: Cloudflare.providers(), state: encryptedLocalState() },
-  Effect.gen(function* () {
+// Fresh packages select a separate encrypted stack explicitly. Historical
+// identity, migrations, entrypoint and default bindings remain unchanged.
+const selectedProfile = process.env.MANAGED_SERVICE_PACKAGE_PROFILE;
+const helperOnly = selectedProfile === "operator-signing-only", fresh = selectedProfile === "managed-web2", hosted = selectedProfile === "hosted-enrollment";
+// A generated fresh package must never inherit the historical stack because
+// its selector was omitted. Read only this package-local marker before either
+// provider construction or encrypted state initialization; do not hide IO errors.
+let packageBytes: Buffer | undefined;
+try { packageBytes = readFileSync(new URL("./managed-web2-package.json", import.meta.url)); }
+catch (error) { if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error; }
+if (packageBytes !== undefined && !fresh && !helperOnly && !hosted) throw new Error("managed_package_profile_required");
+if (selectedProfile && !fresh && !helperOnly && !hosted) throw new Error("unknown_managed_service_package_profile");
+const historicalPrefix = "pirate-managed-firstsong-20261105", prefix = fresh || helperOnly || hosted ? process.env.MANAGED_WEB2_PREFIX! : historicalPrefix;
+// Before state/provider initialization, bind the reviewed generated package,
+// explicit plan and actual Alchemy.Stack namespace. Existing encrypted local
+// state stores resources under state/<stack>/<stage>; Stack uses this same prefix.
+const selectedPackage = fresh || helperOnly || hosted ? (() => {
+  if (!/^pirate-[a-z0-9-]{1,48}(?![\s\S])/.test(prefix ?? "") || prefix.startsWith(historicalPrefix))
+    throw new Error("fresh_managed_stack_identity_required");
+  const bytes = packageBytes ?? readFileSync(new URL("./managed-web2-package.json", import.meta.url));
+  if (bytes.length > 2 * 1024 * 1024 || "0x" + createHash("sha256").update(bytes).digest("hex") !== process.env.MANAGED_WEB2_PACKAGE_DIGEST)
+    throw new Error("managed_package_pin_changed");
+  const p = JSON.parse(bytes.toString("utf8")), i = p.identity;
+  if (p.prefix !== prefix || p.packageProfile !== selectedProfile || i.prefix !== prefix || i.packageProfile !== selectedProfile ||
+    i.planId !== process.env.MANAGED_WEB2_PLAN_ID || !/^0x[0-9a-f]{64}(?![\s\S])/.test(i.planId) ||
+    i.state.store !== "pirate-encrypted-local" || i.state.stack !== prefix) throw new Error("managed_package_stack_changed");
+  if (hosted && (p.schema !== "pirate.hosted-community-package/1" || p.operatorSigning || p.configuration?.schema !== "pirate.hosted-community-runtime/1")) throw new Error("hosted_package_profile_required");
+  return p;
+})() : undefined;
+const signingAssets = selectedPackage?.operatorSigning ? {
+  assets: { directory: "./operator-signing", runWorkerFirst: true, htmlHandling: "none" as const, notFoundHandling: "none" as const },
+} : {};
+// The selected production resource program is also collected by offline package
+// qualification using Alchemy's actual StackContext and Config resolution.
+export const selectedManagedResources = Effect.gen(function* () {
+    if (hosted) {
+      if (selectedPackage?.schema !== "pirate.hosted-community-package/1" || selectedPackage.operatorSigning ||
+        selectedPackage.configuration?.schema !== "pirate.hosted-community-runtime/1") throw new Error("hosted_package_profile_required");
+      const db = yield* Cloudflare.D1.Database("HostedDatabase", { name: `${prefix}-hosted-db`, migrations: "./migrations" });
+      const registrar = yield* Config.option(Config.Redacted("HOSTED_REGISTRAR_PRIVATE_KEY"));
+      const funder = yield* Config.option(Config.Redacted("HOSTED_FUNDER_PRIVATE_KEY"));
+      const app = yield* Cloudflare.Worker("HostedService", {
+        name: prefix, main: "./worker/worker.mjs", bundle: false,
+        compatibility: { date: "2026-08-06", flags: ["nodejs_compat", "global_fetch_strictly_public"] },
+        workersDev: { enabled: true, previewsEnabled: false }, limits: { cpuMs: 30000 },
+        observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true }, traces: { enabled: true, headSamplingRate: 0.1 } },
+        env: { DB: db, HOSTED_COMMUNITY_PROFILE: "hosted-enrollment",
+          HOSTED_COMMUNITY_CONFIGURATION_JSON: JSON.stringify(selectedPackage.configuration),
+          HOSTED_COMMUNITY_CONFIGURATION_SHA256: "0x" + createHash("sha256").update(JSON.stringify(selectedPackage.configuration)).digest("hex"),
+          ...(Option.isSome(registrar) ? { HOSTED_REGISTRAR_PRIVATE_KEY: registrar.value } : {}),
+          ...(Option.isSome(funder) ? { HOSTED_FUNDER_PRIVATE_KEY: funder.value } : {}),
+        },
+      });
+      return { origin: app.url, database: db.databaseId, profile: "hosted-enrollment", planId: selectedPackage.identity.planId };
+    }
+    if (helperOnly) {
+      if (!selectedPackage?.operatorSigning) throw new Error("operator_signing_closure_unavailable");
+      const helper = yield* Cloudflare.Worker("SigningHelper", {
+        name: prefix, main: "./worker/worker.mjs", bundle: false, ...signingAssets,
+        compatibility: { date: "2026-11-15", flags: ["nodejs_compat", "global_fetch_strictly_public"] },
+        workersDev: { enabled: true, previewsEnabled: false },
+        observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true }, traces: { enabled: true, headSamplingRate: 0.1 } },
+        env: { MANAGED_PUBLISHING_PROFILE: "operator-signing-only", OPERATOR_SIGNING_PROFILE_JSON: JSON.stringify(selectedPackage.operatorSigning) },
+      });
+      return { origin: helper.url, profile: "operator-signing-only", planId: selectedPackage.identity.planId };
+    }
     const DB = yield* Cloudflare.D1.Database("Database", {
       name: `${prefix}-db`,
       migrations: "./migrations",
@@ -26,8 +90,9 @@ export default Alchemy.Stack(
       name: prefix,
       main: "./worker/worker.mjs",
       bundle: false,
+      ...(fresh ? signingAssets : {}),
       compatibility: {
-        date: "2026-11-04",
+        date: fresh ? "2026-11-15" : "2026-11-04",
         flags: ["nodejs_compat", "global_fetch_strictly_public"],
       },
       workersDev: { enabled: true, previewsEnabled: false },
@@ -52,7 +117,12 @@ export default Alchemy.Stack(
         ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!,
         // Owner publishing binds only the reviewed owner grant; a registered
         // deployment binds only the registered grant and registration key.
-        ...(process.env.OWNER_GRANT_JSON
+        ...(fresh
+          ? { MANAGED_PUBLISHING_PROFILE: "managed-web2",
+              MANAGED_PUBLISHING_CONFIGURATION_JSON: JSON.stringify(selectedPackage.publishing),
+              SERVICE_CONFIGURATION_TRUST_JSON: JSON.stringify(selectedPackage.trust),
+              ...(selectedPackage.operatorSigning ? { OPERATOR_SIGNING_PROFILE_JSON: JSON.stringify(selectedPackage.operatorSigning) } : {}) }
+          : process.env.OWNER_GRANT_JSON
           ? { OWNER_GRANT_JSON: process.env.OWNER_GRANT_JSON }
           : {
               RELEASE_GRANT_JSON: process.env.RELEASE_GRANT_JSON!,
@@ -63,7 +133,7 @@ export default Alchemy.Stack(
         FILEBASE_IPFS_TOKEN: Config.Redacted("FILEBASE_IPFS_TOKEN"),
         ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
         ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"),
-        OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY"),
+        ...(fresh ? {} : { OPENAI_API_KEY: Config.Redacted("OPENAI_API_KEY") }),
         MODERATION_SIGNER_PRIVATE_KEY: Config.Redacted(
           "MODERATION_SIGNER_PRIVATE_KEY",
         ),
@@ -80,6 +150,35 @@ export default Alchemy.Stack(
         retryDelay: 60,
       },
     });
+    if (fresh) {
+      const recognitionDB = yield* Cloudflare.D1.Database("RecognitionDatabase", {
+        name: `${prefix}-recognition-db`, migrations: "./recognition-migrations",
+      });
+      const recognitionJOBS = yield* Cloudflare.Queues.Queue("RecognitionJobs", { name: `${prefix}-recognition-jobs` });
+      const recognition = yield* Cloudflare.Worker("RecognitionApp", {
+        name: `${prefix}-recognition`, main: "./worker/recognition.mjs", bundle: false,
+        compatibility: { date: "2026-11-15", flags: ["nodejs_compat", "global_fetch_strictly_public"] },
+        workersDev: { enabled: true, previewsEnabled: false }, crons: ["* * * * *"], limits: { cpuMs: 30000 },
+        observability: { enabled: true, redactQueryString: true, logs: { enabled: true, invocationLogs: true },
+          traces: { enabled: true, headSamplingRate: 0.1 } },
+        env: { DB: recognitionDB, ADMISSION_DB: DB, JOBS: recognitionJOBS,
+          MANAGED_PUBLISHING_CONFIGURATION_JSON: JSON.stringify(selectedPackage.publishing),
+          RECOGNITION_CONFIGURATION_JSON: JSON.stringify(selectedPackage.recognition),
+          SERVICE_CONFIGURATION_TRUST_JSON: JSON.stringify(selectedPackage.trust),
+          RECOGNITION_SIGNER_PRIVATE_KEY: Config.Redacted("RECOGNITION_SIGNER_PRIVATE_KEY"),
+          ACRCLOUD_HOST: process.env.ACRCLOUD_HOST!, ACRCLOUD_ACCESS_KEY: Config.Redacted("ACRCLOUD_ACCESS_KEY"),
+          ACRCLOUD_ACCESS_SECRET: Config.Redacted("ACRCLOUD_ACCESS_SECRET"), ACRCLOUD_CATALOG_TOKEN: Config.Redacted("ACRCLOUD_CATALOG_TOKEN"),
+        },
+      });
+      yield* Cloudflare.Queues.Consumer("RecognitionConsumer", { queueId: recognitionJOBS.queueId, scriptName: recognition.workerName,
+        settings: { batchSize: 1, maxConcurrency: 1, maxRetries: 3, maxWaitTimeMs: 1000, retryDelay: 60 } });
+      return { origin: app.url, database: DB.databaseId, queue: JOBS.queueId, recognitionOrigin: recognition.url,
+        recognitionDatabase: recognitionDB.databaseId, recognitionQueue: recognitionJOBS.queueId };
+    }
     return { origin: app.url, database: DB.databaseId, queue: JOBS.queueId };
-  }),
+  });
+export default Alchemy.Stack(
+  prefix,
+  { providers: Cloudflare.providers(), state: encryptedLocalState() },
+  selectedManagedResources,
 );

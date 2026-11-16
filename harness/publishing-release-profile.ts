@@ -1,3 +1,4 @@
+import { ownerAuthorizationRecord } from "../packages/community/owner-authorization-typed-data.ts";
 // Public configuration only. Reading or validating this input never publishes,
 // spends or activates the owner policy; the directory configuration does that.
 import { open } from "node:fs/promises";
@@ -15,7 +16,7 @@ import {
   validateOwnerGrant,
   type OwnerBudgetGrant,
 } from "../packages/release/owner-grant.ts";
-import { unregisteredOwner } from "../packages/community/owner-policy.ts";
+import { ownerOnly } from "../packages/community/owner-policy.ts";
 import type { SignedOwnerAuthorization } from "../packages/community/owner-authorization.ts";
 import { assertRewardsApplicationUpgrade } from "./rewards-release-profile.ts";
 import { publishedStateRepairHash } from "./published-state.ts";
@@ -48,46 +49,19 @@ export function publishingReleaseSelection(
     "owner_publishing_release_schema_invalid",
     409,
   );
-  const ownerGrant = validateOwnerGrant(p.ownerGrant),
-    signed = object(p.ownerAuthorization);
-  exact(signed, ["authorization", "signature"]);
-  const a = object(signed.authorization);
-  exact(a, [
-    "schema",
-    "communityId",
-    "ownerWallet",
-    "policy",
-    "validFrom",
-    "expiresAt",
-  ]);
-  const policy = object(a.policy);
-  exact(policy, ["version", "sha256"]);
-  const authorization = {
-    schema: "pirate.owner-publishing-authorization/1" as const,
-    communityId: bytes32(a.communityId),
-    ownerWallet: address(a.ownerWallet),
-    policy: { version: String(policy.version), sha256: bytes32(policy.sha256) },
-    validFrom: integer(a.validFrom, 1, Number.MAX_SAFE_INTEGER),
-    expiresAt: integer(a.expiresAt, 1, Number.MAX_SAFE_INTEGER),
-  };
-  insist(
-    a.schema === authorization.schema &&
-      typeof signed.signature === "string" &&
-      /^0x[0-9a-f]{130}$/.test(signed.signature) &&
-      unregisteredOwner(authorization.policy) &&
-      authorization.validFrom < authorization.expiresAt &&
-      authorization.communityId === ownerGrant.communityId &&
-      authorization.ownerWallet === ownerGrant.ownerWallet &&
-      canonical(authorization.policy) === canonical(ownerGrant.policy),
-    "owner_publishing_release_scope_mismatch",
-    409,
-  );
+  const ownerGrant = validateOwnerGrant(p.ownerGrant), record = ownerAuthorizationRecord(p.ownerAuthorization),
+    {authorization} = record;
+  insist(ownerOnly(authorization.policy) && authorization.communityId === ownerGrant.communityId &&
+    authorization.ownerWallet === ownerGrant.ownerWallet && canonical(authorization.policy) === canonical(ownerGrant.policy) &&
+    (authorization.schema !== "pirate.owner-publishing-authorization/2" ||
+      (authorization.validFrom === ownerGrant.validFrom && authorization.expiresAt === ownerGrant.expiresAt)),
+    "owner_publishing_release_scope_mismatch",409);
   const selection: PublishingReleaseSelection = {
     schema: "pirate.owner-publishing-release-selection/1",
     ownerGrant,
     ownerAuthorization: {
       authorization,
-      signature: signed.signature as `0x${string}`,
+      signature: record.signature,
     },
   };
   insist(
