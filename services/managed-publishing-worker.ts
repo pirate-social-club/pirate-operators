@@ -88,10 +88,12 @@ async function admittedEnv(env: ManagedPublishingEnv, r: ManagedPublishingRegist
     import("./community-deployment-profile.ts"), import("../packages/release/managed-publishing-admission.ts")]);
   const s = r.scope, d = r.deployment;
   insist(env.SERVICE_ORIGIN === r.serviceOrigin, "managed_service_origin_changed", 503);
+  const client = megaethReadClient(undefined, d.rpcUrl);
   const canonical = canonicalCommunityClient({ signer: requireDedicatedManagedSigner(bytes32(env.MODERATION_SIGNER_PRIVATE_KEY), d.rpcUrl),
     currentConfiguration: current, transport: env.CATALOG_CANONICAL_TRANSPORT,
-    chain: { client: megaethReadClient(undefined, d.rpcUrl), posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) },
-      ipfs: communityIpfsTransport(d) } });
+    chain: { client, ownerVerification: { client, currentConfiguration: current, now: () => Math.floor(Date.now() / 1000),
+      maxSafeBlockAgeSeconds: BigInt(d.freshness.maxSafeBlockAgeSeconds) },
+      posts: { ...d.posts, deploymentBlock: BigInt(d.posts.deploymentBlock) }, ipfs: communityIpfsTransport(d) } });
   return { ...env, MANAGED_ADMISSION_GATE: gate, CATALOG_RELEASE_INPUTS: { canonical: async () => canonical, recognition: async () => ({ ready: canonical.ready }) },
     // The shared handler owns the gate at the actual ADD boundary; status GETs
     // remain authenticated original reads, with no blanket live-window refusal.

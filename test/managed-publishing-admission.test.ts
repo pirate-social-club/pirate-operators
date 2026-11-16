@@ -234,12 +234,14 @@ test("scoped health requires both exact selected headers and never treats health
 
 
 test("revocation during real canonical readiness blocks the managed HTTP ADD before provider dispatch", async () => {
-  const f = await managedServicesFixture();
+  const f = await managedServicesFixture({ typedOwnerAuthorization: true });
   try {
     await f.prepare(); await f.attach(); const intent = await f.acceptCanonicalIntent();
     await assert.rejects(f.recognitionClient().reserve(intent)); await f.waitRecognitionReady(intent);
-    f.afterCanonicalAction("ready", () => f.revoke());
+    let readinessCalls = 0;
+    f.afterCanonicalAction("ready", async () => { readinessCalls++; await f.revoke(); });
     const response = await f.pinAudioOriginal(intent); assert.equal(response.ok, false);
+    assert.equal(readinessCalls, 1, "typed owner proof must reach actual canonical readiness before revocation");
     assert.equal(f.pinAdds(), 0);
     assert.equal((await (await f.reconcile()).json()).state, "attached");
     await f.artifact("v2-real-managed-dispatch-gate");
