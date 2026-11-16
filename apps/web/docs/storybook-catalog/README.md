@@ -1,17 +1,47 @@
 # App-owned Storybook catalog
 
-The catalog configuration and audit tools are independently owned by this app. They adapt the pinned pirate-web-solid c7cb87835a1858a1955c820b03d566365e6d42db reference and retain this app's production Solid aliases, deduplication and styles. Existing components and six app story files are unchanged. The first catalog selects app stories; it does not yet include every primitive story shipped in the UI tarball.
+This app owns its catalog, configuration and audits. Stories import the same production components that the app imports; the app does not depend on story files. Fixtures supply presentation state and simulated boundary responses without replacing component markup.
 
-This admitted source composition includes the reviewed capture-boundary and per-dispatch echo corrections. The transitive production-import audit follows named fixture helpers instead of exempting all fixture imports. Its proof is runtime module reachability from the actual client/live entries, not mounted exports or rendered parity. Story assertions and retained browser evidence remain necessary.
+## Current catalog
 
-The live served index determines actual story IDs/counts. The browser audit rejects empty or incomplete result sets, missing/malformed accessibility reporters, render/play/page errors, incorrect viewport evidence and missing screenshots. Axe incomplete checks are retained separately for review. Declared valid viewports keep their size; other stories get390x844 and1440x1000. Each attempt uses a fresh document/context and an explicit post-capture observation boundary.
+The baseline at main `da6cdf3f90f27cebb3d30783d4ced3df853dac64` had eight story files and 69 exports. Three added files cover the community shell, playback controls and wallet portfolio with 13 more stories. The actual built index at `02a68df09cf9e1c337d55a83dcb300d27dc3b3ca` contains 82 stories across 11 files: Study 25, Karaoke 18, Dance 24, optional naming 2, shell 4, playback controls 4 and wallet portfolio 5.
 
-At this source handback the separate package scripts/addon proposal is not applied. The genuine lock containing @storybook/addon-a11y10.6.0 is missing. Launch/build/npm audit script commands are therefore pending shared proposal selection and real locked installation. No lockfile has been fabricated and no runtime/tool version upgraded. Local source preparation is not a runnable catalog claim.
+The sidebar ordering is Screens, Flows and Checkpoint, with feature ordering inside each group. Existing titles, export names and story IDs are unchanged. See [coverage and remaining work](./coverage-map.md).
 
-The27 pure audit/channel/observation cases have passed under checksum-verified Node24.18.1 at the fca70 source base. This does not execute a story, accessibility scan, TypeScript import graph or browser. The remaining focused import cases require the app-owned locked TypeScript dependency. Build/dev launch, per-story interaction/accessibility/screenshots and hosted CI remain open.
+## Existing tooling
 
-After reviewed shared selection and dependency setup, run the production-import cases/check, catalog build, bounded dev smoke and live-index browser audit. The audit requires loopback --base-url, a fresh --out directory, --source-ref, --source-seal, an absolute --browser-executable and its exact --browser-sha256. It launches that verified executable explicitly and checks its bytes again after browser shutdown. In Linux CI the separate Python supervisor owns the audit and all browser descendants across process groups; timeout, interruption, leaked children and incomplete cleanup fail its retained receipt. Preserve run.json, results.jsonl, index.json and screenshot digests. Existing app/unit/component/browser/reproducibility/root checks remain required; this tooling replaces none of them.
+Main already includes `storybook`, `build-storybook`, import-audit and browser-audit scripts in `apps/web/package.json`. Storybook, its Solid/Vite framework and addon-a11y are pinned at 10.6.0. The app uses Solid 2 RC.21 and its independently owned c7-derived Solid2 UI package. The earlier statement that package scripts and the genuine addon lock were missing described an old source handback and is no longer current.
 
-Coverage still needs actual shell/navigation, wallet/profile/settings, video/publication and broader Dance/Study/Karaoke flows. Return story/component defects to their existing writers without weakening assertions, filtering failing stories or treating preview-only modules as mounted app coverage. Paper changes are appropriate only for accepted design decisions, not to conceal implementation differences. Live exploration remains independent of release and catalog completion.
+From `apps/web`, the existing source checks/build commands are:
 
-The proposed CI correction adds five browser-binding and nine synthetic process-supervisor cases. They remain unrun at this source handback. The earlier27 audit-helper passes are historical evidence at the unchanged helper bytes; they do not qualify this runner/workflow successor. Genuine addon lock, clean setup, import graph, catalog/render/axe and hosted CI remain open.
+```sh
+npm run test:storybook:imports
+npm run check:storybook:imports
+npm run build-storybook
+```
+
+The existing development script is `npm run storybook` on port 6176. Start it only under an allocated runtime slot with an explicit loopback binding. The qualification below used the existing scripts and installed locked dependencies. It establishes no persistent preview URL.
+
+The configuration keeps the app's production styles, aliases, deduplication, static assets and document decorator. The preview configuration changes only sidebar ordering. The catalog also binds the existing Karaoke lyric fixture directly, creates the playback seekability memo in component scope, and corrects the production shell brand/account accessible names. App routes, styles, tooling versions, manifests, locks, audits and workflows are unchanged.
+
+## Evidence and limitations
+
+The import checker traverses imports from actual client/live entrypoints and follows explicitly admitted fixture helpers. It rejects unreachable substitutes and production imports of story/test support. Static reachability does not establish a mounted export, rendered parity or complete user-flow coverage.
+
+The actual served index determines story IDs and count. The browser audit retains per-story render/play/page failures, viewport evidence, screenshot digests, accessibility violations and incomplete checks. Its existing exact-source/browser binding and process supervisor remain unchanged. Use the documented CLI inputs and fresh output directories under runtime custody; do not reuse a historical run as acceptance for changed source.
+
+Historical November 12/13 builds, failures, screenshots and later narrow qualification remain dated evidence at their own source/tool pins. They are not current-main or Solid2 acceptance. At `02a68df`, affected type checking passed in 15.052 seconds and the static build in 25.585 seconds. The existing full browser audit completed all 157 selected viewport observations in 127.772 seconds with zero failures. All 13 new stories and six new play functions ran. Screenshots and per-story results were retained; the owned browser/server closed and the port refused afterward.
+
+The initial full audit failed 30 observations. A first repair reduced that to one account-button accessible-name mismatch; removing its redundant override produced the passing rerun. These failed runs remain historical evidence. No assertions or accessibility rules were suppressed.
+
+The first hosted CI run also caught legacy exact home locators and an account Avatar name duplicated with its visible label. The Avatar is now decorative within that named button, and the shared home helper resolves the current named sidebar before its exact click. All 29 affected account/navigation cases passed in 24.861 seconds; the previously failing Karaoke publication/history case passed in 98.964 seconds. The failed CI and local attempts remain retained.
+
+The passing automated run still reports 73 incomplete accessibility rule observations, including focus, contrast, captions, prohibited ARIA attributes and label matching. These require manual review; this result is not full accessibility or Paper acceptance. Hosted CI, real provider/device effects and complete user journeys remain separate.
+
+Wallet and media reference text files remain provenance, not executable stories. Primitive/pattern stories from the UI package are not automatically part of this app catalog. Add coverage through real imported production components and explicit fixtures, rather than copying a second implementation into stories.
+
+## Coordination
+
+Catalog documentation and story-only authoring proceed independently of the installed journey and MOSS work. The narrowly reviewed shell accessible-name fixes are included in this catalog change. Further component defects go to their owning writers as separate proposals. Paper changes require an accepted design decision. Live exploration remains independent.
+
+No release gate is added by this organization pass. Existing repository, browser, reproducibility, CI and release checks remain in force. Main currently has no Storybook workflow job; rollout of one remains a separate integration decision. A review preview needs one serialized catalog build and a temporary loopback server. Keep installed-journey qualification higher priority.
