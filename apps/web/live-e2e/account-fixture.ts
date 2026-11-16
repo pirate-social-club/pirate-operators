@@ -513,7 +513,13 @@ export async function openSettings(page: Page) {
   ).toBeVisible();
 }
 export async function home(page: Page) {
-  await page.getByRole("button", { name: "Go home", exact: true }).click();
+  const sidebar = page.getByRole("complementary").filter({
+    has: page.getByRole("navigation", { name: "Main navigation", exact: true }),
+  });
+  await expect(sidebar.getByRole("button", { name: /^Go home to .+$/ })).toBeVisible();
+  const name = await sidebar.getAttribute("aria-label");
+  if (!name?.trim()) throw new Error("Expected a named community sidebar");
+  await sidebar.getByRole("button", { name: `Go home to ${name}`, exact: true }).click();
   await expect(
     page.getByRole("navigation", { name: "Community documents" }),
   ).toBeVisible();

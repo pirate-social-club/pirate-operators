@@ -236,12 +236,14 @@ export function AppSidebar(props: AppSidebarProps) {
                 type="button"
                 class="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-start hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Avatar
-                  fallback={account.displayName}
-                  fallbackSeed={account.avatarSeed ?? account.displayName}
-                  src={account.avatarSrc ?? undefined}
-                  size="sm"
-                />
+                <span aria-hidden="true" class="shrink-0">
+                  <Avatar
+                    fallback={account.displayName}
+                    fallbackSeed={account.avatarSeed ?? account.displayName}
+                    src={account.avatarSrc ?? undefined}
+                    size="sm"
+                  />
+                </span>
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-base font-semibold leading-6">
                     {account.displayName}
