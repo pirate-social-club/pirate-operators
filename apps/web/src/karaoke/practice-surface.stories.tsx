@@ -11,6 +11,10 @@ import { storyArtworkSrc, storyStageLines } from "./story-fixtures.ts";
 const meta = {
   title: "Flows/Karaoke/Practice",
   component: KaraokePracticeSurface,
+  // Bind the owned lyric fixture directly instead of sending its array through args.
+  render: (args) => (
+    <KaraokePracticeSurface {...args} lines={storyStageLines} />
+  ),
   parameters: {
     layout: "fullscreen",
     docs: {
@@ -224,6 +228,7 @@ export const PlaybackRefused: Story = {
       <div ref={host}>
         <KaraokePracticeSurface
           {...args}
+          lines={storyStageLines}
           singingStatus={status()}
           onStartSinging={() => setStatus("active")}
         />

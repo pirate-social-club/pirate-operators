@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { expect, userEvent, within } from "storybook/test";
 import { SongPlaybackControls } from "./playback-controls.tsx";
 
@@ -10,6 +10,8 @@ function PlaybackFixture(props: {
 }) {
   const [playing, setPlaying] = createSignal(props.playing, { ownedWrite: true });
   const [position, setPosition] = createSignal(30, { ownedWrite: true });
+  // Create the derived owner once, outside a getter read by Scrubber effects.
+  const canSeek = createMemo(() => props.canSeek && !props.buffering);
   createEffect(
     () => props.playing,
     (value) => { setPlaying(value); },
@@ -27,7 +29,7 @@ function PlaybackFixture(props: {
           buffering={props.buffering}
           position={position()}
           duration={180}
-          canSeek={props.canSeek && !props.buffering}
+          canSeek={canSeek()}
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onSeek={(milliseconds) => setPosition(milliseconds / 1000)}

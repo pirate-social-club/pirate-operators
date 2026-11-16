@@ -126,7 +126,7 @@ export function CommunityAppShell(props: {
       activeItemId={active()}
       primaryItems={items()}
       brandLabel={props.name || undefined}
-      homeAriaLabel="Go home"
+      homeAriaLabel={props.name ? `Go home to ${props.name}` : "Go home"}
       onHomeClick={() => go("/#/")}
       onNavigate={navigateItem}
       communityState={{ kind: "hidden" }}
