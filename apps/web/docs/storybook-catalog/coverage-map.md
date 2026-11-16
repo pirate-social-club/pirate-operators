@@ -4,9 +4,9 @@ Baseline: main `da6cdf3f90f27cebb3d30783d4ced3df853dac64`. The actual built inde
 
 | Area | Main files / exports | Proposal | What remains |
 | --- | --- | --- | --- |
-| Study | 2 / 25 | Unchanged | Current-source render/play/a11y results and actual account/SDK flow acceptance |
+| Study | 2 / 25 | Unchanged | Manual accessibility review and actual account/SDK flow acceptance |
 | Karaoke | 2 / 18 | Existing fixture bound explicitly | Real recording, playback and recovery acceptance |
-| Dance | 3 / 24 | Unchanged | Current production/service/private-state and rendered qualification; engineering extensions are not exact Paper frames |
+| Dance | 3 / 24 | Unchanged | Real service/private-state acceptance and manual design review; engineering extensions are not exact Paper frames |
 | Optional community naming | 1 / 2 | Unchanged | Real membership/authentication and eligible naming |
 | Community shell | 0 / 0 | 1 file / 4 stories | Route navigation and full app composition |
 | Playback controls | 0 / 0 | 1 file / 4 stories | Real media delivery, timing, seeking and persistence |
@@ -19,7 +19,7 @@ The main baseline is 8 files / 69 exports. Three added files / 13 exports yield 
 
 ## New wrapper ownership and source joins
 
-| New story file | Imported production component | Confirmed application use | Prepared states |
+| New story file | Imported production component | Confirmed application use | Covered states |
 | --- | --- | --- | --- |
 | `src/shell/community-app-shell.stories.tsx` | `src/live/app-shell.tsx` CommunityAppShell | `src/live/entry.tsx` | Anonymous, SignedIn, ResolvingSession, Busy |
 | `src/shell/player/song-playback-controls.stories.tsx` | `src/shell/player/playback-controls.tsx` SongPlaybackControls | `src/shell/reference/song-player.tsx` | Paused, Playing, Buffering, SeekingUnavailable |
