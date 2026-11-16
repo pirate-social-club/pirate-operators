@@ -4,7 +4,7 @@ This app owns its catalog, configuration and audits. Stories import the same pro
 
 ## Current catalog
 
-The baseline at main `da6cdf3f90f27cebb3d30783d4ced3df853dac64` had eight story files and 69 exports. Three added files cover the community shell, playback controls and wallet portfolio with 13 more stories. The actual built index at `5585c218d9bbdabb9d5be59e6dfbafe47912b23b` contains 82 stories across 11 files: Study 25, Karaoke 18, Dance 24, optional naming 2, shell 4, playback controls 4 and wallet portfolio 5.
+The baseline at main `da6cdf3f90f27cebb3d30783d4ced3df853dac64` had eight story files and 69 exports. Three added files cover the community shell, playback controls and wallet portfolio with 13 more stories. The actual built index at `02a68df09cf9e1c337d55a83dcb300d27dc3b3ca` contains 82 stories across 11 files: Study 25, Karaoke 18, Dance 24, optional naming 2, shell 4, playback controls 4 and wallet portfolio 5.
 
 The sidebar ordering is Screens, Flows and Checkpoint, with feature ordering inside each group. Existing titles, export names and story IDs are unchanged. See [coverage and remaining work](./coverage-map.md).
 
@@ -30,9 +30,11 @@ The import checker traverses imports from actual client/live entrypoints and fol
 
 The actual served index determines story IDs and count. The browser audit retains per-story render/play/page failures, viewport evidence, screenshot digests, accessibility violations and incomplete checks. Its existing exact-source/browser binding and process supervisor remain unchanged. Use the documented CLI inputs and fresh output directories under runtime custody; do not reuse a historical run as acceptance for changed source.
 
-Historical November 12/13 builds, failures, screenshots and later narrow qualification remain dated evidence at their own source/tool pins. They are not current-main or Solid2 acceptance. At `5585c218`, affected type checking passed in 13.085 seconds and the static build in 22.016 seconds. The existing full browser audit completed all 157 selected viewport observations in 104.296 seconds with zero failures. All 13 new stories and six new play functions ran. Screenshots and per-story results were retained; the owned browser/server closed and the port refused afterward.
+Historical November 12/13 builds, failures, screenshots and later narrow qualification remain dated evidence at their own source/tool pins. They are not current-main or Solid2 acceptance. At `02a68df`, affected type checking passed in 15.052 seconds and the static build in 25.585 seconds. The existing full browser audit completed all 157 selected viewport observations in 127.772 seconds with zero failures. All 13 new stories and six new play functions ran. Screenshots and per-story results were retained; the owned browser/server closed and the port refused afterward.
 
 The initial full audit failed 30 observations. A first repair reduced that to one account-button accessible-name mismatch; removing its redundant override produced the passing rerun. These failed runs remain historical evidence. No assertions or accessibility rules were suppressed.
+
+The first hosted CI run also caught legacy exact home locators and an account Avatar name duplicated with its visible label. The Avatar is now decorative within that named button, and the shared home helper resolves the current named sidebar before its exact click. All 29 affected account/navigation cases passed in 24.861 seconds; the previously failing Karaoke publication/history case passed in 98.964 seconds. The failed CI and local attempts remain retained.
 
 The passing automated run still reports 73 incomplete accessibility rule observations, including focus, contrast, captions, prohibited ARIA attributes and label matching. These require manual review; this result is not full accessibility or Paper acceptance. Hosted CI, real provider/device effects and complete user journeys remain separate.
 

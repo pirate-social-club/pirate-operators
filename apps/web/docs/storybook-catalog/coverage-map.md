@@ -1,6 +1,6 @@
 # Catalog coverage and next work
 
-Baseline: main `da6cdf3f90f27cebb3d30783d4ced3df853dac64`. The actual built index at `5585c218d9bbdabb9d5be59e6dfbafe47912b23b` confirms 82 stories. Existing IDs, exports and assertions remain; the Karaoke practice render now binds its existing lyric fixture directly.
+Baseline: main `da6cdf3f90f27cebb3d30783d4ced3df853dac64`. The actual built index at `02a68df09cf9e1c337d55a83dcb300d27dc3b3ca` confirms 82 stories. Existing IDs, exports and assertions remain; the Karaoke practice render now binds its existing lyric fixture directly.
 
 | Area | Main files / exports | Proposal | What remains |
 | --- | --- | --- | --- |
@@ -31,7 +31,7 @@ Six prepared play functions cover play/pause transitions, the disabled buffering
 
 ## Qualification and remaining work
 
-The import check, affected type checks and static build passed. The existing full browser audit at `5585c218` recorded every one of 157 viewport observations for 82 stories and passed with zero failures in 104.296 seconds. It retained screenshots and per-story results, then closed its owned browser/server. The first run's 30 failures and the intermediate single failure remain retained; no checks were suppressed.
+The import check, affected type checks and static build passed. The existing full browser audit at `02a68df` recorded every one of 157 viewport observations for 82 stories and passed with zero failures in 127.772 seconds. It retained screenshots and per-story results, then closed its owned browser/server. The first run's 30 failures and the intermediate single failure remain retained; no checks were suppressed.
 
 The final audit has 73 incomplete accessibility rule observations requiring manual review. This is automated catalog qualification, not complete accessibility, Paper parity, actual media capture or real account/provider acceptance. The shell changes include the visible community name in the home button label and let the account button derive its accessible name from displayed content. All existing story exports, IDs and assertions remain.
 
