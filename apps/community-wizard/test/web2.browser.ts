@@ -41,11 +41,13 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
         "permissions-policy":'publickey-credentials-get=(self "https://account.megaeth.com"), publickey-credentials-create=(self "https://account.megaeth.com")',
       },body:await readFile("apps/community-wizard/dist/"+file)});
     });
-    const approveWindow=async(label:string)=>{
+    const initiateWindow=async(label:string)=>{
       const opening=page.waitForEvent("popup");
       await page.getByRole("button",{name:label,exact:true}).click();
       const popup=await opening;
-      await popup.getByRole("button",{name:label==="Connect MOSS"?"Connect MOSS":"Review and sign",exact:true}).click();
+      // The initiating Wizard action starts native MOSS directly. Both success
+      // and native cancellation return through the same owned-window close.
+      if(!popup.isClosed())await popup.waitForEvent("close");
     };
     await context.route("https://account.megaeth.com/**", async (route) => {
       if (new URL(route.request().url()).pathname === "/fixture-penpal.mjs") {
@@ -76,7 +78,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
       .getByLabel("Community name", { exact: true })
       .fill(f.prepareInput.name);
     await page.getByLabel("HTTPS community origin").fill(f.prepareInput.origin);
-    await approveWindow("Connect MOSS");
+    await initiateWindow("Connect MOSS");
     await expect(page.getByLabel("Owner wallet", {exact:true})).toHaveValue(f.prepareInput.controller);
     await page.getByLabel("Owner wallet", {exact:true}).fill(f.nominatedOwner);
     await page.getByLabel("I reviewed the controller, owner and server publisher").check();
@@ -87,15 +89,15 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await page
       .getByRole("button", { name: "Prepare enrollment", exact: true })
       .click();
-    await approveWindow("Authorize community registration");
+    await initiateWindow("Authorize community registration");
     await expect(page.getByRole("alert")).toContainText("cancelled");
     expect((await f.state()).controllerAuthorized).toBe(false);
     changeAfterSign=true;
-    await approveWindow("Authorize community registration");
+    await initiateWindow("Authorize community registration");
     await expect(page.getByRole("alert")).toContainText("account_changed");
     expect((await f.state()).controllerAuthorized).toBe(false);
     accountChanged=false;
-    await approveWindow("Authorize community registration");
+    await initiateWindow("Authorize community registration");
     await expect(
       page.getByRole("button", { name: "Reconcile original enrollment" }),
     ).toBeEnabled();
@@ -131,7 +133,7 @@ test("actual hosted Web2 enrollment and gas authorization resume in the browser 
     await page.getByRole("button", {name:"Review owner publishing"}).click();
     await expect(page.getByText(f.nominatedOwner, {exact:false}).first()).toBeVisible();
     await page.getByLabel("I reviewed the owner policy, window, destination and every service limit").check();
-    await approveWindow("Authorize owner publishing");
+    await initiateWindow("Authorize owner publishing");
     await expect(page.getByRole("button",{name:"Attach reviewed publishing grant",exact:true})).toBeEnabled();
     const acceptedBefore=JSON.parse(await readFile(f.signingJournal,"utf8")).accepted;
     expect(acceptedBefore).not.toBeNull();

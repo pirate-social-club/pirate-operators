@@ -11,9 +11,21 @@ const signingOrigin="https://signing.fixture.example";
 test("top-level HTTPS signing window binds source, origin, nonce and separate connection/signature outcomes",async({page,context},info)=>{
   test.setTimeout(120000);const previous=process.cwd();process.chdir(fileURLToPath(new URL("../../../",import.meta.url)));
   const f=await hostedWizardFixture({publishing:true,signingOrigin});
+  let releasePending=()=>{};
   try {
     await context.addCookies([{name:"wizard_fixture",value:"paired",url:f.origin}]);
     const penpal=await readFile(new URL(import.meta.resolve("penpal")),"utf8");
+    let connectAllowed=false,connectCalls=0,completedConnections=0;
+    const connectsByPage=new Map<object,number>();
+    const pendingConnections=new Set<()=>void>();
+    const releaseConnections=()=>{connectAllowed=true;for(const release of pendingConnections)release();pendingConnections.clear();};
+    releasePending=releaseConnections;
+    await context.exposeBinding("signingFixtureConnect",async(source)=>{
+      connectCalls++;connectsByPage.set(source.page,(connectsByPage.get(source.page)??0)+1);
+      if(!connectAllowed)await new Promise<void>(resolve=>pendingConnections.add(resolve));
+      completedConnections++;
+      return {status:"connected",network:"testnet",address:f.prepareInput.controller};
+    });
     await context.exposeBinding("signingFixtureProof",async(_,data:unknown)=>({status:"success",signature:await f.sign(data)}));
     await context.addInitScript(()=>{window.addEventListener("message",e=>{
       if(e.data?.protocol==="pirate.web2-moss-window/1"&&e.data?.kind==="request")
@@ -35,13 +47,15 @@ test("top-level HTTPS signing window binds source, origin, nonce and separate co
       await route.fulfill({contentType:"text/html",body:`<!doctype html><script type="module">
         import {connect,WindowMessenger} from '/fixture-penpal.mjs';
         const account={status:'connected',network:'testnet',address:${JSON.stringify(f.prepareInput.controller)}};
-        const c=connect({messenger:new WindowMessenger({remoteWindow:parent,allowedOrigins:[${JSON.stringify(signingOrigin)}]}),methods:{status:()=>account,connect:async()=>account,signData:({data})=>window.signingFixtureProof(data)}});
+        const c=connect({messenger:new WindowMessenger({remoteWindow:parent,allowedOrigins:[${JSON.stringify(signingOrigin)}]}),methods:{status:()=>account,connect:()=>window.signingFixtureConnect(),signData:({data})=>window.signingFixtureProof(data)}});
         const remote=await c.promise;await remote.ready();</script>`});
     });
     await page.goto(f.origin+"/?setup=linux-web2");
     const open=async(label:string)=>{const event=page.waitForEvent("popup");await page.getByRole("button",{name:label,exact:true}).click();return event;};
     let popup=await open("Connect MOSS");
-    await expect(popup.getByRole("button",{name:"Connect MOSS",exact:true})).toBeEnabled();
+    await expect.poll(()=>popup.evaluate(()=>Boolean((window as unknown as {fixtureRequest:unknown}).fixtureRequest))).toBe(true);
+    await expect(popup.getByRole("button",{name:/Connect MOSS|Review and sign|Approve/})).toHaveCount(0);
+    await expect(popup.locator("pre")).toHaveCount(0);
     const original=await popup.evaluate(()=> (window as unknown as {fixtureRequest:unknown}).fixtureRequest);
     // Same window object, foreign origin: neither the account nor a stale
     // signature may be accepted. Closing restores an explicit retry.
@@ -50,7 +64,9 @@ test("top-level HTTPS signing window binds source, origin, nonce and separate co
     await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue("");
     await popup.close();await expect(page.getByRole("alert")).toContainText(/cancelled|closed/);
     popup=await open("Connect MOSS");
-    await expect(popup.getByRole("button",{name:"Connect MOSS",exact:true})).toBeEnabled();
+    await expect.poll(()=>popup.evaluate(()=>Boolean((window as unknown as {fixtureRequest:unknown}).fixtureRequest))).toBe(true);
+    await expect(popup.getByRole("button",{name:/Connect MOSS|Review and sign|Approve/})).toHaveCount(0);
+    await expect(popup.locator("pre")).toHaveCount(0);
     const current=await popup.evaluate(()=> (window as unknown as {fixtureRequest:unknown}).fixtureRequest);
     const foreignOpening=popup.waitForEvent("popup");
     await popup.evaluate(origin=>window.open(origin+"/operator-signing?openerOrigin="+encodeURIComponent("http://127.0.0.1:1")),signingOrigin);
@@ -59,13 +75,29 @@ test("top-level HTTPS signing window binds source, origin, nonce and separate co
     await foreign.close();
     await popup.evaluate(({message,target,address})=>{window.opener.postMessage({...message as object,kind:"response",status:"connected",address},target);},{message:original,target:f.origin,address:f.prepareInput.controller});
     await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue("");
-    await expect(popup.getByRole("button",{name:"Connect MOSS",exact:true})).toBeEnabled();
+    await expect.poll(()=>popup.evaluate(()=>Boolean((window as unknown as {fixtureRequest:unknown}).fixtureRequest))).toBe(true);
+    await expect(popup.getByRole("button",{name:/Connect MOSS|Review and sign|Approve/})).toHaveCount(0);
+    await expect(popup.locator("pre")).toHaveCount(0);
     await popup.evaluate(({target,address})=>{const r=(window as unknown as {fixtureRequest:Record<string,unknown>}).fixtureRequest;
       window.opener.postMessage({...r,kind:"response",status:"connected",requestDigest:"0x"+"ab".repeat(32),address,network:"testnet"},target);},{target:f.origin,address:f.prepareInput.controller});
     await expect(page.getByRole("alert")).toContainText(/protocol|request/);
-    popup=await open("Connect MOSS");await popup.getByRole("button",{name:"Connect MOSS",exact:true}).click();
+    // Native transport starts automatically; no helper approval gate. Cancelling
+    // this pending request cannot accept a later native callback or auto-retry.
+    popup=await open("Connect MOSS");
+    await expect.poll(()=>connectsByPage.get(popup)??0).toBe(1);
+    await popup.getByRole("button",{name:"Cancel",exact:true}).click();
+    await expect(page.getByRole("alert")).toContainText("cancelled");
+    await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue("");
+    releaseConnections();
+    await expect.poll(()=>completedConnections).toBe(connectCalls);
+    await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue("");
+    popup=await open("Connect MOSS");
     await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue(f.prepareInput.controller);
+    await expect.poll(()=>connectsByPage.get(popup)??0).toBe(2);
     expect(f.broadcasts()).toBe(0);expect(await f.preparationCount()).toBe(0);
+    // Hold the native response again so the real outer deadline, rather than
+    // a custom helper approval button, controls the unanswered request.
+    connectAllowed=false;
     // Exercise a real bounded timer without changing authorization time. This
     // test-only button uses the same public wallet port with a shorter deadline.
     const {build}=await import("esbuild");
@@ -80,6 +112,6 @@ test("top-level HTTPS signing window binds source, origin, nonce and separate co
     await expect(page.locator("#timed-result")).toHaveText("web2_wallet_window_timeout");expect(timedPopup.isClosed()).toBe(true);
     await expect(page.getByLabel("Owner wallet",{exact:true})).toHaveValue(f.prepareInput.controller);
     await page.screenshot({path:info.outputPath("https-window-connected.png"),fullPage:true});
-    await info.attach("boundary-evidence.json",{body:JSON.stringify({controller:f.prepareInput.controller,foreignOriginRefused:true,foreignSourceRefused:true,oldNonceRefused:true,boundedTimeout:true,wrongDigestRefused:true,oldRequestUnchanged:true,effects:f.broadcasts(),scope:"controlled SDK transport; no real MOSS/passkeys"}),contentType:"application/json"});
-  } finally {await f.close();process.chdir(previous);}
+    await info.attach("boundary-evidence.json",{body:JSON.stringify({controller:f.prepareInput.controller,foreignOriginRefused:true,foreignSourceRefused:true,oldNonceRefused:true,boundedTimeout:true,wrongDigestRefused:true,oldRequestUnchanged:true,automaticNativeConnect:true,helperApprovalRequired:false,cancelledLateNativeReplyRefused:true,effects:f.broadcasts(),scope:"controlled SDK transport; no real MOSS/passkeys"}),contentType:"application/json"});
+  } finally {releasePending();await f.close();process.chdir(previous);}
 });
