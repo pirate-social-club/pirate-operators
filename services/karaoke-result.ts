@@ -44,6 +44,8 @@ export interface Attempt {
   /** Set at the payment deadline; the closure's block once it is mined. */
   closing: null | { block: number | null };
   finalized: boolean;
+  /** Original private EOS drain. The journal never reopens a closed take. */
+  privateDrain?: { generation: number; until: number; settled: boolean };
   /** Increments with each accepted connection; only the newest is live. */
   generation: number;
 }
@@ -177,6 +179,7 @@ export function resultBody(
     ...(quote.serviceMode === "internal"
       ? { serviceMode: "internal" as const }
       : {}),
+    ...(ticket.privateProfileHash ? { privateProfileHash: ticket.privateProfileHash } : {}),
     attemptId: attempt.attemptId,
     ticketId: ticket.ticketId,
     communityId: ticket.communityId,

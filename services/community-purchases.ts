@@ -59,6 +59,7 @@ export interface Reservation {
   startedAt: number | null;
   /** V4: the sign-in authorization chosen when the ticket opened. */
   authorizationId?: Hex;
+  privateProfileHash?: Hex;
   /** Only server-derived metadata; committed in the same wallet CAS. */
   recoveryScope?: KaraokeRecoveryScope;
 }
@@ -88,6 +89,9 @@ export async function openTicket(
       if (w.open) {
         check(w.open.songHash === spec.songHash, "open_ticket_exists");
         check(w.open.sessionKey === spec.sessionKey, "different_session_key");
+        check(w.open.privateProfileHash === spec.privateProfileHash, "private_karaoke_ticket_scope_changed");
+        if (spec.privateProfileHash)
+          check(w.open.manifestSha256 === spec.manifestSha256, "private_karaoke_manifest_changed");
         return w;
       }
       check(
@@ -114,6 +118,10 @@ export async function ensureTicket(
 ) {
   check(!open.recoveryScope || fence, "karaoke_recovery_fence_required");
   if (open.recoveryScope) await fence!();
+  if (open.privateProfileHash) {
+    check(fence, "private_karaoke_request_required");
+    await fence();
+  }
   const manifest = (await store.get<KaraokeManifest>(
     `manifest:${open.manifestSha256}`,
   ))!;
@@ -134,6 +142,7 @@ export async function ensureTicket(
     expiresAt: open.expiresAt,
     // Present only on a V4 ticket, so V2/V3 ticket bytes are unchanged.
     ...(open.authorizationId ? { authorizationId: open.authorizationId } : {}),
+    ...(open.privateProfileHash ? { privateProfileHash: open.privateProfileHash } : {}),
   };
   const ticket = await sign(
     "ticket",
@@ -142,8 +151,17 @@ export async function ensureTicket(
     signatureChainId(env),
   );
   if (!open.recoveryScope) {
-    await store.set(`ticket:${open.ticketId}`, ticket);
-    await call(env.OPERATOR, "/prepare", { ticket, manifest });
+    if (open.privateProfileHash) {
+      const key = "ticket:" + open.ticketId;
+      await store.insertIfAbsent(key, ticket);
+      check(digest(await store.get(key)) === digest(ticket), "ticket_conflict");
+      await fence!();
+      await call(env.OPERATOR, "/prepare", { ticket, manifest });
+      await fence!();
+    } else {
+      await store.set("ticket:" + open.ticketId, ticket);
+      await call(env.OPERATOR, "/prepare", { ticket, manifest });
+    }
     return ticket;
   }
   const scope = open.recoveryScope,
@@ -349,7 +367,7 @@ export async function settleTicket(
   if (!open || open.ticketId !== ticketId) return;
   // Scoped recovery cannot infer a terminal result from elapsed time. Keep
   // its original finite reservation held until an authoritative result exists.
-  if ((open.recoveryScope || open.authorizationId) && !ended) return;
+  if ((open.recoveryScope || open.authorizationId || open.privateProfileHash) && !ended) return;
   if (!ended && (await store.now()) < open.expiresAt) return;
   const quote = (await store.get<OperatorQuote>(`quote:${open.quoteId}`))!;
   let paid = 0n;
@@ -386,6 +404,7 @@ export async function communityTick(env: Env, store: AsyncStore) {
       open &&
       !open.recoveryScope &&
       !open.authorizationId &&
+      !open.privateProfileHash &&
       now >= open.expiresAt
     )
       await settleTicket(

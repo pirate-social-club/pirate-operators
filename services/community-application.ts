@@ -1,3 +1,5 @@
+import { selectedWeb2Dance } from "./web2-private-dance.ts";
+import { MAX_MEDIA_BYTES } from "../packages/community-media/validation.ts";
 import { web2ApplicationOriginal } from "./application-native-readback.ts";
 import { nativeBusinessResponse } from "./application-native-readback.ts";
 import { communityCanonicalFetch } from "./community-canonical.ts";
@@ -36,7 +38,7 @@ import {
 import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
 import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
 import { readAndCacheWeb2Configuration } from "./community-web2-configuration-cache.ts";
-import { communityPrivatePractice, requirePrivateStudy } from "./community-private-practice.ts";
+import { communityPrivatePractice, requirePrivateKaraoke, requirePrivateStudy } from "./community-private-practice.ts";
 import { privatePracticeAllows } from "./community-private-practice-profile.ts";
 import { studyV5PrivateHttp } from "./study-v5-http.ts";
 import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
@@ -169,6 +171,8 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
   DANCE_PRODUCTION_INPUTS?: DanceProductionRuntimeInputs;
   COMMUNITY_DEPLOYMENT_PROFILE_JSON?: string;
   COMMUNITY_PRIVATE_PRACTICE_PROFILE_JSON?: string;
+  PRIVATE_DANCE_POLICY_JSON?: string;
+  PRIVATE_DANCE_RENDERER?: Pick<Fetcher,"fetch">;
   NATIVE_APPLICATION_ORIGINAL_JSON?: string;
   NATIVE_READBACK_KEY?: string;
 }
@@ -215,6 +219,14 @@ export function communityPrivateDanceDefaults(env: CommunityEnv) {
     return factory(config);
   };
 }
+/** Server-only initialization and rendering use the same original deployment and
+ * canonical readers as the Worker. No HTTP route exposes this factory. */
+export function web2PrivateDanceHostPorts(env:CommunityEnv) {
+  const ports = dependencies(env);
+  insist(ports.deployment && isWeb2Deployment(ports.deployment) && ports.publicReads &&
+    ports.freshConfiguration && ports.privateDance, "dance_private_runtime_unavailable",503);
+  return { reads:ports.publicReads, current:ports.freshConfiguration, runtime:ports.privateDance };
+}
 function deploymentProfile(env:CommunityEnv) {
   return env.COMMUNITY_DEPLOYMENT_PROFILE_JSON ? readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON) : firstSong;
 }
@@ -245,21 +257,27 @@ function dependencies(
   };
   let history:Promise<CommunityConfig[]>|undefined;
   const configurationHistory=()=>history??=timing.measure("configuration",readHistory);
-  return {
-    deployment,
-    freshConfiguration:async()=> (await readHistory()).at(-1)!,
-    privateDance: isWeb2Deployment(deployment) ? undefined : communityPrivateDanceDefaults(env),
-    async configuration() {
-      return (await configurationHistory()).at(-1)!;
-    },
-    publicReads: {
+  const publicReads: PublicReadPorts = {
       client,
       transport,
       profile: publicPostsProfile(deployment),
       contentCache: publicIpfsCache(env.MEDIA),
       configurationHistory,
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
+    };
+  const freshConfiguration = async () => (await readHistory()).at(-1)!;
+  return {
+    deployment,
+    freshConfiguration,
+    privateDance: isWeb2Deployment(deployment)
+      ? privatePractice?.activities.dance
+        ? config => selectedWeb2Dance(env, config, publicReads, freshConfiguration)
+        : undefined
+      : communityPrivateDanceDefaults(env),
+    async configuration() {
+      return (await configurationHistory()).at(-1)!;
     },
+    publicReads,
     async verifyLogin(address, proof, signature) {
       const client = megaethReadClient(undefined,deployment.rpcUrl);
       insist((await client.getChainId()) === deployment.directoryProfile.chainId, "wrong_moss_network", 503);
@@ -288,7 +306,7 @@ function dependencies(
     },
   };
 }
-function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
+function headers(env: Pick<CommunityEnv, "KARAOKE_OPERATOR_ORIGIN" | "PRIVATE_DANCE_RENDERER">) {
   // The learner's Karaoke socket connects to the operator's origin.
   let operatorSocket = "";
   try {
@@ -307,7 +325,7 @@ function headers(env: Pick<KaraokeEnv, "KARAOKE_OPERATOR_ORIGIN">) {
     "x-frame-options": "DENY",
     "permissions-policy":
       'publickey-credentials-create=(self "https://account.megaeth.com"), publickey-credentials-get=(self "https://account.megaeth.com")',
-    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com${operatorSocket}; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
+    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'${env.PRIVATE_DANCE_RENDERER ? " blob:" : ""} https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com${operatorSocket}; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
   });
 }
 export async function communityFetch(request:Request,env:CommunityEnv,provided?:CommunityDependencies):Promise<Response>{
@@ -360,10 +378,20 @@ async function communityFetchBusiness(
   try {
     insist(url.origin === deployment.origin, "wrong_community_host", 403);
     insist(!web2 || !web2ExcludedPath(url.pathname) || privatePracticeAllows(privatePractice,url.pathname), "feature_unavailable", 404);
-    // This release joins private Study only. Explicit selection cannot route
-    // unfinished private Karaoke/Dance into their historical public handlers.
-    if(web2 && privatePracticeAllows(privatePractice,url.pathname) &&
-      !["/api/study","/study"].some(prefix=>url.pathname===prefix || url.pathname.startsWith(prefix+"/")))
+    const privateDancePath = ["/api/media","/api/dance"].some(prefix =>
+      url.pathname === prefix || url.pathname.startsWith(prefix+"/"));
+    const privateKaraokeRoute = web2 && (
+      url.pathname.startsWith("/api/karaoke/") ||
+      /^\/api\/public\/posts\/0x[0-9a-f]{64}\/karaoke$/.test(url.pathname)
+    );
+    if (privateKaraokeRoute)
+      insist(
+        ["/api/karaoke/attempt", "/api/karaoke/tickets", "/api/karaoke/history"].includes(url.pathname) ||
+          /^\/api\/(?:public\/posts\/0x[0-9a-f]{64}\/karaoke|karaoke\/posts\/0x[0-9a-f]{64}\/instrumental)$/.test(url.pathname),
+        "feature_unavailable", 404,
+      );
+    if(web2 && !privateDancePath && privatePracticeAllows(privatePractice,url.pathname) && !privateKaraokeRoute &&
+      !["/api/study","/study","/karaoke"].some(prefix=>url.pathname===prefix || url.pathname.startsWith(prefix+"/")))
       insist(false,"private_activity_runtime_unavailable",503);
     const policy = !web2 && learningPolicyPage(
       url.pathname,
@@ -405,7 +433,8 @@ async function communityFetchBusiness(
         url.pathname.startsWith("/api/media/") ||
         url.pathname.startsWith("/api/dance/"))
     ) {
-      const runtime = await ports.privateDance(await configuration());
+      const runtime = await ports.privateDance(await configuration(web2));
+      if(web2) insist(privatePractice?.activities.dance && runtime.privateV2, "dance_private_runtime_unavailable",503);
       const response = await runtime.fetch(request, context, security);
       if (response) return response;
     }
@@ -799,7 +828,21 @@ async function communityFetchBusiness(
         try { requirePrivateStudy(env,config,privatePractice); privateStudy=true; }
         catch { /* A selected but unavailable runtime never falls back to V4. */ }
       }
+      let privateDance = false;
+      if (web2 && privatePractice?.activities.dance && ports.privateDance) {
+        try { privateDance = !!(await ports.privateDance(config)).privateV2; }
+        catch { /* Missing host/policy keeps camera capture unavailable. */ }
+      }
+      let privateKaraoke = false;
+      if (web2 && privatePractice?.activities.karaoke) {
+        try { requirePrivateKaraoke(env, config, privatePractice); privateKaraoke = true; }
+        catch { /* A selected but unavailable runtime stays disabled. */ }
+      }
       const capabilities: CommunityCapabilities = {
+        ...(privateDance ? {dance:{version:"pirate.dance-capability/2" as const,communityId:config.communityId,
+          captureProfile:"private-v2" as const,media:{version:"pirate.community-media/1" as const,purpose:"private-review" as const,
+          policyVersion:"pirate.dance-private/1" as const,maximumBytes:MAX_MEDIA_BYTES}}} : {}),
+        ...(privateKaraoke ? { karaokeRuntime: "private-v5" as const } : {}),
         ...(web2 ? {membership: false} : {}),
         ...(!web2 && env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
         study: web2 ? privateStudy : studyAvailable(env, config),
@@ -872,6 +915,36 @@ async function communityFetchBusiness(
       reads: publicReads,
       now: ports.now,
     };
+    const selectedOperator = env.KARAOKE_OPERATOR;
+    const selectedKaraokeConfig = () => [
+      env.KARAOKE_OPERATOR_ORIGIN ?? null, env.KARAOKE_OPERATOR_ADDRESS ?? null,
+      env.KARAOKE_COMMUNITY_ADDRESS ?? null, env.KARAOKE_PAYMENT_CHAIN_ID ?? null,
+      env.KARAOKE_PAYMENT_TOKEN ?? null, env.KARAOKE_SIGNATURE_CHAIN_ID ?? null,
+      env.KARAOKE_RPC_URL ?? null,
+    ];
+    const capturedKaraokeConfig = privateKaraokeRoute ? canonical(selectedKaraokeConfig()) : null;
+    const selectedSigner = env.KARAOKE_SIGNER_PRIVATE_KEY;
+    const selectedBudget = env.SPEECH_BUDGET;
+    let karaokeAdmissionLost = false;
+    const currentPrivateKaraoke = () => {
+      if (canonical(communityPrivatePractice(env, deployment)) !== canonical(privatePractice) ||
+          canonical(selectedKaraokeConfig()) !== capturedKaraokeConfig ||
+          env.KARAOKE_OPERATOR !== selectedOperator || env.KARAOKE_SIGNER_PRIVATE_KEY !== selectedSigner ||
+          env.SPEECH_BUDGET !== selectedBudget)
+        karaokeAdmissionLost = true;
+      insist(!karaokeAdmissionLost, "private_karaoke_runtime_changed", 409);
+      return requirePrivateKaraoke(env, config, privatePractice);
+    };
+    if (privateKaraokeRoute) currentPrivateKaraoke();
+    const ownedKaraoke = (owner: ReturnType<typeof withKaraokeRequestSession>, session: Parameters<typeof withKaraokeRequestSession>[3]) =>
+      privateKaraokeRoute ? {
+        ...owner,
+        privatePractice: { profileHash: currentPrivateKaraoke(), async check() {
+          currentPrivateKaraoke();
+          await owner.requestSession.check(session);
+          currentPrivateKaraoke();
+        }},
+      } : owner;
     const timed = /^\/api\/public\/posts\/(0x[0-9a-f]{64})\/karaoke$/.exec(
       url.pathname,
     );
@@ -881,9 +954,17 @@ async function communityFetchBusiness(
         "method_not_allowed",
         405,
       );
-      return reply(
-        await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex),
-      );
+      if (privateKaraokeRoute) {
+        const session = await accountSession(request, env.DB, context);
+        const owner = withKaraokeRequestSession(karaokePorts, request, context, session);
+        await owner.requestSession.check(session);
+        const manifest = await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex);
+        return owner.requestSession.expose(session, () => {
+          currentPrivateKaraoke();
+          return reply(manifest);
+        });
+      }
+      return reply(await publishedKaraoke(env.DB, config, publicReads, timed[1] as Hex));
     }
     const instrumental =
       /^\/api\/karaoke\/posts\/(0x[0-9a-f]{64})\/instrumental$/.exec(
@@ -895,7 +976,8 @@ async function communityFetchBusiness(
         "method_not_allowed",
         405,
       );
-      await accountSession(request, env.DB, context);
+      const session = await accountSession(request, env.DB, context);
+      if (privateKaraokeRoute) await publishedKaraoke(env.DB, config, publicReads, instrumental[1] as Hex);
       const stem = await instrumentalResponse(
           env.DB,
           env.MEDIA,
@@ -906,6 +988,12 @@ async function communityFetchBusiness(
         stemHeaders = new Headers(stem.headers);
       for (const [name, value] of security)
         if (name !== "cache-control") stemHeaders.set(name, value);
+      if (privateKaraokeRoute) {
+        const current = await accountSession(request, env.DB, context);
+        insist(current.session_hash === session.session_hash && Date.now() < current.expires_at,
+          "karaoke_session_changed", 409);
+        currentPrivateKaraoke();
+      }
       stemHeaders.set("server-timing", timing.header());
       return new Response(stem.body, {
         status: stem.status,
@@ -929,11 +1017,12 @@ async function communityFetchBusiness(
       );
       await requestPorts.requestSession.check(session);
       const view = await karaokeAttempt(
-        requestPorts,
+        ownedKaraoke(requestPorts, session),
         session,
         bytes32(url.searchParams.get("postId")),
       );
       return await requestPorts.requestSession.expose(session, () => {
+        if (privateKaraokeRoute) currentPrivateKaraoke();
         if (view.state === "open")
           insist(
             Math.floor((ports.now ?? Date.now)() / 1000) <
@@ -1010,8 +1099,15 @@ async function communityFetchBusiness(
           "study_account_changed",
           409,
         );
-      if (url.pathname === "/api/karaoke/history")
-        return reply(await karaokeHistory(karaokePorts, session, body));
+      if (url.pathname === "/api/karaoke/history") {
+        if (!privateKaraokeRoute) return reply(await karaokeHistory(karaokePorts, session, body));
+        const owner = withKaraokeRequestSession(karaokePorts, request, context, session);
+        const history = await karaokeHistory(ownedKaraoke(owner, session), session, body);
+        return owner.requestSession.expose(session, () => {
+          currentPrivateKaraoke();
+          return reply(history);
+        });
+      }
       if (url.pathname === "/api/karaoke/enrollments")
         return reply(await karaokeEnrollments(karaokePorts, session));
       if (url.pathname === "/api/karaoke/enrollment/revoke")
@@ -1089,12 +1185,13 @@ async function communityFetchBusiness(
         );
         await requestPorts.requestSession.check(session);
         const issued = await karaokeTicket(
-          requestPorts,
+          ownedKaraoke(requestPorts, session),
           session,
           body,
           endStudyLessons,
         );
         return await requestPorts.requestSession.expose(session, () => {
+          if (privateKaraokeRoute) currentPrivateKaraoke();
           insist(
             Math.floor((ports.now ?? Date.now)() / 1000) <
               issued.ticket.body.expiresAt,
@@ -1181,6 +1278,11 @@ export async function communityScheduled(
     await recoverCommunityJobs(env.DB, env.JOBS);
     await deleteExpiredStudyHistory(env.DB,config.communityId,ports.now);
     const privatePractice=communityPrivatePractice(env,deployment);
+    if (privatePractice?.activities.dance) {
+      const runtime = await ports.privateDance?.(config);
+      insist(runtime?.privateV2 && runtime.communityId===config.communityId, "dance_private_runtime_unavailable",503);
+      await runtime.tick();
+    }
     if(privatePractice?.activities.study) {
       requirePrivateStudy(env,config,privatePractice);
       await recoverStudyLessons({env,db:env.DB,config,reads:ports.publicReads ?? {
@@ -1331,7 +1433,11 @@ export async function communityQueue(
         publication = undefined;
       }
       if (job.kind === "community-media/1") {
-        insist(!isWeb2Deployment(deployment), "feature_unavailable", 503);
+        if(isWeb2Deployment(deployment)) {
+          insist(communityPrivatePractice(env,deployment)?.activities.dance, "feature_unavailable",503);
+          privateDance = await ports.privateDance?.(config);
+          insist(privateDance?.privateV2, "dance_private_runtime_unavailable",503);
+        }
         privateDance ??= await ports.privateDance?.(config);
         insist(
           privateDance && privateDance.communityId === config.communityId,

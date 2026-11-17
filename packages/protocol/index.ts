@@ -164,6 +164,8 @@ export interface Ticket {
    * V2 and V3 tickets never carry this field, so their bytes are unchanged.
    */
   authorizationId?: Hex;
+  /** Signed scope of a private Karaoke take. Historical tickets omit it. */
+  privateProfileHash?: Hex;
 }
 export interface Summary {
   scoreBps: number;

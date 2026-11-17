@@ -103,6 +103,7 @@ export function privatePracticeAllows(
     (profile.activities.dance &&
       ["/api/dance", "/api/media"].some((p) => within(path, p))) ||
     (profile.activities.karaoke &&
-      ["/api/karaoke", "/karaoke"].some((p) => within(path, p)))
+      (["/api/karaoke", "/karaoke"].some((p) => within(path, p)) ||
+        /^\/api\/public\/posts\/0x[0-9a-f]{64}\/karaoke$/.test(path)))
   );
 }

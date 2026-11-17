@@ -1,3 +1,6 @@
+import { checkKaraokeTicketScope, privateKaraokeScope } from "./karaoke-private-profile.ts";
+import { privateKaraokeLeaseCurrent, readPrivateKaraokeLease } from "./karaoke-socket-session.ts";
+import type { KaraokeRelaySnapshot } from "../packages/karaoke/audio-relay.ts";
 import { prepareRecovery } from "./karaoke-prepare-recovery.ts";
 import type { KaraokePreparation } from "./karaoke-preparation.ts";
 import { recoverLinkedWithdrawals } from "./study-linked-withdrawal-recovery.ts";
@@ -102,6 +105,8 @@ const load = (store: Store, ticketId: string) => {
   return { ticket, manifest, attempt };
 };
 type Status = NonNullable<Attempt["ended"]>["status"];
+// Two 15 s private commit deadlines, with room for seconds rounding.
+const PRIVATE_DRAIN_S = 32;
 /**
  * `endedAt` is when the operator decides; `performanceEndedAt` is when singing
  * stopped, which is the disconnect time if the learner never returned.
@@ -145,6 +150,7 @@ export function settle(store: Store, env: Env, ticketId: string) {
   const now = store.now();
   const nominalEnd = attempt.startedAt + Math.ceil(songEndMs(manifest) / 1000);
   const internal = env.SERVICE_MODE === "internal";
+  const completionGrace = ticket.privateProfileHash ? 15 : INTERNAL_COMPLETION_GRACE_S;
   if (!attempt.ended) {
     const events: [number, Status][] = [];
     if (attempt.disconnectedAt !== null)
@@ -155,7 +161,7 @@ export function settle(store: Store, env: Env, ticketId: string) {
         attempt.disconnectedAt !== null &&
         attempt.disconnectedAt >= nominalEnd);
     events.push([
-      nominalEnd + (internal && completed ? INTERNAL_COMPLETION_GRACE_S : 0),
+      nominalEnd + (internal && completed ? completionGrace : 0),
       completed ? "completed" : "abandoned",
     ]);
     events.push([
@@ -186,10 +192,59 @@ export function settle(store: Store, env: Env, ticketId: string) {
     // never move the public cutoff or extend expiry or the payment deadline.
     if (due) end(attempt, due[0], due[1], internal ? nominalEnd : Infinity);
   }
-  if (attempt.ended && now >= attempt.ended.paymentDeadline)
-    attempt.closing = { block: null };
+  if (attempt.ended && now >= attempt.ended.paymentDeadline) {
+    const relay = ticket.privateProfileHash
+      ? store.get<KaraokeRelaySnapshot>("audioRelay:" + ticketId)
+      : undefined;
+    const unresolved = !!relay && (
+      (relay.lastAudioEndMs ?? 0) > (relay.resolvedThroughMs ?? 0) ||
+      relay.forwardedWords < relay.words.length
+    );
+    const drain = attempt.privateDrain;
+    const holding = !!ticket.privateProfileHash && (
+      drain ? !drain.settled && now < drain.until
+        : unresolved && now < Math.min(ticket.expiresAt, attempt.ended.endedAt + PRIVATE_DRAIN_S)
+    );
+    if (!holding) attempt.closing = { block: null };
+  }
   store.set(`attempt:${ticketId}`, attempt);
   return attempt;
+}
+
+/** Freeze the accepted EOS before waiting for any provider callback. The
+ * inherited nominal/expiry decision, when already recorded, stays authoritative. */
+export function beginPrivateKaraokeDrain(
+  store: Store, env: Env, ticketId: string, generation: number,
+): number | null {
+  const { ticket, manifest } = load(store, ticketId);
+  const attempt = settle(store, env, ticketId);
+  if (!ticket?.privateProfileHash || !manifest || !attempt || attempt.closing ||
+      !attempt.connected || attempt.generation !== generation)
+    return null;
+  if (attempt.privateDrain) return null;
+  const now = store.now();
+  const nominal = attempt.startedAt + Math.ceil(songEndMs(manifest) / 1000);
+  const until = Math.min(ticket.expiresAt, nominal + 50, now + PRIVATE_DRAIN_S);
+  if (until <= now) return null;
+  end(attempt, now, "completed", nominal);
+  attempt.privateDrain = { generation, until, settled: false };
+  store.set("attempt:" + ticketId, attempt);
+  return until;
+}
+
+export function completePrivateKaraokeDrain(
+  store: Store, env: Env, ticketId: string, generation: number,
+): boolean {
+  const { ticket, attempt } = load(store, ticketId);
+  const drain = attempt?.privateDrain;
+  if (!ticket?.privateProfileHash || !attempt || attempt.closing ||
+      !drain || drain.settled || drain.generation !== generation ||
+      attempt.generation !== generation || store.now() >= drain.until)
+    return false;
+  drain.settled = true;
+  store.set("attempt:" + ticketId, attempt);
+  settle(store, env, ticketId);
+  return true;
 }
 
 /** Closes the ticket on chain, reconciles at the closure block, then signs. */
@@ -212,6 +267,8 @@ async function advance(env: Env, store: Store, ticketId: string) {
   if (!attempt?.closing || attempt.finalized) return;
   const { ticket, manifest } = load(store, ticketId);
   if (!ticket || !manifest) return;
+  const scope = privateKaraokeScope(env, store);
+  checkKaraokeTicketScope(ticket, scope);
   if (env.SERVICE_MODE === "internal") {
     const current = store.get<Attempt>(`attempt:${ticketId}`)!;
     const quote = operatorQuote(env);
@@ -239,6 +296,8 @@ async function advance(env: Env, store: Store, ticketId: string) {
         result,
         manifest,
         Number(env.HISTORY_RETENTION_DAYS),
+        scope ? { name: "whisper.cpp-local", model: "base.en-q5_1", modelSha256: scope.modelSha256,
+          timing: "whisper-token-timestamps" } : undefined,
       );
       store.set(`attempt:${ticketId}`, { ...current, finalized: true });
     });
@@ -287,6 +346,12 @@ async function advance(env: Env, store: Store, ticketId: string) {
   });
 }
 export async function tick(env: Env, store: Store) {
+  if (privateKaraokeScope(env, store)) {
+    expireLearnerHistory(store);
+    for (const { key } of store.entries("attempt:"))
+      await advance(env, store, key.slice("attempt:".length));
+    return;
+  }
   if (env.RESULTS_V4_CONTRACT)
     await recoverLinkedWithdrawals(
       store,
@@ -316,6 +381,10 @@ export async function tick(env: Env, store: Store) {
 }
 /** Recovers unresolved nonces first, so closures behind them can execute. */
 export async function recover(env: Env, store: Store) {
+  if (privateKaraokeScope(env, store)) {
+    await tick(env, store);
+    return [];
+  }
   if (env.RESULTS_V4_CONTRACT)
     await recoverLinkedWithdrawals(
       store,
@@ -356,6 +425,9 @@ export async function karaokeRoute(
   ctx: DurableObjectState,
 ): Promise<Response | null> {
   const url = new URL(request.url);
+  const privateScope = privateKaraokeScope(env, store);
+  if (privateScope && !["/history", "/quote", "/prepare", "/attempt-start", "/record", "/result", "/attempt"].includes(url.pathname))
+    return new Response("not_found", { status: 404 });
   if (url.pathname === "/history" && env.SERVICE_MODE === "internal") {
     const { ticketId, proof } = await body<{ ticketId: string; proof: Hex }>(
       request,
@@ -370,6 +442,7 @@ export async function karaokeRoute(
         })),
       "history_not_found",
     );
+    checkKaraokeTicketScope(ticket, privateScope);
     expireLearnerHistory(store);
     const history = store.get<Record<string, unknown>>(`history:${ticketId}`);
     check(history, "history_not_found");
@@ -378,7 +451,7 @@ export async function karaokeRoute(
       diagnostics: learnerHistoryDiagnostics(store, ticketId),
     });
   }
-  const authorization = await authorizationRoute(request, env, store);
+  const authorization = privateScope ? null : await authorizationRoute(request, env, store);
   if (authorization) return authorization;
   if (url.pathname === "/enrollment/list") {
     const { learner } = await body<{ learner: Address }>(request);
@@ -472,19 +545,26 @@ export async function karaokeRoute(
       manifest: KaraokeManifest;
       preparation?: KaraokePreparation;
     }>(request);
-    if (input.preparation)
+    if (input.preparation) {
+      check(!privateScope && input.ticket.body.privateProfileHash === undefined,
+        "private_karaoke_ticket_scope_changed");
       return Response.json(
         await prepareRecovery(env, store, {
           ...input,
           preparation: input.preparation,
         }),
       );
+    }
     const ticket = await verify(
       input.ticket,
       "ticket",
       env.ISSUER,
       signatureChainId(env),
     );
+    checkKaraokeTicketScope(ticket, privateScope);
+    if (privateScope) check(ticket.communityId === env.COMMUNITY_ID &&
+      ticket.community.toLowerCase() === env.COMMUNITY_ADDRESS?.toLowerCase() &&
+      ticket.issuedAt <= store.now(), "private_karaoke_ticket_scope_changed");
     const quote = operatorQuote(env);
     validateManifest(input.manifest, quote.maxSegmentMs);
     check(
@@ -509,8 +589,10 @@ export async function karaokeRoute(
       );
     else if (env.RESULTS_V2_CONTRACT)
       await bindEnrollment(env, store, ticket.ticketId, ticket.participant);
-    store.set(`ticket:${ticket.ticketId}`, input.ticket);
-    store.set(`manifest:${ticket.manifestSha256}`, input.manifest);
+    store.transaction(() => {
+      store.set("ticket:" + ticket.ticketId, input.ticket);
+      store.set("manifest:" + ticket.manifestSha256, input.manifest);
+    });
     return Response.json({ prepared: true });
   }
   if (url.pathname === "/attempt/purchases") {
@@ -547,6 +629,12 @@ export async function karaokeRoute(
     const { ticketId } = await body<{ ticketId: string }>(request);
     const attempt = store.get<Attempt>(`attempt:${ticketId}`);
     check(attempt, "attempt_not_found");
+    if (privateScope) {
+      const { ticket } = load(store, ticketId);
+      check(ticket, "attempt_not_found");
+      checkKaraokeTicketScope(ticket, privateScope);
+      return Response.json({ consented: false, consent: null, publication: { state: "private" } });
+    }
     if (learningResultsFor(env, store, ticketId))
       return Response.json({
         consented: true,
@@ -602,9 +690,18 @@ export async function karaokeRoute(
   }
   if (url.pathname !== "/attempt") return null;
   const ticketId = url.searchParams.get("ticketId") ?? "";
-  await advance(env, store, ticketId);
+  if (!privateScope) await advance(env, store, ticketId);
   const { ticket } = load(store, ticketId);
   check(ticket && ticket.expiresAt > store.now(), "expired_ticket");
+  checkKaraokeTicketScope(ticket, privateScope);
+  const browserLease = privateScope ? readPrivateKaraokeLease(request.headers) : undefined;
+  if (privateScope) check(
+    env.KARAOKE_LOCAL_BROWSER_ORIGIN && env.KARAOKE_LOCAL_INGRESS &&
+      request.headers.get("origin") === env.KARAOKE_LOCAL_BROWSER_ORIGIN &&
+      request.headers.get("x-pirate-local-karaoke-ingress") === env.KARAOKE_LOCAL_INGRESS &&
+      browserLease?.account === ticket.participant.toLowerCase(),
+    "private_karaoke_socket_authority_changed",
+  );
   check(
     await verifyMessage({
       address: ticket.sessionKey,
@@ -613,6 +710,10 @@ export async function karaokeRoute(
     }),
     "wrong_session_key",
   );
+  if (privateScope) {
+    check(await privateKaraokeLeaseCurrent(env, browserLease), "private_karaoke_socket_authority_changed");
+    await advance(env, store, ticketId);
+  }
   // Read after the await: the relay may have handed words over meanwhile.
   const { attempt } = load(store, ticketId);
   check(!attempt?.ended, "attempt_closed");
@@ -636,7 +737,6 @@ export async function karaokeRoute(
   // Only the newest connection is live: older sockets for this ticket close,
   // and their later messages or close events are ignored.
   const generation = (attempt?.generation ?? 0) + 1;
-  for (const old of ctx.getWebSockets(ticketId)) old.close(4409, "superseded");
   const next: Attempt = attempt
     ? { ...attempt, connected: true, disconnectedAt: null, generation }
     : {
@@ -652,11 +752,13 @@ export async function karaokeRoute(
         finalized: false,
         generation,
       };
-  store.set(`attempt:${ticketId}`, next);
-  if (!resumed)
-    store.set(
-      `attemptStart:${ticketId}`,
-      await sign(
+  const retainSocketAttempt = () => {
+    for (const old of ctx.getWebSockets(ticketId)) old.close(4409, "superseded");
+    store.set("attempt:" + ticketId, next);
+  };
+  if (!privateScope) retainSocketAttempt();
+  const start = !resumed
+    ? await sign(
         "attempt_start",
         {
           ticketId: next.ticketId,
@@ -665,10 +767,19 @@ export async function karaokeRoute(
         },
         env.PRIVATE_KEY,
         signatureChainId(env),
-      ),
-    );
+      )
+    : undefined;
+  if (privateScope) {
+    check(await privateKaraokeLeaseCurrent(env, browserLease), "private_karaoke_socket_authority_changed");
+    const current = load(store, ticketId).attempt;
+    check(current?.generation === attempt?.generation && !current?.ended &&
+      store.now() < ticket.expiresAt, "karaoke_socket_generation_changed");
+    if (current) Object.assign(next, current, { connected: true, disconnectedAt: null, generation });
+    retainSocketAttempt();
+  }
+  if (start) store.set("attemptStart:" + ticketId, start);
   const pair = new WebSocketPair();
-  pair[1].serializeAttachment({ ticketId, generation });
+  pair[1].serializeAttachment({ ticketId, generation, ...(browserLease ? { browserLease } : {}) });
   ctx.acceptWebSocket(pair[1], [ticketId]);
   pair[1].send(
     JSON.stringify({
@@ -680,7 +791,7 @@ export async function karaokeRoute(
           ?.lastSequence ?? 0,
       attemptStart: store.get(`attemptStart:${ticketId}`),
       feedback: store.get(`feedback:${ticketId}`) ?? null,
-      consent: consentRequest(
+      consent: privateScope ? undefined : consentRequest(
         env,
         store,
         ticketId,
@@ -711,6 +822,13 @@ export async function onMessage(
   if (store.get<Attempt>(`attempt:${ticketId}`)?.generation !== generation) {
     ws.send(JSON.stringify({ type: "error", code: "stale_connection" }));
     return;
+  }
+  const scope = privateKaraokeScope(env, store);
+  if (scope) {
+    const { ticket } = load(store, ticketId);
+    check(ticket, "attempt_not_found");
+    checkKaraokeTicketScope(ticket, scope);
+    check(frame.type === "finish", "private_karaoke_frame_unavailable");
   }
   if (frame.type === "purchase") {
     await advance(env, store, ticketId);

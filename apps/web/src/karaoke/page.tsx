@@ -93,6 +93,7 @@ export interface KaraokePageProps {
   csrf: string;
   wallet?: KaraokeWallet;
   serviceMode?: "internal";
+  privatePractice?: boolean;
   /** V4: signing in is the publication permission; no enrollment step. */
   signInPermission?: boolean;
   onExit: () => void;
@@ -585,7 +586,7 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
       }
       setNotice(null);
       if (!currentTake) {
-        if (props.serviceMode === "internal" && !props.signInPermission) {
+        if (props.serviceMode === "internal" && !props.privatePractice && !props.signInPermission) {
           const enrollment = await post<
             KaraokeConsentRequest & { active?: boolean; pending?: boolean }
           >("/api/karaoke/enrollment", {}, props.csrf);
@@ -818,11 +819,17 @@ function OwnedKaraokePage(props: KaraokePageProps & { account: string }) {
                 title={props.title}
                 rewardSlot={
                   <>
-                    <KaraokeCompletionStatus
-                      state={finished()?.record.publication?.state ?? null}
-                      onCheck={() => void checkResult()}
-                    />
-                    {props.rewardSlot}
+                    <Show when={props.privatePractice} fallback={
+                      <>
+                        <KaraokeCompletionStatus
+                          state={finished()?.record.publication?.state ?? null}
+                          onCheck={() => void checkResult()}
+                        />
+                        {props.rewardSlot}
+                      </>
+                    }>
+                      <p role="status">Your result is private.</p>
+                    </Show>
                   </>
                 }
                 instrumentalAudioUrl={port.playbackUrl()}

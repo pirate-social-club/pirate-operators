@@ -41,6 +41,9 @@ export class LearningServiceError extends Error {
     this.evidence = evidence ? Object.freeze({ ...evidence }) : undefined;
   }
 }
+function learningAccountChanged(code: unknown): boolean {
+  return code === "study_account_changed" || code === "karaoke_session_changed";
+}
 /** Presentation denial is independent from whether an earlier write committed. */
 export function isLearningAuthorityLoss(error: unknown): boolean {
   const value = error as {
@@ -52,13 +55,13 @@ export function isLearningAuthorityLoss(error: unknown): boolean {
     !!value &&
     (value.status === 401 ||
       value.status === 403 ||
-      value.code === "study_account_changed" ||
+      learningAccountChanged(value.code) ||
       value.evidence?.endpointStatus === 401 ||
       value.evidence?.endpointStatus === 403)
   );
 }
 export function learningAuthorityMessage(error: unknown): string {
-  return (error as { code?: string } | null)?.code === "study_account_changed"
+  return learningAccountChanged((error as { code?: string } | null)?.code)
     ? "You are signed in with a different account. Reload to continue."
     : "Sign in again to continue.";
 }
@@ -172,7 +175,7 @@ export async function learningRequest<T>(
         ? "Sign in to continue."
         : code === "karaoke_authorization_pending"
           ? "Your sign-in is still being confirmed. Try again in a moment."
-          : code === "study_account_changed"
+          : learningAccountChanged(code)
             ? "You are signed in with a different account. Reload to continue."
             : code === "speech_budget_exhausted"
               ? "Speech practice has reached today's community limit."

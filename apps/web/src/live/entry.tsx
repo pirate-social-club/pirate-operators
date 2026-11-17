@@ -1,3 +1,4 @@
+import { PrivateDanceHistory } from "./private-dance-history.tsx";
 import { createSavedStudyHistory } from "../study/saved-history.ts";
 import { createSavedKaraokeHistory } from "../karaoke/saved-history.ts";
 import { createCommunityProfileIntegration } from "../shell/profiles/integration.ts";
@@ -595,6 +596,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         }
       : null;
   });
+  const privateDanceHistoryOwner = createMemo(() => {
+    const auth=session(), communityId=boot()?.communityId, accountId=profileIntegration.ownerAccountId();
+    if (settling() || !auth || !communityId || !accountId ||
+      selectedDanceCapability(capabilities(),communityId)?.captureProfile !== "private-v2") return null;
+    return {communityId,accountId,csrf:auth.csrf};
+  });
   let composerScope = "",
     composerGeneration = "";
   const composerContext = (): CommunityHostContext | null => {
@@ -902,6 +909,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         wallet={mossWallet}
         serviceMode={capabilities()?.learningServiceMode}
         studyRuntime={capabilities()?.studyRuntime}
+        karaokeRuntime={capabilities()?.karaokeRuntime}
         signInPermission={learningPermission()}
         actions={actionOwner}
         historyGeneration={historyGeneration()}
@@ -1003,7 +1011,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           }}
           privateDance={() =>
             session() && !settling()
-              ? props.integrations?.privateDance?.(featureContext())
+              ? props.integrations?.privateDance?.(featureContext()) ?? (
+                  <Show when={privateDanceHistoryOwner()} keyed>{owner=><PrivateDanceHistory owner={owner}/>}</Show>
+                )
               : undefined
           }
         >

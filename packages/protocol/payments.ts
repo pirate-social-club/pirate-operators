@@ -297,6 +297,7 @@ export function rewardScore(
 }
 
 export interface KaraokeResultBody {
+  privateProfileHash?: Hex;
   serviceMode?: "internal";
   attemptId: Hex;
   ticketId: Hex;

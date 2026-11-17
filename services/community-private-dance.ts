@@ -1,3 +1,4 @@
+import { privateDanceHistory } from "./private-dance-history.ts";
 import { createDancePrivateCatalogue, type DancePrivatePolicyV2 } from "./dance-private-catalogue.ts";
 import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
@@ -140,6 +141,9 @@ export class CommunityPrivateDance {
       "media_wrong_community",
       403,
     );
+    if (this.privateV2 && this.source3 && new URL(request.url).pathname === "/api/dance/history") {
+      return privateDanceHistory(request,context,headers,this.db,this.source3,this.current);
+    }
     const dance = await danceCommunityApi(
       request,
       { db: this.db, dance: this.legacyDance ?? undefined, catalogue: this.catalogue, privateV2: this.privateV2 },
@@ -230,10 +234,10 @@ export class CommunityPrivateDance {
  * processor and R2 objects; no V4 placeholder or second recorder pipeline. */
 export function createPrivatePracticeDance(input:{db:D1Database;bucket:R2Bucket;config:CommunityConfig;reads:PublicReadPorts;
   policy:DancePrivatePolicyV2;referenceAccess?:DanceReferenceAccess;renderer:Pick<Fetcher,"fetch">;
-  enqueue(job:PrivateMediaJob):Promise<void>;now?:()=>number}) {
+  enqueue(job:PrivateMediaJob):Promise<void>;now?:()=>number;current?:()=>Promise<void>}) {
   const catalogue=createDancePrivateCatalogue(input);
   const source3=new Source3({db:input.db,communityId:input.config.communityId,privateV2:{current:(actor,capture)=>catalogue.mediaAccess(actor,capture)}});
   return new CommunityPrivateDance({db:input.db,bucket:input.bucket,communityId:input.config.communityId,renderer:input.renderer,
-    privateV2:catalogue,source3,active:actor=>catalogue.active(actor),song:(key,revision)=>catalogue.publishedSong(key,revision),
+    privateV2:catalogue,source3,current:input.current,active:actor=>catalogue.active(actor),song:(key,revision)=>catalogue.publishedSong(key,revision),
     reservation:(actor,intent,song)=>source3.reservation(actor,intent,song),preview:(actor,media)=>source3.preview(actor,media),enqueue:input.enqueue,now:input.now});
 }

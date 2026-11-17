@@ -653,7 +653,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       );
       assert.equal(uploaded.status, 200, await uploaded.clone().text());
       for (const slot of ["instrumental", "vocals"] as const) {
-        const stemAudio = options.stems?.[slot] ?? audio;
+        const stemAudio = options.stems?.[slot]?.slice() ?? audio;
         const reservedStem = await account.write(
           `/api/uploads/${submissionId}/stems/${slot}`,
           "POST",

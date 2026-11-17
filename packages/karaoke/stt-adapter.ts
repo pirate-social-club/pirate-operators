@@ -14,6 +14,13 @@ export interface KaraokeSttCommitAck {
  * the host uses for the watermark/second-gate. Keeping commit metadata off the
  * transport event guarantees it never leaks to clients.
  */
+export type KaraokeLocalFailure = {
+  commitId: string;
+  streamGeneration: string;
+  outcome: "timeout" | "child_unavailable" | "invalid_response" | "invalid_word_time";
+  pcmMs: number;
+};
+
 export interface KaraokeSttAdapterMessage {
   event: KaraokeStreamingSttEvent;
   commit?: KaraokeSttCommitAck | undefined;
@@ -35,6 +42,7 @@ export interface KaraokeStreamingSttAdapter {
      */
     initialSequence: number;
     onMessage: (message: KaraokeSttAdapterMessage) => Promise<void>;
+    onLocalCommitUnmeasured?: (failure: KaraokeLocalFailure) => Promise<void>;
     /**
      * Fired when the provider stream drops unexpectedly (network close/error, or
      * a transient provider error the adapter treats as a drop), NOT on intentional
@@ -56,5 +64,6 @@ export interface KaraokeStreamingSttAdapter {
    * commit is already in flight). Refusal must NOT tear down the stream.
    */
   commit(): Promise<{ commitId: string; streamGeneration: string; frontierMs: number } | null>;
+  discardPendingOnSeek?(): void;
   close(): Promise<void>;
 }

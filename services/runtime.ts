@@ -43,6 +43,14 @@ export interface Env {
   /** Optional trusted service binding. Absent in the ordinary website release. */
   STUDY_TELEGRAM_AUTHORITY?: Fetcher;
   HISTORY_RETENTION_DAYS?: string;
+  STUDY_PRIVATE_V5_PROFILE?: string;
+  SPEECH_ADMISSION_CONFIG?: string;
+  KARAOKE_PRIVATE_PROFILE?: string;
+  KARAOKE_LOCAL_BROWSER_ORIGIN?: string;
+  KARAOKE_LOCAL_INGRESS?: string;
+  KARAOKE_LOCAL_MODEL_SHA256?: string;
+  KARAOKE_LOCAL_TRANSCRIBER?: Fetcher;
+  KARAOKE_LOCAL_SESSION_GATE?: Fetcher;
   OPERATOR_PROFILE?: string;
   APPROVED_ACTIVATION_ACCOUNT?: string;
   ACTIVATION_TOTAL_CAP_WEI?: string;
@@ -92,7 +100,7 @@ export class ServiceState extends DurableObject<Env> {
     this.store = new Store(
       ctx.storage,
       Number(env.INITIAL_NOW ?? 1800000000),
-      isLearningProfile(env),
+      isLearningProfile(env) || env.KARAOKE_PRIVATE_PROFILE !== undefined,
       parseWithdrawalSources(env.STUDY_WITHDRAWAL_SOURCES_JSON),
     );
     ctx.blockConcurrencyWhile(async () => {
@@ -109,9 +117,9 @@ export class ServiceState extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     try {
       const path = new URL(request.url).pathname;
-      if (path.startsWith("/__") && isLearningProfile(this.env))
+      if (path.startsWith("/__") && (isLearningProfile(this.env) || this.env.KARAOKE_PRIVATE_PROFILE !== undefined))
         return new Response("not_found", { status: 404 });
-      if (isLearningProfile(this.env)) await this.schedule();
+      if (isLearningProfile(this.env) || this.env.KARAOKE_PRIVATE_PROFILE !== undefined) await this.schedule();
       if (path === "/__clock") {
         const { now } = await body<{ now: number }>(request);
         check(
