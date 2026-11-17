@@ -1,3 +1,4 @@
+import { PublicationInstallation } from "./publication-installed-selection.ts";
 import { canonical, check } from "../packages/protocol/index.ts";
 import {
   exact,
@@ -28,11 +29,21 @@ import {
 
 export interface PublicationOutbox {
   db: D1Database;
+  installation?: PublicationInstallation;
   catalog: PublicationReleaseCatalog;
   transport: PublicationOperatorTransport;
   nowMs: () => number;
   retryDelayMs: number;
   observationDelayMs: number;
+}
+function mounted(p: PublicationOutbox) {
+  check(
+    p.installation instanceof PublicationInstallation &&
+      p.installation.db === p.db &&
+      p.catalog === p.installation.catalog,
+    "publication_installation_required",
+  );
+  return p.installation;
 }
 const read = (p: PublicationOutbox, r: CommandRow) =>
   ownedCommand(p.db, r.command_id, {
@@ -59,6 +70,8 @@ export async function propagatePublicationFence(
   input: CommandRow,
   mode: "missing-ack" | "replay-witness" = "missing-ack",
 ) {
+  const installation = mounted(p);
+  await installation.check();
   let row = await read(p, input);
   check(
     row.action === "withdraw" &&
@@ -85,6 +98,7 @@ export async function propagatePublicationFence(
       row,
       original.release,
       body,
+      installation,
     ),
   );
   exact(reply, ["commandId", "generation", "requestHash"]);
@@ -95,12 +109,18 @@ export async function propagatePublicationFence(
       (row.fence_ack_json === null || row.fence_ack_json === canonical(reply)),
     "publication_fence_ack_changed",
   );
+  await installation.check();
   row = await read(p, row);
-  return saveFenceAck(p.db, row, {
-    commandId: row.command_id,
-    generation: row.fence_generation!,
-    requestHash: row.request_hash,
-  });
+  return saveFenceAck(
+    p.db,
+    row,
+    {
+      commandId: row.command_id,
+      generation: row.fence_generation!,
+      requestHash: row.request_hash,
+    },
+    installation,
+  );
 }
 /** Queue/reconcile only the exact accepted original. No current grant, active
  * profile, fresh fee, replacement signature, nonce allocation or sender. */
@@ -108,6 +128,8 @@ export async function deliverPublicationOriginal(
   p: PublicationOutbox,
   input: CommandRow,
 ) {
+  const installation = mounted(p);
+  await installation.check();
   let row = await read(p, input);
   if (row.action === "withdraw") row = await propagatePublicationFence(p, row);
   if (row.phase !== "accepted") return row;
@@ -128,12 +150,19 @@ export async function deliverPublicationOriginal(
   );
   const originalOnly = async () => {
     row = await reconcilePublicationOriginal(p, row);
-    await deferPublication(p.db, row, nextTime(p, p.observationDelayMs));
+    await deferPublication(
+      p.db,
+      row,
+      nextTime(p, p.observationDelayMs),
+      installation,
+    );
     return read(p, row);
   };
   if (command.action === "grant") {
     let current = false;
     try {
+      installation.fence("active", original.source.releaseSelectionSha256);
+      await installation.check();
       let context = await publicationGrantQueueContext(p, row, command);
       if (context.kind === "current") {
         if (context.witness) {
@@ -154,12 +183,14 @@ export async function deliverPublicationOriginal(
     }
     if (!current) return originalOnly();
   }
+  await installation.check();
   const receipt = parsePublicationReceipt(
     await p.transport.request(
       "/publication/v1/accept",
       row,
       original.release,
       accepted,
+      installation,
     ),
     command,
   );
@@ -170,8 +201,14 @@ export async function deliverPublicationOriginal(
     row,
     { ...receipt },
     nextTime(p, p.observationDelayMs),
+    installation,
   );
-  await deferPublication(p.db, row, nextTime(p, p.observationDelayMs));
+  await deferPublication(
+    p.db,
+    row,
+    nextTime(p, p.observationDelayMs),
+    installation,
+  );
   return read(p, row);
 }
 /** Original-only endpoint path; an existing operator job is not reaccepted.
@@ -180,6 +217,8 @@ export async function reconcilePublicationOriginal(
   p: PublicationOutbox,
   input: CommandRow,
 ) {
+  const installation = mounted(p);
+  await installation.check();
   const row = await read(p, input),
     original = publicationOriginal(row, p.catalog);
   check(row.phase === "accepted" && row.typed_json, "publication_not_accepted");
@@ -190,6 +229,7 @@ export async function reconcilePublicationOriginal(
       row,
       original.release,
       { commandId: row.command_id },
+      installation,
     ),
     command,
   );
@@ -198,6 +238,7 @@ export async function reconcilePublicationOriginal(
     row,
     { ...receipt },
     nextTime(p, p.observationDelayMs),
+    installation,
   );
 }
 /** Root invokes bounded indexed discovery on restart and every alarm. Queue
@@ -217,6 +258,8 @@ export async function drainPublicationOutbox(
       input.maxDurationMs <= 30000,
     "publication_outbox_bounds_invalid",
   );
+  const installation = mounted(p);
+  await installation.check();
   const started = p.nowMs(),
     page = await publicationDue(
       p.db,
@@ -236,8 +279,14 @@ export async function drainPublicationOutbox(
     } catch {
       failed++;
       // Reread the actual version; an old worker cannot restore its old due.
+      await installation.check();
       const current = await read(p, row);
-      await deferPublication(p.db, current, nextTime(p, p.retryDelayMs));
+      await deferPublication(
+        p.db,
+        current,
+        nextTime(p, p.retryDelayMs),
+        installation,
+      );
     }
     // A fresh bounded scan starts at null next tick. The supplied cursor is
     // useful for a caller's finite snapshot pass, never for hiding old rows.

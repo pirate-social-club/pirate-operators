@@ -44,8 +44,10 @@ recorded command, latest observation, withdrawal generation, authenticated
 rows and database-clock lease in one accepting SQL update. The resulting GET
 projection is observation-only; it does not create an activity-start binding.
 
-Migration 0020 adds the D1 command/outbox journal without backfilling V4 consent
-or activating a profile. Package selection requires the explicit
+Migration 0020 adds the D1 command/outbox journal. Migration 0021 retains the
+canonical release bytes, original controlled transport references and installed
+selection. Neither migration backfills V4 consent or activates a profile.
+Package selection requires the explicit
 `publicationConsent` option, independently of V4 and Rewards. Historical
 package selections retain their existing migration lists. A later profile
 retaining V5 recovery must retain the applied journal. The operator Store remains the sole payer nonce and
@@ -67,16 +69,36 @@ reconciliation route. It does not queue a replacement, allocate a nonce or
 refund unknown work. A missing remote original stays unavailable. Sponsor
 exhaustion rolls back target alignment together with the new job.
 
+The trusted installer captures a signed runtime binding digest, installation,
+origin and monotonically increasing incarnation. An exact retry is idempotent;
+a losing installation cannot add archive records. Retained release bytes and
+transport references cannot be changed or dropped. A running handler captures
+its expected installation and refuses a later selection, even when the active
+release hash returns to an earlier value. It never adopts the newest database
+selection into an old process.
+
+Fresh preparation, first signature acceptance and recorded-head opening compare
+the pinned installation in the same SQL mutation as their other admission
+checks. Background observation, fence acknowledgement and scheduling writes
+also compare the installed incarnation in their accepting SQL. A current mount
+with new publication disabled can reconcile retained originals and propagate
+local stops. An old mount cannot issue requests or postpone that recovery. The
+signed operator transport checks the pinned installation after issuer signing
+and before dispatch; already attempted requests retain their original recovery
+identity. A profile change cannot retract an in-flight remote request.
+
 ## Qualification and remaining integration
 
 The local application checks exercise real loopback HTTP, sessions, CSRF, D1,
 SQLite, typed EOA signatures and issuer signatures. Chain responses and policy
 documents are explicit fixtures. They cover acknowledgement loss, restart,
-reorg contradictions, withdrawal races, session loss and database-clock expiry.
+reorg contradictions, withdrawal races, session loss, database-clock expiry,
+installed-selection races at the accepting SQL, and recovery by a current
+disabled mount.
 They do not qualify deployed contracts, real MOSS signing or live providers.
 
 The services are not yet mounted in the deployed application. Runtime profile
-selection, retained-source transport, restart/alarm composition, actual
+binding, per-source transport composition, restart/alarm scheduling, actual
 Study/Karaoke/Dance starts and producer publication remain integration work.
 Any later sender must check the account fence alongside the learner fence and
 actual activity admission. Recovering an old generation's job grants no send

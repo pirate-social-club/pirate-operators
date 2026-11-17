@@ -112,6 +112,7 @@ export async function appDatabase() {
       }
     };
     const originals = new WeakMap<object, D1PreparedStatement>();
+    const queries = new WeakMap<object, string>();
     const wrap = (
       statement: D1PreparedStatement,
       sql: string,
@@ -142,6 +143,7 @@ export async function appDatabase() {
         },
       });
       originals.set(proxy, statement);
+      queries.set(proxy, sql);
       return proxy;
     };
     const db = new Proxy(native, {
@@ -149,8 +151,12 @@ export async function appDatabase() {
         if (key === "prepare")
           return (sql: string) => wrap(target.prepare(sql), sql);
         if (key === "batch")
-          return (statements: D1PreparedStatement[]) =>
-            target.batch(statements.map((s) => originals.get(s) ?? s));
+          return async (statements: D1PreparedStatement[]) => {
+            // Pause before the real atomic batch, never between its statements.
+            for (const statement of statements)
+              await pause(queries.get(statement) ?? "");
+            return target.batch(statements.map((s) => originals.get(s) ?? s));
+          };
         const value = Reflect.get(target, key, target);
         return typeof value === "function" ? value.bind(target) : value;
       },

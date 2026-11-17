@@ -1,4 +1,6 @@
 import type { Address, Hex } from "viem";
+import type { ConsentSourceV1 } from "../packages/protocol/publication-runtime-v1.ts";
+import { PublicationInstallation } from "./publication-installed-selection.ts";
 import {
   accountSession,
   authenticatedWrite,
@@ -19,6 +21,13 @@ import {
   type PublicationReleaseCatalog,
 } from "./publication-app-selection.ts";
 
+interface PublicationSessionFence {
+  db: D1Database;
+  accountId: string;
+  communityId: Hex;
+  source?: ConsentSourceV1;
+  active?: boolean;
+}
 export interface PublicationOriginalCapture {
   schema: "pirate.publication-app-original/1";
   accountId: string;
@@ -36,18 +45,33 @@ export class PublicationRequestSession {
   readonly db: D1Database;
   readonly context: Readonly<AuthContext>;
   readonly original: Readonly<AccountSession>;
+  readonly installation: PublicationInstallation;
   private constructor(
     request: Request,
     db: D1Database,
     context: Readonly<AuthContext>,
     original: Readonly<AccountSession>,
+    installation: PublicationInstallation,
   ) {
     this.request = request;
     this.db = db;
     this.context = context;
     this.original = original;
+    this.installation = installation;
   }
-  static async open(request: Request, db: D1Database, context: AuthContext) {
+  static async open(
+    request: Request,
+    db: D1Database,
+    context: AuthContext,
+    installation: PublicationInstallation,
+  ) {
+    check(
+      installation instanceof PublicationInstallation &&
+        installation.db === db &&
+        installation.expected.communityId === context.communityId &&
+        installation.expected.origin === context.origin,
+      "publication_installation_required",
+    );
     check(
       request.method === "GET" || request.method === "POST",
       "publication_method_invalid",
@@ -82,6 +106,7 @@ export class PublicationRequestSession {
       db,
       capturedContext,
       Object.freeze({ ...original }),
+      installation,
     );
     await result.check();
     return result;
@@ -102,6 +127,19 @@ export class PublicationRequestSession {
         Number.isSafeInteger(s.expires_at) &&
         Date.now() < s.expires_at,
       "publication_session_changed",
+    );
+    const live = this.observationFence({
+      db: this.db,
+      accountId: o.account_id,
+      communityId: this.context.communityId,
+    });
+    const current = await this.db
+      .prepare(`SELECT 1 AS allowed WHERE (${live.sql})`)
+      .bind(...live.values)
+      .first<{ allowed: number }>();
+    check(
+      current?.allowed === 1 && Date.now() < o.expires_at,
+      "publication_installation_or_session_changed",
     );
   }
   capture(
@@ -138,11 +176,7 @@ export class PublicationRequestSession {
   }
   /** Actual auth rows and DB clock in the same mutation, never a durable
    * cookie/CSRF capability or an asynchronous allow callback. */
-  mutationFence(input: {
-    db: D1Database;
-    accountId: string;
-    communityId: Hex;
-  }) {
+  mutationFence(input: PublicationSessionFence) {
     check(
       this.request.method === "POST",
       "publication_request_context_changed",
@@ -151,11 +185,7 @@ export class PublicationRequestSession {
   }
   /** Completes an already signed, canonically recorded original during an
    * authenticated observation. GET never authorizes new wallet consent. */
-  observationFence(input: {
-    db: D1Database;
-    accountId: string;
-    communityId: Hex;
-  }) {
+  observationFence(input: PublicationSessionFence) {
     const o = this.original;
     check(
       input.db === this.db &&
@@ -163,6 +193,21 @@ export class PublicationRequestSession {
         input.communityId === this.context.communityId,
       "publication_request_context_changed",
     );
+    check(
+      this.installation.db === this.db,
+      "publication_installation_required",
+    );
+    if (input.source)
+      check(
+        input.source.communityId === input.communityId,
+        "publication_installation_community_changed",
+      );
+    const installed = input.source
+      ? this.installation.fence(
+          input.active ? "active" : "retained",
+          input.source.releaseSelectionSha256,
+        )
+      : this.installation.mountFence();
     return {
       sql: `EXISTS(SELECT 1 FROM community_sessions s
       JOIN community_accounts a ON a.account_id=s.account_id
@@ -170,7 +215,7 @@ export class PublicationRequestSession {
       WHERE s.session_hash=? AND s.account_id=? AND s.binding_id=? AND s.community_id=?
       AND s.community_origin=? AND s.csrf_token=? AND s.expires_at=?
       AND s.expires_at>CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)
-      AND a.author_id=? AND lower(b.subject)=?)`,
+      AND a.author_id=? AND lower(b.subject)=?) AND (${installed.sql})`,
       values: [
         o.session_hash,
         o.account_id,
@@ -181,6 +226,7 @@ export class PublicationRequestSession {
         o.expires_at,
         o.author_id,
         o.wallet.toLowerCase(),
+        ...installed.values,
       ],
     };
   }

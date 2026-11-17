@@ -304,7 +304,7 @@ test(
       const short = structuredClone(f.authority.release);
       short.grantDurationSeconds = "30";
       short.submitWindowSeconds = "30";
-      f.replaceActive(short);
+      await f.replaceActive(short);
       f.advance(1n);
       f.authority.advanceSafe(f.now());
       const second = await f.prepare("short-grant");

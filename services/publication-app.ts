@@ -368,7 +368,16 @@ async function publicationApplicationRoute(
   const url = new URL(request.url);
   if (!url.pathname.startsWith(prefix)) return null;
   const route = url.pathname.slice(prefix.length);
-  const session = await PublicationRequestSession.open(request, p.db, context);
+  check(
+    p.installation && p.catalog === p.installation.catalog,
+    "publication_installation_required",
+  );
+  const session = await PublicationRequestSession.open(
+    request,
+    p.db,
+    context,
+    p.installation,
+  );
   if (route === "capabilities") {
     check(request.method === "GET" && !url.search, "publication_route_invalid");
     const active = p.catalog.active ? p.catalog.get(p.catalog.active) : null;
@@ -441,7 +450,8 @@ export async function publicationApplicationFetch(
             ? 404
             : code === "publication_source_ambiguous"
               ? 409
-              : code === "publication_observation_pending"
+              : /publication_installation/.test(code) ||
+                  code === "publication_observation_pending"
                 ? 503
                 : /source|chain|anchor|runtime|directory|descriptor|unavailable|missing|timeout|document/.test(
                       code,
