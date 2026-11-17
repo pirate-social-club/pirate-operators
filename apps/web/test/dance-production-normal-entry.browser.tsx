@@ -37,6 +37,7 @@ export async function runDanceProductionNormalEntryBrowserCase(host: HTMLElement
     if (options.resumeExisting) {
       const retainedJourney = await createBrowserDanceJourneyStore().read(scope, () => {});
       ensure(retainedJourney.capture, "Reload must retain the same capture receipt");
+      ensure(retainedJourney.capture.version === "pirate.dance/1", "Retained legacy fixture must remain V1");
       c = retainedJourney.capture;
       review = reviewFixture(c);
       review.receipt.mediaId = "22222222-2222-4222-8222-222222222222";

@@ -376,6 +376,10 @@ export function DanceReviewPage(props: {
     props.localPreview !== failedLocalPreview()
       ? props.localPreview
       : undefined;
+  const privatePractice = () => {
+    const result=ready()?.result;
+    return result?.kind === "local_recording" && result.capture.version === "pirate.dance/2" && result.capture.publication.kind === "private";
+  };
   const editable = () => !!ready() && !expired() && danceReviewEditable(ready()!.result);
   const fullMedia = () => editable() && (ready()!.result.kind === "local_recording" || !!preview());
   async function togglePlayback() {
@@ -464,7 +468,8 @@ export function DanceReviewPage(props: {
       <footer class="relative z-20 mt-auto flex flex-col gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
         <Show when={notice()}><p role="status" class="rounded-xl bg-background/95 p-3 text-sm">{notice()}</p></Show>
         <Show when={ready()}>{(view) => <>
-          <Show when={!expired() && view().result.state === "uploaded" && postingAllowed()}>
+          <Show when={privatePractice()}><p class="text-sm">Saved privately</p></Show>
+          <Show when={!expired() && view().result.state === "uploaded" && postingAllowed() && !privatePractice()}>
             <Button class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => void act("submit")}>{busy() ? "Submitting…" : "Submit for review"}</Button>
           </Show>
           <Show when={!expired() && snapshot().matches({ review: "error" })}><Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(true)}>Resume submission</Button></Show>
@@ -472,8 +477,8 @@ export function DanceReviewPage(props: {
           <Show when={view().result.kind === "review" && danceReviewEditable(view().result)}>
             <Button variant="secondary" class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => setConfirmCancel(true)}>Cancel review</Button>
           </Show>
-          <Show when={!postingAllowed() && view().result.state === "uploaded"}><p class="text-sm">Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
-          <Show when={expired() || view().result.state !== "uploaded"}><Button class="h-12 w-full rounded-xl" variant="secondary" onClick={provided.onBack}>Done</Button></Show>
+          <Show when={!postingAllowed() && view().result.state === "uploaded" && !privatePractice()}><p class="text-sm">Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
+          <Show when={expired() || view().result.state !== "uploaded" || privatePractice()}><Button class="h-12 w-full rounded-xl" variant="secondary" onClick={provided.onBack}>Done</Button></Show>
         </>}</Show>
       </footer>
       <Modal open={confirmCancel()} onOpenChange={setConfirmCancel}>

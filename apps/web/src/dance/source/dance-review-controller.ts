@@ -326,6 +326,11 @@ export function createDanceReviewController(
             !entry.capture
           )
             throw Error("dance_review_closed");
+          if (
+            entry.capture.version === "pirate.dance/2" &&
+            entry.capture.publication.kind === "private"
+          )
+            throw Error("dance_private_recording_not_public");
           const client = requireCommandPorts(options);
           // The retained/read/access awaits above may outlive the phone view.
           // Once created, this immutable command must still settle/recover.

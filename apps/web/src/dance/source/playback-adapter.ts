@@ -1,6 +1,7 @@
+import type { DanceCapture } from "../capture.ts";
 import { prepareBufferedGuide } from "./platform/buffered-guide.ts";
 import { danceRecordingDigest } from "./dance-recording.ts";
-import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
+
 import type { DancePlaybackPort } from "./ports.ts";
 import { producerDigest } from "./digests.ts";
 export type DanceSongGuideGrant = import("../../../../../packages/dance/production.ts").DanceGuideGrant;

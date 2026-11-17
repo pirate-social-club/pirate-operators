@@ -1,6 +1,7 @@
+import type { DanceCapture } from "../capture.ts";
 // Adapted from c7 dance-preparation-controller: original prepare/start/reconcile
 // and closeTerminal ownership, with V5's combined reservation/consent boundary.
-import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
+
 import { DanceClientError, privateAccessLost } from "../client.ts";
 import {
   assertCapture,

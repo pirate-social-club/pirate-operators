@@ -1,7 +1,5 @@
-import type {
-  DanceCapture,
-  DanceConsentPolicy,
-} from "../../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "../capture.ts";
+import type { DanceConsentPolicy } from "../../../../../packages/dance/contracts.ts";
 /** UI projection of the ACTUAL V5 capture, not a second central session API.
  * Zero no-pose cue is the explicit V5 policy; IDs and times are never invented. */
 export interface DanceSession {

@@ -1,8 +1,5 @@
-import type {
-  DanceCapture,
-  DanceConsentPolicy,
-  DanceReview,
-} from "../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "./capture.ts";
+import type { DanceConsentPolicy, DanceReview } from "../../../../packages/dance/contracts.ts";
 import type { DanceClient } from "./client.ts";
 import { privateAccessLost } from "./client.ts";
 import type { DanceTake } from "./media-port.ts";

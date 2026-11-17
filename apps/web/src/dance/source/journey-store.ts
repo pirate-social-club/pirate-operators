@@ -1,4 +1,5 @@
-import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "../capture.ts";
+
 import type { MediaStatus } from "../../../../../packages/community-media/contracts.ts";
 import { danceTargetKey, type DanceScope } from "./ports.ts";
 import {

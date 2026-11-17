@@ -20,6 +20,7 @@ export function createProductionDanceProducer(input: {
   session: DanceSessionProducer;
   maximumBytes: number;
   fetcher?: typeof fetch;
+  profile?: "private-v2";
 }) {
   const owner = createProductionDanceAccount({ session: input.session, fetcher: input.fetcher });
   const api = createProductionDanceApi({ owner, fetcher: input.fetcher });
@@ -63,6 +64,10 @@ export function createProductionDanceProducer(input: {
     const result = createDanceSourceServices({
       account: scope, target: scope, current: currentScope, consent,
       csrf: owner.currentOwner()!.csrf, fetcher: send,
+      captureProfile: input.profile === "private-v2" ? {version:"pirate.dance-capture-request/2",
+        target:{communityId:scope.communityId,songKey:scope.songKey,songRevision:scope.songRevision,audioSha256:scope.audioSha256,
+          reference:scope.reference?{id:scope.reference.id,revision:scope.reference.revision}:null,offerId:scope.offerId},
+        publication:{kind:"private"}} : undefined,
       media: createDancePrivateMediaPort({ scope, currentScope,
         csrf: () => owner.currentOwner()?.csrf ?? "", maximumBytes: input.maximumBytes, fetcher: send }),
       playback: sourcePlayback,
@@ -169,6 +174,7 @@ export function DanceProductionMount(props: {
   communityId: string;
   route: DanceProductionRoute | null;
   maximumBytes: number;
+  profile?: "private-v2";
   onBack(): void;
   onSignIn(): void;
   onReview(review: DanceReview): void;
@@ -181,10 +187,10 @@ export function DanceProductionMount(props: {
     // Read every owner-lifetime signal before freezing the route owner.
     return { route: { ...route }, communityId: props.communityId, sessionKey: session ?
       JSON.stringify([session.generation, session.csrf, session.authorId]) : "anonymous",
-      maximumBytes: props.maximumBytes };
+      maximumBytes: props.maximumBytes, profile:props.profile };
   });
   return <Show when={snapshot()} keyed>{owner => {
-    const producer = createProductionDanceProducer({ session: props.session, maximumBytes: owner.maximumBytes });
+    const producer = createProductionDanceProducer({ session: props.session, maximumBytes: owner.maximumBytes, profile: owner.profile });
     onCleanup(producer.dispose);
     return <DanceProductionPage producer={producer} communityId={owner.communityId} route={owner.route}
       onBack={props.onBack} onSignIn={props.onSignIn} onReview={props.onReview}

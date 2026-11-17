@@ -1,5 +1,6 @@
+import { parseDanceCaptureV2 } from "../../../../../packages/dance/capture-v2.ts";
+import type { DanceCapture } from "../capture.ts";
 import type {
-  DanceCapture,
   DanceConsentPolicy,
   DanceReview,
 } from "../../../../../packages/dance/contracts.ts";
@@ -64,10 +65,11 @@ export const danceTargetKey = (s: DanceTarget & { accountId: string }) =>
 export const danceScopeKey = (s: DanceScope) =>
   JSON.stringify([danceTargetKey(s), s.sessionKey]);
 export function assertCapture(c: DanceCapture, s: DanceCaptureTarget) {
+  if (c.version === "pirate.dance/2") parseDanceCaptureV2(c);
   producerDigest(c.audioSha256);
   const durationMs = c.durationSamples / 48;
   if (
-    c.version !== "pirate.dance/1" ||
+    (c.version !== "pirate.dance/1" && c.version !== "pirate.dance/2") ||
     c.communityId !== s.communityId ||
     c.learner.accountId !== s.accountId ||
     c.songKey !== s.songKey ||
