@@ -57,7 +57,11 @@ export async function nativeKaraokeSessionRow(db: D1Database, context: AuthConte
  * native application or operator disk. The retained ticket is a separate object. */
 export class NativeKaraokeLeaseRegistry implements NativeKaraokeLeaseStub {
   private readonly entries = new Map<string, { selected: NativeKaraokeLeaseCapture; lease: PrivateKaraokeLease }>();
-  constructor(private readonly read: (hash: string) => ReturnType<typeof nativeKaraokeSessionRow>) {}
+  private readonly read: (hash: string) => ReturnType<typeof nativeKaraokeSessionRow>;
+
+  constructor(read: (hash: string) => ReturnType<typeof nativeKaraokeSessionRow>) {
+    this.read = read;
+  }
   async capture(value: NativeKaraokeLeaseCapture) {
     const selected = Object.freeze({ sessionHash: value.sessionHash, fingerprint: value.fingerprint });
     if (!/^0x[a-f0-9]{64}$/.test(selected.sessionHash) || !/^0x[a-f0-9]{64}$/.test(selected.fingerprint)) return null;
