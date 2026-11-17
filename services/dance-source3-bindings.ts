@@ -1,3 +1,4 @@
+import { parseDanceCaptureV2, type PrivateCaptureV2, type StoredDanceCapture } from "../packages/dance/capture-v2.ts";
 import { bytes32, canonical, exact, hashText, insist, object } from "../packages/community/common.ts";
 import type {
   MediaActor, MediaIntent, MediaRecord, PublishedMediaSong,
@@ -92,16 +93,19 @@ export function source3ReservationFence(fences: DanceFence[]): MediaReservationF
 export class DanceSource3Bindings {
   readonly store: DanceStore;
   readonly communityId: string;
-  readonly sourceHash: string;
-  readonly ports: Omit<DancePorts, "media">;
+  readonly sourceHash: string | null;
+  readonly ports: Omit<DancePorts, "media"> | null;
+  readonly privateV2?: { current(actor: MediaActor, capture: PrivateCaptureV2): Promise<readonly DanceFence[]> };
   constructor(input: {
-    db: D1Database; communityId: string; sourceHash: string;
-    dance: Omit<DancePorts, "media">;
+    db: D1Database; communityId: string; sourceHash?: string;
+    dance?: Omit<DancePorts, "media">;
+    privateV2?: DanceSource3Bindings["privateV2"];
   }) {
     this.store = new DanceStore(input.db);
     this.communityId = input.communityId;
-    this.sourceHash = bytes32(input.sourceHash);
-    this.ports = Object.freeze({ ...input.dance });
+    this.sourceHash = input.sourceHash ? bytes32(input.sourceHash) : null;
+    this.ports = input.dance ? Object.freeze({ ...input.dance }) : null;
+    this.privateV2 = input.privateV2;
   }
   private async original(actor: MediaActor, requestId: string) {
     const row = await this.store.db.prepare(`SELECT capture_id,capture_hash,intent_json
@@ -114,7 +118,7 @@ export class DanceSource3Bindings {
       intent_json: row.intent_json,
     };
   }
-  private async access(actor: MediaActor, id: string, expectedHash: string) {
+  private async access(actor: MediaActor, id: string, expectedHash: string, reservation = true) {
     actor = structuredClone(actor);
     const row = await this.store.db.prepare(`SELECT c.capture_json,s.consent_json
       FROM dance_captures c JOIN dance_consents s ON s.capture_id=c.capture_id
@@ -122,10 +126,27 @@ export class DanceSource3Bindings {
       .bind(danceId(id), this.communityId, danceId(actor.accountId))
       .first<{ capture_json: string; consent_json: string }>();
     insist(row, "dance_source3_capture_missing", 403);
-    const capture: DanceCapture = {
-      ...JSON.parse(row.capture_json), consent: JSON.parse(row.consent_json),
-    };
+    const stored = { ...JSON.parse(row.capture_json), consent: JSON.parse(row.consent_json) };
+    if (stored.version === "pirate.dance/2") {
+      const capture = parseDanceCaptureV2(stored);
+      insist(capture.publication.kind === "private" && this.privateV2,
+        "dance_source3_v2_admission_unavailable", 503);
+      insist(capture.captureId === id && capture.communityId === this.communityId &&
+        capture.learner.accountId === actor.accountId && capture.captureHash === bytes32(expectedHash),
+        "dance_source3_capture_changed", 409);
+      const privateCapture = capture as PrivateCaptureV2;
+      const fences = [...await this.privateV2.current(actor, privateCapture), {
+        sql: `EXISTS(SELECT 1 FROM dance_captures c JOIN dance_consents s ON s.capture_id=c.capture_id
+          WHERE c.capture_id=? AND c.community_id=? AND c.account_id=? AND c.capture_json=? AND s.consent_json=?` +
+          (reservation ? ` AND json_extract(c.capture_json,'$.expiresAtMs')>${DANCE_DB_NOW})` : ")"),
+        values: [id, this.communityId, actor.accountId, row.capture_json, row.consent_json],
+      }];
+      insist(fences.length > 1, "dance_source3_v2_admission_unavailable", 503);
+      return { capture: privateCapture, fences };
+    }
+    const capture: DanceCapture = stored;
     validateCapture(capture);
+    insist(this.ports && this.sourceHash, "dance_source3_legacy_admission_unavailable", 503);
     insist(capture.captureId === id && capture.communityId === this.communityId &&
       capture.learner.accountId === actor.accountId && capture.captureHash === bytes32(expectedHash) &&
       capture.source.sourceHash === this.sourceHash,
@@ -153,7 +174,7 @@ export class DanceSource3Bindings {
   private assert(fences: DanceFence[]) {
     return this.store.assert(fences.map(f => compactDanceFence([f])));
   }
-  private matches(c: DanceCapture, intent: MediaIntent, song?: PublishedMediaSong) {
+  private matches(c: StoredDanceCapture, intent: MediaIntent, song?: PublishedMediaSong) {
     // Retain the exact permitted original envelope; reject surplus URL/session
     // or secret fields rather than persisting or silently stripping them.
     exact(object(intent), ["requestId", "songKey", "songRevision", "recordingSha256", "bytes",
@@ -217,7 +238,7 @@ export class DanceSource3Bindings {
       !media.erasePending, "dance_source3_preview_denied", 403);
     const original = await this.original(actor, media.requestId);
     insist(original, "dance_source3_original_missing", 403);
-    const { capture, fences } = await this.access(actor, original.capture_id, original.capture_hash);
+    const { capture, fences } = await this.access(actor, original.capture_id, original.capture_hash, false);
     const intent = JSON.parse(original.intent_json) as MediaIntent;
     this.matches(capture, intent);
     insist(media.songKey === capture.songKey && media.songRevision === capture.songRevision &&

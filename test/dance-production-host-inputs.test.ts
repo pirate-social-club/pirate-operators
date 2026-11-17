@@ -1,3 +1,13 @@
+import { createPrivatePracticeDance } from "../services/community-private-dance.ts";
+import { communityMediaRender } from "../packages/community-media/processor-transport.ts";
+import { danceCommunityApi } from "../services/dance-community-api.ts";
+import { CommunityError } from "../packages/community/common.ts";
+import { loopback } from "./fixtures/publication-app-http.ts";
+import { DanceSource3Bindings, DANCE_SOURCE3_BINDINGS_SCHEMA_PROPOSAL } from "../services/dance-source3-bindings.ts";
+import { MediaRepository } from "../packages/community-media/repository.ts";
+import type { MediaIntent, MediaRecord, PublishedMediaSong } from "../packages/community-media/contracts.ts";
+import { createDancePrivateCatalogue, type DancePrivatePolicyV2 } from "../services/dance-private-catalogue.ts";
+import { hashPrivateDanceCaptureV2 } from "../packages/dance/capture-v2.ts";
 /** UNRUN. Actual SQLite + original parser/hash/production readers. Stored facts,
  * recorded-signature admission and RPC are named fixture inputs, not provider proof. */
 import test from "node:test";
@@ -245,7 +255,7 @@ async function catalogueSimulation(options: { d1?: boolean; prepare?: (fixture: 
         captureId: "capture-original", captureHash: dh(700), acceptedAtMs: now } };
   }
   return { ...f, catalogue, key, post, selected, selection, faults, calls, updateSelected, captured,
-    engine, store: new DanceStore(usedDb) };
+    engine, client, usedDb, store: new DanceStore(usedDb) };
 }
 
 test("real selected snapshot + canonical post reader produces exact capture, public guide and retained post mapping", async () => {
@@ -476,3 +486,298 @@ test("genuine D1 ordinary select plus maximum aliases and complete pagination re
   } finally { await f.engine?.dispose(); f.close(); }
 });
 
+
+// Fresh private admission runs on the same selected song and native D1, without
+// invoking the historical catalogue's V4 account/owner permission machinery.
+function privatePolicy(
+  f: ReturnType<typeof hostSimulation>,
+): DancePrivatePolicyV2 {
+  return {
+    version: "pirate.dance-private-policy/2",
+    configurationRevision: 1,
+    rulesEpoch: 0,
+    mediaEpoch: 0,
+    captureTtlMs: 600000,
+    consent: structuredClone(f.context.consent),
+    rulesDocument: f.context.rulesDocument,
+    rubricText: f.context.rubricText,
+    mediaPolicyDocument: f.context.mediaPolicyDocument,
+  };
+}
+function publicPermissionTrap(db: D1Database) {
+  return new Proxy(db, {
+    get(target, key) {
+      if (key === "prepare")
+        return (sql: string) => {
+          assert.doesNotMatch(
+            sql,
+            /learning_authorizations|learning_authority|publication_v1_|dance_host_accounts/,
+          );
+          return target.prepare(sql);
+        };
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+async function privateCatalogueFixture() {
+  const f = await catalogueSimulation({
+    d1: true,
+    prepare(f) {
+      f.db.sqlite
+        .prepare(
+          "UPDATE dance_host_context SET revision=revision+1,body_json=? WHERE community_id=?",
+        )
+        .run(canonical(privatePolicy(f)), f.config.communityId);
+    },
+  });
+  const policy = privatePolicy(f),
+    db = publicPermissionTrap(f.usedDb);
+  const catalogue = createDancePrivateCatalogue({
+    db,
+    config: f.config,
+    reads: {
+      client: f.client,
+      profile: {
+        address: f.source.pin.posts,
+        runtimeCodeHash: f.source.pin.postsRuntimeHash,
+        deploymentBlock: 1n,
+      },
+    },
+    policy,
+  });
+  const actor = {
+    accountId: "actor",
+    wallet: dw(1) as Address,
+    bindingId: "binding-actor",
+    authorId: dh(100) as Hex,
+  };
+  const target = {
+    communityId: f.config.communityId,
+    songKey: f.key,
+    songRevision: 1,
+    audioSha256: f.selected.audioSha256,
+    reference: null,
+    offerId: null,
+  };
+  return { ...f, policy, db, catalogue, actor, target };
+}
+test("fresh private catalogue proves canonical song/real probe and accepts native capture without public permission reads", async () => {
+  const f = await privateCatalogueFixture();
+  try {
+    const chosen = await f.catalogue.select(f.actor, f.target),
+      now = await f.store.now();
+    const snapshot = {
+      ...chosen.capture,
+      captureId: dh(901) as Hex,
+      reservedAtMs: now,
+    };
+    const capture = {
+      ...snapshot,
+      captureHash: hashPrivateDanceCaptureV2(snapshot),
+      consent: null,
+    };
+    assert.equal(capture.publication.kind, "private");
+    assert.equal(capture.canonical, null);
+    assert.equal("authorizationId" in capture.learner, false);
+    assert.equal(capture.audioSha256, f.selected.audioSha256);
+    await f.store.reserveCaptureV2(
+      capture,
+      "actor",
+      "private-song-native",
+      dh(902),
+      chosen.fences,
+      { kind: "private" },
+    );
+    const fences = await f.catalogue.current(f.actor, capture);
+    const accepted = await f.store.acceptConsentV2(
+      capture,
+      {
+        accepted: true,
+        ...(({ version, termsHash, publicityPolicyHash }) => ({
+          version,
+          termsHash,
+          publicityPolicyHash,
+        }))(chosen.consentPolicy),
+      },
+      "private-song-native",
+      fences,
+    );
+    assert.ok(accepted.consent);
+    assert.equal(
+      (await f.store.storedCapture(capture.captureId)).captureHash,
+      capture.captureHash,
+    );
+  } finally {
+    await f.engine?.dispose();
+    f.close();
+  }
+});
+test("fresh private target cannot substitute a new revision/audio or ignore RPC failure", async () => {
+  const f = await privateCatalogueFixture();
+  try {
+    await assert.rejects(
+      f.catalogue.select(f.actor, { ...f.target, songRevision: 2 }),
+      /target|binding|changed/,
+    );
+    await assert.rejects(
+      f.catalogue.select(f.actor, { ...f.target, audioSha256: dh(911) }),
+      /target|binding|changed/,
+    );
+    f.faults.codeChanged = true;
+    await assert.rejects(f.catalogue.select(f.actor, f.target));
+  } finally {
+    await f.engine?.dispose();
+    f.close();
+  }
+});
+test("fresh private same-batch resource fence rejects changed context without partial capture", async () => {
+  const f = await privateCatalogueFixture();
+  try {
+    const selected = await f.catalogue.select(f.actor, f.target),
+      now = await f.store.now();
+    const snapshot = {
+      ...selected.capture,
+      captureId: dh(921) as Hex,
+      reservedAtMs: now,
+    };
+    const capture = {
+      ...snapshot,
+      captureHash: hashPrivateDanceCaptureV2(snapshot),
+      consent: null,
+    };
+    const row = await f.usedDb
+      .prepare("SELECT body_json FROM dance_host_context WHERE community_id=?")
+      .bind(f.config.communityId)
+      .first<{ body_json: string }>();
+    const next = JSON.parse(row!.body_json);
+    next.mediaEpoch++;
+    await f.usedDb
+      .prepare(
+        "UPDATE dance_host_context SET revision=revision+1,body_json=? WHERE community_id=?",
+      )
+      .bind(canonical(next), f.config.communityId)
+      .run();
+    await assert.rejects(
+      f.store.reserveCaptureV2(
+        capture,
+        "actor",
+        "private-context-race",
+        dh(922),
+        selected.fences,
+        { kind: "private" },
+      ),
+    );
+    assert.equal(
+      await f.usedDb
+        .prepare("SELECT count(*) AS n FROM dance_captures")
+        .first("n"),
+      0,
+    );
+    await assert.rejects(
+      f.catalogue.select(f.actor, f.target),
+      /policy|context|changed/,
+    );
+  } finally {
+    await f.engine?.dispose();
+    f.close();
+  }
+});
+
+test("fresh private capture reserves original media and previews after reload without a public command",async()=>{
+  const f=await privateCatalogueFixture();
+  try {
+    await f.usedDb.batch(readFileSync(new URL("../packages/community-media/schema.sql",import.meta.url),"utf8").replace(/--[^\n]*/g,"").split(";").filter(s=>s.trim()).map(s=>f.usedDb.prepare(s)));
+    await f.usedDb.batch(DANCE_SOURCE3_BINDINGS_SCHEMA_PROPOSAL.split(/;\n/).map(s=>s.trim()).filter(Boolean).map(s=>f.usedDb.prepare(s)));
+    const selected=await f.catalogue.select(f.actor,f.target),now=await f.store.now();
+    const snapshot={...selected.capture,captureId:dh(931) as Hex,reservedAtMs:now};
+    const capture={...snapshot,captureHash:hashPrivateDanceCaptureV2(snapshot),consent:null};
+    await f.store.reserveCaptureV2(capture,"actor","private-source3",dh(932),selected.fences,{kind:"private"});
+    const {version,termsHash,publicityPolicyHash}=selected.consentPolicy;
+    const accepted=await f.store.acceptConsentV2(capture,{accepted:true,version,termsHash,publicityPolicyHash},"private-source3",selected.fences);
+    const bindings=new DanceSource3Bindings({db:f.db,communityId:f.config.communityId,privateV2:{current:(actor,c)=>f.catalogue.mediaAccess(actor,c)}});
+    const actor={accountId:f.actor.accountId};
+    const intent:MediaIntent={requestId:"private-recording-original",songKey:capture.songKey,songRevision:capture.songRevision,recordingSha256:"a".repeat(64),bytes:12,startSample:capture.startSample,durationSamples:capture.durationSamples,purpose:"private-review",publicConsent:false};
+    await bindings.bindIntent(actor,accepted.captureId,accepted.captureHash,intent);
+    await bindings.bindIntent(actor,accepted.captureId,accepted.captureHash,intent);
+    const song:PublishedMediaSong={communityId:capture.communityId,songKey:capture.songKey,songRevision:capture.songRevision,audioSha256:capture.audioSha256.slice(2),durationSamples:capture.songDurationSamples,title:"Canonical fixture"};
+    const record:MediaRecord={...song,version:"pirate.community-media/1",id:crypto.randomUUID(),requestId:intent.requestId,revision:1,state:"ready",purpose:"private-review",publicConsent:false,accountId:actor.accountId,recordingSha256:intent.recordingSha256,sourceBytes:intent.bytes,startSample:intent.startSample,durationSamples:intent.durationSamples,mediaPolicyVersion:capture.mediaPolicyVersion,createdAt:now,uploadExpiresAt:now+60000,expiresAt:now+60000,attempts:0};
+    const repository=new MediaRepository(f.usedDb,capture.communityId);
+    const saved=await repository.reserve(record,undefined,await bindings.reservation(actor,intent,song));
+    assert.equal((await repository.reserve({...record,id:crypto.randomUUID()},undefined,await bindings.reservation(actor,intent,song))).id,saved.id);
+    const reloaded=new DanceSource3Bindings({db:f.db,communityId:f.config.communityId,privateV2:{current:(actor,c)=>f.catalogue.mediaAccess(actor,c)}});
+    assert.equal(await reloaded.preview(actor,saved),true);
+    await assert.rejects(reloaded.bindIntent(actor,capture.captureId,capture.captureHash,{...intent,recordingSha256:"b".repeat(64)}),/original_conflict/);
+    await assert.rejects(reloaded.preview({accountId:"other"},saved));
+    await f.usedDb.prepare("DELETE FROM credential_bindings WHERE binding_id=?").bind(f.actor.bindingId).run();
+    await assert.rejects(reloaded.preview(actor,saved));
+    assert.equal(await f.usedDb.prepare("SELECT count(*) AS n FROM community_media").first("n"),1);
+    assert.equal(await f.usedDb.prepare("SELECT count(*) AS n FROM dance_source3_requests").first("n"),1);
+  } finally {await f.engine?.dispose();f.close();}
+});
+
+test("normal private Dance HTTP reserves and reloads capture with exact plain session and no V4 fallback",async()=>{
+  const f=await privateCatalogueFixture();let http:Awaited<ReturnType<typeof loopback>>|undefined;
+  try {
+    const token="f1".repeat(32),csrf="private-dance-http-csrf",context={communityId:f.config.communityId,origin:f.config.app.origin};
+    await f.usedDb.prepare("INSERT INTO community_sessions VALUES(?,?,?,?,?,?,?)").bind(hashText(token),context.communityId,context.origin,f.actor.accountId,f.actor.bindingId,csrf,Date.now()+600000).run();
+    http=await loopback(async request=>{
+      try {return await danceCommunityApi(request,{db:f.db,privateV2:f.catalogue},context,new Headers())??new Response("not_found",{status:404});}
+      catch(e){return Response.json({error:e instanceof CommunityError?e.code:"unknown"},{status:e instanceof CommunityError?e.status:503});}
+    },context.origin);
+    const headers={cookie:"__Host-community_session="+token,origin:context.origin,"x-csrf-token":csrf,"x-dance-account":f.actor.accountId,"content-type":"application/json"};
+    const body={version:"pirate.dance-capture-request/2",commandId:"private-normal-http",target:f.target,publication:{kind:"private"},consent:{accepted:true,version:f.policy.consent.version,termsHash:f.policy.consent.termsHash,publicityPolicyHash:f.policy.consent.publicityPolicyHash}};
+    const captureResponse=await fetch(http.origin+"/api/dance/captures",{method:"POST",headers,body:JSON.stringify(body)});
+    assert.equal(captureResponse.status,200,await captureResponse.clone().text());
+    const capture=await captureResponse.json() as import("../packages/dance/capture-v2.ts").PrivateCaptureV2;
+    assert.equal(capture.version,"pirate.dance/2");assert.equal(capture.publication.kind,"private");assert.ok(capture.consent);
+    assert.match(capture.captureId,/^0x[0-9a-f]{64}$/);assert.notEqual(capture.captureId,dh(0));
+    const retry=await fetch(http.origin+"/api/dance/captures",{method:"POST",headers,body:JSON.stringify(body)});
+    assert.equal(retry.status,200);assert.deepEqual(await retry.json(),capture);
+    const reloaded=await fetch(http.origin+"/api/dance/captures/"+capture.captureId+"/access",{headers});
+    assert.equal(reloaded.status,200);assert.deepEqual((await reloaded.json() as {capture:unknown}).capture,capture);
+    const guide=await fetch(http.origin+"/api/dance/captures/"+capture.captureId+"/guide",{headers});
+    assert.equal(guide.status,200);assert.equal((await guide.json() as {playback_url:string}).playback_url,context.origin+"/api/public/posts/"+f.post.postId+"/audio");
+    const other=await fetch(http.origin+"/api/dance/captures",{method:"POST",headers,body:JSON.stringify({...body,target:{...body.target,songRevision:2}})});
+    assert.equal(other.status,409);assert.equal(await f.usedDb.prepare("SELECT count(*) AS n FROM dance_captures").first("n"),1);
+    const forbidden=await fetch(http.origin+"/api/dance/captures",{method:"POST",headers:{...headers,"x-csrf-token":"changed"},body:JSON.stringify({...body,commandId:"must-not-start"})});
+    assert.equal(forbidden.status,403);
+  }finally{await http?.close();await f.engine?.dispose();f.close();}
+});
+
+test("normal private Dance HTTP uses existing media upload, queued renderer and private R2 playback",async()=>{
+  const f=await privateCatalogueFixture();let http:Awaited<ReturnType<typeof loopback>>|undefined;
+  const storage=new Miniflare({modules:true,script:"export default {fetch(){return new Response('R2 fixture')}}",compatibilityDate:"2026-08-06",r2Buckets:["MEDIA"]});
+  try {
+    await f.usedDb.batch(readFileSync(new URL("../packages/community-media/schema.sql",import.meta.url),"utf8").replace(/--[^\n]*/g,"").split(";").filter(s=>s.trim()).map(s=>f.usedDb.prepare(s)));
+    await f.usedDb.batch(DANCE_SOURCE3_BINDINGS_SCHEMA_PROPOSAL.split(/;\n/).map(s=>s.trim()).filter(Boolean).map(s=>f.usedDb.prepare(s)));
+    const token="f2".repeat(32),csrf="private-upload-csrf",context={communityId:f.config.communityId,origin:f.config.app.origin};
+    await f.usedDb.prepare("INSERT INTO community_sessions VALUES(?,?,?,?,?,?,?)").bind(hashText(token),context.communityId,context.origin,f.actor.accountId,f.actor.bindingId,csrf,Date.now()+600000).run();
+    const source=new TextEncoder().encode("explicit recording/renderer transport fixture, not device or codec acceptance"),hash=hashText(new TextDecoder().decode(source)).slice(2);
+    const jobs:import("../services/community-private-dance.ts").PrivateMediaJob[]=[];
+    let mounted:ReturnType<typeof createPrivatePracticeDance>;
+    const renderer={fetch:async(url:string|Request,init?:RequestInit)=>communityMediaRender(new Request(url,{...init,duplex:"half"} as RequestInit),{
+      render:async()=>({bytes:source,facts:{sha256:hash,bytes:source.length,durationMs:f.selected.durationSamples/48,width:320,height:240,videoCodec:"h264",audioCodec:"aac"}}),
+    },{authorize:async()=>true,current:async(_community,id)=>mounted.media.ports.repository.get(id),song:async(_community,key,revision)=>mounted.media.ports.song(key,revision),now:Date.now})} as Pick<Fetcher,"fetch">;
+    mounted=createPrivatePracticeDance({db:f.db,bucket:await storage.getR2Bucket("MEDIA") as unknown as R2Bucket,config:f.config,reads:{client:f.client,profile:{address:f.source.pin.posts,runtimeCodeHash:f.source.pin.postsRuntimeHash,deploymentBlock:1n}},policy:f.policy,renderer,enqueue:async job=>{jobs.push(job);}});
+    http=await loopback(async request=>{try{return await mounted.fetch(request,context,new Headers())??new Response("not_found",{status:404});}catch(e){return Response.json({error:e instanceof CommunityError?e.code:"unknown"},{status:e instanceof CommunityError?e.status:503});}},context.origin);
+    const headers={cookie:"__Host-community_session="+token,origin:context.origin,"x-csrf-token":csrf,"x-dance-account":f.actor.accountId,"content-type":"application/json"};
+    const r=await fetch(http.origin+"/api/dance/captures",{method:"POST",headers,body:JSON.stringify({version:"pirate.dance-capture-request/2",commandId:"private-upload-normal",target:f.target,publication:{kind:"private"},consent:{accepted:true,version:f.policy.consent.version,termsHash:f.policy.consent.termsHash,publicityPolicyHash:f.policy.consent.publicityPolicyHash}})});
+    assert.equal(r.status,200,await r.clone().text());const capture=await r.json() as import("../packages/dance/capture-v2.ts").PrivateCaptureV2;
+    const intent={requestId:"normal-recording-original",songKey:capture.songKey,songRevision:capture.songRevision,recordingSha256:hash,bytes:source.length,startSample:capture.startSample,durationSamples:capture.durationSamples,purpose:"private-review",publicConsent:false};
+    const reserveHeaders={...headers,"x-dance-capture-id":capture.captureId,"x-dance-capture-hash":capture.captureHash};
+    const reserved=await fetch(http.origin+"/api/media",{method:"POST",headers:reserveHeaders,body:JSON.stringify(intent)});
+    assert.equal(reserved.status,201,await reserved.clone().text());const media=await reserved.json() as MediaRecord;
+    const duplicate=await fetch(http.origin+"/api/media",{method:"POST",headers:reserveHeaders,body:JSON.stringify(intent)});assert.equal(duplicate.status,201);assert.equal((await duplicate.json() as MediaRecord).id,media.id);
+    const upload=await fetch(http.origin+"/api/media/"+media.id+"/upload",{method:"PUT",headers:{...headers,"content-type":"application/octet-stream"},body:source});assert.equal(upload.status,200,await upload.clone().text());
+    assert.equal(jobs.length,1);await mounted.process(jobs[0]);
+    const record=await mounted.media.ports.repository.get(media.id);assert.equal(record.state,"ready",record.error);
+    const playback=await fetch(http.origin+"/api/media/"+media.id+"/playback",{headers});assert.equal(playback.status,200);assert.deepEqual(new Uint8Array(await playback.arrayBuffer()),source);
+    const anonymous=await fetch(http.origin+"/api/media/"+media.id+"/playback");assert.equal(anonymous.status,401);
+    assert.deepEqual((await mounted.media.feed()).items,[]);
+    const deletion=await fetch(http.origin+"/api/media/"+media.id,{method:"DELETE",headers});assert.equal(deletion.status,200);
+    const denied=await fetch(http.origin+"/api/media/"+media.id+"/playback",{headers});assert.equal(denied.status,410);assert.deepEqual(await denied.json(),{error:"media_unavailable"});
+    assert.equal(await f.usedDb.prepare("SELECT count(*) AS n FROM dance_source3_requests").first("n"),1);
+    assert.equal(await f.usedDb.prepare("SELECT count(*) AS n FROM community_media").first("n"),1);
+  }finally{await http?.close();await storage.dispose();await f.engine?.dispose();f.close();}
+});

@@ -86,6 +86,7 @@ interface BindingRow {
   value_json: string;
 }
 export interface DancePublicationBindingPlan {
+  readonly commandId: Hex;
   readonly captureHash: Hex;
   readonly grant: PrivateGrant;
   /** Caller joins ALL of these with canonical reader, authority/rules/media
@@ -796,6 +797,7 @@ export class DancePublicationBindingJournal implements DancePublicationJournal {
     ];
     this.pending.set(key(hash, account, purpose), bytes);
     return {
+      commandId: command.commandId,
       captureHash: hash,
       grant: frozen(structuredClone({ accountId: account, binding })),
       fences,

@@ -23,9 +23,20 @@ import type {
 } from "./control-contracts.ts";
 import { verifyControlBinding } from "../dance-chain/control-command.ts";
 import { verifyRetainedAttempt } from "../dance-chain/control-reader.ts";
-import type { DanceRepository } from "./repository.ts";
+import type {
+  DanceRepository,
+  DanceCaptureRepositoryV2,
+} from "./repository.ts";
+import type { StoredDanceCapture } from "./capture-v2.ts";
+import { parseDanceCaptureV2 } from "./capture-v2.ts";
 import { validateFence } from "./validation.ts";
-import { danceAtomicPredicates } from "./fence.ts";
+import { danceAtomicPredicates, DANCE_DB_NOW } from "./fence.ts";
+export { DANCE_DB_NOW } from "./fence.ts";
+import {
+  captureDocument,
+  reserveCaptureV2 as storeReserveCaptureV2,
+  acceptConsentV2 as storeAcceptConsentV2,
+} from "./store-capture-v2.ts";
 import {
   decisionEvidencePreimage,
   decisionIntegrityHash,
@@ -37,9 +48,7 @@ import {
   withdrawalStatements,
   controlStatements,
 } from "./store-writes.ts";
-/** Local acceptance time only. NEVER the canonical verdict timestamp. */
-export const DANCE_DB_NOW = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
-export class DanceStore implements DanceRepository {
+export class DanceStore implements DanceCaptureRepositoryV2 {
   readonly db: D1Database;
   constructor(db: D1Database) {
     this.db = db;
@@ -62,18 +71,42 @@ export class DanceStore implements DanceRepository {
       // One result row preserves changes()=1 as well as the statement/clock
       // boundary. VALUES enumerates cases without compound-SELECT terms.
       const guards: D1PreparedStatement[] = [];
-      let parts: DanceFence[] = [], bindCount = 1;
+      let parts: DanceFence[] = [],
+        bindCount = 1;
       const flush = () => {
         if (!parts.length) return;
         let result = "dance_guard_result";
-        while (parts.some(f => f.sql.toLowerCase().includes(result))) result += "_";
-        const condition = parts.length === 1 ? parts[0].sql :
-          "NOT EXISTS(WITH " + result + "(" + result + ") AS (VALUES " +
-            parts.map(f => "(CASE WHEN (" + f.sql + ") THEN 1 ELSE 0 END)").join(",") +
-            ") SELECT 1 FROM " + result + " WHERE " + result + "." + result + "=0)";
-        guards.push(this.stmt("INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" + condition +
-          ") THEN 1 ELSE 0 END", token(), ...parts.flatMap(f => f.values)));
-        parts = []; bindCount = 1;
+        while (parts.some((f) => f.sql.toLowerCase().includes(result)))
+          result += "_";
+        const condition =
+          parts.length === 1
+            ? parts[0].sql
+            : "NOT EXISTS(WITH " +
+              result +
+              "(" +
+              result +
+              ") AS (VALUES " +
+              parts
+                .map((f) => "(CASE WHEN (" + f.sql + ") THEN 1 ELSE 0 END)")
+                .join(",") +
+              ") SELECT 1 FROM " +
+              result +
+              " WHERE " +
+              result +
+              "." +
+              result +
+              "=0)";
+        guards.push(
+          this.stmt(
+            "INSERT INTO dance_transaction_guards SELECT ?,CASE WHEN (" +
+              condition +
+              ") THEN 1 ELSE 0 END",
+            token(),
+            ...parts.flatMap((f) => f.values),
+          ),
+        );
+        parts = [];
+        bindCount = 1;
       };
       for (const original of fences) {
         validateFence(original);
@@ -81,7 +114,8 @@ export class DanceStore implements DanceRepository {
           validateFence(f);
           insist(1 + f.values.length <= 100, "dance_fence_bind_budget", 503);
           if (bindCount + f.values.length > 100) flush();
-          parts.push(f); bindCount += f.values.length;
+          parts.push(f);
+          bindCount += f.values.length;
         }
         // Preserve separate original-fence statement/clock boundaries.
         flush();
@@ -150,16 +184,44 @@ export class DanceStore implements DanceRepository {
       token(),
     );
   }
-  async capture(id: string) {
-    const r = await this.stmt(
-      "SELECT c.capture_json,s.consent_json FROM dance_captures c LEFT JOIN dance_consents s ON s.capture_id=c.capture_id WHERE c.capture_id=?",
-      id,
-    ).first<{ capture_json: string; consent_json: string | null }>();
-    insist(r, "dance_not_found", 404);
-    return {
-      ...JSON.parse(r.capture_json),
-      consent: r.consent_json ? JSON.parse(r.consent_json) : null,
-    } as DanceCapture;
+  private captureDocument(id: string) {
+    return captureDocument(this, id);
+  }
+  async storedCapture(id: string): Promise<StoredDanceCapture> {
+    const { capture } = await this.captureDocument(id);
+    // Preserve V1 read semantics; V1 callers retain their existing validators.
+    if (capture.version === DANCE_VERSION) return capture as DanceCapture;
+    return parseDanceCaptureV2(capture, false);
+  }
+  async capture(id: string): Promise<DanceCapture> {
+    const capture = await this.storedCapture(id);
+    insist(
+      capture.version === DANCE_VERSION,
+      "dance_capture_version_unsupported",
+      409,
+    );
+    return capture;
+  }
+  async findStoredCapture(c: string, a: string, k: string, h: string) {
+    const row = await this.stmt(
+      "SELECT request_hash,capture_id FROM dance_captures WHERE community_id=? AND account_id=? AND command_id=?",
+      c,
+      a,
+      k,
+    ).first<{ request_hash: string; capture_id: string }>();
+    if (!row) return null;
+    insist(row.request_hash === h, "dance_idempotency_conflict", 409);
+    return this.storedCapture(row.capture_id);
+  }
+  reserveCaptureV2(
+    ...args: Parameters<DanceCaptureRepositoryV2["reserveCaptureV2"]>
+  ) {
+    return storeReserveCaptureV2(this, ...args);
+  }
+  acceptConsentV2(
+    ...args: Parameters<DanceCaptureRepositoryV2["acceptConsentV2"]>
+  ) {
+    return storeAcceptConsentV2(this, ...args);
   }
   async findCapture(c: string, a: string, k: string, h: string) {
     const r = await this.stmt(
