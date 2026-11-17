@@ -1409,7 +1409,7 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
   const names = (await chain(COMMUNITY)).map((path) => path.split("/").at(-1)!);
   assert.deepEqual(
     names.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 20 }, (_, index) => index + 1),
+    Array.from({ length: 21 }, (_, index) => index + 1),
   );
   const profiles = [
     { rewards: false, ownerPublishing: false, v4: false },
@@ -1471,6 +1471,8 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
         "publication_v1_heads",
         "publication_v1_commands",
         "publication_v1_observations",
+        "publication_v1_release_archive",
+        "publication_v1_installed_selection",
       ])
         assert.equal(
           present.has(table),

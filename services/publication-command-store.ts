@@ -16,6 +16,7 @@ import {
   source,
   sourceId,
 } from "./publication-command-contract.ts";
+import { PublicationInstallation } from "./publication-installed-selection.ts";
 import { PublicationRequestSession } from "./publication-app-request.ts";
 
 export interface CommandSeed {
@@ -63,12 +64,37 @@ function requestFence(
   db: D1Database,
   accountId: string,
   communityId: Hex,
+  target: ConsentSourceV1,
+  active: boolean,
 ) {
   check(
     session instanceof PublicationRequestSession,
     "publication_request_session_required",
   );
-  return session.mutationFence({ db, accountId, communityId });
+  return session.mutationFence({
+    db,
+    accountId,
+    communityId,
+    source: target,
+    active,
+  });
+}
+/** Internal foundation callers may omit a mount. Actual HTTP and background
+ * composition always provide the concrete pinned installation on this same DB. */
+export function publicationJournalFence(
+  db: D1Database,
+  row: CommandRow,
+  installation?: PublicationInstallation,
+) {
+  if (!installation) return { sql: "1", values: [] as (string | number)[] };
+  check(
+    installation instanceof PublicationInstallation &&
+      installation.db === db &&
+      installation.expected.communityId === row.community_id,
+    "publication_installation_required",
+  );
+  const original = source(JSON.parse(row.request_json).source);
+  return installation.fence("retained", original.releaseSelectionSha256);
 }
 async function read(db: D1Database, id: Hex) {
   const row = await db
@@ -104,7 +130,14 @@ export async function beginCommand(
   session?: PublicationRequestSession,
 ) {
   const auth = session
-    ? requestFence(session, db, s.accountId, s.source.communityId)
+    ? requestFence(
+        session,
+        db,
+        s.accountId,
+        s.source.communityId,
+        s.source,
+        s.action === "grant",
+      )
     : { sql: "1", values: [] };
   source(s.source);
   consentDigest(s.nonce);
@@ -136,9 +169,9 @@ export async function beginCommand(
       .prepare(
         `INSERT OR IGNORE INTO publication_v1_heads
       (community_id,account_id,source_id,purpose,generation,stopped)
-      VALUES(?,?,?,?,0,1)`,
+      SELECT ?,?,?,?,0,1 WHERE (${auth.sql})`,
       )
-      .bind(...identity),
+      .bind(...identity, ...auth.values),
     db
       .prepare(
         `INSERT OR IGNORE INTO publication_v1_commands
@@ -164,9 +197,10 @@ export async function beginCommand(
       stopped=1,stop_command_id=? WHERE community_id=? AND account_id=?
       AND source_id=? AND purpose=? AND generation<9007199254740991
       AND EXISTS(SELECT 1 FROM publication_v1_commands c WHERE c.command_id=?
-        AND c.action='withdraw' AND c.fence_generation IS NULL AND c.version<9007199254740991)`,
+        AND c.action='withdraw' AND c.fence_generation IS NULL AND c.version<9007199254740991)
+        AND (${auth.sql})`,
       )
-      .bind(id, ...identity, id),
+      .bind(id, ...identity, id, ...auth.values),
     db
       .prepare(
         `UPDATE publication_v1_commands SET fence_generation=(
@@ -181,9 +215,9 @@ export async function beginCommand(
         AND h.account_id=publication_v1_commands.account_id
         AND h.source_id=publication_v1_commands.source_id
         AND h.purpose=publication_v1_commands.purpose
-        AND h.stop_command_id=publication_v1_commands.command_id))`,
+        AND h.stop_command_id=publication_v1_commands.command_id)) AND (${auth.sql})`,
       )
-      .bind(id),
+      .bind(id, ...auth.values),
   ]);
   const row = await read(db, id);
   check(
@@ -222,7 +256,14 @@ export async function savePrepared(
   session?: PublicationRequestSession,
 ) {
   const auth = session
-    ? requestFence(session, db, row.account_id, row.community_id)
+    ? requestFence(
+        session,
+        db,
+        row.account_id,
+        row.community_id,
+        source(JSON.parse(row.request_json).source),
+        row.action === "grant",
+      )
     : { sql: "1", values: [] };
   if (row.typed_json) {
     const original = parseCommand(JSON.parse(row.typed_json));
@@ -295,7 +336,14 @@ export async function acceptCommandSignature(
   session?: PublicationRequestSession,
 ) {
   const auth = session
-    ? requestFence(session, db, row.account_id, row.community_id)
+    ? requestFence(
+        session,
+        db,
+        row.account_id,
+        row.community_id,
+        source(JSON.parse(row.request_json).source),
+        row.action === "grant",
+      )
     : { sql: "1", values: [] };
   const value = signature(sig),
     json = canonical(accepted);
@@ -357,7 +405,10 @@ export async function saveObservation(
   row: CommandRow,
   observation: { state: string; [key: string]: unknown },
   dueMs: number,
+  installation?: PublicationInstallation,
 ) {
+  const installed = publicationJournalFence(db, row, installation);
+  await installation?.check();
   const hash = digest(observation),
     json = canonical(observation);
   const current = await read(db, row.command_id);
@@ -389,7 +440,7 @@ export async function saveObservation(
       (command_id,proof_hash,value_json) SELECT ?,?,? WHERE EXISTS(
         SELECT 1 FROM publication_v1_commands WHERE command_id=?
         AND version<9007199254740991 AND accepted_json=? AND request_hash=?
-        AND typed_json=? AND nonce_hex=?)`,
+        AND typed_json=? AND nonce_hex=?) AND (${installed.sql})`,
       )
       .bind(
         row.command_id,
@@ -400,6 +451,7 @@ export async function saveObservation(
         row.request_hash,
         row.typed_json,
         row.nonce_hex,
+        ...installed.values,
       ),
     db
       .prepare(
@@ -407,7 +459,8 @@ export async function saveObservation(
       due_ms=?,version=version+1 WHERE command_id=? AND version=?
       AND version<9007199254740991 AND accepted_json=? AND request_hash=?
       AND typed_json=? AND nonce_hex=? AND EXISTS(SELECT 1 FROM publication_v1_observations o
-        WHERE o.command_id=publication_v1_commands.command_id AND o.proof_hash=? AND o.value_json=?)`,
+        WHERE o.command_id=publication_v1_commands.command_id AND o.proof_hash=? AND o.value_json=?)
+      AND (${installed.sql})`,
       )
       .bind(
         hash,
@@ -421,8 +474,10 @@ export async function saveObservation(
         row.nonce_hex,
         hash,
         json,
+        ...installed.values,
       ),
   ]);
+  await installation?.check();
   const saved = await db
     .prepare(
       `SELECT value_json FROM publication_v1_observations
@@ -441,7 +496,10 @@ export async function saveFenceAck(
   db: D1Database,
   row: CommandRow,
   ack: { commandId: Hex; generation: number; requestHash: Hex },
+  installation?: PublicationInstallation,
 ) {
+  const installed = publicationJournalFence(db, row, installation);
+  await installation?.check();
   check(
     row.action === "withdraw" &&
       ack.commandId === row.command_id &&
@@ -456,10 +514,11 @@ export async function saveFenceAck(
     .prepare(
       `UPDATE publication_v1_commands SET fence_ack_json=?,version=version+1
     WHERE command_id=? AND version=? AND version<9007199254740991
-    AND (fence_ack_json IS NULL OR fence_ack_json=?)`,
+    AND (fence_ack_json IS NULL OR fence_ack_json=?) AND (${installed.sql})`,
     )
-    .bind(json, row.command_id, row.version, json)
+    .bind(json, row.command_id, row.version, json, ...installed.values)
     .run();
+  await installation?.check();
   const current = await read(db, row.command_id);
   check(current.fence_ack_json === json, "publication_fence_ack_raced");
   return current;

@@ -15,6 +15,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { canonical, digest } from "../../packages/protocol/index.ts";
+import { installPublicationSelection } from "../../services/publication-installed-selection.ts";
 import { hashText } from "../../packages/community/common.ts";
 import { parsePublicationGrant } from "../../packages/protocol/publication-consent.ts";
 import { publicationConsentAbi } from "../../packages/protocol/generated/publication-consent-v1.ts";
@@ -55,7 +56,12 @@ const lower = (a: Address) => a.toLowerCase() as Address;
 const q = (n: bigint) => ("0x" + n.toString(16)) as Hex;
 export async function publicationAppFixture(
   t: TestContext,
-  options: { firstSong?: boolean; safeLag?: bigint; window?: string } = {},
+  options: {
+    firstSong?: boolean;
+    safeLag?: bigint;
+    window?: string;
+    installSelection?: boolean;
+  } = {},
 ) {
   const database = await appDatabase(),
     directory = await mkdtemp(join(tmpdir(), "publication-http-"));
@@ -204,8 +210,27 @@ export async function publicationAppFixture(
     3000,
     32768,
   );
-  const ports: PublicationApplicationPorts = {
+  let installationEntries = [
+    { release: catalog.get(selected), transportRef: "operator-primary" },
+  ];
+  const installation =
+    options.installSelection === false
+      ? undefined
+      : await installPublicationSelection(database.db, {
+          schema: "pirate.publication-installation/1",
+          communityId: context.communityId,
+          installationId: authority.release.source.installationId,
+          origin: context.origin,
+          incarnation: "1",
+          installedBindingSha256: digest("installed-binding-1"),
+          active: options.firstSong ? null : selected,
+          entries: installationEntries,
+          previous: null,
+        });
+  if (installation) catalog = installation.catalog;
+  let ports: PublicationApplicationPorts = {
     db: database.db,
+    installation,
     catalog,
     transport,
     nowMs: () => nowMs,
@@ -286,7 +311,9 @@ export async function publicationAppFixture(
         .all<import("../../services/publication-command-store.ts").CommandRow>()
     ).results;
   return {
-    ports,
+    get ports() {
+      return ports;
+    },
     context,
     authority,
     operatorCalls,
@@ -316,18 +343,52 @@ export async function publicationAppFixture(
       sourceCommandId: Hex;
       action?: string;
     }) => withdrawal("withdrawals/prepare", input),
-    setCatalog(active: Hex | null) {
-      catalog = new PublicationReleaseCatalog([authority.release], active);
-      ports.catalog = catalog;
+    async setCatalog(active: Hex | null) {
+      assert.ok(ports.installation);
+      const next = await installPublicationSelection(database.db, {
+        schema: "pirate.publication-installation/1",
+        ...context,
+        installationId: ports.installation.expected.installationId,
+        incarnation: String(
+          Number(ports.installation.expected.incarnation) + 1,
+        ),
+        installedBindingSha256: digest({
+          active,
+          previous: ports.installation.expected,
+        }),
+        active,
+        entries: installationEntries,
+        previous: ports.installation.expected,
+      });
+      catalog = next.catalog;
+      ports = { ...ports, catalog, installation: next };
     },
-    replaceActive(
+    async replaceActive(
       release: import("../../services/publication-app-selection.ts").PublicationAppRelease,
     ) {
-      catalog = new PublicationReleaseCatalog(
-        [authority.release, release],
-        publicationSelectionHash(release),
-      );
-      ports.catalog = catalog;
+      assert.ok(ports.installation);
+      const entries = [
+        ...installationEntries,
+        { release, transportRef: "operator-primary" },
+      ];
+      const next = await installPublicationSelection(database.db, {
+        schema: "pirate.publication-installation/1",
+        ...context,
+        installationId: release.source.installationId,
+        incarnation: String(
+          Number(ports.installation.expected.incarnation) + 1,
+        ),
+        installedBindingSha256: digest({
+          release,
+          previous: ports.installation.expected,
+        }),
+        active: publicationSelectionHash(release),
+        entries,
+        previous: ports.installation.expected,
+      });
+      installationEntries = structuredClone(entries);
+      catalog = next.catalog;
+      ports = { ...ports, catalog, installation: next };
     },
     restartOperator() {
       operator.close();
@@ -509,10 +570,9 @@ export async function publicationAppFixture(
       };
       const path = ".local/publication-app-integration/" + label + ".json";
       await mkdir(".local/publication-app-integration", { recursive: true });
-      await writeFile(path, JSON.stringify(value, null, 2) + "\n");
-      t.diagnostic(
-        JSON.stringify({ artifact: path, sha256: hashText(canonical(value)) }),
-      );
+      const bytes = JSON.stringify(value, null, 2) + "\n";
+      await writeFile(path, bytes);
+      t.diagnostic(JSON.stringify({ artifact: path, sha256: hashText(bytes) }));
       return value;
     },
   };

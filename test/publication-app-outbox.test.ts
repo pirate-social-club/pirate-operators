@@ -276,7 +276,7 @@ test(
         200,
       );
       const original = (await f.rows())[0];
-      f.setCatalog(null);
+      await f.setCatalog(null);
       f.authority.state.offline = true;
       const calls = f.authority.state.calls.length;
       const recovered = await f.call("commands/" + c.commandId);

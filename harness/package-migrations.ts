@@ -3,6 +3,8 @@
 import { insist } from "../packages/community/common.ts";
 
 export const PUBLICATION_CONSENT_MIGRATION = "0020_publication_consent.sql";
+export const PUBLICATION_INSTALLED_MIGRATION =
+  "0021_publication_installed_selection.sql";
 export const COMMUNITY_MEDIA_MIGRATION = "0015_community_media.sql";
 export const DANCE_MIGRATION = "0016_dance.sql";
 export const DANCE_CANONICAL_MIGRATION = "0017_dance_canonical_controls.sql";
@@ -66,6 +68,10 @@ export function communityMigrations(
     .filter((p) => p !== LEARNING_AUTHORITY_MIGRATION || selected.v4)
     .filter(
       (p) => p !== PUBLICATION_CONSENT_MIGRATION || selected.publicationConsent,
+    )
+    .filter(
+      (p) =>
+        p !== PUBLICATION_INSTALLED_MIGRATION || selected.publicationConsent,
     )
     .sort();
 }

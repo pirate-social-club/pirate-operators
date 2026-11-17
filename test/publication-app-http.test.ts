@@ -257,7 +257,7 @@ test(
       const c = parseCommand(initial.value.command);
       const replacement = structuredClone(f.authority.release);
       replacement.fee.cap = "2000000";
-      f.replaceActive(replacement);
+      await f.replaceActive(replacement);
       const retry = await f.prepare();
       assert.equal(retry.status, 200);
       assert.deepEqual(retry.value.command, initial.value.command);

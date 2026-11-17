@@ -156,6 +156,8 @@ export async function completeRecordedPublicationHead(
     db: p.db,
     accountId: row.account_id,
     communityId: row.community_id,
+    source: original.source,
+    active: true,
   });
   const capture = original.capture;
   // Active catalog and chain state are separate observations, never SQL or

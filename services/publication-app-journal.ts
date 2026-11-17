@@ -1,7 +1,12 @@
 import type { Hex } from "viem";
 import { canonical, check, digest } from "../packages/protocol/index.ts";
 import type { ConsentCommandReceiptV1 } from "../packages/protocol/publication-runtime-v1.ts";
-import { ownedCommand, type CommandRow } from "./publication-command-store.ts";
+import type { PublicationInstallation } from "./publication-installed-selection.ts";
+import {
+  publicationJournalFence,
+  ownedCommand,
+  type CommandRow,
+} from "./publication-command-store.ts";
 
 /** Resolve retry identity BEFORE consulting the active release. Never select a
  * latest grant or reinterpret an accepted request under another deployment. */
@@ -153,13 +158,16 @@ export async function deferPublication(
   db: D1Database,
   row: CommandRow,
   dueMs: number,
+  installation?: PublicationInstallation,
 ) {
+  const installed = publicationJournalFence(db, row, installation);
+  await installation?.check();
   check(Number.isSafeInteger(dueMs) && dueMs > 0, "publication_due_invalid");
   await db
     .prepare(
       `UPDATE publication_v1_commands SET due_ms=?,version=version+1
     WHERE command_id=? AND version=? AND version<9007199254740991
-    AND request_hash=? AND request_json=? AND nonce_hex=?`,
+    AND request_hash=? AND request_json=? AND nonce_hex=? AND (${installed.sql})`,
     )
     .bind(
       dueMs,
@@ -168,8 +176,10 @@ export async function deferPublication(
       row.request_hash,
       row.request_json,
       row.nonce_hex,
+      ...installed.values,
     )
     .run();
+  await installation?.check();
 }
 export async function publicationObservation(db: D1Database, row: CommandRow) {
   if (!row.observation_hash) return null;

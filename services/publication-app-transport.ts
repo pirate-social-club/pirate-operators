@@ -1,3 +1,4 @@
+import type { PublicationInstallation } from "./publication-installed-selection.ts";
 import { recoverMessageAddress, sha256, type Address, type Hex } from "viem";
 import { canonical, check, digest } from "../packages/protocol/index.ts";
 import {
@@ -128,6 +129,7 @@ export class PublicationOperatorTransport {
     row: CommandRow,
     release: PublicationAppRelease,
     body: unknown,
+    installation?: PublicationInstallation,
   ) {
     const s = publicationSelectionSource(release),
       json = canonical(body),
@@ -186,6 +188,8 @@ export class PublicationOperatorTransport {
           !controller.signal.aborted,
         "publication_operator_request_expired",
       );
+      await installation?.check();
+      check(!controller.signal.aborted, "publication_operator_timeout");
       const response = await this.fetcher.fetch(
         new Request("https://publication.internal" + path, {
           method: "POST",

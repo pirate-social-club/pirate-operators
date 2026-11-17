@@ -32,7 +32,11 @@ test("publication journal migration is explicit and independent of V4 authorizat
     ...base,
     publicationConsent: true,
   });
-  assert.deepEqual(selected, [...historical, "0020_publication_consent.sql"]);
+  assert.deepEqual(selected, [
+    ...historical,
+    "0020_publication_consent.sql",
+    "0021_publication_installed_selection.sql",
+  ]);
   assert.equal(selected.includes("0013_learning_authorization.sql"), false);
   assert.equal(selected.includes("0018_learning_authority.sql"), false);
   await artifact(t, "publication-migration-selection", {
