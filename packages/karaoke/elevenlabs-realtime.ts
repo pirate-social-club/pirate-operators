@@ -5,7 +5,10 @@ import type {
   KaraokeSttAdapterMessage,
   KaraokeSttCommitAck,
 } from "./stt-adapter.ts";
-import type { KaraokeClientBinaryFrame, KaraokeStreamingSttEvent } from "./transport.ts";
+import type {
+  KaraokeClientBinaryFrame,
+  KaraokeStreamingSttEvent,
+} from "./transport.ts";
 
 const DEFAULT_URL = "wss://api.elevenlabs.io/v1/speech-to-text/realtime";
 const DEFAULT_MODEL = "scribe_v2_realtime";
@@ -38,7 +41,11 @@ export class KaraokeTokenRefusal extends Error {
 const SAFE_COMMIT_FLOOR_MS = 400;
 const COMMIT_DRAIN_TIMEOUT_MS = 1_500;
 const SEGMENT_RETENTION_MS = 120_000;
-const RETRYABLE_ERRORS = new Set(["rate_limited", "queue_overflow", "resource_exhausted"]);
+const RETRYABLE_ERRORS = new Set([
+  "rate_limited",
+  "queue_overflow",
+  "resource_exhausted",
+]);
 const PROVIDER_ERRORS = new Set([
   "auth_error",
   "quota_exceeded",
@@ -54,7 +61,10 @@ type SocketMessage = Readonly<{ data: string | ArrayBuffer }>;
 export interface KaraokeSttSocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;
-  addEventListener(type: "message", listener: (event: SocketMessage) => void): void;
+  addEventListener(
+    type: "message",
+    listener: (event: SocketMessage) => void,
+  ): void;
   addEventListener(type: "close", listener: () => void): void;
   addEventListener(type: "error", listener: () => void): void;
 }
@@ -64,39 +74,129 @@ export type KaraokeSttSocketConnect = (input: {
   readonly apiKey: string;
 }) => Promise<KaraokeSttSocket>;
 
-export const makeElevenLabsKaraokeSocketConnect =
-  (fetchRequest: typeof fetch): KaraokeSttSocketConnect =>
-  async (input) => {
-    const upgradeUrl = input.url.replace(/^wss:/iu, "https:").replace(/^ws:/iu, "http:");
-    const tokenResponse = await fetchRequest(new URL(TOKEN_PATH, upgradeUrl), {
-      method: "POST",
-      headers: { "xi-api-key": input.apiKey },
+export const makeElevenLabsKaraokeSocketConnect = (
+  fetchRequest: typeof fetch,
+  options: { readonly tokenTimeoutMs?: number } = {},
+): KaraokeSttSocketConnect => {
+  const tokenTimeoutMs = options.tokenTimeoutMs ?? 20_000;
+  if (
+    !Number.isSafeInteger(tokenTimeoutMs) ||
+    tokenTimeoutMs < 1 ||
+    tokenTimeoutMs > 20_000
+  )
+    throw new Error("elevenlabs_stt_token_bound_invalid");
+  return async (input) => {
+    const upgradeUrl = input.url
+      .replace(/^wss:/iu, "https:")
+      .replace(/^ws:/iu, "http:");
+    const controller = new AbortController();
+    const timeoutError = new Error("elevenlabs_stt_token_timeout");
+    const deadline = performance.now() + tokenTimeoutMs;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tokenResponse: Response | undefined;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const expired = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort(timeoutError);
+        reject(timeoutError);
+      }, tokenTimeoutMs);
     });
-    if (!tokenResponse.ok) {
-      await tokenResponse.body?.cancel().catch(() => undefined);
-      if (CONFIRMED_TOKEN_REFUSALS.has(tokenResponse.status))
-        throw new KaraokeTokenRefusal(tokenResponse.status);
-      throw new Error(
-        `elevenlabs_stt_token_mint_failed_${tokenResponse.status}`,
-      );
-    }
-    const tokenDocument = (await tokenResponse.json()) as { readonly token?: unknown };
-    if (typeof tokenDocument.token !== "string" || tokenDocument.token.trim() === "") {
-      throw new Error("elevenlabs_stt_token_missing");
+    const timely = () => {
+      if (controller.signal.aborted || performance.now() >= deadline)
+        throw timeoutError;
+    };
+    let token: string;
+    try {
+      const mint = fetchRequest(new URL(TOKEN_PATH, upgradeUrl), {
+        method: "POST",
+        headers: { "xi-api-key": input.apiKey },
+        signal: controller.signal,
+      }).then((response) => {
+        if (controller.signal.aborted) {
+          try {
+            void response.body?.cancel().catch(() => undefined);
+          } catch {}
+          throw timeoutError;
+        }
+        return response;
+      });
+      tokenResponse = await Promise.race([mint, expired]);
+      timely();
+      if (!tokenResponse.ok) {
+        if (CONFIRMED_TOKEN_REFUSALS.has(tokenResponse.status))
+          throw new KaraokeTokenRefusal(tokenResponse.status);
+        throw new Error(
+          "elevenlabs_stt_token_mint_failed_" + tokenResponse.status,
+        );
+      }
+      if (!tokenResponse.body) throw new Error("elevenlabs_stt_token_missing");
+      reader = tokenResponse.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const part = await Promise.race([reader.read(), expired]);
+        timely();
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > 65_536)
+          throw new Error("elevenlabs_stt_token_body_too_large");
+        chunks.push(part.value);
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      let document: unknown;
+      try {
+        document = JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        );
+      } catch {
+        throw new Error("elevenlabs_stt_token_malformed");
+      }
+      if (
+        typeof document !== "object" ||
+        document === null ||
+        Array.isArray(document)
+      )
+        throw new Error("elevenlabs_stt_token_missing");
+      const value = (document as { readonly token?: unknown }).token;
+      if (typeof value !== "string" || value.trim() === "")
+        throw new Error("elevenlabs_stt_token_missing");
+      token = value;
+      timely();
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
+      // Cleanup must not await a stalled stream cancellation.
+      try {
+        void (reader ? reader.cancel() : tokenResponse?.body?.cancel())?.catch(
+          () => undefined,
+        );
+      } catch {}
+      try {
+        reader?.releaseLock();
+      } catch {}
     }
     const websocketUrl = new URL(upgradeUrl);
-    websocketUrl.searchParams.set("token", tokenDocument.token);
+    websocketUrl.searchParams.set("token", token);
     const response = (await fetchRequest(websocketUrl, {
       headers: { Upgrade: "websocket" },
-    })) as Response & { readonly webSocket: (WebSocket & { accept(): void }) | null };
+    })) as Response & {
+      readonly webSocket: (WebSocket & { accept(): void }) | null;
+    };
     if (response.webSocket === null) {
-      throw new Error(`elevenlabs_stt_upgrade_failed_${response.status}`);
+      throw new Error("elevenlabs_stt_upgrade_failed_" + response.status);
     }
     response.webSocket.accept();
     return response.webSocket as unknown as KaraokeSttSocket;
   };
+};
 
-export const connectElevenLabsKaraokeSocket = makeElevenLabsKaraokeSocketConnect(fetch);
+export const connectElevenLabsKaraokeSocket =
+  makeElevenLabsKaraokeSocketConnect(fetch);
 
 type Segment = Readonly<{
   streamStartMs: number;
@@ -107,7 +207,8 @@ type Segment = Readonly<{
 
 const finite = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
-const string = (value: unknown): string => (typeof value === "string" ? value : "");
+const string = (value: unknown): string =>
+  typeof value === "string" ? value : "";
 const base64 = (buffer: ArrayBuffer): string => {
   const bytes = new Uint8Array(buffer);
   let binary = "";
@@ -169,7 +270,9 @@ export interface ElevenLabsKaraokeSttOptions {
   readonly model?: string;
   readonly websocketUrl?: string;
   readonly connect?: KaraokeSttSocketConnect;
-  readonly onProviderRetentionChanged?: (retention: "not_stored" | "stored") => void;
+  readonly onProviderRetentionChanged?: (
+    retention: "not_stored" | "stored",
+  ) => void;
 }
 
 export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
@@ -196,7 +299,9 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
     this.options = options;
   }
 
-  async start(input: Parameters<KaraokeStreamingSttAdapter["start"]>[0]): Promise<void> {
+  async start(
+    input: Parameters<KaraokeStreamingSttAdapter["start"]>[0],
+  ): Promise<void> {
     this.closed = false;
     this.closing = false;
     this.segments = [];
@@ -218,14 +323,21 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
     url.searchParams.set("audio_format", "pcm_16000");
     url.searchParams.set("include_timestamps", "true");
     url.searchParams.set("commit_strategy", "manual");
-    url.searchParams.set("enable_logging", String(this.options.enableLogging !== false));
-    const socket = await (this.options.connect ?? connectElevenLabsKaraokeSocket)({
+    url.searchParams.set(
+      "enable_logging",
+      String(this.options.enableLogging !== false),
+    );
+    const socket = await (
+      this.options.connect ?? connectElevenLabsKaraokeSocket
+    )({
       url: url.toString(),
       apiKey: this.options.apiKey,
     });
     this.socket = socket;
     socket.addEventListener("message", (event) => {
-      this.inbound = this.inbound.then(() => this.handleMessage(event.data)).catch(() => undefined);
+      this.inbound = this.inbound
+        .then(() => this.handleMessage(event.data))
+        .catch(() => undefined);
     });
     socket.addEventListener("close", () => this.socketDropped());
     socket.addEventListener("error", () => this.socketDropped());
@@ -243,9 +355,14 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
       songEndMs: frame.songEndMs,
     });
     const cutoff = this.streamCursorMs - SEGMENT_RETENTION_MS;
-    this.segments = this.segments.filter((segment) => segment.streamEndMs >= cutoff);
+    this.segments = this.segments.filter(
+      (segment) => segment.streamEndMs >= cutoff,
+    );
     this.uncommittedBytes += frame.pcm16.byteLength;
-    this.submittedSongFrontierMs = Math.max(this.submittedSongFrontierMs, frame.songEndMs);
+    this.submittedSongFrontierMs = Math.max(
+      this.submittedSongFrontierMs,
+      frame.songEndMs,
+    );
     this.emitter?.noteAudio(frame.songEndMs);
     this.socket?.send(
       JSON.stringify({
@@ -266,7 +383,8 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
       this.closed ||
       this.inFlight !== null ||
       this.streamGeneration === null ||
-      (this.uncommittedBytes / 2 / this.sampleRate) * 1_000 < SAFE_COMMIT_FLOOR_MS
+      (this.uncommittedBytes / 2 / this.sampleRate) * 1_000 <
+        SAFE_COMMIT_FLOOR_MS
     ) {
       return null;
     }
@@ -325,7 +443,8 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
     } catch {
       return;
     }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return;
     const message = parsed as Record<string, unknown>;
     const type = string(message.message_type) || string(message.type);
     if (type === "warning") {
@@ -346,7 +465,8 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
     }
     const transcript = string(message.text) || string(message.transcript);
     if (type === "partial_transcript") {
-      if (transcript !== "") await this.emitter.send("stt_partial", transcript, []);
+      if (transcript !== "")
+        await this.emitter.send("stt_partial", transcript, []);
       return;
     }
     if (type !== "committed_transcript_with_timestamps") return;
@@ -360,7 +480,12 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
             coverageMs: inFlight.frontierMs,
             streamGeneration: this.streamGeneration,
           };
-    await this.emitter.send("stt_final", transcript, this.mapWords(message.words), commit);
+    await this.emitter.send(
+      "stt_final",
+      transcript,
+      this.mapWords(message.words),
+      commit,
+    );
     this.drain?.();
     this.drain = null;
   }
@@ -376,7 +501,8 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
   private mapWords(raw: unknown): KaraokeRecognizedWord[] {
     if (!Array.isArray(raw)) return [];
     return raw.flatMap((value) => {
-      if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+      if (typeof value !== "object" || value === null || Array.isArray(value))
+        return [];
       const word = value as Record<string, unknown>;
       if (word.type === "spacing") return [];
       const token = (string(word.text) || string(word.word)).trim();
@@ -417,17 +543,25 @@ export class ElevenLabsKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
         ) ?? this.segments[0];
     if (segment === undefined) return Math.round(streamMs);
     const durationMs = segment.streamEndMs - segment.streamStartMs;
-    const fraction = durationMs > 0 ? (streamMs - segment.streamStartMs) / durationMs : 0;
-    return Math.round(segment.songStartMs + fraction * (segment.songEndMs - segment.songStartMs));
+    const fraction =
+      durationMs > 0 ? (streamMs - segment.streamStartMs) / durationMs : 0;
+    return Math.round(
+      segment.songStartMs +
+        fraction * (segment.songEndMs - segment.songStartMs),
+    );
   }
 }
 
 export class FakeKaraokeSttAdapter implements KaraokeStreamingSttAdapter {
   streamGeneration: string | null = null;
   readonly frames: KaraokeClientBinaryFrame[] = [];
-  private onMessage: ((message: KaraokeSttAdapterMessage) => Promise<void>) | null = null;
+  private onMessage:
+    | ((message: KaraokeSttAdapterMessage) => Promise<void>)
+    | null = null;
 
-  async start(input: Parameters<KaraokeStreamingSttAdapter["start"]>[0]): Promise<void> {
+  async start(
+    input: Parameters<KaraokeStreamingSttAdapter["start"]>[0],
+  ): Promise<void> {
     this.streamGeneration = crypto.randomUUID();
     this.onMessage = input.onMessage;
   }
