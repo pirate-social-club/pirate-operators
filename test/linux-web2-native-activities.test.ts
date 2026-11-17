@@ -15,13 +15,46 @@ const native: Web2NativeActivityPolicy = {schema:"pirate.web2-native-activities/
 };
 const draft = { configuration:{communityId:first,operatorPayments:"0x"+"0".repeat(40)},
  deployment:{rpcUrl:"https://rpc.example"},origin:"https://community.example" } as LinuxWeb2Draft;
-function graph():NativeGraph {
-  return {durableScope:"6".repeat(64),requiredRoles:["private-study"],actors:[{service:"private-study-operator",bindings:[]}],
-    secretBindings:[],applicationBindings:[{name:"STUDY_PRIVATE_V5_PROFILE",text:"profile"},
-      {name:"SPEECH_ADMISSION_CONFIG",text:"budget"},
-      {name:"SPEECH_BUDGET",durable:{service:"private-study-operator",className:"SpeechBudget"}},
-      {name:"COMMUNITY_PRIVATE_PRACTICE_PROFILE_JSON",text:canonical({activities:{study:{kind:"private-v5",profileHash:first},karaoke:null,dance:null}})}]
-  } as NativeGraph;
+function graph(): NativeGraph {
+  const root = "/private/native-activity-fixture";
+  const durableScope = "6".repeat(64);
+  return {
+    installationId: "native-activity-fixture",
+    durableScope,
+    releaseRoot: root + "/release",
+    schemaPath: root + "/release/workerd.capnp",
+    stateRoots: {
+      "private-study": root + "/private-study",
+      "private-karaoke": root + "/private-karaoke",
+    },
+    socket: root + "/control.sock",
+    requiredRoles: ["private-study"],
+    actors: [{
+      service: "private-study-operator",
+      module: "web2-study-operator.worker.mjs",
+      role: "private-study",
+      namespaces: [{ className: "SpeechBudget", key: "speech-budget-" + durableScope }],
+      bindings: [],
+    }],
+    secretBindings: [],
+    applicationBindings: [
+      { name: "STUDY_PRIVATE_V5_PROFILE", text: "profile" },
+      { name: "SPEECH_ADMISSION_CONFIG", text: "budget" },
+      { name: "SPEECH_BUDGET", durable: { service: "private-study-operator", className: "SpeechBudget" } },
+      { name: "COMMUNITY_PRIVATE_PRACTICE_PROFILE_JSON", text: canonical({
+        activities: { study: { kind: "private-v5", profileHash: first }, karaoke: null, dance: null },
+      }) },
+    ],
+    queueConfiguration: { scope: durableScope },
+    maintenanceConfiguration: { scope: durableScope },
+    directoryRuntimeBinding: canonical(draft.deployment),
+    allowedOrigins: [draft.deployment.rpcUrl],
+    listenAddress: "0.0.0.0:8443",
+    tls: { keyFile: root + "/tls.key", certificateFile: root + "/tls.pem" },
+    migrationPlanFile: root + "/release/migration-plan.json",
+    probePlanFile: root + "/probe.json",
+    readbackKeyFile: root + "/readback.key",
+  };
 }
 
 test("a captured native Karaoke selection shares the retained Study budget and leaves public targets absent",()=>{
