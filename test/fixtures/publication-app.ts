@@ -131,6 +131,7 @@ export async function publicationAppFixture(
     gate: ReturnType<typeof deferred>;
   } | null = null;
   const operatorCalls: { path: string; bodySha256: Hex }[] = [];
+  const operatorErrors: { path: string; error: string }[] = [];
   const read = publicationReadRpc(
     rpc.origin + "/rpc",
     controller.signal,
@@ -148,13 +149,25 @@ export async function publicationAppFixture(
       held.entered.resolve();
       await held.gate.promise;
     }
-    const response = await publicationInstalledOperatorFetch(request, {
-      catalog,
-      operatorAddress: lower(payer.address),
-      store: operator.store,
-      read,
-      clock: () => Math.floor(nowMs / 1000),
-    });
+    let response: Response | null;
+    try {
+      response = await publicationInstalledOperatorFetch(request, {
+        catalog,
+        operatorAddress: lower(payer.address),
+        store: operator.store,
+        read,
+        clock: () => Math.floor(nowMs / 1000),
+      });
+    } catch (error) {
+      operatorErrors.push({
+        path,
+        error:
+          error instanceof Error && /^[a-z0-9_]+$/.test(error.message)
+            ? error.message
+            : "fixture_operator_error",
+      });
+      throw error;
+    }
     assert.ok(response);
     if (heldOperatorResult?.path === path) {
       const held = heldOperatorResult;
@@ -277,8 +290,10 @@ export async function publicationAppFixture(
     context,
     authority,
     operatorCalls,
+    operatorErrors,
     db: database.native,
     holdMutation: database.holdMutation,
+    failRead: database.failRead,
     call,
     rows,
     now: () => BigInt(Math.floor(nowMs / 1000)),
@@ -488,6 +503,7 @@ export async function publicationAppFixture(
         operatorNonce: operator.store.get("op:nonce") ?? null,
         intents: operator.store.entries("intent:").length,
         operatorCalls,
+        operatorErrors,
         rpcMethods: authority.state.calls,
         httpResponses,
       };

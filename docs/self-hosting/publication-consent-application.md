@@ -54,6 +54,19 @@ cross-store transaction is assumed. Recovery preserves the original command,
 accepted signature, calldata, nonce and transaction identity. Unknown execution
 remains charged and does not authorize a replacement send.
 
+The operator durably attributes an account fence to its exact authenticated
+withdrawal acknowledgement. A fresh grant from another linked learner can
+align a lower learner fence to that captured generation inside the queue and
+sponsorship transaction. Higher or conflicting generations refuse. An old
+acknowledgement cannot stop a newer cohort again, and a larger remote counter
+never changes the application's captured generation.
+
+Current queue admission and original recovery remain separate. If current
+context or witness delivery is unavailable, recovery uses only the original
+reconciliation route. It does not queue a replacement, allocate a nonce or
+refund unknown work. A missing remote original stays unavailable. Sponsor
+exhaustion rolls back target alignment together with the new job.
+
 ## Qualification and remaining integration
 
 The local application checks exercise real loopback HTTP, sessions, CSRF, D1,
@@ -65,7 +78,7 @@ They do not qualify deployed contracts, real MOSS signing or live providers.
 The services are not yet mounted in the deployed application. Runtime profile
 selection, retained-source transport, restart/alarm composition, actual
 Study/Karaoke/Dance starts and producer publication remain integration work.
-Linked-wallet generation synchronization between the account-scoped app fence
-and learner-scoped operator fence also remains unqualified. The sender stays
-closed. The first-song profile keeps learning publication and Dance disabled;
+Any later sender must check the account fence alongside the learner fence and
+actual activity admission. Recovering an old generation's job grants no send
+authority. The sender stays closed. The first-song profile keeps learning publication and Dance disabled;
 its plain login does not acquire public consent.

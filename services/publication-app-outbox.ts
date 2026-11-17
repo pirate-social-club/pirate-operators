@@ -19,6 +19,7 @@ import {
   type PublicationDueCursor,
 } from "./publication-app-journal.ts";
 import { publicationOriginal } from "./publication-app-request.ts";
+import { publicationGrantQueueContext } from "./publication-grant-queue-context.ts";
 import type { PublicationReleaseCatalog } from "./publication-app-selection.ts";
 import {
   PublicationOperatorTransport,
@@ -56,6 +57,7 @@ function nextTime(p: PublicationOutbox, delay: number) {
 export async function propagatePublicationFence(
   p: PublicationOutbox,
   input: CommandRow,
+  mode: "missing-ack" | "replay-witness" = "missing-ack",
 ) {
   let row = await read(p, input);
   check(
@@ -65,7 +67,7 @@ export async function propagatePublicationFence(
     "publication_fence_pending",
   );
   const original = publicationOriginal(row, p.catalog);
-  if (row.fence_ack_json) return row;
+  if (row.fence_ack_json && mode === "missing-ack") return row;
   const body = {
     schema: "pirate.publication-inhibition/1",
     commandId: row.command_id,
@@ -89,7 +91,8 @@ export async function propagatePublicationFence(
   check(
     reply.commandId === row.command_id &&
       reply.generation === row.fence_generation &&
-      reply.requestHash === row.request_hash,
+      reply.requestHash === row.request_hash &&
+      (row.fence_ack_json === null || row.fence_ack_json === canonical(reply)),
     "publication_fence_ack_changed",
   );
   row = await read(p, row);
@@ -123,6 +126,34 @@ export async function deliverPublicationOriginal(
       same(capturedFee(accepted.fee), original.release.fee),
     "publication_original_changed",
   );
+  const originalOnly = async () => {
+    row = await reconcilePublicationOriginal(p, row);
+    await deferPublication(p.db, row, nextTime(p, p.observationDelayMs));
+    return read(p, row);
+  };
+  if (command.action === "grant") {
+    let current = false;
+    try {
+      let context = await publicationGrantQueueContext(p, row, command);
+      if (context.kind === "current") {
+        if (context.witness) {
+          const witnessId = context.witness.command_id;
+          await propagatePublicationFence(p, context.witness, "replay-witness");
+          context = await publicationGrantQueueContext(p, row, command);
+          if (context.kind === "current")
+            check(
+              context.witness?.command_id === witnessId,
+              "publication_fence_witness_changed",
+            );
+        }
+        current = context.kind === "current";
+      }
+    } catch {
+      // Missing current admission closes fresh queueing. It cannot hide an
+      // original receipt; reconciliation never grants or allocates a nonce.
+    }
+    if (!current) return originalOnly();
+  }
   const receipt = parsePublicationReceipt(
     await p.transport.request(
       "/publication/v1/accept",

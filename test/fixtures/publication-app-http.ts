@@ -104,6 +104,13 @@ export async function appDatabase() {
         await item.gate.promise;
       }
     };
+    let failedRead: string | null = null;
+    const readFault = (sql: string) => {
+      if (failedRead && sql.includes(failedRead)) {
+        failedRead = null;
+        throw Error("fixture_current_read_unavailable");
+      }
+    };
     const originals = new WeakMap<object, D1PreparedStatement>();
     const wrap = (
       statement: D1PreparedStatement,
@@ -113,6 +120,18 @@ export async function appDatabase() {
         get(target, key) {
           if (key === "bind")
             return (...args: unknown[]) => wrap(target.bind(...args), sql);
+          if (key === "first")
+            return async (column?: string) => {
+              readFault(sql);
+              return column === undefined
+                ? target.first()
+                : target.first(column);
+            };
+          if (key === "all")
+            return async () => {
+              readFault(sql);
+              return target.all();
+            };
           if (key === "run")
             return async () => {
               await pause(sql);
@@ -140,6 +159,10 @@ export async function appDatabase() {
       runtime,
       native,
       db,
+      failRead(fragment: string) {
+        assert.equal(failedRead, null);
+        failedRead = fragment;
+      },
       holdMutation(fragment: string) {
         assert.equal(held, null);
         const entered = deferred(),

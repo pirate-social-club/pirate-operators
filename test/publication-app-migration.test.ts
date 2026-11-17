@@ -1,13 +1,26 @@
 import assert from "node:assert/strict";
-import test from "node:test";
-import { readdir } from "node:fs/promises";
+import test, { type TestContext } from "node:test";
+import { readdir, mkdir, writeFile } from "node:fs/promises";
 import { communityMigrations } from "../harness/package-migrations.ts";
 import { authorityD1Fixture, sha } from "./learning-authority-d1-fixture.ts";
+
+async function artifact(t: TestContext, label: string, value: unknown) {
+  const path = ".local/publication-app-integration/" + label + ".json";
+  const bytes =
+    JSON.stringify(
+      { schema: "pirate.publication-migration-evidence/1", label, value },
+      null,
+      2,
+    ) + "\n";
+  await mkdir(".local/publication-app-integration", { recursive: true });
+  await writeFile(path, bytes);
+  t.diagnostic(JSON.stringify({ artifact: path, sha256: sha(bytes) }));
+}
 
 // Failure inventory: the new file must not silently enter existing profiles;
 // explicit V5 journal selection must not require V4 consent; upgrades retain
 // real accounts/sessions/settings, and DDL plus Alchemy ledger must roll back.
-test("publication journal migration is explicit and independent of V4 authorization", async () => {
+test("publication journal migration is explicit and independent of V4 authorization", async (t) => {
   const names = await readdir(
     new URL("../apps/community-wizard/infra/migrations/", import.meta.url),
   );
@@ -22,6 +35,10 @@ test("publication journal migration is explicit and independent of V4 authorizat
   assert.deepEqual(selected, [...historical, "0020_publication_consent.sql"]);
   assert.equal(selected.includes("0013_learning_authorization.sql"), false);
   assert.equal(selected.includes("0018_learning_authority.sql"), false);
+  await artifact(t, "publication-migration-selection", {
+    historical,
+    selected,
+  });
 });
 
 const journalTables = async (
@@ -38,7 +55,7 @@ const journalTables = async (
 test(
   "actual Alchemy upgrade19 to20 preserves login/settings and applies an empty consent journal once",
   { timeout: 30000 },
-  async () => {
+  async (t) => {
     const f = await authorityD1Fixture(20);
     try {
       await f.apply(f.records.slice(0, 19));
@@ -107,6 +124,14 @@ test(
         (await f.db.prepare("PRAGMA foreign_key_check").all()).results,
         [],
       );
+      await artifact(t, "publication-migration-upgrade", {
+        ledger,
+        beforeStateSha256: sha(JSON.stringify(before)),
+        afterStateSha256: sha(JSON.stringify(await snapshot())),
+        tables: await journalTables(f),
+        journalRows: 0,
+        foreignKeyViolations: 0,
+      });
     } finally {
       await f.dispose();
     }
@@ -116,7 +141,7 @@ test(
 test(
   "actual Alchemy rolls publication DDL and ledger back together before a retry",
   { timeout: 30000 },
-  async () => {
+  async (t) => {
     const f = await authorityD1Fixture(20);
     try {
       await f.apply(f.records.slice(0, 19));
@@ -133,9 +158,18 @@ test(
       );
       assert.deepEqual(await journalTables(f), []);
       assert.deepEqual((await f.ledger()).results, ledger);
+      const rolledBackLedger = (await f.ledger()).results,
+        rolledBackTables = await journalTables(f);
       await f.apply();
       assert.equal((await f.ledger()).results.length, 20);
       assert.equal((await journalTables(f)).length, 3);
+      await artifact(t, "publication-migration-rollback", {
+        prefix: ledger,
+        rolledBackLedger,
+        rolledBackTables,
+        retriedLedger: (await f.ledger()).results,
+        retriedTables: await journalTables(f),
+      });
     } finally {
       await f.dispose();
     }
