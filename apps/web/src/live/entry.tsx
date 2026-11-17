@@ -908,6 +908,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         csrf={session()?.csrf ?? ""}
         wallet={mossWallet}
         serviceMode={capabilities()?.learningServiceMode}
+        studyRuntime={capabilities()?.studyRuntime}
         signInPermission={learningPermission()}
         actions={actionOwner}
         historyGeneration={historyGeneration()}
