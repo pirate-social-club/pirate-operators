@@ -47,7 +47,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string|null,outbound="deny",experimental=false)=>
     `(name=${q(name)},worker=(modules=[(name="entry.mjs",esModule=embed ${q(module(file))})],compatibilityDate="2026-11-04",
        compatibilityFlags=${JSON.stringify(["nodejs_compat","service_binding_extra_handlers",...(experimental?["experimental"]:[])])},bindings=[${bindings}],
-       ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage===null?"durableObjectStorage=(inMemory=()),":storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
+       ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage===null?"durableObjectStorage=(inMemory=void),":storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
   const ns=(service:string,cls:string,key:string)=>`(className=${q(cls)},uniqueKey=${q(key)},enableSql=true)`;
   const doBinding=(name:string,service:string,cls:string)=>`(name=${q(name)},durableObjectNamespace=(serviceName=${q(service)},className=${q(cls)}))`;
   const objectEntry=(name:string,service:string,cls:string,namespace:string)=>worker(name,"object-entry.worker.js",

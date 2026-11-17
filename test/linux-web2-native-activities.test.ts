@@ -3,7 +3,7 @@ import test from "node:test";
 import { canonical, hashText } from "../packages/community/common.ts";
 import type { LinuxWeb2Draft } from "../packages/community-setup/linux-web2-profile.ts";
 import { assertNoBootstrapNativeActivities, composeNativeActivities, offeredPractice, type Web2NativeActivityPolicy } from "../deploy/linux/web2-native-activities.ts";
-import type { NativeGraph } from "../deploy/linux/full-native-config.ts";
+import { renderFullNativeConfig, type NativeGraph } from "../deploy/linux/full-native-config.ts";
 import type { Web2LocalStudyPolicy } from "../deploy/linux/web2-local-study.ts";
 
 const first = hashText("native-activity-fixture");
@@ -24,6 +24,11 @@ function graph(): NativeGraph {
     releaseRoot: root + "/release",
     schemaPath: root + "/release/workerd.capnp",
     stateRoots: {
+      database: root + "/database",
+      objects: root + "/objects",
+      jobs: root + "/jobs",
+      scheduler: root + "/scheduler",
+      readiness: root + "/readiness",
       "private-study": root + "/private-study",
       "private-karaoke": root + "/private-karaoke",
     },
@@ -47,7 +52,11 @@ function graph(): NativeGraph {
     ],
     queueConfiguration: { scope: durableScope },
     maintenanceConfiguration: { scope: durableScope },
-    directoryRuntimeBinding: canonical(draft.deployment),
+    directoryRuntimeBinding: canonical({
+      ...draft.deployment,
+      origin: draft.origin,
+      directoryProfile: { communityId: first },
+    }),
     allowedOrigins: [draft.deployment.rpcUrl],
     listenAddress: "0.0.0.0:8443",
     tls: { keyFile: root + "/tls.key", certificateFile: root + "/tls.pem" },
@@ -73,6 +82,10 @@ test("a captured native Karaoke selection shares the retained Study budget and l
   assert(!karaoke.bindings.some(a=>a.name==="DB" || a.name==="KARAOKE_NATIVE_SESSION_CAPTURE"));
   assert(!karaoke.bindings.some(a=>a.name.includes("RESULTS") || a.name==="RECORDS_CONTRACT"));
   assert.deepEqual(composeNativeActivities(graph(),structuredClone(selected),study,native),composed);
+
+  const config = renderFullNativeConfig(composed, "serve", "7".repeat(64));
+  assert.match(config, /name="private-karaoke-session".*?preventEviction=true\)\],durableObjectStorage=\(inMemory=void\)/s);
+  assert.match(config, /durableObjectStorage=\(localDisk="actor-private-karaoke-operator"\)/);
 });
 
 test("the signed bootstrap cannot prebind or replace the native session gate", () => {
