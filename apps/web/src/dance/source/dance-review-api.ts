@@ -1,8 +1,5 @@
-import type {
-  DanceCapture,
-  DanceReceipt,
-  DanceReview,
-} from "../../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "../capture.ts";
+import type { DanceReceipt, DanceReview } from "../../../../../packages/dance/contracts.ts";
 import type { ReadyMedia } from "../../../../../packages/community-media/contracts.ts";
 import { assertCapture, type DanceCaptureTarget } from "./ports.ts";
 
@@ -100,6 +97,8 @@ export function danceResultPresentation(result: DanceResult): {
   title: string;
   detail: string;
 } {
+  if (result.kind === "local_recording" && result.capture.version === "pirate.dance/2" && result.capture.publication.kind === "private")
+    return {title:"Saved privately",detail:"Your practice recording stays private."};
   if (result.kind === "local_recording")
     return {
       title: "Ready to submit",

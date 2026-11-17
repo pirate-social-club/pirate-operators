@@ -1,5 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 import { capturedWords } from "./capture-fixture.ts";
+import {
+  captureClockDiagnostics,
+  retainCaptureClockDiagnostics,
+} from "./capture-clock-diagnostics.ts";
+
+// Preserve the actual clocks and wire ranges when browser/CI timing diverges.
+test.beforeEach(async ({ page }) => captureClockDiagnostics(page));
+test.afterEach(async ({ page }, info) =>
+  retainCaptureClockDiagnostics(page, info),
+);
 
 interface Operator {
   words: { text: string; startMs: number; endMs: number }[];

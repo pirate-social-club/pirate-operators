@@ -1,4 +1,5 @@
-import type { DanceCapture, DanceReview } from "../../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "../capture.ts";
+import type { DanceReview } from "../../../../../packages/dance/contracts.ts";
 import { sameDanceTarget, validDanceTarget, type DanceCataloguePage,
   type DanceProductionTarget, type DanceReferenceGrant, type DanceGuideGrant } from "../../../../../packages/dance/production.ts";
 import { DanceClientError } from "../client.ts";
@@ -106,7 +107,7 @@ export function createProductionDanceApi(input: {
       const result = await get<{ version: string; capture: DanceCapture }>(
         "captures/" + encodeURIComponent(c.captureId) + "/access", signal,
       );
-      if (result.version !== "pirate.dance-capture-access/1" ||
+      if (result.version !== (c.version === "pirate.dance/2" ? "pirate.dance-capture-access/2" : "pirate.dance-capture-access/1") ||
         result.capture.captureId !== c.captureId || result.capture.captureHash !== c.captureHash ||
         JSON.stringify(result.capture) !== JSON.stringify(c)) throw Error("dance_preparation_target_changed");
       assertCapture(result.capture, captureTarget(c));

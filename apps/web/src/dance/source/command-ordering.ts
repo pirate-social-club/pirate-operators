@@ -1,4 +1,7 @@
-import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
+import { parseCaptureRequestV2 } from "../../../../../packages/dance/capture-v2.ts";
+import { sameDanceTarget } from "../../../../../packages/dance/production.ts";
+import type { DanceCapture } from "../capture.ts";
+
 import {
   hasDanceExpiredOutcome,
   sameOriginalCommand,
@@ -78,12 +81,20 @@ export function assertCaptureCommand(
   assertCommandTarget(e, options);
   const b = JSON.parse(e.bodyJson),
     p = options.consent;
+  let selected =
+    b.songKey === options.scope.songKey &&
+    b.offerId === options.scope.offerId &&
+    b.referenceId === (options.scope.reference?.id ?? null);
+  if (b.version === "pirate.dance-capture-request/2") {
+    const request = parseCaptureRequestV2({ ...b, commandId: e.commandId });
+    selected =
+      request.publication.kind === "private" &&
+      sameDanceTarget(request.target, options.scope);
+  }
   if (
     e.path !== "captures" ||
     e.subject !== "capture" ||
-    b.songKey !== options.scope.songKey ||
-    b.offerId !== options.scope.offerId ||
-    b.referenceId !== (options.scope.reference?.id ?? null) ||
+    !selected ||
     b.consent?.accepted !== true ||
     b.consent.version !== p.version ||
     b.consent.termsHash !== p.termsHash ||
