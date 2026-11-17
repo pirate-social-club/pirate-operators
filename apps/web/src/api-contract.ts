@@ -38,6 +38,8 @@ export interface CommunityCapabilities {
   membership?: boolean;
   rewards?: boolean;
   study?: boolean;
+  /** Explicit private practice; login supplies no public publication grant. */
+  studyRuntime?: "private-v5";
   learningServiceMode?: "internal";
   /**
    * The learning documents of the community's version (3 or 4), linked from

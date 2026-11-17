@@ -1,3 +1,4 @@
+import { StudyLessonStore } from "../packages/study/lesson-store.ts";
 // D1 is the outbox: terminal lesson state and original bindings survive a
 // browser exit or a lost operator response. Only the operator sends transactions.
 import { digest } from "../packages/protocol/index.ts";
@@ -60,6 +61,14 @@ export function studyPublicationQueue(
   return {
     get: async (id: string) => view(await load(id)),
     async sync(id: string, force = false) {
+      // Fresh private entries have no outbox. Refuse any accidental legacy
+      // publication path before terminal facts, target fallback or allocation.
+      // Erased private history is unavailable to practice, but an original
+      // public outbox must still reconcile its saved transaction or receipt.
+      const lessons = new StudyLessonStore(db),
+        lesson = await lessons.row(owner, id);
+      if (lesson.history_deleted_at == null && lessons.state(lesson).privateV5)
+        return null;
       const row = await freezeStudyOutbox(db, owner, id);
       if (!row) return null; // No recording authority was obtained.
       const prior = view(row).receipt;

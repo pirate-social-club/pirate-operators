@@ -9,6 +9,9 @@ export type StudyOperatorPath =
   | "/study/terminal"
   | "/study/speech"
   | "/study/speech/status"
+  | "/study/v5/private/bind"
+  | "/study/v5/private/speech"
+  | "/study/v5/private/speech/status"
   | "/study/telegram/deny";
 export interface StudyOperatorAuthority {
   chainId: 31337 | 6343;
@@ -75,6 +78,9 @@ export async function verifyStudyAuthorization(
         "/study/terminal",
         "/study/speech",
         "/study/speech/status",
+        "/study/v5/private/bind",
+        "/study/v5/private/speech",
+        "/study/v5/private/speech/status",
         "/study/telegram/deny",
       ].includes(a.path) &&
       new URL(request.url).pathname === a.path &&

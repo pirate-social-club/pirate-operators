@@ -18,11 +18,16 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.replaceChildren();
 });
-function lesson(id: string, postId = "post-a"): StudyLesson {
+const fixtureCommunityId = `0x${"2".repeat(64)}`;
+function lesson(
+  id: string,
+  postId = "post-a",
+  communityId = fixtureCommunityId,
+): StudyLesson {
   const song = {
     chainId: 6343,
     postsContract: `0x${"1".repeat(40)}`,
-    communityId: `0x${"2".repeat(64)}`,
+    communityId,
     postId,
     lyricRevision: 1,
   };
@@ -64,7 +69,7 @@ function lesson(id: string, postId = "post-a"): StudyLesson {
 }
 function mount(account: string | null = "account-a") {
   const [scope, setScope] = createSignal({
-    communityId: "community-a",
+    communityId: fixtureCommunityId,
     account,
     csrf: "csrf-a",
     route: {
@@ -101,6 +106,7 @@ function mount(account: string | null = "account-a") {
 }
 function transport() {
   let account = "account-a";
+  let communityId = fixtureCommunityId;
   const requests: { url: URL; init?: RequestInit }[] = [];
   const delayed = new Map<string, (response: Response) => void>();
   const response = (value: unknown) => Response.json(value);
@@ -110,12 +116,14 @@ function transport() {
     if (url.pathname === "/api/session")
       return response({ mossAddress: account });
     if (url.pathname === "/api/study/song")
-      return response(lesson("", url.searchParams.get("postId")!).song);
+      return response(
+        lesson("", url.searchParams.get("postId")!, communityId).song,
+      );
     if (url.pathname.startsWith("/api/study/lessons/")) {
       const id = decodeURIComponent(url.pathname.split("/")[4]!);
       if (id.startsWith("held"))
         return new Promise<Response>((resolve) => delayed.set(id, resolve));
-      return response(lesson(id));
+      return response(lesson(id, "post-a", communityId));
     }
     if (/^\/api\/public\/posts\/[^/]+\/karaoke$/.test(url.pathname))
       return new Promise(() => {});
@@ -129,6 +137,9 @@ function transport() {
     delayed,
     setAccount(value: string) {
       account = value;
+    },
+    setCommunity(value: string) {
+      communityId = value;
     },
   };
 }
@@ -167,7 +178,8 @@ test.each(["lesson", "account", "community", "csrf", "closed"] as const)(
     view.setScope((scope) => ({
       ...scope,
       account: boundary === "account" ? "account-b" : scope.account,
-      communityId: boundary === "community" ? "community-b" : scope.communityId,
+      communityId:
+        boundary === "community" ? `0x${"3".repeat(64)}` : scope.communityId,
       csrf: boundary === "csrf" ? "csrf-b" : scope.csrf,
       route:
         boundary === "closed"
@@ -175,6 +187,8 @@ test.each(["lesson", "account", "community", "csrf", "closed"] as const)(
           : { ...scope.route!, lessonId: "lesson-b" },
     }));
     if (boundary === "account") http.setAccount("account-b");
+    if (boundary === "community")
+      http.setCommunity(`0x${"3".repeat(64)}`);
     if (boundary !== "closed")
       await vi.waitFor(() =>
         expect(view.opened).toHaveBeenCalledWith("lesson-b"),

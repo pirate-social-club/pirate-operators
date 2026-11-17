@@ -71,6 +71,32 @@ class StudyAuthorizationPendingError extends Error {}
 /** A short, bounded wait for a just-made sign-in to be recorded. */
 const AUTHORIZATION_RETRIES = 5,
   AUTHORIZATION_RETRY_MS = 2000;
+export type StudyPublicationChoice = Readonly<{ kind: "private" }>;
+export interface StudyStartOwner {
+  communityId: string;
+  account: string;
+  csrf: string;
+  postId: string;
+}
+interface PendingStudyStart {
+  readonly requestId: string;
+  readonly song: Readonly<StudySong>;
+  readonly requestJson: string;
+  readonly publication: "private" | "legacy";
+  attempted: boolean;
+  inFlight?: Promise<StudyLesson>;
+  accepted?: StudyLesson;
+}
+/** Parent-owned memory only, scoped to the existing community/account/session/
+ * post. This transfers an original pending request, never authentication or a
+ * grant, across presentation-mode remounts. No new journal or transport exists. */
+export interface StudyStartHandoff {
+  readonly owner: Readonly<StudyStartOwner>;
+  pending: PendingStudyStart | null;
+}
+export function createStudyStartHandoff(owner: StudyStartOwner): StudyStartHandoff {
+  return { owner: Object.freeze({ ...owner }), pending: null };
+}
 export function createStudyClient(
   song: StudySong,
   csrf: () => string,
@@ -79,14 +105,29 @@ export function createStudyClient(
   beforeStart?: () => Promise<void>,
   active?: () => boolean,
   account?: string,
+  publication?: StudyPublicationChoice,
+  pendingStart?: StudyStartHandoff,
 ): StudyClient {
-  let lessonId = initialLessonId,
-    startRequestId = crypto.randomUUID();
-  // A transport failure cannot authorize rotation to another start identity.
-  // Explicit retries reconcile/replay this request until its outcome is known.
-  let unconfirmedStart = false;
+  if (publication !== undefined &&
+    (publication === null || publication.kind !== "private" || Object.keys(publication).join() !== "kind"))
+    throw new Error("This Study publication mode is unavailable.");
+  // One client owns one original start mode. A retained caller object or later
+  // profile/grant cannot mutate an unknown start into a different request.
+  const selectedPublication = publication === undefined ? undefined : Object.freeze({ kind: "private" as const });
+  const selectedSong = Object.freeze({ ...song });
+  const selectedMode = selectedPublication ? "private" : "legacy";
+  const handoff = pendingStart ?? createStudyStartHandoff({ communityId: selectedSong.communityId,
+    account: account ?? "", csrf: csrf(), postId: selectedSong.postId });
+  let lessonId = initialLessonId, startRequestId: string | undefined;
+  function assertOwner() {
+    if (handoff.owner.communityId !== selectedSong.communityId || handoff.owner.postId !== selectedSong.postId ||
+      handoff.owner.account !== (account ?? "") || handoff.owner.csrf !== csrf())
+      throw new StudyAccountChangedError();
+  }
+  assertOwner();
   async function call(path: string, init: RequestInit = {}) {
     if (active?.() === false) throw new Error("Study was closed.");
+    assertOwner();
     const response = await fetch("/api/study/lessons" + path, {
       ...init,
       credentials: "same-origin",
@@ -135,55 +176,89 @@ export function createStudyClient(
     }
     return response.json();
   }
-  function remember(lesson: StudyLesson) {
-    if (active?.() === false) throw new Error("Study was closed.");
+  function validate(lesson: StudyLesson) {
     if (
       lesson.schema !== STUDY_LESSON_SCHEMA ||
       lesson.kind !== "say-it-back" ||
-      Object.entries(song).some(
+      Object.entries(selectedSong).some(
         ([key, value]) => lesson.song[key as keyof StudySong] !== value,
       )
     )
       throw new Error("This lesson is unavailable.");
+    return lesson;
+  }
+  function remember(lesson: StudyLesson) {
+    if (active?.() === false) throw new Error("Study was closed.");
+    assertOwner(); validate(lesson);
     lessonId = lesson.lessonId;
     onOpened?.(lessonId);
     return lesson;
   }
+  const refused = (error: unknown) => {
+    const status = (error as { status?: number }).status;
+    return status !== undefined && status < 500 && status !== 408 && status !== 401 && status !== 403;
+  };
   async function start() {
-    await beforeStart?.();
-    // The same request is retried while sign-in permission is recorded; the
-    // screen keeps its loading state meanwhile.
-    for (let retry = 0; ; retry++) {
-      try {
-        unconfirmedStart = true;
-        const started = remember(
-          await call("", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ requestId: startRequestId, song }),
-          }),
-        );
-        unconfirmedStart = false;
-        return started;
-      } catch (error) {
-        const status = (error as { status?: number }).status;
-        if (
-          status !== undefined &&
-          status < 500 &&
-          status !== 408 &&
-          status !== 401 &&
-          status !== 403
-        )
-          unconfirmedStart = false;
-        if (
-          !(error instanceof StudyAuthorizationPendingError) ||
-          retry + 1 >= AUTHORIZATION_RETRIES
-        )
+    assertOwner();
+    let original = handoff.pending;
+    if (original && Object.entries(original.song).some(([key, value]) => selectedSong[key as keyof StudySong] !== value))
+      throw new Error("Your earlier Study start still needs its original song. Return to that lesson to continue.");
+    if (!original) {
+      startRequestId ??= crypto.randomUUID();
+      original = { requestId: startRequestId, song: selectedSong,
+        requestJson: JSON.stringify({ requestId: startRequestId, song: selectedSong,
+          ...(selectedPublication ? { publication: selectedPublication } : {}),
+        }), publication: selectedMode, attempted: false };
+      handoff.pending = original;
+    }
+    const pending = original;
+    // A replacement owner can await the SAME in-flight dispatch/accepted reply.
+    // It cannot reinterpret an uncertain old-mode request as a new enrollment,
+    // ID or body. Restore the original mode for any necessary exact retry.
+    if (!pending.inFlight && !pending.accepted && pending.publication !== selectedMode)
+      throw new Error("Your earlier Study start is still being checked. Try again when its original Study service is available.");
+    if (!pending.inFlight && !pending.accepted) {
+      // Install the shared promise before invoking any callback, including a
+      // synchronous enrollment adapter that could replace the page owner.
+      pending.inFlight = Promise.resolve().then(async () => {
+        try {
+          if (active?.() === false) throw new Error("Study was closed.");
+          assertOwner();
+          if (!pending.attempted) await beforeStart?.();
+          // The existing bounded authorization wait keeps the same envelope.
+          for (let retry = 0; ; retry++) {
+            try {
+              if (active?.() === false) throw new Error("Study was closed.");
+              assertOwner();
+              pending.attempted = true;
+              const accepted = validate(await call("", { method: "POST",
+                headers: { "content-type": "application/json" }, body: pending.requestJson,
+              }));
+              // Record only the exact original server acknowledgement. This
+              // does not publish through the disposed original page's callbacks.
+              pending.accepted = accepted;
+              return accepted;
+            } catch (error) {
+              if (!(error instanceof StudyAuthorizationPendingError) || retry + 1 >= AUTHORIZATION_RETRIES) throw error;
+              await new Promise(resolve => setTimeout(resolve, AUTHORIZATION_RETRY_MS));
+            }
+          }
+        } catch (error) {
+          // No dispatch, or a known refusal, may release this start. Transport,
+          // timeout and authority-denial outcomes retain the exact original.
+          if ((!pending.attempted || refused(error)) && handoff.pending === pending) handoff.pending = null;
           throw error;
-        await new Promise((resolve) =>
-          setTimeout(resolve, AUTHORIZATION_RETRY_MS),
-        );
-      }
+        }
+      });
+    }
+    const work = pending.inFlight;
+    try {
+      const accepted = pending.accepted ?? await work!;
+      const remembered = remember(accepted);
+      if (handoff.pending === pending) handoff.pending = null;
+      return remembered;
+    } finally {
+      if (pending.inFlight === work) pending.inFlight = undefined;
     }
   }
   return {
@@ -205,8 +280,11 @@ export function createStudyClient(
           if (!(error instanceof StudyLessonNotFoundError)) throw error;
           lessonId = undefined;
         }
+      // Pending starts take precedence over an eventually-consistent latest
+      // projection. A null latest cannot authorize a replacement start.
+      if (handoff.pending) return start();
       const latest: StudyLesson | null = await call(
-        "?song=" + encodeURIComponent(JSON.stringify(song)),
+        "?song=" + encodeURIComponent(JSON.stringify(selectedSong)),
       );
       return latest?.status === "active" ? remember(latest) : start();
     },
@@ -218,7 +296,7 @@ export function createStudyClient(
       return remember(await call("/" + encodeURIComponent(lessonId)));
     },
     async restart() {
-      if (unconfirmedStart) return start();
+      if (handoff.pending) return start();
       if (lessonId)
         await call("/" + encodeURIComponent(lessonId) + "/abandon", {
           method: "POST",
@@ -227,7 +305,7 @@ export function createStudyClient(
           if (!(error instanceof StudyLessonNotFoundError)) throw error;
           lessonId = undefined;
         });
-      startRequestId = crypto.randomUUID();
+      startRequestId = undefined;
       return start();
     },
     async open(lesson) {

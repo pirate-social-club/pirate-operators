@@ -27,8 +27,16 @@ export function DancePageMount(props: {
       capability.communityId !== props.communityId ||
       (route.communityId !== undefined && route.communityId !== props.communityId))
       return null;
+    // Unknown/mixed profiles do not construct a legacy producer. The normal
+    // App supplies the selected closed capability; this seam preserves its
+    // profile as part of the keyed production owner's lifetime.
+    if (capability.version !== "pirate.dance-capability/1" &&
+      (capability.version !== "pirate.dance-capability/2" || capability.captureProfile !== "private-v2"))
+      return null;
+    if (capability.version === "pirate.dance-capability/1" && "captureProfile" in capability) return null;
     return {
       route: route.route,
+      profile: capability.version === "pirate.dance-capability/2" ? capability.captureProfile : undefined,
       communityId: props.communityId,
       maximumBytes: capability.media.maximumBytes,
       generation: session?.generation ?? null,
@@ -62,6 +70,7 @@ export function DancePageMount(props: {
           communityId={owner.communityId}
           route={owner.route}
           maximumBytes={owner.maximumBytes}
+          profile={owner.profile}
           onBack={() => { if (owns()) props.onBack(); }}
           onSignIn={() => { if (owns()) props.onSignIn(); }}
           onReview={review => {

@@ -143,6 +143,12 @@ current pinned Bookworm-based image and workerd composition are candidates, not
 a promise to support every Docker host. Use the operator's ordinary DNS domain
 or subdomain; defer a Pirate-operated subdomain provisioning service.
 
+The workspace_owner's November 17 decision removes low-end resource measurement
+as a launch prerequisite. Select sufficient server capacity for v1 and upgrade
+if needed. A 1 GB minimum, capacity benchmark or disk-sizing study is not a
+release gate. The selected installation and normal user journey must still work
+through public HTTPS and an ordinary restart on the actual pilot host.
+
 Caddy supplies public ingress and automatic certificates. The
 [ingress implementation](../../deploy/linux/public-ingress.ts) already supports
 public ACME and a separate local fixture CA. Public-host certificate issuance

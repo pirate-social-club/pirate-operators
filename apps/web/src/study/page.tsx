@@ -4,7 +4,7 @@ import type {
   StudyLesson,
   StudySong,
 } from "../../../../packages/study/lesson.ts";
-import { createStudyClient, type StudyClient } from "./client.ts";
+import { createStudyClient, type StudyClient, type StudyStartHandoff } from "./client.ts";
 import { StudyScreen, StudyLoading } from "./screen.tsx";
 import {
   StudyAuthRequiredState,
@@ -30,6 +30,9 @@ export interface StudyPageProps {
   csrf: string;
   wallet?: KaraokeWallet;
   signInPermission?: boolean;
+  /** Explicit selected runtime, independent of V4 public sign-in permission. */
+  studyRuntime?: "private-v5";
+  startHandoff?: StudyStartHandoff;
   lessonId?: string;
   onExit(): void;
   onConnect?(): void;
@@ -47,7 +50,7 @@ export function StudyPage(props: StudyPageProps) {
     <Show
       when={
         props.account
-          ? `${props.account}\u0000${props.postId}\u0000${props.lessonId ?? ""}\u0000${props.csrf}`
+          ? `${props.account}\u0000${props.postId}\u0000${props.lessonId ?? ""}\u0000${props.csrf}\u0000${props.studyRuntime ?? ""}`
           : null
       }
       keyed
@@ -73,6 +76,9 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     postId: props.postId,
     lessonId: props.lessonId,
     csrf: props.csrf,
+    studyRuntime: props.studyRuntime,
+    startHandoff: props.startHandoff,
+    signInPermission: props.signInPermission,
   };
   const actions = props.onLearningActions;
   const [client, setClient] = createSignal<StudyClient>();
@@ -94,7 +100,9 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     props.account === owner.account &&
     props.postId === owner.postId &&
     props.lessonId === owner.lessonId &&
-    props.csrf === owner.csrf;
+    props.csrf === owner.csrf &&
+    props.studyRuntime === owner.studyRuntime &&
+    props.startHandoff === owner.startHandoff;
   const current = () => owned() && !auth();
   const clearActions = () => actions?.(null);
   onCleanup(() => {
@@ -172,9 +180,11 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
             if (current() && generation === revision)
               props.onLessonOpened?.(id);
           },
-          props.signInPermission ? undefined : enroll,
+          owner.studyRuntime === "private-v5" || owner.signInPermission ? undefined : enroll,
           () => current() && generation === revision,
           owner.account,
+          owner.studyRuntime === "private-v5" ? { kind: "private" } : undefined,
+          owner.startHandoff,
         ),
       );
     } catch (error) {
@@ -229,6 +239,7 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
     const revision = generation;
     clearTimeout(timer);
     setChecking(true);
+    let received: LearningPublicationView | undefined;
     try {
       await request(`/api/study/lessons/${encodeURIComponent(id)}`);
       if (!current() || generation !== revision || id !== terminalId) return;
@@ -236,13 +247,17 @@ function OwnedStudyPage(props: StudyPageProps & { account: string }) {
         `/api/study/lessons/${encodeURIComponent(id)}/publication`,
         {},
       );
-      if (current() && generation === revision && id === terminalId)
+      if (current() && generation === revision && id === terminalId) {
+        received = result;
         setPublication(result);
+      }
     } catch {
       /* A lost receipt never replaces the saved grade or implies success. */
     } finally {
       if (current() && generation === revision) setChecking(false);
-      const value = publication();
+      // Solid2 may not commit the signal write until after this finally block.
+      // The owned response is authoritative for scheduling this next poll.
+      const value = received === undefined ? publication() : received;
       if (
         current() &&
         generation === revision &&

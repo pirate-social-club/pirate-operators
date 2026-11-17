@@ -86,7 +86,7 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string; lyrics?:string } = {}) {
   const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion";
   const community = await communityRuntime(),
     mf = new Miniflare({
@@ -613,7 +613,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         JSON.stringify({
           title: "Actual Web2 first song",
           language: "en",
-          lyrics: "We sail away\nWe sail away",
+          lyrics: options.lyrics ?? "We sail away\nWe sail away",
           original: true,
           acceptedPolicy: CATALOG_OWNER_POLICY_VERSION,
           rating: "general",
@@ -794,6 +794,9 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       return { post, receipt, proof: await proof.json() };
     }
     return {
+      // Actual selected application fixture; callers may join further runtimes
+      // without a second server, authority mock or publishing attachment.
+      application: { env, deployment, fetch: call, configuration: c.current, db: community.db },
       close,
       login,
       publish,

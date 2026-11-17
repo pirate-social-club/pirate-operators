@@ -350,3 +350,42 @@ for (const width of [390, 1280] as const)
     ).toEqual(viewport);
     expect(result).toEqual({ errors: [], unexpected: [] });
   });
+
+// Actual default App -> normal song action -> existing production Dance stack.
+for (const scenario of ["private", "legacy", "malformed", "denied", "profile-change"] as const)
+  test(`actual normal Dance capability ${scenario} uses its selected owner/profile`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const result = await sourceFixture(page, `fixture=dance-private-normal-entry&scenario=${scenario}`);
+    await page.getByRole("button", { name: "Run actual private Dance entry", exact: true }).click();
+    const output = page.locator("[data-dance-private-entry-status]");
+    await expect(output).toHaveAttribute("data-dance-private-entry-status", /^(passed|failed)$/);
+    expect(await output.getAttribute("data-dance-private-entry-status"), (await output.textContent()) ?? "No normal entry diagnostic").toBe("passed");
+    expect(JSON.parse(await output.innerText())).toMatchObject({
+      scenario, defaultEntry: true, publicReviewCalls: 0, cameraOpened: false,
+    });
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });
+
+for (const sample of [
+  { scenario: "private", width: 390 },
+  { scenario: "private", width: 1440 },
+  { scenario: "lost-ack", width: 390 },
+  { scenario: "legacy-v3", width: 390 },
+  { scenario: "legacy-v4", width: 390 },
+  { scenario: "unknown", width: 390 },
+  { scenario: "mode-change", width: 390 },
+  { scenario: "pre-acceptance-mode-change", width: 390 },
+] as const)
+  test(`actual normal Study ${sample.scenario} keeps its publication mode at ${sample.width}px`, async ({ page }) => {
+    await page.setViewportSize({ width: sample.width, height: sample.width === 390 ? 844 : 1000 });
+    const result = await sourceFixture(page, `fixture=study-private-normal-entry&scenario=${sample.scenario}`);
+    await page.getByRole("button", { name: "Run actual private Study entry", exact: true }).click();
+    const output = page.locator("[data-study-private-entry-status]");
+    await expect(output).toHaveAttribute("data-study-private-entry-status", /^(passed|failed)$/, { timeout: test.info().timeout });
+    expect(await output.getAttribute("data-study-private-entry-status"), (await output.textContent()) ?? "No normal Study diagnostic").toBe("passed");
+    expect(JSON.parse(await output.innerText())).toMatchObject({
+      scenario: sample.scenario, defaultEntry: true, signatures: 0, physicalCaptureRequests: 0,
+      enrollmentCalls: sample.scenario === "legacy-v3" || sample.scenario === "unknown" ? 1 : 0,
+    });
+    expect(result).toEqual({ errors: [], unexpected: [] });
+  });
