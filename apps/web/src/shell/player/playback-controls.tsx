@@ -13,6 +13,8 @@ import { timeLabel } from "./media-state.ts";
 const controlClass =
   "relative border-transparent bg-transparent shadow-none before:absolute before:inset-0 before:rounded-full before:bg-primary before:shadow-sm hover:bg-transparent hover:before:bg-primary/90";
 export function SongPlaybackControls(props: {
+  /** Paper's song tile starts with one trigger; granted media adds seeking. */
+  tile?: boolean;
   title: string;
   playing: boolean;
   buffering: boolean;
@@ -35,8 +37,20 @@ export function SongPlaybackControls(props: {
         )
       : 0;
   return (
-    <div class="col-span-full row-start-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[2.75rem_auto] gap-x-3 sm:col-span-1 sm:col-start-2 sm:self-start">
-      <div class="row-start-1 flex shrink-0 items-center">
+    <div
+      class={
+        props.tile
+          ? "contents"
+          : "col-span-full row-start-2 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] grid-rows-[2.75rem_auto] gap-x-3 sm:col-span-1 sm:col-start-2 sm:self-start"
+      }
+    >
+      <div
+        class={
+          props.tile
+            ? "col-start-3 row-start-1 flex shrink-0 items-center"
+            : "row-start-1 flex shrink-0 items-center"
+        }
+      >
         <MediaControlButton
           aria-label={
             props.buffering
@@ -61,31 +75,41 @@ export function SongPlaybackControls(props: {
           </Show>
         </MediaControlButton>
       </div>
-      <div
-        class="col-start-2 row-start-1 flex min-w-0 items-center"
-        data-post-card-interactive="true"
-      >
-        <Scrubber
-          ariaLabel={`Track position for ${props.title}`}
-          ariaValueText={`${timeLabel(props.position)} / ${timeLabel(props.duration)}`}
-          class="h-full opacity-100"
-          disabled={!props.canSeek}
-          max={durationMs()}
-          onChange={(next) => props.onSeek(Math.min(next, durationMs()))}
-          showThumb
-          showValueBubble
-          step={1000}
-          value={progressMs()}
-          valueLabel={timeLabel(props.position)}
-        />
-      </div>
-      <div
-        class="col-start-2 row-start-2 flex items-center justify-between tabular-nums text-muted-foreground text-base leading-tight"
-        data-song-time
-      >
-        <span>{timeLabel(props.position)}</span>
-        <span>{timeLabel(props.duration)}</span>
-      </div>
+      <Show when={!props.tile || props.canSeek}>
+        <div
+          class={
+            props.tile
+              ? "col-span-full row-start-2 flex h-8 min-w-0 items-center"
+              : "col-start-2 row-start-1 flex min-w-0 items-center"
+          }
+          data-post-card-interactive="true"
+        >
+          <Scrubber
+            ariaLabel={`Track position for ${props.title}`}
+            ariaValueText={`${timeLabel(props.position)} / ${timeLabel(props.duration)}`}
+            class="h-full opacity-100"
+            disabled={!props.canSeek}
+            max={durationMs()}
+            onChange={(next) => props.onSeek(Math.min(next, durationMs()))}
+            showThumb
+            showValueBubble
+            step={1000}
+            value={progressMs()}
+            valueLabel={timeLabel(props.position)}
+          />
+        </div>
+        <div
+          class={
+            props.tile
+              ? "col-span-full row-start-3 flex items-center justify-between text-sm tabular-nums text-muted-foreground"
+              : "col-start-2 row-start-2 flex items-center justify-between tabular-nums text-muted-foreground text-base leading-tight"
+          }
+          data-song-time
+        >
+          <span>{timeLabel(props.position)}</span>
+          <span>{timeLabel(props.duration)}</span>
+        </div>
+      </Show>
     </div>
   );
 }

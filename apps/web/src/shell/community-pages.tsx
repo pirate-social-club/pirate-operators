@@ -1,7 +1,8 @@
 import { fragmentNavigationHref } from "./routing.ts";
 import { For, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import type { CommunityFeed, CommunitySessionView } from "../api-contract.ts";
+import type { CommunityCapabilities, CommunityFeed, CommunitySessionView } from "../api-contract.ts";
+import { AccountDocuments } from "./account-documents.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
 import {
   Avatar,
@@ -24,6 +25,7 @@ import type { ShellFeatureContext, ShellIntegrations } from "./interfaces.ts";
 import type { AppView } from "./routing.ts";
 
 export interface CommunityPagesProps {
+  learningPolicy?: CommunityCapabilities["learningPolicy"];
   view: AppView;
   hash: string;
   name: string;
@@ -294,7 +296,7 @@ export function CommunityPages(props: CommunityPagesProps) {
                   />
                   <nav
                     aria-label="Song activities"
-                    class="grid grid-cols-2 gap-3"
+                    class="grid grid-cols-3 gap-3"
                   >
                     <Show when={props.study}>
                       <a
@@ -535,6 +537,7 @@ function AccountSettings(props: CommunityPagesProps & { profile?: boolean }) {
           </Show>
         </CardContent>
       </Card>
+      <AccountDocuments learningPolicy={props.learningPolicy} />
     </main>
   );
 }

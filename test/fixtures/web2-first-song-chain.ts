@@ -43,7 +43,7 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number} = {}) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number;origin?:string;communityName?:string} = {}) {
   // Long-running installed demos must retain the original configuration states.
   // This bound applies only to the disposable node, never a community server.
   if (options.historyLimit !== undefined) {
@@ -326,11 +326,11 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         operatorPayments: "0x" + "0".repeat(40),
         learningRecords: "0x" + "0".repeat(40),
         app: {
-          label: "Actual Web2 first song",
-          origin: "https://web2.community.example",
+          label: options.communityName ?? "Actual Web2 first song",
+          origin: options.origin ?? "https://web2.community.example",
         },
         feed: {
-          endpoint: "https://web2.community.example/api/feed",
+          endpoint: (options.origin ?? "https://web2.community.example") + "/api/feed",
           signingKeyId: "actual-web2-fixture",
         },
         policies: {

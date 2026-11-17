@@ -86,7 +86,8 @@ import {
   type SignedServiceRequest,
 } from "../../packages/moderation/pairing.ts";
 
-export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string; lyrics?:string } = {}) {
+export async function web2FirstSongFixture(options: { http?: boolean; authorizationVersion?: 1 | 2; contractController?: boolean; ownerWindowSeconds?:number; managedGate?:boolean; evidenceDirectory?:string; lyrics?:string;origin?:string;audio?:Uint8Array;title?:string;communityName?:string;stems?:Record<"instrumental" | "vocals", Uint8Array>;historyLimit?:number;profiles?:boolean } = {}) {
+  const selectedAudio = options.audio?.slice();
   const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion";
   const community = await communityRuntime(),
     mf = new Miniflare({
@@ -129,6 +130,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
     for (const name of [
       "0011_manual_rewards.sql",
       "0012_owner_budget_windows.sql",
+      ...(options.profiles ? ["0019_community_profiles.sql"] : []),
     ])
       await apply(
         community.db,
@@ -192,7 +194,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         journal.restoreAnchorSha256,
       )
       .run();
-    chain = await web2SongChain(recognition,{contractController:options.contractController,evidenceDirectory:evidenceDirectory+"/first-song"});
+    chain = await web2SongChain(recognition,{contractController:options.contractController,evidenceDirectory:evidenceDirectory+"/first-song",origin:options.origin,communityName:options.communityName,historyLimit:options.historyLimit});
     const c = chain;
     const deployment = c.deployment,
       now = Math.floor(Date.now() / 1000),
@@ -604,14 +606,14 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       };
     }
     type Account = Awaited<ReturnType<typeof login>>;
-    const audio = new Uint8Array(1600 * 417);
-    for (let i = 0; i < 1600; i++) audio.set([0xff, 0xfb, 0x90, 0], i * 417);
+    const audio = selectedAudio ?? new Uint8Array(1600 * 417);
+    if (!selectedAudio) for (let i = 0; i < 1600; i++) audio.set([0xff, 0xfb, 0x90, 0], i * 417);
     const reserve = (account: Account) =>
       account.write(
         "/api/uploads",
         "POST",
         JSON.stringify({
-          title: "Actual Web2 first song",
+          title: options.title ?? "Actual Web2 first song",
           language: "en",
           lyrics: options.lyrics ?? "We sail away\nWe sail away",
           original: true,
@@ -650,11 +652,12 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         { "content-type": "audio/mpeg" },
       );
       assert.equal(uploaded.status, 200, await uploaded.clone().text());
-      for (const slot of ["instrumental", "vocals"]) {
+      for (const slot of ["instrumental", "vocals"] as const) {
+        const stemAudio = options.stems?.[slot] ?? audio;
         const reservedStem = await account.write(
           `/api/uploads/${submissionId}/stems/${slot}`,
           "POST",
-          JSON.stringify({ sha256: sha256(audio), byteLength: audio.length }),
+          JSON.stringify({ sha256: sha256(stemAudio), byteLength: stemAudio.length }),
           { "content-type": "application/json" },
         );
         assert.equal(
@@ -665,7 +668,7 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
         const stem = await account.write(
           `/api/uploads/${submissionId}/stems/${slot}`,
           "PUT",
-          audio,
+          stemAudio,
           { "content-type": "audio/mpeg" },
         );
         assert.equal(stem.status, 200, await stem.clone().text());
@@ -797,6 +800,10 @@ export async function web2FirstSongFixture(options: { http?: boolean; authorizat
       // Actual selected application fixture; callers may join further runtimes
       // without a second server, authority mock or publishing attachment.
       application: { env, deployment, fetch: call, configuration: c.current, db: community.db },
+      async refreshChain() {
+        await c.rpc("evm_setNextBlockTimestamp", [Math.floor(Date.now() / 1000)]);
+        await c.rpc("anvil_mine", ["0x40", "0x0"]);
+      },
       close,
       login,
       publish,

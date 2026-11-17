@@ -29,6 +29,7 @@ function SongPost(props: {
     >
       <SongPlayer
         compact
+        tile
         postId={props.post.id}
         title={props.post.mediaTitle ?? props.post.title}
         cacheAccess={false}
