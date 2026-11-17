@@ -17,7 +17,11 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   return root;
 }
 
-async function invoke(root: string, shard: string | undefined) {
+async function invoke(
+  root: string,
+  shard: string | undefined,
+  watchdogMs = 20_000,
+) {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   delete env.TEST_SHARD;
@@ -25,6 +29,7 @@ async function invoke(root: string, shard: string | undefined) {
   const child = spawn(process.execPath, [runner], {
     cwd: root,
     env,
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "",
@@ -35,15 +40,49 @@ async function invoke(root: string, shard: string | undefined) {
   child.stderr.on("data", (chunk) => {
     stderr += chunk;
   });
-  const timeout = setTimeout(() => child.kill("SIGKILL"), 20_000);
-  try {
-    const code = await new Promise<number | null>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("close", resolve);
+  let timedOut = false,
+    closed = false,
+    spawnError: Error | undefined;
+  const completed = new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve) => {
+    child.once("error", (error) => {
+      spawnError = error;
     });
+    child.once("close", (code, signal) => {
+      closed = true;
+      resolve({ code, signal });
+    });
+  });
+  const terminateOwned = () => {
+    if (closed || child.pid === undefined) return;
+    if (process.platform === "win32") child.kill("SIGKILL");
+    else {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+      }
+    }
+  };
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    terminateOwned();
+  }, watchdogMs);
+  try {
+    const { code, signal } = await completed;
+    if (spawnError) throw spawnError;
+    assert.equal(timedOut, false, "runner watchdog timeout");
+    assert.equal(signal, null, "runner terminated by signal");
+    assert.notEqual(code, null, "runner must report a numeric exit code");
     return { code, stdout, stderr, pid: child.pid };
   } finally {
     clearTimeout(timeout);
+    if (!closed) {
+      terminateOwned();
+      await completed;
+    }
   }
 }
 
@@ -219,5 +258,46 @@ test(
     assert.notEqual((await invoke(root, "2/4")).code, 0);
     await mkdir(join(root, ".local", "root-tests-1.xml"), { recursive: true });
     assert.notEqual((await invoke(root, "1/4")).code, 0);
+  },
+);
+
+test(
+  "watchdog termination fails and stops the owned worker",
+  { timeout: 12_000 },
+  async (t) => {
+    const root = await fixture(t);
+    await writeFile(
+      join(root, "test", "a.test.ts"),
+      `
+import { writeFileSync } from 'node:fs';
+writeFileSync('worker.json', JSON.stringify({pid:process.pid}));
+setInterval(() => {}, 1000);
+`,
+    );
+    await assert.rejects(invoke(root, "1/4", 3000), /watchdog timeout/);
+    const { pid } = JSON.parse(
+      await readFile(join(root, "worker.json"), "utf8"),
+    );
+    const deadline = Date.now() + 3000;
+    while (true) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        assert.equal((error as NodeJS.ErrnoException).code, "ESRCH");
+        break;
+      }
+      assert.ok(
+        Date.now() < deadline,
+        "owned worker must exit after group termination",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    t.diagnostic(
+      JSON.stringify({
+        artifact: "pirate.ci-watchdog/1",
+        rejectedTimeout: true,
+        ownedWorkerExited: true,
+      }),
+    );
   },
 );
