@@ -15,10 +15,12 @@ export async function studyV5PrivateHttp(
   ports: StudyCommunityPorts,
   context: AuthContext,
   headers: Headers,
+  current?: () => void,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/study/")) return null;
   if (
+    !current &&
     ports.env.STUDY_RUNTIME === undefined &&
     ports.env.STUDY_PRIVATE_V5_PROFILE === undefined
   )
@@ -28,33 +30,38 @@ export async function studyV5PrivateHttp(
     ports.db,
     context,
   );
-  const captured = canonical([
-    ports.config,
-    ports.env.STUDY_RUNTIME ?? null,
-    ports.env.STUDY_PRIVATE_V5_PROFILE ?? null,
-    ports.env.SPEECH_ADMISSION_CONFIG ?? null,
-    ports.env.KARAOKE_OPERATOR_ADDRESS ?? null,
-    ports.env.KARAOKE_PAYMENT_CHAIN_ID ?? null,
-    ports.env.STUDY_GRADER_ACTIVATION ?? null,
-  ]);
+  const historyOnly =
+    request.method === "POST" &&
+    /^\/api\/study\/lessons\/[a-zA-Z0-9_-]{16,128}\/history$/.test(
+      url.pathname,
+    );
+  const selection = () =>
+    canonical(
+      historyOnly
+        ? [ports.config]
+        : [
+            ports.config,
+            ports.env.STUDY_RUNTIME ?? null,
+            ports.env.STUDY_PRIVATE_V5_PROFILE ?? null,
+            ports.env.SPEECH_ADMISSION_CONFIG ?? null,
+            ports.env.KARAOKE_OPERATOR_ADDRESS ?? null,
+            ports.env.KARAOKE_PAYMENT_CHAIN_ID ?? null,
+            ports.env.STUDY_GRADER_ACTIVATION ?? null,
+          ],
+    );
+  const captured = selection();
   const operator = ports.env.KARAOKE_OPERATOR,
     signer = ports.env.KARAOKE_SIGNER_PRIVATE_KEY,
     budget = ports.env.SPEECH_BUDGET;
   let lost = false;
   const runtime = () => {
+    current?.();
     if (
-      canonical([
-        ports.config,
-        ports.env.STUDY_RUNTIME ?? null,
-        ports.env.STUDY_PRIVATE_V5_PROFILE ?? null,
-        ports.env.SPEECH_ADMISSION_CONFIG ?? null,
-        ports.env.KARAOKE_OPERATOR_ADDRESS ?? null,
-        ports.env.KARAOKE_PAYMENT_CHAIN_ID ?? null,
-        ports.env.STUDY_GRADER_ACTIVATION ?? null,
-      ]) !== captured ||
-      ports.env.KARAOKE_OPERATOR !== operator ||
-      ports.env.KARAOKE_SIGNER_PRIVATE_KEY !== signer ||
-      ports.env.SPEECH_BUDGET !== budget
+      selection() !== captured ||
+      (!historyOnly &&
+        (ports.env.KARAOKE_OPERATOR !== operator ||
+          ports.env.KARAOKE_SIGNER_PRIVATE_KEY !== signer ||
+          ports.env.SPEECH_BUDGET !== budget))
     )
       lost = true;
     studyCheck(!lost, "study_private_v5_runtime_changed", 409);

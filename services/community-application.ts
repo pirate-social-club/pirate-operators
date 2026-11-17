@@ -35,6 +35,10 @@ import {
 } from "../packages/community/common.ts";
 import { readConfigurationHistory } from "../packages/community/directory-reader.ts";
 import { readWeb2Community } from "../packages/community/web2-directory-reader.ts";
+import { readAndCacheWeb2Configuration } from "./community-web2-configuration-cache.ts";
+import { communityPrivatePractice, requirePrivateStudy } from "./community-private-practice.ts";
+import { privatePracticeAllows } from "./community-private-practice-profile.ts";
+import { studyV5PrivateHttp } from "./study-v5-http.ts";
 import { parseWeb2ProfileDocument } from "../packages/community/web2-directory.ts";
 import { readSignInMessageV4 } from "../packages/protocol/learning-results-v4.ts";
 import { directoryHistoryCache } from "../packages/community/configuration-index.ts";
@@ -164,6 +168,7 @@ export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv {
    * Root must bind the reviewed actual producers after independent admission. */
   DANCE_PRODUCTION_INPUTS?: DanceProductionRuntimeInputs;
   COMMUNITY_DEPLOYMENT_PROFILE_JSON?: string;
+  COMMUNITY_PRIVATE_PRACTICE_PROFILE_JSON?: string;
   NATIVE_APPLICATION_ORIGINAL_JSON?: string;
   NATIVE_READBACK_KEY?: string;
 }
@@ -218,6 +223,7 @@ function dependencies(
   timing = new RequestTiming(),
 ): CommunityDependencies {
   const deployment=deploymentProfile(env);
+  const privatePractice=communityPrivatePractice(env,deployment);
   const client = megaethReadClient((method, ms) =>
     timing.record(`rpc_${method}`, ms),deployment.rpcUrl
   );
@@ -227,8 +233,10 @@ function dependencies(
   // Each deployment version selects its own closed authenticated reader.
   const readHistory=async():Promise<CommunityConfig[]>=>{
     if (isWeb2Deployment(deployment)) {
-      const read = await readWeb2Community(client, parseWeb2ProfileDocument(deployment.directoryProfile),
-        {now: () => BigInt(Math.floor(Date.now()/1000)), maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds)}, transport);
+      const profile=parseWeb2ProfileDocument(deployment.directoryProfile),
+        policy={now: () => BigInt(Math.floor(Date.now()/1000)), maxSafeBlockAgeSeconds: BigInt(deployment.freshness.maxSafeBlockAgeSeconds)};
+      const read = privatePractice ? await readAndCacheWeb2Configuration({db:env.DB,client,profile,policy,transport,origin:deployment.origin})
+        : await readWeb2Community(client,profile,policy,transport);
       insist(read.eligibility.status === "available", "community_authority_unavailable", 503);
       return [...read.history];
     }
@@ -311,7 +319,8 @@ export async function communityFetch(request:Request,env:CommunityEnv,provided?:
         insist(original.record.body.publishingAttachmentDigest === env.WEB2_PUBLISHING_ATTACHMENT_SHA256,"web2_publishing_attachment_changed",503);
       }
       insist(!request.headers.has("X-Pirate-Native-Request"), "web2_native_profile_unqualified", 503);
-      insist(!web2ExcludedPath(new URL(request.url).pathname), "feature_unavailable", 404);
+      const path=new URL(request.url).pathname;
+      insist(!web2ExcludedPath(path) || privatePracticeAllows(communityPrivatePractice(env,deployment),path), "feature_unavailable", 404);
     }
     return await nativeBusinessResponse({request,env,
       configuration:freshAuthority(actual, deployment),
@@ -339,6 +348,7 @@ async function communityFetchBusiness(
 ): Promise<Response> {
   const deployment=ports?.deployment??deploymentProfile(env);
   const web2 = isWeb2Deployment(deployment);
+  const privatePractice=communityPrivatePractice(env,deployment);
   const timing = new RequestTiming();
   ports ??= dependencies(env, timing);
   const url = new URL(request.url),
@@ -349,7 +359,12 @@ async function communityFetchBusiness(
     };
   try {
     insist(url.origin === deployment.origin, "wrong_community_host", 403);
-    insist(!web2 || !web2ExcludedPath(url.pathname), "feature_unavailable", 404);
+    insist(!web2 || !web2ExcludedPath(url.pathname) || privatePracticeAllows(privatePractice,url.pathname), "feature_unavailable", 404);
+    // This release joins private Study only. Explicit selection cannot route
+    // unfinished private Karaoke/Dance into their historical public handlers.
+    if(web2 && privatePracticeAllows(privatePractice,url.pathname) &&
+      !["/api/study","/study"].some(prefix=>url.pathname===prefix || url.pathname.startsWith(prefix+"/")))
+      insist(false,"private_activity_runtime_unavailable",503);
     const policy = !web2 && learningPolicyPage(
       url.pathname,
       !!env.STUDY_RESULTS_V4_CONTRACT,
@@ -779,10 +794,16 @@ async function communityFetchBusiness(
       } catch {
         /* Fail closed while a required peer is unavailable. */
       }
+      let privateStudy=false;
+      if(web2 && privatePractice?.activities.study) {
+        try { requirePrivateStudy(env,config,privatePractice); privateStudy=true; }
+        catch { /* A selected but unavailable runtime never falls back to V4. */ }
+      }
       const capabilities: CommunityCapabilities = {
         ...(web2 ? {membership: false} : {}),
         ...(!web2 && env.REWARDS_PROFILE_JSON ? { rewards: true } : {}),
-        study: !web2 && studyAvailable(env, config),
+        study: web2 ? privateStudy : studyAvailable(env, config),
+        ...(privateStudy ? {studyRuntime:"private-v5" as const} : {}),
         schema: "pirate.community-capabilities/1",
         signIn: true,
         ...(!web2 && env.KARAOKE_SERVICE_MODE === "internal"
@@ -923,11 +944,24 @@ async function communityFetchBusiness(
         return reply(view);
       });
     }
-    const study = await studyCommunityApi(
+    const privateStudyRoute=web2 && url.pathname.startsWith("/api/study/");
+    const privateHistory=privateStudyRoute && request.method==="POST" &&
+      /^\/api\/study\/lessons\/[a-zA-Z0-9_-]{16,128}\/history$/.test(url.pathname);
+    let studyAdmissionLost=false;
+    const currentPrivateStudy=()=>{
+      if(canonical(communityPrivatePractice(env,deployment)) !== canonical(privatePractice)) studyAdmissionLost=true;
+      insist(!studyAdmissionLost,"study_private_v5_runtime_changed",409);
+      // Exporting saved private work needs no live speech/operator runtime.
+      // The exact history adapter still enforces session, CSRF and D1 guards.
+      if(!privateHistory) requirePrivateStudy(env,config,privatePractice);
+    };
+    if(privateStudyRoute) currentPrivateStudy();
+    const study = await (privateStudyRoute ? studyV5PrivateHttp : studyCommunityApi)(
       request,
       { ...karaokePorts, env },
       context,
       security,
+      ...(privateStudyRoute ? [currentPrivateStudy] as const : []),
     );
     if (study) return study;
     if (url.pathname.startsWith("/api/")) {
@@ -1145,6 +1179,14 @@ export async function communityScheduled(
     insist(config.schema === "pirate.community-config/4" && config.communityId === deployment.directoryProfile.communityId &&
       config.app.origin === deployment.origin, "community_configuration_changed", 503);
     await recoverCommunityJobs(env.DB, env.JOBS);
+    await deleteExpiredStudyHistory(env.DB,config.communityId,ports.now);
+    const privatePractice=communityPrivatePractice(env,deployment);
+    if(privatePractice?.activities.study) {
+      requirePrivateStudy(env,config,privatePractice);
+      await recoverStudyLessons({env,db:env.DB,config,reads:ports.publicReads ?? {
+        client:megaethReadClient(undefined,deployment.rpcUrl),profile:publicPostsProfile(deployment),
+      },now:ports.now});
+    }
     return;
   }
   const failures: unknown[] = [];

@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { keccak256 } from "viem";
+import { canonical } from "../packages/community/common.ts";
 import { web2DirectoryFixture, a } from "./fixtures/web2-directory.ts";
 import {
   readWeb2Community,
@@ -199,4 +201,52 @@ test("invalidating HNS preserves an independent newer Web2 generation", async ()
   assert.equal(result.eligibility.web2Verified, true);
   assert.equal(result.eligibility.hnsVerified, false);
   assert.equal(result.eligibility.discoverable, true);
+});
+
+// The normal private runtime must cache genuine URI/receipt provenance. Failure
+// cases: returning a prior configuration, substituting a safe-head block for its
+// event block, mutable transport objects, and exposing evidence before the
+// reader's existing receipt/state/origin/reorg checks complete.
+test("Web2 reader returns the exact latest authenticated document and event for persistent configuration consumers", async () => {
+  const f = await web2DirectoryFixture(2);
+  const result = await readWeb2Community(
+    f.client,
+    f.profile,
+    f.policy,
+    f.transport,
+  );
+  const latest = f.records[1]!;
+  assert.deepEqual(result.configurationEvidence, {
+    document: canonical(latest.c),
+    log: {
+      args: {
+        communityId: f.profile.communityId,
+        revision: 2n,
+        controller: latest.c.controller,
+        publisher: latest.c.publisher,
+        operatorPayments: latest.c.operatorPayments,
+        learningRecords: latest.c.learningRecords,
+        sha256Digest: latest.pin.sha256,
+        uri: latest.pin.uri,
+      },
+      blockNumber: latest.block,
+      blockHash: f.state.hash,
+      transactionHash: keccak256(new TextEncoder().encode("v3-config-1")),
+      logIndex: 3,
+    },
+  });
+  assert.notEqual(
+    result.configurationEvidence.log.blockNumber,
+    result.blockNumber,
+  );
+  assert.ok(Object.isFrozen(result.configurationEvidence));
+  assert.ok(Object.isFrozen(result.configurationEvidence.log));
+  assert.ok(Object.isFrozen(result.configurationEvidence.log.args));
+  assert.throws(
+    () =>
+      Object.assign(result.configurationEvidence.log.args, {
+        uri: "ipfs://changed",
+      }),
+    TypeError,
+  );
 });
