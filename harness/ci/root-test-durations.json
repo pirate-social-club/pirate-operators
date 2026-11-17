@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "measurement": "Maximum summed JUnit testcase seconds per file across the two completed runs; scheduling hints only, not deadlines",
+  "sourceRuns": [43973326900, 43986339676],
+  "seconds": {
+    "test/hosted-community-worker.test.ts": 198.124,
+    "test/managed-publishing-admission.test.ts": 255.212,
+    "test/recognition-reservation-fences.test.ts": 247.317,
+    "test/recognition-reservation-integration.test.ts": 308.109,
+    "test/recognition-reservation-recovery.test.ts": 212.242,
+    "test/shared-recognition-worker.test.ts": 137.487,
+    "test/web2-first-song.test.ts": 596.195,
+    "test/withheld-result-study.test.ts": 173.985
+  }
+}
