@@ -4,58 +4,13 @@ import { Store } from "../../services/operator-store.ts";
 import { expireStudySpeech } from "../../services/study-operator.ts";
 import { studyPrivateV5OperatorRoute } from "../../services/study-v5-operator.ts";
 import type { Env } from "../../services/runtime.ts";
-import { StudySpeechError, type StudyTranscriber } from "../../packages/study/speech-transcriber.ts";
+import { localStudyAsr, type LocalStudyAsrBindings } from "./web2-local-study-asr.ts";
 
 export { SpeechBudget };
-interface StudyEnv extends Env {
+interface StudyEnv extends Env, LocalStudyAsrBindings {
   PRIVATE_STUDY_STATE: DurableObjectNamespace<PrivateStudyState>;
   STUDY_PRIVATE_V5_PROFILE: string;
-  LOCAL_STUDY_ASR_URL: string;
-  LOCAL_STUDY_ASR_AUTH: string;
-  LOCAL_STUDY_ASR?: Fetcher;
   PRIVATE_KARAOKE?: Fetcher;
-}
-
-function localAsr(env: StudyEnv): StudyTranscriber {
-  return {
-    providerRetention: "stored",
-    async transcribe(audio, contentType, language) {
-      if (language.split("-")[0] !== "en")
-        throw new StudySpeechError("speech_language_unavailable", "known_failed");
-      const target = new URL(env.LOCAL_STUDY_ASR_URL);
-      if (target.protocol !== "https:" || !target.hostname.endsWith(".test") ||
-          target.pathname !== "/transcribe" || target.search || target.hash ||
-          target.username || target.password || !/^[A-Za-z0-9_-]{43}$/.test(env.LOCAL_STUDY_ASR_AUTH))
-        throw new StudySpeechError("speech_not_configured", "known_failed");
-      const transport = env.LOCAL_STUDY_ASR ? env.LOCAL_STUDY_ASR.fetch.bind(env.LOCAL_STUDY_ASR) : fetch;
-      const response = await transport(target.href, {
-        method: "POST", body: new Uint8Array(audio), signal: AbortSignal.timeout(25000),
-        headers: { "content-type": contentType, authorization: "Bearer " + env.LOCAL_STUDY_ASR_AUTH },
-        redirect: "error",
-      });
-      if (!response.ok) {
-        await response.body?.cancel().catch(() => {});
-        // Only the authenticated local transport's documented pre-effect 429
-        // establishes refusal. Loss/timeout after dispatch stays uncertain.
-        throw new StudySpeechError("speech_unavailable", response.status === 429 ? "known_failed" : "unknown");
-      }
-      const reader = response.body?.getReader();
-      if (!reader) throw new StudySpeechError("speech_invalid_response");
-      const decoder = new TextDecoder("utf-8", { fatal: true });
-      let text = "", size = 0;
-      try {
-        for (;;) {
-          const next = await reader.read();
-          if (next.done) break;
-          size += next.value.byteLength;
-          if (size > 65536) throw new StudySpeechError("speech_invalid_response");
-          text += decoder.decode(next.value, { stream: true });
-        }
-        text += decoder.decode();
-      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
-      return { text: text.trim(), language: "en" };
-    },
-  };
 }
 
 /** This service is mounted by workerd as a private service binding. The
@@ -70,7 +25,7 @@ export class PrivateStudyState extends DurableObject<StudyEnv> {
     try {
       if ((await this.ctx.storage.getAlarm()) === null)
         await this.ctx.storage.setAlarm(Date.now() + 60000);
-      return await studyPrivateV5OperatorRoute(request, this.env, this.store, localAsr(this.env)) ??
+      return await studyPrivateV5OperatorRoute(request, this.env, this.store, localStudyAsr(this.env)) ??
         new Response(null, { status: 404 });
     } catch {
       return Response.json({ error: "private_study_operator_unavailable" }, { status: 503 });

@@ -20,6 +20,7 @@ import type { PublicIngress } from "./public-ingress.ts";
 import type { Web2NativeActivityPolicy } from "./web2-native-activities.ts";
 import type { Web2LocalStudyPolicy } from "./web2-local-study.ts";
 import { selectLocalAsr } from "./web2-native-study-asr.ts";
+import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
 
 const UPLOAD_IDLE_MS = 15_000;
 const PROCESSING_MS = new Map<string, number>([
@@ -146,11 +147,18 @@ export async function startWeb2NativeActivityHost(options: {
   async function route(request: Request) {
     const url = new URL(request.url);
     if (url.search) return new Response(null,{status:404});
-    await lease.assertHeld();
+    try { await lease.assertHeld(); }
+    catch (error) {
+      if (url.pathname === "/transcribe") noteStudyAsrStage("host_lease");
+      throw error;
+    }
     request.signal.throwIfAborted();
     if(url.pathname==="/transcribe") {
       // The Study bridge checks its scoped bearer before running the model.
-      const bytes = await readMediaBody(request,MAX_STUDY_AUDIO_BYTES);
+      const bytes = await readMediaBody(request,MAX_STUDY_AUDIO_BYTES).catch(error => {
+        if (!request.signal.aborted) noteStudyAsrStage("host_body");
+        throw error;
+      });
       return studyAsr!.route(studyAuth,"POST",request.headers.get("authorization")??"",Buffer.from(bytes),request.signal);
     }
     if(url.pathname==="/recognize" && karaoke && karo) {
@@ -185,10 +193,14 @@ export async function startWeb2NativeActivityHost(options: {
       outgoing.writeHead(404, { connection: "close" }).end();
       return;
     }
+    const isStudy = incoming.url === "/transcribe";
     const requestLifetime = new AbortController();
     let processingTimer: ReturnType<typeof setTimeout> | undefined;
     const disconnected = () => {
-      if (!outgoing.writableFinished) requestLifetime.abort(Error("native_activity_request_interrupted"));
+      if (!outgoing.writableFinished && !requestLifetime.signal.aborted) {
+        if (isStudy) noteStudyAsrStage("host_peer_interrupted");
+        requestLifetime.abort(Error("native_activity_request_interrupted"));
+      }
     };
     const finishUpload = () => {
       if (processingTimer !== undefined || requestLifetime.signal.aborted) return;
@@ -197,6 +209,7 @@ export async function startWeb2NativeActivityHost(options: {
       // reply. Disable the upload timer before the quiet processor phase.
       incoming.setTimeout(0);
       processingTimer = setTimeout(() => {
+        if (isStudy && !requestLifetime.signal.aborted) noteStudyAsrStage("host_processing_deadline");
         requestLifetime.abort(Error("native_activity_processing_timeout"));
         if (outgoing.destroyed) return;
         if (outgoing.headersSent) outgoing.destroy();
@@ -209,6 +222,7 @@ export async function startWeb2NativeActivityHost(options: {
         finishUpload();
         return;
       }
+      if (isStudy && !requestLifetime.signal.aborted) noteStudyAsrStage("host_upload_deadline");
       requestLifetime.abort(Error("native_activity_upload_timeout"));
       incoming.destroy();
     };
@@ -218,12 +232,14 @@ export async function startWeb2NativeActivityHost(options: {
     incoming.once("timeout", uploadTimeout);
     incoming.setTimeout(UPLOAD_IDLE_MS);
     const operation = (async () => {
+      let sendingResponse = false;
       try {
         const response = await route(inputRequest(incoming, requestLifetime.signal));
         if (requestLifetime.signal.aborted || outgoing.destroyed) {
           await response.body?.cancel();
           return;
         }
+        sendingResponse = true;
         outgoing.writeHead(response.status, Object.fromEntries(response.headers));
         if (response.body) {
           await pipeline(
@@ -238,6 +254,7 @@ export async function startWeb2NativeActivityHost(options: {
         }
       } catch {
         if (requestLifetime.signal.aborted || outgoing.destroyed) return;
+        if (isStudy && sendingResponse) noteStudyAsrStage("host_response_delivery");
         if (!outgoing.headersSent) outgoing.writeHead(503, { connection: "close" }).end();
         else outgoing.destroy();
       } finally {

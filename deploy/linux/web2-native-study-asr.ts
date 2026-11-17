@@ -8,6 +8,11 @@ import { access, readFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { MAX_STUDY_AUDIO_BYTES } from "../../packages/study/contracts.ts";
 import { hashJson } from "../../packages/community/common.ts";
+import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
+
+type ProgramFailure = "host_child_start" | "host_child_stdin" | "host_child_output_limit" |
+  "host_child_forced_stop" | "host_child_exit";
+type ProgramResult = { text: string } | { failure: ProgramFailure };
 
 const sha = async (file: string) => {
   const hash = createHash("sha256");
@@ -50,19 +55,37 @@ export async function selectLocalAsr() {
         return new Response(null, { status: 413 });
       if (active) return new Response(null, { status: 429 });
       const task = (async () => {
+        let stage: "host_pin" | "host_child_start" = "host_pin";
         try {
           assert(hashJson(await verify()) === hashJson(hashes), "local_study_asr_generation_changed");
-          signal?.throwIfAborted();
-          const transcript = await new Promise<string>((resolve, reject) => {
+          if (signal?.aborted) return new Response(null, { status: 503 });
+          stage = "host_child_start";
+          const result = await new Promise<ProgramResult>((resolve) => {
+            let started = false, stdinFailed = false;
             const child = execFile(program, [], { env, timeout: 20000, maxBuffer: 65536,
-              killSignal: "SIGKILL" }, (error, stdout) => error ? reject(error) : resolve(stdout.trim()));
-            child.stdin?.on("error", reject);
+              killSignal: "SIGKILL" }, (error, stdout) => {
+              if (!error && !stdinFailed) { resolve({ text: stdout.trim() }); return; }
+              const failure = !started ? "host_child_start" :
+                error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" ? "host_child_output_limit" :
+                error?.killed && error.signal === "SIGKILL" ? "host_child_forced_stop" :
+                stdinFailed ? "host_child_stdin" : "host_child_exit";
+              resolve({ failure });
+            });
+            child.once("spawn", () => { started = true; });
+            // Keep the original child and single slot until execFile settles,
+            // even when its stdin fails first. Never log child stdout/stderr.
+            child.stdin?.on("error", () => { stdinFailed = true; });
             child.stdin?.end(input);
           });
-          return new Response(transcript, { headers: {
+          if ("failure" in result) {
+            noteStudyAsrStage(result.failure);
+            return new Response(null, { status: 503 });
+          }
+          return new Response(result.text, { headers: {
             "content-type": "text/plain; charset=utf-8", "cache-control": "no-store",
           } });
         } catch {
+          noteStudyAsrStage(stage);
           return new Response(null, { status: 503 });
         } finally { input.fill(0); }
       })();
