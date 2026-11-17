@@ -6,9 +6,26 @@ import type { Duplex } from "node:stream";
 import { isAbsolute } from "node:path";
 import type { Hex } from "viem";
 import type { karaokeLocalSessions } from "./karaoke-local-session.ts";
+import { karaokeNativeFailureHeader, type KaraokeNativeFailureOutcome } from "../packages/karaoke/stt-adapter.ts";
 
 const INPUT_LIMIT = 32_000 * 30;
 const OUTPUT_LIMIT = 65_536;
+
+type BridgeFailure = KaraokeNativeFailureOutcome | "model_changed" | "timeout";
+const nativeExitOutcome: Readonly<Partial<Record<number, BridgeFailure>>> = {
+  64: "bridge_input",
+  65: "model_changed",
+  66: "native_boot",
+  67: "native_decode",
+  68: "token_text",
+  69: "token_timing",
+  70: "native_output",
+  71: "native_internal",
+};
+
+function nativeFailure(outcome: BridgeFailure, status = 503): Response {
+  return new Response(null, { status, headers: { [karaokeNativeFailureHeader]: outcome } });
+}
 
 export function localKaraokeTranscriber(options: {
   python: string; script: string; model: string; modelSha256: Hex;
@@ -23,13 +40,14 @@ export function localKaraokeTranscriber(options: {
     if (new URL(request.url).href !== "http://local-karaoke/recognize" ||
         request.method !== "POST" || request.headers.get("content-type") !== "application/octet-stream")
       return new Response(null, { status: 404 });
-    if (busy || closed) return new Response(null, { status: 503 });
+    if (closed) return nativeFailure("bridge_cancelled");
+    if (busy) return nativeFailure("bridge_busy");
     busy = true;
     try {
       if (Number(request.headers.get("content-length") ?? 0) > INPUT_LIMIT)
-        return new Response(null, { status: 413 });
+        return nativeFailure("bridge_input_limit", 413);
       const reader = request.body?.getReader();
-      if (!reader) return new Response(null, { status: 400 });
+      if (!reader) return nativeFailure("bridge_input", 400);
       const chunks: Uint8Array[] = [];
       let size = 0;
       let readTimer: ReturnType<typeof setTimeout> | undefined;
@@ -41,18 +59,18 @@ export function localKaraokeTranscriber(options: {
           const item = await Promise.race([reader.read(), timeout]);
           if (item.done) break;
           size += item.value.byteLength;
-          if (size > INPUT_LIMIT) return new Response(null, { status: 413 });
+          if (size > INPUT_LIMIT) return nativeFailure("bridge_input_limit", 413);
           chunks.push(item.value);
         }
       } catch {
-        return new Response(null, { status: 400 });
+        return nativeFailure("bridge_input", 400);
       } finally {
         clearTimeout(readTimer);
         void reader.cancel().catch(() => undefined);
         reader.releaseLock();
       }
-      if (!size || size % 2) return new Response(null, { status: 400 });
-      if (request.signal.aborted || closed) return new Response(null, { status: 503 });
+      if (!size || size % 2) return nativeFailure("bridge_input", 400);
+      if (request.signal.aborted || closed) return nativeFailure("bridge_cancelled");
 
       const owned = spawn(options.python, [options.script, options.model, options.modelSha256], {
         shell: false, stdio: "pipe", env: { PATH: "/usr/bin:/bin", OPENBLAS_NUM_THREADS: "1" },
@@ -64,24 +82,36 @@ export function localKaraokeTranscriber(options: {
       request.signal.addEventListener("abort", stop, { once: true });
       try {
         const output: Buffer[] = [];
-        let length = 0, invalid = false;
-        const result = await new Promise<Buffer | null>((resolve) => {
-          owned.on("error", () => { invalid = true; });
-          owned.stdin.on("error", () => { invalid = true; stop(); });
+        let length = 0;
+        let spawnFailed = false;
+        let stdinFailed = false;
+        const { code, signal } = await new Promise<{
+          code: number | null; signal: NodeJS.Signals | null;
+        }>((resolve) => {
+          owned.on("error", () => { spawnFailed = true; });
+          owned.stdin.on("error", () => { stdinFailed = true; });
           owned.stderr.resume();
           owned.stdout.on("data", (part: Buffer) => {
             length += part.length;
-            if (length > OUTPUT_LIMIT) { invalid = true; stop(); }
+            if (length > OUTPUT_LIMIT) stop();
             else output.push(part);
           });
-          owned.once("close", code => resolve(
-            code === 0 && !invalid && length > 0 ? Buffer.concat(output) : null,
-          ));
+          owned.once("close", (code, signal) => resolve({ code, signal }));
           owned.stdin.end(Buffer.concat(chunks));
         });
-        return result && !request.signal.aborted && !closed
-          ? new Response(new Uint8Array(result), { headers: { "content-type": "application/json" } })
-          : new Response(null, { status: timedOut ? 504 : 503 });
+        if (timedOut) return nativeFailure("timeout", 504);
+        if (request.signal.aborted || closed) return nativeFailure("bridge_cancelled");
+        if (length > OUTPUT_LIMIT) return nativeFailure("native_output");
+        if (spawnFailed) return nativeFailure("child_spawn");
+        const outcome = code === null ? undefined : nativeExitOutcome[code];
+        if (outcome) return nativeFailure(outcome, outcome === "model_changed" ? 409 : 503);
+        if (signal) return nativeFailure("child_signal");
+        if (stdinFailed) return nativeFailure("child_stdin");
+        if (code !== 0) return nativeFailure("child_exit");
+        if (length === 0) return nativeFailure("native_output");
+        return new Response(new Uint8Array(Buffer.concat(output)), {
+          headers: { "content-type": "application/json" },
+        });
       } finally {
         clearTimeout(timer);
         request.signal.removeEventListener("abort", stop);

@@ -8,6 +8,14 @@ import type { DanceCaptureGuide } from "./dance-capture-guide.ts";
 import { boundDanceRecording } from "./dance-capture-media.ts";
 import type { DancePreparationView } from "./dance-preparation-controller.ts";
 import { isNoPoseDanceWindow } from "./dance-capture-window.ts";
+import type { DanceCapture } from "../capture.ts";
+
+export function isPrivateDanceCapture(capture: DanceCapture): boolean {
+  return (
+    capture.version === "pirate.dance/2" &&
+    capture.publication.kind === "private"
+  );
+}
 
 export interface DanceRecordedTake {
   readonly sessionId: string;
@@ -42,6 +50,7 @@ export function startDanceCapture(
     ...input.ready.context.session,
     cue: { ...input.ready.context.session.cue },
   };
+  const allowPrivateVp9Opus = isPrivateDanceCapture(session.capture);
   const controller = new AbortController(),
     tracks = input.stream.getTracks();
   let capture: VideoCaptureSession | null = null;
@@ -101,6 +110,7 @@ export function startDanceCapture(
         maximumBytes: session.maximum_bytes,
         signal: controller.signal,
         assertCurrent: current,
+        allowPrivateVp9Opus,
       });
       current();
       stopped = true;
@@ -160,6 +170,7 @@ export function startDanceCapture(
       dependencies.startCapture ?? startOriginalVideoCapture
     )({
       stream: input.stream,
+      allowPrivateVp9Opus,
       videoFirst: isNoPoseDanceWindow(session),
       limitMs: session.body_end_ms + 1500,
       onFailure: fail,

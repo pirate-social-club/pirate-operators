@@ -8,19 +8,30 @@ export interface KaraokeSttCommitAck {
   coverageMs: number;
 }
 
+export const karaokeNativeFailureHeader = "x-pirate-karaoke-native-failure";
+
+export const karaokeNativeFailureOutcomes = [
+  "bridge_input", "bridge_input_limit", "bridge_busy", "bridge_cancelled",
+  "child_spawn", "child_stdin",
+  "child_signal", "child_exit", "native_boot", "native_decode", "token_text",
+  "token_timing", "native_output", "native_internal",
+] as const;
+
+export type KaraokeNativeFailureOutcome = typeof karaokeNativeFailureOutcomes[number];
+
+export type KaraokeLocalFailure = {
+  commitId: string;
+  streamGeneration: string;
+  outcome: KaraokeNativeFailureOutcome | "timeout" | "child_unavailable" | "invalid_response" | "invalid_word_time";
+  pcmMs: number;
+};
+
 /**
  * Internal adapter → host message. `event` is the client-relayable transcript;
  * `commit` (present only on committed finals) carries the correlation metadata
  * the host uses for the watermark/second-gate. Keeping commit metadata off the
  * transport event guarantees it never leaks to clients.
  */
-export type KaraokeLocalFailure = {
-  commitId: string;
-  streamGeneration: string;
-  outcome: "timeout" | "child_unavailable" | "invalid_response" | "invalid_word_time";
-  pcmMs: number;
-};
-
 export interface KaraokeSttAdapterMessage {
   event: KaraokeStreamingSttEvent;
   commit?: KaraokeSttCommitAck | undefined;

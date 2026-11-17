@@ -7,6 +7,7 @@ import {
 import { danceSession } from "./dance-preparation-api.ts";
 import { openCameraPreview } from "./platform/capture.ts";
 import {
+  isPrivateDanceCapture,
   startDanceCapture,
   type DanceCaptureHandle,
   type DanceRecordedTake,
@@ -277,13 +278,13 @@ export function createDanceRecorder(
           throw error;
         }
         ready = ownedView;
-        const opened = await (options.openCamera ?? openCameraPreview)().catch(
-          (error) => {
-            releaseLease();
-            ready = null;
-            throw error;
-          },
-        );
+        const opened = await (options.openCamera ?? openCameraPreview)(
+          isPrivateDanceCapture(view.session.capture),
+        ).catch((error) => {
+          releaseLease();
+          ready = null;
+          throw error;
+        });
         try {
           current(signal);
           view.assertCurrent();

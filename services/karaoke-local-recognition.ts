@@ -1,6 +1,11 @@
 import { sha256, type Hex } from "viem";
 import { check } from "../packages/protocol/index.ts";
-import type { KaraokeLocalFailure, KaraokeStreamingSttAdapter } from "../packages/karaoke/stt-adapter.ts";
+import {
+  karaokeNativeFailureHeader,
+  karaokeNativeFailureOutcomes,
+  type KaraokeLocalFailure,
+  type KaraokeStreamingSttAdapter,
+} from "../packages/karaoke/stt-adapter.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 
 const INPUT_BYTES = 32_000 * 30;
@@ -102,8 +107,21 @@ export function localKaraokeAdapter(port: Fetcher, modelSha256: Hex): KaraokeStr
               body: audio,
               signal,
             });
-            outcome = response.status === 504 ? "timeout" : "child_unavailable";
-            check(response.ok, "karaoke_local_recognition_unavailable");
+            if (!response.ok) {
+              const category = response.headers.get(karaokeNativeFailureHeader);
+              if (response.status === 409 && category === "model_changed") {
+                signal.throwIfAborted();
+                if (active === controller && input === owner) {
+                  active = null;
+                  owner.onTerminalError?.("local_recognition_binding_changed");
+                }
+                return;
+              }
+              outcome = response.status === 504
+                ? "timeout"
+                : karaokeNativeFailureOutcomes.find(value => value === category) ?? "child_unavailable";
+              throw Error("karaoke_local_recognition_unavailable");
+            }
             outcome = "invalid_response";
             const doc = await boundedJson(response);
             check(doc && doc.schema === "pirate.local-karaoke-recognition/1" &&

@@ -87,6 +87,7 @@ export async function inspectVideoFile(
   options: {
     readonly maxDurationSeconds?: number;
     readonly requirePortrait?: boolean;
+    readonly allowPrivateVp9Opus?: boolean;
   } = {},
 ): Promise<File> {
   const declared = file.type.toLowerCase().split(";")[0]?.trim();
@@ -138,6 +139,7 @@ export async function inspectVideoFile(
       averageFrameRate,
       durationSeconds: duration,
       maxDurationSeconds: maxDuration,
+      allowPrivateVp9Opus: options.allowPrivateVp9Opus,
     });
     if (problem !== null || video === null)
       throw new VideoCaptureError(
@@ -165,7 +167,7 @@ export async function inspectVideoFile(
   }
 }
 
-/** Production composition of the proved 1.55.5 fMP4 path; no WebM or AAC polyfill. */
+/** Production composition of the proved 1.55.5 fMP4 path. */
 export interface OriginalVideoCaptureInput {
   readonly onFailure: (error: VideoCaptureError) => void;
   readonly onLimit: () => void;
@@ -175,6 +177,8 @@ export interface OriginalVideoCaptureInput {
   /** A live camera stream already shown as the preview. The recording takes
    * ownership of it and stops its tracks when the take ends. */
   readonly stream?: MediaStream;
+  /** Server-selected private Dance captures can use VP9/Opus fMP4. */
+  readonly allowPrivateVp9Opus?: boolean;
   /** Start the file with video before admitting microphone samples. Both
    * retain synced-zero time; the microphone is never shifted to video zero. */
   readonly videoFirst?: boolean;
@@ -189,25 +193,85 @@ export interface OriginalVideoCaptureInput {
   }) => void;
 }
 
-async function assertRecordingCapability(): Promise<void> {
+async function captureEncoding(
+  width: number,
+  height: number,
+  numberOfChannels: number,
+  sampleRate: number,
+  allowPrivateVp9Opus: boolean,
+): Promise<{ video: VideoEncodingConfig; audio: AudioEncodingConfig } | null> {
+  const pixels = width * height;
+  if (pixels > 1080 * 1920) return null;
+  const avc: VideoEncodingConfig = {
+    codec: "avc",
+    quality: videoQuality,
+    fullCodecString:
+      pixels <= 640 * 480
+        ? "avc1.42e01e"
+        : pixels <= 720 * 1280
+          ? "avc1.42e01f"
+          : "avc1.42e028",
+    keyFrameInterval: 1,
+    hardwareAcceleration: "prefer-hardware",
+    latencyMode: "realtime",
+  };
+  const aac: AudioEncodingConfig = { codec: "aac", quality: audioQuality };
+  const audio = { numberOfChannels, sampleRate, quality: audioQuality };
+  const dimensions = {
+    width,
+    height,
+    quality: videoQuality,
+    latencyMode: "realtime" as const,
+  };
+  if (
+    (await canEncodeVideo("avc", {
+      ...dimensions,
+      fullCodecString: avc.fullCodecString,
+      hardwareAcceleration: avc.hardwareAcceleration,
+    })) &&
+    (await canEncodeAudio("aac", audio))
+  )
+    return { video: avc, audio: aac };
+  if (!allowPrivateVp9Opus) return null;
+  const vp9Codec = pixels <= 720 * 1280 ? "vp09.00.31.08" : "vp09.00.40.08";
+  const player = document.createElement("video");
+  if (
+    !player.canPlayType(`video/mp4; codecs="${vp9Codec},opus"`) ||
+    !player.canPlayType('video/mp4; codecs="avc1.64001f,mp4a.40.2"') ||
+    !(await canEncodeVideo("vp9", {
+      ...dimensions,
+      fullCodecString: vp9Codec,
+    })) ||
+    !(await canEncodeAudio("opus", audio))
+  )
+    return null;
+  return {
+    video: {
+      codec: "vp9",
+      quality: videoQuality,
+      fullCodecString: vp9Codec,
+      keyFrameInterval: 1,
+      latencyMode: "realtime",
+    },
+    audio: { codec: "opus", quality: audioQuality },
+  };
+}
+
+async function assertRecordingCapability(
+  allowPrivateVp9Opus = false,
+): Promise<void> {
   if (
     !globalThis.isSecureContext ||
     !navigator.mediaDevices?.getUserMedia ||
     !("VideoEncoder" in globalThis) ||
     !("AudioEncoder" in globalThis) ||
-    !(await canEncodeVideo("avc", {
-      width: 720,
-      height: 1280,
-      quality: videoQuality,
-      fullCodecString: "avc1.42e01f",
-      hardwareAcceleration: "prefer-hardware",
-      latencyMode: "realtime",
-    })) ||
-    !(await canEncodeAudio("aac", {
-      numberOfChannels: 1,
-      sampleRate: 48_000,
-      quality: audioQuality,
-    }))
+    !(await captureEncoding(
+      PORTRAIT_WIDTH,
+      PORTRAIT_HEIGHT,
+      1,
+      48_000,
+      allowPrivateVp9Opus,
+    ))
   ) {
     throw new VideoCaptureError(
       "capability_unavailable",
@@ -243,8 +307,10 @@ async function openCameraStream(): Promise<MediaStream> {
 /** Opens the camera for a live preview before recording, so the capture
  * screen shows the camera immediately. The caller stops the tracks when the
  * preview is abandoned; a recording started from it stops them itself. */
-export async function openCameraPreview(): Promise<MediaStream> {
-  await assertRecordingCapability();
+export async function openCameraPreview(
+  allowPrivateVp9Opus = false,
+): Promise<MediaStream> {
+  await assertRecordingCapability(allowPrivateVp9Opus);
   return openCameraStream();
 }
 
@@ -356,7 +422,7 @@ async function portraitEncodingTrack(
 export async function startOriginalVideoCapture(
   input: OriginalVideoCaptureInput,
 ): Promise<VideoCaptureSession> {
-  await assertRecordingCapability();
+  await assertRecordingCapability(input.allowPrivateVp9Opus);
   const stream = input.stream ?? (await openCameraStream());
   const target = new BufferTarget();
   const output = new Output({
@@ -458,46 +524,20 @@ export async function startOriginalVideoCapture(
       boundary.fail("encoder_failed", "Recording stopped. Try again.");
     });
     const { width, height } = portraitTrack;
-    const pixels = width * height;
-    const profile =
-      pixels <= 640 * 480
-        ? "avc1.42e01e"
-        : pixels <= 720 * 1280
-          ? "avc1.42e01f"
-          : "avc1.42e028";
-    if (
-      pixels > 1080 * 1920 ||
-      !(await canEncodeVideo("avc", {
-        width,
-        height,
-        quality: videoQuality,
-        fullCodecString: profile,
-        hardwareAcceleration: "prefer-hardware",
-        latencyMode: "realtime",
-      })) ||
-      !(await canEncodeAudio("aac", {
-        numberOfChannels: sound.channelCount ?? 1,
-        sampleRate: sound.sampleRate ?? 48_000,
-        quality: audioQuality,
-      }))
-    ) {
+    const encoding = await captureEncoding(
+      width,
+      height,
+      sound.channelCount ?? 1,
+      sound.sampleRate ?? 48_000,
+      input.allowPrivateVp9Opus ?? false,
+    );
+    if (!encoding) {
       throw new VideoCaptureError(
         "capability_unavailable",
         "This browser can’t record with this phone’s camera and microphone.",
       );
     }
-    const videoConfig: VideoEncodingConfig = {
-      codec: "avc",
-      quality: videoQuality,
-      fullCodecString: profile,
-      keyFrameInterval: 1,
-      hardwareAcceleration: "prefer-hardware",
-      latencyMode: "realtime",
-    };
-    const audioConfig: AudioEncodingConfig = {
-      codec: "aac",
-      quality: audioQuality,
-    };
+    const { video: videoConfig, audio: audioConfig } = encoding;
     if (input.onSourceSample || input.videoFirst) {
       videoConfig.transform = { process: (sample) => observe("video", sample) };
       audioConfig.transform = { process: (sample) => observe("audio", sample) };
@@ -605,6 +645,7 @@ export async function startOriginalVideoCapture(
               // chosen file keeps the ordinary admission bound.
               maxDurationSeconds: GUIDED_TAKE_MAX_DURATION_SECONDS,
               requirePortrait: true,
+              allowPrivateVp9Opus: videoConfig.codec === "vp9",
             },
           );
         } finally {
