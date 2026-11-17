@@ -1,3 +1,4 @@
+import { createDancePreparationController } from "./dance-preparation-controller.ts";
 // c7 review controller's original outstanding-command/observe/act separation.
 // Commands are delegated to the already admitted durable Dance client journal;
 // visibility/publication is deliberately absent while owner policy is held.
@@ -244,6 +245,23 @@ export function createDanceReviewController(
     return view;
   };
   return {
+    async finishPrivate(signal: AbortSignal): Promise<void> {
+      const guard = guardFor(signal);
+      guard();
+      if (options.reviewId) throw Error("dance_review_route_mismatch");
+      const entry = await options.journal.read(options.scope, guard);
+      guard();
+      if (
+        !entry.capture ||
+        entry.capture.version !== "pirate.dance/2" ||
+        entry.capture.publication.kind !== "private"
+      )
+        throw Error("dance_private_completion_unavailable");
+      // Existing completion archives the exact take, resets only its capture
+      // command and keeps unknown/unrelated work held. Media is never deleted.
+      await createDancePreparationController(options).closeTerminal(signal);
+      guard();
+    },
     async localPreview(signal: AbortSignal) {
       const guard = guardFor(signal),
         view = await read(signal);

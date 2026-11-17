@@ -1,3 +1,4 @@
+import type { DanceCapture as StoredCapture } from "../src/dance/capture.ts";
 /** Named SIMULATED API/authority/media/storage ports. Never a production import.
  * Adapted c7 camera/preparation/recording fixture and original recovery cases. */
 import type {
@@ -208,7 +209,7 @@ export function simulatedRecordingStorage() {
   };
   return { storage, records };
 }
-export function mediaFixture(c: DanceCapture, digest = sha(16)): MediaStatus {
+export function mediaFixture(c: StoredCapture, digest = sha(16)): MediaStatus {
   const ready: ReadyMedia = {
     version: "pirate.community-media/1",
     id: "media",

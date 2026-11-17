@@ -1,3 +1,4 @@
+import { validateDanceMedia } from "./dance-upload-controller.ts";
 import type { DanceCapture } from "../capture.ts";
 // Adapted from c7 dance-preparation-controller: original prepare/start/reconcile
 // and closeTerminal ownership, with V5's combined reservation/consent boundary.
@@ -48,10 +49,12 @@ export type DancePreparationView =
       readonly context: null;
     };
 
-export function createDancePreparationController(options: DanceSourcePorts & {
-  /** Presentation eligibility; existing original recovery never depends on it. */
-  readonly assertFreshPosting?: () => void;
-}) {
+export function createDancePreparationController(
+  options: DanceSourcePorts & {
+    /** Presentation eligibility; existing original recovery never depends on it. */
+    readonly assertFreshPosting?: () => void;
+  },
+) {
   let generation = 0;
   const now = options.nowMs ?? Date.now;
   const begin = (signal: AbortSignal) => {
@@ -424,7 +427,19 @@ export function createDancePreparationController(options: DanceSourcePorts & {
             signal,
           );
           guard();
-          if (
+          const privateReady =
+            entry.capture.version === "pirate.dance/2" &&
+            entry.capture.publication.kind === "private" &&
+            status.state === "ready";
+          if (privateReady) {
+            assertCapture(entry.capture, options.scope);
+            validateDanceMedia(
+              status,
+              danceSession(entry.capture, options.media.maximumBytes),
+              entry.upload.recordingSha256,
+              entry.upload.mediaId,
+            );
+          } else if (
             status.id !== entry.upload.mediaId ||
             status.purpose !== "private-review" ||
             !["expired", "withdrawn", "revoked"].includes(status.state)

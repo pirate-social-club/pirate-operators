@@ -221,6 +221,20 @@ export function DanceReviewPage(props: {
       }
     }
   }
+  async function finishPrivate() {
+    if(!privatePractice() || busy())return;
+    stopObservation();stopPreview();journey.send({type:"REVIEW_WRITE"});
+    request?.abort();const pending=new AbortController(),attempt=++revision;request=pending;
+    try {
+      await controller.finishPrivate(pending.signal);
+      if(current(attempt,pending.signal))provided.onBack();
+    } catch(error) {
+      if(!current(attempt,pending.signal))return;
+      if(privateAccessLost(error)){failure(error);return;}
+      journey.send({type:"REVIEW_ERROR",error});
+      setNotice("Your private recording is saved. We couldn’t finish closing it. Try Done again.");
+    }
+  }
   async function act(operation: "submit" | "withdraw") {
     const view = ready();
     if (!view || writeBlocked() || (operation === "submit" && !dancePostingAllowed())) return;
@@ -472,13 +486,13 @@ export function DanceReviewPage(props: {
           <Show when={!expired() && view().result.state === "uploaded" && postingAllowed() && !privatePractice()}>
             <Button class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => void act("submit")}>{busy() ? "Submitting…" : "Submit for review"}</Button>
           </Show>
-          <Show when={!expired() && snapshot().matches({ review: "error" })}><Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(true)}>Resume submission</Button></Show>
+          <Show when={!expired() && snapshot().matches({ review: "error" }) && !privatePractice()}><Button class="h-12 w-full rounded-xl" disabled={busy()} onClick={() => void load(true)}>Resume submission</Button></Show>
           <Show when={editable() && !fullMedia()}><Button variant="secondary" class="h-12 w-full rounded-xl" disabled={previewStatus() === "loading"} onClick={() => void play()}>Preview recording</Button></Show>
           <Show when={view().result.kind === "review" && danceReviewEditable(view().result)}>
             <Button variant="secondary" class="h-12 w-full rounded-xl" disabled={writeBlocked()} onClick={() => setConfirmCancel(true)}>Cancel review</Button>
           </Show>
           <Show when={!postingAllowed() && view().result.state === "uploaded" && !privatePractice()}><p class="text-sm">Recording is available on mobile.</p><Button variant="secondary" onClick={provided.onBack}>Back to dance</Button></Show>
-          <Show when={expired() || view().result.state !== "uploaded" || privatePractice()}><Button class="h-12 w-full rounded-xl" variant="secondary" onClick={provided.onBack}>Done</Button></Show>
+          <Show when={expired() || view().result.state !== "uploaded" || privatePractice()}><Button class="h-12 w-full rounded-xl" variant="secondary" disabled={privatePractice() && busy()} onClick={() => privatePractice() ? void finishPrivate() : provided.onBack()}>Done</Button></Show>
         </>}</Show>
       </footer>
       <Modal open={confirmCancel()} onOpenChange={setConfirmCancel}>
