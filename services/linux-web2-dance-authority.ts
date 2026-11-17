@@ -8,6 +8,7 @@ import { createDancePrivateSongProjections } from "./dance-private-song-projecti
 import { communityPrivatePractice } from "./community-private-practice.ts";
 import type { Web2CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import type { DancePrivatePolicyV2 } from "./dance-private-catalogue.ts";
+import { localAlignmentReplay } from "./linux-web2-local-alignment.ts";
 import { sha256 } from "viem";
 import { publishedLyrics, publishedStem, runSongAlignment } from "./karaoke-song.ts";
 
@@ -67,8 +68,7 @@ export async function nativeDanceAuthority(request: Request, env: NativeDanceEnv
       insist(typeof preserved.raw === "string" && hashText(preserved.raw) === preserved.rawSha256 &&
         preserved.vocalSha256 === vocal.sha256 && preserved.transcriptSha256 === hashText(lyrics.sourceText),
         "karaoke_alignment_archive_source_changed", 409);
-      const parsed = object(JSON.parse(preserved.raw));
-      insist(Array.isArray(parsed.characters) && typeof parsed.loss === "number", "karaoke_alignment_archive_invalid", 409);
+      const replayBody = localAlignmentReplay(JSON.parse(preserved.raw), lyrics.sourceText);
       return response(await runSongAlignment(env.DB, env.MEDIA, config, host.reads, signed, {
         apiKey: "local-recorded-alignment-replay",
         beforeSend: current,
@@ -76,7 +76,7 @@ export async function nativeDanceAuthority(request: Request, env: NativeDanceEnv
           await current();
           insist(providerRequest.method === "POST" && providerRequest.url === "https://api.elevenlabs.io/v1/forced-alignment" &&
             env.KARAOKE_ALIGNMENT_ARCHIVE_SHA256 === archivePin, "karaoke_alignment_replay_scope_changed", 409);
-          return Response.json({ characters: parsed.characters, words: [], loss: parsed.loss });
+          return Response.json(replayBody);
         } },
       }));
     }

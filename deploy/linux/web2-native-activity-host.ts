@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { Readable } from "node:stream";
+import { finished, pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { chmod, lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -12,12 +13,21 @@ import type { MediaRecord, PublishedMediaSong } from "../../packages/community-m
 import { communityMediaRender } from "../../packages/community-media/processor-transport.ts";
 import { MAX_MEDIA_BYTES, readMediaBody } from "../../packages/community-media/validation.ts";
 import { MAX_STUDY_AUDIO_BYTES } from "../../packages/study/contracts.ts";
+import { MEDIA_LEASE_MS } from "../../services/community-media-jobs.ts";
 import { localKaraokeTranscriber } from "../../harness/karaoke-local-bridge.ts";
 import { hash, privateDirectory, privateFile, type OperationLease } from "./backend-state.ts";
 import type { PublicIngress } from "./public-ingress.ts";
 import type { Web2NativeActivityPolicy } from "./web2-native-activities.ts";
 import type { Web2LocalStudyPolicy } from "./web2-local-study.ts";
 import { selectLocalAsr } from "./web2-native-study-asr.ts";
+
+const UPLOAD_IDLE_MS = 15_000;
+const PROCESSING_MS = new Map<string, number>([
+  ["/recognize", 20_000], // 10 s model child plus pinned input checks.
+  ["/transcribe", 30_000], // 20 s model child plus pinned input checks.
+  ["/probe", 30_000], // 20 s FFmpeg decode plus pinned input checks.
+  ["/render", MEDIA_LEASE_MS], // Up to 60 s FFmpeg, authority reads and probes.
+]);
 
 type Tool = { path: string; sha256: string };
 export interface Web2NativeActivityHostInputs {
@@ -91,11 +101,12 @@ export async function startWeb2NativeActivityHost(options: {
   const upstream = new URL(ingress.upstream), origin = new URL(ingress.origin);
   assert(upstream.protocol === "https:" && upstream.hostname === "127.0.0.1" && upstream.port,
     "native_activity_loopback_upstream_required");
-  const authority = (operation: "facts" | "audio", id: string, claim: string, limit: number) =>
+  const authority = (operation: "facts" | "audio", id: string, claim: string, limit: number, signal: AbortSignal) =>
     new Promise<Buffer>((resolve, reject) => {
+      signal.throwIfAborted();
       assert(ca && danceAuth);
       const body = JSON.stringify({ id, claim });
-      const req = httpsRequest({ method: "POST", hostname:"127.0.0.1", port:upstream.port, ca, agent:false,
+      const req = httpsRequest({ method: "POST", hostname:"127.0.0.1", port:upstream.port, ca, agent:false, signal,
         servername:ingress.upstreamServerName, path:"/_operator/native-private-dance/"+operation,
         headers:{ host:origin.host, "content-type":"application/json", "content-length":Buffer.byteLength(body),
           authorization:"Bearer "+danceAuth } }, (reply) => {
@@ -118,15 +129,15 @@ export async function startWeb2NativeActivityHost(options: {
     const requestBody = JSON.parse(new TextDecoder().decode(raw.subarray(4,4+size))) as {media:MediaRecord};
     const {id,claim} = requestBody.media;
     assert(typeof id==="string" && typeof claim==="string" && id.length<=128 && claim.length<=128);
-    const facts = async () => JSON.parse((await authority("facts",id,claim,65536)).toString("utf8")) as {media:MediaRecord;song:PublishedMediaSong};
+    const facts = async () => JSON.parse((await authority("facts",id,claim,65536,request.signal)).toString("utf8")) as {media:MediaRecord;song:PublishedMediaSong};
     const processor = new FFmpegMediaProcessor({ffmpeg:dance.ffmpeg.path, ffprobe:dance.ffprobe.path, tempRoot:dance.tempRoot,
       async loadSong(song) {
         const current = await facts();
         assert(canonical(current.song)===canonical(song));
-        return new Uint8Array(await authority("audio",id,claim,25*1024*1024));
+        return new Uint8Array(await authority("audio",id,claim,25*1024*1024,request.signal));
       }});
-    return communityMediaRender(new Request(request.url,{method:"POST",body:new Uint8Array(raw)}),processor,{
-      async authorize(){await lease.assertHeld();return true;},
+    return communityMediaRender(new Request(request.url,{method:"POST",body:new Uint8Array(raw),signal:request.signal}),processor,{
+      async authorize(){await lease.assertHeld();request.signal.throwIfAborted();return true;},
       async current(community,record){const {media}=await facts();assert(media.communityId===community && media.id===record);return media;},
       async song(community,key,revision){const {song}=await facts();assert(song.communityId===community && song.songKey===key && song.songRevision===revision);return song;},
       now:Date.now,
@@ -136,10 +147,11 @@ export async function startWeb2NativeActivityHost(options: {
     const url = new URL(request.url);
     if (url.search) return new Response(null,{status:404});
     await lease.assertHeld();
+    request.signal.throwIfAborted();
     if(url.pathname==="/transcribe") {
       // The Study bridge checks its scoped bearer before running the model.
       const bytes = await readMediaBody(request,MAX_STUDY_AUDIO_BYTES);
-      return studyAsr!.route(studyAuth,"POST",request.headers.get("authorization")??"",Buffer.from(bytes));
+      return studyAsr!.route(studyAuth,"POST",request.headers.get("authorization")??"",Buffer.from(bytes),request.signal);
     }
     if(url.pathname==="/recognize" && karaoke && karo) {
       await Promise.all([checkTool(karo.python), checkTool(karo.script)]);
@@ -150,6 +162,7 @@ export async function startWeb2NativeActivityHost(options: {
     if(url.pathname==="/probe" && dance) {
       await checkTool(dance.ffmpeg);
       const audio = await readMediaBody(request,25*1024*1024);
+      request.signal.throwIfAborted();
       const samples = await new Promise<number>((resolve,reject)=>{
         const child=execFile(dance.ffmpeg.path,["-nostdin","-v","error","-threads","1","-protocol_whitelist","pipe",
           "-f","mp3","-i","pipe:0","-map","0:a:0","-ac","1","-ar","48000","-t","600","-f","s16le","pipe:1"],
@@ -167,33 +180,78 @@ export async function startWeb2NativeActivityHost(options: {
   let active: Promise<void> | undefined, stopping = false;
   const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
     if (stopping || active) {outgoing.writeHead(429,{connection:"close"}).end();return;}
-    if (incoming.method!=="POST" || !/^\/[a-z]+$/.test(incoming.url??"")) {outgoing.writeHead(404).end();return;}
+    const processingMs = PROCESSING_MS.get(incoming.url ?? "");
+    if (incoming.method !== "POST" || processingMs === undefined) {
+      outgoing.writeHead(404, { connection: "close" }).end();
+      return;
+    }
     const requestLifetime = new AbortController();
+    let processingTimer: ReturnType<typeof setTimeout> | undefined;
     const disconnected = () => {
       if (!outgoing.writableFinished) requestLifetime.abort(Error("native_activity_request_interrupted"));
     };
+    const finishUpload = () => {
+      if (processingTimer !== undefined || requestLifetime.signal.aborted) return;
+      incoming.removeListener("timeout", uploadTimeout);
+      // IncomingMessage sets the timeout on the same socket that carries the
+      // reply. Disable the upload timer before the quiet processor phase.
+      incoming.setTimeout(0);
+      processingTimer = setTimeout(() => {
+        requestLifetime.abort(Error("native_activity_processing_timeout"));
+        if (outgoing.destroyed) return;
+        if (outgoing.headersSent) outgoing.destroy();
+        else outgoing.writeHead(504, { connection: "close" }).end();
+      }, processingMs);
+      processingTimer.unref();
+    };
+    const uploadTimeout = () => {
+      if (incoming.complete) {
+        finishUpload();
+        return;
+      }
+      requestLifetime.abort(Error("native_activity_upload_timeout"));
+      incoming.destroy();
+    };
     incoming.once("aborted", disconnected);
     outgoing.once("close", disconnected);
-    incoming.setTimeout(15000,()=>incoming.destroy());
-    const operation=(async()=>{
+    incoming.once("end", finishUpload);
+    incoming.once("timeout", uploadTimeout);
+    incoming.setTimeout(UPLOAD_IDLE_MS);
+    const operation = (async () => {
       try {
-        const response=await route(inputRequest(incoming, requestLifetime.signal));
-        outgoing.writeHead(response.status,Object.fromEntries(response.headers));
-        if(response.body) {
-          for await(const chunk of Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>)) {
-            if(outgoing.destroyed) break;
-            // Renderer output is bounded by the owning processor contract.
-            outgoing.write(chunk);
-          }
+        const response = await route(inputRequest(incoming, requestLifetime.signal));
+        if (requestLifetime.signal.aborted || outgoing.destroyed) {
+          await response.body?.cancel();
+          return;
         }
-        outgoing.end();
-      } catch {if(!outgoing.headersSent)outgoing.writeHead(503).end();else outgoing.destroy();}
-      finally {
+        outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+        if (response.body) {
+          await pipeline(
+            Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
+            outgoing,
+            { signal: requestLifetime.signal },
+          );
+        } else {
+          const sent = finished(outgoing, { cleanup: true });
+          outgoing.end();
+          await sent;
+        }
+      } catch {
+        if (requestLifetime.signal.aborted || outgoing.destroyed) return;
+        if (!outgoing.headersSent) outgoing.writeHead(503, { connection: "close" }).end();
+        else outgoing.destroy();
+      } finally {
+        clearTimeout(processingTimer);
+        incoming.removeListener("end", finishUpload);
+        incoming.removeListener("timeout", uploadTimeout);
         incoming.removeListener("aborted", disconnected);
         outgoing.removeListener("close", disconnected);
       }
     })();
-    active=operation;void operation.finally(()=>{active=undefined;});
+    // A cancelled transport never concedes the host's one active slot.
+    // Release it only when the original processing and response settle.
+    active = operation.finally(() => { active = undefined; });
+    void active.catch(() => outgoing.destroy());
   });
   const close = async () => {
     stopping=true;

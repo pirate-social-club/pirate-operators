@@ -42,7 +42,7 @@ export async function selectLocalAsr() {
   let active: Promise<Response> | undefined;
   return {
     selectedProgramSha256: hashJson({ program: hashes[0], englishModel: hashes[1], ffmpeg: hashes[2], python: hashes[3] }),
-    async route(auth: string, method: string, header: string, input: Buffer) {
+    async route(auth: string, method: string, header: string, input: Buffer, signal?: AbortSignal) {
       const wanted = Buffer.from("Bearer " + auth), offered = Buffer.from(header);
       if (method !== "POST" || wanted.length !== offered.length || !timingSafeEqual(wanted, offered))
         return new Response(null, { status: 403 });
@@ -52,6 +52,7 @@ export async function selectLocalAsr() {
       const task = (async () => {
         try {
           assert(hashJson(await verify()) === hashJson(hashes), "local_study_asr_generation_changed");
+          signal?.throwIfAborted();
           const transcript = await new Promise<string>((resolve, reject) => {
             const child = execFile(program, [], { env, timeout: 20000, maxBuffer: 65536,
               killSignal: "SIGKILL" }, (error, stdout) => error ? reject(error) : resolve(stdout.trim()));
