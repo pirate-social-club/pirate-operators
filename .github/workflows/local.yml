@@ -77,10 +77,7 @@ jobs:
             TMPDIR="$(mktemp -d)"
             PIRATE_TEST_RUN_PARENT="$(mktemp -d /run/pirate-root-tests.XXXXXXXX)"
             export TMPDIR PIRATE_TEST_RUN_PARENT
-            node --test --test-concurrency=2 --test-shard="$TEST_SHARD" \
-              --test-reporter=spec --test-reporter-destination=stdout \
-              --test-reporter=junit --test-reporter-destination=".local/root-tests-${TEST_SHARD%/*}.xml" \
-              test/*.test.ts
+            node harness/ci/run-root-tests.mjs
             test -s ".local/root-tests-${TEST_SHARD%/*}.xml"
           '
       - uses: actions/upload-artifact@v4
@@ -89,6 +86,7 @@ jobs:
           name: root-tests-${{ matrix.shard }}
           path: |
             .local/root-tests-${{ matrix.shard }}.xml
+            .local/root-test-plan-${{ matrix.shard }}.json
             .local/compiler-artifact-contract.json
           include-hidden-files: true
           if-no-files-found: ${{ job.status == 'success' && 'error' || 'warn' }}

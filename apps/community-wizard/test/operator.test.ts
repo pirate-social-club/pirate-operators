@@ -10,9 +10,9 @@ import {
   access,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createServer } from "node:net";
+import { createServer } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { operatorOptions } from "../server/operator.ts";
 
@@ -51,7 +51,7 @@ async function fixture(
   const setup = JSON.stringify({
     version: 1,
     revision: 3,
-    settings,
+    settings: { ...settings, name: `Operator fixture ${basename(directory)}` },
     secretStoreSite: "https://app.infisical.com",
     secrets: [],
     deployment: "failed",
@@ -133,13 +133,45 @@ async function start(f: Awaited<ReturnType<typeof fixture>>, args: string[]) {
     ["--import", tsx, launcher, ...f.args, ...args],
     { cwd: root, env: f.env, stdio: ["ignore", "pipe", "pipe"] },
   );
-  let output = "";
-  child.stdout.on("data", (data) => (output += data));
+  let output = "",
+    stdout = "";
+  child.stdout.on("data", (data) => {
+    stdout += data;
+    output += data;
+  });
   child.stderr.on("data", (data) => (output += data));
   const finished = new Promise<number | null>((done) =>
     child.once("close", done),
   );
-  return { child, finished, output: () => output };
+  return { child, finished, output: () => output, stdout: () => stdout };
+}
+
+async function launcherState(
+  run: Awaited<ReturnType<typeof start>>,
+  port: number,
+): Promise<Response> {
+  const origin = `http://127.0.0.1:${port}`;
+  const readyLine = `Community wizard: ${origin}`;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (run.child.exitCode !== null || run.child.signalCode !== null)
+      throw new Error(
+        `Operator launcher exited before owned HTTP readiness.\n${run.output()}`,
+      );
+    // Only this child's successful listen callback can authorize the HTTP probe.
+    // A 200 from a process that acquired the released probe port is insufficient.
+    if (run.stdout().split(/\r?\n/).includes(readyLine)) {
+      try {
+        const response = await fetch(`${origin}/api/state`, {
+          signal: AbortSignal.timeout(100),
+        });
+        if (response.ok) return response;
+      } catch {}
+    }
+    await delay(100);
+  }
+  throw new Error(
+    `Operator launcher did not reach owned HTTP readiness.\n${run.output()}`,
+  );
 }
 
 test("operator --check is nonsecret and does not authenticate, start or mutate state", async (t) => {
@@ -172,20 +204,12 @@ for (const mode of ["api-token", "cf-login"]) {
       if (run.child.exitCode === null) run.child.kill("SIGKILL");
       await run.finished;
     });
-    let response: Response | undefined;
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try {
-        response = await fetch(`http://127.0.0.1:${port}/api/state`, {
-          signal: AbortSignal.timeout(100),
-        });
-      } catch {}
-      if (response?.ok || run.child.exitCode !== null) break;
-      await delay(100);
-    }
+    const response = await launcherState(run, port);
     assert.ok(response?.ok, run.output());
     const state = await response.json();
     assert.equal(state.capabilities.cloudflare, true);
     assert.equal(state.capabilities.stateProtection, true);
+    assert.equal(state.settings.name, JSON.parse(f.setup).settings.name);
     assert.equal(state.deployment, "failed");
     assert.equal(state.settings.moderationMode, "independent");
     assert.equal(await readFile(join(f.state, "setup.json"), "utf8"), f.setup);
@@ -259,3 +283,66 @@ test("launcher refuses failed/expired/wrong-account cf sessions and missing inje
     assert.equal(await readFile(join(f.state, "setup.json"), "utf8"), f.setup);
   }
 });
+
+test(
+  "actual launcher refuses an occupied port without adopting another HTTP server",
+  { timeout: 15_000 },
+  async (t) => {
+    const f = await fixture(t);
+    let foreignRequests = 0;
+    const foreign = createServer((_request, response) => {
+      foreignRequests++;
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(
+        JSON.stringify({
+          capabilities: { cloudflare: true },
+          deployment: "failed",
+          settings: { moderationMode: "independent" },
+        }),
+      );
+    });
+    await new Promise<void>((done) => foreign.listen(0, "127.0.0.1", done));
+    t.after(async () => {
+      foreign.closeAllConnections();
+      await new Promise<void>((done) => foreign.close(() => done()));
+    });
+    const address = foreign.address();
+    assert.ok(address && typeof address !== "string");
+    const run = await start(f, ["--port", String(address.port)]);
+    t.after(async () => {
+      if (run.child.exitCode === null && run.child.signalCode === null)
+        run.child.kill("SIGKILL");
+      await run.finished;
+    });
+
+    await assert.rejects(() => launcherState(run, address.port));
+    const exitCode = await run.finished;
+    const readyAnnounced = run.stdout().includes("Community wizard:");
+    const retainedLockPid = Number(
+      await readFile(join(f.state, "runner.lock"), "utf8"),
+    );
+    const stateFileUnchanged =
+      (await readFile(join(f.state, "setup.json"), "utf8")) === f.setup;
+    assert.notEqual(exitCode, 0);
+    assert.equal(run.child.signalCode, null);
+    assert.match(run.output(), /EADDRINUSE/);
+    assert.equal(readyAnnounced, false);
+    assert.equal(foreignRequests, 0);
+    assert.equal(stateFileUnchanged, true);
+    assert.equal(retainedLockPid, run.child.pid);
+    t.diagnostic(
+      JSON.stringify({
+        schema: "pirate.wizard-launcher-port-ownership/1",
+        port: address.port,
+        childPid: run.child.pid,
+        exitCode,
+        signalCode: run.child.signalCode,
+        bindFailureReported: /EADDRINUSE/.test(run.output()),
+        readyAnnounced,
+        foreignRequests,
+        retainedLockPid,
+        stateFileUnchanged,
+      }),
+    );
+  },
+);
