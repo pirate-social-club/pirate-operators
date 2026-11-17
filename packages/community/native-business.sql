@@ -111,6 +111,15 @@ WITH known(type,name,tbl_name,sql) AS(VALUES
   ('trigger','dance_recovered_attempt_no_update','dance_recovered_attempts','CREATE TRIGGER dance_recovered_attempt_no_update BEFORE UPDATE ON dance_recovered_attempts BEGIN SELECT RAISE(ABORT,''dance_recovered_attempt_immutable''); END'),
   ('trigger','dance_role_observation_no_delete','dance_reviewer_observations','CREATE TRIGGER dance_role_observation_no_delete BEFORE DELETE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
   ('trigger','dance_role_observation_no_update','dance_reviewer_observations','CREATE TRIGGER dance_role_observation_no_update BEFORE UPDATE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
+  ('trigger', 'dance_source3_request_no_delete', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_delete BEFORE DELETE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+  ('trigger', 'dance_source3_request_no_replace', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_replace BEFORE INSERT ON dance_source3_requests
+ WHEN EXISTS(SELECT 1 FROM dance_source3_requests WHERE
+ (community_id=NEW.community_id AND account_id=NEW.account_id AND request_id=NEW.request_id)
+ OR capture_id=NEW.capture_id)
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+  ('trigger', 'dance_source3_request_no_update', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_update BEFORE UPDATE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
   ('trigger','learning_authority_capture','learning_authorizations','CREATE TRIGGER learning_authority_capture AFTER INSERT ON learning_authorizations
  BEGIN UPDATE learning_authorizations SET authority_epoch=COALESCE((SELECT revision FROM learning_authority_heads WHERE account_id=NEW.account_id),0)
  WHERE authorization_id=NEW.authorization_id; END'),

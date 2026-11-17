@@ -33,8 +33,8 @@ SELECT 1, CASE WHEN NOT EXISTS (
 -- Exact selected migration SQL bytes, including CHECK/default/collation text.
 -- BLOB equality deliberately refuses even a semantically equivalent rewrite.
 -- Autoindex NULL SQL/name/owner identities are included, not filtered away.
--- Known unrelated triggers from pinned migrations 0016-0018 may be absent
--- before those migrations, but any present trigger must match its exact bytes.
+-- Known unrelated triggers from pinned migrations 0016-0018 and opt-in 0022
+-- may be absent, but any present trigger must match its exact bytes.
 -- Reject all other triggers/views: no lossy dependency-text search is used.
 WITH expected_affected(type, name, tbl_name, sql) AS (
   VALUES
@@ -132,6 +132,58 @@ expected_trigger(type, name, tbl_name, sql) AS (
     ('trigger', 'dance_recovered_attempt_no_update', 'dance_recovered_attempts', 'CREATE TRIGGER dance_recovered_attempt_no_update BEFORE UPDATE ON dance_recovered_attempts BEGIN SELECT RAISE(ABORT,''dance_recovered_attempt_immutable''); END'),
     ('trigger', 'dance_role_observation_no_delete', 'dance_reviewer_observations', 'CREATE TRIGGER dance_role_observation_no_delete BEFORE DELETE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
     ('trigger', 'dance_role_observation_no_update', 'dance_reviewer_observations', 'CREATE TRIGGER dance_role_observation_no_update BEFORE UPDATE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
+    ('trigger', 'dance_host_account_delete_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_delete_generation AFTER DELETE ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=OLD.community_id; END'),
+    ('trigger', 'dance_host_account_insert_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_insert_generation AFTER INSERT ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_account_revision', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_revision BEFORE UPDATE ON dance_host_accounts
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.account_id IS NOT OLD.account_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_account_update_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_update_generation AFTER UPDATE ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_context_no_delete', 'dance_host_context', 'CREATE TRIGGER dance_host_context_no_delete BEFORE DELETE ON dance_host_context
+ BEGIN SELECT RAISE(ABORT,''dance_host_context_retained''); END'),
+    ('trigger', 'dance_host_context_no_replace', 'dance_host_context', 'CREATE TRIGGER dance_host_context_no_replace BEFORE INSERT ON dance_host_context
+ WHEN EXISTS(SELECT 1 FROM dance_host_context WHERE community_id=NEW.community_id)
+ BEGIN SELECT RAISE(ABORT,''dance_host_context_retained''); END'),
+    ('trigger', 'dance_host_context_revision', 'dance_host_context', 'CREATE TRIGGER dance_host_context_revision BEFORE UPDATE ON dance_host_context
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_probe_immutable_delete', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_immutable_delete BEFORE DELETE ON dance_host_audio_probes
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_probe_immutable_update', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_immutable_update BEFORE UPDATE ON dance_host_audio_probes
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_probe_no_replace', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_no_replace BEFORE INSERT ON dance_host_audio_probes
+ WHEN EXISTS(SELECT 1 FROM dance_host_audio_probes WHERE community_id=NEW.community_id
+   AND audio_sha256=NEW.audio_sha256 AND evidence_sha256=NEW.evidence_sha256)
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_selection_delete_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_delete_generation AFTER DELETE ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=OLD.community_id; END'),
+    ('trigger', 'dance_host_selection_insert_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_insert_generation AFTER INSERT ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_selection_revision', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_revision BEFORE UPDATE ON dance_host_selections
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.song_key IS NOT OLD.song_key
+ OR NEW.reference_id IS NOT OLD.reference_id OR NEW.offer_id IS NOT OLD.offer_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_selection_update_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_update_generation AFTER UPDATE ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_song_key_immutable_delete', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_immutable_delete BEFORE DELETE ON dance_host_song_keys
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_host_song_key_immutable_update', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_immutable_update BEFORE UPDATE ON dance_host_song_keys
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_host_song_key_no_replace', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_no_replace BEFORE INSERT ON dance_host_song_keys
+ WHEN EXISTS(SELECT 1 FROM dance_host_song_keys WHERE community_id=NEW.community_id
+   AND (song_key=NEW.song_key OR post_id=NEW.post_id))
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_source3_request_no_delete', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_delete BEFORE DELETE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+    ('trigger', 'dance_source3_request_no_replace', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_replace BEFORE INSERT ON dance_source3_requests
+ WHEN EXISTS(SELECT 1 FROM dance_source3_requests WHERE
+ (community_id=NEW.community_id AND account_id=NEW.account_id AND request_id=NEW.request_id)
+ OR capture_id=NEW.capture_id)
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+    ('trigger', 'dance_source3_request_no_update', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_update BEFORE UPDATE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
     ('trigger', 'learning_authority_capture', 'learning_authorizations', 'CREATE TRIGGER learning_authority_capture AFTER INSERT ON learning_authorizations
  BEGIN UPDATE learning_authorizations SET authority_epoch=COALESCE((SELECT revision FROM learning_authority_heads WHERE account_id=NEW.account_id),0)
  WHERE authorization_id=NEW.authorization_id; END'),

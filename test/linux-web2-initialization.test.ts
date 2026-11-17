@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile } from "node:fs/promises";
-import { nativeProducerFixture } from "./application-native-producer-fixture.ts";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
+import {
+  nativeMigrationNames,
+  nativeProducerFixture,
+} from "./application-native-producer-fixture.ts";
+import { communityMigrations } from "../harness/package-migrations.ts";
 import {
   initializeWeb2Schema,
   type Web2SchemaPlan,
@@ -14,20 +18,54 @@ const overlays = [
   "packages/community/catalog-obligation.sql",
   "packages/community/native-business.sql",
 ];
-async function sourcePlan(): Promise<Web2SchemaPlan> {
+async function splitSql(
+  names: string[],
+  root: string,
+  profile?: "web2-first-song/1",
+): Promise<Web2SchemaPlan["overlays"]> {
   const { stdout } = await promisify(execFile)(
     "/usr/bin/python3",
     [
       "-B",
       "deploy/linux/split-migrations.py",
-      process.cwd(),
-      JSON.stringify(overlays),
-      "web2-first-song/1",
+      root,
+      JSON.stringify(names),
+      ...(profile ? [profile] : []),
     ],
     { maxBuffer: 1024 ** 2 },
   );
-  return { schema: "pirate.linux-web2-schema/1", overlays: JSON.parse(stdout) };
+  return JSON.parse(stdout);
 }
+async function sourcePlan(): Promise<Web2SchemaPlan> {
+  return {
+    schema: "pirate.linux-web2-schema/1",
+    overlays: await splitSql(overlays, process.cwd(), "web2-first-song/1"),
+  };
+}
+
+async function installSelectedPrivateDance(db: D1Database) {
+  const root = "apps/community-wizard/infra/migrations";
+  const selected = communityMigrations(await readdir(root), {
+    rewards: true,
+    ownerPublishing: true,
+    v4: true,
+    rewardClosure: true,
+    media: true,
+    dance: true,
+    privateDance: true,
+  });
+  // nativeProducerFixture has already applied this actual numbered prefix.
+  // The artifact's numbered phase applies 0022 before all unnumbered overlays.
+  assert.deepEqual(selected, [...nativeMigrationNames, "0022_dance_private_practice.sql"]);
+  const [migration] = await splitSql(selected.slice(nativeMigrationNames.length), root);
+  assert.equal(migration?.name, "0022_dance_private_practice.sql");
+  assert.equal(migration.statements.join(""), migration.sql);
+  await db.batch(migration.statements.filter(sql => sql.trim()).map(sql => db.prepare(sql)));
+}
+const schemaRows = async (db: D1Database) => (
+  await db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name,tbl_name").all()
+).results;
+
 // Credible failures: lost initialization acknowledgement, changed source,
 // unknown executable schema and partial DDL. Exercise real transactional D1.
 test(
@@ -133,5 +171,49 @@ test(
       ).results,
       before,
     );
+  },
+);
+
+
+test(
+  "fresh native Web2 initializes and reopens the exact 0022 private Dance schema",
+  { timeout: 30000 },
+  async (t) => {
+    const f = await nativeProducerFixture(false);
+    t.after(f.dispose);
+    await installSelectedPrivateDance(f.db);
+    const privateTriggers = async () => (await f.db.prepare(
+      "SELECT name,tbl_name,sql FROM sqlite_schema WHERE type='trigger' " +
+      "AND tbl_name IN ('dance_host_context','dance_host_accounts','dance_host_selections'," +
+      "'dance_host_song_keys','dance_host_audio_probes','dance_source3_requests') ORDER BY name",
+    ).all()).results;
+    const before = await privateTriggers();
+    assert.equal(before.length, 20);
+    const plan = await sourcePlan();
+    const release = "ab".repeat(32);
+    assert.equal((await initializeWeb2Schema(f.db, plan, release)).alreadyInitialized, false);
+    assert.deepEqual(await privateTriggers(), before);
+    assert.ok(await f.db.prepare("SELECT name FROM sqlite_schema WHERE name='publication_catalog_obligations'").first());
+    assert.ok(await f.db.prepare("SELECT name FROM sqlite_schema WHERE name='native_business_bindings'").first());
+    assert.deepEqual((await f.db.prepare("PRAGMA foreign_key_check").all()).results, []);
+    assert.equal((await initializeWeb2Schema(f.db, plan, release)).alreadyInitialized, true);
+    assert.deepEqual(await privateTriggers(), before);
+  },
+);
+
+test(
+  "fresh native Web2 refuses a byte-changed 0022 trigger with its exact name and owner",
+  { timeout: 30000 },
+  async (t) => {
+    const f = await nativeProducerFixture(false);
+    t.after(f.dispose);
+    await installSelectedPrivateDance(f.db);
+    await f.db.batch([
+      f.db.prepare("DROP TRIGGER dance_source3_request_no_delete"),
+      f.db.prepare("CREATE TRIGGER dance_source3_request_no_delete BEFORE DELETE ON dance_source3_requests BEGIN SELECT 1; END"),
+    ]);
+    const before = await schemaRows(f.db);
+    await assert.rejects(initializeWeb2Schema(f.db, await sourcePlan(), "ab".repeat(32)), /catalog_phase_schema_refusal/);
+    assert.deepEqual(await schemaRows(f.db), before);
   },
 );
