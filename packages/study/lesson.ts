@@ -11,7 +11,15 @@ import {
 } from "./contracts.ts";
 import type { Hex } from "viem";
 import type { AdmittedStudyGrader } from "./grader-revision.ts";
-import type { StudyPrivateV5Entry } from "./private-v5.ts";
+import type { LyricManifest } from "../community/lyric-manifest.ts";
+export interface StudyPrivateV5Entry {
+  schema: "pirate.study-private-entry/5";
+  version: 5;
+  publication: { kind: "private" };
+  profileHash: Hex;
+  /** Original validated server source survives outages, crash and reload. */
+  source: LyricManifest;
+}
 export type StudySong = Omit<StudySelection, "lineId">;
 export const STUDY_LESSON_SCHEMA = "pirate.study.lesson/1" as const;
 export const STUDY_QUEUE_POLICY = "pirate.study.lesson-queue/1" as const;

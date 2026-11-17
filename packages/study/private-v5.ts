@@ -19,14 +19,6 @@ export interface StudyPrivateV5Profile {
   releaseHash: Hex;
   speechPolicyHash: Hex;
 }
-export interface StudyPrivateV5Entry {
-  schema: "pirate.study-private-entry/5";
-  version: 5;
-  publication: { kind: "private" };
-  profileHash: Hex;
-  /** Original validated server source survives outages, crash and reload. */
-  source: LyricManifest;
-}
 export interface StudyPrivateV5Offer {
   schema: "pirate.study-private-offer/5";
   version: 5;
