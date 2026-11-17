@@ -45,7 +45,7 @@ const directory = new URL(
 export const sha = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export async function authorityD1Fixture(through = 18) {
-  assert.ok(through === 18 || through === 19);
+  assert.ok(through === 18 || through === 19 || through === 20);
   const runtime = new Miniflare({
     modules: true,
     script:
