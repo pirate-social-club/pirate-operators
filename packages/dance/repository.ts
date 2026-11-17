@@ -17,6 +17,51 @@ import type {
   DanceControlBinding,
   DanceRevokeContext,
 } from "./control-contracts.ts";
+import type { DanceCaptureV2, StoredDanceCapture } from "./capture-v2.ts";
+import type { BoundPublicationGrantV1 } from "../protocol/publication-runtime-v1.ts";
+
+/** Constructed by the authenticated service, never decoded from a request.
+ * Structural plan matches the original publication journal without importing
+ * a service implementation into this package. */
+export type CaptureAtomicJoinV2 =
+  | { readonly kind: "private" }
+  | {
+      readonly kind: "publication-bound";
+      readonly bindingPlan: {
+        readonly commandId: string;
+        readonly captureHash: string;
+        readonly grant: {
+          readonly accountId: string;
+          readonly binding: BoundPublicationGrantV1;
+        };
+        readonly fences: readonly DanceFence[];
+        readonly statements: readonly D1PreparedStatement[];
+      };
+    };
+
+export interface DanceCaptureRepositoryV2 extends DanceRepository {
+  storedCapture(id: string): Promise<StoredDanceCapture>;
+  findStoredCapture(
+    community: string,
+    actor: string,
+    command: string,
+    hash: string,
+  ): Promise<StoredDanceCapture | null>;
+  reserveCaptureV2(
+    capture: DanceCaptureV2,
+    actor: string,
+    command: string,
+    hash: string,
+    fences: readonly DanceFence[],
+    join: CaptureAtomicJoinV2,
+  ): Promise<void>;
+  acceptConsentV2(
+    capture: DanceCaptureV2,
+    acceptance: import("./contracts.ts").DanceConsentAcceptance,
+    command: string,
+    fences: readonly DanceFence[],
+  ): Promise<DanceCaptureV2>;
+}
 export interface DanceRepository {
   now(): Promise<number>;
   assert(fences: DanceFence[]): Promise<void>;

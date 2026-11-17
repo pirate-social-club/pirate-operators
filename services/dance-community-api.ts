@@ -1,3 +1,5 @@
+import { dancePrivateCommunityApi } from "./dance-private-community-api.ts";
+import type { createDancePrivateCatalogue } from "./dance-private-catalogue.ts";
 import {
   accountSession,
   authenticatedWrite,
@@ -23,7 +25,8 @@ import { DanceProductionReads } from "./dance-production-reads.ts";
 
 export interface DanceCommunityPorts {
   db: D1Database;
-  dance: DancePorts;
+  dance?: DancePorts;
+  privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
   /** Required for production catalogue/access routes; no successful fallback. */
   catalogue?: DanceSelectedCatalogue;
 }
@@ -36,6 +39,8 @@ export async function danceCommunityApi(
 ): Promise<Response | null> {
   const url = new URL(request.url);
   if (!url.pathname.startsWith("/api/dance/")) return null;
+  if (ports.privateV2) return dancePrivateCommunityApi(request, ports.db, ports.privateV2, context, headers);
+  insist(ports.dance, "dance_runtime_unavailable", 503);
   if (request.method !== "GET") requestOrigin(request, context.origin);
   const session =
     request.method === "GET"
