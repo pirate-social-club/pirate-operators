@@ -183,8 +183,9 @@ export class StudyLessonStore {
    * binding's sign-in permission has no end, so it is +Infinity.
    */
   async consentExpiry(owner: StudyPrincipal, id: string) {
-    const original = this.state(await this.row(owner, id));
-    if (original.privateV5) return Infinity;
+    const original = await this.row(owner, id);
+    if (original.history_deleted_at == null && this.state(original).privateV5)
+      return Infinity;
     const row = await this.db
       .prepare(
         "SELECT json_extract(binding_json,'$.enrollment.expiresAt') AS expires_at,json_extract(binding_json,'$.target.version') AS version,json_extract(binding_json,'$.authorization.id') AS authorization_id FROM study_publications WHERE lesson_id=? AND account_id=? AND community_id=?",

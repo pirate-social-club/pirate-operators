@@ -63,8 +63,12 @@ export function studyPublicationQueue(
     async sync(id: string, force = false) {
       // Fresh private entries have no outbox. Refuse any accidental legacy
       // publication path before terminal facts, target fallback or allocation.
-      const lessons = new StudyLessonStore(db);
-      if (lessons.state(await lessons.row(owner, id)).privateV5) return null;
+      // Erased private history is unavailable to practice, but an original
+      // public outbox must still reconcile its saved transaction or receipt.
+      const lessons = new StudyLessonStore(db),
+        lesson = await lessons.row(owner, id);
+      if (lesson.history_deleted_at == null && lessons.state(lesson).privateV5)
+        return null;
       const row = await freezeStudyOutbox(db, owner, id);
       if (!row) return null; // No recording authority was obtained.
       const prior = view(row).receipt;
