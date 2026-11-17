@@ -84,7 +84,7 @@ test("an inconsistent disclosure cannot prompt a signature or start a Study less
   expect(state.counts.starts).toBe(0);
 });
 
-test("a V3 community's footer links the V3 learning documents while the Study surface links none", async ({
+test("a V3 community links its learning documents in Settings and keeps Study free of policy links", async ({
   page,
 }) => {
   const state = await serveStudy(page);
@@ -93,18 +93,28 @@ test("a V3 community's footer links the V3 learning documents while the Study su
   await expect(
     page.locator(".live-study-overlay").getByRole("link"),
   ).toHaveCount(0);
+  const documentNav = page.locator('nav[aria-label="Community documents"]');
+  await expect(documentNav).toHaveCount(0);
   await page.getByRole("button", { name: "Exit study" }).click();
-  const footer = page.getByRole("navigation", { name: "Community documents" });
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
+  await expect(studyOverlay(page)).toHaveCount(0);
+  await expect(documentNav).toHaveCount(0);
+  await openSettings(page);
+  const settingsDocuments = page.getByRole("main").getByRole("navigation", {
+    name: "Community documents",
+    exact: true,
+  });
+  await expect(settingsDocuments).toBeVisible();
+  await expect(documentNav).toHaveCount(1);
   for (const [name, href] of [
     ["Terms", "/terms"],
     ["Privacy", "/privacy"],
     ["Learning terms", "/learning/v3/terms"],
     ["Learning privacy", "/learning/v3/privacy"],
-  ] as const)
-    await expect(
-      footer.getByRole("link", { name, exact: true }),
-    ).toHaveAttribute("href", href);
+  ] as const) {
+    const link = settingsDocuments.getByRole("link", { name, exact: true });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", href);
+  }
   // Only the community's own version is linked.
   await expect(page.locator('a[href^="/learning/v4/"]')).toHaveCount(0);
 });

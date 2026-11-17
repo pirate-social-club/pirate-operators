@@ -51,13 +51,12 @@ async function retryByKeyboard(page: Page, main: Locator) {
   await page.keyboard.press("Enter");
 }
 
-async function expectClosed(page: Page) {
+async function expectClosed(page: Page, destination: Locator) {
   await expect(overlay(page)).toHaveCount(0);
   expect(new URL(page.url()).searchParams.has("sing")).toBe(false);
   await expect(page.locator("#app-content")).toBeFocused();
-  await expect(
-    page.getByRole("navigation", { name: "Community documents", exact: true }),
-  ).toBeVisible();
+  await expect(destination).toBeVisible();
+  await expect(page.locator('nav[aria-label="Community documents"]')).toHaveCount(0);
   await expect(page.locator(".live-karaoke audio")).toHaveCount(0);
 }
 
@@ -194,7 +193,10 @@ for (const viewport of [
       await home.focus();
       await expect(home).toBeFocused();
       await page.keyboard.press("Enter");
-      await expectClosed(page);
+      await expectClosed(
+        page,
+        page.getByRole("main", { name: "Community feed", exact: true }),
+      );
 
       // Reenter through actual community/song controls, preserving the owner
       // and original post. A still-failing route remains explicitly retryable.
@@ -223,7 +225,10 @@ for (const viewport of [
       const exit = practice.getByRole("button", { name: "Exit karaoke", exact: true });
       await exit.focus();
       await page.keyboard.press("Enter");
-      await expectClosed(page);
+      await expectClosed(
+        page,
+        page.getByRole("navigation", { name: "Song activities", exact: true }),
+      );
       expect(songReads).toEqual([songPath, songPath, songPath, songPath]);
       expect(writes).toEqual([]);
       expect(unexpectedKaraoke).toEqual([]);

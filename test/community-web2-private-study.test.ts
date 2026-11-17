@@ -134,9 +134,11 @@ test(
         "content-type": "application/json",
         "x-study-account": owner.session.mossAddress,
       });
-    const song = await ok<StudySong>(
-        await get("/api/study/song?postId=" + postId),
-      ),
+    const studySongPath = "/api/study/song?postId=" + postId;
+    const anonymousStudy = await app.fetch(studySongPath);
+    assert.equal(anonymousStudy.status, 401);
+    assert.deepEqual(await anonymousStudy.json(), { error: "session_required" });
+    const song = await ok<StudySong>(await get(studySongPath)),
       requestId = crypto.randomUUID();
     assert.equal(
       (
@@ -243,10 +245,14 @@ test(
     );
     assert.equal(app.env.COMMUNITY_DEPLOYMENT_PROFILE_JSON, originalDeployment);
     assert.equal(app.env.WEB2_PUBLISHING_ATTACHMENT_JSON, originalAttachment);
+    const karaokeAttempt = "/api/karaoke/attempt?postId=" + postId,
+      danceHistory = "/api/dance/history";
     for (const path of [
       "/api/karaoke/tickets",
+      karaokeAttempt,
       "/api/learning/public-results/on",
       "/api/dance/rooms",
+      danceHistory,
       "/api/rewards",
       "/api/member-name",
     ])
@@ -265,16 +271,20 @@ test(
                 },
         },
       });
-      assert.equal(
-        (
-          await app.fetch(
-            activity === "karaoke"
-              ? "/api/karaoke/enrollment"
-              : "/api/dance/rooms",
-          )
-        ).status,
-        503,
-      );
+      if (activity === "karaoke") {
+        // Selection mounts private performance, never legacy enrollment.
+        const enrollment = await get("/api/karaoke/enrollment");
+        assert.equal(enrollment.status, 404);
+        assert.deepEqual(await enrollment.json(), { error: "feature_unavailable" });
+      }
+      const path = activity === "karaoke" ? karaokeAttempt : danceHistory;
+      const unready = await get(path);
+      assert.equal(unready.status, 503, path);
+      assert.deepEqual(await unready.json(), {
+        error: activity === "karaoke"
+          ? "private_karaoke_runtime_unavailable"
+          : "dance_private_runtime_unavailable",
+      });
     }
     app.env.COMMUNITY_PRIVATE_PRACTICE_PROFILE_JSON = JSON.stringify({
       ...selected,

@@ -113,6 +113,24 @@ async function openPublishedKaraoke(page: Page) {
   await assertLearnerSession(page);
 }
 
+async function assertCommunityDocuments(page: Page) {
+  const documents = page.getByRole("navigation", {
+    name: "Community documents",
+    exact: true,
+  });
+  await expect(documents).toHaveCount(1);
+  for (const [name, href] of [
+    ["Terms", "/terms"],
+    ["Privacy", "/privacy"],
+    ["Learning terms", "/learning/v4/terms"],
+    ["Learning privacy", "/learning/v4/privacy"],
+  ]) {
+    const link = documents.getByRole("link", { name, exact: true });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", href);
+  }
+}
+
 // A V4 community (karaoke-e2e/live-host.ts with KARAOKE_RESULTS_V4=1): the
 // learner's one sign-in is the publication permission. A take starts with no
 // further signature, no enrollment request and no policy link on the exercise
@@ -158,23 +176,26 @@ test("a V4 take starts with no signature request and no policy link on the exerc
     if (path.startsWith("/api/karaoke/enrollment")) enrollmentRequests++;
   });
   await page.goto("/?learner=5");
-  const documents = page.getByRole("navigation", {
-    name: "Community documents",
+  const document = await documentOwner(page);
+  const search = await rawFragmentContext(page);
+  const mainNavigation = page.getByRole("navigation", {
+    name: "Main navigation",
     exact: true,
   });
+  // The signed-out profile exposes the account documents before V4 sign-in.
+  await mainNavigation
+    .getByRole("link", { name: "Profile", exact: true })
+    .click();
   await expect(
-    documents.getByRole("link", { name: "Terms", exact: true }),
-  ).toHaveAttribute("href", "/terms");
-  await expect(
-    documents.getByRole("link", { name: "Privacy", exact: true }),
-  ).toHaveAttribute("href", "/privacy");
-  // The V4 learning documents the sign-in accepts, beside them.
-  await expect(
-    documents.getByRole("link", { name: "Learning terms", exact: true }),
-  ).toHaveAttribute("href", "/learning/v4/terms");
-  await expect(
-    documents.getByRole("link", { name: "Learning privacy", exact: true }),
-  ).toHaveAttribute("href", "/learning/v4/privacy");
+    page.getByRole("heading", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await assertCommunityDocuments(page);
+  expect(signatures).toEqual([]);
+  expect(new URL(page.url()).search).toBe(search);
+  expect(await documentOwner(page)).toBe(document);
+  await mainNavigation.getByRole("link", { name: "Home", exact: true }).click();
+  expect(new URL(page.url()).search).toBe(search);
+  expect(await documentOwner(page)).toBe(document);
   await connectLearner(page, 5);
   // One sign-in, which is also the permission.
   expect(signatures).toEqual(["SignIn"]);
@@ -183,24 +204,27 @@ test("a V4 take starts with no signature request and no policy link on the exerc
     { timeout: 30000 },
   );
   const surface = page.locator(".live-karaoke-overlay");
-  const footer = page.locator("footer").filter({
-    has: page.locator('nav[aria-label="Community documents"]'),
-  });
-  await expect(footer).toHaveAttribute("inert", "");
-  await expect(
-    page.getByRole("navigation", { name: "Karaoke policies" }),
-  ).toHaveCount(0);
-  await expect(surface.getByRole("link")).toHaveCount(0);
+  const assertExerciseHasNoDocuments = async () => {
+    await expect(surface).toBeVisible();
+    await expect(
+      page.locator('nav[aria-label="Community documents"]'),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("navigation", { name: "Karaoke policies" }),
+    ).toHaveCount(0);
+    await expect(surface.getByRole("link")).toHaveCount(0);
+  };
+  await assertExerciseHasNoDocuments();
   await page.getByRole("button", { name: "Start karaoke" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".karaoke-stage-rating")).toBeVisible({
     timeout: 30000,
   });
-  await expect(surface.getByRole("link")).toHaveCount(0);
+  await assertExerciseHasNoDocuments();
   await expect(page.getByRole("region", { name: "Results" })).toBeVisible({
     timeout: 90000,
   });
-  await expect(surface.getByRole("link")).toHaveCount(0);
+  await assertExerciseHasNoDocuments();
   expect(signatures).toEqual(["SignIn"]);
   expect(enrollmentRequests).toBe(0);
   // The take is public under the sign-in's authorization.
@@ -223,14 +247,21 @@ test("a V4 take starts with no signature request and no policy link on the exerc
   expect(record!.lines).toHaveLength(23);
   expect(record!.enrollmentId).toBe(authorization!.authorization_id);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  await expect(footer).not.toHaveAttribute("inert", "");
-  for (const [name, href] of [
-    ["Terms", "/terms"],
-    ["Privacy", "/privacy"],
-    ["Learning terms", "/learning/v4/terms"],
-    ["Learning privacy", "/learning/v4/privacy"],
-  ])
-    await expect(
-      documents.getByRole("link", { name, exact: true }),
-    ).toHaveAttribute("href", href);
+  await expect(surface).toHaveCount(0);
+  const returned = new URL(page.url());
+  expect(returned.searchParams.has("sing")).toBe(false);
+  expect(returned.searchParams.get("learner")).toBe("5");
+  expect(returned.searchParams.get("filter")).toBe("a b");
+  // The authenticated owner reaches the same documents through Settings.
+  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Settings", exact: true }),
+  ).toBeVisible();
+  await assertCommunityDocuments(page);
+  expect(new URL(page.url()).search).toBe(returned.search);
+  expect(await documentOwner(page)).toBe(document);
+  await assertLearnerSession(page);
+  expect(signatures).toEqual(["SignIn"]);
+  expect(enrollmentRequests).toBe(0);
 });
