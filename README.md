@@ -66,9 +66,13 @@ deposit; admin-controlled recipient and spending limits are not implemented.
 OperatorPayments is optional for the disposable first-song path.
 
 External Megapot operates on Base. That fact does not make Base a deployment
-target for Pirate contracts. The reward prize source and production payout
-route are undecided. A local pool experiment and external-provider fork tests
-do not settle that decision.
+target for Pirate contracts. The selected [manual testnet reward pilot](docs/manual-rewards-pilot.md)
+uses Base Sepolia ticket and prize receipts, operator-managed conversion and
+MegaETH USDm inventory, followed by explicit guarded MOSS payouts. It introduces
+no automatic bridge. First integration reuses the accepted November manual
+rehearsal, with its synthetic ticket/prize and prefunded testnet balance labelled.
+Actual-provider qualification remains separate; rehearsal evidence establishes
+no live drawing, conversion or mainnet payout route.
 
 ## Local development
 
