@@ -52,6 +52,7 @@ async function call<T>(
   bytes: Uint8Array,
   parameters: Record<string, unknown> = {},
   beforeSend?: () => Promise<void>,
+  afterReceive?: () => Promise<void>,
 ) {
   const header = await authorizeStudyRequest(
     ports.authority,
@@ -67,7 +68,9 @@ async function call<T>(
     headers: { [STUDY_AUTH_HEADER]: header },
     body: new Uint8Array(bytes).buffer,
   });
+  if (afterReceive) await afterReceive();
   const body = (await response.json()) as { error?: string };
+  if (afterReceive) await afterReceive();
   check(response.ok, body.error ?? "study_operator_unavailable");
   return body as T;
 }
@@ -248,6 +251,100 @@ export function managedStudyAssessor(
       );
       if (status.receipt.state === "assessed")
         return { state: "assessed", grade: grade(status.receipt) };
+      return status.receipt.state === "unavailable" ? status.receipt : null;
+    },
+  };
+}
+
+/** Private V5 has its own closed wire shape, never a legacy binding cast. */
+export async function bindManagedPrivateStudyV5(
+  ports: StudyOperatorPorts,
+  offer: import("../packages/study/private-v5.ts").StudyPrivateV5Offer,
+  checkRequest: () => Promise<void>,
+) {
+  const binding = await call<
+    import("../packages/study/private-v5.ts").StudyPrivateV5Binding
+  >(
+    ports,
+    "/study/v5/private/bind",
+    encoded(offer),
+    {},
+    checkRequest,
+    checkRequest,
+  );
+  check(
+    binding.schema === "pirate.study-private-binding/5" &&
+      binding.version === 5 &&
+      canonical(binding.publication) === canonical({ kind: "private" }) &&
+      canonical(binding.offer) === canonical(offer) &&
+      binding.offerHash === digest(offer),
+    "study_binding_changed",
+  );
+  return binding;
+}
+export function managedPrivateStudyV5Transcriber(
+  ports: StudyOperatorPorts,
+  binding: import("../packages/study/private-v5.ts").StudyPrivateV5Binding,
+  checkRequest: () => Promise<void>,
+): StudyTranscriber {
+  return {
+    providerRetention: "stored",
+    async transcribe(audio, contentType, language, context) {
+      check(
+        context &&
+          context.lessonId === binding.offer.lessonId &&
+          binding.offer.exercises.some(
+            (line) =>
+              line.lineId === context.lineId && line.language === language,
+          ),
+        "study_reference_mismatch",
+      );
+      const receipt = await call<StudySpeechReceipt>(
+        ports,
+        "/study/v5/private/speech",
+        audio,
+        { ...context, contentType },
+        checkRequest,
+        checkRequest,
+      );
+      if (receipt.state === "assessed") {
+        check(
+          receipt.transcript && !receipt.grade,
+          "study_private_assessment_required",
+        );
+        return receipt.transcript;
+      }
+      throw new StudySpeechError(
+        receipt.error,
+        receipt.state === "unavailable" ? "known_failed" : "unknown",
+      );
+    },
+    async recover(context, audioDigest) {
+      const status = await call<StudySpeechStatus>(
+        ports,
+        "/study/v5/private/speech/status",
+        encoded({ lessonId: context.lessonId, attemptId: context.attemptId }),
+        {},
+        checkRequest,
+        checkRequest,
+      );
+      check(
+        context.lessonId === binding.offer.lessonId &&
+          status.audioDigest === audioDigest &&
+          Object.entries(context).every(
+            ([key, value]) =>
+              status.parameters[key as keyof typeof status.parameters] ===
+              value,
+          ),
+        "study_speech_receipt_changed",
+      );
+      if (status.receipt.state === "assessed") {
+        check(
+          status.receipt.transcript && !status.receipt.grade,
+          "study_private_assessment_required",
+        );
+        return { state: "assessed", transcript: status.receipt.transcript };
+      }
       return status.receipt.state === "unavailable" ? status.receipt : null;
     },
   };

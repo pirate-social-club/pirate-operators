@@ -1,3 +1,4 @@
+import { privateStudyV5Binding } from "./study-v5-operator.ts";
 import { guardLinkedPublication } from "./study-linked-withdrawal.ts";
 // Durable Study publication. Only the compact public bundle survives validation;
 // private lesson state and transcripts never enter transaction calldata.
@@ -160,6 +161,10 @@ async function freeze(
       Object.keys(input).sort().join() ===
         ["lessonId", "source", "terminal"].sort().join(),
     "invalid_study_terminal",
+  );
+  check(
+    !privateStudyV5Binding(store, input.lessonId),
+    "study_private_v5_entry_changed",
   );
   const hash = digest(input) as Hex;
   const old = store.get<PublicationJob>(key(input.lessonId));
