@@ -35,6 +35,7 @@ import type { CommunityConfig } from "../packages/community/config-manifest.ts";
 import type { PublicReadPorts } from "./community-public.ts";
 import { keccak256, parseAbi, type Hex } from "viem";
 import { withRewardRehearsal } from "../packages/rewards/rehearsal.ts";
+import { MAX_OFFER_RESULT_SOURCES } from "../packages/rewards/offers.ts";
 
 export interface RewardResultSource {
   schema: "pirate.reward-result-source/1";
@@ -360,7 +361,7 @@ async function assertWindowPolicies(
     }
   return schedule;
 }
-export function liveRewardSources(input: {
+export interface LiveRewardSourcesInput {
   db: D1Database;
   profile: RewardsProfile;
   /** The original source first, then successors, from rewardResultSources. */
@@ -382,26 +383,86 @@ export function liveRewardSources(input: {
     | "studyManifest"
     | "authenticateStudy"
   >;
-}): RewardSources {
-  const { profile, sources, reads, config, db } = input;
-  const readResults = input.readResults ?? readPublicResults;
-  const original = [...sources.keys()][0];
+}
+
+/** An explicit categorical-only selection. Defaults are for NEW attachments;
+ * they never replace the profile's historical implicit resultSourceHash.
+ * No legacy configuration, account resolver or dummy scored source is needed. */
+export interface CategoricalRewardSourcesInput {
+  profile: RewardsProfile;
+  reads: Pick<PublicReadPorts, "client">;
+  categorical: ReadonlyMap<string, CategoricalRewardReader>;
+  /** Root-owned in-process release selection, never a request readiness flag. */
+  current: string;
+  /** Selected for future attachments only; each offer stores its actual pins. */
+  defaults: readonly string[];
+}
+
+export function liveRewardSources(
+  input: LiveRewardSourcesInput,
+): RewardSources {
+  return composeRewardSources({ ...input, kind: "scored" });
+}
+
+export function categoricalRewardSources(
+  input: CategoricalRewardSourcesInput,
+): RewardSources {
+  return composeRewardSources({ ...input, kind: "categorical-only" });
+}
+
+function composeRewardSources(
+  input:
+    | (LiveRewardSourcesInput & { kind: "scored" })
+    | (CategoricalRewardSourcesInput & { kind: "categorical-only" }),
+): RewardSources {
+  // Source registration and future defaults are caller-owned inputs. Capture
+  // this composition so later additions cannot retarget historical offers.
+  const profile = structuredClone(input.profile),
+    reads = input.reads;
+  const scoredInput = input.kind === "scored" ? input : null;
+  const sources = new Map<string, AnyRewardResultSource>(scoredInput?.sources);
+  const categorical = new Map<string, CategoricalRewardReader>(
+    input.categorical,
+  );
+  const readResults = scoredInput?.readResults ?? readPublicResults;
+  const implicitSourceHash = bytes32(profile.resultSourceHash);
   insist(
-    profile.mode === "live-testnet" && original === profile.resultSourceHash,
+    profile.mode === "live-testnet" &&
+      (!scoredInput || [...sources.keys()][0] === implicitSourceHash),
     "reward_result_profile_changed",
     503,
   );
-  // Rewards stay live only while the community publishes to a known source.
-  const current = [...sources].find(
-    ([, s]) => s.contract === config.learningRecords.toLowerCase(),
-  )?.[0];
-  insist(current, "reward_results_contract_changed", 503);
-  const categorical =
-    input.categorical ?? new Map<string, CategoricalRewardReader>();
+  let current: string, defaults: string[];
+  if (input.kind === "scored") {
+    // Preserve the existing scored deployment check; a categorical-only
+    // community must use its explicit entry point instead of inventing V3/V4.
+    const selected = [...sources].find(
+      ([, s]) => s.contract === input.config.learningRecords.toLowerCase(),
+    )?.[0];
+    insist(selected, "reward_results_contract_changed", 503);
+    current = selected;
+    defaults = [...sources.keys()];
+  } else {
+    current = bytes32(input.current);
+    defaults = input.defaults.map(bytes32);
+    insist(
+      categorical.has(current) &&
+        defaults.length > 0 &&
+        defaults.length <= MAX_OFFER_RESULT_SOURCES &&
+        new Set(defaults).size === defaults.length &&
+        defaults.includes(current) &&
+        defaults.every((hash) => categorical.has(hash)),
+      "reward_categorical_selection_invalid",
+      503,
+    );
+  }
   for (const hash of categorical.keys())
     insist(!sources.has(bytes32(hash)), "reward_result_source_overlap", 503);
   const pinnedFor = (offer: RewardOfferInput) => {
-    const pins = offer.resultSources ?? [profile.resultSourceHash];
+    // Never use `defaults` here: absent pins identify an old attachment whose
+    // original source is fixed by the immutable program profile. If that
+    // reader is unavailable, collection fails closed rather than repinning.
+    const pins = offer.resultSources ?? [implicitSourceHash];
     insist(
       pins.length > 0 && new Set(pins).size === pins.length,
       "reward_offer_sources_invalid",
@@ -469,8 +530,10 @@ export function liveRewardSources(input: {
   };
   const collect = async (offer: RewardOfferInput, inputHash?: string) => {
     const confirmed = await reads.client.getBlock({ blockTag: "safe" });
-    const history = await (reads.configurationHistory?.() ??
-      Promise.resolve([config]));
+    const history = scoredInput
+      ? await (scoredInput.reads.configurationHistory?.() ??
+          Promise.resolve([scoredInput.config]))
+      : [];
     const scoredEntries: Omit<QualificationEntry, "accountId">[] = [];
     const capturedEntries: QualificationEntry[] = [];
     let head: Cutoff | null = null;
@@ -509,15 +572,16 @@ export function liveRewardSources(input: {
         for (const entry of found) capturedEntries.push(entry);
         continue;
       }
+      insist(scoredInput, "reward_result_source_unavailable", 503);
       const scored = source!;
       if (sourceVersion(scored) === 4)
         await assertWindowPolicies(reads.client, scored, offer, head.number);
       const context = {
         client: reads.client,
-        posts: reads.profile,
+        posts: scoredInput.reads.profile,
         head: head.number,
         history,
-        transport: reads.transport,
+        transport: scoredInput.reads.transport,
       };
       const results = await readResults(
         {
@@ -526,13 +590,13 @@ export function liveRewardSources(input: {
           version: sourceVersion(scored),
         },
         {
-          communityId: config.communityId,
+          communityId: scoredInput.config.communityId,
           rpcUrl: profile.rpcUrl,
           chainId: 6343,
           fromBlock: range.fromBlock,
           toBlock: head.number,
           ...(inputHash ? { expectedToBlockHash: head.hash } : {}),
-          ...(input.sourcePorts ?? {
+          ...(scoredInput.sourcePorts ?? {
             authenticateKaraoke: sourceAuthenticator(context),
             studyManifest: studySourceReader(context),
             authenticateStudy: studySourceAuthenticator(context),
@@ -547,7 +611,9 @@ export function liveRewardSources(input: {
             completedAt: Number(result.result.completedAt) * 1000,
           });
     }
-    const scored = await resolveRewardQualifiers(db, scoredEntries);
+    const scored = scoredInput
+      ? await resolveRewardQualifiers(scoredInput.db, scoredEntries)
+      : [];
     insist(
       head && (await read(head.number)).hash === head.hash,
       "reward_results_head_changed",
@@ -559,11 +625,10 @@ export function liveRewardSources(input: {
       captured: new Set(capturedEntries.map(hashJson)),
     };
   };
-  const defaults = [...sources.keys()];
   return withRewardRehearsal(profile, {
     mode: "live-testnet",
     resultSources: {
-      accepted: [...defaults, ...categorical.keys()],
+      accepted: [...sources.keys(), ...categorical.keys()],
       current,
       ...(categorical.size ? { defaults } : {}),
     },
