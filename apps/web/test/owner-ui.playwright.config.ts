@@ -10,6 +10,7 @@ export default defineConfig({
   use: {
     browserName: "chromium",
     headless: true,
+    trace: "retain-on-failure",
     viewport: { width: 1440, height: 1000 },
   },
 });
