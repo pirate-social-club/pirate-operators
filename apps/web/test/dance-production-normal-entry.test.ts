@@ -87,3 +87,41 @@ test("auth loss refuses an HTML body before private projection; a new owner must
   assert.notEqual(loaded?.accountId, session.current()?.authorId);
   next.dispose(); session.dispose();
 });
+
+// Fresh wire cases precede the capability/page implementation. JSON is the
+// actual untrusted HTTP boundary; malformed inputs are not cast into authority.
+const privateWire = () => JSON.parse(JSON.stringify({ ...capabilities,
+  dance: { ...capabilities.dance, version: "pirate.dance-capability/2", captureProfile: "private-v2" },
+}));
+test("closed V2 selects only private-v2 and freezes its selected policy independently of response mutation", () => {
+  const wire = privateWire(), selected = selectedDanceCapability(wire, communityId);
+  assert.ok(selected);
+  assert.equal(selected.version, "pirate.dance-capability/2");
+  assert.equal(selected.captureProfile, "private-v2");
+  assert.ok(Object.isFrozen(selected)); assert.ok(Object.isFrozen(selected.media));
+  wire.dance.captureProfile = "public";
+  wire.dance.media.maximumBytes = 1;
+  assert.equal(selected.captureProfile, "private-v2");
+  assert.equal(selected.media.maximumBytes, MAX_MEDIA_BYTES);
+});
+test("unknown, public and incomplete V2 capability combinations cannot fall back to V1", () => {
+  for (const change of [
+    (v: ReturnType<typeof privateWire>) => { delete v.dance.captureProfile; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.captureProfile = "public"; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.version = "pirate.dance-capability/3"; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.media.purpose = "public-feed"; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.media.policyVersion = "other"; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.media.maximumBytes = 0; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.media.maximumBytes = 1.5; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.communityId = "0x" + "3".repeat(64); },
+    (v: ReturnType<typeof privateWire>) => { v.dance.publication = { kind: "public" }; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.media.authority = true; },
+    (v: ReturnType<typeof privateWire>) => { v.dance.version = "pirate.dance-capability/1"; },
+  ]) {
+    const wire = privateWire(); change(wire);
+    assert.equal(selectedDanceCapability(wire, communityId), null);
+  }
+  assert.equal(selectedDanceCapability({ ...capabilities, dance: undefined }, communityId), null);
+  assert.equal(selectedDanceCapability(capabilities, communityId), capabilities.dance,
+    "historical V1 policy and selection identity stay unchanged");
+});

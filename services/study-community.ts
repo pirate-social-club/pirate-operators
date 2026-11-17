@@ -21,6 +21,7 @@ import {
   studySong,
   type StudySong,
   type StudyLesson,
+  type StudyLessonSubmission,
   type StudyTelegramEntry,
 } from "../packages/study/lesson.ts";
 import { StudyLessonStore } from "../packages/study/lesson-store.ts";
@@ -54,8 +55,14 @@ import {
 } from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 import { telegramLinkedDatabase } from "./telegram-linked-privacy.ts";
+import type { StudyPrivateV5Env } from "./study-v5-profile.ts";
+import { privateStudyV5Profile } from "./study-v5-profile.ts";
+import { dispatchPrivateStudyV5 } from "./study-v5-dispatch.ts";
+import { livePrivateStudyV5, type StudyV5Request } from "./study-v5-community.ts";
 
-export interface StudyEnv extends KaraokeEnv {
+export interface StudyEnv extends KaraokeEnv, StudyPrivateV5Env {
+  /** Explicit release selection; missing fresh inputs never fall back to V4. */
+  STUDY_RUNTIME?: "private-v5";
   STUDY_GRADER_ACTIVATION?: string;
   STUDY_TELEGRAM_AUTHORITY?: Fetcher;
   STUDY_RESULTS_V3_CONTRACT?: string;
@@ -63,6 +70,7 @@ export interface StudyEnv extends KaraokeEnv {
   STUDY_RESULTS_V4_CONTRACT?: string;
 }
 export interface StudyCommunityPorts {
+  privateV5?: StudyV5Request;
   env: StudyEnv;
   db: D1Database;
   config: CommunityConfig;
@@ -82,7 +90,7 @@ interface BoundRow {
 export function studyVersion(
   env: StudyEnv,
   config: CommunityConfig,
-): 3 | 4 | null {
+): 3 | 4 | 5 | null {
   const managed = !!(
     env.KARAOKE_SERVICE_MODE === "internal" &&
     env.KARAOKE_OPERATOR &&
@@ -90,6 +98,13 @@ export function studyVersion(
     env.KARAOKE_OPERATOR_ADDRESS &&
     [31337, 6343].includes(Number(env.KARAOKE_PAYMENT_CHAIN_ID))
   );
+  if (env.STUDY_RUNTIME !== undefined || env.STUDY_PRIVATE_V5_PROFILE !== undefined) {
+    if (!managed || env.STUDY_RUNTIME !== "private-v5") return null;
+    try {
+      const selected = privateStudyV5Profile(env, config.communityId);
+      return selected.sourceChainId === config.chainId && selected.chainId === Number(env.KARAOKE_PAYMENT_CHAIN_ID) ? 5 : null;
+    } catch { return null; }
+  }
   const records = config.learningRecords.toLowerCase();
   if (managed && env.STUDY_RESULTS_V4_CONTRACT?.toLowerCase() === records)
     return 4;
@@ -108,16 +123,43 @@ export interface LinkedStudyEntry {
   check(): Promise<void>;
 }
 
+/** Stable HTTP facade shared by fresh private and explicitly retained targets. */
+export interface LiveStudy {
+  owner: StudyPrincipal;
+  lessons: ReturnType<typeof makeStudyLessonService>;
+  publication: ReturnType<typeof studyPublicationQueue>["get"];
+  syncPublication: ReturnType<typeof studyPublicationQueue>["sync"];
+  song(postId: Hex): Promise<StudySong>;
+  start(requestId: string, song: unknown): Promise<StudyLesson>;
+  get(id: string): Promise<StudyLesson>;
+  recoverSavedLesson(id: string): Promise<StudyLesson>;
+  latest(song: unknown): Promise<StudyLesson | null>;
+  abandon(id: string): Promise<StudyLesson>;
+  open(id: string, presentation: number, take: number): ReturnType<ReturnType<typeof makeStudyLessonService>["openAttempt"]>;
+  submit(id: string, attemptId: string, request: Request): Promise<StudyLessonSubmission>;
+  endForWithdrawal(through?: number): Promise<StudyLesson[]>;
+}
+
 export function liveStudy(
   inputPorts: StudyCommunityPorts,
   session: { account_id: string; wallet: string },
   linked?: LinkedStudyEntry,
-) {
+): LiveStudy {
   const ports = linked
     ? { ...inputPorts, db: telegramLinkedDatabase(inputPorts.db) }
     : inputPorts;
   const version = studyVersion(ports.env, ports.config);
   studyCheck(version !== null, "study_unavailable", 503);
+  if (version === 5) {
+    studyCheck(!linked && inputPorts.privateV5, "study_private_v5_request_required", 503);
+    const fresh = livePrivateStudyV5(inputPorts, session, inputPorts.privateV5);
+    return dispatchPrivateStudyV5(inputPorts, fresh.owner, fresh, (retainedVersion, contract) => {
+      const retained = { ...inputPorts, env: { ...inputPorts.env, STUDY_RUNTIME: undefined, STUDY_PRIVATE_V5_PROFILE: undefined },
+        config: { ...inputPorts.config, learningRecords: contract as Address } };
+      studyCheck(studyVersion(retained.env, retained.config) === retainedVersion, "study_contract_changed", 409);
+      return liveStudy(retained, session);
+    });
+  }
   const owner: StudyPrincipal = {
     accountId: session.account_id,
     communityId: ports.config.communityId,
@@ -167,6 +209,7 @@ export function liveStudy(
     linkedStartedAt = state.startedAt;
   }
   function matchEntry(state: ReturnType<StudyLessonStore["state"]>) {
+    studyCheck(state.privateV5 === undefined, "study_private_v5_entry_changed", 409);
     studyCheck(
       linked && telegram
         ? state.startedAt === linkedStartedAt &&
@@ -516,6 +559,7 @@ export function liveStudy(
         `SELECT lesson_id FROM study_lessons
         WHERE account_id=?1 AND community_id=?2 AND history_deleted_at IS NULL
         AND json_extract(state_json,'$.status')='active'
+        AND json_extract(state_json,'$.privateV5') IS NULL
         AND started_at<=?3
         ORDER BY started_at,lesson_id`,
       )

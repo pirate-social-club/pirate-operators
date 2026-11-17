@@ -1,5 +1,6 @@
 import { createMemo, onCleanup, Show } from "solid-js";
 import { StudyPage } from "../study/page.tsx";
+import { createStudyStartHandoff, type StudyStartHandoff } from "../study/client.ts";
 import { KaraokePage } from "../karaoke/page.tsx";
 import type { KaraokeHistoryTicket } from "../karaoke/saved-history.ts";
 import type { KaraokeWallet } from "./learning-consent.ts";
@@ -18,6 +19,7 @@ export interface LearningPageMountProps {
   csrf: string;
   wallet: KaraokeWallet;
   serviceMode?: "internal";
+  studyRuntime?: "private-v5";
   signInPermission: boolean;
   actions: LearningActionOwner;
   onExit(): void;
@@ -32,6 +34,17 @@ export interface LearningPageMountProps {
 
 /** A new URL, session or community disposes the original page/controller. */
 export function LearningPageMount(props: LearningPageMountProps) {
+  // Survives only the keyed page owners below. Different communities, accounts,
+  // CSRF sessions and posts can never borrow another pending start.
+  const starts = new Map<string, StudyStartHandoff>();
+  onCleanup(() => starts.clear());
+  function studyStart(postId: string) {
+    const owner = { communityId: props.communityId, account: props.account ?? "", csrf: props.csrf, postId };
+    const key = JSON.stringify([owner.communityId, owner.account, owner.csrf, owner.postId]);
+    let handoff = starts.get(key);
+    if (!handoff) { handoff = createStudyStartHandoff(owner); starts.set(key, handoff); }
+    return handoff;
+  }
   const snapshot = createMemo(() => {
     const route = props.route;
     return route && props.communityId
@@ -42,6 +55,8 @@ export function LearningPageMount(props: LearningPageMountProps) {
           csrf: props.csrf,
           signInPermission: props.signInPermission,
           serviceMode: props.serviceMode,
+          studyRuntime: route.kind === "study" ? props.studyRuntime : undefined,
+          studyStart: route.kind === "study" ? studyStart(route.postId) : undefined,
           historyGeneration: props.historyGeneration ?? 0,
         }
       : null;
@@ -99,6 +114,8 @@ export function LearningPageMount(props: LearningPageMountProps) {
                 wallet={props.wallet}
                 lessonId={owner.route.lessonId}
                 signInPermission={owner.signInPermission}
+                studyRuntime={owner.studyRuntime}
+                startHandoff={owner.studyStart}
                 onExit={props.onExit}
                 onConnect={props.onConnect}
                 onLessonOpened={onLessonOpened}

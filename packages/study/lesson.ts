@@ -11,6 +11,7 @@ import {
 } from "./contracts.ts";
 import type { Hex } from "viem";
 import type { AdmittedStudyGrader } from "./grader-revision.ts";
+import type { StudyPrivateV5Entry } from "./private-v5.ts";
 export type StudySong = Omit<StudySelection, "lineId">;
 export const STUDY_LESSON_SCHEMA = "pirate.study.lesson/1" as const;
 export const STUDY_QUEUE_POLICY = "pirate.study.lesson-queue/1" as const;
@@ -51,12 +52,19 @@ export interface StudyCloseBound {
  * +Infinity and always closes at the open limit.
  */
 export function studyCloseBound(
-  state: Pick<LessonState, "startedAt" | "expiresAt">,
+  state: Pick<LessonState, "startedAt" | "expiresAt" | "privateV5">,
   consentExpiresAtS: number | null,
 ): StudyCloseBound {
   if (studyLessonHasDeadline(state))
     return { at: state.expiresAt, status: "expired", reason: "deadline" };
   const limit = state.startedAt + STUDY_OPEN_LESSON_MAX_MS;
+  // Original private V5 practice has no public-consent lifetime. Keep the
+  // existing bounded open/private-history lifetime, including scheduled reads.
+  if (state.privateV5) {
+    studyCheck(state.privateV5.version === 5 && state.privateV5.publication.kind === "private",
+      "study_private_v5_entry_changed", 503);
+    return { at: limit, status: "abandoned", reason: "open_limit" };
+  }
   if (consentExpiresAtS === null)
     return { at: limit, status: "abandoned", reason: "never_bound" };
   // A V4 lesson's sign-in permission has no end: +Infinity, so its bound is
@@ -134,6 +142,7 @@ export interface StudyTelegramEntry {
   authorizationId: Hex;
 }
 export interface LessonState {
+  privateV5?: StudyPrivateV5Entry;
   telegram?: StudyTelegramEntry;
   graderRevision?: AdmittedStudyGrader;
   speechRetrySerial?: number;

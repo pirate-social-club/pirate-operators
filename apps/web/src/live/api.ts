@@ -178,16 +178,25 @@ const messages: Record<string, string> = {
 
 /** Required same-origin server projection. Absence is unavailable, never ready.
  * Upstream owns policy/limit selection; no wallet/author implies private access. */
-export interface CommunityDanceCapability {
+interface CommunityDanceMediaCapability {
+  version: "pirate.community-media/1";
+  purpose: "private-review";
+  policyVersion: "pirate.dance-private/1";
+  maximumBytes: number;
+}
+export interface CommunityDanceCapabilityV1 {
   version: "pirate.dance-capability/1";
   communityId: string;
-  media: {
-    version: "pirate.community-media/1";
-    purpose: "private-review";
-    policyVersion: "pirate.dance-private/1";
-    maximumBytes: number;
-  };
+  media: CommunityDanceMediaCapability;
+  captureProfile?: never;
 }
+export interface CommunityDanceCapabilityV2 {
+  version: "pirate.dance-capability/2";
+  communityId: string;
+  captureProfile: "private-v2";
+  media: CommunityDanceMediaCapability;
+}
+export type CommunityDanceCapability = CommunityDanceCapabilityV1 | CommunityDanceCapabilityV2;
 export type CommunityCapabilities = BaseCommunityCapabilities & {
   dance?: CommunityDanceCapability;
 };
@@ -196,13 +205,27 @@ export function selectedDanceCapability(
   communityId: string,
 ): CommunityDanceCapability | null {
   const dance = value?.dance;
-  return value?.schema === "pirate.community-capabilities/1" && communityId && dance?.version === "pirate.dance-capability/1" &&
-    dance.communityId === communityId &&
-    dance.media?.version === "pirate.community-media/1" &&
-    dance.media.purpose === "private-review" &&
-    dance.media.policyVersion === "pirate.dance-private/1" &&
-    Number.isSafeInteger(dance.media.maximumBytes) && dance.media.maximumBytes > 0
-      ? dance : null;
+  if (value?.schema !== "pirate.community-capabilities/1" || !communityId || !dance ||
+    dance.communityId !== communityId || dance.media?.version !== "pirate.community-media/1" ||
+    dance.media.purpose !== "private-review" || dance.media.policyVersion !== "pirate.dance-private/1" ||
+    !Number.isSafeInteger(dance.media.maximumBytes) || dance.media.maximumBytes <= 0)
+    return null;
+  // Historical V1 retains its original policy/identity. A mixed fresh profile
+  // can never turn into that legacy path by omitting or changing its version.
+  if (dance.version === "pirate.dance-capability/1")
+    return !("captureProfile" in dance) ? dance : null;
+  if (dance.version !== "pirate.dance-capability/2" || dance.captureProfile !== "private-v2" ||
+    !/^0x[0-9a-f]{64}$/.test(communityId) ||
+    Object.keys(dance).sort().join() !== "captureProfile,communityId,media,version" ||
+    Object.keys(dance.media).sort().join() !== "maximumBytes,policyVersion,purpose,version")
+    return null;
+  // The selected lifetime owns a closed immutable projection, independently of
+  // a transport caller retaining/mutating the original response object.
+  return Object.freeze({ version: dance.version, communityId: dance.communityId,
+    captureProfile: dance.captureProfile,
+    media: Object.freeze({ version: dance.media.version, purpose: dance.media.purpose,
+      policyVersion: dance.media.policyVersion, maximumBytes: dance.media.maximumBytes }),
+  });
 }
 
 export interface DanceSessionIdentity {

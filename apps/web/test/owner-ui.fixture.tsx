@@ -22,6 +22,8 @@ import storageWorkerUrl from "./media-community-storage.worker.ts?worker&url";
 import { runDancePaperDesktopBrowserCase } from "./dance-paper-desktop.browser.tsx";
 import { runDanceAsyncResizeBrowserCase } from "./dance-async-resize.browser.tsx";
 import { runDanceMissingOriginalExitBrowserCase } from "./dance-missing-original-exit.browser.tsx";
+import { runDancePrivateNormalEntryBrowserCase, type PrivateDanceEntryScenario } from "./dance-private-normal-entry.browser.tsx";
+import { runStudyPrivateNormalEntryBrowserCase, type PrivateStudyEntryScenario } from "./study-private-normal-entry.browser.tsx";
 import "./owner-ui.fixture.css";
 
 const query = new URL(location.href).searchParams;
@@ -179,8 +181,48 @@ function DancePaperCases(props: { kind: "desktop" | "async-resize" | "missing-or
     </>
   );
 }
+function DancePrivateEntryCases() {
+  const [status, setStatus] = createSignal("idle"), [detail, setDetail] = createSignal("");
+  let root: HTMLDivElement | undefined;
+  const run = async () => {
+    setStatus("running");
+    try {
+      const scenario = query.get("scenario");
+      if (!["private", "legacy", "malformed", "denied", "profile-change"].includes(scenario ?? ""))
+        throw Error("Exact normal private entry scenario required");
+      const value = await runDancePrivateNormalEntryBrowserCase(root!, scenario as PrivateDanceEntryScenario);
+      setDetail(JSON.stringify(value)); setStatus("passed");
+    } catch (error) { setDetail(String(error)); setStatus("failed"); }
+  };
+  return <>
+    <button onClick={() => void run()}>Run actual private Dance entry</button>
+    <output data-dance-private-entry-status={status()}>{detail()}</output>
+    <div ref={element => { root = element; }} />
+  </>;
+}
+function StudyPrivateEntryCases() {
+  const [status, setStatus] = createSignal("idle"), [detail, setDetail] = createSignal("");
+  let root: HTMLDivElement | undefined;
+  const run = async () => {
+    setStatus("running");
+    try {
+      const scenario = query.get("scenario");
+      if (!["private", "lost-ack", "legacy-v3", "legacy-v4", "unknown", "mode-change", "pre-acceptance-mode-change"].includes(scenario ?? ""))
+        throw Error("Exact normal Study scenario required");
+      const value = await runStudyPrivateNormalEntryBrowserCase(root!, scenario as PrivateStudyEntryScenario);
+      setDetail(JSON.stringify(value)); setStatus("passed");
+    } catch (error) { setDetail(String(error)); setStatus("failed"); }
+  };
+  return <>
+    <button onClick={() => void run()}>Run actual private Study entry</button>
+    <output data-study-private-entry-status={status()}>{detail()}</output>
+    <div ref={element => { root = element; }} />
+  </>;
+}
 function Fixture() {
   const mode = query.get("fixture");
+  if (mode === "study-private-normal-entry") return <StudyPrivateEntryCases />;
+  if (mode === "dance-private-normal-entry") return <DancePrivateEntryCases />;
   if (mode === "dance-paper-desktop") return <DancePaperCases kind="desktop" />;
   if (mode === "dance-async-resize") return <DancePaperCases kind="async-resize" />;
   if (mode === "dance-missing-original-exit") return <DancePaperCases kind="missing-original-exit" />;
