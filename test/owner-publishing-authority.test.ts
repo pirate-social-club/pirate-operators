@@ -1409,10 +1409,16 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
   const names = (await chain(COMMUNITY)).map((path) => path.split("/").at(-1)!);
   assert.deepEqual(
     names.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 19 }, (_, index) => index + 1),
+    Array.from({ length: 20 }, (_, index) => index + 1),
   );
   const profiles = [
     { rewards: false, ownerPublishing: false, v4: false },
+    {
+      rewards: false,
+      ownerPublishing: false,
+      v4: false,
+      publicationConsent: true,
+    },
     { rewards: true, ownerPublishing: false, v4: false },
     { rewards: true, ownerPublishing: true, v4: false },
     { rewards: true, ownerPublishing: true, v4: true },
@@ -1461,6 +1467,16 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
         "dance" in selected && selected.dance === true,
       );
       assert.equal(present.has("community_profiles"), true);
+      for (const table of [
+        "publication_v1_heads",
+        "publication_v1_commands",
+        "publication_v1_observations",
+      ])
+        assert.equal(
+          present.has(table),
+          "publicationConsent" in selected &&
+            selected.publicationConsent === true,
+        );
       const triggers = (
         await db
           .prepare("SELECT name,sql FROM sqlite_schema WHERE type='trigger'")

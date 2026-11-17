@@ -45,7 +45,10 @@ rows and database-clock lease in one accepting SQL update. The resulting GET
 projection is observation-only; it does not create an activity-start binding.
 
 Migration 0020 adds the D1 command/outbox journal without backfilling V4 consent
-or activating a profile. The operator Store remains the sole payer nonce and
+or activating a profile. Package selection requires the explicit
+`publicationConsent` option, independently of V4 and Rewards. Historical
+package selections retain their existing migration lists. A later profile
+retaining V5 recovery must retain the applied journal. The operator Store remains the sole payer nonce and
 transaction journal. Signed issuer transport connects the two stores; no
 cross-store transaction is assumed. Recovery preserves the original command,
 accepted signature, calldata, nonce and transaction identity. Unknown execution

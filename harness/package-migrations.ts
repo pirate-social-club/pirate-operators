@@ -2,6 +2,7 @@
 // build imports so tests can load it directly.
 import { insist } from "../packages/community/common.ts";
 
+export const PUBLICATION_CONSENT_MIGRATION = "0020_publication_consent.sql";
 export const COMMUNITY_MEDIA_MIGRATION = "0015_community_media.sql";
 export const DANCE_MIGRATION = "0016_dance.sql";
 export const DANCE_CANONICAL_MIGRATION = "0017_dance_canonical_controls.sql";
@@ -21,6 +22,8 @@ export function communityMigrations(
     rewards: boolean;
     ownerPublishing: boolean;
     v4: boolean;
+    /** Fresh V5 journal or retained V5 recovery, independent of V4 login. */
+    publicationConsent?: boolean;
     rewardClosure?: boolean;
     media?: boolean;
     dance?: boolean;
@@ -61,6 +64,9 @@ export function communityMigrations(
     .filter((p) => p !== DANCE_MIGRATION || selected.dance)
     .filter((p) => p !== DANCE_CANONICAL_MIGRATION || selected.dance)
     .filter((p) => p !== LEARNING_AUTHORITY_MIGRATION || selected.v4)
+    .filter(
+      (p) => p !== PUBLICATION_CONSENT_MIGRATION || selected.publicationConsent,
+    )
     .sort();
 }
 export const MANAGED_MIGRATIONS = [
