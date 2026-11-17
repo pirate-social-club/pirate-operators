@@ -53,6 +53,31 @@ test("native Study carrier observes fixed transport, refusal and UTF-8 stages wi
   assert.deepEqual(logs.at(-1), [prefix + "worker_transport_deadline"]);
 });
 
+test("native Study refuses manual redirects without sending its bearer to another destination", async t => {
+  const logs: unknown[][] = [];
+  t.mock.method(console, "warn", (...args: unknown[]) => { logs.push(args); });
+  const destination = "https://unselected.invalid/receive";
+  for (const status of [301, 302, 303, 307, 308]) {
+    const visits: string[] = [];
+    let cancelled = false;
+    const service = carrier(async (input, init) => {
+      const original = new Request(input, init);
+      visits.push(original.url);
+      assert.equal(original.url, origin + "/transcribe");
+      assert.equal(original.headers.get("authorization"), "Bearer " + auth);
+      assert.equal(original.redirect, "manual");
+      return new Response(new ReadableStream({ cancel() { cancelled = true; } }), {
+        status, headers: { location: destination },
+      });
+    });
+    await assert.rejects(service.transcribe(Uint8Array.of(1), "audio/webm", "en"), speechError("unknown"));
+    assert.deepEqual(visits, [origin + "/transcribe"]);
+    assert.equal(cancelled, true);
+    assert.equal(service.recover, undefined);
+  }
+  assert.deepEqual(logs, Array.from({ length: 5 }, () => [prefix + "worker_host_rejected"]));
+});
+
 test("synthetic Opus/WebM through the installed Unix activity host keeps private child and transport diagnostics separate", { timeout: 38_000 }, async t => {
   const root = await mkdtemp(join(await realpath(tmpdir()), "psd-"));
   t.after(() => rm(root, { recursive: true, force: true }));

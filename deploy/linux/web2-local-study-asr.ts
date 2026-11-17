@@ -26,12 +26,16 @@ export function localStudyAsr(env: LocalStudyAsrBindings): StudyTranscriber {
         response = await transport(target.href, {
           method: "POST", body: new Uint8Array(audio), signal,
           headers: { "content-type": contentType, authorization: "Bearer " + env.LOCAL_STUDY_ASR_AUTH },
-          redirect: "error",
+          // Workerd's native binding supports manual/follow. Keep the
+          // scoped bearer on the original request and reject 3xx below.
+          redirect: env.LOCAL_STUDY_ASR ? "manual" : "error",
         });
       } catch (error) {
         diagnose?.(signal.aborted ? "worker_transport_deadline" : "worker_transport_failed");
         throw error;
       }
+      // A manual redirect is a non-2xx response. Ignore Location and keep
+      // its effect unknown, just like any other ambiguous host response.
       if (!response.ok) {
         diagnose?.(response.status === 429 ? "worker_host_busy" :
           response.status === 504 ? "worker_host_deadline" :
