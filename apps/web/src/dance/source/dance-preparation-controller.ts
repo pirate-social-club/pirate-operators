@@ -30,6 +30,15 @@ import {
   type DanceJournalEntry,
 } from "../journal.ts";
 
+/** Identity captured from the displayed private take, never a latest lookup. */
+export interface PrivateDanceCompletion {
+  readonly captureId: string;
+  readonly captureHash: string;
+  readonly commandId: string;
+  readonly mediaId: string;
+  readonly recordingSha256: string;
+}
+
 export type DancePreparationView =
   | {
       readonly kind: "objectives";
@@ -389,11 +398,64 @@ export function createDancePreparationController(
         };
       });
     },
-    async closeTerminal(signal: AbortSignal): Promise<void> {
+    async closeTerminal(
+      signal: AbortSignal,
+      displayed?: PrivateDanceCompletion,
+    ): Promise<void> {
+      const expected = displayed ? Object.freeze({ ...displayed }) : null;
       const guard = begin(signal);
       await options.journal.exclusive(options.scope, guard, async (handle) => {
+        const sameDisplayed = () => {
+          if (!expected) return;
+          const value = handle.read(),
+            c = value.capture,
+            u = value.upload,
+            command = value.commands?.capture;
+          if (
+            !c ||
+            c.version !== "pirate.dance/2" ||
+            c.publication.kind !== "private" ||
+            c.captureId !== expected.captureId ||
+            c.captureHash !== expected.captureHash ||
+            c.consent?.receiptId !== expected.commandId ||
+            command?.commandId !== expected.commandId ||
+            !u ||
+            u.mediaId !== expected.mediaId ||
+            u.recordingSha256 !== expected.recordingSha256
+          )
+            throw Error("dance_private_completion_changed");
+          assertCapture(c, options.scope);
+          assertCaptureCommand(command, options);
+        };
+        // Check under the SAME lock that protects status/archive/reset. A view
+        // of A cannot select B merely because B became the current journey.
+        sameDisplayed();
         const entry = handle.read(),
           original = await retained(guard);
+        sameDisplayed();
+        if (expected) {
+          const command = await requireCommandPorts(options).command(
+            expected.commandId,
+          );
+          guard();
+          sameDisplayed();
+          if (
+            !command?.receiptJson ||
+            !entry.commands?.capture ||
+            !sameOriginalCommand(command, entry.commands.capture)
+          )
+            throw Error("dance_original_command_changed");
+          const receipt = JSON.parse(command.receiptJson) as DanceCapture;
+          assertCapture(receipt, options.scope);
+          if (
+            receipt.version !== "pirate.dance/2" ||
+            receipt.publication.kind !== "private" ||
+            receipt.captureId !== expected.captureId ||
+            receipt.captureHash !== expected.captureHash ||
+            receipt.consent?.receiptId !== expected.commandId
+          )
+            throw Error("dance_original_command_changed");
+        }
         if (!entry.capture)
           throw Error("dance_preparation_resolution_unproven");
         if (
@@ -432,6 +494,8 @@ export function createDancePreparationController(
             entry.capture.publication.kind === "private" &&
             status.state === "ready";
           if (privateReady) {
+            if (!expected) throw Error("dance_preparation_resolution_unproven");
+            sameDisplayed();
             assertCapture(entry.capture, options.scope);
             validateDanceMedia(
               status,
@@ -451,10 +515,12 @@ export function createDancePreparationController(
           now() < entry.capture.expiresAtMs
         )
           throw Error("dance_preparation_resolution_unproven");
+        sameDisplayed();
         if (entry.capture) {
           await handle.archive();
           guard();
         }
+        sameDisplayed();
         await options.client.resetDefiniteCapture(entry.capture?.captureId);
         guard();
         await handle.save({

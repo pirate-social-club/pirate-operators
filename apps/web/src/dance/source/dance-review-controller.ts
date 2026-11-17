@@ -1,4 +1,7 @@
-import { createDancePreparationController } from "./dance-preparation-controller.ts";
+import {
+  createDancePreparationController,
+  type PrivateDanceCompletion,
+} from "./dance-preparation-controller.ts";
 // c7 review controller's original outstanding-command/observe/act separation.
 // Commands are delegated to the already admitted durable Dance client journal;
 // visibility/publication is deliberately absent while owner policy is held.
@@ -44,6 +47,7 @@ export function createDanceReviewController(
 ) {
   let disposed = false;
   let localCaptureId: string | undefined;
+  let displayedPrivate: Readonly<PrivateDanceCompletion> | null = null;
   const guardFor = (signal: AbortSignal) => () => {
     assertCurrent(options, signal);
     if (disposed) throw Error("dance_review_scope_changed");
@@ -96,6 +100,27 @@ export function createDanceReviewController(
       );
       if (!status.ready || status.state !== "ready")
         throw Error("dance_recording_not_ready");
+      if (
+        capture.version === "pirate.dance/2" &&
+        capture.publication.kind === "private"
+      ) {
+        const commandId = entry.commands?.capture?.commandId;
+        if (!commandId || capture.consent?.receiptId !== commandId)
+          throw Error("dance_original_command_changed");
+        const displayed = Object.freeze({
+          captureId: capture.captureId,
+          captureHash: capture.captureHash,
+          commandId,
+          mediaId: entry.upload.mediaId,
+          recordingSha256: entry.upload.recordingSha256,
+        });
+        if (
+          displayedPrivate &&
+          JSON.stringify(displayedPrivate) !== JSON.stringify(displayed)
+        )
+          throw Error("dance_private_completion_changed");
+        displayedPrivate ??= displayed;
+      }
       return {
         result: {
           kind: "local_recording",
@@ -249,17 +274,14 @@ export function createDanceReviewController(
       const guard = guardFor(signal);
       guard();
       if (options.reviewId) throw Error("dance_review_route_mismatch");
-      const entry = await options.journal.read(options.scope, guard);
-      guard();
-      if (
-        !entry.capture ||
-        entry.capture.version !== "pirate.dance/2" ||
-        entry.capture.publication.kind !== "private"
-      )
+      if (!displayedPrivate || localCaptureId !== displayedPrivate.captureId)
         throw Error("dance_private_completion_unavailable");
-      // Existing completion archives the exact take, resets only its capture
-      // command and keeps unknown/unrelated work held. Media is never deleted.
-      await createDancePreparationController(options).closeTerminal(signal);
+      // Frozen by the actual read that produced the displayed view. Never
+      // reselect the current take before entering the completion lock.
+      await createDancePreparationController(options).closeTerminal(
+        signal,
+        displayedPrivate,
+      );
       guard();
     },
     async localPreview(signal: AbortSignal) {

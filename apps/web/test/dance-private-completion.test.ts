@@ -1,3 +1,5 @@
+import { hashPrivateDanceCaptureV2 } from "../../../packages/dance/capture-v2.ts";
+import { word } from "../../../test/fixtures/dance-capture-v2.ts";
 import { createDanceReviewController } from "../src/dance/source/dance-review-controller.ts";
 /** Actual client/journal and completion controllers. Persistence delivery and
  * media HTTP are explicit simulations; native media admission has separate
@@ -108,9 +110,28 @@ async function fixture() {
     client,
     journal: journey.store,
     nowMs: () => capture.reservedAtMs + 100,
-    media: { ...model.ports.media, status: async () => status },
+    consent: {
+      ...consent,
+      text: "Private completion fixture terms",
+      admission: "admitted" as const,
+    },
+    captureAccess: async () => {},
+    media: {
+      ...model.ports.media,
+      status: async (
+        _capture: Parameters<typeof model.ports.media.status>[0],
+        _id: string,
+      ) => status,
+    },
   };
   return {
+    expectation: {
+      captureId: capture.captureId,
+      captureHash: capture.captureHash,
+      commandId: command.commandId,
+      mediaId: status.id,
+      recordingSha256: digest,
+    },
     capture,
     command,
     status,
@@ -130,9 +151,9 @@ async function fixture() {
 test("Done archives a confirmed private take and starts another without a public review or media deletion", async () => {
   const f = await fixture();
   try {
-    await createDanceReviewController(f.ports).finishPrivate(
-      new AbortController().signal,
-    );
+    const displayed = createDanceReviewController(f.ports);
+    await displayed.observe(new AbortController().signal);
+    await displayed.finishPrivate(new AbortController().signal);
     const saved = await f.journey.store.read(f.ports.scope, () => {});
     assert.equal(saved.capture, null);
     assert.equal(saved.upload, null);
@@ -177,6 +198,7 @@ test("private Done cannot retire a different ready recording", async () => {
     await assert.rejects(
       createDancePreparationController(f.ports).closeTerminal(
         new AbortController().signal,
+        f.expectation,
       ),
       /target_changed/,
     );
@@ -204,6 +226,7 @@ test("an unsettled original command holds private Done without clearing the save
     await assert.rejects(
       createDancePreparationController(f.ports).closeTerminal(
         new AbortController().signal,
+        f.expectation,
       ),
       /resolution_unproven/,
     );
@@ -238,6 +261,7 @@ test("lost archive acknowledgement retries the same private completion and prese
     await assert.rejects(
       createDancePreparationController(f.ports).closeTerminal(
         new AbortController().signal,
+        f.expectation,
       ),
       /archive_ack_lost/,
     );
@@ -247,6 +271,7 @@ test("lost archive acknowledgement retries the same private completion and prese
     );
     await createDancePreparationController(f.ports).closeTerminal(
       new AbortController().signal,
+      f.expectation,
     );
     assert.equal(
       (await f.journey.store.read(f.ports.scope, () => {})).capture,
@@ -273,6 +298,7 @@ test("account loss during the private status read cannot clear the take or its o
     await assert.rejects(
       createDancePreparationController(f.ports).closeTerminal(
         new AbortController().signal,
+        f.expectation,
       ),
       { message: "dance_session_changed" },
     );
@@ -286,3 +312,133 @@ test("account loss during the private status read cannot clear the take or its o
     f.client.dispose();
   }
 });
+
+// Another tab completes A, then the real command/journey codecs accept ready B.
+// The stale A view must never treat this current B as its completion identity.
+async function replaceWithReadyTake(
+  f: Awaited<ReturnType<typeof fixture>>,
+  exclusive = f.journey.store.exclusive.bind(f.journey.store),
+) {
+  await f.journal.definiteCaptureReset(f.commandScope, {
+    captureId: f.capture.captureId,
+    keepUnrelated: true,
+  });
+  await exclusive(
+    f.ports.scope,
+    () => {},
+    async (h) => {
+      await h.archive();
+      await h.save({
+        capture: null,
+        upload: null,
+        commands: undefined,
+        submission: "none",
+        terminal: null,
+      });
+    },
+  );
+  const commandId = crypto.randomUUID(),
+    body = JSON.parse(f.command.bodyJson);
+  const nextCommand = {
+    ...f.command,
+    commandId,
+    requestJson: JSON.stringify({ ...body, commandId }),
+  };
+  const { captureHash: _hash, consent: _consent, ...snapshot } = f.capture;
+  snapshot.captureId = word(700);
+  snapshot.reservedAtMs += 1000;
+  snapshot.expiresAtMs += 1000;
+  const hash = hashPrivateDanceCaptureV2(snapshot);
+  const capture = {
+    ...snapshot,
+    captureHash: hash,
+    consent: {
+      ...f.capture.consent!,
+      receiptId: commandId,
+      captureId: snapshot.captureId,
+      captureHash: hash,
+      acceptedAtMs: snapshot.reservedAtMs + 1,
+    },
+  };
+  await f.journal.reserve(nextCommand);
+  await f.journal.markDispatch!(nextCommand);
+  await f.journal.accept(nextCommand, JSON.stringify(capture));
+  const status = mediaFixture(capture, "ab".repeat(32));
+  status.id = "media-B";
+  status.ready = { ...status.ready!, id: status.id };
+  await exclusive(
+    f.ports.scope,
+    () => {},
+    (h) =>
+      h.save({
+        capture,
+        commands: { capture: nextCommand },
+        upload: {
+          requestId: "private-upload-B",
+          recordingSha256: status.ready!.recordingSha256,
+          bytes: 1000,
+          mediaId: status.id,
+          put: "acknowledged",
+          status,
+        },
+      }),
+  );
+  f.ports.media.status = async (_capture, id) =>
+    id === status.id ? status : f.status;
+  return { capture, command: nextCommand, status };
+}
+for (const replace of ["before-click", "before-exclusive"] as const) {
+  test(`stale private Done from displayed A preserves ready B: ${replace}`, async () => {
+    const f = await fixture();
+    try {
+      const controller = createDanceReviewController(f.ports);
+      const view = await controller.observe(new AbortController().signal);
+      assert.equal(view.result.kind, "local_recording");
+      const exclusive = f.journey.store.exclusive.bind(f.journey.store);
+      let release!: () => void, entered!: () => void;
+      const blocked = new Promise<void>((r) => {
+          entered = r;
+        }),
+        gate = new Promise<void>((r) => {
+          release = r;
+        });
+      if (replace === "before-exclusive")
+        f.journey.store.exclusive = async (s, g, use) => {
+          entered();
+          await gate;
+          return exclusive(s, g, use);
+        };
+      let b: Awaited<ReturnType<typeof replaceWithReadyTake>>;
+      if (replace === "before-click")
+        b = await replaceWithReadyTake(f, exclusive);
+      const done = controller.finishPrivate(new AbortController().signal);
+      const rejected = assert.rejects(
+        done,
+        /completion_changed|local_attempt_changed|original_command_changed/,
+      );
+      if (replace === "before-exclusive") {
+        await blocked;
+        b = await replaceWithReadyTake(f, exclusive);
+        release();
+      }
+      await rejected;
+      const kept = await f.journey.store.read(f.ports.scope, () => {});
+      assert.equal(kept.capture?.captureId, b!.capture.captureId);
+      assert.equal(kept.capture?.captureHash, b!.capture.captureHash);
+      assert.equal(kept.upload?.mediaId, b!.status.id);
+      assert.equal(f.journey.archives.has(b!.capture.captureId), false);
+      assert.equal(
+        (await f.journal.acceptedCapture!(f.commandScope))?.commandId,
+        b!.command.commandId,
+      );
+      assert.equal(
+        (await f.journal.command!(f.commandScope, b!.command.commandId))
+          ?.receiptJson,
+        JSON.stringify(b!.capture),
+      );
+      assert.deepEqual(f.requests, ["/api/dance/captures"]);
+    } finally {
+      f.client.dispose();
+    }
+  });
+}
