@@ -177,7 +177,14 @@ each exact payout in the wallet. Payment approval, closing and settlement are
 manual operator actions in this MVP, not a fully automated daily lottery
 service. Very verification at claim still gates every payment.
 
-Expanded release acceptance joins these operations in the actual Web2 runtime:
+The first integration target is the accepted November manual rehearsal: operator
+attachment, closure and settlement, actual Very claim, guarded MOSS payout and
+onward Send, with explicitly simulated external tickets/prizes and a prefunded
+testnet reserve. Reuse accepted evidence for unchanged stages. Qualify the
+changed Web2/song/Dance joins without repeating a historical payout or adding
+automation. A stalled Sepolia drawing does not block that integration target.
+
+Later actual-provider qualification joins these operations in the Web2 runtime:
 publish the song, attach the advertised offer before its window, qualify a real
 selected activity including the Dance path, close against its retained source,
 reconcile drawing/collection and treasury inventory, claim through Very, approve
@@ -186,6 +193,11 @@ MOSS/payment and provider evidence as component qualifications. A local fixture,
 simulated prize, prefunded reserve or disconnected component proof cannot
 replace this combined live journey. This requirement introduces no automatic
 bridge or new spending authority.
+
+The provider's [October 29 announcement](https://megapot.io/blog/thank-you-for-playing)
+says its consumer app closes December 1, the protocol continues and the Data API
+is deprecated. The selected manual adapter uses contract RPC reads and our own
+operator UI; it must not acquire a dependency on the retiring consumer app.
 
 Before funded acceptance, independently review the ledger and release change;
 complete the separately owned Study lesson/retry/recovery acceptance; qualify
