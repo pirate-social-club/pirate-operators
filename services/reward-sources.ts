@@ -398,24 +398,32 @@ export interface CategoricalRewardSourcesInput {
   defaults: readonly string[];
 }
 
-export function liveRewardSources(input: LiveRewardSourcesInput): RewardSources {
+export function liveRewardSources(
+  input: LiveRewardSourcesInput,
+): RewardSources {
   return composeRewardSources({ ...input, kind: "scored" });
 }
 
-export function categoricalRewardSources(input: CategoricalRewardSourcesInput): RewardSources {
+export function categoricalRewardSources(
+  input: CategoricalRewardSourcesInput,
+): RewardSources {
   return composeRewardSources({ ...input, kind: "categorical-only" });
 }
 
-function composeRewardSources(input:
-  | (LiveRewardSourcesInput & { kind: "scored" })
-  | (CategoricalRewardSourcesInput & { kind: "categorical-only" }),
+function composeRewardSources(
+  input:
+    | (LiveRewardSourcesInput & { kind: "scored" })
+    | (CategoricalRewardSourcesInput & { kind: "categorical-only" }),
 ): RewardSources {
   // Source registration and future defaults are caller-owned inputs. Capture
   // this composition so later additions cannot retarget historical offers.
-  const profile = structuredClone(input.profile), reads = input.reads;
+  const profile = structuredClone(input.profile),
+    reads = input.reads;
   const scoredInput = input.kind === "scored" ? input : null;
   const sources = new Map<string, AnyRewardResultSource>(scoredInput?.sources);
-  const categorical = new Map<string, CategoricalRewardReader>(input.categorical);
+  const categorical = new Map<string, CategoricalRewardReader>(
+    input.categorical,
+  );
   const readResults = scoredInput?.readResults ?? readPublicResults;
   const implicitSourceHash = bytes32(profile.resultSourceHash);
   insist(
@@ -438,10 +446,12 @@ function composeRewardSources(input:
     current = bytes32(input.current);
     defaults = input.defaults.map(bytes32);
     insist(
-      categorical.has(current) && defaults.length > 0 &&
+      categorical.has(current) &&
+        defaults.length > 0 &&
         defaults.length <= MAX_OFFER_RESULT_SOURCES &&
-        new Set(defaults).size === defaults.length && defaults.includes(current) &&
-        defaults.every(hash => categorical.has(hash)),
+        new Set(defaults).size === defaults.length &&
+        defaults.includes(current) &&
+        defaults.every((hash) => categorical.has(hash)),
       "reward_categorical_selection_invalid",
       503,
     );

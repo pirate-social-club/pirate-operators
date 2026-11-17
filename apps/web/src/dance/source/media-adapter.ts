@@ -1,7 +1,8 @@
+import type { DanceCapture } from "../capture.ts";
 /** Adapter to the existing source3 media client/producer. This adds no upload,
  * rendering, storage, quota, billing or publication pipeline. The root must
  * mount expected-account and private Dance permission checks on the real API. */
-import type { DanceCapture } from "../../../../../packages/dance/contracts.ts";
+
 import { mediaClient } from "../../media/client.ts";
 import { DanceClientError } from "../client.ts";
 import {

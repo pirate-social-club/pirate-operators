@@ -162,7 +162,10 @@ async function freeze(
         ["lessonId", "source", "terminal"].sort().join(),
     "invalid_study_terminal",
   );
-  check(!privateStudyV5Binding(store, input.lessonId), "study_private_v5_entry_changed");
+  check(
+    !privateStudyV5Binding(store, input.lessonId),
+    "study_private_v5_entry_changed",
+  );
   const hash = digest(input) as Hex;
   const old = store.get<PublicationJob>(key(input.lessonId));
   if (old) {

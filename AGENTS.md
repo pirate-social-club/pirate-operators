@@ -72,6 +72,35 @@ merging, require the complete current-base CI caller, all six suites and
 release-ready on the exact candidate. Green hosted CI does not resolve a known
 local failure or qualify an unrun deployment path.
 
+## Integrated delivery
+
+Use the linked Web2 release plan for current scope and the authoritative task
+record for owners and next actions. First-song is an intermediate milestone.
+For each activity or reward slice, identify the real UI action, mounted handler,
+storage or queue effect and readback before calling the feature integrated.
+An adapter probe or a disabled runtime capability is not normal-route acceptance.
+Prefer completing the next missing join over creating another framework or
+expanding future automation.
+
+Use the accepted centralized implementation and Paper designs as behavioral and
+visual references. Inspect them before inventing interactions or asking the
+workspace_owner to redesign a settled flow. Preserve source provenance and the
+clean-break boundary; references are not runtime dependencies. Keep native MOSS
+confirmation and strict request checks without restoring a Pirate approval page.
+
+Automate authorization, private-to-public consent boundaries, canonical song
+references, accounting, replay, duplicate effects and interrupted-operation
+recovery. Use bounded manual acceptance for real passkeys, camera/microphone,
+audio/playback and visual parity. Prepare a reachable candidate, exact short
+steps, expected results and evidence capture before requesting the operator's
+time; keep the session available for the agreed test window. Recheck changed
+joins while reusing unchanged accepted stages within their recorded scope.
+
+Scope, CI and evidence rules apply together: manual acceptance does not replace
+required CI, and green CI does not qualify real providers or the combined hosted
+journey. Do not create extra fixtures, infrastructure or broad reruns merely to
+replace a short manual observation that is actually needed.
+
 ## Testing behavior
 
 Never write unit tests after you write code. Highly prefer E2E or integration

@@ -13,6 +13,7 @@ import {
   type ConfigurationLog,
 } from "./directory-reader.ts";
 import { configurationLogPages } from "./directory-log-pages.ts";
+import type { ConfigurationEvidence } from "./directory-checkpoint.ts";
 import {
   directoryV3Abi,
   validateWeb2Profile,
@@ -290,6 +291,7 @@ export async function readWeb2Community(
   const state = web2ConfigurationState();
   const history: Web2CommunityConfig[] = [];
   let last: ConfigurationLog | undefined;
+  let configurationEvidence: ConfigurationEvidence | undefined;
   for await (const page of configurationLogPages(
     client,
     p,
@@ -377,11 +379,33 @@ export async function readWeb2Community(
       assertWeb2Origin(c, origins[0]!);
       advanceWeb2Configuration(state, c, log.blockNumber);
       history.push(c);
+      // Retain only the latest exact public document/event. Consumers must not
+      // substitute a safe-head block or a synthetic URI for its receipt proof.
+      configurationEvidence = Object.freeze({
+        document,
+        log: Object.freeze({
+          args: Object.freeze({
+            communityId: a.communityId,
+            revision: a.revision,
+            controller: a.controller,
+            publisher: a.publisher,
+            operatorPayments: a.operatorPayments,
+            learningRecords: a.learningRecords,
+            sha256Digest: a.sha256Digest,
+            uri: a.uri,
+          }),
+          blockNumber: log.blockNumber,
+          blockHash: log.blockHash,
+          transactionHash: log.transactionHash,
+          logIndex: log.logIndex,
+        }),
+      });
       last = log;
     }
   insist(
     state.last &&
       last &&
+      configurationEvidence &&
       BigInt(state.last.configurationRevision) === row.configurationRevision,
     "configuration_history_missing",
     503,
@@ -438,6 +462,7 @@ export async function readWeb2Community(
   });
   return {
     config: state.last,
+    configurationEvidence,
     history: Object.freeze(history.map((c) => structuredClone(c))),
     origin,
     verificationSnapshot,

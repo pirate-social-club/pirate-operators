@@ -312,3 +312,5 @@ export function danceAtomicPredicates(input: DanceFence): DanceFence[] {
   }
   return guards;
 }
+
+export const DANCE_DB_NOW = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";

@@ -58,7 +58,10 @@ import { telegramLinkedDatabase } from "./telegram-linked-privacy.ts";
 import type { StudyPrivateV5Env } from "./study-v5-profile.ts";
 import { privateStudyV5Profile } from "./study-v5-profile.ts";
 import { dispatchPrivateStudyV5 } from "./study-v5-dispatch.ts";
-import { livePrivateStudyV5, type StudyV5Request } from "./study-v5-community.ts";
+import {
+  livePrivateStudyV5,
+  type StudyV5Request,
+} from "./study-v5-community.ts";
 
 export interface StudyEnv extends KaraokeEnv, StudyPrivateV5Env {
   /** Explicit release selection; missing fresh inputs never fall back to V4. */
@@ -98,12 +101,20 @@ export function studyVersion(
     env.KARAOKE_OPERATOR_ADDRESS &&
     [31337, 6343].includes(Number(env.KARAOKE_PAYMENT_CHAIN_ID))
   );
-  if (env.STUDY_RUNTIME !== undefined || env.STUDY_PRIVATE_V5_PROFILE !== undefined) {
+  if (
+    env.STUDY_RUNTIME !== undefined ||
+    env.STUDY_PRIVATE_V5_PROFILE !== undefined
+  ) {
     if (!managed || env.STUDY_RUNTIME !== "private-v5") return null;
     try {
       const selected = privateStudyV5Profile(env, config.communityId);
-      return selected.sourceChainId === config.chainId && selected.chainId === Number(env.KARAOKE_PAYMENT_CHAIN_ID) ? 5 : null;
-    } catch { return null; }
+      return selected.sourceChainId === config.chainId &&
+        selected.chainId === Number(env.KARAOKE_PAYMENT_CHAIN_ID)
+        ? 5
+        : null;
+    } catch {
+      return null;
+    }
   }
   const records = config.learningRecords.toLowerCase();
   if (managed && env.STUDY_RESULTS_V4_CONTRACT?.toLowerCase() === records)
@@ -135,8 +146,16 @@ export interface LiveStudy {
   recoverSavedLesson(id: string): Promise<StudyLesson>;
   latest(song: unknown): Promise<StudyLesson | null>;
   abandon(id: string): Promise<StudyLesson>;
-  open(id: string, presentation: number, take: number): ReturnType<ReturnType<typeof makeStudyLessonService>["openAttempt"]>;
-  submit(id: string, attemptId: string, request: Request): Promise<StudyLessonSubmission>;
+  open(
+    id: string,
+    presentation: number,
+    take: number,
+  ): ReturnType<ReturnType<typeof makeStudyLessonService>["openAttempt"]>;
+  submit(
+    id: string,
+    attemptId: string,
+    request: Request,
+  ): Promise<StudyLessonSubmission>;
   endForWithdrawal(through?: number): Promise<StudyLesson[]>;
 }
 
@@ -151,14 +170,37 @@ export function liveStudy(
   const version = studyVersion(ports.env, ports.config);
   studyCheck(version !== null, "study_unavailable", 503);
   if (version === 5) {
-    studyCheck(!linked && inputPorts.privateV5, "study_private_v5_request_required", 503);
+    studyCheck(
+      !linked && inputPorts.privateV5,
+      "study_private_v5_request_required",
+      503,
+    );
     const fresh = livePrivateStudyV5(inputPorts, session, inputPorts.privateV5);
-    return dispatchPrivateStudyV5(inputPorts, fresh.owner, fresh, (retainedVersion, contract) => {
-      const retained = { ...inputPorts, env: { ...inputPorts.env, STUDY_RUNTIME: undefined, STUDY_PRIVATE_V5_PROFILE: undefined },
-        config: { ...inputPorts.config, learningRecords: contract as Address } };
-      studyCheck(studyVersion(retained.env, retained.config) === retainedVersion, "study_contract_changed", 409);
-      return liveStudy(retained, session);
-    });
+    return dispatchPrivateStudyV5(
+      inputPorts,
+      fresh.owner,
+      fresh,
+      (retainedVersion, contract) => {
+        const retained = {
+          ...inputPorts,
+          env: {
+            ...inputPorts.env,
+            STUDY_RUNTIME: undefined,
+            STUDY_PRIVATE_V5_PROFILE: undefined,
+          },
+          config: {
+            ...inputPorts.config,
+            learningRecords: contract as Address,
+          },
+        };
+        studyCheck(
+          studyVersion(retained.env, retained.config) === retainedVersion,
+          "study_contract_changed",
+          409,
+        );
+        return liveStudy(retained, session);
+      },
+    );
   }
   const owner: StudyPrincipal = {
     accountId: session.account_id,
@@ -209,7 +251,11 @@ export function liveStudy(
     linkedStartedAt = state.startedAt;
   }
   function matchEntry(state: ReturnType<StudyLessonStore["state"]>) {
-    studyCheck(state.privateV5 === undefined, "study_private_v5_entry_changed", 409);
+    studyCheck(
+      state.privateV5 === undefined,
+      "study_private_v5_entry_changed",
+      409,
+    );
     studyCheck(
       linked && telegram
         ? state.startedAt === linkedStartedAt &&

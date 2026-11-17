@@ -20,12 +20,21 @@ the payout token, precision, operator, dedicated payout wallet and ticket wallet
 Only MegaETH testnet6343 is a destination. Base Sepolia84532 is an external
 provider source. Configurations and receipt evidence have immutable hashes.
 
+The expanded Web2 release includes rewards for Study, Karaoke and categorical
+Dance results under their selected policies. Ordinary DNS and HNS communities
+use the same eligibility and on-chain records. HNS is not a requirement for
+earning or claiming. Every Dance refers to its canonical song and revision;
+private recordings and a login alone supply no public qualifying result.
+
 An offer binds a drawing, stable song identity, actual purchase and unique
 ticket IDs before its cutoff. The trusted public-results adapter selects the
 accounts that qualified under frozen activity policies before that cutoff.
 Anyone with an account may earn; there is no operator approval of participants.
-A qualifying result must be a genuine published result inside the window,
-signed by that account's own MOSS sign-in wallet. Closing the offer freezes those entries. Provider settlement and actual
+A qualifying result must be genuine, published inside the window, and bind the
+learner's retained private account and MOSS wallet. Fresh V5/Dance V2 publication
+uses the exact purpose grant captured for that attempt; login alone grants no
+publication authority. An authorized publisher may submit the event without
+becoming the learner or acquiring its consent. Closing the offer freezes those entries. Provider settlement and actual
 USDC collection are required before crediting wins; a zero prize is explicit.
 Repeated activities collapse into each account's earliest one per offer. At
 most 500 accounts enter an offer; if more qualify, the earliest 500 enter, so
@@ -35,6 +44,14 @@ stay there. Unclaimed and subject-conflict credits remain owed without expiry.
 Eligibility scans only publication blocks within that offer's advertised time
 window, anchored to a confirmed cutoff block. Its bounded scan does not grow
 with the age of the program. The trusted starting block must precede the offer.
+
+Each new attachment freezes its actual result-source pins. Existing explicit
+pins remain authoritative; an older offer without pins retains its original
+program source. Future defaults, a new grant, current credentials or HNS
+attachment cannot replace that history. Dance-only selection needs no dummy
+V3/V4 scored source. The V2 reader and categorical-only composition are
+source-qualified in PR78/79; normal Web2 mounting, retained capture/song producers
+and fresh V5 scored-source integration remain unfinished.
 
 Claim uses the existing status model: unclaimed -> verification_missing ->
 Very -> accepted, or subject_conflict with the amount held. A verification
@@ -138,7 +155,7 @@ subject conflicts, unknown dispatch and aggregate-payment conservation. Real
 Very, Megapot drawing liveness, dedicated-account payment and onward spending
 remain separate live acceptance gates. Nothing here claims they have passed.
 
-The release runner accepts an explicit public rewards selection through
+The retained scored-pilot release runner accepts an explicit public rewards selection through
 `--rewards-profile`, alongside `--study-profile`. The selection contains schema
 `pirate.rewards-release-selection/1`, `profile` matching RewardsProfile and
 `source` matching RewardResultSource. Its immutable result-source hash, current
@@ -159,6 +176,28 @@ prize. Then record confirmed reserve funding, process ready claims and approve
 each exact payout in the wallet. Payment approval, closing and settlement are
 manual operator actions in this MVP, not a fully automated daily lottery
 service. Very verification at claim still gates every payment.
+
+The first integration target is the accepted November manual rehearsal: operator
+attachment, closure and settlement, actual Very claim, guarded MOSS payout and
+onward Send, with explicitly simulated external tickets/prizes and a prefunded
+testnet reserve. Reuse accepted evidence for unchanged stages. Qualify the
+changed Web2/song/Dance joins without repeating a historical payout or adding
+automation. A stalled Sepolia drawing does not block that integration target.
+
+Later actual-provider qualification joins these operations in the Web2 runtime:
+publish the song, attach the advertised offer before its window, qualify a real
+selected activity including the Dance path, close against its retained source,
+reconcile drawing/collection and treasury inventory, claim through Very, approve
+the guarded MOSS payout and verify a small onward spend. Retain existing real
+MOSS/payment and provider evidence as component qualifications. A local fixture,
+simulated prize, prefunded reserve or disconnected component proof cannot
+replace this combined live journey. This requirement introduces no automatic
+bridge or new spending authority.
+
+The provider's [October 29 announcement](https://megapot.io/blog/thank-you-for-playing)
+says its consumer app closes December 1, the protocol continues and the Data API
+is deprecated. The selected manual adapter uses contract RPC reads and our own
+operator UI; it must not acquire a dependency on the retiring consumer app.
 
 Before funded acceptance, independently review the ledger and release change;
 complete the separately owned Study lesson/retry/recovery acceptance; qualify

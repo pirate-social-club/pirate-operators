@@ -1,4 +1,8 @@
-import { studyPrivateV5OperatorRoute, privateStudyV5Binding, expirePrivateStudyV5Bindings } from "./study-v5-operator.ts";
+import {
+  studyPrivateV5OperatorRoute,
+  privateStudyV5Binding,
+  expirePrivateStudyV5Bindings,
+} from "./study-v5-operator.ts";
 import {
   prepareLinkedBind,
   commitLinkedBind,
@@ -103,7 +107,10 @@ async function bindStudyLesson(
     target,
   );
   if (offer.privateSpeechSource) privateStudySource(offer, env.COMMUNITY_ID);
-  check(!privateStudyV5Binding(store, offer.lessonId), "study_private_v5_entry_changed");
+  check(
+    !privateStudyV5Binding(store, offer.lessonId),
+    "study_private_v5_entry_changed",
+  );
   const key = `studyBinding:${offer.lessonId}`;
   const old = studyBinding(store, offer.lessonId),
     hash = digest(offer) as Hex;
@@ -325,7 +332,8 @@ export async function studyOperatorRoute(
 ): Promise<Response | null> {
   const path = new URL(request.url).pathname;
   if (!path.startsWith("/study/")) return null;
-  if (path.startsWith("/study/v5/")) return studyPrivateV5OperatorRoute(request, env, store, transcriber);
+  if (path.startsWith("/study/v5/"))
+    return studyPrivateV5OperatorRoute(request, env, store, transcriber);
   const reply = (value: unknown) =>
     Response.json(value, {
       headers: { "cache-control": "no-store" },

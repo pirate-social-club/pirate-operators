@@ -1,9 +1,7 @@
+import type { DanceCapture } from "./capture.ts";
 import type { JSX } from "@solidjs/web";
 import type { Component } from "solid-js";
-import type {
-  DanceCapture,
-  DanceReview,
-} from "../../../../packages/dance/contracts.ts";
+import type { DanceReview } from "../../../../packages/dance/contracts.ts";
 /** Coordinator verifies source3 repair3 exact bytes before supplying this port.
  * No source is copied/imported from a mutable peer worktree. */
 export const DANCE_SURFACE_PINS = Object.freeze({

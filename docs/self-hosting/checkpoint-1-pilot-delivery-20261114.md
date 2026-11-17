@@ -9,9 +9,10 @@ HNS ownership gates HNS claims, not community registration or gas eligibility.
 
 The first usable milestone remains an invited, disposable testnet community:
 fresh installation, automatic registration, plain member sign-in, first-song
-publication/playback and persistence through restart. Dance and the shared feed
-are subsequent Web2 release work. Their addition does not make the smaller
-first-song acceptance wait for HNS or learning-results publication.
+publication/playback and persistence through restart. The expanded Web2 release
+includes Study, Karaoke, Dance, the shared feed and Megapot rewards. The smaller
+first-song acceptance remains a staging milestone and does not wait for HNS or
+learning-results publication; it does not replace that expanded release scope.
 
 This plan supersedes conflicting Cloudflare-first hosting, HNS-required
 registration/discovery, blanket Dance deferral, combined login/publication
@@ -29,15 +30,16 @@ no deployment, signing, funding or credential operation.
 
 ## Checkpoints and dependencies
 
-| Checkpoint                       | Required result                                                                                                                                                                                                                                                | Dependency and owner                                                                                                                                                                                                                                        |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1a. Web2 foundation contracts    | Community creation without HNS; stable identity; revisioned origin configuration; constrained registrar; independent listing/delisting; Posts and stable song references; reviewed future HNS attachment interface; generated interfaces and behavioral tests. | Source merged and CI-qualified in [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56) at `aef30d0`. Application/runtime source is qualified in PR61; selected-host acceptance remains required. Naming is not a prerequisite.                                                 |
-| 1b. Optional HNS contracts       | Qualified naming registry and constrained gateway, size limit, proof vectors and real admission/refresh integration.                                                                                                                                           | Can proceed alongside Web2 delivery against 1a's agreed attachment interface. Blocks HNS activation only.                                                                                                                                                   |
-| 1c. Separate publication consent | Separate login from learning/Dance publication authorization, including stable community identity, address changes, revocation, replay protection and Dance adapter compatibility.                                                                             | Source merged and CI-qualified in [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59) at `c6c98cb`; [V5/Dance V2](../contracts/publication-consent-v1.md) remain inactive pending application/policy gates. Does not block checkpoint 3. |
-| 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Source merged and CI-qualified in [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58) at `9374f4c`. The combined first-song runtime is source-qualified in PR61; installed-host acceptance remains separate.                                                              |
-| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Host journey unqualified. PR60/61 qualify service/application source; the real Wizard/bootstrap/install/services join remains. HNS, names, learning-results and Dance remain disabled.                                                                                |
-| 4. Dance and shared feed         | Qualified private capture/review, consented public videos, canonical song references, aggregate indexing and playback, delisting propagation, retention and deletion.                                                                                          | Requires the consent/Dance contract gate, stable media interfaces and a green baseline. Full Web2 functionality is in scope; first-song acceptance remains separately useful.                                                                               |
-| 5. Release and handback          | Qualify the selected release scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                               | Release the narrower first-song pilot or the completed expanded Web2 scope honestly. Neither waits for HNS.                                                                                                                                                 |
+| Checkpoint                       | Required result                                                                                                                                                                                                                                                | Dependency and owner                                                                                                                                                                                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1a. Web2 foundation contracts    | Community creation without HNS; stable identity; revisioned origin configuration; constrained registrar; independent listing/delisting; Posts and stable song references; reviewed future HNS attachment interface; generated interfaces and behavioral tests. | Source merged and CI-qualified in [PR56](https://github.com/pirate-social-club/pirate-operators/pull/56) at `aef30d0`. Application/runtime source is qualified in PR61; selected-host acceptance remains required. Naming is not a prerequisite.                               |
+| 1b. Optional HNS contracts       | Qualified naming registry and constrained gateway, size limit, proof vectors and real admission/refresh integration.                                                                                                                                           | Can proceed alongside Web2 delivery against 1a's agreed attachment interface. Blocks HNS activation only.                                                                                                                                                                      |
+| 1c. Separate publication consent | Separate login from learning/Dance publication authorization, including stable community identity, address changes, revocation, replay protection and Dance adapter compatibility.                                                                             | Source merged and CI-qualified in [PR59](https://github.com/pirate-social-club/pirate-operators/pull/59) at `c6c98cb`; [V5/Dance V2](../contracts/publication-consent-v1.md) remain inactive pending application/policy gates. Does not block checkpoint 3.                    |
+| 2. Green integration baseline    | Diagnose and repair PR58's actual failures, retain meaningful assertions, independently review and qualify the integrated source through required CI.                                                                                                          | Source merged and CI-qualified in [PR58](https://github.com/pirate-social-club/pirate-operators/pull/58) at `9374f4c`. The combined first-song runtime is source-qualified in PR61; installed-host acceptance remains separate.                                                |
+| 3. First-song Web2 community     | Fresh selected Linux host, public HTTPS, automatic enrollment, plain sign-in, real song recognition/pinning/publication/playback, interrupted-operation reconciliation and ordinary restart.                                                                   | Host journey unqualified. PR60/61 qualify service/application source; the real Wizard/bootstrap/install/services join remains. HNS, names, learning-results and Dance remain disabled.                                                                                         |
+| 4a. Activities and shared feed   | V5 Study/Karaoke with private practice independent of publication grants; V2 Dance capture/review and separately consented public videos; canonical song references; aggregate indexing/playback; delisting, retention and deletion.                           | Requires the consent/Dance foundation, actual normal-route/media/source/profile and HTTP/queue/scheduler/Linux joins, and a green baseline. First-song acceptance remains separately useful.                                                                                   |
+| 4b. Manual rewards journey       | Connect Web2/song/Dance qualification to the accepted November operator attach/close/settle, Very claim, guarded MOSS payout and onward Send flow. Preserve explicit rehearsal tickets/prizes and prefunded testnet inventory.                                 | Reuse accepted unchanged stages from the [manual reward pilot](../manual-rewards-pilot.md); qualify changed source/offer/account joins. Live Sepolia drawing/collection and conversion remain separately named later qualifications, not gates to this first manual rehearsal. |
+| 5. Release and handback          | Qualify the expanded Web2 scope with invited operators, bind source/artifact/evidence, disclose limitations and retire superseded worktrees through the maintained lifecycle.                                                                                  | Requires checkpoints 3, 4a and 4b. An invited first-song staging milestone may precede them; it is not completion of the expanded release. HNS remains independent.                                                                                                            |
 
 Checkpoint 2 fixes known failures without waiting for final contracts. Integrate
 contract changes when ready and qualify the combined candidate before release.
@@ -45,6 +47,15 @@ Disabled features must be excluded at server and UI boundaries; retain their
 source and failing evidence instead of silently filtering required checks.
 Directory V3 is the merged source foundation for 1a; that source qualification
 does not establish first-song runtime or selected-host acceptance.
+
+Current application source includes the V5 publication runtime and the V2 Dance
+reader/binding adapters in [PR75](https://github.com/pirate-social-club/pirate-operators/pull/75),
+[PR78](https://github.com/pirate-social-club/pirate-operators/pull/78) and
+[PR79](https://github.com/pirate-social-club/pirate-operators/pull/79). Their source
+and CI qualification do not enable the expanded Web2 runtime. The existing Web2
+profile still excludes the activity/media/rewards routes; the normal rewards
+mount still expects a scored source. Complete the actual joins above without
+introducing a dummy legacy source or widening the first-song profile.
 
 Complete contracts before implementing the behavior that depends on them.
 This is not a requirement to finish every future contract before the first
@@ -132,9 +143,11 @@ current pinned Bookworm-based image and workerd composition are candidates, not
 a promise to support every Docker host. Use the operator's ordinary DNS domain
 or subdomain; defer a Pirate-operated subdomain provisioning service.
 
-Caddy supplies public ingress and automatic certificates. This is new packaging
-and integration work. The current foundation Compose publishes a loopback port,
-uses fixture TLS and an internal network. It is not the pilot deployment.
+Caddy supplies public ingress and automatic certificates. The
+[ingress implementation](../../deploy/linux/public-ingress.ts) already supports
+public ACME and a separate local fixture CA. Public-host certificate issuance
+and connectivity remain unqualified. The foundation Compose's loopback port,
+fixture TLS and internal network do not establish that public deployment.
 Provide public ingress, persistent certificate state, a private application
 upstream and outbound access to the explicitly selected services. The complete
 runtime's existing outbound allowlist is groundwork, not deployed connectivity.
@@ -266,6 +279,10 @@ who can review recordings, deletion behavior and the difference between private
 review and public publication. Decide the retention of private submission,
 review and identity-linking metadata before admitting Dance participants.
 No metadata retention period is selected by this plan.
+The retained owner decision defers that choice to Dance admission. Immutable
+command/binding journals and public commitments do not select a private metadata
+retention policy; reconcile identity-linking retention and deletion with actual
+receipt recovery and outstanding rewards before admitting participants.
 
 Invited enrollment and cumulative per-community/global funding caps remain the
 pilot sponsorship policy. New wallets, domains and reinstalls do not reset an
@@ -381,7 +398,8 @@ binding and caps, cannot revive revoked/lapsed authority or extend the stored
 absolute maintenance ceiling, and may suspend only on confirmed authority loss.
 Observer unavailability is not proof of loss. A lapse requires explicit
 readmission. The gateway still relies on trusted HNS observations and does not
-fix the registry's current size excess or alter lease semantics inside V4.
+alter lease semantics inside V4. The selected registry V4 source at `06606e5`
+already passes size qualification; further shrinking is not a Web2 or HNS gate.
 
 Keep a maximum 24-hour freshness lease, target normal renewal at 12 hours, and
 allow successful refreshes no closer than six hours. Retry within finite budgets

@@ -1,7 +1,5 @@
-import type {
-  DanceCapture,
-  DanceConsentPolicy,
-} from "../../../../../packages/dance/contracts.ts";
+import type { DanceCapture } from "../capture.ts";
+import type { DanceConsentPolicy } from "../../../../../packages/dance/contracts.ts";
 import { createDanceClient } from "../client.ts";
 import {
   createBrowserDanceJourneyStore,
@@ -33,6 +31,9 @@ export function createDanceSourceServices(input: {
   ) => Promise<void>;
   readonly journal?: DanceJourneyStore;
   readonly fetcher?: typeof fetch;
+  readonly captureProfile?: Parameters<
+    typeof createDanceClient
+  >[0]["captureProfile"];
 }): DanceSourcePorts {
   const scope = Object.freeze({
     ...input.target,
@@ -64,6 +65,7 @@ export function createDanceSourceServices(input: {
     csrf: input.csrf,
     isCurrent: () => !!currentScope(),
     fetcher: input.fetcher,
+    captureProfile: input.captureProfile,
   });
   return {
     scope,

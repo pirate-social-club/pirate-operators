@@ -43,7 +43,13 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string} = {}) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number} = {}) {
+  // Long-running installed demos must retain the original configuration states.
+  // This bound applies only to the disposable node, never a community server.
+  if (options.historyLimit !== undefined) {
+    assert.ok(Number.isSafeInteger(options.historyLimit) && options.historyLimit >= 1024 && options.historyLimit <= 20000,
+      "fixture history limit must be between 1024 and 20000 states");
+  }
   const evidenceDirectory=options.evidenceDirectory ?? ".local/web2-owner-signing-implementation/completion/first-song";
   const portReservation = createServer();
   portReservation.listen(0, "127.0.0.1");
@@ -70,6 +76,7 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       "--gas-price",
       "1000000",
       "--disable-min-priority-fee",
+      ...(options.historyLimit === undefined ? [] : ["--prune-history", String(options.historyLimit)]),
       "--silent",
     ],
     { stdio: ["ignore", "ignore", "pipe"] },

@@ -1,3 +1,8 @@
+import { createDancePrivateCatalogue, type DancePrivatePolicyV2 } from "./dance-private-catalogue.ts";
+import type { CommunityConfig } from "../packages/community/config-manifest.ts";
+import type { PublicReadPorts } from "./community-public.ts";
+import { DanceSource3Bindings as Source3 } from "./dance-source3-bindings.ts";
+import type { DanceReferenceAccess } from "./dance-selected-catalogue.ts";
 import {
   accountSession,
   authenticatedWrite,
@@ -42,7 +47,9 @@ export type CommunityQueueJob =
 export class CommunityPrivateDance {
   readonly communityId: string;
   readonly media: CommunityMedia;
-  readonly dance: DancePorts;
+  private readonly legacyDance: DancePorts | null;
+  readonly privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
+  get dance(): DancePorts { insist(this.legacyDance, "dance_legacy_runtime_unavailable", 503); return this.legacyDance; }
   readonly db: D1Database;
   readonly catalogue?: DanceSelectedCatalogue;
   readonly source3?: DanceSource3Bindings;
@@ -53,7 +60,8 @@ export class CommunityPrivateDance {
     communityId: AuthContext["communityId"];
     /** Managed service binding; there is no client-selected processor origin. */
     renderer: Pick<Fetcher, "fetch">;
-    dance: Omit<DancePorts, "media">;
+    dance?: Omit<DancePorts, "media">;
+    privateV2?: ReturnType<typeof createDancePrivateCatalogue>;
     catalogue?: DanceSelectedCatalogue;
     source3?: DanceSource3Bindings;
     current?: () => Promise<void>;
@@ -64,6 +72,8 @@ export class CommunityPrivateDance {
     enqueue(job: PrivateMediaJob): Promise<void>;
     now?: () => number;
   }) {
+    insist(input.dance || input.privateV2, "dance_runtime_unavailable", 503);
+    this.privateV2 = input.privateV2;
     this.db = input.db;
     this.communityId = input.communityId;
     this.catalogue = input.catalogue;
@@ -105,7 +115,7 @@ export class CommunityPrivateDance {
           return false;
         try {
           const review = await store.review(media.submissionId);
-          if (review.receipt.mediaId !== media.id || review.localDenied)
+          if (!dance || review.receipt.mediaId !== media.id || review.localDenied)
             return false;
           const access = await dance.permissions.read(actor.accountId, review);
           await store.assertAccess(review, access.fences);
@@ -117,9 +127,10 @@ export class CommunityPrivateDance {
       },
       privatePlaybackAuthority: (actor, media) => playback(actor, media),
     });
-    this.dance = { ...input.dance, media: integratedDanceMedia(this.media, input.source3) };
-    const dance = new DanceReviewService(store, this.dance, this.communityId);
-    const playback = dancePrivatePlaybackAuthority(dance, input.preview);
+    this.legacyDance = input.dance ? { ...input.dance, media: integratedDanceMedia(this.media, input.source3) } : null;
+    const dance = this.legacyDance ? new DanceReviewService(store, this.legacyDance, this.communityId) : null;
+    const playback = dance ? dancePrivatePlaybackAuthority(dance, input.preview)
+      : async (actor: MediaActor, media: MediaRecord) => !media.submissionId && input.preview(actor, media);
   }
 
   async fetch(request: Request, context: AuthContext, headers: Headers) {
@@ -131,7 +142,7 @@ export class CommunityPrivateDance {
     );
     const dance = await danceCommunityApi(
       request,
-      { db: this.db, dance: this.dance, catalogue: this.catalogue },
+      { db: this.db, dance: this.legacyDance ?? undefined, catalogue: this.catalogue, privateV2: this.privateV2 },
       context,
       headers,
     );
@@ -213,4 +224,16 @@ export class CommunityPrivateDance {
         .run();
     }
   }
+}
+
+/** Explicit fresh private profile. Same media service, tables, queue protocol,
+ * processor and R2 objects; no V4 placeholder or second recorder pipeline. */
+export function createPrivatePracticeDance(input:{db:D1Database;bucket:R2Bucket;config:CommunityConfig;reads:PublicReadPorts;
+  policy:DancePrivatePolicyV2;referenceAccess?:DanceReferenceAccess;renderer:Pick<Fetcher,"fetch">;
+  enqueue(job:PrivateMediaJob):Promise<void>;now?:()=>number}) {
+  const catalogue=createDancePrivateCatalogue(input);
+  const source3=new Source3({db:input.db,communityId:input.config.communityId,privateV2:{current:(actor,capture)=>catalogue.mediaAccess(actor,capture)}});
+  return new CommunityPrivateDance({db:input.db,bucket:input.bucket,communityId:input.config.communityId,renderer:input.renderer,
+    privateV2:catalogue,source3,active:actor=>catalogue.active(actor),song:(key,revision)=>catalogue.publishedSong(key,revision),
+    reservation:(actor,intent,song)=>source3.reservation(actor,intent,song),preview:(actor,media)=>source3.preview(actor,media),enqueue:input.enqueue,now:input.now});
 }

@@ -1409,10 +1409,11 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
   const names = (await chain(COMMUNITY)).map((path) => path.split("/").at(-1)!);
   assert.deepEqual(
     names.map((name) => Number(name.slice(0, 4))),
-    Array.from({ length: 21 }, (_, index) => index + 1),
+    Array.from({ length: 22 }, (_, index) => index + 1),
   );
   const profiles = [
     { rewards: false, ownerPublishing: false, v4: false },
+    { rewards: false, ownerPublishing: false, v4: false, privateDance: true },
     {
       rewards: false,
       ownerPublishing: false,
@@ -1464,8 +1465,22 @@ test("each selected package profile applies through the actual Alchemy D1 bounda
       assert.equal(present.has("learning_authority_operations"), selected.v4);
       assert.equal(
         present.has("dance_control_bindings"),
-        "dance" in selected && selected.dance === true,
+        ("dance" in selected && selected.dance === true) ||
+          ("privateDance" in selected && selected.privateDance === true),
       );
+      for (const table of [
+        "dance_host_context",
+        "dance_host_accounts",
+        "dance_host_selections",
+        "dance_host_song_keys",
+        "dance_host_audio_probes",
+        "dance_source3_requests",
+      ])
+        assert.equal(
+          present.has(table),
+          "privateDance" in selected && selected.privateDance === true,
+          table,
+        );
       assert.equal(present.has("community_profiles"), true);
       for (const table of [
         "publication_v1_heads",

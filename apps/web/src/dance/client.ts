@@ -1,5 +1,10 @@
+import {
+  parseDanceCaptureV2,
+  type CaptureRequestV2,
+} from "../../../../packages/dance/capture-v2.ts";
+import { validDanceTarget } from "../../../../packages/dance/production.ts";
+import type { DanceCapture } from "./capture.ts";
 import type {
-  DanceCapture,
   DanceConsentAcceptance,
   DanceQueue,
   DanceReceipt,
@@ -101,6 +106,9 @@ export function createDanceClient(options: {
   fetcher?: typeof fetch;
   isCurrent: () => boolean;
   journal?: DanceJournal;
+  captureProfile?: Pick<CaptureRequestV2, "version" | "target"> & {
+    publication: { kind: "private" };
+  };
 }): DanceClient {
   const controller = new AbortController(),
     fetcher = options.fetcher ?? fetch,
@@ -109,6 +117,47 @@ export function createDanceClient(options: {
     communityId: options.communityId,
     accountId: options.accountId,
   };
+  const captureProfile = options.captureProfile
+    ? structuredClone(options.captureProfile)
+    : null;
+  if (
+    captureProfile &&
+    (captureProfile.version !== "pirate.dance-capture-request/2" ||
+      captureProfile.publication.kind !== "private" ||
+      !validDanceTarget(captureProfile.target) ||
+      captureProfile.target.communityId !== scope.communityId)
+  )
+    throw new DanceClientError("dance_capture_profile_invalid");
+  function captureBody(
+    songKey: string,
+    offerId: string | null,
+    referenceId: string | null,
+    consent: DanceConsentAcceptance,
+  ) {
+    if (!captureProfile) return { songKey, offerId, referenceId, consent };
+    const t = captureProfile.target;
+    if (
+      songKey !== t.songKey ||
+      offerId !== t.offerId ||
+      referenceId !== (t.reference?.id ?? null)
+    )
+      throw new DanceClientError("dance_preparation_target_changed");
+    return {
+      version: captureProfile.version,
+      target: structuredClone(t),
+      publication: { kind: "private" },
+      consent,
+    };
+  }
+  function publicReview() {
+    current();
+    if (captureProfile)
+      throw new DanceClientError(
+        "dance_private_recording_not_public",
+        false,
+        403,
+      );
+  }
   let recovery: Promise<DanceJournalEntry | null> | null = null;
   let denial: DanceClientError | null = null;
   const deniedListeners = new Set<(error: DanceClientError) => void>();
@@ -224,6 +273,11 @@ export function createDanceClient(options: {
       )
         await journal.rejectExpired(e);
       throw error;
+    }
+    if (e.path === "captures" && captureProfile) {
+      const capture = parseDanceCaptureV2(value);
+      if (capture.publication.kind !== "private")
+        throw new DanceClientError("dance_response_unknown", true);
     }
     const receipt = value as {
       commandId?: string;
@@ -353,18 +407,20 @@ export function createDanceClient(options: {
   }
   return {
     prepareCapture: (target, songKey, offerId, referenceId, consent) =>
-      prepare(target, "capture", "captures", {
-        songKey,
-        offerId,
-        referenceId,
-        consent,
-      }),
-    prepareSubmission: (target, captureId, mediaId, recordingSha256) =>
-      prepare(target, "submission:" + captureId, "reviews", {
+      prepare(
+        target,
+        "capture",
+        "captures",
+        captureBody(songKey, offerId, referenceId, consent),
+      ),
+    prepareSubmission: async (target, captureId, mediaId, recordingSha256) => {
+      publicReview();
+      return prepare(target, "submission:" + captureId, "reviews", {
         captureId,
         mediaId,
         recordingSha256,
-      }),
+      });
+    },
     dispatchPrepared,
     command: async (id) => {
       current();
@@ -421,11 +477,12 @@ export function createDanceClient(options: {
       mutate(
         "capture",
         "captures",
-        { songKey, offerId, referenceId, consent },
+        captureBody(songKey, offerId, referenceId, consent),
         signal,
       ),
-    submit: (captureId, mediaId, recordingSha256, signal) =>
-      mutate(
+    submit: async (captureId, mediaId, recordingSha256, signal) => {
+      publicReview();
+      return mutate(
         "submission:" + captureId,
         "reviews",
         {
@@ -434,7 +491,8 @@ export function createDanceClient(options: {
           recordingSha256,
         },
         signal,
-      ),
+      );
+    },
     get: (id) => get("reviews/" + encodeURIComponent(id)),
     queue: (cursor) =>
       get("queue" + (cursor ? "?cursor=" + encodeURIComponent(cursor) : "")),

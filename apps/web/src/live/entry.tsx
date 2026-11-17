@@ -135,12 +135,17 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   function invalidateDance() {
     if (danceAuthority.clear()) setDanceRevision(value => value + 1);
   }
-  function publishDanceSession() {
-    const current = session(), config = boot();
-    if (danceAuthority.update(!settling() && current && config ? {
-      communityId: config.communityId, authorId: current.authorId, csrf: current.csrf,
-    } : null)) setDanceRevision(value => value + 1);
-  }
+  // Signal writes commit after their setter returns. Publish from the settled
+  // inputs instead of reading an earlier session/boot immediately after a write.
+  // invalidateDance still masks the old owner before any account transition.
+  createEffect(
+    () => ({ current: session(), config: boot(), pending: settling() }),
+    ({ current, config, pending }) => {
+      if (danceAuthority.update(!pending && current && config ? {
+        communityId: config.communityId, authorId: current.authorId, csrf: current.csrf,
+      } : null)) setDanceRevision(value => value + 1);
+    },
+  );
   onCleanup(() => { sessionRead++; danceAuthority.dispose(); });
   const learningRoute = createMemo(() => {
     const study = studying(),
@@ -410,7 +415,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     if (before && (before.mossAddress !== next?.mossAddress || before.csrf !== next?.csrf)) joinIntent++;
     setSession(next);
     membership.sync();
-    publishDanceSession();
   }
   async function refresh() {
     await refreshSession();
@@ -434,7 +438,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     }
     setBoot(config);
     membership.sync();
-    publishDanceSession();
     setName(community.name);
     document.title = `${community.name} · Pirate`;
     setCapabilities(caps);
@@ -505,8 +508,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     } finally {
       setSettling(false);
       membership.sync();
-      publishDanceSession();
-    }
+      }
   }
   async function settleSignIn() {
     setStatus("Opening MOSS…");

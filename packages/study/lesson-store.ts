@@ -113,8 +113,8 @@ export class StudyLessonStore {
     return rows.results;
   }
   async create(owner: StudyPrincipal, requestId: string, state: LessonState) {
-    const id=crypto.randomUUID();
-    const insert=this.db
+    const id = crypto.randomUUID();
+    const insert = this.db
       .prepare(
         "INSERT INTO study_lessons(lesson_id,account_id,community_id,request_id,song_json,state_json,started_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(account_id,community_id,request_id) DO NOTHING",
       )
@@ -126,10 +126,15 @@ export class StudyLessonStore {
         JSON.stringify(state.song),
         JSON.stringify(state),
         state.startedAt,
-      )
-;
-    const native=await captureNativeBusiness(this.db,"learning",id,owner.accountId,requestId);
-    await this.db.batch([insert,...native]);
+      );
+    const native = await captureNativeBusiness(
+      this.db,
+      "learning",
+      id,
+      owner.accountId,
+      requestId,
+    );
+    await this.db.batch([insert, ...native]);
     const row = await this.byRequest(owner, requestId);
     studyCheck(
       row && row.song_json === JSON.stringify(state.song),
@@ -140,9 +145,14 @@ export class StudyLessonStore {
     return row;
   }
   private sameEntry(row: LessonRow, state: LessonState) {
-    const original = this.state(row), old = original.telegram;
-    studyCheck(canonical(original.privateV5 ?? null) === canonical(state.privateV5 ?? null),
-      "study_private_v5_entry_changed", 409);
+    const original = this.state(row),
+      old = original.telegram;
+    studyCheck(
+      canonical(original.privateV5 ?? null) ===
+        canonical(state.privateV5 ?? null),
+      "study_private_v5_entry_changed",
+      409,
+    );
     studyCheck(
       old === undefined
         ? state.telegram === undefined
