@@ -172,10 +172,15 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const assets=await realpath(resolve(root,o.assets));inside(root,assets);await lstat(join(assets,"index.html"));
   const rawSelection=object(JSON.parse((await bytes(o.migrationsFile)).body.toString("utf8")));
   const keys=["rewards","ownerPublishing","v4","rewardClosure","media","dance"];
+  if (Object.hasOwn(rawSelection,"privateDance")) {
+   assert(o.profile==="web2-first-song/1" && rawSelection.privateDance===true,"explicit_private_dance_schema_required");
+   keys.push("privateDance");
+  }
   assert.deepEqual(Object.keys(rawSelection).sort(),[...keys].sort(),"explicit_migration_selection_required");
   const flag=(name:string)=>{const value=rawSelection[name];assert(typeof value==="boolean","migration_selection_boolean_required: "+name);return value;};
   const migrations={rewards:flag("rewards"),ownerPublishing:flag("ownerPublishing"),v4:flag("v4"),
-   rewardClosure:flag("rewardClosure"),media:flag("media"),dance:flag("dance")};
+   rewardClosure:flag("rewardClosure"),media:flag("media"),dance:flag("dance"),
+   ...(rawSelection.privateDance===true?{privateDance:true}:{})};
   const migrationRoot=join(root,"apps/community-wizard/infra/migrations"),names=communityMigrations(await readdir(migrationRoot),migrations);
   const sql=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),migrationRoot,JSON.stringify(names)],"split-migrations");
   const migrationPlan:Parameters<typeof buildCompleteLinuxArtifacts>[0]["migrationPlan"]=JSON.parse(await readFile(sql.stdoutPath,"utf8"));

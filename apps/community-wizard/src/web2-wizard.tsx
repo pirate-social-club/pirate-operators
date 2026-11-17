@@ -27,9 +27,22 @@ export function Web2Wizard() {
     [ownerReviewed, setOwnerReviewed] = createSignal(false),
     [accepted, setAccepted] = createSignal(false),
     [reviewed, setReviewed] = createSignal(false),
+    [study, setStudy] = createSignal(false),
     [waitingForInstallation, setWaitingForInstallation] = createSignal(false);
   const view = () => snapshot()?.view;
   const locked = () => busy() || Boolean(view()?.busy);
+  const offeredPractice = () => view()?.privatePracticeSelection ?? (view()?.privateStudyAvailable ? "study-v5" : undefined);
+  const practiceSelection = () => {
+    const retained = view()?.installationSelection;
+    return retained ? retained === "off" ? undefined : retained : study() ? offeredPractice() : undefined;
+  };
+  const practiceLabel = () => {
+    const value = practiceSelection() ?? offeredPractice();
+    if (value === "study-karaoke-dance-v2") return "private Study, Karaoke and Dance";
+    if (value === "study-karaoke-v5") return "private Study and Karaoke";
+    if (value === "study-dance-v2") return "private Study and Dance";
+    return "private Study";
+  };
   async function perform(work: () => Promise<Web2Snapshot>, readOnly = false) {
     if (busy() || (!readOnly && view()?.busy)) return;
     setBusy(true);
@@ -92,8 +105,7 @@ export function Web2Wizard() {
     <section class="linux-setup" aria-label="Web2 community setup">
       <h1>Set up your HTTPS community</h1>
       <p>
-        Create a community on your Linux host. HNS, names, learning and Dance
-        are separate later steps.
+        Create a community on your Linux host. Names and HNS are separate steps.
       </p>
       <Show when={error()}>
         <p role="alert">{error()}</p>
@@ -479,9 +491,19 @@ export function Web2Wizard() {
               </p>
             }
           >
+            <Show when={offeredPractice() || practiceSelection()}
+              fallback={<p>Private Study is unavailable on this setup runner.</p>}>
+              <label>
+                <input type="checkbox" checked={Boolean(practiceSelection())}
+                  disabled={locked() || Boolean(view()!.installationSelection)}
+                  onChange={(event) => setStudy(event.currentTarget.checked)} />
+                Include {practiceLabel()}
+              </label>
+            </Show>
             <button
               disabled={locked() || !view()!.publishing?.attached}
-              onClick={() => void perform(() => send("installation-prepare"))}
+              onClick={() => void perform(() => send("installation-prepare",
+                practiceSelection() ? { privatePractice: practiceSelection() } : {}))}
             >
               Review Linux installation
             </button>
@@ -489,8 +511,10 @@ export function Web2Wizard() {
               <p>
                 Install {view()!.installPlan!.summary.name} at{" "}
                 {view()!.installPlan!.summary.origin}, using the registered
-                controller and publisher shown above. Names, learning and Dance
-                remain disabled.
+                controller and publisher shown above. Names remain disabled.
+                {view()!.installPlan!.summary.learningEnabled
+                  ? ` This installation includes ${practiceLabel()}.`
+                  : " Private Study is off."}
               </p>
               <label>
                 <input

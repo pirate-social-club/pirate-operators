@@ -7,6 +7,7 @@ export interface NativeGraph {
     bindings:NativeBinding[]}>;
   requiredRoles:string[];queueConfiguration:unknown;maintenanceConfiguration:unknown;
   directoryRuntimeBinding:string;allowedOrigins:string[];
+  localActivitySocket?:string;
   secretBindings:Array<{name:string;path:string}>;
   listenAddress:string;tls:{keyFile:string;certificateFile:string};
   migrationPlanFile:string;
@@ -16,12 +17,15 @@ export interface NativeGraph {
   fixtureTransport?:{schema:"pirate.linux-local-fixture-transport/1";peer:string;routes:Array<{origin:string;upstream:string}>};
 }
 const q=JSON.stringify;
+const publicText=(v:NativeBinding)=> !/KEY|SECRET|TOKEN|PASSWORD/.test(v.name) ||
+  ((v.name==="PAYMENT_TOKEN" || v.name==="KARAOKE_PAYMENT_TOKEN") &&
+    typeof v.text==="string" && /^0x[a-f0-9]{40}$/.test(v.text));
 const binding=(v:NativeBinding)=>{
   assert(/^[A-Z][A-Z0-9_]*$/.test(v.name) && [v.service,v.text,v.file,v.durable].filter(x=>x!==undefined).length===1,"native_binding_invalid");
   if(v.service!==undefined)return `(name=${q(v.name)},service=${q(v.service)})`;
   if(v.file!==undefined){assert(v.file.startsWith("/"));return `(name=${q(v.name)},text=embed ${q(v.file)})`;}
   if(v.durable!==undefined)return `(name=${q(v.name)},durableObjectNamespace=(serviceName=${q(v.durable.service)},className=${q(v.durable.className)}))`;
-  assert(!/KEY|SECRET|TOKEN|PASSWORD/.test(v.name),"public_release_contains_secret_binding");return `(name=${q(v.name)},text=${q(v.text)})`;
+  assert(publicText(v),"public_release_contains_secret_binding");return `(name=${q(v.name)},text=${q(v.text)})`;
 };
 /** Actual native services, not the diagnostic ledger. Unknown selected actors
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
@@ -32,7 +36,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   assert(g.installationId.length>0 && !/[\x00-\x1f\x7f]/.test(g.installationId) && /^[a-f0-9]{64}$/.test(g.durableScope) && g.releaseRoot.startsWith("/") && g.socket.startsWith("/"));
   assert(g.directoryRuntimeBinding.length>0,"accepted_directory_runtime_binding_required");
   assert(g.listenAddress.length>0 && g.tls.keyFile.startsWith("/") && g.tls.certificateFile.startsWith("/"));
-  assert(g.applicationBindings.every(x=>!/KEY|SECRET|TOKEN|PASSWORD/.test(x.name)),"public_release_contains_secret_binding");
+  assert(g.applicationBindings.every(publicText),"public_release_contains_secret_binding");
   assert(g.secretBindings.every(x=>/^[A-Z][A-Z0-9_]*$/.test(x.name) && x.path.startsWith("/")));
   const scope=g.durableScope,roles=new Set(["application","database","objects","jobs","scheduler","assets",...g.actors.map(x=>x.role)]);
   assert((g.queueConfiguration as {scope?:string}).scope===scope && (g.maintenanceConfiguration as {scope?:string}).scope===scope,"original_durable_scope_binding_required");
@@ -40,10 +44,10 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   for(const key of ["database","objects","jobs","scheduler"])assert(g.stateRoots[key]?.startsWith("/"),"native_durable_root_required");
   const module=(file:string)=>{assert(/^[A-Za-z0-9_.-]+$/.test(file));return g.releaseRoot+"/"+file;};
   const disk=(name:string,path:string)=>`(name=${q(name)},disk=(path=${q(path)},writable=true,allowDotfiles=true))`;
-  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string,outbound="deny",experimental=false)=>
+  const worker=(name:string,file:string,bindings:string,namespaces="",storage?:string|null,outbound="deny",experimental=false)=>
     `(name=${q(name)},worker=(modules=[(name="entry.mjs",esModule=embed ${q(module(file))})],compatibilityDate="2026-11-04",
        compatibilityFlags=${JSON.stringify(["nodejs_compat","service_binding_extra_handlers",...(experimental?["experimental"]:[])])},bindings=[${bindings}],
-       ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
+       ${namespaces?"durableObjectNamespaces=["+namespaces+"],":""}${storage===null?"durableObjectStorage=(inMemory=()),":storage?"durableObjectStorage=(localDisk="+q(storage)+"),":""}globalOutbound=${q(outbound)}))`;
   const ns=(service:string,cls:string,key:string)=>`(className=${q(cls)},uniqueKey=${q(key)},enableSql=true)`;
   const doBinding=(name:string,service:string,cls:string)=>`(name=${q(name)},durableObjectNamespace=(serviceName=${q(service)},className=${q(cls)}))`;
   const objectEntry=(name:string,service:string,cls:string,namespace:string)=>worker(name,"object-entry.worker.js",
@@ -88,6 +92,26 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     '(name="internet",network=(allow=["public"]))',
     worker("deny","deny.worker.mjs",""),
   ];
+  if (g.localActivitySocket !== undefined) {
+    assert(/^\/[a-zA-Z0-9_./-]{1,100}\.sock$/.test(g.localActivitySocket) &&
+      !g.localActivitySocket.split("/").some(part => part === "." || part === ".."), "private_activity_socket_required");
+    services.push('(name="web2-local-activities",external=(address='+q("unix:"+g.localActivitySocket)+',http=()))');
+  }
+  const karaokeLease = g.applicationBindings.find(b => b.name === "KARAOKE_NATIVE_SESSION_CAPTURE");
+  if (karaokeLease) {
+    const operator = g.actors.find(a=>a.service==="private-karaoke-operator");
+    const gate="private-karaoke-session", cls="NativeKaraokeSessions";
+    assert(operator?.module==="web2-private-karaoke.worker.mjs" &&
+      operator.bindings.some(b=>b.name==="KARAOKE_LOCAL_SESSION_GATE" && b.service===gate) &&
+      karaokeLease.durable?.service===gate && karaokeLease.durable.className===cls &&
+      !g.actors.some(a=>a.service===gate),"native_karaoke_lease_graph_changed");
+    const original=JSON.parse(g.directoryRuntimeBinding) as {directoryProfile:{communityId:string};origin:string};
+    const leaseScope=JSON.stringify({communityId:original.directoryProfile.communityId,origin:original.origin});
+    services.push(worker(gate,operator.module,
+      '(name="DB",wrapped=(moduleName="cloudflare-internal:d1-api",innerBindings=[(name="fetcher",service="d1-entry")])), '+
+      doBinding("KARAOKE_NATIVE_SESSION_CAPTURE",gate,cls)+',(name="KARAOKE_NATIVE_SESSION_SCOPE",text='+q(leaseScope)+')',
+      '(className='+q(cls)+',uniqueKey='+q("karaoke-browser-lease-v1-"+scope)+',preventEviction=true)',null,"deny"));
+  }
   for(const actor of g.actors){
     assert(/^[a-z][a-z0-9-]*$/.test(actor.service));
     const store="actor-"+actor.service;assert(g.stateRoots[actor.role]?.startsWith("/"));

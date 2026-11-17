@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import {
   canonicalDigest,
   readPrivateJSON,
+  verifyRecord,
   type SignedRecord,
   type TrustAnchor,
 } from "./installed-records.ts";
@@ -18,6 +19,8 @@ import {
   type Web2BootstrapRelease,
 } from "./installed-release.ts";
 import { privateDirectory } from "./backend-state.ts";
+import { publicIngressFrom } from "./public-ingress.ts";
+import { startWeb2NativeActivityHost, type Web2NativeActivityHostInputs } from "./web2-native-activity-host.ts";
 import {
   startPairedOperator,
   PairedOperatorStartupFailure,
@@ -47,6 +50,7 @@ export interface Web2LocalInstallationConfiguration {
 /** W1 supplies the Wizard implementation; this module owns the paired transport. */
 export interface Web2BootstrapInputs {
   binding: Web2RuntimeBindingInputs;
+  activityHost?: Web2NativeActivityHostInputs;
   /** Release only the foreground control lock after its listeners have stopped.
    * Persistent containers and whole-writer backup barriers remain untouched. */
   closeControl(): Promise<void>;
@@ -83,6 +87,8 @@ export async function createWeb2BootstrapInstallation(
     }
   }
   const port: LinuxWeb2Installation = {
+    ...(binder.privateStudyAvailable ? { privateStudyAvailable: true } : {}),
+    ...(binder.privatePracticeSelection ? { privatePracticeSelection: binder.privatePracticeSelection } : {}),
     prepare: (value) =>
       exclusive(async () => {
         const draft = linuxWeb2DraftFrom(value);
@@ -207,11 +213,27 @@ export async function launchWeb2LocalInstallation(
     "web2_launch_selection_changed",
   );
   await verifyWeb2BootstrapRelease(config.release, config.trust);
-  const installation = await createWeb2BootstrapInstallation(
-      inputs.binding,
-      signal,
-    ),
-    secret = randomBytes(32);
+  let nativeActivityHost: Awaited<ReturnType<typeof startWeb2NativeActivityHost>> | undefined;
+  const installation = await (async () => {
+    try {
+      const policy = verifyRecord(inputs.binding.policy, config.trust);
+      if (policy.nativeActivities) {
+        assert(policy.privateStudy && inputs.activityHost && policy.installationId === runtime.installationId &&
+          policy.target.installationId === runtime.installationId && Date.now() < policy.expiresAt && !signal?.aborted &&
+          policy.bootstrapArtifactDigest === release.artifactDigest && policy.bootstrapSourceDigest === release.sourceDigest,
+          "native_activity_bootstrap_scope_required");
+        nativeActivityHost = await startWeb2NativeActivityHost({selected:policy.nativeActivities,study:policy.privateStudy,
+          host:structuredClone(inputs.activityHost), ingress:publicIngressFrom(policy.ingress),
+          stateRoot:policy.target.stateRoot,lease:inputs.binding.lease});
+      } else assert(!inputs.activityHost, "unselected_activity_host_refused");
+      return await createWeb2BootstrapInstallation(inputs.binding, signal);
+    } catch (error) {
+      const cleanup = async () => { await nativeActivityHost?.close(); await inputs.closeControl(); };
+      try { await cleanup(); } catch (failure) { throw new Web2ServiceStartupFailure([error,failure],cleanup); }
+      throw error;
+    }
+  })();
+  const secret = randomBytes(32);
   try {
     await installation.resumeOriginal();
     const paired = await startPairedOperator({
@@ -250,6 +272,7 @@ export async function launchWeb2LocalInstallation(
           // Stop explicit service ingress first; closing only setup never does so.
           await installation.shutdownService();
           await closeSetup();
+          await nativeActivityHost?.close();
           await inputs.closeControl();
         })().catch((error) => {
           serviceStop = undefined;
@@ -261,6 +284,7 @@ export async function launchWeb2LocalInstallation(
     const cleanup = async () => {
       await installation.shutdownService();
       if (error instanceof PairedOperatorStartupFailure) await error.close();
+      await nativeActivityHost?.close();
       await inputs.closeControl();
     };
     try {

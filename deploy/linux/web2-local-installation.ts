@@ -283,8 +283,8 @@ export async function createWeb2Installation(
         registrationTransaction: p.enrollment.transactionHash,
         verifiedListing: false,
         namesEnabled: false,
-        learningEnabled: false,
-        danceEnabled: false,
+        learningEnabled: Boolean(p.draft.privatePractice),
+        danceEnabled: Boolean(p.draft.privatePractice?.includes("dance")),
       },
     };
   }

@@ -46,11 +46,19 @@ import {
   type Web2InstallPlan,
 } from "./web2-profile-authority.ts";
 import type { NativeGraph } from "./full-native-config.ts";
+import {
+  assertNoBootstrapPractice, assertWeb2LocalStudyInputs,
+  validateWeb2LocalStudyPolicy, withWeb2LocalStudy,
+  type Web2LocalStudyPolicy,
+} from "./web2-local-study.ts";
 import type { Web2InstallationHostInputs } from "./web2-local-installation.ts";
 import {
   web2ApplicationReleaseBody,
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
+
+import { assertNoBootstrapNativeActivities, composeNativeActivities, offeredPractice,
+  validateNativeActivityPolicy, type Web2NativeActivityPolicy } from "./web2-native-activities.ts";
 
 export interface Web2RuntimeBindingPolicy {
   schema: "pirate.web2-runtime-binding-policy/1";
@@ -63,6 +71,8 @@ export interface Web2RuntimeBindingPolicy {
   origin: string;
   hostFingerprint: string;
   graph: Omit<NativeGraph, "directoryRuntimeBinding">;
+  privateStudy?: Web2LocalStudyPolicy;
+  nativeActivities?: Web2NativeActivityPolicy;
   target: InstalledTarget;
   ingress: PublicIngress;
   currentAdmissionFile: string;
@@ -198,6 +208,20 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       policy.graph.stateRoots.configuration === policy.bindingDirectory,
     "web2_binding_policy_changed",
   );
+  assertNoBootstrapPractice(policy.graph);
+  assertNoBootstrapNativeActivities(policy.graph);
+  const privatePracticeSelection = offeredPractice(policy.privateStudy, policy.nativeActivities);
+  const checkNative = async () => {
+    if (!policy.nativeActivities) return;
+    assert(policy.privateStudy, "native_activities_require_private_study_policy");
+    await validateNativeActivityPolicy({policy: policy.nativeActivities, study: policy.privateStudy,
+      graph: policy.graph, target: policy.target, release: bootstrap, expiresAt: policy.expiresAt});
+  };
+  if (policy.privateStudy) {
+    validateWeb2LocalStudyPolicy(policy.privateStudy, policy.graph, bootstrap, policy.target, policy.nativeActivities?.socket);
+    await assertWeb2LocalStudyInputs(policy.privateStudy, policy.graph);
+  }
+  await checkNative();
   const publishing = input.publishing ? await createWeb2PublishingSetup(input.publishing.directory, {
     hostInstallationId:policy.installationId,publisher:input.publishing.publisher,
     publishing:{chain,grants:input.publishing.grants},now:()=>Math.floor(now()/1000),
@@ -259,6 +283,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     } finally {
       await controller.dispose();
     }
+    if (draft.privatePractice) {
+      assert(policy.privateStudy && draft.privatePractice === privatePracticeSelection,
+        "web2_private_study_unavailable");
+      await checkNative();
+      await assertWeb2LocalStudyInputs(policy.privateStudy, policy.graph);
+    }
     live();
     await lease.assertHeld();
   }
@@ -308,7 +338,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         scope.controller === c.controller && scope.publisher === c.publisher && scope.postsContract === c.postsContract &&
         scope.deploymentDigest === hashJson(draft.deployment),"web2_publishing_attachment_scope_changed");
     }
-    return {
+    return composeNativeActivities(withWeb2LocalStudy({
       ...structuredClone(policy.graph),
       directoryRuntimeBinding: JSON.stringify(draft.deployment),
       applicationBindings: [
@@ -324,7 +354,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
           {name:"OWNER_GRANT_ADMISSION_REFERENCE",text:attachment.selection.admissionReference},
         ] : []),
       ],
-    };
+    }, draft, bootstrap, policy.privateStudy, policy.nativeActivities?.socket),
+      draft, policy.privateStudy, policy.nativeActivities);
   }
   function admissionFor(
     draft: LinuxWeb2Draft,
@@ -369,6 +400,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       assert(publishing,"web2_publishing_authority_unavailable");
       assert(canonical(await publishing.attachment(draft)) === canonical(bound.intent.publishingAttachment),"web2_publishing_attachment_changed");
     }
+    if (draft.privatePractice) await authenticate(draft);
     await retainWeb2Record(
       policy.bindingDirectory,
       "web2-binding-intent",
@@ -433,6 +465,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   let busy = false;
   return {
     bootstrap: captured.bootstrap,
+    privateStudyAvailable: Boolean(policy.privateStudy),
+    privatePracticeSelection,
     trust: captured.trust,
     lease,
     async retained() {

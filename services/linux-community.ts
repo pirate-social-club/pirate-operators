@@ -8,7 +8,10 @@ import { canonical, insist } from "../packages/community/common.ts";
 import type { CommunityQueueJob } from "./community-private-dance.ts";
 import {nativeDigest} from "../packages/community/native-business-binding.ts";
 
-export interface LinuxCommunityEnv extends CommunityEnv {
+import { linuxWeb2KaraokeUpgrade, type NativeKaraokeSocketEnv } from "./linux-web2-karaoke-upgrade.ts";
+import { danceHostPrefix, nativeDanceAuthority, type NativeDanceEnv } from "./linux-web2-dance-authority.ts";
+
+export interface LinuxCommunityEnv extends CommunityEnv, NativeKaraokeSocketEnv, NativeDanceEnv {
   COMMUNITY_DEPLOYMENT_PROFILE_JSON: string;
 }
 async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeploymentProfile){
@@ -41,6 +44,20 @@ export default {
       });
     }
     const bound=await installedOriginal(env,deployment);
+    if (isWeb2Deployment(deployment)) {
+      const path = new URL(request.url).pathname;
+      insist(new URL(request.url).origin === deployment.origin, "wrong_community_host", 403);
+      if (path === "/attempt") {
+        const original = await web2ApplicationOriginal(env);
+        if (!original.record.body.draft.privatePractice?.includes("karaoke")) return new Response(null,{status:404});
+        return linuxWeb2KaraokeUpgrade(request, bound, deployment);
+      }
+      if (path.startsWith(danceHostPrefix)) {
+        const original = await web2ApplicationOriginal(env);
+        if (!original.record.body.draft.privatePractice?.includes("dance")) return new Response(null,{status:404});
+        return nativeDanceAuthority(request, bound, deployment);
+      }
+    }
     return await communityFetch(request, bound);
   },
   async queue(batch, env) {
