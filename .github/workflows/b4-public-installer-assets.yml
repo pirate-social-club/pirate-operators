@@ -1,0 +1,56 @@
+name: B4 public installer assets
+on:
+  push:
+    branches: [ops/build-b4-staging-assets-20261119]
+permissions:
+  contents: read
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b4d76a6626aa2f2294cadc23bf94cd06e79c672c
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - name: Install the locked dependencies and build public assets
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b4d76a6626aa2f2294cadc23bf94cd06e79c672c
+          test "$(git rev-parse HEAD^{tree})" = 6aa3b1ea82c3a9e4ba641f6df58f381758d868fe
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/web
+          npm ci --ignore-scripts --prefix apps/community-wizard
+          npm run build:live --prefix apps/web
+          npm run build --prefix apps/community-wizard
+          git diff --exit-code HEAD
+      - name: Seal only the two installer asset inputs
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/b4-native-assets"
+          mkdir -m 0700 "$output"
+          test -f apps/web/dist/live/index.html
+          test -f apps/community-wizard/dist/index.html
+          test -f apps/community-wizard/dist/moss-signing.html
+          test -z "$(find apps/web/dist/live apps/community-wizard/dist ! -type d ! -type f -print -quit)"
+          find apps/web/dist/live apps/community-wizard/dist -type f -print0 |
+            LC_ALL=C sort -z | xargs -0 sha256sum > "$output/files.sha256"
+          {
+            git show -s --format='source=%H%ntree=%T'
+            node --version
+            sha256sum package-lock.json apps/web/package-lock.json apps/community-wizard/package-lock.json
+          } > "$output/source.txt"
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner             -cf - apps/web/dist/live apps/community-wizard/dist | gzip -n > "$output/b4-installer-assets.tar.gz"
+          cd "$output"
+          sha256sum b4-installer-assets.tar.gz files.sha256 source.txt > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: b4-installer-assets
+          path: ${{ runner.temp }}/b4-native-assets/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
