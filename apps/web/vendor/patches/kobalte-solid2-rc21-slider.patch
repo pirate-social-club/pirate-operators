@@ -1,0 +1,44 @@
+--- a/dist/slider/DP6fmlOK.jsx
++++ b/dist/slider/DP6fmlOK.jsx
+@@ -12 +12 @@
+-import { createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, onSettled, useContext } from "solid-js";
++import { createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, useContext } from "solid-js";
+@@ -114,2 +114,2 @@
+-	onSettled(() => {
+-		context.state.setThumbEditable(index(), !context.state.isDisabled());
++	createEffect(() => [index(), !context.state.isDisabled()], ([thumbIndex, editable]) => {
++		if (thumbIndex >= 0) context.state.setThumbEditable(thumbIndex, editable);
+@@ -184 +184 @@
+-	const [isEditables, setEditables] = createSignal(new Array(values().length).fill(false));
++	const [isEditables, setEditables] = createSignal(new Array(values().length).fill(false), { ownedWrite: true });
+@@ -201,5 +201,3 @@
+-	const setThumbEditable = (index) => {
+-		setEditables((p) => {
+-			p[index] = true;
+-			return p;
+-		});
++	const setThumbEditable = (index, editable) => {
++		if (index < 0 || index >= values().length) return;
++		setEditables((previous) => replaceIndex(previous, index, editable));
+--- a/dist/slider/DnOXsb56.js
++++ b/dist/slider/DnOXsb56.js
+@@ -13 +13 @@
+-import { createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, onSettled, useContext } from "solid-js";
++import { createContext, createEffect, createMemo, createSignal, createUniqueId, merge, omit, useContext } from "solid-js";
+@@ -120,2 +120,2 @@
+-	onSettled(() => {
+-		context.state.setThumbEditable(index(), !context.state.isDisabled());
++	createEffect(() => [index(), !context.state.isDisabled()], ([thumbIndex, editable]) => {
++		if (thumbIndex >= 0) context.state.setThumbEditable(thumbIndex, editable);
+@@ -299 +299 @@
+-	const [isEditables, setEditables] = createSignal(new Array(values().length).fill(false));
++	const [isEditables, setEditables] = createSignal(new Array(values().length).fill(false), { ownedWrite: true });
+@@ -316,5 +316,3 @@
+-	const setThumbEditable = (index) => {
+-		setEditables((p) => {
+-			p[index] = true;
+-			return p;
+-		});
++	const setThumbEditable = (index, editable) => {
++		if (index < 0 || index >= values().length) return;
++		setEditables((previous) => replaceIndex(previous, index, editable));

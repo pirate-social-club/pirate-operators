@@ -48,8 +48,8 @@ interface Release {
     { slot: string; state: string; sha256: string; byteLength: number }
   >;
 }
-function wav() {
-  const samples = 16000,
+function wav(seconds = 1) {
+  const samples = 16000 * seconds,
     bytes = Buffer.alloc(44 + samples * 2);
   bytes.write("RIFF", 0);
   bytes.writeUInt32LE(bytes.length - 8, 4);
@@ -78,6 +78,7 @@ export async function serveCommunity(
   referrerPolicy = "strict-origin",
   options: {
     songs?: boolean;
+    catalogAudioSeconds?: number;
     rewards?: boolean;
     feedOutage?: boolean;
     sharedSongFeed?: boolean;
@@ -106,7 +107,7 @@ export async function serveCommunity(
     sharedFeedDown = false,
     exposePublished = true,
     loseMasterAck = true;
-  const catalogBytes = wav();
+  const catalogBytes = wav(options.catalogAudioSeconds);
   const current = () => releases.at(-1);
   const catalog: PublicSongView = {
     manifest: {
@@ -467,6 +468,29 @@ export async function serveCommunity(
     }
     const media =
       /^\/api\/public\/posts\/(0x[0-9a-f]{64})\/(audio|proof)$/.exec(path);
+    if (path === catalogAudioPath && options.catalogAudioSeconds !== undefined) {
+      const size = catalogBytes.length;
+      const header = request.headers().range;
+      const headers = { "accept-ranges": "bytes" };
+      if (!header)
+        return route.fulfill({ contentType: "audio/wav", body: catalogBytes, headers });
+
+      const range = /^bytes=(\d+)-(\d*)$/.exec(header);
+      const start = range ? Number(range[1]) : size;
+      const end = range?.[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (!Number.isSafeInteger(start) || start > end)
+        return route.fulfill({
+          status: 416,
+          headers: { ...headers, "content-range": `bytes */${size}` },
+        });
+
+      return route.fulfill({
+        status: 206,
+        contentType: "audio/wav",
+        body: catalogBytes.subarray(start, end + 1),
+        headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}` },
+      });
+    }
     if (
       path === "/fixture-song.wav" ||
       (media?.[1] === catalogPostId && media[2] === "audio")

@@ -512,6 +512,63 @@ test("reference PostCard owns the compact SongPlayer and post detail owns its ac
   ).toHaveCount(0);
 });
 
+for (const width of [390, 1280]) {
+  test("song detail seeks a paused track with keyboard and pointer at " + width + "px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await serve(page, false, false, false, "strict-origin", {
+      songs: true,
+      catalogAudioSeconds: 8,
+    });
+    await page.goto(origin);
+    await page.getByRole("link", {
+      name: "Published fixture song",
+      exact: true,
+    }).click();
+
+    const detail = page.locator("[data-public-post-state=content]");
+    const audio = detail.getByLabel("Audio for Published fixture song", {
+      exact: true,
+    });
+    const slider = detail.getByRole("slider", {
+      name: "Track position for Published fixture song",
+      exact: true,
+    });
+    const time = () =>
+      audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    const paused = () =>
+      audio.evaluate((element: HTMLAudioElement) => element.paused);
+
+    await expect(slider).toHaveCount(0);
+    await expect(audio).not.toHaveAttribute("src", /.+/);
+    await detail.getByRole("button", {
+      name: "Play Published fixture song",
+      exact: true,
+    }).click();
+    await expect.poll(time).toBeGreaterThan(0.15);
+    await detail.getByRole("button", {
+      name: "Pause Published fixture song",
+      exact: true,
+    }).click();
+    await expect.poll(paused).toBe(true);
+    await expect(slider).toHaveAttribute("aria-valuemax", "8000");
+
+    await slider.focus();
+    await expect(slider).toBeFocused();
+    await slider.press("Home");
+    await expect.poll(time).toBeLessThan(0.05);
+    await slider.press("ArrowRight");
+    await expect.poll(time).toBeCloseTo(1, 1);
+
+    // Use a real pointer click at the midpoint of the rendered track.
+    const track = detail.locator('[data-post-card-interactive="true"] .bg-border');
+    await track.click();
+    await expect.poll(time).toBeCloseTo(4, 1);
+    expect(await paused()).toBe(true);
+  });
+}
+
 test("the source SongPlayer retains playback failure and deliberate retry", async ({
   page,
 }) => {

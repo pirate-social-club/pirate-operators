@@ -34,8 +34,8 @@
     },
     {
       "name": "@kobalte/core",
-      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz",
-      "sha512": "sha512-GGuAbIgmPmcr2t5OSsLRypgkuIgZtMgwdFKMObUwKatCDcGae8Ef0zIv8mWP0Ir/7V+70i2A16C7ahTCXXYLIg==",
+      "tarball": "kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.2.tgz",
+      "sha512": "sha512-v/omiaZYe7OBxD4hqetAVvtEvRfKk/UuErD8m8u4iIdRPuucnIp4DtTU4uA2AT1vjYYCfZ/AEUANOqbs8s1Bgg==",
       "source": {
         "repository": "https://github.com/pirate-social-club/pirate-web-solid",
         "commit": "c7cb87835a1858a1955c820b03d566365e6d42db",
@@ -44,6 +44,7 @@
       },
       "transformations": [
         "Apply vendor/patches/kobalte-solid2-rc21.patch to JSX and compiled JS exports: register dismissable layers reactively when their DOM ref arrives and clean up using the captured node",
+        "Apply vendor/patches/kobalte-solid2-rc21-slider.patch to JSX and compiled JS exports: register thumb editability reactively when its collection index is valid and honor disabled state",
         "deterministic tar: sorted entries, mtime 1985-10-26T08:15:00Z, numeric owner 0, gzip -n -9"
       ],
       "patches": [
@@ -51,6 +52,11 @@
           "path": "vendor/patches/kobalte-solid2-rc21.patch",
           "sha512": "sha512-863EGYfsu9DbIeMSQGn4GSATuZUyfmuy2nQk7KHPEkhnoAQ+OtyNV9I1h4hNvmcJ+XnfSZhQwxeHHIohUVzzjQ==",
           "purpose": "Preserve Escape dismissal and focus return when rc.21 attaches a dialog ref after onSettled."
+        },
+        {
+          "path": "vendor/patches/kobalte-solid2-rc21-slider.patch",
+          "sha512": "sha512-4sodGNypxX++5gJvooF4RAjgyvrwmk9JIb/3xwLVF4HnErAZrSNTfWtx4Pkv38ahJvlKWpi4kyXN2LGX3kUNgg==",
+          "purpose": "Enable a slider thumb after its DOM collection registers the ref and track disabled transitions."
         }
       ],
       "originalArchive": {
@@ -62,7 +68,7 @@
   "dependencyAlignment": {
     "reference": "Original pirate-web-solid bun.lock at c7cb87835a1858a1955c820b03d566365e6d42db; current consumer runtime and compiler pins belong to apps/web/package.json and its lockfile",
     "tool": "scripts/align-upstream-lock.ts remains an original-source comparison diagnostic; its write mode is not the runtime upgrade path",
-    "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; retained Kobalte patch series plus the rc.21 dialog layer fix; other design-system dependencies unchanged",
+    "scope": "Solid runtime, web renderer, signals and compiler at rc.21; renamed Vite plugin next.57; retained Kobalte patch series plus the rc.21 dialog and slider fixes; other design-system dependencies unchanged",
     "reason": "The consumer upgrades its runtime independently of the imported source commit. Explicit Solid peer overrides select one rc.21 runtime, including the derived Kobalte package. The vite-plugin-solid entry is an npm alias for the same renamed compiler package needed by the Storybook peer. Other existing dependency pins stay unchanged unless required by this upgrade."
   }
 }

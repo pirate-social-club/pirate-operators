@@ -48,13 +48,18 @@ tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-own
 cp "$work/$kobalte" "$vendor/"
 cp "$work/vendor/kobalte-core-provenance.json" "$vendor/"
 
-# Register dialog layers after their DOM ref arrives. Preserve the original
-# patched archive and derive a separately identified consumer successor.
+# Register dialog layers and slider thumbs after their DOM identities arrive.
+# Preserve the original archive and derive a separately identified consumer successor.
 mkdir -p "$work/kobalte"
-tar -xzf "$work/$kobalte" -C "$work/kobalte"
+(
+  umask 002
+  tar -xzf "$work/$kobalte" -C "$work/kobalte"
+)
 patch --batch --forward --fuzz=0 --strip=1 --directory="$work/kobalte/package" \
   --input="$vendor/patches/kobalte-solid2-rc21.patch"
-kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.1.tgz"
+patch --batch --forward --fuzz=0 --strip=1 --directory="$work/kobalte/package" \
+  --input="$vendor/patches/kobalte-solid2-rc21-slider.patch"
+kobalte_out="$vendor/kobalte-core-2.0.0-alpha.0-a892187065cf7e0d07e91db02310bd28a5619236-patched-rc21.2.tgz"
 tar --sort=name --mtime='1985-10-26 08:15:00Z' --owner=0 --group=0 --numeric-owner \
   -C "$work/kobalte" -cf - package | gzip -n -9 > "$kobalte_out"
 
