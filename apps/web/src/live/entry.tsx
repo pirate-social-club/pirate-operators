@@ -100,8 +100,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     [capabilities, setCapabilities] =
       createSignal<CommunityCapabilities | null>(null),
     [feed, setFeed] = createSignal<CommunityFeed | null>(null),
-    [rewardOffers, setRewardOffers] =
-      createSignal<RewardAvailableOffers | null>(null),
+    [rewardOfferResult, setRewardOfferResult] =
+      createSignal<{ key: string; value: RewardAvailableOffers } | null>(null),
+    [rewardOfferRefresh, setRewardOfferRefresh] = createSignal(0),
     [busy, setBusy] = createSignal(false),
     [learningActions, setLearningActions] =
       createSignal<LearningActions | null>(null),
@@ -125,6 +126,60 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   // True while sign-in is settling its permission. The wallet pages and the
   // practice buttons wait, so nothing mounts with the first of two sessions.
   const [settling, setSettling] = createSignal(false);
+  const rewardOfferMode = () => {
+    const caps = capabilities();
+    if (caps?.danceRewardOffers === true) return "dance";
+    return caps?.rewards === true ? "legacy" : null;
+  };
+  const rewardOfferKey = createMemo(() => {
+    const current = session(), communityId = boot()?.communityId;
+    const mode = rewardOfferMode();
+    if (!current || !communityId || !mode || settling() || walletPage) return null;
+    return JSON.stringify([
+      communityId, current.authorId, current.mossAddress, current.csrf,
+      mode, rewardOfferRefresh(),
+      mode === "dance" && view() === "song" ? fragment() : "",
+    ]);
+  });
+  const rewardOffers = () => {
+    const result = rewardOfferResult();
+    return result && result.key === rewardOfferKey() ? result.value : null;
+  };
+  let rewardOfferRequest: AbortController | undefined;
+  createEffect(
+    () => [rewardOfferKey(), rewardOfferMode()] as const,
+    ([key, mode]) => {
+      rewardOfferRequest?.abort();
+      rewardOfferRequest = undefined;
+      setRewardOfferResult(null);
+      if (!key || !mode) return;
+      const request = new AbortController();
+      rewardOfferRequest = request;
+      // This optional read runs independently of practice and feed navigation.
+      void get<RewardAvailableOffers>("/api/rewards/offers", {
+        timeoutMs: 10000,
+        signal: request.signal,
+      }).then((value) => {
+        if (request.signal.aborted || rewardOfferKey() !== key) return;
+        if (!Array.isArray(value?.offers)) return;
+        if (mode === "dance" && (
+          value.practiceOnly !== true ||
+          value.offers.length > 1 ||
+          value.offers.some((offer) =>
+            offer?.eligibility !== "dance-pass" ||
+            typeof offer.postId !== "string" ||
+            !Number.isSafeInteger(offer.ticketCount) || offer.ticketCount < 1 ||
+            !Number.isSafeInteger(offer.opensAt) ||
+            !Number.isSafeInteger(offer.cutoffAt) || offer.opensAt >= offer.cutoffAt,
+          )
+        )) return;
+        setRewardOfferResult({ key, value });
+      }).catch(() => {
+        // Missing or expired offers do not block opening an activity.
+      });
+    },
+  );
+  onCleanup(() => rewardOfferRequest?.abort());
   const actionOwner = createLearningActionOwner(setLearningActions);
   onCleanup(actionOwner.clear);
   let sessionRead = 0;
@@ -445,20 +500,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setCapabilities(caps);
     setFeed(posts);
     if (!walletPage) syncActivity(posts, caps);
-    // Reward offers are optional. Study must never wait for them.
-    if (session() && caps.rewards && !walletPage) void loadRewardOffers();
-    else {
-      offersRequest++;
-      setRewardOffers(null);
-    }
-  }
-  let offersRequest = 0;
-  async function loadRewardOffers() {
-    const current = ++offersRequest;
-    const offers = await get<RewardAvailableOffers>("/api/rewards/offers", {
-      timeoutMs: 10000,
-    }).catch(() => null);
-    if (current === offersRequest) setRewardOffers(offers);
+    setRewardOfferRefresh((revision) => revision + 1);
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;

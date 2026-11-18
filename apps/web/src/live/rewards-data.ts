@@ -20,6 +20,7 @@ import type {
 } from "../../../../packages/rewards/contracts.ts";
 
 export interface RewardOperatorView {
+  installedDanceOfferId?: string;
   offers: RewardOffer[];
   payments: RewardPayment[];
   ready: {

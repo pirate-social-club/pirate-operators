@@ -48,6 +48,7 @@ export async function dancePrivateCommunityApi(
   if (url.pathname === "/api/dance/captures") {
     insist(request.method === "POST", "method_not_allowed", 405);
     const body = parseCaptureRequestV2(await jsonBody(request));
+    if (body.publication.kind === "private") catalogue.assertPrivateTarget(body.target);
     await session.check();
     return reply(await service.capture(body));
   }

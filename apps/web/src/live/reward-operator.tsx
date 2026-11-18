@@ -134,7 +134,9 @@ export function LiveRewardOperator(props: {
     >
       <header class="flex items-center justify-between">
         <Type as="h1" variant="h2">
-          Reward payments
+          {view()?.installedDanceOfferId
+            ? "Dance reward offer"
+            : "Reward payments"}
         </Type>
         <Button variant="ghost" onClick={props.onExit}>
           Back
@@ -145,7 +147,17 @@ export function LiveRewardOperator(props: {
           {notice()}
         </Type>
       </Show>
-      <Show when={view()}>
+      <Show when={view()?.installedDanceOfferId && view()}>
+        {(current) => (
+          <RewardOfferPanel
+            view={current()}
+            data={data}
+            busy={busy()}
+            run={run}
+          />
+        )}
+      </Show>
+      <Show when={!view()?.installedDanceOfferId && view()}>
         {(current) => (
           <>
             <Type as="p">

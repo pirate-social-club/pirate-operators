@@ -14,23 +14,28 @@ import type { Web2PublicDanceInputs } from "./web2-public-dance-start.ts";
 /** Selected public verdict metadata does not change the media audience.
  * This authorizes owned access to the original private-media capture. */
 export function dancePublicationMediaAccess(
-  selection: Web2PublicDanceInputs,
+  selection: Web2PublicDanceInputs | {
+    db: D1Database;
+    open(): Promise<Web2PublicDanceInputs>;
+  },
   config: Web2CommunityConfig,
   reads: PublicReadPorts,
-  assertMounted: () => void,
+  assertMounted: () => void | Promise<void>,
 ) {
-  const { db, catalog, installation } = selection.publication;
-  const configJson = canonical(config),
-    scope = config.communityId;
-  const source = structuredClone(selection.source);
+  const db = "publication" in selection ? selection.publication.db : selection.db;
+  const configJson = canonical(config), scope = config.communityId;
   const resources = createDanceSongResources({ db, config, reads });
   async function selectedCapture(
     actor: MediaActor,
     capture: PublicationCaptureV2,
   ) {
-    assertMounted();
+    await assertMounted();
+    const resolved = "publication" in selection ? selection : await selection.open();
+    const { catalog, installation } = resolved.publication;
+    const source = structuredClone(resolved.source);
+    await assertMounted();
     insist(
-      installation &&
+      resolved.publication.db === db && installation &&
         installation.db === db &&
         installation.catalog === catalog &&
         installation.expected.communityId === scope &&
@@ -104,7 +109,7 @@ export function dancePublicationMediaAccess(
         ],
       },
     ];
-    assertMounted();
+    await assertMounted();
     return { postId: song.postId, fences };
   }
   return {

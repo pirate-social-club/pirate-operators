@@ -363,7 +363,7 @@ export function CommunityPages(props: CommunityPagesProps) {
                     </section>
                   )}
                 </Show>
-                <Show when={props.session && props.rewards && props.offers}>
+                <Show when={props.session && !props.settling && props.offers}>
                   <For
                     each={props.offers?.offers.filter(
                       (offer) => offer.postId === song().id,
@@ -375,27 +375,44 @@ export function CommunityPages(props: CommunityPagesProps) {
                           Lottery reward · {offer.ticketCount}{" "}
                           {offer.ticketCount === 1 ? "ticket" : "tickets"}
                         </summary>
-                        <p>
-                          Practice rewards have no cash value in this pilot.
-                          Complete Study with at least 70% correct on the
-                          first try, or Karaoke with a score of at least 70%
-                          and at least 90% of lines measured. One entry per
-                          account.
-                        </p>
-                        <p>
-                          Complete and publish your result between{" "}
-                          {new Date(offer.opensAt).toLocaleString()} and{" "}
-                          {new Date(offer.cutoffAt).toLocaleString()}.
-                          Winnings are shared equally among qualifying
-                          accounts. There may be no prize. Any remainder stays
-                          with the operator.
-                        </p>
-                        <p>
-                          Winning shares appear in your wallet. Scan your palm
-                          to claim; payments are approved daily. Unclaimed
-                          shares stay available. If nobody qualifies, winnings
-                          stay with the operator.
-                        </p>
+                        <Show when={offer.eligibility === "dance-pass"} fallback={
+                          <>
+                            <p>
+                              Practice rewards have no cash value in this pilot.
+                              Complete Study with at least 70% correct on the
+                              first try, or Karaoke with a score of at least 70%
+                              and at least 90% of lines measured. One entry per
+                              account.
+                            </p>
+                            <p>
+                              Complete and publish your result between{" "}
+                              {new Date(offer.opensAt).toLocaleString()} and{" "}
+                              {new Date(offer.cutoffAt).toLocaleString()}.
+                              Winnings are shared equally among qualifying
+                              accounts. There may be no prize. Any remainder stays
+                              with the operator.
+                            </p>
+                            <p>
+                              Winning shares appear in your wallet. Scan your palm
+                              to claim; payments are approved daily. Unclaimed
+                              shares stay available. If nobody qualifies, winnings
+                              stay with the operator.
+                            </p>
+                          </>
+                        }>
+                          <p>This is a rehearsal drawing. One entry per account.</p>
+                          <p>
+                            Explicitly submit an eligible Dance recording for review.
+                            A passing verdict from an authorized reviewer must be recorded
+                            during the entry window. Private practice and saved recordings
+                            without submission do not qualify.
+                          </p>
+                          <p>
+                            The entry window opens{" "}
+                            {new Date(offer.opensAt).toLocaleString()} and closes{" "}
+                            {new Date(offer.cutoffAt).toLocaleString()}.
+                          </p>
+                        </Show>
                       </details>
                     )}
                   </For>

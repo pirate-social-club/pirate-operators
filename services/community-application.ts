@@ -1,4 +1,12 @@
 import { selectedWeb2Dance } from "./web2-private-dance.ts";
+import { openInstalledDanceOrdinary, type InstalledDanceOwnerScopeReader } from "./web2-installed-dance-ordinary.ts";
+import type { InstalledPublicDanceMount } from "./web2-installed-public-dance.ts";
+import { prepareInstalledDanceOfferProjection } from "./web2-installed-dance-song.ts";
+import { DancePrivateRequestSession } from "./dance-private-session.ts";
+import {
+  allowsInstalledDanceReward, assertInstalledDanceRewardConfiguration, readInstalledDanceRewardAttachment,
+  type InstalledDanceRewardBindings, type InstalledDanceRewards,
+} from "./web2-installed-dance-rewards.ts";
 import { parseCaptureRequestV2 } from "../packages/dance/capture-v2.ts";
 import { publicationApplicationFetch, type PublicationApplicationPorts } from "./publication-app.ts";
 import {
@@ -176,7 +184,7 @@ export interface Web2ManualRewardCloseInputs {
   readonly offer: { readonly offerId: string; readonly inputHash: string };
 }
 
-export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePublicationApplicationEnv {
+export interface CommunityEnv extends FirstSongRuntimeEnv, StudyEnv, NativePublicationApplicationEnv, InstalledDanceRewardBindings {
   DB: D1Database;
   MEDIA: R2Bucket;
   JOBS: Queue<CommunityQueueJob>;
@@ -232,6 +240,8 @@ export interface CommunityDependencies {
   verifyLogin: VerifyLogin;
   /** Trusted installed Web2 publication composition. */
   publication?: PublicationApplicationPorts;
+  /** Request-owned closure built only by the trusted native Linux caller. */
+  installedDance?(config: CommunityConfig): Promise<InstalledPublicDanceMount>;
   creatorHealth(): Promise<boolean>;
   creatorTransport?: CreatorConnectionService["transport"];
   releaseRuntime?(config: CommunityConfig): FirstSongDriverPorts;
@@ -272,6 +282,7 @@ function dependencies(
   env: CommunityEnv,
   timing = new RequestTiming(),
   publicationRoute = false,
+  readDanceScope?: InstalledDanceOwnerScopeReader,
 ): CommunityDependencies {
   const deployment=deploymentProfile(env);
   // Consent has its own retained installation and must remain accessible
@@ -307,12 +318,33 @@ function dependencies(
       manifestAvailable: async (hash) => !!(await publicResultManifest(hash)),
     };
   const freshConfiguration = async () => (await readHistory()).at(-1)!;
+  const selectedAttachment = env.WEB2_DANCE_REWARD_ATTACHMENT_JSON;
+  let danceRequest: { config: string; mount: Promise<InstalledPublicDanceMount> } | undefined;
+  const installedDance = readDanceScope && selectedAttachment !== undefined && isWeb2Deployment(deployment)
+    ? (config: CommunityConfig) => {
+        const configBytes = canonical(config);
+        if (danceRequest?.config === configBytes) return danceRequest.mount;
+        const mount = (async () => {
+          insist(!env.WEB2_DANCE_PUBLICATION_INPUTS && config.schema === "pirate.community-config/4" &&
+            env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === selectedAttachment,
+          "dance_installed_authority_changed", 503);
+          const reward = await readInstalledDanceRewardAttachment(env, await web2ApplicationOriginal(env), deployment);
+          insist(reward && env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === selectedAttachment &&
+            canonical(await freshConfiguration()) === configBytes, "dance_installed_authority_changed", 503);
+          const scope = await readDanceScope({ deployment, config, reward });
+          return openInstalledDanceOrdinary({ env, deployment, config, reads: publicReads, reward, scope });
+        })();
+        danceRequest = { config: configBytes, mount };
+        return mount;
+      } : undefined;
   return {
+    installedDance,
     deployment,
     freshConfiguration,
     privateDance: isWeb2Deployment(deployment)
       ? privatePractice?.activities.dance
-        ? config => selectedWeb2Dance(env, config, publicReads, freshConfiguration)
+        ? config => selectedWeb2Dance(env, config, publicReads, freshConfiguration,
+            installedDance && (() => installedDance(config)))
         : undefined
       : communityPrivateDanceDefaults(env),
     async configuration() {
@@ -369,21 +401,28 @@ function headers(env: Pick<CommunityEnv, "KARAOKE_OPERATOR_ORIGIN" | "PRIVATE_DA
     "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'${env.PRIVATE_DANCE_RENDERER ? " blob:" : ""} https://gateway.pinata.cloud; font-src 'self'; connect-src 'self' https://*.megaeth.com${operatorSocket}; frame-src https://*.megaeth.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
   });
 }
-export async function communityFetch(request:Request,env:CommunityEnv,provided?:CommunityDependencies):Promise<Response>{
+export async function communityFetch(
+  request: Request, env: CommunityEnv, provided?: CommunityDependencies,
+  readDanceScope?: InstalledDanceOwnerScopeReader,
+): Promise<Response> {
   try {
+    insist(!provided?.installedDance && (!readDanceScope || !provided), "dance_installed_runtime_required", 503);
     const path = new URL(request.url).pathname;
     const consentRoute = isPublicationConsentPath(path);
-    let actual = provided ?? dependencies(env, undefined, consentRoute);
+    let actual = provided ?? dependencies(env, undefined, consentRoute, readDanceScope);
     const deployment = actual.deployment ?? deploymentProfile(env);
+    let installedRewards: InstalledDanceRewards | undefined;
+    let danceRewardDiscovery = false;
     if (isWeb2Deployment(deployment)) {
-      if(env.NATIVE_APPLICATION_ORIGINAL_JSON) {
-        const original=await web2ApplicationOriginal(env);
+      const original = env.NATIVE_APPLICATION_ORIGINAL_JSON
+        ? await web2ApplicationOriginal(env) : undefined;
+      if (original)
         insist(original.record.body.publishingAttachmentDigest === env.WEB2_PUBLISHING_ATTACHMENT_SHA256,"web2_publishing_attachment_changed",503);
-      }
       insist(!request.headers.has("X-Pirate-Native-Request"), "web2_native_profile_unqualified", 503);
       if (consentRoute) {
         if (hasNativePublicationBindings(env)) {
-          const dance = env.WEB2_DANCE_PUBLICATION_INPUTS?.publication;
+          const dance = env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === undefined
+            ? env.WEB2_DANCE_PUBLICATION_INPUTS?.publication : undefined;
           insist(!dance || !actual.publication || dance === actual.publication,
             "dance_publication_source_changed", 409);
           const selected = actual.publication ?? dance;
@@ -399,16 +438,32 @@ export async function communityFetch(request:Request,env:CommunityEnv,provided?:
         }
         insist(actual.publication, "feature_unavailable", 404);
       } else {
+        // Only the operator and learner offer routes open the signed Rewards
+        // attachment here. Installed Dance opens its own scope lazily.
+        if (isInstalledDanceRewardRequest(request.method, path)) {
+          installedRewards = await readInstalledDanceRewardAttachment(env, original, deployment);
+          insist(!installedRewards || (!provided && env.WEB2_MANUAL_REWARD_CLOSE_INPUTS === undefined),
+            "dance_reward_installed_runtime_required", 503);
+        } else if (request.method === "GET" && path === "/api/capabilities") {
+          // A discovery hint lets the song client request the authoritative
+          // offer list without opening paid or participant authority.
+          danceRewardDiscovery = !provided &&
+            original?.record.body.danceRewardIntentSha256 !== undefined &&
+            env.WEB2_DANCE_REWARD_ATTACHMENT_JSON !== undefined &&
+            env.WEB2_MANUAL_REWARD_CLOSE_INPUTS === undefined &&
+            env.WEB2_DANCE_REWARD_ATTACHMENT_SHA256 === undefined;
+        }
         const manualReward = web2ManualRewardCloseSelection(request.method, path, deployment, env);
         insist(!web2ExcludedPath(path) ||
-          privatePracticeAllows(communityPrivatePractice(env,deployment),path) || manualReward,
+          privatePracticeAllows(communityPrivatePractice(env,deployment),path) || manualReward ||
+          allowsInstalledDanceReward(request.method, path, installedRewards),
           "feature_unavailable", 404);
       }
     }
     return await nativeBusinessResponse({request,env,
       configuration:freshAuthority(actual, deployment),
       privateDance:actual.privateDance,
-      business:()=>communityFetchBusiness(request,env,actual)});
+      business:()=>communityFetchBusiness(request,env,actual,{installedRewards,danceRewardDiscovery})});
   } catch(error) {
     if(error instanceof CommunityError)return Response.json({error:error.code},{status:error.status,headers:{"cache-control":"no-store"}});
     throw error;
@@ -419,6 +474,11 @@ function freshAuthority(ports: CommunityDependencies, deployment: CommunityDeplo
   return ports.freshConfiguration??ports.configuration;
 }
 const isPublicationConsentPath = (path: string) => path.startsWith("/api/publication-consent/v1/");
+function isInstalledDanceRewardRequest(method: string, path: string) {
+  return (method === "GET" && (path === "/api/rewards/offers" || path === "/api/operator/rewards")) ||
+    (method === "POST" && (path === "/api/operator/rewards/offers" ||
+      /^\/api\/operator\/rewards\/offers\/[a-zA-Z0-9_-]{8,128}\/close$/.test(path)));
+}
 function web2ManualRewardCloseSelection(
   method: string,
   path: string,
@@ -446,6 +506,7 @@ async function communityFetchBusiness(
   request: Request,
   env: CommunityEnv,
   ports?: CommunityDependencies,
+  rewards?: { installedRewards?: InstalledDanceRewards; danceRewardDiscovery: boolean },
 ): Promise<Response> {
   const deployment=ports?.deployment??deploymentProfile(env);
   const web2 = isWeb2Deployment(deployment);
@@ -459,7 +520,8 @@ async function communityFetchBusiness(
     };
   try {
     insist(url.origin === deployment.origin, "wrong_community_host", 403);
-    const publicDance = web2 ? env.WEB2_DANCE_PUBLICATION_INPUTS : undefined;
+    const signedDance = web2 ? env.WEB2_DANCE_REWARD_ATTACHMENT_JSON : undefined;
+    const fixtureDance = web2 && signedDance === undefined ? env.WEB2_DANCE_PUBLICATION_INPUTS : undefined;
     const context = {
       communityId: deployment.directoryProfile.communityId,
       origin: deployment.origin,
@@ -473,11 +535,12 @@ async function communityFetchBusiness(
         "publication_installation_required",
         503,
       );
-      insist(!publicDance || publicDance.publication === publication,
+      insist(!fixtureDance || fixtureDance.publication === publication,
         "dance_publication_source_changed", 409);
       const response = await publicationApplicationFetch(request, publication, context);
       insist(response, "not_found", 404);
-      insist(env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance, "dance_publication_source_changed", 409);
+      if (signedDance === undefined)
+        insist(env.WEB2_DANCE_PUBLICATION_INPUTS === fixtureDance, "dance_publication_source_changed", 409);
       const responseHeaders = new Headers(response.headers);
       security.set("server-timing", timing.header());
       for (const [name, value] of security) responseHeaders.set(name, value);
@@ -485,8 +548,10 @@ async function communityFetchBusiness(
     }
     const privatePractice = communityPrivatePractice(env,deployment);
     const selectedManualReward = web2ManualRewardCloseSelection(request.method, url.pathname, deployment, env);
+    const selectedReward = allowsInstalledDanceReward(request.method, url.pathname, rewards?.installedRewards)
+      ? rewards?.installedRewards : undefined;
     insist(!web2 || !web2ExcludedPath(url.pathname) || privatePracticeAllows(privatePractice,url.pathname) ||
-      selectedManualReward, "feature_unavailable", 404);
+      selectedManualReward || selectedReward, "feature_unavailable", 404);
     const privateDancePath = ["/api/media","/api/dance"].some(prefix =>
       url.pathname === prefix || url.pathname.startsWith(prefix+"/"));
     const privateKaraokeRoute = web2 && (
@@ -558,53 +623,58 @@ async function communityFetchBusiness(
       insist(runtime.catalog, "canonical_community_unconfigured", 503);
       return communityCanonicalFetch(request, runtime.catalog);
     }
-    if (publicDance && url.pathname === "/api/dance/captures" && request.method === "POST") {
+    const publicDanceFor = async (config: CommunityConfig) => {
+      const mounted = signedDance !== undefined ? await ports.installedDance?.(config) : undefined;
+      const publicDance = mounted?.selection ?? fixtureDance;
+      const runtime = ports.privateDance;
+      insist(publicDance && config.schema === "pirate.community-config/4" &&
+        privatePractice?.activities.dance && runtime,
+      "dance_installed_authority_unavailable", 503);
+      const assertMounted = () => insist(publicDance.publication.db === env.DB &&
+        env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === signedDance &&
+        (mounted ? !env.WEB2_DANCE_PUBLICATION_INPUTS : env.WEB2_DANCE_PUBLICATION_INPUTS === fixtureDance),
+      "dance_publication_source_changed", 409);
+      const check = async () => {
+        assertMounted();
+        if (mounted) await mounted.assertCurrent();
+        assertMounted();
+      };
+      await check();
+      return { publicDance, assertMounted, check, config, runtime: () => runtime(config) };
+    };
+    if ((fixtureDance || signedDance !== undefined) && url.pathname === "/api/dance/captures" && request.method === "POST") {
       const capture = parseCaptureRequestV2(await jsonBody(request.clone()));
       if (capture.publication.kind === "publication-bound") {
-        const config = await configuration(true);
-        insist(config.schema === "pirate.community-config/4" && publicDance.publication.db === env.DB &&
-          env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance && privatePractice?.activities.dance &&
-          env.PRIVATE_DANCE_RENDERER && ports.privateDance,
-          "dance_publication_source_changed", 503);
+        const { publicDance, config, check } = await publicDanceFor(await configuration(true));
+        insist(env.PRIVATE_DANCE_RENDERER, "dance_publication_runtime_unavailable", 503);
         const selected = web2PublicDanceStart(publicDance, config, publicReads);
         const accepted = await startDancePublicationCapture(request, capture, context, publicDance.publication, selected);
-        insist(env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance, "dance_publication_source_changed", 409);
+        await check();
         security.set("vary", "Cookie");
         security.set("cache-control", "no-store, private");
         return reply(accepted);
       }
     }
-    if (publicDance && dancePublicationReviewerRoute(request)) {
-      const config = await configuration(true);
-      insist(config.schema === "pirate.community-config/4" && publicDance.publication.db === env.DB &&
-        privatePractice?.activities.dance && ports.privateDance,
-        "dance_publication_review_unavailable", 503);
-      const assertMounted = () => insist(
-        env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance && publicDance.publication.db === env.DB,
-        "dance_publication_source_changed", 409,
-      );
-      assertMounted();
-      const runtime = await ports.privateDance(config);
+    if ((fixtureDance || signedDance !== undefined) && dancePublicationReviewerRoute(request)) {
+      const { publicDance, config, assertMounted, check, runtime } = await publicDanceFor(await configuration(true));
       const response = await dancePublicationReviewerFetch({
-        request, context, config, selection: publicDance, runtime, assertMounted,
+        request, context, config, selection: publicDance, runtime: await runtime(), assertMounted,
       });
-      assertMounted();
+      try { await check(); }
+      catch (error) { await response.body?.cancel().catch(() => undefined); throw error; }
       for (const [key, value] of response.headers) security.set(key, value);
       security.set("cache-control", "no-store, private");
       security.set("vary", "Cookie, X-Dance-Review-Grant");
       return new Response(response.body, { status: response.status, headers: security });
     }
-    if (publicDance && request.method === "POST" && danceV2ActionRoute(url.pathname)) {
-      const config = await configuration(true);
-      insist(config.schema === "pirate.community-config/4" && publicDance.publication.db === env.DB &&
-        env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance && privatePractice?.activities.dance && ports.privateDance,
-        "dance_publication_runtime_unavailable", 503);
-      const runtime = await ports.privateDance(config);
+    if ((fixtureDance || signedDance !== undefined) && request.method === "POST" && danceV2ActionRoute(url.pathname)) {
+      const { publicDance, config, check, runtime } = await publicDanceFor(await configuration(true));
+      const active = await runtime();
       const body = await jsonBody(request);
-      insist(env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance, "dance_publication_source_changed", 409);
+      await check();
       const pending = await dancePublicationAction({request, body, context, config, reads: publicReads,
-        runtime, selection: publicDance});
-      insist(env.WEB2_DANCE_PUBLICATION_INPUTS === publicDance, "dance_publication_source_changed", 409);
+        runtime: active, selection: publicDance});
+      await check();
       security.set("vary", "Cookie");
       security.set("cache-control", "no-store, private");
       return reply(pending, 202);
@@ -689,11 +759,36 @@ async function communityFetchBusiness(
     ) {
       const manualReward = selectedManualReward && structuredClone(selectedManualReward);
       const profileJson = manualReward ? JSON.stringify(manualReward.profile) : env.REWARDS_PROFILE_JSON;
-      insist(profileJson, "rewards_not_configured", 503);
-      const profile = rewardProfile(profileJson);
-      const config = await configuration(!!manualReward);
+      const profile = selectedReward?.profile ?? (profileJson ? rewardProfile(profileJson) : undefined);
+      insist(profile, "rewards_not_configured", 503);
+      const config = await configuration(!!(selectedReward || manualReward));
+      const db = env.DB;
+      const rewardPorts = selectedReward ? undefined : ports.rewards;
+      const history = publicReads.configurationHistory;
+      const checkInstalled = async () => {
+        insist(isWeb2Deployment(deployment) && selectedReward && history && privatePractice?.activities.dance &&
+          env.DB === db &&
+          env.WEB2_MANUAL_REWARD_CLOSE_INPUTS === undefined &&
+          env.REWARDS_PROFILE_JSON === undefined &&
+          env.REWARDS_RESULT_SOURCE_JSON === undefined &&
+          env.REWARDS_RESULT_SUCCESSORS_JSON === undefined &&
+          env.DANCE_REWARD_SOURCE_JSON === undefined &&
+          env.DANCE_REWARD_SOURCE_SELECTION_HASH === undefined,
+          "dance_reward_selection_conflict", 503);
+        const current = await readInstalledDanceRewardAttachment(env, await web2ApplicationOriginal(env), deployment);
+        insist(env.DB === db && current?.attachmentDigest === selectedReward.attachmentDigest,
+          "dance_reward_attachment_changed", 503);
+        assertInstalledDanceRewardConfiguration(selectedReward, config);
+      };
       let manualSources: RewardsApiPorts["sources"];
-      if (manualReward) {
+      if (selectedReward) {
+        await checkInstalled();
+        insist(history, "dance_reward_history_unavailable", 503);
+        manualSources = danceV2ManualRewardSources({
+          db, profile, source: selectedReward.source, installationId: selectedReward.installationId,
+          reads: { ...publicReads, configurationHistory: history.bind(publicReads) },
+        });
+      } else if (manualReward) {
         const { source, offer } = manualReward;
         const history = publicReads.configurationHistory;
         insist(
@@ -716,8 +811,8 @@ async function communityFetchBusiness(
           reads: { ...publicReads, configurationHistory: history.bind(publicReads) },
         });
       }
-      const danceRaw = manualReward ? undefined : env.DANCE_REWARD_SOURCE_JSON;
-      const danceHash = manualReward ? undefined : env.DANCE_REWARD_SOURCE_SELECTION_HASH;
+      const danceRaw = selectedReward || manualReward ? undefined : env.DANCE_REWARD_SOURCE_JSON;
+      const danceHash = selectedReward || manualReward ? undefined : env.DANCE_REWARD_SOURCE_SELECTION_HASH;
       insist(
         !!danceRaw === !!danceHash &&
           (!danceRaw ||
@@ -744,7 +839,7 @@ async function communityFetchBusiness(
             })()
           : undefined;
       const sources =
-        manualSources ?? ports.rewards?.sources ??
+        manualSources ?? rewardPorts?.sources ??
         (profile.mode === "live-testnet" && env.REWARDS_RESULT_SOURCE_JSON
           ? liveRewardSources({
               db: env.DB,
@@ -761,16 +856,45 @@ async function communityFetchBusiness(
       const result = await rewardsCommunityApi(
         request,
         {
-          db: env.DB,
+          db,
           profile,
-          chain: ports.rewards?.chain ?? rewardChain(),
-          verification: ports.rewards?.verification ?? rewardVeryProvider(),
+          chain: rewardPorts?.chain ?? rewardChain(),
+          verification: rewardPorts?.verification ?? rewardVeryProvider(),
           sources,
           now: ports.now,
           ...(manualReward ? { manualClose: { ...manualReward.offer, sourceHash: manualReward.source.sourceHash } } : {}),
+          ...(selectedReward ? {
+            installedDanceOffer: {
+              offerId: selectedReward.offerId, sourceHash: selectedReward.sourceHash,
+              async prepareAttachedSong(songKey) {
+                insist(isWeb2Deployment(deployment), "dance_reward_attachment_unverified", 503);
+                const operator = await DancePrivateRequestSession.open(request, db, context);
+                insist(operator.actor.wallet === selectedReward.profile.operatorWallet, "reward_operator_required", 403);
+                const { publication } = await openNativePublicationApplication(env, deployment, publicReads.client);
+                const mounting = publication.installation;
+                insist(mounting?.db === db && canonical(publication.catalog.fresh().configuration) === canonical(config),
+                  "dance_installed_publication_changed", 503);
+                return prepareInstalledDanceOfferProjection({
+                  db, config, reads: publicReads, selection: selectedReward, songKey,
+                  authorityFences: [mounting.mountFence(), ...operator.fences],
+                  async current() {
+                    await operator.check();
+                    assertInstalledDanceRewardConfiguration(selectedReward, await configuration(true));
+                    await checkInstalled();
+                    await reuseNativePublicationApplication(env, deployment, publication);
+                    await operator.check();
+                  },
+                });
+              },
+              async assertCurrent() {
+                assertInstalledDanceRewardConfiguration(selectedReward, await configuration(true));
+                await checkInstalled();
+              },
+            },
+          } : {}),
           confirmedCutoffTimestamp:
-            (manualReward ? undefined : ports.rewards?.confirmedCutoffTimestamp) ??
-            (!manualReward && ports.rewards
+            (manualReward ? undefined : rewardPorts?.confirmedCutoffTimestamp) ??
+            (!manualReward && rewardPorts
               ? undefined
               : () =>
                   confirmedRewardTimestamp(
@@ -786,7 +910,7 @@ async function communityFetchBusiness(
                     profile.chainId,
                   )),
           songs:
-            ports.rewards?.songs ??
+            rewardPorts?.songs ??
             (async () =>
               (await publicSongViews(env.DB, config, publicReads)).map(
                 (song) => ({
@@ -1089,6 +1213,7 @@ async function communityFetchBusiness(
       };
       return reply({
         ...capabilities,
+        ...(privateDance && rewards?.danceRewardDiscovery ? { danceRewardOffers: true } : {}),
         ...(sharedFeed ? { sharedSongFeed: true } : {}),
       });
     }
@@ -1626,9 +1751,11 @@ export async function communityQueue(
   batch: Pick<MessageBatch<CommunityQueueJob>, "messages">,
   env: CommunityEnv,
   provided?: CommunityDependencies,
+  readDanceScope?: InstalledDanceOwnerScopeReader,
 ) {
+  insist(!provided?.installedDance && (!readDanceScope || !provided), "dance_installed_runtime_required", 503);
   const deployment=provided?.deployment??deploymentProfile(env);
-  const ports = provided ?? dependencies(env);
+  const ports = provided ?? dependencies(env, undefined, false, readDanceScope);
   let config = await (isWeb2Deployment(deployment) ? freshAuthority(ports,deployment)() : ports.configuration());
   insist(
     config.communityId === deployment.directoryProfile.communityId &&

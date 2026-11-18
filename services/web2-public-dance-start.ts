@@ -37,6 +37,12 @@ import {
 import { createDanceSongResources } from "./dance-song-resources.ts";
 import type { PublicationApplicationPorts } from "./publication-app.ts";
 import { publicationSelectionHash } from "./publication-app-selection.ts";
+import { assertInstalledRewardDanceSource } from "./web2-installed-dance-song.ts";
+import {
+  assertInstalledDanceRewardConfiguration,
+  installedDanceOfferForSong,
+  type InstalledDanceRewards,
+} from "./web2-installed-dance-rewards.ts";
 
 /** Alpha assigns the expanded-only migration. No runtime DDL. The attempt
  * stores only a hash and DB clock, with the existing capture deadline. */
@@ -50,6 +56,8 @@ export const DANCE_PUBLICATION_STARTS_SCHEMA_PROPOSAL = [
 export interface Web2PublicDanceInputs {
   publication: PublicationApplicationPorts;
   source: DancePublicationSourceV2;
+  /** Only the verified native installation may select a signed rewards peer. */
+  installedReward?: InstalledDanceRewards;
   publisher: Address;
   owner: { epoch: bigint; wallet: Address };
   /** Separately selected read-only transport to the publisher nonce owner. */
@@ -91,6 +99,7 @@ export function web2PublicDanceStart(
   reads: PublicReadPorts,
 ): DancePublicationCaptureSelection {
   const { db, installation, catalog, client } = input.publication;
+  const installed = input.installedReward;
   const clock = { ...input.publication.clock };
   const { source, publisher, owner, policy } = structuredClone({
     source: input.source,
@@ -103,6 +112,10 @@ export function web2PublicDanceStart(
   const configJson = canonical(config);
   const community = config.communityId;
   const ttl = integer(policy.captureTtlMs, 1, 3600000);
+  if (installed) {
+    assertInstalledDanceRewardConfiguration(installed, config);
+    assertInstalledRewardDanceSource(installed, source);
+  }
   insist(
     installation?.db === db &&
       installation.catalog === catalog &&
@@ -163,6 +176,8 @@ export function web2PublicDanceStart(
         "dance_publication_target_changed",
         409,
       );
+      if (installed && target.offerId !== null)
+        insist(target.offerId === installed.offerId, "dance_reward_offer_changed", 409);
       validateConsent(request.consent, consent);
       const predicates: DanceFence[] = [authorization, configuration];
       const afterAwait = () => store.assert(predicates);
@@ -183,6 +198,11 @@ export function web2PublicDanceStart(
       predicates.push(selected.fence, publication.fence);
       if (s.offer) {
         const o = s.offer;
+        if (installed) {
+          const retained = await installedDanceOfferForSong(db, installed, target.songKey, await store.now());
+          insist(retained && retained.offerProgramId === s.offerProgramId &&
+            canonical(retained.offer) === canonical(o), "dance_reward_offer_changed", 409);
+        }
         const row = await db
           .prepare(
             "SELECT * FROM reward_offers WHERE program_id=? AND offer_id=?",

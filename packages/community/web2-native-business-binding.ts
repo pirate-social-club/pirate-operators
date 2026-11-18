@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { exact, insist, object } from "./common.ts";
+import { exact, hashJson, insist, object } from "./common.ts";
+import { web2DanceRewardIntent } from "./web2-dance-reward-attachment.ts";
 import {
   nativeCanonical,
   nativeDigest,
@@ -21,6 +22,7 @@ export interface Web2NativeOriginal {
   release: SignedRecord<
     Pick<FullRelease, "schema" | "artifactDigest" | "sourceDigest"> & {
       publishingAttachmentDigest?: `0x${string}`;
+      danceRewardIntentSha256?: `0x${string}`;
       graph: Pick<
         FullRelease["graph"],
         "installationId" | "durableScope" | "directoryRuntimeBinding"
@@ -41,7 +43,9 @@ export function web2ApplicationReleaseBody(
 ): Web2NativeOriginal["release"]["body"] {
   const attachment = release.graph.applicationBindings.filter(x => x.name === "WEB2_PUBLISHING_ATTACHMENT_SHA256");
   insist(attachment.length <= 1 && (!attachment.length || (typeof attachment[0]!.text === "string" && /^0x[0-9a-f]{64}$/.test(attachment[0]!.text))),"web2_publishing_attachment_changed",503);
+  const reward = release.graph.danceRewardIntent;
   return {
+    ...(reward ? { danceRewardIntentSha256: hashJson(web2DanceRewardIntent(reward)) } : {}),
     ...(attachment.length ? {publishingAttachmentDigest:attachment[0]!.text as `0x${string}`} : {}),
     schema: release.schema,
     artifactDigest: release.artifactDigest,
@@ -79,7 +83,8 @@ export async function web2NativeOriginal(
   await verifyNativeRecord(input.release, input.trust);
   const body = input.record.body,
     release = input.release.body;
-  exact(object(release), ["schema", "artifactDigest", "sourceDigest", "graph", ...(Object.hasOwn(release,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : [])]);
+  exact(object(release), ["schema", "artifactDigest", "sourceDigest", "graph", ...(Object.hasOwn(release,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : []),
+    ...(Object.hasOwn(release, "danceRewardIntentSha256") ? ["danceRewardIntentSha256"] : [])]);
   exact(object(release.graph), [
     "installationId",
     "durableScope",
@@ -99,6 +104,7 @@ export async function web2NativeOriginal(
     "enrollment",
     "registrationAuthority",
     ...(Object.hasOwn(body,"publishingAttachmentDigest") ? ["publishingAttachmentDigest"] : []),
+    ...(Object.hasOwn(body, "danceRewardIntentSha256") ? ["danceRewardIntentSha256"] : []),
   ]);
   const draft = linuxWeb2DraftFrom(body.draft);
   insist(
@@ -114,6 +120,9 @@ export async function web2NativeOriginal(
       body.releaseArtifactDigest === release.artifactDigest &&
       body.releaseSourceDigest === release.sourceDigest &&
       body.publishingAttachmentDigest === release.publishingAttachmentDigest &&
+      body.danceRewardIntentSha256 === release.danceRewardIntentSha256 &&
+      (!Object.hasOwn(body, "danceRewardIntentSha256") || (typeof body.danceRewardIntentSha256 === "string" &&
+        /^0x[0-9a-f]{64}$/.test(body.danceRewardIntentSha256))) &&
       (!Object.hasOwn(body,"publishingAttachmentDigest") || (typeof body.publishingAttachmentDigest === "string" && /^0x[0-9a-f]{64}$/.test(body.publishingAttachmentDigest))) &&
       nativeCanonical(JSON.parse(release.graph.directoryRuntimeBinding)) ===
         nativeCanonical(draft.deployment) &&

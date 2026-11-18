@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { nativePublicationBindingNames, nativePublicationPaths, nativePublicationService,
   type Web2NativePublicationGraph } from "./web2-publication-selection.ts";
 import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/shared-song-feed-settings.ts";
+import type { Web2DanceRewardIntent } from "../../packages/community/web2-dance-reward-attachment.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
   installationId:string;durableScope:string;releaseRoot:string;schemaPath:string;stateRoots:Record<string,string>;socket:string;
@@ -12,6 +13,7 @@ export interface NativeGraph {
   directoryRuntimeBinding:string;allowedOrigins:string[];
   localActivitySocket?:string;
   nativePublication?:Web2NativePublicationGraph;
+  danceRewardIntent?:Web2DanceRewardIntent;
   /** Signed opt-in. The immutable registration still uses revision one. */
   publicationExpansion?:"registry-revision-two/1"|"retained-registry-revision-two/1";
   secretBindings:Array<{name:string;path:string}>;

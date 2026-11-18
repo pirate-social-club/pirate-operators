@@ -96,6 +96,7 @@ export interface Web2InstallPlan {
   releaseSourceDigest: string;
   /** Optional only for retained pre-attachment plans. New owner bindings require it. */
   publishingAttachmentDigest?: Hex;
+  danceRewardIntentSha256?: Hex;
   targetDigest: string;
   hostFingerprint: string;
   enrollment: Web2EnrollmentEvidence;

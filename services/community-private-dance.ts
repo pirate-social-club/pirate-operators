@@ -239,6 +239,7 @@ export class CommunityPrivateDance {
  * processor and R2 objects; no V4 placeholder or second recorder pipeline. */
 export function createPrivatePracticeDance(input:{db:D1Database;bucket:R2Bucket;config:CommunityConfig;reads:PublicReadPorts;
   policy:DancePrivatePolicyV2;referenceAccess?:DanceReferenceAccess;renderer:Pick<Fetcher,"fetch">;
+  installedOffer?: Parameters<typeof createDancePrivateCatalogue>[0]["installedOffer"];
   publicationV2?: DancePublicationMediaAccess;
   enqueue(job:PrivateMediaJob):Promise<void>;now?:()=>number;current?:()=>Promise<void>}) {
   const catalogue=createDancePrivateCatalogue(input);

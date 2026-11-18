@@ -36,8 +36,12 @@ export function RewardOfferPanel(props: {
     document.removeEventListener("visibilitychange", tick);
   });
   const selectedSong = () => song() || props.view.songs[0]?.songKey || "";
-  const rehearsal = () =>
-    kind() === "rehearsal" ? props.view.rehearsal : null;
+  const installed = () => props.view.installedDanceOfferId;
+  const rehearsal = () => {
+    const terms = props.view.rehearsal;
+    if (installed()) return terms?.offerId === installed() ? terms : null;
+    return kind() === "rehearsal" ? terms : null;
+  };
   const alreadyAttached = () =>
     !!rehearsal() &&
     props.view.offers.some((o) => o.offerId === rehearsal()!.offerId);
@@ -58,6 +62,7 @@ export function RewardOfferPanel(props: {
               event.preventDefault();
               void props.run(async () => {
                 const terms = rehearsal();
+                if (installed() && !terms) return;
                 await props.data.operation("/offers", {
                   offerId: terms?.offerId ?? crypto.randomUUID(),
                   drawingId: terms?.drawingId ?? drawing(),
@@ -74,7 +79,7 @@ export function RewardOfferPanel(props: {
               });
             }}
           >
-            <Show when={props.view.rehearsal}>
+            <Show when={props.view.rehearsal && !installed()}>
               <label class="flex flex-col gap-2">
                 Drawing source
                 <select
@@ -91,10 +96,10 @@ export function RewardOfferPanel(props: {
               {(terms) => (
                 <Type as="p">
                   Simulated ticket and prize evidence:{" "}
-                  {dollars(terms().prizeUsdcAtomic, 6)} total. Payments use
-                  prefunded testnet dollars. This one offer fixes its song and
-                  window when attached; allow time to complete the real lesson
-                  before closing.
+                  {dollars(terms().prizeUsdcAtomic, 6)} total.{" "}
+                  {installed()
+                    ? "Attachment fixes the song and window. Allow time to submit and review the Dance take before the cutoff."
+                    : "Payments use prefunded testnet dollars. This one offer fixes its song and window when attached; allow time to complete the real lesson before closing."}
                 </Type>
               )}
             </Show>
@@ -110,7 +115,7 @@ export function RewardOfferPanel(props: {
                 </For>
               </select>
             </label>
-            <Show when={!rehearsal()}>
+            <Show when={!rehearsal() && !installed()}>
               <label class="flex flex-col gap-2">
                 Drawing number
                 <input
@@ -160,7 +165,12 @@ export function RewardOfferPanel(props: {
               />
             </label>
             <Button
-              disabled={props.busy || !selectedSong() || alreadyAttached()}
+              disabled={
+                props.busy ||
+                !selectedSong() ||
+                alreadyAttached() ||
+                (!!installed() && !rehearsal())
+              }
               type="submit"
             >
               {rehearsal()
@@ -227,7 +237,19 @@ export function RewardOfferPanel(props: {
                     }
                   </Type>
                 </Show>
-                <Show when={offer.state === "closed"}>
+                <Show
+                  when={
+                    installed() && offer.state === "closed" && offer.entries
+                  }
+                >
+                  {(entries) => (
+                    <Type as="p" role="status">
+                      {entries().length}{" "}
+                      {entries().length === 1 ? "qualifier" : "qualifiers"}
+                    </Type>
+                  )}
+                </Show>
+                <Show when={!installed() && offer.state === "closed"}>
                   <Show when={offer.evidenceMode !== "simulated"}>
                     <label class="flex flex-col gap-2">
                       Collection transaction, required for a win

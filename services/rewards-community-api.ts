@@ -5,6 +5,7 @@ import {
 } from "../packages/community/accounts.ts";
 import {
   bytes32,
+  exact,
   insist,
   integer,
   jsonBody,
@@ -12,6 +13,7 @@ import {
 } from "../packages/community/common.ts";
 import type {
   RewardChain,
+  RewardOffer,
   RewardOfferInput,
   RewardSources,
   RewardVerificationProvider,
@@ -37,7 +39,15 @@ import {
 } from "../packages/rewards/validation.ts";
 import { equalTokens } from "../packages/community/token-comparison.ts";
 import { RewardTreasury } from "../packages/rewards/treasury.ts";
-import { rehearsalTerms } from "../packages/rewards/rehearsal.ts";
+import {
+  assertRehearsalOffer,
+  rehearsalTerms,
+} from "../packages/rewards/rehearsal.ts";
+import {
+  allowsInstalledDanceReward,
+  readInstalledDanceOffer,
+  type ManualDanceOfferSelection,
+} from "./web2-installed-dance-rewards.ts";
 import { rewardCloseReadiness } from "../packages/rewards/close-readiness.ts";
 
 export interface RewardsApiPorts {
@@ -46,12 +56,15 @@ export interface RewardsApiPorts {
   chain: RewardChain;
   verification: RewardVerificationProvider;
   sources?: RewardSources;
-  /** Selected expanded operator read/close routes. Legacy callers omit this. */
-  manualClose?: RewardManualClose;
   now?: () => number;
   songs?: () => Promise<{ songKey: string; title: string; postId?: string }[]>;
   /** Safe-confirmed timestamp in Unix milliseconds; absence never unlocks closing. */
   confirmedCutoffTimestamp?: () => Promise<number>;
+  manualClose?: RewardManualClose;
+  installedDanceOffer?: ManualDanceOfferSelection & {
+    assertCurrent(): Promise<void>;
+    prepareAttachedSong?(songKey: string): Promise<(offer: RewardOffer) => Promise<void>>;
+  };
 }
 /** Uses the pilot's host-only account cookie. No central persona or Privy authentication is accepted. */
 export async function rewardsCommunityApi(
@@ -67,19 +80,43 @@ export async function rewardsCommunityApi(
     !path.startsWith("/api/operator/rewards")
   )
     return null;
-  const manualClose = ports.manualClose;
+  const { installedDanceOffer: installed, manualClose } = ports;
   if (manualClose)
     insist(
-      (request.method === "GET" && path === "/api/operator/rewards") ||
-        (request.method === "POST" &&
-          path === `/api/operator/rewards/offers/${manualClose.offerId}/close`),
+      !installed &&
+        ((request.method === "GET" && path === "/api/operator/rewards") ||
+          (request.method === "POST" &&
+            path ===
+              `/api/operator/rewards/offers/${manualClose.offerId}/close`)),
       "reward_route_not_found",
       404,
     );
-  const session =
-    request.method === "GET"
-      ? await accountSession(request, ports.db, context)
-      : await authenticatedWrite(request, ports.db, context);
+  if (installed) {
+    headers.set("cache-control", "no-store, private");
+    headers.set("vary", "Cookie");
+    insist(
+      allowsInstalledDanceReward(request.method, path, installed),
+      "reward_route_not_found",
+      404,
+    );
+  }
+  const read = request.method === "GET" ? accountSession : authenticatedWrite;
+  const session = await read(request, ports.db, context);
+  const assertCurrent =
+    installed &&
+    (async () => {
+      await installed.assertCurrent();
+      const active = await read(request, ports.db, context);
+      insist(
+        active.session_hash === session.session_hash &&
+          active.account_id === session.account_id &&
+          active.binding_id === session.binding_id &&
+          active.wallet === session.wallet &&
+          active.csrf_token === session.csrf_token,
+        "reward_session_changed",
+        403,
+      );
+    });
   // Optional captured-session guards for private paginated reads. Existing single-read
   // clients stay compatible; the wallet adapter always supplies the session guard.
   if (
@@ -102,6 +139,10 @@ export async function rewardsCommunityApi(
       wallet: rewardAddress(session.wallet),
     },
     store = new RewardStore(ports.db, ports.profile);
+  const isOperator = principal.wallet === ports.profile.operatorWallet;
+  if (installed && path.startsWith("/api/operator/rewards"))
+    insist(isOperator, "reward_operator_required", 403);
+  if (assertCurrent) await assertCurrent();
   await store.init();
   const claims = new RewardClaims(store, ports.verification, ports.now),
     payments = new RewardPayments(store, ports.chain, ports.now, ports.sources);
@@ -109,9 +150,42 @@ export async function rewardsCommunityApi(
   const reply = (value: unknown) => Response.json(value, { headers });
   const get = () => insist(request.method === "GET", "method_not_allowed", 405),
     post = () => insist(request.method === "POST", "method_not_allowed", 405);
-  const isOperator = principal.wallet === ports.profile.operatorWallet;
   if (path === "/api/rewards/offers") {
     get();
+    if (installed && assertCurrent) {
+      const selected = await readInstalledDanceOffer(store, installed);
+      const offer = selected?.offer;
+      if (
+        !offer ||
+        offer.state !== "open" ||
+        offer.cutoffAt <= (ports.now ?? Date.now)()
+      ) {
+        await assertCurrent();
+        return reply({ practiceOnly: true, offers: [] });
+      }
+      const songs = await (ports.songs?.() ?? Promise.resolve([]));
+      const postId = songs.find(
+        (song) => song.songKey === offer.songKey,
+      )?.postId;
+      insist(postId, "reward_song_not_published", 503);
+      await assertCurrent();
+      if (offer.cutoffAt <= (ports.now ?? Date.now)())
+        return reply({ practiceOnly: true, offers: [] });
+      return reply({
+        practiceOnly: true,
+        offers: [
+          {
+            offerId: offer.offerId,
+            postId,
+            drawingId: offer.drawingId,
+            opensAt: offer.opensAt,
+            cutoffAt: offer.cutoffAt,
+            ticketCount: offer.ticketIds.length,
+            eligibility: "dance-pass",
+          },
+        ],
+      });
+    }
     const rows = await store
       .statement(
         "SELECT * FROM reward_offers WHERE program_id=? AND state='open' AND cutoff_at>? ORDER BY cutoff_at LIMIT 100",
@@ -210,14 +284,19 @@ export async function rewardsCommunityApi(
     insist(isOperator, "reward_operator_required", 403);
     if (path === "/api/operator/rewards") {
       get();
+      const selected = installed
+        ? await readInstalledDanceOffer(store, installed)
+        : null;
       const [offers, paymentRows, ready, inventory, funding] =
         await Promise.all([
-          store
-            .statement(
-              "SELECT * FROM reward_offers WHERE program_id=? ORDER BY cutoff_at DESC LIMIT 100",
-              store.program,
-            )
-            .all<OfferRow>(),
+          installed
+            ? { results: selected ? [selected.row] : [] }
+            : store
+                .statement(
+                  "SELECT * FROM reward_offers WHERE program_id=? ORDER BY cutoff_at DESC LIMIT 100",
+                  store.program,
+                )
+                .all<OfferRow>(),
           store
             .statement(
               "SELECT * FROM reward_payments WHERE program_id=? ORDER BY prepared_at DESC LIMIT 100",
@@ -289,7 +368,8 @@ export async function rewardsCommunityApi(
           // Keep balances and liabilities available when confirmation cannot be read.
         }
       }
-      return reply({
+      const view = {
+        ...(installed ? { installedDanceOfferId: installed.offerId } : {}),
         closeReadiness: rewardCloseReadiness(
           offers.results.map(offerView),
           checkedAt,
@@ -324,7 +404,9 @@ export async function rewardsCommunityApi(
         token: ports.profile.token,
         chainId: 6343,
         songs: await (ports.songs?.() ?? Promise.resolve([])),
-      });
+      };
+      if (assertCurrent) await assertCurrent();
+      return reply(view);
     }
     post();
     const body = await jsonBody(request);
@@ -444,12 +526,51 @@ export async function rewardsCommunityApi(
         "reward_song_not_published",
         409,
       );
-      return reply(await offers.attach(input));
+      if (installed) {
+        insist(
+          input.offerId === installed.offerId &&
+            (input.resultSources === undefined ||
+              (input.resultSources.length === 1 &&
+                input.resultSources[0] === installed.sourceHash)),
+          "reward_manual_offer_changed",
+          409,
+        );
+        input.resultSources = [installed.sourceHash];
+        assertRehearsalOffer(ports.profile, input);
+      }
+      const prior = installed && await readInstalledDanceOffer(store, installed);
+      const projectSong = installed && (!prior ||
+        (prior.offer.state === "open" && prior.offer.cutoffAt > (ports.now ?? Date.now)()))
+        ? await installed.prepareAttachedSong?.(input.songKey) : undefined;
+      const attached = await offers.attach(input, assertCurrent);
+      if (projectSong && assertCurrent && attached.state === "open") {
+        await assertCurrent();
+        await projectSong(attached);
+        await assertCurrent();
+      }
+      return reply(attached);
     }
     const offer =
       /^\/api\/operator\/rewards\/offers\/([a-zA-Z0-9_-]{8,128})\/(close|settle)$/.exec(
         path,
       );
+    if (installed) {
+      insist(offer?.[2] === "close", "reward_route_not_found", 404);
+      exact(body, []);
+      const selected = await readInstalledDanceOffer(store, installed);
+      insist(selected, "reward_offer_not_found", 404);
+      return reply(
+        await offers.close(
+          installed.offerId,
+          {
+            offerId: installed.offerId,
+            sourceHash: installed.sourceHash,
+            inputHash: selected.row.input_hash,
+          },
+          assertCurrent,
+        ),
+      );
+    }
     if (offer)
       return reply(
         await (offer[2] === "close"

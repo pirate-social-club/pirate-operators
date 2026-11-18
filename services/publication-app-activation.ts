@@ -22,6 +22,7 @@ const PENDING = `EXISTS(SELECT 1 FROM publication_v1_commands w
   AND w.source_id=h.source_id AND w.purpose=h.purpose AND w.action='withdraw'
   AND (w.fence_generation IS NULL OR w.fence_ack_json IS NULL OR
     COALESCE(w.result_state,'') NOT IN ('recorded','reverted','withheld')))`;
+export { PENDING as PUBLICATION_PENDING_WITHDRAWAL };
 export interface PublicationActivationHead {
   generation: number;
   stopped: number;

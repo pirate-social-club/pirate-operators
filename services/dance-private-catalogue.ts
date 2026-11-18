@@ -78,6 +78,11 @@ export function createDancePrivateCatalogue(input: {
   reads: PublicReadPorts;
   policy: DancePrivatePolicyV2;
   referenceAccess?: DanceReferenceAccess;
+  /** Present only for a signed installed offer; null holds all reward rows. */
+  installedOffer?: (songKey: string, now: number) => Promise<{
+    offerProgramId: string;
+    offer: NonNullable<DanceSelectedSong["offer"]>;
+  } | null>;
 }) {
   const { db } = input,
     config = structuredClone(input.config),
@@ -418,13 +423,20 @@ export function createDancePrivateCatalogue(input: {
     insist(rows.results.length <= 20, "dance_private_catalogue_limit", 503);
     const choices = [],
       fences = await context();
+    const installed = input.installedOffer && rows.results.some(row => row.offer_id)
+      ? await input.installedOffer(songKey, await store.now()) : null;
     for (const row of rows.results) {
+      if (input.installedOffer && row.offer_id &&
+          (row.reference_id || row.offer_id !== installed?.offer.offerId)) continue;
       const chosen = await resources.selected(
           songKey,
           row.reference_id || null,
           row.offer_id || null,
         ),
         s = chosen.song;
+      if (input.installedOffer && s.offer &&
+          (!installed || s.offerProgramId !== installed.offerProgramId ||
+            canonical(s.offer) !== canonical(installed.offer))) continue;
       const target = {
         communityId: community,
         songKey,
@@ -518,6 +530,10 @@ export function createDancePrivateCatalogue(input: {
     guide,
     active,
     publishedSong,
+    assertPrivateTarget(target: DanceProductionTarget) {
+      if (input.installedOffer)
+        insist(target.offerId === null, "dance_reward_offer_requires_publication", 409);
+    },
     songKeyForPost: resources.songKeyForPost,
   };
 }

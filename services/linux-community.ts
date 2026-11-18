@@ -2,13 +2,15 @@ import { nativePublicationLookupFetch } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
 import { nativeApplicationOriginal, web2ApplicationOriginal } from "./application-native-readback.ts";
 import {
-  communityFetch, communityQueue, communityScheduled,
+  communityFetch, communityQueue, communityScheduled, web2PrivateDanceHostPorts,
   type CommunityEnv,
 } from "./community-application.ts";
 import { readCommunityDeploymentProfile, isWeb2Deployment, type CommunityDeploymentProfile } from "./community-deployment-profile.ts";
 import { canonical, insist } from "../packages/community/common.ts";
 import type { CommunityQueueJob } from "./community-private-dance.ts";
 import {nativeDigest} from "../packages/community/native-business-binding.ts";
+import type { DanceV2OriginalLookup } from "./dance-v2-action-recovery.ts";
+import { linuxWeb2DanceOwnerScopeReader } from "./linux-web2-dance-owner-scope.ts";
 
 import { linuxWeb2KaraokeUpgrade, type NativeKaraokeSocketEnv } from "./linux-web2-karaoke-upgrade.ts";
 import { danceHostPrefix, nativeDanceAuthority, type NativeDanceEnv } from "./linux-web2-dance-authority.ts";
@@ -18,6 +20,24 @@ import { bindNativePostsCustody, nativePostsCustody, type NativePostsEnv } from 
 
 export interface LinuxCommunityEnv extends CommunityEnv, NativeKaraokeSocketEnv, NativeDanceEnv, NativePostsEnv {
   COMMUNITY_DEPLOYMENT_PROFILE_JSON: string;
+  WEB2_DANCE_RETAINED_SCOPE_JSON?: string;
+  WEB2_DANCE_V2_ORIGINALS?: DanceV2OriginalLookup;
+}
+
+function installedDanceScope(env: LinuxCommunityEnv) {
+  const actionOriginals = env.WEB2_DANCE_V2_ORIGINALS;
+  if (env.WEB2_DANCE_RETAINED_SCOPE_JSON === undefined && !actionOriginals) return undefined;
+  return linuxWeb2DanceOwnerScopeReader({
+    env, actionOriginals,
+    readRecord: () => env.WEB2_DANCE_RETAINED_SCOPE_JSON,
+    async readFreshConfiguration(deployment) {
+      insist(canonical(readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON)) === canonical(deployment),
+        "linux_web2_dance_retained_deployment_changed", 503);
+      const config = await web2PrivateDanceHostPorts(env).current();
+      insist(config.schema === "pirate.community-config/4", "linux_web2_dance_retained_configuration_changed", 503);
+      return config;
+    },
+  });
 }
 async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeploymentProfile){
   if(isWeb2Deployment(deployment)){
@@ -69,12 +89,14 @@ export default {
         return nativeDanceAuthority(request, bound, deployment);
       }
     }
-    return await communityFetch(request, bound);
+    return await communityFetch(request, bound, undefined,
+      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined);
   },
   async queue(batch, env) {
     const deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);
     const bound=isWeb2Deployment(deployment)?await installedOriginal(env,deployment):env;
-    await communityQueue(batch, bound);
+    await communityQueue(batch, bound, undefined,
+      isWeb2Deployment(deployment) ? installedDanceScope(bound) : undefined);
   },
   async scheduled(_event, env) {
     const deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);

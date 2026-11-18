@@ -49,9 +49,8 @@ const dataShape = event.inputs.filter(
   (x) => !x.indexed,
 ) as readonly AbiParameter[];
 
-export function rewardDanceV2Fixture() {
-  const baseS = 1_800_000_000n,
-    code = "0x60006000f3" as Hex,
+export function rewardDanceV2Fixture(baseS = 1_800_000_000n) {
+  const code = "0x60006000f3" as Hex,
     codeHash = keccak256(code);
   const domain = { chainId: 6343n, communityId: word(1), verifier: address(2) };
   const pin = {
