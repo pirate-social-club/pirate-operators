@@ -489,7 +489,7 @@ test("trusted revision two holds without signed proof and reopens the same initi
     });
     try {
       const db = await runtime.getD1Database("DB"), orphan = await runtime.getD1Database("ORPHAN");
-      const media = await runtime.getR2Bucket("MEDIA");
+      const { MEDIA: media } = await runtime.getBindings<{ MEDIA: R2Bucket }>();
       const env = {
         DB: db, MEDIA: media, NATIVE_APPLICATION_ORIGINAL_JSON: originalBytes,
         MIGRATION_PLAN_JSON: JSON.stringify({ schema: "pirate.linux-migration-plan/1", qualificationOnly: true,
