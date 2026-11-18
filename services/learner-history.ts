@@ -23,6 +23,7 @@ export function learnerHistoryDiagnostics(
     lastAudioEndMs: relay?.lastAudioEndMs ?? null,
     providerMessageSequence: relay?.sttSequence ?? 0,
     providerTerminal: relay?.terminal ?? null,
+    ...(relay?.lastLocalFailure ? { lastLocalFailure: relay.lastLocalFailure } : {}),
     failedLineCount: relay?.failedLineIds.length ?? 0,
     resolvedThroughMs: relay?.resolvedThroughMs ?? null,
     feedbackThroughMs:
@@ -49,6 +50,9 @@ export function saveLearnerHistory(
   result: KaraokeResultBody,
   manifest: KaraokeManifest,
   retentionDays: number,
+  provider = { name: "elevenlabs", model: "scribe_v2_realtime" } as {
+    name: string; model: string; modelSha256?: string; timing?: string;
+  },
 ) {
   check(
     Number.isSafeInteger(retentionDays) &&
@@ -73,7 +77,7 @@ export function saveLearnerHistory(
       policy: `karaoke-scoring/${result.summary.scoringVersion}`,
       outcomes: result.lines,
     },
-    provider: { name: "elevenlabs", model: "scribe_v2_realtime" },
+    provider,
     limitations: [
       "Recognized text and timings are speech-recognition evidence, not a direct pronunciation measurement.",
       "This operator-held export is an interim history copy. It is not an encrypted learner vault.",

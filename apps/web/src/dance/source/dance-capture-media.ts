@@ -27,6 +27,7 @@ export async function boundDanceRecording(input: {
   readonly maximumBytes: number;
   readonly signal: AbortSignal;
   readonly assertCurrent: () => void;
+  readonly allowPrivateVp9Opus?: boolean;
 }): Promise<File> {
   const current = () => {
     input.signal.throwIfAborted();
@@ -78,21 +79,30 @@ export async function boundDanceRecording(input: {
       source.getPrimaryAudioTrack(),
     ]);
     current();
+    if (!video || !audio) throw refused();
+    const [videoCodec, audioCodec] = await Promise.all([
+      video.getCodec(),
+      audio.getCodec(),
+    ]);
     if (
-      !video ||
-      !audio ||
-      (await video.getCodec()) !== "avc" ||
-      (await audio.getCodec()) !== "aac"
+      !(videoCodec === "avc" && audioCodec === "aac") &&
+      !(
+        input.allowPrivateVp9Opus === true &&
+        videoCodec === "vp9" &&
+        audioCodec === "opus" &&
+        (await source.getMimeType()).split(";")[0]?.trim() === "video/mp4"
+      )
     )
       throw refused();
+    current();
     const [videoConfig, audioConfig] = await Promise.all([
       video.getDecoderConfig(),
       audio.getDecoderConfig(),
     ]);
     current();
     if (!videoConfig || !audioConfig) throw refused();
-    const videoOutput = new EncodedVideoPacketSource("avc"),
-      audioOutput = new EncodedAudioPacketSource("aac");
+    const videoOutput = new EncodedVideoPacketSource(videoCodec),
+      audioOutput = new EncodedAudioPacketSource(audioCodec);
     output.addVideoTrack(videoOutput);
     output.addAudioTrack(audioOutput);
     await output.start();
@@ -110,7 +120,7 @@ export async function boundDanceRecording(input: {
         // cut a dependency out of another encoder's reordered stream.
         if (packet.timestamp < previous || packet.duration <= 0)
           throw refused();
-        // Non-presented AAC pre-roll may seed decoder history. This path
+        // Non-presented audio pre-roll may seed decoder history. This path
         // cannot preserve negative timestamps, so refuse instead of silently
         // dropping a packet or shifting either track to make it fit.
         if (packet.timestamp < 0) throw refused();

@@ -401,8 +401,8 @@ export async function createWeb2Journal(
         s.registrationTransaction === r?.transactionHash &&
         s.verifiedListing === false &&
         s.namesEnabled === false &&
-        s.learningEnabled === false &&
-        s.danceEnabled === false,
+        s.learningEnabled === Boolean(draft.privatePractice) &&
+        s.danceEnabled === Boolean(draft.privatePractice?.includes("dance")),
       "web2_installation_context_changed",
       503,
     );

@@ -15,6 +15,7 @@ import {
   type Hex,
 } from "viem";
 import { hashJson, object } from "../../packages/community/common.ts";
+import { PRIVATE_RETENTION_MS } from "../../packages/community-media/validation.ts";
 import { danceVerdictsAbi } from "../../packages/dance-chain/v2/abi.ts";
 import { danceShapes } from "../../packages/dance-chain/v2/wire-shapes.ts";
 import {
@@ -22,6 +23,7 @@ import {
   danceCaptureHash,
   danceConsentHash,
   danceMediaBinding,
+  danceMediaId,
   danceOfferId,
   danceRecordingBinding,
   danceRecordingReplay,
@@ -49,9 +51,14 @@ const dataShape = event.inputs.filter(
   (x) => !x.indexed,
 ) as readonly AbiParameter[];
 
-export function rewardDanceV2Fixture() {
-  const baseS = 1_800_000_000n,
-    code = "0x60006000f3" as Hex,
+export interface RewardDanceAcceptedMedia {
+  id: string;
+  recordingSha256: Hex;
+  revision: number;
+}
+
+export function rewardDanceV2Fixture(baseS = 1_800_000_000n) {
+  const code = "0x60006000f3" as Hex,
     codeHash = keccak256(code);
   const domain = { chainId: 6343n, communityId: word(1), verifier: address(2) };
   const pin = {
@@ -187,6 +194,7 @@ export function rewardDanceV2Fixture() {
       block?: bigint;
       category?: number;
       changeCapture?: (capture: DanceCapture) => void;
+      acceptedMedia?: RewardDanceAcceptedMedia;
     } = {},
   ) {
     const i = events.length,
@@ -228,13 +236,19 @@ export function rewardDanceV2Fixture() {
       },
     };
     options.changeCapture?.(capture);
-    const captureHash = danceCaptureHash(domain, capture),
-      recording = word(400 + i);
+    const accepted = options.acceptedMedia;
+    const captureHash = danceCaptureHash(domain, capture);
+    const recording = accepted?.recordingSha256 ?? word(400 + i);
+    const mediaId = accepted
+      ? danceMediaId(domain, accepted.id)
+      : word(500 + i);
+    const generation = accepted ? BigInt(accepted.revision) : 1n;
+    const deadline = capture.reservedAtMs + BigInt(PRIVATE_RETENTION_MS);
     const binding = danceMediaBinding(
       domain,
       captureHash,
-      word(500 + i),
-      1n,
+      mediaId,
+      generation,
       recording,
     );
     const submission: DanceSubmission = {
@@ -248,13 +262,13 @@ export function rewardDanceV2Fixture() {
         publicityPolicyHash: pin.publicityPolicyHash,
       }),
       mediaBindingHash: binding,
-      mediaIdCommitment: word(500 + i),
-      mediaGeneration: 1n,
+      mediaIdCommitment: mediaId,
+      mediaGeneration: generation,
       recordingReplayKey: danceRecordingReplay(domain, recording),
       recordingBindingHash: danceRecordingBinding(domain, recording, binding),
       trustedSubmittedAtMs: capture.reservedAtMs,
-      reviewDeadlineMs: (baseS + 600n) * 1000n,
-      mediaExpiresAtMs: (baseS + 700n) * 1000n,
+      reviewDeadlineMs: accepted ? deadline : (baseS + 600n) * 1000n,
+      mediaExpiresAtMs: accepted ? deadline : (baseS + 700n) * 1000n,
     };
     const verdict = {
       commandHash: word(600 + i),

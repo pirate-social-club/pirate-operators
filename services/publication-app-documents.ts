@@ -78,12 +78,13 @@ export async function publicationDocuments(
     ] as const) {
       await session.check();
       const response = await fetch(selected.documents[key], {
-        redirect: "error",
+        redirect: "manual",
         signal: controller.signal,
         credentials: "omit",
         cache: "no-store",
       });
       await session.check();
+      check(!response.redirected, "publication_response_unavailable");
       const bytes = await publicationResponseBytes(response, maxDocumentBytes);
       await session.check();
       const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);

@@ -4,6 +4,7 @@ import {
   KaraokeTokenRefusal,
   type KaraokeSttSocketConnect,
 } from "../packages/karaoke/elevenlabs-realtime.ts";
+import type { KaraokeStreamingSttAdapter } from "../packages/karaoke/stt-adapter.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import {
   reserveCommunitySpeech,
@@ -26,12 +27,13 @@ export function admittedKaraokeAdapter(options: {
   store: Pick<ResultStore, "get" | "set" | "transaction">;
   ticketId: string;
   learnerGeneration: number;
-  apiKey: string;
+  apiKey?: string;
+  localAdapter?: KaraokeStreamingSttAdapter;
   admissionRequired: boolean;
   connect?: KaraokeSttSocketConnect;
 }) {
-  const adapter = new ElevenLabsKaraokeSttAdapter({
-    apiKey: options.apiKey,
+  const adapter = options.localAdapter ?? new ElevenLabsKaraokeSttAdapter({
+    apiKey: options.apiKey ?? "",
     connect: options.connect,
   });
   if (!options.admissionRequired) return adapter;

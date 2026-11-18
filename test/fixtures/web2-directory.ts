@@ -36,13 +36,14 @@ export async function web2DirectoryFixture(
   count = 1,
   fault = "",
   policies?: Web2CommunityConfig["policies"],
+  chainId: Web2CommunityConfig["chainId"] = 31337,
 ) {
   const config: Web2CommunityConfig = {
     schema: "pirate.community-config/4",
-    chainId: 31337,
+    chainId,
     directory: a("1"),
     communityKey: h("d"),
-    communityId: directoryInstanceId(31337, h("d")),
+    communityId: directoryInstanceId(chainId, h("d")),
     installationId: h("e"),
     configurationRevision: 1,
     postsContract: a("3"),
@@ -66,7 +67,7 @@ export async function web2DirectoryFixture(
   };
   const profile = validateWeb2Profile({
     schema: "pirate.web2-directory/3",
-    chainId: 31337,
+    chainId,
     directory: config.directory,
     directoryCodeHash: build.runtimeCodeHash,
     directoryAbiSha256: build.abiSha256,
@@ -119,6 +120,7 @@ export async function web2DirectoryFixture(
     web2VerifiedAtBlock: true,
     hnsVerifiedAtBlock: false,
     listed: true,
+    listingRevision: 1n,
     web2ObservedAt: 65536n,
     hnsObservedAt: 65536n,
     web2ValidUntil: 65536n + 3600n,
@@ -245,7 +247,7 @@ export async function web2DirectoryFixture(
     transport: custom({
       async request({ method, params }) {
         if (method === "eth_chainId")
-          return fault === "chain" ? "0x1" : "0x7a69";
+          return fault === "chain" ? "0x1" : "0x" + chainId.toString(16);
         if (method === "eth_getCode")
           return fault === "code" ? "0x6000" : directoryV3Runtime;
         if (method === "eth_getBlockByNumber") {
@@ -440,7 +442,7 @@ export async function web2DirectoryFixture(
                   validUntil: 0n,
                   evidenceSha256: h("0"),
                 },
-                listingRevision: 1n,
+                listingRevision: state.listingRevision,
                 listed: state.listed,
               },
             });

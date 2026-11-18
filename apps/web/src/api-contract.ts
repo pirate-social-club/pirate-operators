@@ -37,9 +37,12 @@ export interface CommunityCapabilities {
    * Absence retains the historical membership behavior. */
   membership?: boolean;
   rewards?: boolean;
+  /** The installed publication app exposes its own authenticated capabilities. */
+  publicationPermissions?: true;
   study?: boolean;
   /** Explicit private practice; login supplies no public publication grant. */
   studyRuntime?: "private-v5";
+  karaokeRuntime?: "private-v5";
   learningServiceMode?: "internal";
   /**
    * The learning documents of the community's version (3 or 4), linked from

@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
+import { EventEmitter } from "node:events";
+import type { RequestOptions } from "node:https";
+import { createRequire, syncBuiltinESMExports } from "node:module";
+import { PassThrough } from "node:stream";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import test from "node:test";
 import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,12 +13,102 @@ import {
   processIdentity,
   type ProcessIdentity,
 } from "../deploy/linux/backend-state.ts";
+import { signRecord, verifyRecord } from "../deploy/linux/installed-records.ts";
 import {
+  inspectCommunityIngress,
+  inspectTrustedRevisionOneIngress,
   retainPublicIngress,
   startPublicIngress,
   waitForCommunityIngress,
+  type PublicIngress,
 } from "../deploy/linux/public-ingress.ts";
 import { ingressFixture } from "./fixtures/linux-web2-installation.ts";
+import { web2DirectoryFixture } from "./fixtures/web2-directory.ts";
+
+test("trusted revision-one HTTPS witness requires exact valid UTF-8 within the decoded size bound", async (t) => {
+  const { config } = await web2DirectoryFixture();
+  const keys = generateKeyPairSync("ed25519");
+  const trust = {
+    keyId: "disposable-ingress-witness",
+    spki: keys.publicKey.export({ type: "spki", format: "der" }).toString("base64"),
+  };
+  const signed = signRecord(
+    { ...config, app: { ...config.app, label: "Café 🎵 �" } },
+    trust, keys.privateKey.export({ type: "pkcs8", format: "der" }),
+  );
+  const original = verifyRecord(signed, trust);
+  const ingress: PublicIngress = {
+    schema: "pirate.linux-public-ingress/1", origin: original.app.origin,
+    upstream: "https://127.0.0.1:8845", upstreamServerName: "upstream.test",
+    upstreamCaFile: "/fixture/ca.pem", upstreamCaSha256: "0".repeat(64),
+    executable: "/fixture/caddy", executableSha256: "0".repeat(64),
+    configurationFile: "/fixture/Caddyfile", dataDirectory: "/fixture/ingress",
+    httpPort: 80, httpsPort: 443,
+    tls: { kind: "public-acme", directory: "https://acme.example/directory", email: "operator@example.com" },
+  };
+  const raw = JSON.stringify(original);
+  const valid = Buffer.from(raw);
+  const two = valid.indexOf(Buffer.from("é"));
+  const four = valid.indexOf(Buffer.from("🎵"));
+  const replacement = valid.indexOf(Buffer.from("�"));
+  assert(two >= 0 && four > two && replacement > four);
+  const validChunks = [
+    valid.subarray(0, two + 1),
+    valid.subarray(two + 1, four + 2),
+    valid.subarray(four + 2),
+  ];
+  const malformed = [valid.subarray(0, replacement), Buffer.from([0xff]), valid.subarray(replacement + 3)];
+  assert.equal(Buffer.concat(malformed).toString("utf8"), raw, "replacement decoding would accept these bytes");
+
+  // Substitute transport only. Actual byte chunks go through the production
+  // reader and canonical comparison. Other ingress tests use the real TLS peer.
+  type ResponseStream = PassThrough & { statusCode: number };
+  const https = createRequire(import.meta.url)("node:https") as {
+    request(options: RequestOptions, respond: (response: ResponseStream) => void): EventEmitter;
+  };
+  let chunks = validChunks;
+  let path = "/.well-known/pirate-community.json";
+  const request = t.mock.method(https, "request", (options: RequestOptions, respond: (response: ResponseStream) => void) => {
+    assert.equal(options.path, path);
+    if (path === "/.well-known/pirate-community.json") assert.equal(options.rejectUnauthorized, true);
+    const response = Object.assign(new PassThrough(), { statusCode: 200 });
+    const body = chunks;
+    async function send() {
+      respond(response);
+      for (const chunk of body) {
+        await nextTurn();
+        if (response.destroyed) return;
+        response.write(chunk);
+      }
+      response.end();
+    }
+    const outgoing = Object.assign(new EventEmitter(), {
+      end() { void send().catch(error => outgoing.emit("error", error)); },
+      destroy() { response.destroy(); },
+    });
+    return outgoing;
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    request.mock.restore();
+    syncBuiltinESMExports();
+  });
+
+  const readWitness = () => inspectTrustedRevisionOneIngress(ingress, original);
+  await readWitness();
+  chunks = malformed;
+  await assert.rejects(readWitness, TypeError);
+  chunks = [valid, Buffer.from([0xf0, 0x9f])];
+  await assert.rejects(readWitness, TypeError);
+  chunks = [...validChunks, Buffer.alloc(65536 - raw.length, 0x20)];
+  await readWitness();
+  chunks = [...validChunks, Buffer.alloc(65537 - raw.length, 0x20)];
+  await assert.rejects(readWitness, /application_readback_limit/);
+
+  path = "/api/public/community";
+  chunks = malformed;
+  await inspectCommunityIngress(ingress, original.communityId, true);
+});
 
 // The native launcher verifies and initializes real storage after Docker start.
 // Its TLS listener must become ready without repeating any installation action.

@@ -94,6 +94,8 @@ export interface CommunityPageShellProps {
   composer?: () => JSX.Element;
   /** The viewer's own posts still being delivered, shown above the feed. */
   feedLead?: () => JSX.Element;
+  /** Supplemental content above the local feed. */
+  feedSupplement?: () => JSX.Element;
   /** How many entries the lead holds, so an empty feed is not called empty. */
   feedLeadCount?: number;
   /** Server-backed activity summary supplied by the owning activity lane. */
@@ -682,6 +684,7 @@ export function CommunityPageShell(props: CommunityPageShellProps) {
                       </div>
                     )}
                   </Show>
+                  {props.feedSupplement?.()}
                   <Loading fallback={<FeedPending />}>
                     <Show
                       when={feed().kind === "ready"}

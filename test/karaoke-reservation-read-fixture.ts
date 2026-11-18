@@ -313,26 +313,33 @@ export async function readRecoveryFixture() {
       headers.set("origin", firstSong.origin);
     return call(url, { ...init, headers });
   }) as typeof fetch;
+  async function signIn() {
+    authenticating = true;
+    try {
+      const challenge = (await (
+        await post("/api/auth/challenge", { address: accounts[5].address })
+      ).json()) as { id: string; message: string };
+      const response = await post("/api/auth/verify", {
+        id: challenge.id,
+        signature: await accounts[5].signMessage({ message: challenge.message }),
+      });
+      assert.equal(
+        response.status,
+        200,
+        JSON.stringify(await response.clone().json()),
+      );
+      const verified = (await response.json()) as { csrf: string };
+      return {
+        cookie: response.headers.get("set-cookie")!.split(";")[0],
+        "x-csrf-token": verified.csrf,
+        "x-study-account": accounts[5].address.toLowerCase(),
+      };
+    } finally {
+      authenticating = false;
+    }
+  }
   try {
-    const challenge = (await (
-      await post("/api/auth/challenge", { address: accounts[5].address })
-    ).json()) as { id: string; message: string };
-    const response = await post("/api/auth/verify", {
-      id: challenge.id,
-      signature: await accounts[5].signMessage({ message: challenge.message }),
-    });
-    assert.equal(
-      response.status,
-      200,
-      JSON.stringify(await response.clone().json()),
-    );
-    const verified = (await response.json()) as { csrf: string };
-    authenticating = false;
-    auth = {
-      cookie: response.headers.get("set-cookie")!.split(";")[0],
-      "x-csrf-token": verified.csrf,
-      "x-study-account": accounts[5].address.toLowerCase(),
-    };
+    auth = await signIn();
     const walletState = async () =>
       JSON.parse(
         (await f.db
@@ -357,6 +364,9 @@ export async function readRecoveryFixture() {
       call,
       post,
       auth,
+      reauthenticate: async () => {
+        Object.assign(auth, await signIn());
+      },
       wallet: accounts[5].address.toLowerCase(),
       postId: firstSongFixture.postId,
       walletState,

@@ -337,10 +337,12 @@ for (const mutation of [
 for (const mode of ["ack", "body"] as const)
   test(`late ticket POST ${mode} session loss remains unknown and cannot automatically repeat create`, async () => {
     const f = await readRecoveryFixture();
+    const authorityLosses: unknown[] = [];
     const port = createOperatorKaraokePort({
       account: f.wallet,
       postId: f.postId,
       csrf: () => f.auth["x-csrf-token"],
+      onAuthorityLoss: (error) => authorityLosses.push(error),
     });
     const gate = holdPrepare(f, mode);
     let pending: ReturnType<typeof port.ticket> | undefined;
@@ -361,21 +363,45 @@ for (const mode of ["ack", "body"] as const)
         }),
       ]);
       const preparedAtGate = {
+        canonicalGets: f.counts.canonicalGets,
         prepareDispatches: f.counts.prepareDispatches,
         realPrepares: f.counts.realPrepares,
       };
+      assert.equal(preparedAtGate.canonicalGets, 1);
       assert.ok(preparedAtGate.prepareDispatches > 0);
       assert.ok(preparedAtGate.realPrepares > 0);
       const state = await f.walletState();
       assert.ok(state.open);
       const ticketHash = digest(await f.row(`ticket:${state.open.ticketId}`)),
         sponsorHash = digest(f.store.entries("sponsor:"));
+      const oldSession = await sessionRow(f);
+      assert.ok(oldSession);
       await actualLogout(f);
       gate.release();
       const rejected = await outcome;
       assert.equal(rejected.fulfilled, false);
       if (!rejected.fulfilled) {
         const error = rejected.error;
+        assert.ok(error instanceof LearningServiceError);
+        assert.equal(error.status, 409);
+        assert.equal(error.code, "karaoke_session_changed");
+        assert.deepEqual(error.evidence, {
+          stage: "response_uncertain",
+          method: "POST",
+          path: "/api/karaoke/tickets",
+          endpointStatus: 409,
+        });
+        assert.equal(authorityLosses[0], error);
+      }
+      assert.equal(authorityLosses.length, 1);
+      assert.deepEqual(f.responses, [
+        { status: 409, value: { error: "karaoke_session_changed" } },
+      ]);
+      assert.equal(f.counts.canonicalGets, preparedAtGate.canonicalGets);
+      assert.equal(f.counts.prepareDispatches, preparedAtGate.prepareDispatches);
+      assert.equal(f.counts.realPrepares, preparedAtGate.realPrepares);
+
+      await assert.rejects(port.ticket(), (error: unknown) => {
         assert.ok(error instanceof LearningServiceError);
         assert.equal(error.status, 401);
         assert.equal(error.code, "learning_session_unavailable");
@@ -384,26 +410,32 @@ for (const mode of ["ack", "body"] as const)
           method: "GET",
           path: `/api/karaoke/attempt?postId=${encodeURIComponent(f.postId)}`,
         });
-        assert.equal(Object.hasOwn(error.evidence!, "endpointStatus"), false);
-        const cause = error.cause;
-        assert.ok(cause instanceof LearningServiceError);
-        assert.equal(cause.status, 409);
-        assert.equal(cause.code, "karaoke_session_changed");
-        assert.deepEqual(cause.evidence, {
-          stage: "response_uncertain",
-          method: "POST",
-          path: "/api/karaoke/tickets",
-          endpointStatus: 409,
-        });
-      }
-      assert.deepEqual(f.responses, [
-        { status: 409, value: { error: "karaoke_session_changed" } },
-      ]);
+        assert.equal(authorityLosses[1], error);
+        return true;
+      });
+      assert.equal(authorityLosses.length, 2);
+      assert.equal(f.counts.canonicalGets, preparedAtGate.canonicalGets);
       assert.equal(f.counts.prepareDispatches, preparedAtGate.prepareDispatches);
       assert.equal(f.counts.realPrepares, preparedAtGate.realPrepares);
-      await assert.rejects(port.ticket());
-      assert.equal(f.counts.prepareDispatches, preparedAtGate.prepareDispatches);
-      assert.equal(f.counts.realPrepares, preparedAtGate.realPrepares);
+      await unchanged(f, state, ticketHash, sponsorHash);
+
+      await f.reauthenticate();
+      const current = await sessionRow(f);
+      assert.ok(current);
+      assert.notEqual(current.session_hash, oldSession.session_hash);
+      assert.equal(current.account_id, oldSession.account_id);
+      assert.equal(current.binding_id, oldSession.binding_id);
+      const recovered = await port.ticket();
+      assert.equal(f.counts.canonicalGets, preparedAtGate.canonicalGets + 1);
+      assert.equal(recovered.ticketId, state.open.ticketId);
+      assert.equal(
+        await verifyMessage({
+          address: state.open.sessionKey,
+          message: "connect:" + state.open.ticketId,
+          signature: recovered.proof as Signed<Ticket>["signature"],
+        }),
+        true,
+      );
       await unchanged(f, state, ticketHash, sponsorHash);
     } finally {
       gate.release();

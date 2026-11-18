@@ -45,7 +45,7 @@ import { call, signatureChainId } from "./service-call.ts";
 import { consentTypes } from "../packages/protocol/records.ts";
 import { D1Store } from "./storage.ts";
 import type { PublicReadPorts } from "./community-public.ts";
-import { publishedKaraoke } from "./karaoke-song.ts";
+import { publishedKaraoke, publishedStem } from "./karaoke-song.ts";
 import { practiceAuthorization, signInV4 } from "./learning-sign-in.ts";
 import { noteChainWithdrawal } from "./learning-public-results.ts";
 
@@ -163,6 +163,7 @@ export interface KaraokePorts {
   config: CommunityConfig;
   reads: PublicReadPorts;
   now?: () => number;
+  privatePractice?: { profileHash: Hex; check(): Promise<void> };
 }
 const socketUrl = (env: KaraokeEnv) => {
   const origin = new URL(env.KARAOKE_OPERATOR_ORIGIN!);
@@ -180,9 +181,14 @@ async function prepared(ports: KaraokePorts, postId: Hex) {
       postId,
     ),
     quote = await trustedQuote(env, store);
+  if (ports.privatePractice) {
+    const stem = await publishedStem(ports.db, ports.config.communityId, postId, "instrumental");
+    insist(stem.duration_ms >= manifest.lines.at(-1)!.endMs, "karaoke_instrumental_timing_changed", 503);
+  }
   validateManifest(manifest, quote.maxSegmentMs);
   const manifestSha256 = digest(manifest) as Hex;
   if (
+    !ports.privatePractice &&
     ports.env.KARAOKE_SERVICE_MODE === "internal" &&
     ports.reads.manifestAvailable
   )
@@ -243,6 +249,8 @@ export async function karaokeTicket(
   endLessons: () => Promise<unknown> = async () => undefined,
 ) {
   const postId = bytes32(value.postId);
+  const privatePractice = ports.privatePractice;
+  await privatePractice?.check();
   const { env, store, manifest, manifestSha256, quote } = await prepared(
       ports,
       postId,
@@ -257,7 +265,14 @@ export async function karaokeTicket(
       current?.open?.songHash !== manifest.songHash
         ? await authorizationFor(ports, learner, now)
         : undefined,
-    sessionKey = await sessionKeyFor(store, current, manifest.songHash),
+    sessionKey = await (async () => {
+      await privatePractice?.check();
+      if (privatePractice && current?.open)
+        insist(current.open.privateProfileHash === privatePractice.profileHash &&
+          current.open.manifestSha256 === manifestSha256 && current.open.expiresAt > now,
+          "private_karaoke_original_held", 409);
+      return sessionKeyFor(store, current, manifest.songHash);
+    })(),
     lastEndMs = manifest.segments.at(-1)!.endMs,
     open = await openTicket(
       store,
@@ -271,9 +286,10 @@ export async function karaokeTicket(
         maxAmount: (
           BigInt(manifest.segments.length) * BigInt(quote.segmentPrice)
         ).toString(),
-        maxDurationMs: lastEndMs + 5000,
+        maxDurationMs: lastEndMs + (privatePractice ? 20000 : 5000),
         issuedAt: now,
         expiresAt: now + Math.ceil(lastEndMs / 1000) + 120,
+        ...(privatePractice ? { privateProfileHash: privatePractice.profileHash } : {}),
         ...(authorizationId
           ? {
               authorizationId,
@@ -308,7 +324,7 @@ export async function karaokeTicket(
     store,
     wallet,
     open,
-    fence?.live,
+    privatePractice?.check ?? fence?.live,
   ).catch(async (error: Error) => {
     // The operator's sign-in permission answers reach the learner. A
     // withdrawal made outside the application is noted first.
@@ -393,6 +409,7 @@ async function boundResult(
       data.quoteId === ticket.quoteId &&
       data.community === ticket.community &&
       data.mode === ticket.mode &&
+      data.privateProfileHash === ticket.privateProfileHash &&
       data.attemptId === digest(data.ticketId),
     "result_binding_mismatch",
   );
@@ -445,7 +462,21 @@ export async function karaokeAttempt(
       )
     : undefined;
   let preparationChecked = false;
-  let signedTicket = await store.get<Signed<Ticket>>(`ticket:${ticketId}`);
+  let signedTicket = await store.get<Signed<Ticket>>("ticket:" + ticketId);
+  const privatePractice = ports.privatePractice;
+  if (privatePractice) {
+    await privatePractice.check();
+    insist((open?.privateProfileHash ?? signedTicket?.body.privateProfileHash) === privatePractice.profileHash &&
+      (!signedTicket || signedTicket.body.privateProfileHash === privatePractice.profileHash),
+      "private_karaoke_ticket_scope_changed", 409);
+    if (open && !signedTicket) {
+      insist((await store.now()) < open.expiresAt && open.manifestSha256 === digest(manifest),
+        "private_karaoke_original_held", 409);
+      signedTicket = await ensureTicket(env, store, wallet, open, privatePractice.check);
+      preparationChecked = true;
+    }
+  } else insist(!open?.privateProfileHash && !signedTicket?.body.privateProfileHash,
+    "private_karaoke_ticket_scope_changed", 409);
   if (!signedTicket && open) {
     // No manual hidden ticket POST, new reservation, key, quote or sequence.
     insist(fence, "karaoke_recovery_scope_required", 409);
@@ -455,6 +486,11 @@ export async function karaokeAttempt(
   }
   const ticket = (await ownedTicket(store, wallet, ticketId)).body,
     result = await boundResult(env, store, ticket);
+  if (!result && open && privatePractice && !preparationChecked) {
+    insist((await store.now()) < open.expiresAt && open.manifestSha256 === digest(manifest),
+      "private_karaoke_original_held", 409);
+    signedTicket = await ensureTicket(env, store, wallet, open, privatePractice.check);
+  }
   if (
     !result &&
     open &&
@@ -492,7 +528,7 @@ export async function karaokeAttempt(
     // Scoped recovery keeps uncertain terminal work held at exact expiry.
     // The original unscoped expiry branch remains below for legacy callers.
     if (!result && (await store.now()) >= state.open.expiresAt) {
-      insist(!state.open.recoveryScope, "karaoke_reservation_expired", 409);
+      insist(!state.open.recoveryScope && !state.open.privateProfileHash, "karaoke_reservation_expired", 409);
       await settleTicket(env, store, wallet, ticketId, false);
       return { state: "none" as const };
     }
@@ -513,6 +549,7 @@ export async function karaokeAttempt(
         proof,
       };
     }
+    await privatePractice?.check();
     await settleTicket(env, store, wallet, ticketId, true);
     await store.set(`lastTicket:${wallet}:${postId}`, ticketId);
   }
@@ -607,6 +644,9 @@ export async function karaokeHistory(
     store = new KaraokeStore(ports.db, ports.now ?? Date.now);
   const ticketId = bytes32(value.ticketId),
     ticket = await ownedTicket(store, learner.wallet, ticketId);
+  insist(ticket.body.privateProfileHash === ports.privatePractice?.profileHash,
+    "private_karaoke_ticket_scope_changed", 409);
+  await ports.privatePractice?.check();
   return call(env.OPERATOR, "/history", {
     ticketId,
     proof: await connectionProof(store, ticket.body.sessionKey, ticketId),

@@ -198,6 +198,9 @@ export interface CommunityDanceCapabilityV2 {
 }
 export type CommunityDanceCapability = CommunityDanceCapabilityV1 | CommunityDanceCapabilityV2;
 export type CommunityCapabilities = BaseCommunityCapabilities & {
+  /** The installed manual drawing has an authenticated learner read. */
+  danceRewardOffers?: true;
+  sharedSongFeed?: true;
   dance?: CommunityDanceCapability;
 };
 export function selectedDanceCapability(

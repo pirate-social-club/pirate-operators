@@ -13,6 +13,8 @@ import {acquireOperation,privateDirectory,hash,type OperationLease} from "../../
 import {runOwnedCommand} from "../../deploy/linux/backend-command.ts";
 import {communityMigrations} from "../package-migrations.ts";
 import {object} from "../../packages/community/common.ts";
+import {learningResultsV5Build} from "../../packages/protocol/generated/learning-results-v5.ts";
+import {danceCapturePolicyBuild,danceVerdictsBuild} from "../../packages/dance-chain/v2/abi.ts";
 import {buildCompleteLinuxArtifacts} from "./build-complete-artifacts.ts";
 
 export interface CandidateBuildOptions {
@@ -21,6 +23,7 @@ export interface CandidateBuildOptions {
  hostPidNamespace:string;backend:string;assets:string;wizardDist:string;
  workerd:string;workerdSha256:string;schema:string;schemaSha256:string;
  migrationsFile:string;actorsFile:string;seconds:number;
+ registryFixtureInputs?:{path:string;sha256:string};
 }
 type Copied={source:string;output:string;sha256:string};
 const inside=(root:string,path:string)=>{
@@ -34,6 +37,23 @@ async function bytes(path:string){
  assert(a.dev===b.dev && a.ino===b.ino && a.size===b.size && a.mtimeMs===b.mtimeMs && a.ctimeMs===b.ctimeMs &&
    body.length===a.size,"build_input_changed: "+path);
  return {source:canonical,sha256:hash(body),body};
+}
+/** These are loaded at Compose time by the selected native fixture. The
+ * module import probe cannot discover the runtime readFile edges. */
+async function registryFixtureModules(root:string, selection:NonNullable<CandidateBuildOptions["registryFixtureInputs"]>){
+ assert(/^[a-f0-9]{64}$/.test(selection.sha256),"registry_fixture_input_manifest_digest_required");
+ const manifest=await bytes(selection.path);
+ assert(manifest.sha256===selection.sha256,"registry_fixture_input_manifest_changed");
+ const selected=object(JSON.parse(manifest.body.toString("utf8")));
+ const contracts=[learningResultsV5Build,danceCapturePolicyBuild,danceVerdictsBuild];
+ const paths=new Set(contracts.flatMap(contract=>[
+  ...Object.keys(contract.sources),"out/"+contract.contract+".sol/"+contract.contract+".json"]));
+ assert.deepEqual(Object.keys(selected).sort(),[...paths].sort(),"registry_fixture_exact_input_set_required");
+ return Promise.all([...paths].sort().map(async path=>{
+  const row=await bytes(join(root,path));
+  assert(inside(root,row.source)===path && selected[path]===row.sha256,"registry_fixture_input_changed: "+path);
+  return {source:row.source,output:"source/"+path,sha256:row.sha256};
+ }));
 }
 async function manifestTree(root:string,prefix:string,signal:AbortSignal):Promise<Copied[]>{
  const out:Copied[]=[];
@@ -96,6 +116,8 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
  assert(/^[a-f0-9]{40}$/.test(o.head) && /^[a-f0-9]{40}$/.test(o.tree));
  assert(Number.isSafeInteger(o.seconds) && o.seconds>0 && o.seconds<=1200);
  const root=await realpath(o.sourceRoot);assert.equal(root,o.sourceRoot,"canonical_candidate_required");
+ assert(!o.registryFixtureInputs || o.profile==="web2-first-song/1","registry_fixture_requires_web2_build");
+ const registryModules=o.registryFixtureInputs?await registryFixtureModules(root,o.registryFixtureInputs):[];
  // Fail missing genuine inputs before creating a durable operation barrier.
  for(const [label,path] of [
   ["genuine reviewed backend.ts composition",o.backend],["actual built application index",resolve(root,o.assets,"index.html")],
@@ -137,7 +159,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const backend=await bytes(o.backend);
   const backendModules:Copied[]=[];
   for(const p of authorPaths){const row=await bytes(join(root,p));backendModules.push({source:row.source,output:"source/"+p,sha256:row.sha256});}
-  backendModules.push({source:backend.source,output:"source/backend.ts",sha256:backend.sha256});
+  backendModules.push({source:backend.source,output:"source/backend.ts",sha256:backend.sha256},...registryModules);
   // The backend is observed as source only. esbuild discovers import edges;
   // emitted diagnostic bytes are NOT installed or used as compiled provenance.
   const graph=await build({stdin:{contents:backend.body.toString("utf8"),resolveDir:root,sourcefile:"backend.ts",loader:"ts"},
@@ -172,10 +194,20 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const assets=await realpath(resolve(root,o.assets));inside(root,assets);await lstat(join(assets,"index.html"));
   const rawSelection=object(JSON.parse((await bytes(o.migrationsFile)).body.toString("utf8")));
   const keys=["rewards","ownerPublishing","v4","rewardClosure","media","dance"];
+  if (Object.hasOwn(rawSelection,"privateDance")) {
+   assert(o.profile==="web2-first-song/1" && rawSelection.privateDance===true,"explicit_private_dance_schema_required");
+   keys.push("privateDance");
+  }
+  if (Object.hasOwn(rawSelection,"publicationConsent")) {
+   assert(o.profile==="web2-first-song/1" && rawSelection.publicationConsent===true,"explicit_web2_publication_schema_required");
+   keys.push("publicationConsent");
+  }
   assert.deepEqual(Object.keys(rawSelection).sort(),[...keys].sort(),"explicit_migration_selection_required");
   const flag=(name:string)=>{const value=rawSelection[name];assert(typeof value==="boolean","migration_selection_boolean_required: "+name);return value;};
   const migrations={rewards:flag("rewards"),ownerPublishing:flag("ownerPublishing"),v4:flag("v4"),
-   rewardClosure:flag("rewardClosure"),media:flag("media"),dance:flag("dance")};
+   rewardClosure:flag("rewardClosure"),media:flag("media"),dance:flag("dance"),
+   ...(rawSelection.privateDance===true?{privateDance:true}:{}),
+   ...(rawSelection.publicationConsent===true?{publicationConsent:true}:{})};
   const migrationRoot=join(root,"apps/community-wizard/infra/migrations"),names=communityMigrations(await readdir(migrationRoot),migrations);
   const sql=await command(python.source,python.sha256,["-B",join(root,"deploy/linux/split-migrations.py"),migrationRoot,JSON.stringify(names)],"split-migrations");
   const migrationPlan:Parameters<typeof buildCompleteLinuxArtifacts>[0]["migrationPlan"]=JSON.parse(await readFile(sql.stdoutPath,"utf8"));
@@ -219,6 +251,7 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
   const unique=(rows:Copied[])=>{const map=new Map<string,Copied>();for(const row of rows){const old=map.get(row.output);assert(!old || old.sha256===row.sha256,"selected_output_collision");map.set(row.output,row);}return [...map.values()].sort((a,b)=>a.output.localeCompare(b.output));};
   const selectedBackend=unique(backendModules),selectedToolchain=unique(toolchainModules);
   const inventory={sourceHead:o.head,sourceTree:o.tree,...(o.profile?{profile:o.profile}:{}),backendModules:selectedBackend,toolchainModules:selectedToolchain,
+   ...(o.registryFixtureInputs?{registryFixtureInputsSha256:o.registryFixtureInputs.sha256}:{}),
    wizardFiles,nativeModules,node:{path:node.source,sha256:node.sha256},native:{path:native.source,sha256:native.sha256},schema:{path:schema.source,sha256:schema.sha256},
    migrations:migrationPlan.map(({name,sha256})=>({name,sha256})),
    ...(web2Schema?{web2Schema:web2Schema.overlays.map(({name,sha256})=>({name,sha256}))}:{}),actorModules,licenses};
@@ -250,13 +283,17 @@ export async function buildLocalInstallationCandidate(o:CandidateBuildOptions){
 }
 if(process.argv[1] && await realpath(process.argv[1])===fileURLToPath(import.meta.url)){
  const names=["source-root","head","tree","output-directory","installation-id","operation-id","host-pid-namespace",
-  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds","profile"];
+  "backend","assets","wizard-dist","workerd","workerd-sha256","schema","schema-sha256","migrations-file","actors-file","seconds","profile",
+  "registry-fixture-inputs","registry-fixture-inputs-sha256"];
  const options=Object.fromEntries(names.map(name=>[name,{type:"string" as const}]));
  const {values}=parseArgs({options,strict:true,allowPositionals:false});
  const get=(name:string)=>{const value=values[name];assert(typeof value==="string" && value.length,"required_build_argument: --"+name);return value;};
  try{const profile=values.profile;
   assert(profile===undefined || profile==="web2-first-song/1","unknown_linux_build_profile");
-  const result=await buildLocalInstallationCandidate({...(profile?{profile}:{}),sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
+  const registry=values["registry-fixture-inputs"] || values["registry-fixture-inputs-sha256"];
+  const result=await buildLocalInstallationCandidate({...(profile?{profile}:{}),
+  ...(registry?{registryFixtureInputs:{path:get("registry-fixture-inputs"),sha256:get("registry-fixture-inputs-sha256")}}:{}),
+  sourceRoot:get("source-root"),head:get("head"),tree:get("tree"),outputDirectory:get("output-directory"),
   installationId:get("installation-id"),operationId:get("operation-id"),hostPidNamespace:get("host-pid-namespace"),backend:get("backend"),assets:get("assets"),
   wizardDist:get("wizard-dist"),workerd:get("workerd"),workerdSha256:get("workerd-sha256"),schema:get("schema"),schemaSha256:get("schema-sha256"),
   migrationsFile:get("migrations-file"),actorsFile:get("actors-file"),seconds:Number(get("seconds"))});

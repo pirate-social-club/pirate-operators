@@ -4,6 +4,7 @@
 // session-host.ts and session.ts; see docs/karaoke-capture-handoff.md.
 import type { KaraokeRecognizedWord } from "../scoring/scoring.ts";
 import type {
+  KaraokeLocalFailure,
   KaraokeStreamingSttAdapter,
   KaraokeSttAdapterMessage,
 } from "./stt-adapter.ts";
@@ -42,6 +43,7 @@ export interface KaraokeRelaySnapshot {
   resolvedThroughMs?: number;
   sttSequence: number;
   terminal: string | null;
+  lastLocalFailure?: KaraokeLocalFailure & { fromMs: number; toMs: number };
 }
 export interface KaraokeAudioRelayOptions {
   sessionId: string;
@@ -50,6 +52,7 @@ export interface KaraokeAudioRelayOptions {
   /** Null when the operator has no provider credential: a known failure. */
   createAdapter: (() => KaraokeStreamingSttAdapter) | null;
   restore?: KaraokeRelaySnapshot;
+  commitAckTimeoutMs?: number;
   persist?: (snapshot: KaraokeRelaySnapshot) => void;
   delay?: (ms: number) => Promise<void>;
   setTimer?: (callback: () => void, ms: number) => unknown;
@@ -129,7 +132,10 @@ export class KaraokeAudioRelay {
   }
 
   /** One learner audio frame, in sequence order across reconnects. */
-  async audio(frame: KaraokeClientBinaryFrame): Promise<void> {
+  async audio(
+    frame: KaraokeClientBinaryFrame,
+    stillAuthorized?: () => Promise<boolean>,
+  ): Promise<void> {
     if (
       this.state.lastSequence !== null &&
       frame.sequence <= this.state.lastSequence
@@ -161,6 +167,12 @@ export class KaraokeAudioRelay {
     this.save();
     await this.ensureStarted();
     if (this.adapter === null || this.state.terminal !== null)
+      return this.save();
+    if (stillAuthorized && !await stillAuthorized()) {
+      this.failRange(frame.songStartMs, frame.songEndMs, false);
+      return this.save();
+    }
+    if (this.adapter === null || this.state.terminal !== null || this.closed)
       return this.save();
     await this.adapter.sendPcm16(frame);
     await this.requestCommitIfDue();
@@ -194,7 +206,9 @@ export class KaraokeAudioRelay {
       (id) =>
         !reopened.has(id) || this.state.forwardedFailedLineIds.includes(id),
     );
-    if (this.pending !== null && this.pending.frontierMs > songMs) {
+    const discardsPending = this.adapter?.discardPendingOnSeek !== undefined;
+    this.adapter?.discardPendingOnSeek?.();
+    if (this.pending !== null && (discardsPending || this.pending.frontierMs > songMs)) {
       this.droppedCommits.add(this.pending.commitId);
       this.settlePending();
     }
@@ -288,6 +302,7 @@ export class KaraokeAudioRelay {
         attemptId: this.options.attemptId,
         initialSequence: this.state.sttSequence,
         onMessage: (message) => this.onProviderMessage(adapter, message),
+        onLocalCommitUnmeasured: (failure) => this.localCommitUnmeasured(adapter, failure),
         onUnexpectedClose: () => void this.reconnect(),
         onTerminalError: (code) => this.abort(`stt_${code}`),
       });
@@ -367,6 +382,24 @@ export class KaraokeAudioRelay {
     this.save();
   }
 
+  private async localCommitUnmeasured(
+    adapter: KaraokeStreamingSttAdapter,
+    failure: KaraokeLocalFailure,
+  ): Promise<void> {
+    const pending = this.pending;
+    if (this.closed || this.adapter !== adapter || !pending ||
+        pending.commitId !== failure.commitId ||
+        pending.streamGeneration !== failure.streamGeneration ||
+        adapter.streamGeneration !== failure.streamGeneration)
+      return;
+    this.state.lastLocalFailure = {
+      ...failure, fromMs: this.coveredMs, toMs: pending.frontierMs,
+    };
+    // Resolve the matching interval as a failure, without a provider word event.
+    this.orphanPending();
+    await this.requestCommitIfDue();
+  }
+
   private async requestCommitIfDue(): Promise<void> {
     const due = this.lines.some(
       (line) => line.endMs <= this.submittedMs && line.endMs > this.coveredMs,
@@ -398,7 +431,7 @@ export class KaraokeAudioRelay {
       settled,
       timer: this.setTimer(() => {
         if (this.pending === pending) this.orphanPending();
-      }, COMMIT_ACK_TIMEOUT_MS),
+      }, this.options.commitAckTimeoutMs ?? COMMIT_ACK_TIMEOUT_MS),
     };
     this.pending = pending;
     this.pendingDone = done;

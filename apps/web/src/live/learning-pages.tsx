@@ -20,6 +20,7 @@ export interface LearningPageMountProps {
   wallet: KaraokeWallet;
   serviceMode?: "internal";
   studyRuntime?: "private-v5";
+  karaokeRuntime?: "private-v5";
   signInPermission: boolean;
   actions: LearningActionOwner;
   onExit(): void;
@@ -57,6 +58,7 @@ export function LearningPageMount(props: LearningPageMountProps) {
           serviceMode: props.serviceMode,
           studyRuntime: route.kind === "study" ? props.studyRuntime : undefined,
           studyStart: route.kind === "study" ? studyStart(route.postId) : undefined,
+          karaokeRuntime: route.kind === "sing" ? props.karaokeRuntime : undefined,
           historyGeneration: props.historyGeneration ?? 0,
         }
       : null;
@@ -98,7 +100,8 @@ export function LearningPageMount(props: LearningPageMountProps) {
                   title={owner.route.title}
                   csrf={owner.csrf}
                   wallet={props.wallet}
-                  serviceMode={owner.serviceMode}
+                  serviceMode={owner.karaokeRuntime ? "internal" : owner.serviceMode}
+                  privatePractice={owner.karaokeRuntime === "private-v5"}
                   signInPermission={owner.signInPermission}
                   onExit={props.onExit}
                   onConnect={props.onConnect}

@@ -512,6 +512,63 @@ test("reference PostCard owns the compact SongPlayer and post detail owns its ac
   ).toHaveCount(0);
 });
 
+for (const width of [390, 1280]) {
+  test("song detail seeks a paused track with keyboard and pointer at " + width + "px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await serve(page, false, false, false, "strict-origin", {
+      songs: true,
+      catalogAudioSeconds: 8,
+    });
+    await page.goto(origin);
+    await page.getByRole("link", {
+      name: "Published fixture song",
+      exact: true,
+    }).click();
+
+    const detail = page.locator("[data-public-post-state=content]");
+    const audio = detail.getByLabel("Audio for Published fixture song", {
+      exact: true,
+    });
+    const slider = detail.getByRole("slider", {
+      name: "Track position for Published fixture song",
+      exact: true,
+    });
+    const time = () =>
+      audio.evaluate((element: HTMLAudioElement) => element.currentTime);
+    const paused = () =>
+      audio.evaluate((element: HTMLAudioElement) => element.paused);
+
+    await expect(slider).toHaveCount(0);
+    await expect(audio).not.toHaveAttribute("src", /.+/);
+    await detail.getByRole("button", {
+      name: "Play Published fixture song",
+      exact: true,
+    }).click();
+    await expect.poll(time).toBeGreaterThan(0.15);
+    await detail.getByRole("button", {
+      name: "Pause Published fixture song",
+      exact: true,
+    }).click();
+    await expect.poll(paused).toBe(true);
+    await expect(slider).toHaveAttribute("aria-valuemax", "8000");
+
+    await slider.focus();
+    await expect(slider).toBeFocused();
+    await slider.press("Home");
+    await expect.poll(time).toBeLessThan(0.05);
+    await slider.press("ArrowRight");
+    await expect.poll(time).toBeCloseTo(1, 1);
+
+    // Use a real pointer click at the midpoint of the rendered track.
+    const track = detail.locator('[data-post-card-interactive="true"] .bg-border');
+    await track.click();
+    await expect.poll(time).toBeCloseTo(4, 1);
+    expect(await paused()).toBe(true);
+  });
+}
+
 test("the source SongPlayer retains playback failure and deliberate retry", async ({
   page,
 }) => {
@@ -671,6 +728,32 @@ test("feed error is not an empty community and retains the source retry control"
   await expect(
     page.getByText("No posts in this community yet.", { exact: true }),
   ).toBeVisible();
+});
+
+test("signed-out mobile Home keeps local emptiness alongside available or unavailable shared songs", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const state = await serve(page, false, false, false, "strict-origin", { sharedSongFeed: true });
+  await page.goto(origin);
+  const localEmpty = page.getByText("No posts in this community yet.", { exact: true });
+  const shared = page.getByRole("region", { name: "Shared songs", exact: true });
+  const toggle = shared.getByRole("button", { name: "Shared songs", exact: true });
+  await expect(localEmpty).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true }).first()).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(state.events.filter(event => event.path === "/api/public/shared-feed")).toHaveLength(0);
+
+  await toggle.click();
+  const peer = shared.getByRole("link", { name: /A shared fixture song/ });
+  await expect(peer).toContainText("Fixture peer");
+  await expect(peer).toHaveAttribute("href", /^\/api\/public\/shared-feed\/0x[0-9a-f]{64}\/0x[0-9a-f]{64}\/open$/);
+  await expect(localEmpty).toBeVisible();
+
+  state.sharedFeedOutage(true);
+  await toggle.click();
+  await toggle.click();
+  await expect(shared.getByText("Shared songs are temporarily unavailable.", { exact: true })).toBeVisible();
+  await expect(localEmpty).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again", exact: true })).toHaveCount(0);
 });
 
 test("Study opens from Your songs with bare chrome, and resumes the same lesson through back, forward and reload", async ({

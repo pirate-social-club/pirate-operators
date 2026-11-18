@@ -1,6 +1,8 @@
 import {
   studyOverlay,
   studyHeading,
+  exitStudy,
+  home,
   openSettings,
   startStudy,
   signInCurrent as signIn,
@@ -19,15 +21,37 @@ test("a V4 Study lesson starts after one sign-in with no other signature and no 
 }) => {
   const state = await serveV4(page);
   await page.goto(state.url);
-  // The sign-in screen links the documents the sign-in accepts.
-  const header = page.getByRole("navigation", { name: "Community documents" });
-  await expect(header).toBeVisible();
+  const documentNav = page.locator('nav[aria-label="Community documents"]');
   await expect(
-    header.getByRole("link", { name: "Learning terms", exact: true }),
-  ).toHaveAttribute("href", "/learning/v4/terms");
+    page.getByRole("main", { name: "Community feed", exact: true }),
+  ).toBeVisible();
+  await expect(documentNav).toHaveCount(0);
+  await page
+    .getByRole("navigation", { name: "Main navigation", exact: true })
+    .getByRole("link", { name: "Profile", exact: true })
+    .click();
+  const profile = page.getByRole("main");
   await expect(
-    header.getByRole("link", { name: "Learning privacy", exact: true }),
-  ).toHaveAttribute("href", "/learning/v4/privacy");
+    profile.getByRole("heading", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  const disclosures = profile.getByRole("navigation", {
+    name: "Community documents",
+    exact: true,
+  });
+  await expect(disclosures).toBeVisible();
+  for (const [name, href] of [
+    ["Terms", "/terms"],
+    ["Privacy", "/privacy"],
+    ["Learning terms", "/learning/v4/terms"],
+    ["Learning privacy", "/learning/v4/privacy"],
+  ] as const) {
+    const link = disclosures.getByRole("link", { name, exact: true });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", href);
+  }
+  expect(state.signatures).toEqual([]);
+  await home(page);
+  await expect(documentNav).toHaveCount(0);
   await signIn(page);
   expect(state.signatures).toEqual(["SignIn"]);
   await startStudy(page);
@@ -42,65 +66,67 @@ test("a V4 Study lesson starts after one sign-in with no other signature and no 
   ).toHaveCount(0);
   await expect(overlay.getByRole("link")).toHaveCount(0);
   await expect(overlay.getByText(/Terms|Privacy/)).toHaveCount(0);
+  await expect(documentNav).toHaveCount(0);
 });
 
-test("Terms and Privacy stay reachable while signed in, in the footer outside the overlay", async ({
+test("Terms and Privacy stay reachable through account Settings before and after Study", async ({
   page,
 }) => {
   const state = await serveV4(page);
   await page.goto(state.url);
   await signIn(page);
-  // The current normal site navigation owns the one copy of each policy link.
-  await expect(
-    page.getByRole("navigation", { name: "Community documents" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Learning terms", exact: true }),
-  ).toHaveCount(1);
-  await expect(
-    page.getByRole("link", { name: "Learning privacy", exact: true }),
-  ).toHaveCount(1);
-  const footer = page.getByRole("navigation", { name: "Community documents" });
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveCount(1);
-  for (const [name, href] of [
-    ["Terms", "/terms"],
-    ["Privacy", "/privacy"],
-    ["Learning terms", "/learning/v4/terms"],
-    ["Learning privacy", "/learning/v4/privacy"],
+  const documentNav = page.locator('nav[aria-label="Community documents"]');
+  await expect(documentNav).toHaveCount(0);
+  await openSettings(page);
+  const settingsDocuments = page.getByRole("main").getByRole("navigation", {
+    name: "Community documents",
+    exact: true,
+  });
+  await expect(settingsDocuments).toBeVisible();
+  await expect(documentNav).toHaveCount(1);
+  for (const [name, href, opensNewTab] of [
+    ["Terms", "/terms", false],
+    ["Privacy", "/privacy", false],
+    ["Learning terms", "/learning/v4/terms", true],
+    ["Learning privacy", "/learning/v4/privacy", true],
   ] as const) {
-    const link = footer.getByRole("link", { name, exact: true });
+    await expect(page.getByRole("link", { name, exact: true })).toHaveCount(1);
+    const link = settingsDocuments.getByRole("link", { name, exact: true });
     await expect(link).toHaveAttribute("href", href);
-    const opened = page.waitForEvent("popup");
-    await link.click();
-    const tab = await opened;
-    await expect(tab.locator("body")).toHaveText(documents[href]!);
-    expect(tab.url()).toBe(origin + href);
-    await tab.close();
+    if (opensNewTab) {
+      const opened = page.waitForEvent("popup");
+      await link.click();
+      const tab = await opened;
+      await expect(tab).toHaveURL(origin + href);
+      await expect(tab.locator("body")).toHaveText(documents[href]!);
+      await tab.close();
+    } else {
+      await link.click();
+      await expect(page).toHaveURL(origin + href);
+      await expect(page.locator("body")).toHaveText(documents[href]!);
+      await page.goBack();
+      await expect(
+        page.getByRole("heading", { name: "Settings", exact: true }),
+      ).toBeVisible();
+      await expect(settingsDocuments).toBeVisible();
+    }
   }
-  // Opening Study leaves the documents outside it, never inside.
   await startStudy(page);
   await expect(studyHeading(page)).toBeVisible();
   await expect(studyOverlay(page).getByRole("link")).toHaveCount(0);
   await expect(
     studyOverlay(page).getByRole("navigation", { name: "Community documents" }),
   ).toHaveCount(0);
-  const underlay = page.getByRole("navigation", {
-    name: "Community documents",
-    includeHidden: true,
-  });
-  await expect(underlay).toHaveCount(1);
-  await expect(underlay.locator("xpath=ancestor::footer")).toHaveJSProperty(
-    "inert",
-    true,
-  );
-  await page.getByRole("button", { name: "Exit study", exact: true }).click();
-  await expect(footer).toBeVisible();
-  await expect(footer.locator("xpath=ancestor::footer")).toHaveJSProperty(
-    "inert",
-    false,
-  );
+  await expect(documentNav).toHaveCount(0);
+  await exitStudy(page);
+  await expect(
+    page.getByRole("navigation", { name: "Song activities", exact: true }),
+  ).toBeVisible();
+  await expect(documentNav).toHaveCount(0);
+  await openSettings(page);
+  await expect(settingsDocuments).toBeVisible();
   const openedAfterExit = page.waitForEvent("popup");
-  await footer
+  await settingsDocuments
     .getByRole("link", { name: "Learning terms", exact: true })
     .click();
   const afterExit = await openedAfterExit;

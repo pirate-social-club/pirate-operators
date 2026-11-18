@@ -1,10 +1,11 @@
+import { PrivateDanceHistory } from "./private-dance-history.tsx";
 import { createSavedStudyHistory } from "../study/saved-history.ts";
 import { createSavedKaraokeHistory } from "../karaoke/saved-history.ts";
 import { createCommunityProfileIntegration } from "../shell/profiles/integration.ts";
 import { MountedCommunityProfiles } from "../shell/profiles/mounted-routes.tsx";
 import { publicProfileAuthor } from "../shell/profiles/pages.tsx";
 import { render } from "@solidjs/web";
-import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, lazy, onCleanup, Show } from "solid-js";
 import { Button } from "../ui.ts";
 import {
   get,
@@ -34,6 +35,7 @@ import { LiveRewardOperator } from "./reward-operator.tsx";
 import type { RewardAvailableOffers } from "../../../../packages/rewards/contracts.ts";
 import type { KaraokeWallet, LearningActions } from "../karaoke/page.tsx";
 
+import { SharedSongFeed } from "./shared-song-feed.tsx";
 import { CommunityAppShell } from "./app-shell.tsx";
 import {
   appView,
@@ -56,6 +58,8 @@ import type {
   ShellIntegrations,
 } from "../shell/interfaces.ts";
 
+const PublicationGrants = lazy(() => import("./publication-grants.tsx")
+  .then(({ PublicationGrants }) => ({ default: PublicationGrants })));
 async function moss() {
   const { mega } = await import("@megaeth-labs/wallet-sdk");
   await mega.initialise({
@@ -66,6 +70,23 @@ async function moss() {
   });
   return mega;
 }
+const signPublicationGrant: Parameters<typeof PublicationGrants>[0]["sign"] = async (wallet, data, current) => {
+  const mega = await moss();
+  current();
+  const connected = await mega.connect();
+  current();
+  const sameWallet = (value: { status: string; address?: string }) =>
+    value.status === "connected" && value.address?.toLowerCase() === wallet;
+  if (!sameWallet(connected)) throw Error("Connect the wallet used to sign in.");
+  const result = await mega.signData({ data });
+  current();
+  if (!sameWallet(await mega.status())) throw Error("The connected wallet changed.");
+  current();
+  if (result.status === "cancelled") return null;
+  if (result.status !== "success" || !result.signature || !result.signature.startsWith("0x"))
+    throw Error("MOSS did not sign the publication grant.");
+  return result.signature.toLowerCase() as `0x${string}`;
+};
 /** The learner's consent, signed by their MOSS account. */
 const mossWallet: KaraokeWallet = {
   async signConsent(request) {
@@ -98,8 +119,9 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     [capabilities, setCapabilities] =
       createSignal<CommunityCapabilities | null>(null),
     [feed, setFeed] = createSignal<CommunityFeed | null>(null),
-    [rewardOffers, setRewardOffers] =
-      createSignal<RewardAvailableOffers | null>(null),
+    [rewardOfferResult, setRewardOfferResult] =
+      createSignal<{ key: string; value: RewardAvailableOffers } | null>(null),
+    [rewardOfferRefresh, setRewardOfferRefresh] = createSignal(0),
     [busy, setBusy] = createSignal(false),
     [learningActions, setLearningActions] =
       createSignal<LearningActions | null>(null),
@@ -123,6 +145,60 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
   // True while sign-in is settling its permission. The wallet pages and the
   // practice buttons wait, so nothing mounts with the first of two sessions.
   const [settling, setSettling] = createSignal(false);
+  const rewardOfferMode = () => {
+    const caps = capabilities();
+    if (caps?.danceRewardOffers === true) return "dance";
+    return caps?.rewards === true ? "legacy" : null;
+  };
+  const rewardOfferKey = createMemo(() => {
+    const current = session(), communityId = boot()?.communityId;
+    const mode = rewardOfferMode();
+    if (!current || !communityId || !mode || settling() || walletPage) return null;
+    return JSON.stringify([
+      communityId, current.authorId, current.mossAddress, current.csrf,
+      mode, rewardOfferRefresh(),
+      mode === "dance" && view() === "song" ? fragment() : "",
+    ]);
+  });
+  const rewardOffers = () => {
+    const result = rewardOfferResult();
+    return result && result.key === rewardOfferKey() ? result.value : null;
+  };
+  let rewardOfferRequest: AbortController | undefined;
+  createEffect(
+    () => [rewardOfferKey(), rewardOfferMode()] as const,
+    ([key, mode]) => {
+      rewardOfferRequest?.abort();
+      rewardOfferRequest = undefined;
+      setRewardOfferResult(null);
+      if (!key || !mode) return;
+      const request = new AbortController();
+      rewardOfferRequest = request;
+      // This optional read runs independently of practice and feed navigation.
+      void get<RewardAvailableOffers>("/api/rewards/offers", {
+        timeoutMs: 10000,
+        signal: request.signal,
+      }).then((value) => {
+        if (request.signal.aborted || rewardOfferKey() !== key) return;
+        if (!Array.isArray(value?.offers)) return;
+        if (mode === "dance" && (
+          value.practiceOnly !== true ||
+          value.offers.length > 1 ||
+          value.offers.some((offer) =>
+            offer?.eligibility !== "dance-pass" ||
+            typeof offer.postId !== "string" ||
+            !Number.isSafeInteger(offer.ticketCount) || offer.ticketCount < 1 ||
+            !Number.isSafeInteger(offer.opensAt) ||
+            !Number.isSafeInteger(offer.cutoffAt) || offer.opensAt >= offer.cutoffAt,
+          )
+        )) return;
+        setRewardOfferResult({ key, value });
+      }).catch(() => {
+        // Missing or expired offers do not block opening an activity.
+      });
+    },
+  );
+  onCleanup(() => rewardOfferRequest?.abort());
   const actionOwner = createLearningActionOwner(setLearningActions);
   onCleanup(actionOwner.clear);
   let sessionRead = 0;
@@ -173,6 +249,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     session: settling() ? null : session(),
     songs: feed()?.posts ?? [],
   });
+  const publicationSettingsKey = () => {
+    const scope = featureContext();
+    return capabilities()?.publicationPermissions === true && scope.communityId && scope.session
+      ? JSON.stringify([scope.communityId, scope.session.authorId, scope.session.mossAddress, scope.session.csrf])
+      : null;
+  };
   const danceNavigation = () => boot() ? {
     postHref: (postId: string) => danceUrl(
       new URL(location.href), boot()!.communityId, { kind: "post", postId },
@@ -443,20 +525,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     setCapabilities(caps);
     setFeed(posts);
     if (!walletPage) syncActivity(posts, caps);
-    // Reward offers are optional. Study must never wait for them.
-    if (session() && caps.rewards && !walletPage) void loadRewardOffers();
-    else {
-      offersRequest++;
-      setRewardOffers(null);
-    }
-  }
-  let offersRequest = 0;
-  async function loadRewardOffers() {
-    const current = ++offersRequest;
-    const offers = await get<RewardAvailableOffers>("/api/rewards/offers", {
-      timeoutMs: 10000,
-    }).catch(() => null);
-    if (current === offersRequest) setRewardOffers(offers);
+    setRewardOfferRefresh((revision) => revision + 1);
   }
   async function run(action: () => Promise<void>) {
     if (busy()) return;
@@ -594,6 +663,12 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               : null,
         }
       : null;
+  });
+  const privateDanceHistoryOwner = createMemo(() => {
+    const auth=session(), communityId=boot()?.communityId, accountId=profileIntegration.ownerAccountId();
+    if (settling() || !auth || !communityId || !accountId ||
+      selectedDanceCapability(capabilities(),communityId)?.captureProfile !== "private-v2") return null;
+    return {communityId,accountId,csrf:auth.csrf};
   });
   let composerScope = "",
     composerGeneration = "";
@@ -831,13 +906,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
     window.removeEventListener("pageshow", recheckDanceSession);
     document.removeEventListener("visibilitychange", recheckDanceSession);
   });
-  const pageOwnsLegalLinks = () =>
-    !walletPage &&
-    !practiceOpen() &&
-    (view() === "settings" ||
-      (view() === "account" &&
-        !publicProfileAuthor(fragment()) &&
-        profileIntegration.state().view.kind === "anonymous"));
   return (
     <CommunityAppShell
       name={name()}
@@ -909,6 +977,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
         wallet={mossWallet}
         serviceMode={capabilities()?.learningServiceMode}
         studyRuntime={capabilities()?.studyRuntime}
+        karaokeRuntime={capabilities()?.karaokeRuntime}
         signInPermission={learningPermission()}
         actions={actionOwner}
         historyGeneration={historyGeneration()}
@@ -980,6 +1049,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
           </p>
         </Show>
         <MountedCommunityProfiles
+          learningPolicy={capabilities()?.learningPolicy}
           integration={profileIntegration}
           view={view()}
           hash={fragment()}
@@ -1002,19 +1072,27 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               : savedStudyHistory.available()
                 ? savedStudyHistory.download
                 : undefined,
-            publicResults: props.integrations?.accountSettings
-              ? () => props.integrations!.accountSettings!(featureContext())
-              : undefined,
+            publicResults: () => (
+              <>
+                {props.integrations?.accountSettings?.(featureContext())}
+                <Show when={publicationSettingsKey()} keyed>
+                  {(_scope) => <PublicationGrants communityId={boot()!.communityId} session={session} sign={signPublicationGrant} />}
+                </Show>
+              </>
+            ),
             // No default recording deletion or Telegram management port.
           }}
           privateDance={() =>
             session() && !settling()
-              ? props.integrations?.privateDance?.(featureContext())
+              ? props.integrations?.privateDance?.(featureContext()) ?? (
+                  <Show when={privateDanceHistoryOwner()} keyed>{owner=><PrivateDanceHistory owner={owner}/>}</Show>
+                )
               : undefined
           }
         >
           {(authors) => (
             <CommunityPages
+              learningPolicy={capabilities()?.learningPolicy}
               view={view()}
               hash={fragment()}
               name={name()}
@@ -1029,6 +1107,13 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               canSignIn={capabilities()?.signIn === true}
               rewards={capabilities()?.rewards === true}
               offers={rewardOffers()}
+              sharedSongs={
+                view() === "home" &&
+                capabilities()?.sharedSongFeed === true &&
+                !props.integrations?.publicFeed
+                  ? () => <SharedSongFeed />
+                  : undefined
+              }
               integrations={{
                 ...props.integrations,
                 version: 1,
@@ -1091,39 +1176,6 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
             />
           )}
         </MountedCommunityProfiles>
-      </Show>
-      {/* Normal site navigation: the documents stay reachable while signed
-          in, outside the Study and Karaoke overlays. */}
-      <Show when={!pageOwnsLegalLinks() || capabilities()?.learningPolicy}>
-        <footer
-          class="flex flex-wrap gap-4 px-5 py-4 text-sm text-muted-foreground"
-          inert={practiceOpen()}
-        >
-          <nav class="live-footer-links" aria-label="Community documents">
-            <Show when={!pageOwnsLegalLinks()}>
-              <a href="/terms" target="_blank" rel="noopener">
-                Terms
-              </a>
-              <a href="/privacy" target="_blank" rel="noopener">
-                Privacy
-              </a>
-            </Show>
-            {/* The learning documents of the community's own version, V3 or
-                V4; exercise surfaces carry no links in any mode. */}
-            <Show when={capabilities()?.learningPolicy}>
-              {(policy) => (
-                <>
-                  <a href={policy().termsUrl} target="_blank" rel="noopener">
-                    Learning terms
-                  </a>
-                  <a href={policy().privacyUrl} target="_blank" rel="noopener">
-                    Learning privacy
-                  </a>
-                </>
-              )}
-            </Show>
-          </nav>
-        </footer>
       </Show>
     </CommunityAppShell>
   );

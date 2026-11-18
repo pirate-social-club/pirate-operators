@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import { Avatar, Button, Card, CardContent, Type } from "../design-system.ts";
 import type { CommunityAccountProps } from "./pages.tsx";
+import { AccountDocuments } from "../account-documents.tsx";
 const publicHref = (id: string) => "/#profile-" + id;
 /** Exact AccountPage frame/action lifecycle @ c7; services are actual host ports. */
 export function CommunityAccountSettings(
@@ -211,10 +212,7 @@ export function CommunityAccountSettings(
           </CardContent>
         </Card>
       </Show>
-      <div class="flex gap-4">
-        <a href="/terms">Terms</a>
-        <a href="/privacy">Privacy</a>
-      </div>
+      <AccountDocuments learningPolicy={props.learningPolicy} />
     </main>
   );
 }

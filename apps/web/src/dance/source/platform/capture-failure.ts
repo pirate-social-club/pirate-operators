@@ -29,18 +29,26 @@ export function videoAdmissionProblem(facts: {
   readonly averageFrameRate: number;
   readonly durationSeconds: number;
   readonly maxDurationSeconds: number;
+  readonly allowPrivateVp9Opus?: boolean;
 }): string | null {
   const unsupported =
     "That video’s format isn’t supported. Choose an MP4 or MOV recorded on a phone.";
+  const privateVp9 =
+    facts.allowPrivateVp9Opus === true &&
+    facts.container === "video/mp4" &&
+    facts.videoCodec === "vp9";
   if (
     !facts.hasVideo ||
     (facts.container !== "video/mp4" &&
       facts.container !== "video/quicktime") ||
-    facts.videoCodec !== "avc"
+    (facts.videoCodec !== "avc" && !privateVp9)
   )
     return unsupported;
   if (!facts.hasAudio) return "That video has no sound. Choose one with audio.";
-  if (facts.audioCodec !== "aac" || !Number.isFinite(facts.durationSeconds))
+  if (
+    facts.audioCodec !== (privateVp9 ? "opus" : "aac") ||
+    !Number.isFinite(facts.durationSeconds)
+  )
     return unsupported;
   if (
     !Number.isInteger(facts.width) ||

@@ -14,6 +14,7 @@ import { DancePrivateRequestSession } from "./dance-private-session.ts";
 import { DancePrivateCaptureService } from "./dance-private-capture.ts";
 import type { createDancePrivateCatalogue } from "./dance-private-catalogue.ts";
 import { requireProductionTarget } from "./dance-production.ts";
+import type { DancePublicationMediaAccess } from "./dance-publication-media-access.ts";
 
 export async function dancePrivateCommunityApi(
   request: Request,
@@ -21,6 +22,7 @@ export async function dancePrivateCommunityApi(
   catalogue: ReturnType<typeof createDancePrivateCatalogue>,
   context: AuthContext,
   headers: Headers,
+  publicationV2?: DancePublicationMediaAccess,
 ) {
   const session = await DancePrivateRequestSession.open(request, db, context),
     store = new DanceStore(db);
@@ -46,6 +48,7 @@ export async function dancePrivateCommunityApi(
   if (url.pathname === "/api/dance/captures") {
     insist(request.method === "POST", "method_not_allowed", 405);
     const body = parseCaptureRequestV2(await jsonBody(request));
+    if (body.publication.kind === "private") catalogue.assertPrivateTarget(body.target);
     await session.check();
     return reply(await service.capture(body));
   }
@@ -55,6 +58,11 @@ export async function dancePrivateCommunityApi(
     );
   if (read) {
     insist(request.method === "GET", "method_not_allowed", 405);
+    const bound = await publicationV2?.owned(session.actor, read[1]);
+    if (bound)
+      return reply(read[2] === "access"
+        ? { version: "pirate.dance-capture-access/2", capture: bound.capture }
+        : bound.guide, bound.fences);
     const capture = await service.access(read[1]);
     await session.check();
     return reply(

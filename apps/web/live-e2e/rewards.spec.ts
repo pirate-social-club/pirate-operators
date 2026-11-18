@@ -13,6 +13,7 @@ async function fixture(
   operator = false,
   uncertain = false,
   rehearsalMode = false,
+  installedDanceMode = false,
 ) {
   let verified = false,
     paid = false,
@@ -32,14 +33,27 @@ async function fixture(
     purchaseHash: `0x${"bb".repeat(32)}`,
     ticketIds: ["77"],
   };
+  let installedWindow: { opensAt: number; cutoffAt: number } | undefined;
+  let installedCutoffConfirmed = false;
+  const installedPosts: string[] = [];
   const rehearsalOffer = () => ({
     ...rehearsal,
     evidenceMode: "simulated",
     songKey: `0x${"cc".repeat(32)}`,
-    opensAt: Date.now() - 100000,
-    cutoffAt: Date.now() - 1,
+    opensAt: installedWindow?.opensAt ?? Date.now() - 100000,
+    cutoffAt: installedWindow?.cutoffAt ?? Date.now() - 1,
     state: rehearsalSettled ? "settled" : rehearsalClosed ? "closed" : "open",
-    entries: [],
+    entries:
+      installedWindow && rehearsalClosed
+        ? [
+            {
+              accountId: "11111111-1111-4111-8111-111111111111",
+              wallet: address,
+              evidenceHash: `0x${"dd".repeat(32)}`,
+              completedAt: installedWindow.opensAt + 1000,
+            },
+          ]
+        : [],
     winningsUsdcAtomic: null,
     payoutAtomic: null,
     remainderAtomic: null,
@@ -122,8 +136,10 @@ async function fixture(
     if (path === "/api/capabilities")
       return json({ signIn: true, rewards: true });
     if (path === "/api/feed") return json({ posts: [] });
-    if (req.method() === "POST")
+    if (req.method() === "POST") {
       expect(req.headers()["x-csrf-token"]).toBe("fixture-csrf");
+      if (installedDanceMode) installedPosts.push(path);
+    }
     if (path === "/api/rewards/wallet")
       return json({
         schema: "pirate.learner-wallet/1",
@@ -187,6 +203,31 @@ async function fixture(
       return json({
         offers: rehearsalAttached ? [rehearsalOffer()] : [],
         rehearsal: rehearsalMode ? rehearsal : null,
+        ...(installedDanceMode
+          ? {
+              installedDanceOfferId: rehearsal.offerId,
+              closeReadiness: {
+                schema: "pirate.reward-close-readiness/1",
+                checkedAt:
+                  installedCutoffConfirmed && installedWindow
+                    ? installedWindow.cutoffAt
+                    : Date.now(),
+                offers: installedWindow
+                  ? {
+                      [rehearsal.offerId]: {
+                        cutoffAt: installedWindow.cutoffAt,
+                        ...(installedCutoffConfirmed
+                          ? {
+                              confirmedTimestamp: installedWindow.cutoffAt,
+                              state: "ready",
+                            }
+                          : { state: "before_cutoff" }),
+                      },
+                    }
+                  : {},
+              },
+            }
+          : {}),
         liabilities: {
           total: "180000",
           unclaimed: "0",
@@ -239,6 +280,19 @@ async function fixture(
       expect(body.opensAt).toBeGreaterThan(Date.now());
       expect(body.cutoffAt).toBeGreaterThan(body.opensAt);
       rehearsalAttached = true;
+      if (installedDanceMode)
+        installedWindow = { opensAt: body.opensAt, cutoffAt: body.cutoffAt };
+      return json(rehearsalOffer());
+    }
+    if (
+      installedDanceMode &&
+      path === "/api/operator/rewards/offers/rehearsal_001/close" &&
+      req.method() === "POST"
+    ) {
+      expect(rehearsalAttached).toBe(true);
+      expect(installedCutoffConfirmed).toBe(true);
+      expect(req.postDataJSON()).toEqual({});
+      rehearsalClosed = true;
       return json(rehearsalOffer());
     }
     if (path === "/api/operator/rewards/offers/rehearsal_001/settle") {
@@ -279,6 +333,12 @@ async function fixture(
     intents: () => intents,
     claims: () => claims,
     prepared: () => prepared,
+    installedPosts,
+    confirmInstalledCutoff: () => {
+      if (!installedWindow) throw Error("Missing installed offer.");
+      installedCutoffConfirmed = true;
+      return installedWindow.cutoffAt;
+    },
     closeRehearsal: () => {
       rehearsalClosed = true;
     },
@@ -482,4 +542,58 @@ test("operator attaches one explicit rehearsal with frozen evidence and settles 
   await expect(
     page.getByLabel("Purchase transaction", { exact: true }),
   ).toBeVisible();
+});
+
+// Presentation and dispatch over the existing simulated HTTP harness.
+// Installed authority, canonical evidence and ledger acceptance have their own gates.
+test("installed Dance offer shows the returned qualifier and only dispatches manual attach and close", async ({
+  page,
+}) => {
+  const f = await fixture(page, true, false, true, true);
+  await page.clock.install({ time: new Date() });
+  await page.goto(origin + "/operator/rewards");
+  const operator = page.locator("[data-reward-operator]");
+  await expect(
+    operator.getByRole("heading", { name: "Dance reward offer", exact: true }),
+  ).toBeVisible();
+  await expect(
+    operator.getByLabel("Drawing source", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    operator.getByRole("button", { name: "Prepare payment", exact: true }),
+  ).toHaveCount(0);
+  await operator
+    .getByRole("button", { name: "Attach rehearsal offer", exact: true })
+    .click();
+  const close = operator.getByRole("button", {
+    name: "Close entries",
+    exact: true,
+  });
+  await expect(close).toBeDisabled();
+  await page.clock.setSystemTime(f.confirmInstalledCutoff() + 1);
+  await operator
+    .getByRole("button", { name: "Refresh records", exact: true })
+    .click();
+  await expect(close).toBeEnabled();
+  await close.click();
+  await expect(
+    operator.getByText("Rehearsal offer · closed", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    operator.getByRole("status").filter({ hasText: /^1 qualifier$/ }),
+  ).toBeVisible();
+  await expect(
+    operator.getByRole("button", {
+      name: "Credit simulated prize",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(
+    operator.getByRole("status").filter({ hasText: /^1 qualifier$/ }),
+  ).toBeVisible();
+  expect(f.installedPosts).toEqual([
+    "/api/operator/rewards/offers",
+    "/api/operator/rewards/offers/rehearsal_001/close",
+  ]);
 });

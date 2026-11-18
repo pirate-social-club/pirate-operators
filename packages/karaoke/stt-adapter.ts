@@ -8,6 +8,24 @@ export interface KaraokeSttCommitAck {
   coverageMs: number;
 }
 
+export const karaokeNativeFailureHeader = "x-pirate-karaoke-native-failure";
+
+export const karaokeNativeFailureOutcomes = [
+  "bridge_input", "bridge_input_limit", "bridge_busy", "bridge_cancelled",
+  "child_spawn", "child_stdin",
+  "child_signal", "child_exit", "native_boot", "native_decode", "token_text",
+  "token_timing", "native_output", "native_internal",
+] as const;
+
+export type KaraokeNativeFailureOutcome = typeof karaokeNativeFailureOutcomes[number];
+
+export type KaraokeLocalFailure = {
+  commitId: string;
+  streamGeneration: string;
+  outcome: KaraokeNativeFailureOutcome | "timeout" | "child_unavailable" | "invalid_response" | "invalid_word_time";
+  pcmMs: number;
+};
+
 /**
  * Internal adapter → host message. `event` is the client-relayable transcript;
  * `commit` (present only on committed finals) carries the correlation metadata
@@ -35,6 +53,7 @@ export interface KaraokeStreamingSttAdapter {
      */
     initialSequence: number;
     onMessage: (message: KaraokeSttAdapterMessage) => Promise<void>;
+    onLocalCommitUnmeasured?: (failure: KaraokeLocalFailure) => Promise<void>;
     /**
      * Fired when the provider stream drops unexpectedly (network close/error, or
      * a transient provider error the adapter treats as a drop), NOT on intentional
@@ -56,5 +75,6 @@ export interface KaraokeStreamingSttAdapter {
    * commit is already in flight). Refusal must NOT tear down the stream.
    */
   commit(): Promise<{ commitId: string; streamGeneration: string; frontierMs: number } | null>;
+  discardPendingOnSeek?(): void;
   close(): Promise<void>;
 }

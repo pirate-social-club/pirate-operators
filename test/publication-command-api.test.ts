@@ -6,6 +6,7 @@ import { canonical, digest } from "../packages/protocol/index.ts";
 import { publicationCommandFetch } from "../services/publication-command-api.ts";
 import { intentOf } from "../services/operator-tx.ts";
 import { publicationCommandFixture } from "./fixtures/publication-command.ts";
+import { operatorDatabase } from "./fixtures/publication-app-http.ts";
 
 // Public disposable test keys, never managed or funded public-chain accounts.
 const issuer = privateKeyToAccount(`0x${"71".repeat(32)}`);
@@ -106,4 +107,79 @@ test("issuer transport explicitly binds the command identity and requires its no
     assert.deepEqual(snapshot(f.store), before);
     assert.equal(rpc.calls.length, 0);
   }
+});
+
+test("fresh accept rechecks custody after authentication and before charging the empty operator store", async t => {
+  const f = await publicationCommandFixture(t), rpc = f.scripted();
+  const operator = operatorDatabase(":memory:", now);
+  t.after(operator.close);
+  const { store } = operator, before = snapshot(store);
+  const body = { command: f.command, signature: f.job.signature, fee: f.job.fee };
+  const path = "/publication/v1/accept";
+  const sign = (signer = issuer) => signedRequest(body, path, f.command.source, f.job.fee.payer, signer);
+  let held = true, checked = 0, clock = now;
+  const ports = {
+    issuer: { source: f.command.source, issuer: issuer.address, operator: f.job.fee.payer },
+    store, selectedFee: f.job.fee, read: rpc.read, clock: () => clock,
+    async assertAcceptCurrent(authenticated: unknown) {
+      checked++;
+      assert.deepEqual(authenticated, body);
+      assert.deepEqual(snapshot(store), before);
+      assert(held, "fresh accept custody ended");
+    },
+  };
+
+  await assert.rejects(publicationCommandFetch(await sign(otherIssuer), ports), /publication_issuer_invalid/);
+  assert.equal(checked, 0);
+
+  const signed = await sign();
+  const reading = Promise.withResolvers<void>(), releaseBody = Promise.withResolvers<void>();
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      reading.resolve();
+      await releaseBody.promise;
+      controller.enqueue(new TextEncoder().encode(canonical(body)));
+      controller.close();
+    },
+  });
+  const delayedBody = new Request(signed.url, Object.assign(
+    { method: "POST", headers: signed.headers, body: stream },
+    { duplex: "half" },
+  ));
+  const rejected = assert.rejects(publicationCommandFetch(delayedBody, ports), /fresh accept custody ended/);
+  await reading.promise;
+  held = false;
+  releaseBody.resolve();
+  await rejected;
+  assert.equal(checked, 1);
+  assert.deepEqual(snapshot(store), before);
+
+  held = true;
+  await assert.rejects(publicationCommandFetch(await sign(), {
+    ...ports,
+    async assertAcceptCurrent(authenticated) {
+      await ports.assertAcceptCurrent(authenticated);
+      clock = now + 60;
+    },
+  }), /publication_issuer_expired/);
+  assert.deepEqual(snapshot(store), before);
+
+  clock = now;
+  const stop = new AbortController();
+  await assert.rejects(publicationCommandFetch(new Request(await sign(), { signal: stop.signal }), {
+    ...ports,
+    async assertAcceptCurrent(authenticated) {
+      await ports.assertAcceptCurrent(authenticated);
+      stop.abort(Error("fresh accept cancelled"));
+    },
+  }), /fresh accept cancelled/);
+  assert.deepEqual(snapshot(store), before);
+  assert.equal(rpc.calls.length, 0);
+
+  const response = await publicationCommandFetch(await sign(), ports);
+  assert.equal(response?.status, 200);
+  assert.equal((await response!.json() as { state: string }).state, "queued");
+  assert.equal(intentOf(store, f.job.kind, f.job.ref)?.nonce, null);
+  assert.equal(store.entries("sponsor:reservation:").length, 1);
+  assert.equal(rpc.calls.length, 0);
 });

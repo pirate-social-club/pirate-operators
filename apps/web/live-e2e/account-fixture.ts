@@ -521,7 +521,7 @@ export async function home(page: Page) {
   if (!name?.trim()) throw new Error("Expected a named community sidebar");
   await sidebar.getByRole("button", { name: `Go home to ${name}`, exact: true }).click();
   await expect(
-    page.getByRole("navigation", { name: "Community documents" }),
+    page.getByRole("main", { name: "Community feed", exact: true }),
   ).toBeVisible();
 }
 export async function openSong(page: Page) {

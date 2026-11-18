@@ -35,7 +35,8 @@ import {
   settleOwnerBudget,
   type OwnerBudgetGrant,
 } from "../release/owner-grant.ts";
-import type { ExternalOperation } from "./publication-store.ts";
+import type { ExternalOperation, PublicationJob } from "./publication-store.ts";
+import type { LocalPostsEffectFence } from "./local-posts-custody.ts";
 import {
   preparedOperation,
   type OperationResult,
@@ -66,6 +67,8 @@ export interface PostingPorts {
    * their original identity and remain readable/settleable after expiry. */
   ownerReservationCondition?(operation:ExternalOperation,requested:string):Promise<ReservationCondition>;
   beforeBroadcast?(operation:ExternalOperation):Promise<void>;
+  /** Opt-in for the owning disposable Web2 fixture. */
+  localPostsFence?: LocalPostsEffectFence;
 }
 function intent(operation: ExternalOperation): FirstPublication {
   const request = object(JSON.parse(operation.request_json)),
@@ -96,6 +99,7 @@ async function authorize(ports: PostingPorts) {
 export async function preparePosting(
   operation: ExternalOperation,
   ports: PostingPorts,
+  job?: PublicationJob,
 ): Promise<PreparedOperation> {
   await authorize(ports);
   const publication = intent(operation),
@@ -185,6 +189,12 @@ export async function preparePosting(
     "publication_fee_exceeds_cap",
     409,
   );
+  if (ports.localPostsFence) {
+    ports.localPostsFence.assertScope(ports.db, ports.config, address);
+    await ports.localPostsFence.assertNode(ports.client);
+    await authorize(ports);
+    await ports.localPostsFence.beforeSign(operation, job);
+  }
   const raw = await ports.publisher.signTransaction({
     type: "legacy",
     chainId: 6343,
@@ -329,6 +339,7 @@ async function feeReserved(operation: ExternalOperation, ports: PostingPorts) {
 export async function executePosting(
   operation: ExternalOperation,
   ports: PostingPorts,
+  job?: PublicationJob,
 ): Promise<OperationResult> {
   const prepared = preparedOperation(operation);
   if (prepared.replay.kind === "never") {
@@ -395,7 +406,13 @@ export async function executePosting(
     insist(ports.catalogBeforeBroadcast,"catalog_pending",503);
     await ports.catalogBeforeBroadcast();
   }
+  if (ports.localPostsFence) {
+    ports.localPostsFence.assertScope(ports.db, ports.config, ports.publisher.address);
+    await ports.localPostsFence.assertNode(ports.client);
+  }
   await ports.beforeBroadcast?.(operation);
+  if (ports.localPostsFence)
+    await ports.localPostsFence.beforeSend(operation, tx.hash, job);
   try {
     const hash = await ports.client.sendRawTransaction({
       serializedTransaction: tx.raw,

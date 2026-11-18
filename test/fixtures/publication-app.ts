@@ -15,7 +15,7 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { canonical, digest } from "../../packages/protocol/index.ts";
-import { installPublicationSelection } from "../../services/publication-installed-selection.ts";
+import { installFirstPublicationSelection, installPublicationSelection } from "../../services/publication-installed-selection.ts";
 import { hashText } from "../../packages/community/common.ts";
 import { parsePublicationGrant } from "../../packages/protocol/publication-consent.ts";
 import { publicationConsentAbi } from "../../packages/protocol/generated/publication-consent-v1.ts";
@@ -61,6 +61,7 @@ export async function publicationAppFixture(
     safeLag?: bigint;
     window?: string;
     installSelection?: boolean;
+    trustedFirstSelection?: boolean;
   } = {},
 ) {
   const database = await appDatabase(),
@@ -91,6 +92,13 @@ export async function publicationAppFixture(
     { issuer: lower(issuer.address), operator: lower(payer.address) },
   );
   if (options.window) authority.release.submitWindowSeconds = options.window;
+  if (options.trustedFirstSelection) {
+    assert(!options.firstSong && options.installSelection !== false);
+    authority.release.policies = {
+      "dance-verdict": authority.release.policies["dance-verdict"]!,
+      "dance-review-attribution": authority.release.policies["dance-review-attribution"]!,
+    };
+  }
   const selected = publicationSelectionHash(authority.release);
   let catalog = new PublicationReleaseCatalog(
     [authority.release],
@@ -213,20 +221,20 @@ export async function publicationAppFixture(
   let installationEntries = [
     { release: catalog.get(selected), transportRef: "operator-primary" },
   ];
-  const installation =
-    options.installSelection === false
-      ? undefined
-      : await installPublicationSelection(database.db, {
-          schema: "pirate.publication-installation/1",
-          communityId: context.communityId,
-          installationId: authority.release.source.installationId,
-          origin: context.origin,
-          incarnation: "1",
-          installedBindingSha256: digest("installed-binding-1"),
-          active: options.firstSong ? null : selected,
-          entries: installationEntries,
-          previous: null,
-        });
+  const selection = {
+    schema: "pirate.publication-installation/1" as const,
+    communityId: context.communityId,
+    installationId: authority.release.source.installationId,
+    origin: context.origin,
+    incarnation: "1",
+    installedBindingSha256: digest("installed-binding-1"),
+    active: options.firstSong ? null : selected,
+    entries: installationEntries,
+    previous: null,
+  };
+  const installation = options.installSelection === false ? undefined :
+    options.trustedFirstSelection ? await installFirstPublicationSelection(database.db, selection, Date.now() + 60000) :
+    await installPublicationSelection(database.db, selection);
   if (installation) catalog = installation.catalog;
   let ports: PublicationApplicationPorts = {
     db: database.db,

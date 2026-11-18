@@ -30,6 +30,7 @@ async function bytes(request: Request) {
  * This authenticates the issuer's transport, not learner consent. */
 export async function publicationIssuerBody(
   request: Request, expected: PublicationIssuerV1, clock: () => number,
+  assertAcceptCurrent?: (authenticatedBody: unknown) => Promise<void>,
 ): Promise<unknown> {
   const nowS = clock();
   check(Number.isSafeInteger(nowS) && nowS > 0, "publication_clock_invalid");
@@ -68,6 +69,7 @@ export async function publicationIssuerBody(
   const b = record(body);
   const id = path === "/publication/v1/accept" ? record(b.command).commandId : b.commandId;
   check(id === a.commandId, "publication_issuer_command_changed");
+  if (assertAcceptCurrent) await assertAcceptCurrent(body);
   const ended = clock();
   check(Number.isSafeInteger(ended) && ended >= nowS && ended < (a.expiresAt as number),
     "publication_issuer_expired");

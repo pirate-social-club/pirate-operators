@@ -167,6 +167,47 @@ for (const status of [401, 403])
     }
   });
 
+test("Karaoke session loss retires presentation and preserves ticket uncertainty", async () => {
+  const original = fetch;
+  let posts = 0;
+  let attempt = { state: "none" } as Record<string, unknown>;
+  const notifications: unknown[] = [];
+  globalThis.fetch = (async (path, init) => {
+    if (path === "/api/session") return Response.json({ mossAddress: owner });
+    if (init?.method === "POST") {
+      assert.equal(path, "/api/karaoke/tickets");
+      posts++;
+      return Response.json({ error: "karaoke_session_changed" }, { status: 409 });
+    }
+    assert.equal(path, "/api/karaoke/attempt?postId=same-song");
+    return Response.json(attempt);
+  }) as typeof fetch;
+  const port = createOperatorKaraokePort({
+    account: owner,
+    postId: "same-song",
+    csrf: () => "captured-csrf",
+    onAuthorityLoss: (error) => notifications.push(error),
+  });
+  try {
+    await assert.rejects(port.ticket(), (error: unknown) => {
+      assert.ok(error instanceof LearningServiceError);
+      assert.equal(error.code, "karaoke_session_changed");
+      assert.equal(error.evidence?.stage, "response_uncertain");
+      assert.equal(isLearningAuthorityLoss(error), true);
+      return true;
+    });
+    assert.equal(notifications.length, 1);
+    await assert.rejects(port.ticket(), /confirm this take/);
+    assert.equal(posts, 1);
+    attempt = open;
+    assert.equal((await port.ticket()).ticketId, "original-ticket");
+    assert.equal(posts, 1);
+  } finally {
+    port.dispose();
+    globalThis.fetch = original;
+  }
+});
+
 test("ordinary503 readback remains recoverable without an authority notification", async () => {
   const original = fetch;
   let unavailable = true,

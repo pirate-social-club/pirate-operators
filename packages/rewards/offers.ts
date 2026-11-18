@@ -9,6 +9,7 @@ import type {
   RewardOffer,
   RewardOfferInput,
   RewardSources,
+  RewardsProfile,
 } from "./contracts.ts";
 import {
   checkRewardClosureEvidence,
@@ -158,6 +159,43 @@ function offerSources(
   );
   return chosen;
 }
+export interface RewardManualClose {
+  readonly offerId: string;
+  readonly inputHash: string;
+  readonly sourceHash: string;
+}
+
+/** Shared attachment validation for selected discovery, capture and close. */
+export function selectedManualDanceOffer(
+  row: OfferRow,
+  profile: RewardsProfile,
+  selection: Pick<RewardManualClose, "offerId" | "sourceHash">,
+) {
+  const offer = offerView(row);
+  const input = offerInput(offer);
+  const purchase = object(JSON.parse(row.purchase_evidence));
+  insist(
+    row.offer_id === selection.offerId &&
+      profile.rehearsal?.offerId === selection.offerId &&
+      hashJson(input) === row.input_hash &&
+      offer.evidenceMode === "simulated" &&
+      (offer.state === "open" || offer.state === "closed") &&
+      offer.resultSources?.length === 1 &&
+      offer.resultSources[0] === selection.sourceHash &&
+      requiresRewardClosure(row) &&
+      purchase.receiptHash ===
+        hashJson({
+          schema: "pirate.simulated-purchase/1",
+          programId: profile.programId,
+          input,
+        }),
+    "reward_manual_offer_changed",
+    409,
+  );
+  assertRehearsalOffer(profile, input);
+  return offer;
+}
+
 export class RewardOffers {
   readonly store: RewardStore;
   readonly source: RewardSources;
@@ -176,7 +214,8 @@ export class RewardOffers {
       503,
     );
   }
-  async attach(raw: RewardOfferInput) {
+  async attach(raw: RewardOfferInput, assertCurrent?: () => Promise<void>) {
+    if (assertCurrent) await assertCurrent();
     let input = offerInput(raw);
     rewardId(input.offerId);
     rewardAmount(input.drawingId);
@@ -254,6 +293,7 @@ export class RewardOffers {
         )
         .first<{ input_hash: string }>();
       const hash = hashJson(input);
+      if (assertCurrent) await assertCurrent();
       if (prior) {
         insist(prior.input_hash === hash, "reward_offer_conflict", 409);
         return {
@@ -311,9 +351,25 @@ export class RewardOffers {
       };
     });
   }
-  async close(id: string) {
+  async close(
+    id: string,
+    selected?: RewardManualClose,
+    assertCurrent?: () => Promise<void>,
+  ) {
+    const manual = selected && structuredClone(selected);
+    const selectedView = (row: OfferRow) => {
+      if (!manual) return offerView(row);
+      const offer = selectedManualDanceOffer(row, this.store.profile, manual);
+      insist(
+        row.input_hash === manual.inputHash,
+        "reward_manual_offer_changed",
+        409,
+      );
+      return offer;
+    };
+    if (assertCurrent) await assertCurrent();
     const stored = await this.store.offer(rewardId(id)),
-      input = offerView(stored);
+      input = selectedView(stored);
     if (input.state !== "open") return input;
     insist(this.now() >= input.cutoffAt, "reward_cutoff_not_reached", 409);
     // The sources read are exactly those pinned when the offer was attached.
@@ -339,8 +395,11 @@ export class RewardOffers {
     );
     return this.store.atomic(async () => {
       const row = await this.store.offer(id);
-      if (row.state !== "open")
-        return { value: offerView(row), statements: [] };
+      const current = manual ? selectedView(row) : null;
+      if (row.state !== "open") {
+        if (assertCurrent) await assertCurrent();
+        return { value: current ?? offerView(row), statements: [] };
+      }
       insist(
         row.input_hash === stored.input_hash &&
           row.purchase_evidence === stored.purchase_evidence,
@@ -415,6 +474,7 @@ export class RewardOffers {
         evidence: scanned.evidence,
       };
       if (snapshot) await closure!.verify(offerInput(input), snapshot.evidence);
+      if (assertCurrent) await assertCurrent();
       return {
         value: { ...offerView(row), state: "closed" as const, entries: sorted },
         statements: [

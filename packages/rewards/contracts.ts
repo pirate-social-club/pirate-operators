@@ -75,6 +75,7 @@ export interface RewardAvailableOffers {
     opensAt: number;
     cutoffAt: number;
     ticketCount: number;
+    eligibility?: "dance-pass";
   }[];
 }
 export interface RewardWalletView {

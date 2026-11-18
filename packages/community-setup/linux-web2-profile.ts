@@ -32,6 +32,11 @@ export interface HostedEnrollmentStatus {
   }>;
 }
 
+export type Web2PracticeSelection = "study-v5" | "study-karaoke-v5" | "study-dance-v2" | "study-karaoke-dance-v2";
+export function isWeb2PracticeSelection(value: unknown): value is Web2PracticeSelection {
+  return value === "study-v5" || value === "study-karaoke-v5" ||
+    value === "study-dance-v2" || value === "study-karaoke-dance-v2";
+}
 export interface LinuxWeb2Draft {
   schema: "pirate.linux-web2-draft/1";
   name: string;
@@ -39,6 +44,7 @@ export interface LinuxWeb2Draft {
   deployment: Web2CommunityDeploymentProfile;
   enrollment: HostedEnrollmentStatus;
   configuration: Web2CommunityConfig;
+  privatePractice?: Web2PracticeSelection;
 }
 export interface LinuxWeb2PlanSelection {
   planId: string;
@@ -55,8 +61,8 @@ export interface LinuxWeb2PlanSummary extends LinuxWeb2PlanSelection {
     registrationTransaction: Hex;
     verifiedListing: false;
     namesEnabled: false;
-    learningEnabled: false;
-    danceEnabled: false;
+    learningEnabled: boolean;
+    danceEnabled: boolean;
   };
 }
 export interface LinuxWeb2Observation extends LinuxWeb2PlanSelection {
@@ -66,6 +72,10 @@ export interface LinuxWeb2Observation extends LinuxWeb2PlanSelection {
   reason?: string;
 }
 export interface LinuxWeb2Installation {
+  /** Server-only read of the exact retained expanded plan and attached grant. */
+  verifyExpandedPublishing?(selection: LinuxWeb2PlanSelection, draft: LinuxWeb2Draft): Promise<"expanded" | undefined>;
+  readonly privateStudyAvailable?: boolean;
+  readonly privatePracticeSelection?: Web2PracticeSelection;
   prepare(value: unknown): Promise<LinuxWeb2PlanSummary>;
   apply(selection: LinuxWeb2PlanSelection): Promise<LinuxWeb2Observation>;
   status(selection: LinuxWeb2PlanSelection): Promise<LinuxWeb2Observation>;
@@ -153,7 +163,10 @@ export function linuxWeb2DraftFrom(value: unknown): LinuxWeb2Draft {
     "deployment",
     "enrollment",
     "configuration",
+    ...(Object.hasOwn(row, "privatePractice") ? ["privatePractice"] : []),
   ]);
+  insist(!Object.hasOwn(row, "privatePractice") || isWeb2PracticeSelection(row.privatePractice),
+    "web2_private_practice_selection_invalid");
   insist(
     row.schema === "pirate.linux-web2-draft/1",
     "explicit_web2_installation_required",
@@ -201,5 +214,6 @@ export function linuxWeb2DraftFrom(value: unknown): LinuxWeb2Draft {
     deployment,
     enrollment,
     configuration,
+    ...(isWeb2PracticeSelection(row.privatePractice) ? { privatePractice: row.privatePractice } : {}),
   };
 }

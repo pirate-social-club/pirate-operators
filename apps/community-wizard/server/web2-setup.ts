@@ -47,6 +47,8 @@ import { parseEnrollment } from "../../../packages/community/hosted-enrollment.t
 import { createHostedEnrollmentClient } from "../../../packages/community-setup/hosted-enrollment-client.ts";
 import {
   linuxWeb2DraftFrom,
+  isWeb2PracticeSelection,
+  type Web2PracticeSelection,
   type HostedEnrollmentStatus,
   type LinuxWeb2Installation,
   type LinuxWeb2Observation,
@@ -96,6 +98,9 @@ export interface Web2WizardView {
   invitationCorrectionRequired: boolean;
   recipients: Array<{ address: Hex; value: string }>;
   installationAvailable: boolean;
+  privateStudyAvailable?: true;
+  privatePracticeSelection?: Web2PracticeSelection;
+  installationSelection?: "off" | Web2PracticeSelection;
   installPlan: LinuxWeb2PlanSummary | null;
   observation: LinuxWeb2Observation | null;
 }
@@ -225,6 +230,9 @@ export async function createWeb2Setup(
             .map((r) => ({ address: r.address, value: String(r.value) }))
         : [],
       installationAvailable: Boolean(input.installation),
+      ...(input.installation?.privateStudyAvailable === true ? { privateStudyAvailable: true as const } : {}),
+      ...(input.installation?.privatePracticeSelection ? { privatePracticeSelection: input.installation.privatePracticeSelection } : {}),
+      ...(journal.installDraft ? { installationSelection: journal.installDraft.privatePractice ?? "off" as const } : {}),
       installPlan: journal.installPlan,
       observation: journal.observation
         ? {
@@ -522,12 +530,38 @@ export async function createWeb2Setup(
         insist(input.installation, "web2_installation_unavailable", 503);
         exact(
           body,
-          action === "install" ? ["planId", "planDigest", "approved"] : [],
+          action === "install" ? ["planId", "planDigest", "approved"] :
+            action === "installation-prepare" && Object.hasOwn(body, "privatePractice") ? ["privatePractice"] : [],
         );
         if (action !== "installation-prepare")
           insist(journal.installPlan, "web2_installation_review_required", 409);
-        await publishing.attachment(enrollmentDraft());
-        if (!journal.installDraft) journal.installDraft = enrollmentDraft();
+        const draft = enrollmentDraft();
+        if (action === "installation-prepare") {
+          insist(!Object.hasOwn(body, "privatePractice") || isWeb2PracticeSelection(body.privatePractice),
+            "web2_private_practice_selection_invalid", 409);
+          const selection = isWeb2PracticeSelection(body.privatePractice) ? body.privatePractice : undefined;
+          if (journal.installDraft)
+            insist(journal.installDraft.privatePractice === selection,
+              "web2_original_practice_selection_changed", 409);
+          if (selection)
+            insist((input.installation.privatePracticeSelection ??
+              (input.installation.privateStudyAvailable === true ? "study-v5" : undefined)) === selection,
+              "web2_private_study_unavailable", 503);
+          if (selection) draft.privatePractice = selection;
+        }
+        const retained = action !== "installation-prepare" ? journal.installPlan : null;
+        if (retained && action === "install")
+          insist(body.approved === true && body.planId === retained.planId && body.planDigest === retained.planDigest,
+            "web2_installation_review_changed", 409);
+        // Only the installed backend can verify the original grant after the
+        // signed revision-two transition. Initial preparation and all other
+        // paths keep the ordinary revision-one check.
+        const expanded = retained && input.installation.verifyExpandedPublishing
+          ? await input.installation.verifyExpandedPublishing({ planId: retained.planId, planDigest: retained.planDigest },
+              structuredClone(journal.installDraft ?? draft))
+          : undefined;
+        if (expanded !== "expanded") await publishing.attachment(draft);
+        if (!journal.installDraft) journal.installDraft = draft;
         journal.revision++;
         journal.pending = action;
         await save();
@@ -542,14 +576,6 @@ export async function createWeb2Setup(
         const p = journal.installPlan;
         checkInstallationPlan(p, journal.installDraft);
         const selection = { planId: p.planId, planDigest: p.planDigest };
-        if (action === "install")
-          insist(
-            body.approved === true &&
-              body.planId === p.planId &&
-              body.planDigest === p.planDigest,
-            "web2_installation_review_changed",
-            409,
-          );
         if (action !== "installation-prepare") {
           const observation =
             action === "install"

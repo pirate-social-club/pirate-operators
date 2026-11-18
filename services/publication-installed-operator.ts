@@ -3,7 +3,7 @@ import { check } from "../packages/protocol/index.ts";
 import { consentDigest } from "../packages/protocol/publication-consent.ts";
 import type { ResultStore } from "./learning-transactions.ts";
 import type { PublicationReadRpc } from "./publication-command-rpc.ts";
-import { publicationCommandFetch } from "./publication-command-api.ts";
+import { publicationCommandFetch, type PublicationCommandApiV1 } from "./publication-command-api.ts";
 import { record } from "./publication-command-contract.ts";
 import {
   PublicationReleaseCatalog,
@@ -22,6 +22,7 @@ export async function publicationInstalledOperatorFetch(
     store: ResultStore;
     read: PublicationReadRpc;
     clock: () => number;
+    assertAcceptCurrent?: PublicationCommandApiV1["assertAcceptCurrent"];
   },
 ) {
   if (
@@ -56,5 +57,6 @@ export async function publicationInstalledOperatorFetch(
     store: ports.store,
     read: ports.read,
     clock: ports.clock,
+    assertAcceptCurrent: ports.assertAcceptCurrent,
   });
 }

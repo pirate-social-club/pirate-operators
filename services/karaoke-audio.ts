@@ -9,6 +9,11 @@
 // than the audio controls go to the existing handler unchanged.
 // See docs/karaoke-capture-handoff.md.
 import { decodeKaraokeBinaryFrame } from "../packages/karaoke/binary-codec.ts";
+import { localKaraokeAdapter } from "./karaoke-local-recognition.ts";
+import { checkKaraokeTicketScope, privateKaraokeScope } from "./karaoke-private-profile.ts";
+import {
+  privateKaraokeLeaseCurrent, sendPrivateKaraokeSocket, type PrivateKaraokeLease,
+} from "./karaoke-socket-session.ts";
 import { admittedKaraokeAdapter } from "./karaoke-speech-adapter.ts";
 import {
   KaraokeAudioRelay,
@@ -23,7 +28,7 @@ import {
 } from "../packages/protocol/payments.ts";
 import type { KaraokeRecognizedWord } from "../packages/scoring/scoring.ts";
 import type { Attempt } from "./karaoke-result.ts";
-import { settle } from "./karaoke.ts";
+import { beginPrivateKaraokeDrain, completePrivateKaraokeDrain, settle } from "./karaoke.ts";
 import { ServiceState, type Env } from "./runtime.ts";
 import { isLearningProfile } from "./learning-profile.ts";
 import { liveLineScores } from "./karaoke-feedback.ts";
@@ -41,10 +46,26 @@ export class KaraokeAudioState extends ServiceState {
   private readonly relays = new Map<string, KaraokeAudioRelay>();
   private readonly idle = new Map<string, ReturnType<typeof setTimeout>>();
 
-  override async webSocketMessage(
-    ws: WebSocket,
-    message: string | ArrayBuffer,
-  ) {
+  private readonly inbound = new WeakMap<WebSocket, { drain: Promise<void>; queued: number }>();
+  private readonly outbound = new WeakMap<WebSocket, Promise<void>>();
+
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (!this.usesPrivateSocket(ws)) return this.acceptMessage(ws, message);
+    const queue = this.inbound.get(ws) ?? { drain: Promise.resolve(), queued: 0 };
+    if (queue.queued >= 20) {
+      try { ws.close(1013, "audio queue full"); } catch {}
+      return;
+    }
+    this.inbound.set(ws, queue);
+    queue.queued++;
+    const run = queue.drain.then(async () => {
+      if (await this.currentPrivateSocket(ws)) await this.acceptMessage(ws, message);
+    });
+    queue.drain = run.catch(() => undefined).finally(() => { queue.queued--; });
+    return queue.drain;
+  }
+
+  private async acceptMessage(ws: WebSocket, message: string | ArrayBuffer) {
     try {
       if (typeof message !== "string") return await this.audio(ws, message);
       check(message.length <= 32000, "invalid_frame");
@@ -61,6 +82,11 @@ export class KaraokeAudioState extends ServiceState {
           this.reopen(ticketId, songMs);
         } else await relay.pause();
         return;
+      }
+      if (this.usesPrivateSocket(ws)) {
+        check(frame.type === "finish", "private_karaoke_frame_unavailable");
+        if (!await this.currentPrivateSocket(ws)) return;
+        return await this.finishPrivate(ws);
       }
       if (frame.type === "finish") {
         const { ticketId, generation } = this.attachment(ws);
@@ -80,12 +106,37 @@ export class KaraokeAudioState extends ServiceState {
       }
       return await super.webSocketMessage(ws, message);
     } catch (error) {
-      ws.send(
-        JSON.stringify({
-          type: "error",
-          code: error instanceof Error ? error.message : "protocol_error",
-        }),
-      );
+      const payload = JSON.stringify({
+        type: "error",
+        code: error instanceof Error ? error.message : "protocol_error",
+      });
+      if (this.usesPrivateSocket(ws)) this.sendPrivate(ws, payload);
+      else ws.send(payload);
+    }
+  }
+
+  private async finishPrivate(ws: WebSocket) {
+    const { ticketId, generation } = this.attachment(ws);
+    if (!ticketId || generation === undefined) return;
+    const deadline = beginPrivateKaraokeDrain(this.store, this.env, ticketId, generation);
+    if (deadline === null) return;
+    const relay = this.relays.get(ticketId);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (relay) {
+        const drained = await Promise.race([
+          relay.finish().then(() => true),
+          new Promise<false>(resolve => {
+            timer = setTimeout(() => resolve(false), Math.max(0, deadline * 1000 - Date.now()));
+          }),
+        ]);
+        if (!drained) await relay.close();
+        this.forward(ticketId, relay);
+      } else this.forwardStored(ticketId);
+      completePrivateKaraokeDrain(this.store, this.env, ticketId, generation);
+    } finally {
+      clearTimeout(timer);
+      if (this.relays.get(ticketId) === relay) this.relays.delete(ticketId);
     }
   }
 
@@ -129,7 +180,8 @@ export class KaraokeAudioState extends ServiceState {
       attemptId: attempt.attemptId,
     });
     if (decoded.error) throw new Error(decoded.error.code);
-    await relay.audio(decoded.frame);
+    await relay.audio(decoded.frame,
+      this.usesPrivateSocket(ws) ? () => this.currentPrivateSocket(ws) : undefined);
   }
 
   /**
@@ -153,7 +205,38 @@ export class KaraokeAudioState extends ServiceState {
     return (ws.deserializeAttachment() ?? {}) as {
       ticketId?: string;
       generation?: number;
+      browserLease?: PrivateKaraokeLease;
     };
+  }
+
+  private usesPrivateSocket(ws: WebSocket) {
+    return this.env.KARAOKE_PRIVATE_PROFILE !== undefined ||
+      this.attachment(ws).browserLease !== undefined;
+  }
+
+  private socketIsCurrent(ws: WebSocket) {
+    const { ticketId, generation } = this.attachment(ws);
+    return ws.readyState === 1 && !!ticketId && generation !== undefined &&
+      this.store.get<Attempt>("attempt:" + ticketId)?.generation === generation;
+  }
+
+  private async currentPrivateSocket(ws: WebSocket) {
+    if (!this.socketIsCurrent(ws)) return false;
+    if (!await privateKaraokeLeaseCurrent(this.env, this.attachment(ws).browserLease)) {
+      try { ws.close(4401, "session ended"); } catch {}
+      return false;
+    }
+    return this.socketIsCurrent(ws);
+  }
+
+  private sendPrivate(ws: WebSocket, payload: string) {
+    const prior = this.outbound.get(ws) ?? Promise.resolve();
+    const next = prior.then(async () => {
+      await sendPrivateKaraokeSocket(this.env, ws, this.attachment(ws).browserLease,
+        () => this.socketIsCurrent(ws), payload);
+    }).catch(() => undefined);
+    this.outbound.set(ws, next);
+    void next.then(() => { if (this.outbound.get(ws) === next) this.outbound.delete(ws); });
   }
 
   /** The live take behind this socket, with its relay; stale sockets are refused. */
@@ -189,7 +272,9 @@ export class KaraokeAudioState extends ServiceState {
     const manifest =
       ticket &&
       this.store.get<KaraokeManifest>(`manifest:${ticket.manifestSha256}`);
-    if (!manifest) return undefined;
+    if (!ticket || !manifest) return undefined;
+    const privateScope = privateKaraokeScope(this.env, this.store);
+    checkKaraokeTicketScope(ticket, privateScope);
     const key = `audioRelay:${ticketId}`;
     const apiKey = (this.env as KaraokeAudioEnv).ELEVENLABS_API_KEY;
     let queued = false;
@@ -201,8 +286,16 @@ export class KaraokeAudioState extends ServiceState {
         startMs,
         endMs,
       })),
+      ...(privateScope ? { commitAckTimeoutMs: 15000 } : {}),
       createAdapter:
-        live && apiKey
+        live && privateScope
+          ? () => admittedKaraokeAdapter({
+              env: this.env, store: this.store, ticketId,
+              learnerGeneration: attempt.generation,
+              admissionRequired: true,
+              localAdapter: localKaraokeAdapter(this.env.KARAOKE_LOCAL_TRANSCRIBER!, privateScope.modelSha256),
+            })
+          : live && apiKey
           ? () =>
               admittedKaraokeAdapter({
                 env: this.env as Env & SpeechAdmissionEnv,
@@ -308,8 +401,10 @@ export class KaraokeAudioState extends ServiceState {
       this.store.set(`feedbackWatermark:${ticketId}`, throughMs);
       this.store.set(`feedback:${ticketId}`, feedback);
       for (const socket of this.ctx.getWebSockets(ticketId)) {
+        const payload = JSON.stringify({ type: "line_scores", ...feedback });
         try {
-          socket.send(JSON.stringify({ type: "line_scores", ...feedback }));
+          if (this.usesPrivateSocket(socket)) this.sendPrivate(socket, payload);
+          else socket.send(payload);
         } catch {
           /* A disconnected listener must not interrupt grading. */
         }

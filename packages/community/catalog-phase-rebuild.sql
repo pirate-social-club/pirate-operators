@@ -4,13 +4,15 @@
 -- No earlier async inspection substitutes for the transactional guard.
 -- Exact pre-catalog component: pinned community migrations 0001 through 0019.
 -- Known unrelated later triggers are byte-pinned; optional means not yet applied.
+-- Publication consent is selected only by the verified numbered Web2 bootstrap.
 -- Unknown affected schema/indexes, any unknown trigger/view, and any unexpected
 -- incoming FK (including from an empty table) refuse before destructive DDL.
 -- Foreign keys remain enabled; all v1 rowid/column/history copies are unchanged.
 -- Apply catalog-obligation.sql only after this batch commits successfully.
 CREATE TABLE catalog_phase_schema_guard (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  valid INTEGER NOT NULL CONSTRAINT catalog_phase_schema_refusal CHECK(valid = 1)
+  valid INTEGER NOT NULL CONSTRAINT catalog_phase_schema_refusal CHECK(valid = 1),
+  publication_consent INTEGER NOT NULL DEFAULT 0 CHECK(publication_consent IN (0,1))
 );
 -- catalog-phase-statement
 -- Attest the sole protected FK-free runtime object before FK introspection.
@@ -30,11 +32,13 @@ SELECT 1, CASE WHEN NOT EXISTS (
   EXCEPT SELECT type,name,tbl_name,CAST(sql AS BLOB) FROM expected_runtime_metadata
 ) THEN 1 ELSE 0 END;
 -- catalog-phase-statement
+UPDATE catalog_phase_schema_guard SET publication_consent=0 WHERE singleton=1;
+-- catalog-phase-statement
 -- Exact selected migration SQL bytes, including CHECK/default/collation text.
 -- BLOB equality deliberately refuses even a semantically equivalent rewrite.
 -- Autoindex NULL SQL/name/owner identities are included, not filtered away.
--- Known unrelated triggers from pinned migrations 0016-0018 may be absent
--- before those migrations, but any present trigger must match its exact bytes.
+-- Known unrelated triggers from pinned migrations 0016-0018 and opt-in 0022
+-- may be absent, but any present trigger must match its exact bytes.
 -- Reject all other triggers/views: no lossy dependency-text search is used.
 WITH expected_affected(type, name, tbl_name, sql) AS (
   VALUES
@@ -132,6 +136,58 @@ expected_trigger(type, name, tbl_name, sql) AS (
     ('trigger', 'dance_recovered_attempt_no_update', 'dance_recovered_attempts', 'CREATE TRIGGER dance_recovered_attempt_no_update BEFORE UPDATE ON dance_recovered_attempts BEGIN SELECT RAISE(ABORT,''dance_recovered_attempt_immutable''); END'),
     ('trigger', 'dance_role_observation_no_delete', 'dance_reviewer_observations', 'CREATE TRIGGER dance_role_observation_no_delete BEFORE DELETE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
     ('trigger', 'dance_role_observation_no_update', 'dance_reviewer_observations', 'CREATE TRIGGER dance_role_observation_no_update BEFORE UPDATE ON dance_reviewer_observations BEGIN SELECT RAISE(ABORT,''dance_role_observation_immutable''); END'),
+    ('trigger', 'dance_host_account_delete_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_delete_generation AFTER DELETE ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=OLD.community_id; END'),
+    ('trigger', 'dance_host_account_insert_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_insert_generation AFTER INSERT ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_account_revision', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_revision BEFORE UPDATE ON dance_host_accounts
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.account_id IS NOT OLD.account_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_account_update_generation', 'dance_host_accounts', 'CREATE TRIGGER dance_host_account_update_generation AFTER UPDATE ON dance_host_accounts
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_context_no_delete', 'dance_host_context', 'CREATE TRIGGER dance_host_context_no_delete BEFORE DELETE ON dance_host_context
+ BEGIN SELECT RAISE(ABORT,''dance_host_context_retained''); END'),
+    ('trigger', 'dance_host_context_no_replace', 'dance_host_context', 'CREATE TRIGGER dance_host_context_no_replace BEFORE INSERT ON dance_host_context
+ WHEN EXISTS(SELECT 1 FROM dance_host_context WHERE community_id=NEW.community_id)
+ BEGIN SELECT RAISE(ABORT,''dance_host_context_retained''); END'),
+    ('trigger', 'dance_host_context_revision', 'dance_host_context', 'CREATE TRIGGER dance_host_context_revision BEFORE UPDATE ON dance_host_context
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_probe_immutable_delete', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_immutable_delete BEFORE DELETE ON dance_host_audio_probes
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_probe_immutable_update', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_immutable_update BEFORE UPDATE ON dance_host_audio_probes
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_probe_no_replace', 'dance_host_audio_probes', 'CREATE TRIGGER dance_host_probe_no_replace BEFORE INSERT ON dance_host_audio_probes
+ WHEN EXISTS(SELECT 1 FROM dance_host_audio_probes WHERE community_id=NEW.community_id
+   AND audio_sha256=NEW.audio_sha256 AND evidence_sha256=NEW.evidence_sha256)
+ BEGIN SELECT RAISE(ABORT,''dance_host_probe_immutable''); END'),
+    ('trigger', 'dance_host_selection_delete_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_delete_generation AFTER DELETE ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=OLD.community_id; END'),
+    ('trigger', 'dance_host_selection_insert_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_insert_generation AFTER INSERT ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_selection_revision', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_revision BEFORE UPDATE ON dance_host_selections
+ WHEN NEW.community_id IS NOT OLD.community_id OR NEW.song_key IS NOT OLD.song_key
+ OR NEW.reference_id IS NOT OLD.reference_id OR NEW.offer_id IS NOT OLD.offer_id OR NEW.revision!=OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,''dance_host_revision''); END'),
+    ('trigger', 'dance_host_selection_update_generation', 'dance_host_selections', 'CREATE TRIGGER dance_host_selection_update_generation AFTER UPDATE ON dance_host_selections
+ BEGIN UPDATE dance_host_context SET revision=revision+1 WHERE community_id=NEW.community_id; END'),
+    ('trigger', 'dance_host_song_key_immutable_delete', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_immutable_delete BEFORE DELETE ON dance_host_song_keys
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_host_song_key_immutable_update', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_immutable_update BEFORE UPDATE ON dance_host_song_keys
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_host_song_key_no_replace', 'dance_host_song_keys', 'CREATE TRIGGER dance_host_song_key_no_replace BEFORE INSERT ON dance_host_song_keys
+ WHEN EXISTS(SELECT 1 FROM dance_host_song_keys WHERE community_id=NEW.community_id
+   AND (song_key=NEW.song_key OR post_id=NEW.post_id))
+ BEGIN SELECT RAISE(ABORT,''dance_host_song_key_immutable''); END'),
+    ('trigger', 'dance_source3_request_no_delete', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_delete BEFORE DELETE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+    ('trigger', 'dance_source3_request_no_replace', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_replace BEFORE INSERT ON dance_source3_requests
+ WHEN EXISTS(SELECT 1 FROM dance_source3_requests WHERE
+ (community_id=NEW.community_id AND account_id=NEW.account_id AND request_id=NEW.request_id)
+ OR capture_id=NEW.capture_id)
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
+    ('trigger', 'dance_source3_request_no_update', 'dance_source3_requests', 'CREATE TRIGGER dance_source3_request_no_update BEFORE UPDATE ON dance_source3_requests
+ BEGIN SELECT RAISE(ABORT,''dance_source3_original_retained''); END'),
     ('trigger', 'learning_authority_capture', 'learning_authorizations', 'CREATE TRIGGER learning_authority_capture AFTER INSERT ON learning_authorizations
  BEGIN UPDATE learning_authorizations SET authority_epoch=COALESCE((SELECT revision FROM learning_authority_heads WHERE account_id=NEW.account_id),0)
  WHERE authorization_id=NEW.authorization_id; END'),
@@ -190,6 +246,92 @@ expected_trigger(type, name, tbl_name, sql) AS (
  BEGIN INSERT INTO learning_authority_dirty(account_id,updated_at) VALUES(NEW.account_id,0)
  ON CONFLICT(account_id) DO UPDATE SET updated_at=0,version=version+1; END')
 ),
+expected_consent_trigger(type, name, tbl_name, sql) AS (
+  VALUES
+    ('trigger', 'publication_v1_archive_delete', 'publication_v1_release_archive', 'CREATE TRIGGER publication_v1_archive_delete BEFORE DELETE ON publication_v1_release_archive
+BEGIN SELECT RAISE(ABORT,''publication_release_archive_immutable''); END'),
+    ('trigger', 'publication_v1_archive_insert', 'publication_v1_release_archive', 'CREATE TRIGGER publication_v1_archive_insert BEFORE INSERT ON publication_v1_release_archive
+WHEN EXISTS(SELECT 1 FROM publication_v1_release_archive
+  WHERE community_id=NEW.community_id AND release_sha256=NEW.release_sha256)
+BEGIN
+  SELECT CASE WHEN EXISTS(SELECT 1 FROM publication_v1_release_archive
+    WHERE community_id=NEW.community_id AND release_sha256=NEW.release_sha256
+    AND (release_json IS NOT NEW.release_json OR transport_ref IS NOT NEW.transport_ref))
+    THEN RAISE(ABORT,''publication_retained_release_changed'') END;
+  SELECT RAISE(IGNORE);
+END'),
+    ('trigger', 'publication_v1_archive_update', 'publication_v1_release_archive', 'CREATE TRIGGER publication_v1_archive_update BEFORE UPDATE ON publication_v1_release_archive
+BEGIN SELECT RAISE(ABORT,''publication_release_archive_immutable''); END'),
+    ('trigger', 'publication_v1_command_delete', 'publication_v1_commands', 'CREATE TRIGGER publication_v1_command_delete BEFORE DELETE ON publication_v1_commands
+BEGIN SELECT RAISE(ABORT,''publication_command_immutable''); END'),
+    ('trigger', 'publication_v1_command_first_bytes', 'publication_v1_commands', 'CREATE TRIGGER publication_v1_command_first_bytes BEFORE UPDATE ON publication_v1_commands
+WHEN (OLD.fence_generation IS NOT NULL AND NEW.fence_generation IS NOT OLD.fence_generation)
+  OR (OLD.typed_json IS NOT NULL AND NEW.typed_json IS NOT OLD.typed_json)
+  OR (OLD.digest IS NOT NULL AND NEW.digest IS NOT OLD.digest)
+  OR (OLD.signature IS NOT NULL AND NEW.signature IS NOT OLD.signature)
+  OR (OLD.accepted_json IS NOT NULL AND NEW.accepted_json IS NOT OLD.accepted_json)
+  OR (OLD.fence_ack_json IS NOT NULL AND NEW.fence_ack_json IS NOT OLD.fence_ack_json)
+BEGIN SELECT RAISE(ABORT,''publication_first_bytes_immutable''); END'),
+    ('trigger', 'publication_v1_command_insert', 'publication_v1_commands', 'CREATE TRIGGER publication_v1_command_insert BEFORE INSERT ON publication_v1_commands
+WHEN EXISTS(SELECT 1 FROM publication_v1_commands WHERE command_id=NEW.command_id
+  OR (community_id=NEW.community_id AND account_id=NEW.account_id
+    AND source_id=NEW.source_id AND purpose=NEW.purpose
+    AND action=NEW.action AND request_id=NEW.request_id))
+BEGIN SELECT RAISE(IGNORE); END'),
+    ('trigger', 'publication_v1_command_original', 'publication_v1_commands', 'CREATE TRIGGER publication_v1_command_original BEFORE UPDATE ON publication_v1_commands
+WHEN NEW.command_id IS NOT OLD.command_id OR NEW.community_id IS NOT OLD.community_id
+  OR NEW.account_id IS NOT OLD.account_id OR NEW.source_id IS NOT OLD.source_id
+  OR NEW.purpose IS NOT OLD.purpose OR NEW.action IS NOT OLD.action
+  OR NEW.request_id IS NOT OLD.request_id OR NEW.request_hash IS NOT OLD.request_hash
+  OR NEW.request_json IS NOT OLD.request_json OR NEW.nonce_hex IS NOT OLD.nonce_hex
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN SELECT RAISE(ABORT,''publication_command_immutable''); END'),
+    ('trigger', 'publication_v1_command_progress', 'publication_v1_commands', 'CREATE TRIGGER publication_v1_command_progress BEFORE UPDATE ON publication_v1_commands
+WHEN NEW.version < OLD.version
+  OR (OLD.phase=''accepted'' AND NEW.phase!=''accepted'')
+  OR (OLD.phase=''prepared'' AND NEW.phase=''preparing'')
+BEGIN SELECT RAISE(ABORT,''publication_command_regression''); END'),
+    ('trigger', 'publication_v1_head_delete', 'publication_v1_heads', 'CREATE TRIGGER publication_v1_head_delete BEFORE DELETE ON publication_v1_heads
+BEGIN SELECT RAISE(ABORT,''publication_head_immutable''); END'),
+    ('trigger', 'publication_v1_head_insert', 'publication_v1_heads', 'CREATE TRIGGER publication_v1_head_insert BEFORE INSERT ON publication_v1_heads
+WHEN EXISTS(SELECT 1 FROM publication_v1_heads WHERE community_id=NEW.community_id
+  AND account_id=NEW.account_id AND source_id=NEW.source_id AND purpose=NEW.purpose)
+BEGIN SELECT RAISE(IGNORE); END'),
+    ('trigger', 'publication_v1_head_original', 'publication_v1_heads', 'CREATE TRIGGER publication_v1_head_original BEFORE UPDATE ON publication_v1_heads
+WHEN NEW.community_id IS NOT OLD.community_id OR NEW.account_id IS NOT OLD.account_id
+  OR NEW.source_id IS NOT OLD.source_id OR NEW.purpose IS NOT OLD.purpose
+BEGIN SELECT RAISE(ABORT,''publication_head_immutable''); END'),
+    ('trigger', 'publication_v1_head_progress', 'publication_v1_heads', 'CREATE TRIGGER publication_v1_head_progress BEFORE UPDATE ON publication_v1_heads
+WHEN NEW.generation < OLD.generation
+BEGIN SELECT RAISE(ABORT,''publication_head_regression''); END'),
+    ('trigger', 'publication_v1_install_delete', 'publication_v1_installed_selection', 'CREATE TRIGGER publication_v1_install_delete BEFORE DELETE ON publication_v1_installed_selection
+BEGIN SELECT RAISE(ABORT,''publication_installation_immutable''); END'),
+    ('trigger', 'publication_v1_install_identity', 'publication_v1_installed_selection', 'CREATE TRIGGER publication_v1_install_identity BEFORE UPDATE ON publication_v1_installed_selection
+WHEN NEW.community_id IS NOT OLD.community_id
+BEGIN SELECT RAISE(ABORT,''publication_installation_immutable''); END'),
+    ('trigger', 'publication_v1_install_insert', 'publication_v1_installed_selection', 'CREATE TRIGGER publication_v1_install_insert BEFORE INSERT ON publication_v1_installed_selection
+WHEN EXISTS(SELECT 1 FROM publication_v1_installed_selection WHERE community_id=NEW.community_id)
+BEGIN SELECT RAISE(IGNORE); END'),
+    ('trigger', 'publication_v1_install_progress', 'publication_v1_installed_selection', 'CREATE TRIGGER publication_v1_install_progress BEFORE UPDATE ON publication_v1_installed_selection
+WHEN NEW.incarnation != OLD.incarnation+1 OR NEW.incarnation>=9007199254740991
+BEGIN SELECT RAISE(ABORT,''publication_installation_progression''); END'),
+    ('trigger', 'publication_v1_observation_delete', 'publication_v1_observations', 'CREATE TRIGGER publication_v1_observation_delete BEFORE DELETE ON publication_v1_observations
+BEGIN SELECT RAISE(ABORT,''publication_observation_immutable''); END'),
+    ('trigger', 'publication_v1_observation_insert', 'publication_v1_observations', 'CREATE TRIGGER publication_v1_observation_insert BEFORE INSERT ON publication_v1_observations
+WHEN EXISTS(SELECT 1 FROM publication_v1_observations
+  WHERE command_id=NEW.command_id AND proof_hash=NEW.proof_hash)
+BEGIN SELECT RAISE(IGNORE); END'),
+    ('trigger', 'publication_v1_observation_update', 'publication_v1_observations', 'CREATE TRIGGER publication_v1_observation_update BEFORE UPDATE ON publication_v1_observations
+BEGIN SELECT RAISE(ABORT,''publication_observation_immutable''); END')
+),
+selected_consent_trigger AS (
+  SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM expected_consent_trigger
+  WHERE (SELECT publication_consent FROM catalog_phase_schema_guard WHERE singleton=1)=1
+),
+allowed_executable AS (
+  SELECT type,name,tbl_name,CAST(sql AS BLOB) AS sql FROM expected_trigger
+  UNION ALL SELECT type,name,tbl_name,sql FROM selected_consent_trigger
+),
 actual_executable AS (
   SELECT type, name, tbl_name, CAST(sql AS BLOB) AS sql
   FROM main.sqlite_schema WHERE type IN ('trigger', 'view')
@@ -224,7 +366,11 @@ SET valid = CASE WHEN
   )
   AND NOT EXISTS (
     SELECT type, name, tbl_name, sql FROM actual_executable
-    EXCEPT SELECT type, name, tbl_name, CAST(sql AS BLOB) FROM expected_trigger
+    EXCEPT SELECT type, name, tbl_name, sql FROM allowed_executable
+  )
+  AND NOT EXISTS (
+    SELECT type, name, tbl_name, sql FROM selected_consent_trigger
+    EXCEPT SELECT type, name, tbl_name, sql FROM actual_executable
   )
   AND NOT EXISTS (
     SELECT * FROM actual_incoming EXCEPT SELECT * FROM expected_incoming

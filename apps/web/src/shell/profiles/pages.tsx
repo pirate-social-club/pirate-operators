@@ -19,6 +19,7 @@ import {
 import { publicPlaybackAccess } from "../playback-access.ts";
 import { ProfileRequestError, type ProfileClient } from "./client.ts";
 import type { CommunityProfileIntegration } from "./integration.ts";
+import type { CommunityCapabilities } from "../../api-contract.ts";
 
 export interface ProfileSettingsServices {
   /** Render only real owner services. No central deletion/Telegram fallback. */
@@ -28,6 +29,7 @@ export interface ProfileSettingsServices {
   telegram?: () => JSX.Element;
 }
 export interface CommunityAccountProps {
+  learningPolicy?: CommunityCapabilities["learningPolicy"];
   integration: CommunityProfileIntegration;
   navigate: (href: string) => void;
   signIn: () => Promise<void>;

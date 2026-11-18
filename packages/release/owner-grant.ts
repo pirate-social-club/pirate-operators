@@ -155,31 +155,13 @@ const OWNER_ASSETS: readonly OwnerBudgetAsset[] = [
 export const ownerLimitsDigest = (grant: OwnerBudgetGrant) =>
   hashJson(grant.limits);
 
-/**
- * Claims the owner window atomically in this service's database. One batch
- * either creates the scope's window, keeps the identical window, or advances
- * to a later non-overlapping one, and in the same transaction configures all
- * five owner budgets of that window from the grant that first claimed it. Two
- * concurrent overlapping grants cannot both be admitted, a superseded window
- * can no longer open new spending, and a replacement grant inside the window
- * cannot change any ceiling, including ones not yet used. Each paying service
- * calls this on its own database.
- */
-export async function claimOwnerWindow(
-  db: D1Database,
-  grant: OwnerBudgetGrant,
-  now = Math.floor(Date.now() / 1000),
-) {
-  insist(
-    now >= grant.validFrom && now < grant.expiresAt,
-    "owner_grant_outside_window",
-    403,
-  );
+/** Share the original window and ceiling writes with a containing D1 batch. */
+export function prepareOwnerWindowClaim(db: D1Database, grant: OwnerBudgetGrant) {
   const key = ownerBudgetKey(grant, "songs"),
     limits = ownerLimitsDigest(grant);
   for (const value of [key.scope, key.period])
     insist(/^[A-Za-z0-9:_./-]{1,160}$/.test(value), "invalid_budget_scope");
-  await db.batch([
+  const statements = [
     db
       .prepare(
         `INSERT INTO owner_budget_windows(scope,valid_from,expires_at,limits_sha256) VALUES(?,?,?,?)
@@ -207,7 +189,32 @@ export async function claimOwnerWindow(
           limits,
         ),
     ),
-  ]);
+  ];
+  return { key, limits, statements };
+}
+
+/**
+ * Claims the owner window atomically in this service's database. One batch
+ * either creates the scope's window, keeps the identical window, or advances
+ * to a later non-overlapping one, and in the same transaction configures all
+ * five owner budgets of that window from the grant that first claimed it. Two
+ * concurrent overlapping grants cannot both be admitted, a superseded window
+ * can no longer open new spending, and a replacement grant inside the window
+ * cannot change any ceiling, including ones not yet used. Each paying service
+ * calls this on its own database.
+ */
+export async function claimOwnerWindow(
+  db: D1Database,
+  grant: OwnerBudgetGrant,
+  now = Math.floor(Date.now() / 1000),
+) {
+  insist(
+    now >= grant.validFrom && now < grant.expiresAt,
+    "owner_grant_outside_window",
+    403,
+  );
+  const { key, limits, statements } = prepareOwnerWindowClaim(db, grant);
+  await db.batch(statements);
   const row = await db
     .prepare(
       "SELECT valid_from,expires_at,limits_sha256 FROM owner_budget_windows WHERE scope=?",

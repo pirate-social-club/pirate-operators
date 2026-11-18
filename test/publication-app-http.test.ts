@@ -8,6 +8,7 @@ import {
   learner,
   other,
 } from "./fixtures/publication-app.ts";
+import { loopback } from "./fixtures/publication-app-http.ts";
 
 type Fixture = Awaited<ReturnType<typeof publicationAppFixture>>;
 const bounded = { timeout: 30000 };
@@ -217,6 +218,47 @@ test(
           (method) => !method.startsWith("eth_send"),
         ),
       );
+    }),
+);
+
+test(
+  "policy document redirects are refused without requesting their destinations",
+  bounded,
+  async (t) =>
+    scenario(t, "policy-redirect-denials", async (f) => {
+      const manifest = new URL(
+        f.authority.release.policies["study-results"]!.documents.manifest,
+      );
+      const destination = "/redirect-destination";
+      let destinationHits = 0;
+      const crossOrigin = await loopback(async () => {
+        destinationHits++;
+        return new Response("unexpected document");
+      });
+      t.after(crossOrigin.close);
+      const original = f.authority.handle;
+      let target: string;
+      f.authority.handle = async (request) => {
+        if (request.url === manifest.href) return Response.redirect(target, 302);
+        if (new URL(request.url).pathname === destination) {
+          destinationHits++;
+          return new Response("unexpected document");
+        }
+        return original(request);
+      };
+
+      for (const [index, origin] of [manifest.origin, crossOrigin.origin].entries()) {
+        target = origin + destination;
+        const refused = await f.prepare(`policy-redirect-${index}`);
+        assert.equal(refused.status, 503);
+        assert.equal(refused.value.error, "publication_response_unavailable");
+        assert.equal(refused.value.walletRequest, undefined);
+      }
+      assert.equal(destinationHits, 0);
+      const rows = await f.rows();
+      assert.equal(rows.length, 2);
+      assert.ok(rows.every((row) => row.typed_json === null && row.signature === null));
+      assert.equal(f.operatorCalls.length, 0);
     }),
 );
 

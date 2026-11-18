@@ -32,6 +32,8 @@ export interface SongPlayerProps {
    * Hidden media remains present; native controls never render.
    */
   readonly compact?: boolean;
+  /** Join SongContentFrame's compact tile, expanding controls after access. */
+  readonly tile?: boolean;
   /** Targeted private detail owns its grant for this mount only. */
   readonly cacheAccess?: boolean;
 }
@@ -248,10 +250,11 @@ function SongPlayerInstance(props: SongPlayerProps) {
   };
   return (
     <div
-      class={props.compact ? "w-full min-w-0" : "flex min-w-0 flex-col gap-2"}
+      class={props.tile ? "contents" : props.compact ? "w-full min-w-0" : "flex min-w-0 flex-col gap-2"}
       data-song-player={postId}
     >
       <SongPlaybackControls
+        tile={props.tile}
         title={props.title}
         playing={playing()}
         buffering={buffering()}
@@ -329,13 +332,14 @@ function SongPlayerInstance(props: SongPlayerProps) {
       />
       <Show when={issue()}>
         {(message) => (
-          <Type role="status" variant="caption">
+          <Type class={props.tile ? "col-span-full" : undefined} role="status" variant="caption">
             {message()}
           </Type>
         )}
       </Show>
       <Show when={issue()}>
         <Button
+          class={props.tile ? "col-span-full" : undefined}
           disabled={busy()}
           onClick={() => void renew(true)}
           size="sm"

@@ -7,10 +7,15 @@ import { once } from "node:events";
 import { request } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import { httpsOrigin } from "../../packages/community/manifest-core.ts";
-import { exact, object } from "../../packages/community/common.ts";
+import { canonical, exact, object } from "../../packages/community/common.ts";
+import { trustedWeb2PublicationReadbackPath } from "../../packages/community/web2-trusted-publication.ts";
+import { web2DanceLiveProofHeader, web2DanceLiveProofMode, type Web2DanceLiveProof } from "../../packages/community/web2-dance-live-proof.ts";
+import type { PublicationMountIdentity } from "../../services/publication-installed-selection.ts";
+import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
   hash,
   privateDirectory,
+  privateFile,
   processIdentity,
   sameProcess,
   syncDirectory,
@@ -444,6 +449,62 @@ export async function inspectCommunityIngress(
   throughIngress = false,
   signal?: AbortSignal,
 ) {
+  const actual = await readApplicationIngress(ingress, "/api/public/community", throughIngress, signal);
+  assert(
+    actual && typeof actual === "object" && "communityId" in actual && actual.communityId === expectedCommunityId,
+    "actual_application_community_changed",
+  );
+}
+
+/** The public summary does not identify the serving configuration. Read the
+ * complete application document through the owned ACME ingress. */
+export async function inspectTrustedRevisionOneIngress(ingress: PublicIngress, original: Web2CommunityConfig) {
+  assert(ingress.tls.kind === "public-acme" && original.configurationRevision === 1,
+    "trusted_revision_two_original_acme_readback_required");
+  const actual = await readApplicationIngress(
+    ingress, "/.well-known/pirate-community.json", true, AbortSignal.timeout(5000),
+  );
+  assert(canonical(actual) === canonical(original), "trusted_revision_two_original_served_configuration_changed");
+}
+
+type TrustedPublicationLiveProof = {
+  mount: PublicationMountIdentity;
+  active: string;
+  dance?: Web2DanceLiveProof;
+};
+
+/** Confirm this live, authenticated private Workerd edge loaded the original
+ * selection. No proof file, public summary or localhost fallback is enough. */
+export async function inspectTrustedPublicationIngress(
+  ingress: PublicIngress,
+  readbackKeyFile: string,
+  expected: TrustedPublicationLiveProof,
+) {
+  assert(ingress.tls.kind === "public-acme", "trusted_web2_publication_private_readback_required");
+  const file = await privateFile(readbackKeyFile, 64);
+  let key: string;
+  try {
+    const bytes = Buffer.alloc(65);
+    try {
+      const read = await file.read(bytes, 0, bytes.length, 0);
+      assert(read.bytesRead === 64 && (await file.stat()).size === 64, "trusted_web2_publication_readback_key_changed");
+      key = bytes.subarray(0, 64).toString("latin1");
+      assert(/^[a-f0-9]{64}(?![\s\S])/.test(key), "trusted_web2_publication_readback_key_changed");
+    } finally { bytes.fill(0); }
+  } finally {
+    await file.close();
+  }
+  await readApplicationIngress(ingress, trustedWeb2PublicationReadbackPath, false,
+    AbortSignal.timeout(5000), { key, expected });
+}
+
+async function readApplicationIngress(
+  ingress: PublicIngress,
+  path: "/api/public/community" | "/.well-known/pirate-community.json" | typeof trustedWeb2PublicationReadbackPath,
+  throughIngress: boolean,
+  signal?: AbortSignal,
+  publication?: { key: string; expected: TrustedPublicationLiveProof },
+) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
       ? await readFile(
@@ -458,7 +519,10 @@ export async function inspectCommunityIngress(
       : undefined
     : await readFile(ingress.upstreamCaFile);
   const url = new URL(ingress.upstream);
-  return await new Promise<void>((resolve, reject) => {
+  const verifyServedConfig = path === "/.well-known/pirate-community.json";
+  if (publication) assert(path === trustedWeb2PublicationReadbackPath && !throughIngress && bytes &&
+    hash(bytes) === ingress.upstreamCaSha256, "trusted_web2_publication_readback_ca_changed");
+  return await new Promise<unknown>((resolve, reject) => {
     const req = request(
       {
         hostname: "127.0.0.1",
@@ -468,32 +532,46 @@ export async function inspectCommunityIngress(
           : ingress.upstreamServerName,
         ca: bytes,
         method: "GET",
-        path: "/api/public/community",
-        headers: { Host: new URL(ingress.origin).host },
+        path,
+        ...(verifyServedConfig || publication ? { rejectUnauthorized: true } : {}),
+        ...(publication ? { agent: false as const } : {}),
+        headers: { Host: new URL(ingress.origin).host,
+          ...(publication ? { "X-Pirate-Readback-Key": publication.key } : {}),
+          ...(publication?.expected.dance ?
+            { [web2DanceLiveProofHeader]: web2DanceLiveProofMode(publication.expected.dance) } : {}),
+        },
         timeout: 5000,
         signal,
       },
       (res) => {
+        const decoder = new TextDecoder("utf-8", { fatal: verifyServedConfig || Boolean(publication), ignoreBOM: true });
         let body = "";
-        res.on("data", (chunk) => {
-          body += String(chunk);
-          if (body.length > 65536)
-            req.destroy(new Error("application_readback_limit"));
+        const append = (text: string) => {
+          assert(body.length + text.length <= 65536, "application_readback_limit");
+          body += text;
+        };
+        res.on("data", (chunk: Buffer) => {
+          try {
+            append(decoder.decode(chunk, { stream: true }));
+          } catch (error) {
+            reject(error);
+            req.destroy();
+          }
         });
         res.once("error", reject);
         res.once("end", () => {
           try {
             if (res.statusCode === 503) throw new ApplicationBootPending("application_boot_pending");
             assert(res.statusCode === 200, "application_readback_unavailable");
-            const actual: unknown = JSON.parse(body);
-            assert(
-              actual &&
-                typeof actual === "object" &&
-                "communityId" in actual &&
-                actual.communityId === expectedCommunityId,
-              "actual_application_community_changed",
-            );
-            resolve();
+            append(decoder.decode());
+            const value: unknown = JSON.parse(body);
+            if (publication) {
+              const bootId = res.headers["x-pirate-native-boot-id"];
+              assert(typeof bootId === "string" && /^[a-f0-9]{64}(?![\s\S])/.test(bootId) &&
+                res.headers["content-type"] === "application/json" && canonical(value) === canonical(publication.expected),
+                "trusted_web2_publication_live_selection_changed");
+            }
+            resolve(value);
           } catch (error) {
             reject(error);
           }

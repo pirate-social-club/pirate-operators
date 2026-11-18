@@ -310,6 +310,15 @@ export class KaraokeOperatorAudioClient implements CaptureAnchorSink {
     socket.addEventListener("close", (event) => {
       if (this.socket !== socket) return;
       this.socket = null;
+      if (event.code === 4401) {
+        this.requestCaptureSuspension();
+        this.options.onError?.({
+          code: "karaoke_session_changed",
+          message: "Sign in again to continue Karaoke.",
+        });
+        this.shutdown("aborted");
+        return;
+      }
       if (event.code === KARAOKE_SUPERSEDED_CLOSE_CODE) {
         this.requestCaptureSuspension();
         this.options.onError?.({

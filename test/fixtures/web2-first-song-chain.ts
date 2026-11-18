@@ -31,11 +31,14 @@ import {
   prepareWeb2Registration,
 } from "../../packages/community/web2-registration-chain.ts";
 import { validateWeb2Configuration } from "../../packages/community/web2-config-manifest.ts";
+import { learningResultsV5Build } from "../../packages/protocol/generated/learning-results-v5.ts";
 import type { RecognitionProfile } from "../../packages/recognition/intent.ts";
 import {
   CATALOG_OWNER_POLICY_HASH,
   CATALOG_OWNER_POLICY_VERSION,
 } from "../../packages/community/owner-policy.ts";
+
+import { localDirectoryListingOwner } from "./web2-directory-listing.ts";
 
 export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Other = privateKeyToAccount(`0x${"52".repeat(32)}`),
@@ -43,7 +46,7 @@ export const web2Owner = privateKeyToAccount(`0x${"51".repeat(32)}`),
   web2Publisher = privateKeyToAccount(`0x${"11".repeat(32)}`);
 const web2Admin = privateKeyToAccount(`0x${"61".repeat(32)}`);
 
-export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number} = {}) {
+export async function web2SongChain(recognition: RecognitionProfile, options: {contractController?:boolean;evidenceDirectory?:string;historyLimit?:number;origin?:string;communityName?:string} = {}) {
   // Long-running installed demos must retain the original configuration states.
   // This bound applies only to the disposable node, never a community server.
   if (options.historyLimit !== undefined) {
@@ -218,6 +221,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       }
     }
     assert.ok(ready, "actual owned Anvil must become ready");
+    const genesisHash = (await client.getBlock({ blockNumber: 0n })).hash;
+    assert.ok(genesisHash, "owned Anvil genesis required");
     gateway.listen(0, "127.0.0.1");
     await once(gateway, "listening");
     gatewayStarted = true;
@@ -326,11 +331,11 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
         operatorPayments: "0x" + "0".repeat(40),
         learningRecords: "0x" + "0".repeat(40),
         app: {
-          label: "Actual Web2 first song",
-          origin: "https://web2.community.example",
+          label: options.communityName ?? "Actual Web2 first song",
+          origin: options.origin ?? "https://web2.community.example",
         },
         feed: {
-          endpoint: "https://web2.community.example/api/feed",
+          endpoint: (options.origin ?? "https://web2.community.example") + "/api/feed",
           signingKeyId: "actual-web2-fixture",
         },
         policies: {
@@ -345,11 +350,14 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       },
       profile,
     );
+    let adminCustody: "idle" | "verification" | "listing" | "reconcile" = "idle";
     async function write(
       functionName: string,
       args: readonly unknown[],
       admin = false,
     ) {
+      if (admin) assert.ok(adminCustody === "idle" || adminCustody === "verification",
+        "local Directory admin custody held by listing");
       const hash = await (admin ? adminWallet : wallet).writeContract({
         address: directory.address,
         abi: directoryArtifact.abi,
@@ -397,7 +405,8 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
     await client.waitForTransactionReceipt({ hash: original.transactionHash });
     await rpc("anvil_mine", ["0x40", "0x0"]);
     const enrolled = await observeWeb2Registration(client, original);
-    assert.equal(enrolled.status, "consumed");
+    assert.ok(enrolled.status === "consumed");
+    const registrationReceipt = enrolled.receipt;
     const deployment = {
       schema: "pirate.community-deployment/2" as const,
       origin: config.app.origin,
@@ -417,7 +426,20 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       },
       freshness: { maxSafeBlockAgeSeconds: "600" },
     };
+    const withDirectoryListing = localDirectoryListingOwner({
+      client, fixtureProfile: profile, signer: web2Admin, genesisHash,
+      assertLive: () => assert.ok(!closed && child.exitCode === null && child.signalCode === null, "local fixture closed"),
+      takeListingCustody() {
+        assert.ok(!closed && adminCustody === "idle", "local Directory admin busy or held");
+        adminCustody = "listing";
+        return outcome => {
+          assert.equal(adminCustody, "listing");
+          adminCustody = outcome === "clear" ? "idle" : "reconcile";
+        };
+      },
+    });
     return {
+      withDirectoryListing,
       client,
       profile,
       deployment,
@@ -438,19 +460,23 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
       unavailable: (value: boolean) => {
         unavailable = value;
       },
-      async nextRevision() {
+      async nextRevision(kind: "label" | "learning-registry" = "label") {
+        if (kind === "learning-registry") assert.equal(config.configurationRevision, 1);
+        const registry = kind === "learning-registry"
+          ? await deploy(await artifact(learningResultsV5Build.contract), [profile.directory, profile.directoryCodeHash, profile.communityId])
+          : undefined;
         config = validateWeb2Configuration(
           {
             ...config,
             configurationRevision: config.configurationRevision + 1,
-            app: { ...config.app, label: "Updated title" },
+            ...(registry ? { learningRecords: registry.address } : { app: { ...config.app, label: "Updated title" } }),
           },
           profile,
         );
         const bytes = new TextEncoder().encode(canonical(config)),
           reference = await preparePin(bytes, "application/json");
         contents.set(reference.uri.slice(7), bytes);
-        await write("configure", [
+        const transition = await write("configure", [
           config.communityId,
           BigInt(config.configurationRevision - 1),
           {
@@ -463,32 +489,48 @@ export async function web2SongChain(recognition: RecognitionProfile, options: {c
           },
         ]);
         await rpc("anvil_mine", ["0x40", "0x0"]);
+        if (!registry) return;
+        const [safe, code] = await Promise.all([
+          client.getBlock({ blockTag: "safe" }),
+          client.getCode({ address: registry.address, blockNumber: transition.blockNumber }),
+        ]);
+        assert(safe.hash && safe.number >= transition.blockNumber && code && code !== "0x");
+        return { transition, safe, genesisHash, registrationReceipt,
+          registry: registry.address, registryRuntimeHash: keccak256(code), configuration: config };
       },
       async expireDiscovery() {
-        await write(
-          "setVerificationRoles",
-          [web2Admin.address, web2Admin.address, web2Admin.address],
-          true,
-        );
-        const block = await client.getBlock();
-        await write(
-          "verifyWeb2",
-          [
-            config.communityId,
-            0n,
-            {
-              originRevision: 1n,
-              controllerRevision: 1n,
-              observedAt: block.timestamp,
-              validUntil: block.timestamp + 20n,
-              evidenceSha256: hashText(
-                "explicit fixture HTTP verification evidence",
-              ),
-            },
-          ],
-          true,
-        );
-        await rpc("anvil_mine", ["0x40", "0x0"]);
+        assert.ok(!closed && adminCustody === "idle", "local Directory admin busy or held");
+        adminCustody = "verification";
+        try {
+          await write(
+            "setVerificationRoles",
+            [web2Admin.address, web2Admin.address, web2Admin.address],
+            true,
+          );
+          const block = await client.getBlock();
+          await write(
+            "verifyWeb2",
+            [
+              config.communityId,
+              0n,
+              {
+                originRevision: 1n,
+                controllerRevision: 1n,
+                observedAt: block.timestamp,
+                validUntil: block.timestamp + 20n,
+                evidenceSha256: hashText(
+                  "explicit fixture HTTP verification evidence",
+                ),
+              },
+            ],
+            true,
+          );
+          await rpc("anvil_mine", ["0x40", "0x0"]);
+          adminCustody = "idle";
+        } catch (error) {
+          adminCustody = "reconcile";
+          throw error;
+        }
       },
     };
   } catch (error) {
