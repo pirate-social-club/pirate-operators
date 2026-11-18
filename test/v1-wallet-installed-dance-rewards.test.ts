@@ -232,10 +232,20 @@ test("an earlier Directory revision song qualifies against its ordinary Dance of
   assert.equal(saved.purchase_evidence, pinned.purchase_evidence);
   assert.deepEqual(JSON.parse(saved.entries_json ?? "null"), closed.entries);
   assert.equal(f.db.count("reward_closure_snapshots"), 1);
-  const snapshot = f.db.sqlite.prepare("SELECT snapshot_json FROM reward_closure_snapshots WHERE offer_id=?")
+  const snapshot = f.db.sqlite.prepare("SELECT snapshot_json,snapshot_hash FROM reward_closure_snapshots WHERE offer_id=?")
     .get(f.offer.offerId);
   assert.equal(JSON.parse(String(snapshot?.snapshot_json)).entriesHash, hashJson(closed.entries));
   assert.equal(f.db.count("reward_credits"), 0);
   assert.equal(f.db.count("reward_payments"), 0);
   assert.equal(f.db.count("reward_payment_attempts"), 0);
+  t.diagnostic(JSON.stringify({
+    schema: "pirate.synthetic-dance-qualification-receipt/1",
+    publishedRevision: f.post.configurationRevision,
+    activeRevision: f.configuration.configurationRevision,
+    offerId: closed.offerId,
+    inputHash: saved.input_hash,
+    qualifier: closed.entries?.[0],
+    closureSnapshotHash: snapshot?.snapshot_hash,
+    newPayments: 0,
+  }));
 });
