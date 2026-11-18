@@ -714,7 +714,7 @@ export async function createWeb2Installation(
           assert(canonicalDigest(actual) === canonicalDigest(web2OriginalStartIntent(body)), "original_start_intent_changed");
         };
         await readStart();
-        const mountPath = nativePublicationPaths(graph.nativePublication).selector;
+        const mountPath = nativePublicationPaths(graph.nativePublication.directory).selector;
         const publicationMount = await readDanceActivationPublicationMount(mountPath);
         const approval = await readApprovedExpandedPublication({ graph, original, chain });
         await assertRetained();
