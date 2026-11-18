@@ -51,6 +51,12 @@ type Ports = {
   current(): void;
   sign(review: PublicationGrantReview): Promise<Hex | null>;
 };
+export function publicationGrantAuthorizationLost(error: unknown) {
+  return error instanceof CommunityRequestError && (error.status === 401 || error.status === 403 || [
+    "publication_session_required", "publication_session_account_changed", "publication_session_changed",
+    "publication_installation_or_session_changed",
+  ].includes(error.code ?? ""));
+}
 
 /** The journal owns one current intent per account and purpose. Web Locks
  * prevent two tabs opening wallet prompts for the same original. */
@@ -58,10 +64,15 @@ export function publicationGrant(scope: Readonly<PublicationGrantScope>, ports: 
   const key = JSON.stringify([scope.origin, scope.communityId, scope.authorId, scope.wallet, scope.purpose]);
   async function exchange<T = Original>(path: string, body?: object): Promise<T> {
     ports.current();
+    const headers = { accept: "application/json", "x-study-account": scope.wallet };
     const response = await fetch(prefix + path, {
       credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(35_000),
-      ...(body ? { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": ports.csrf() }, body: JSON.stringify(body) } : {}),
+      headers: body ? { ...headers, "content-type": "application/json", "x-csrf-token": ports.csrf() } : headers,
+      ...(body ? { method: "POST", body: JSON.stringify(body) } : {}),
     });
+    ports.current();
+    if (response.status === 401 || response.status === 403)
+      throw new CommunityRequestError("Sign in again to check the original publication request.", response.status);
     const value = await response.json();
     ports.current();
     if (!response.ok) throw new CommunityRequestError("The publication request is unavailable.", response.status, value?.error);

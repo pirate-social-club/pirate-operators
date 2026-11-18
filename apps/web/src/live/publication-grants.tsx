@@ -2,8 +2,8 @@ import { createSignal, For, Show, onCleanup, onSettled } from "solid-js";
 import type { Hex } from "viem";
 import type { PublicationPurpose } from "../../../../packages/protocol/publication-consent.ts";
 import { Button, Type } from "../ui.ts";
-import { get, type CommunitySessionView } from "./api.ts";
-import { publicationGrant, publicationWalletRequest, type PublicationGrantStatus } from "./publication-grant.ts";
+import { CommunityRequestError, get, type CommunitySessionView } from "./api.ts";
+import { publicationGrant, publicationGrantAuthorizationLost, publicationWalletRequest, type PublicationGrantStatus } from "./publication-grant.ts";
 
 const purposes = {
   "study-results": ["Study results", "Allow publication of eligible Study results."],
@@ -35,7 +35,11 @@ export function PublicationGrants(props: {
   let active = true;
   onCleanup(() => { active = false; });
   onSettled(() => {
-    void get<{ profile: string; purposes: string[] }>("/api/publication-consent/v1/capabilities", { timeoutMs: 10_000 })
+    const wallet = props.session()?.mossAddress.toLowerCase();
+    if (!wallet) return;
+    void get<{ profile: string; purposes: string[] }>("/api/publication-consent/v1/capabilities", {
+      timeoutMs: 10_000, headers: { "x-study-account": wallet },
+    })
       .then((value) => {
         if (active && value.profile === "publication-consent-v1" && Array.isArray(value.purposes))
           setAvailable((Object.keys(purposes) as PublicationPurpose[]).filter((key) => value.purposes.includes(key)));
@@ -76,7 +80,7 @@ function GrantPurpose(props: {
     if (!active || !initialSession || !wallet || location.origin !== origin || props.communityId !== communityId ||
       session?.csrf !== initialSession.csrf || session?.authorId !== initialSession.authorId ||
       session?.mossAddress.toLowerCase() !== wallet)
-      throw Error("Sign in to check your publication request.");
+      throw new CommunityRequestError("Sign in to check your publication request.", 401);
   }
   const controller = publicationGrant({ origin, communityId,
     authorId: initialSession?.authorId ?? "", wallet, purpose: props.purpose,
@@ -95,8 +99,12 @@ function GrantPurpose(props: {
     try {
       const next = await operation();
       if (active) setStatus(next);
-    } catch {
-      if (active) setNotice("The request was interrupted. Check the original request or try the same step again.");
+    } catch (error) {
+      if (!active) return;
+      if (publicationGrantAuthorizationLost(error)) {
+        setStatus({ kind: "unavailable" });
+        setNotice("Sign in again to check the original publication request.");
+      } else setNotice("The request was interrupted. Check the original request or try the same step again.");
     } finally {
       if (active) setBusy(false);
     }

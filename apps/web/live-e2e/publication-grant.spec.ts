@@ -39,17 +39,24 @@ for (const actor of [
         async signData({data}){await fetch("/__fixture/publication-prompt", {method:"POST",body:JSON.stringify(data)});
           return {status:"success",signature:"0x7d"}} };`,
   }));
-  await page.route(prefix + "capabilities", (route) => route.fulfill({ json: {
-    profile: "publication-consent-v1", purposes: ["dance-verdict", "dance-review-attribution"],
-  } }));
-  await page.route(prefix + `state?purpose=${purpose}`, (route) => route.fulfill({ json: {
-    schema: "pirate.publication-permission/1", purpose, commandId: null, sourceId: word("7"),
-    state: "denied", reason: "unknown_grant",
-  } }));
+  await page.route(prefix + "capabilities", (route) => {
+    expect(route.request().headers()["x-study-account"]).toBe(wallet);
+    return route.fulfill({ json: {
+      profile: "publication-consent-v1", purposes: ["dance-verdict", "dance-review-attribution"],
+    } });
+  });
+  await page.route(prefix + `state?purpose=${purpose}`, (route) => {
+    expect(route.request().headers()["x-study-account"]).toBe(wallet);
+    return route.fulfill({ json: {
+      schema: "pirate.publication-permission/1", purpose, commandId: null, sourceId: word("7"),
+      state: "denied", reason: "unknown_grant",
+    } });
+  });
   const requests: string[] = [];
   const submissions: string[] = [];
   const reads: string[] = [];
   let accepted = false;
+  let authorizationLost = false;
   function original(requestId: string, isRenewal = false) {
     const commandId = word(isRenewal ? actor.renewed : actor.command);
     const message = {
@@ -74,16 +81,22 @@ for (const actor of [
   await page.route(prefix + "grants/prepare", async (route) => {
     const body = route.request().postDataJSON() as { requestId: string; purpose: string };
     expect(route.request().headers()["x-csrf-token"]).toEqual("fixture-csrf");
+    expect(route.request().headers()["x-study-account"]).toBe(wallet);
     expect(body.purpose).toEqual(purpose);
     requests.push(body.requestId);
     if (requests.length === 1) return route.abort();
     return route.fulfill({ json: original(body.requestId, body.requestId !== requests[0]) });
   });
   await page.route(prefix + `commands/${word(actor.command)}`, (route) => {
+    expect(route.request().headers()["x-study-account"]).toBe(wallet);
     reads.push(route.request().url());
+    if (authorizationLost) return purpose === "dance-verdict"
+      ? route.fulfill({ status: 403, contentType: "text/plain", body: "" })
+      : route.fulfill({ status: 409, json: { error: "publication_session_account_changed" } });
     return route.fulfill({ json: original(requests[0]!) });
   });
   await page.route(prefix + `commands/${word(actor.command)}/submit`, (route) => {
+    expect(route.request().headers()["x-study-account"]).toBe(wallet);
     submissions.push(route.request().postDataJSON().signature);
     accepted = true;
     return route.abort();
@@ -100,19 +113,31 @@ for (const actor of [
   const sign = page.getByRole("button", { name: "Sign publication grant in MOSS" });
   await expect(sign).toBeVisible();
   expect(requests).toEqual([requests[0], requests[0]]);
+  authorizationLost = true;
+  await sign.click();
+  await expect(page.getByText("Sign in again to check the original publication request.")).toBeVisible();
+  await expect(sign).toHaveCount(0);
+  expect(prompts).toEqual([]);
+  expect(submissions).toEqual([]);
+  authorizationLost = false;
+  await page.reload();
+  await choose();
+  await page.getByRole("button", { name: "Review original request" }).click();
+  await expect(sign).toBeVisible();
+  expect(requests).toEqual([requests[0], requests[0], requests[0]]);
   await sign.click();
   await expect(page.getByRole("status").filter({ hasText: "The request was interrupted" })).toBeVisible();
   await page.reload();
   await choose();
   await expect(page.getByText("Publication grant recorded.")).toBeVisible();
-  expect(reads).toHaveLength(2);
+  expect(reads).toHaveLength(4);
   expect(prompts).toEqual([expect.objectContaining({ primaryType: "PublicationGrant", message: expect.objectContaining({
     purpose, learner: wallet, nonce: word(actor.nonce),
   }) })]);
   expect(submissions).toEqual(["0x7d"]);
   await page.getByRole("button", { name: "Review a new grant" }).click();
   await expect(sign).toBeVisible();
-  expect(requests).toHaveLength(3);
-  expect(requests[2]).not.toEqual(requests[0]);
+  expect(requests).toHaveLength(4);
+  expect(requests[3]).not.toEqual(requests[0]);
   expect(prompts).toHaveLength(1);
 });
