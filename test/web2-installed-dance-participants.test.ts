@@ -14,6 +14,9 @@ import type { PublicationApplicationPorts } from "../services/publication-app.ts
 import { commandId, sourceId } from "../services/publication-command-contract.ts";
 import { installPublicationSelection } from "../services/publication-installed-selection.ts";
 import { installedDanceParticipants } from "../services/web2-installed-dance-participants.ts";
+import { prepareInstalledDanceBindings, type InstalledDanceBindIntent } from "../services/web2-installed-dance-bind-prepare.ts";
+import { danceSourceHash } from "../packages/dance-chain/v2/wire.ts";
+import { rewardDanceV2Fixture } from "./fixtures/reward-dance-v2.ts";
 import { MemorySqliteD1 } from "./dance-sqlite-fixture.ts";
 import { addr, scriptedPublicationAuthority } from "./fixtures/publication-app-rpc.ts";
 
@@ -49,9 +52,13 @@ test("selected installed grants fence both exact accounts and original D1 activa
     active: publicationSelectionHash(release), entries: [{ release, transportRef: "selected" }], previous: null,
   });
   const unreachable = async (): Promise<never> => assert.fail("read-only D1 test attempted external access");
+  let chainReads = 0;
   const ports: PublicationApplicationPorts = {
     db, installation: installed, catalog: installed.catalog,
-    client: createPublicClient({ transport: custom({ request: unreachable }) }),
+    client: createPublicClient({ transport: custom({ async request() {
+      chainReads++;
+      return unreachable();
+    } }, {retryCount: 0}) }),
     transport: new PublicationOperatorTransport({ fetch: unreachable }, {
       address: release.issuer, signMessage: unreachable,
     }, () => Number(now), 1000, 1024),
@@ -94,9 +101,9 @@ test("selected installed grants fence both exact accounts and original D1 activa
     sqlite.sqlite.prepare("INSERT INTO publication_v1_heads VALUES (?,?,?,?,0,0,NULL)").run(communityId, accountId, sid, purpose);
     sqlite.sqlite.prepare(`INSERT INTO publication_v1_commands (command_id,community_id,account_id,source_id,purpose,
       action,request_id,request_hash,request_json,nonce_hex,fence_generation,phase,version,created_at,due_ms,typed_json,digest,signature,
-      accepted_json,result_state,observation_hash) VALUES (?,?,?,?,?,'grant',?,?,?,?,0,'accepted',1,1,1,?,?,'0x11','{}','recorded',?)`)
+      accepted_json,result_state,observation_hash) VALUES (?,?,?,?,?,'grant',?,?,?,?,0,'accepted',1,1,1,?,?,'0x11',?,'recorded',?)`)
       .run(id, communityId, accountId, sid, purpose, requestId, digest(request), canonical(request), nonce,
-        canonical(command), grant.digest, digest(receipt));
+        canonical(command), grant.digest, canonical({ command, signature: "0x11", fee: release.fee }), digest(receipt));
     sqlite.sqlite.prepare("INSERT INTO publication_v1_observations VALUES (?,?,?)").run(id, digest(receipt), canonical(receipt));
     return {
       commandId: id, accountId, purpose, grantId: grant.digest,
@@ -130,6 +137,55 @@ test("selected installed grants fence both exact accounts and original D1 activa
   await store.assert([...fences]);
   await assert.rejects(installedDanceParticipants(ports, [reviewer, learner], async () => {}), /dance_installed_grant_scope_unavailable/);
   await assert.rejects(active.privateOriginalFences([active.pair[1], active.pair[0]]), /dance_installed_grant_scope_changed/);
+
+  await t.test("owner Prepare rejects swapped, stopped or pending primary D1 grants without a chain read", async () => {
+    const example = rewardDanceV2Fixture().source;
+    const domain = { ...example.domain, communityId };
+    const selected = { ...example, domain, sourceHash: danceSourceHash(domain, example.pin) };
+    const intent: InstalledDanceBindIntent = {
+      schema: "pirate.installed-dance-bind-intent/1", intentId: digest("fixed owner intent"),
+      installedBindingSha256: installed.expected.installedBindingSha256,
+      communityId, installationId: context.installationId, releaseSha256: source.releaseSelectionSha256,
+      configurationSha256: digest(context), sourceHash: selected.sourceHash,
+      ownerEpoch: "1", ownerWallet: context.controller,
+      grants: [
+        {purpose: "dance-verdict", commandId: learner.commandId, accountId: learner.accountId},
+        {purpose: "dance-review-attribution", commandId: reviewer.commandId, accountId: reviewer.accountId},
+      ],
+    };
+    const prepare = (owned: InstalledDanceBindIntent) => prepareInstalledDanceBindings({
+      publication: ports, source: selected, intent: owned, assertOwnerCurrent: async () => {},
+    });
+    const before = sqlite.sqlite.prepare("SELECT command_id,version,result_state FROM publication_v1_commands ORDER BY command_id").all();
+    sqlite.sqlite.exec("PRAGMA query_only=ON");
+    try {
+      await assert.rejects(prepare({...intent, grants:[
+        {...intent.grants[0], accountId:reviewer.accountId}, intent.grants[1],
+      ]}), /dance_installed_prepare/);
+      assert.equal(chainReads, 0);
+      await assert.rejects(prepare(intent), /read-only D1 test attempted external access/);
+      assert(chainReads > 0, "the exact D1 grants reach canonical receipt verification");
+      const verifiedReads = chainReads;
+      sqlite.sqlite.exec("PRAGMA query_only=OFF");
+      const mark = sqlite.sqlite.prepare("UPDATE publication_v1_heads SET stopped=? WHERE account_id=?");
+      mark.run(1, reviewer.accountId);
+      sqlite.sqlite.exec("PRAGMA query_only=ON");
+      await assert.rejects(prepare(intent), /dance_installed_prepare/);
+      assert.equal(chainReads, verifiedReads);
+      sqlite.sqlite.exec("PRAGMA query_only=OFF");
+      mark.run(0, reviewer.accountId);
+      const state = sqlite.sqlite.prepare("UPDATE publication_v1_commands SET result_state=? WHERE command_id=?");
+      state.run("pending", reviewer.commandId);
+      sqlite.sqlite.exec("PRAGMA query_only=ON");
+      await assert.rejects(prepare(intent), /dance_installed_prepare/);
+      assert.equal(chainReads, verifiedReads);
+      sqlite.sqlite.exec("PRAGMA query_only=OFF");
+      state.run("recorded", reviewer.commandId);
+      assert.deepEqual(sqlite.sqlite.prepare("SELECT command_id,version,result_state FROM publication_v1_commands ORDER BY command_id").all(), before);
+    } finally {
+      sqlite.sqlite.exec("PRAGMA query_only=OFF");
+    }
+  });
 
   const alias = "another-binding";
   sqlite.sqlite.prepare("INSERT INTO credential_bindings VALUES (?,?,'moss',6343,?,?)").run(alias, reviewer.accountId, addr(200), 2);
