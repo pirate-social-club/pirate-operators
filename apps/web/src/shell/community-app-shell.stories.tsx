@@ -158,7 +158,7 @@ export const Song: Story = {
     await expect(
       canvas.queryByRole("link", { name: /^Terms$/ }),
     ).not.toBeInTheDocument();
-    const post = canvas.getByRole("main");
+    const post = within(canvas.getByRole("main"));
     await expect(post.getByText("Publisher", { exact: true })).toBeVisible();
     await expect(
       post.getByRole("heading", { level: 1, name: "Sample song" }),
@@ -174,9 +174,9 @@ export const Song: Story = {
     await expect(
       post.getByRole("button", { name: "Post options" }),
     ).toBeVisible();
-    const activities = post.getByRole("navigation", {
+    const activities = within(post.getByRole("navigation", {
       name: "Song activities",
-    });
+    }));
     for (const [label, query] of [
       ["Study", "study"],
       ["Karaoke", "sing"],
@@ -206,7 +206,7 @@ export const AnonymousSong: Story = { args: { view: "song" } };
 export const SongWithoutPublicAuthor: Story = {
   args: { signedIn: true, view: "song", hasPublicAuthor: false },
   play: async ({ canvasElement }) => {
-    const post = within(canvasElement).getByRole("main");
+    const post = within(within(canvasElement).getByRole("main"));
     await expect(post.getByText("Unknown author")).toBeVisible();
     await expect(post.queryByRole("link", { name: "Unknown author" })).toBeNull();
     await expect(post.queryByText("Publisher")).toBeNull();
