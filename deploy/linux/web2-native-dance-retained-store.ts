@@ -64,7 +64,10 @@ export async function createNativeDanceRetainedStore(input: Inputs) {
   await current();
   async function readFile(step: string) {
     const path = join(journalDirectory, step + ".original.json");
-    const existing = await lstat(path, { bigint: true, throwIfNoEntry: false });
+    const existing = await lstat(path, { bigint: true }).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    });
     if (!existing) return null;
     const file = await privateFile(path, 32 * 1024);
     try {
