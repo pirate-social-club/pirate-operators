@@ -1076,7 +1076,7 @@ export function App(props: { integrations?: ShellIntegrations } = {}) {
               <>
                 {props.integrations?.accountSettings?.(featureContext())}
                 <Show when={publicationSettingsKey()} keyed>
-                  {() => <PublicationGrants communityId={boot()!.communityId} session={session} sign={signPublicationGrant} />}
+                  {(_scope) => <PublicationGrants communityId={boot()!.communityId} session={session} sign={signPublicationGrant} />}
                 </Show>
               </>
             ),

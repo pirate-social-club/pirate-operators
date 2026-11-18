@@ -121,8 +121,8 @@ export function publicationGrant(scope: Readonly<PublicationGrantScope>, ports: 
     if (!original.command) return { kind: "unavailable" };
     return retain({ requestId: original.command.requestId, commandId: view.commandId }, original);
   }
-  function exclusive<T>(run: () => Promise<T>) {
-    return navigator.locks.request("pirate-publication-grant:" + key, { ifAvailable: true }, (lock) => {
+  async function exclusive<T>(run: () => Promise<T>): Promise<T> {
+    return await navigator.locks.request("pirate-publication-grant:" + key, { ifAvailable: true }, (lock) => {
       if (!lock) throw Error("This publication request is open in another tab.");
       ports.current();
       return run();

@@ -83,11 +83,11 @@ async function openInstalledScope(env: Environment) {
     env.WEB2_DANCE_RETAINED_SCOPE_JSON === scopeJson &&
     env.WEB2_DANCE_REWARD_ATTACHMENT_SHA256 === undefined && env.DB === db &&
     env.NATIVE_APPLICATION_ORIGINAL_JSON === originalJson, "native_dance_scope_changed", 503);
-  async function assertCurrent() {
+  const assertCurrent = async () => {
     bindings();
     await reuseNativePublicationApplication(env, deployment, publication);
     bindings();
-  }
+  };
   await assertCurrent();
   return { db, scope, assertCurrent, origin: deployment.origin };
 }
