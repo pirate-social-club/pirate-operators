@@ -52,6 +52,8 @@ export interface HostedSigner {
 }
 export interface HostedRuntime {
   readonly schemaContext?: HostedSchemaContext;
+  readonly stagingApplicationOrigin?: string;
+  readonly assertRegistrarArmed?: () => void;
   db: D1Database;
   policy: Readonly<HostedPolicy>;
   client: PublicClient;

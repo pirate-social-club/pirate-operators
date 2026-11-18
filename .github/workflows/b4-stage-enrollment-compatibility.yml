@@ -1,0 +1,54 @@
+name: B4 staged enrollment compatibility
+on:
+  push:
+    branches: [ops/verify-b4-stage-enrollment-20261119]
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+      - name: Install the exact locked test dependencies
+        run: |
+          npm ci --ignore-scripts
+          npm ci --ignore-scripts --prefix apps/community-wizard
+      - name: Test the unchanged B4 client against the generated Worker in loopback
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = b4d76a6626aa2f2294cadc23bf94cd06e79c672c
+          git diff --exit-code HEAD^ HEAD -- packages/community-setup/hosted-enrollment-client.ts packages/community/hosted-enrollment.ts apps/community-wizard
+          sha256sum package-lock.json apps/community-wizard/package-lock.json packages/community-setup/hosted-enrollment-client.ts packages/community/hosted-enrollment.ts
+          evidence="$RUNNER_TEMP/pirate-stage-enrollment-evidence"
+          mkdir -m 0700 "$evidence"
+          export MANAGED_SERVICES_EVIDENCE_DIRECTORY="$evidence"
+          sudo --preserve-env=PATH,HOME,MANAGED_SERVICES_EVIDENCE_DIRECTORY unshare --net bash -c '
+            set -euo pipefail
+            ip link set lo up
+            export TMPDIR="$(mktemp -d)"
+            node --test --test-concurrency=1 --test-name-pattern="staged Worker fences origin and holds the authentic b4 original until armed" test/hosted-community-worker.test.ts
+            node --test --test-concurrency=1 test/ordinary-stage-hosted-package.test.ts
+          '
+          sudo python3 - "$evidence" <<'PY'
+          import json, pathlib, re, sys
+          root = pathlib.Path(sys.argv[1])
+          records = sorted(root.glob("hosted-fixture-*"))
+          assert len(records) == 2
+          for record in records:
+              install = json.loads((record / "installed-migrator.json").read_text())
+              cleanup = json.loads((record / "cleanup.json").read_text())
+              proof = {field: install[field] for field in ("profileHash", "bundleSha256")}
+              assert all(isinstance(digest, str) and re.fullmatch(r"(0x)?[0-9a-f]{64}", digest) for digest in proof.values())
+              assert cleanup["proxyClosed"] and cleanup["miniflareDisposed"]
+              print(json.dumps({**proof, "proxyClosed": True, "miniflareDisposed": True, "realInvitesConsumed": 0}))
+          PY

@@ -90,6 +90,13 @@ export function hostedError(error: unknown) {
     error instanceof CommunityError ? error.status : 503,
   );
 }
+function assertStagingApplicationOrigin(r: HostedRuntime, origin: string) {
+  insist(
+    r.stagingApplicationOrigin === undefined || r.stagingApplicationOrigin === origin,
+    "unaccepted_hosted_application_origin",
+    403,
+  );
+}
 export async function authenticateHostedRequest(
   r: HostedRuntime,
   body: Record<string, unknown>,
@@ -101,9 +108,10 @@ export async function authenticateHostedRequest(
   } catch {
     insist(false, "enrollment_authentication_failed", 403);
   }
+  let e: Enrollment;
   try {
-    const e = await loadEnrollment(r.db, id),
-      p = await loadOriginalPolicy(r.db, e);
+    e = await loadEnrollment(r.db, id);
+    const p = await loadOriginalPolicy(r.db, e);
     assertDeployment(p, e.plan);
     await verifyEnrollmentProof(
       r.client,
@@ -113,7 +121,6 @@ export async function authenticateHostedRequest(
       sig,
       r.now,
     );
-    return e;
   } catch (error) {
     // Missing IDs and invalid local proofs share one opaque refusal. Unavailable
     // chain/storage evidence is not a final denial of the controller's authority.
@@ -125,6 +132,8 @@ export async function authenticateHostedRequest(
       insist(false, "enrollment_authentication_failed", 403);
     insist(false, "enrollment_authentication_unavailable", 503);
   }
+  assertStagingApplicationOrigin(r, e.plan.config.app.origin);
+  return e;
 }
 export async function publicHostedStatus(r: HostedRuntime, e: Enrollment) {
   const originalRuntime = { ...r, policy: await loadOriginalPolicy(r.db, e) };
@@ -187,6 +196,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           wei(r.policy.registrarRevision),
         );
         assertDeployment(r.policy, plan);
+        assertStagingApplicationOrigin(r, plan.config.app.origin);
         const pin = await preparePin(
           new TextEncoder().encode(canonical(plan.config)),
           "application/json",
@@ -242,6 +252,7 @@ export function createHostedEnrollmentService(input: HostedRuntime) {
           "hosted_policy_changed",
           409,
         );
+        r.assertRegistrarArmed?.();
         await redeemEnrollment(r.db, e, r.now());
         await executeHostedOperation(r, e, "registration");
       }

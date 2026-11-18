@@ -477,12 +477,29 @@ import { pathToFileURL } from "node:url";
 import { hostedCommunityConfiguration } from "../services/hosted-community-runtime.ts";
 import { policyDocument, type HostedPolicy } from "../packages/community/hosted-enrollment.ts";
 
+/** The ordinary staging Worker and app have separate pinned origins. */
+export function ordinaryStageApplicationOrigin(prefix: string, serviceOrigin: string, applicationOrigin: unknown) {
+  const stageStack = "pirate-web2-enrollment-staging";
+  const stageService = "https://pirate-web2-enrollment-staging.piratesocialclub.workers.dev";
+  if (prefix !== stageStack) {
+    insist(applicationOrigin === undefined && serviceOrigin !== stageService, "hosted_staging_stack_required");
+    return undefined;
+  }
+  insist(applicationOrigin === "https://staging.jazleeuw.club" && serviceOrigin === stageService,
+    "hosted_staging_application_origin_required");
+  return applicationOrigin;
+}
+
 /** Separate fresh hosted D1, no adoption of historical or managed journals. */
 export async function hostedCommunityPackage(input: {
   identity: Parameters<typeof managedFreshStackIdentity>[0]; policy: HostedPolicy; rpcUrl: string; configurationGateway: string;
+  stagingApplicationOrigin?: string;
 }, dependencies?: ManagedPackageDependencyInput) {
   const selected = structuredClone(input), identity = managedFreshStackIdentity(selected.identity);
   insist(identity.packageProfile === "hosted-enrollment", "hosted_package_profile_required");
+  const stagingApplicationOrigin = ordinaryStageApplicationOrigin(identity.prefix, selected.policy.serviceOrigin,
+    selected.stagingApplicationOrigin);
+  insist(stagingApplicationOrigin === undefined || dependencies, "hosted_staging_dependency_input_required");
   const dependencyInput = await freshPackageDependencies(dependencies); await dependencyInput.verify();
   const sql = new Uint8Array(await readFile("packages/community/schema/hosted-enrollment.sql"));
   // Use the retained installed format's actual name/hash parser, rather than a
@@ -500,7 +517,10 @@ export async function hostedCommunityPackage(input: {
   } finally { await rm(dir, { recursive: true }); }
   const configuration = hostedCommunityConfiguration({ schema: "pirate.hosted-community-runtime/1", policy: policyDocument(selected.policy),
     rpcUrl: selected.rpcUrl, configurationGateway: selected.configurationGateway,
+    ...(stagingApplicationOrigin === undefined ? {} : { stagingApplicationOrigin }),
     schemaContext: { schema: "pirate.hosted-schema-alchemy/1", table: "__alchemy_migrations", migrations } });
+  insist(stagingApplicationOrigin === undefined ||
+    object(configuration).stagingApplicationOrigin === stagingApplicationOrigin, "hosted_staging_origin_not_retained");
   const bundle = await build({ entryPoints: ["services/hosted-community-worker.ts"], bundle: true, write: false,
     platform: "browser", format: "esm", target: "es2024", external: ["node:*"], minify: true, metafile: true, logLevel: "silent", legalComments: "none" });
   const sources = [...new Set([...(await ownedModuleGraph("harness/managed-package.ts")),
@@ -518,6 +538,7 @@ export async function writeHostedCommunityPackage(directory: string, pkg: Awaite
   dependencies?: Parameters<typeof writeManagedPackage>[3]) {
   managedFreshStackIdentity(pkg.profile.identity);
   const config = hostedCommunityConfiguration(pkg.profile.configuration);
+  ordinaryStageApplicationOrigin(pkg.profile.prefix, config.policy.serviceOrigin, object(config).stagingApplicationOrigin);
   insist(pkg.profile.packageProfile === "hosted-enrollment" && pkg.profile.identity.packageProfile === "hosted-enrollment" &&
     pkg.profile.prefix === pkg.profile.identity.prefix && hashJson(pkg.profile) === pkg.profileHash && sha256(pkg.bytes) === pkg.profile.bundleSha256 &&
     config.schemaContext.migrations.length === 1 && config.schemaContext.migrations[0]!.hash === sha256(pkg.sql).slice(2) &&

@@ -199,7 +199,7 @@ async function launchHostedAnvil(timestamp: number) {
     child.stdout.resume();
   }
 }
-export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean } = {}) {
+export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, options: { packaged?: boolean; stagingApplicationOrigin?: string } = {}) {
   const compiled = compile();
   const journal = options.packaged ? await mkdtemp(join(tmpdir(), "hosted-worker-journal-")) : undefined;
   const mf = new Miniflare({
@@ -241,6 +241,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
       sendCount: 0,
       clock: options.packaged ? Math.floor(Date.now() / 1000) : 1800000030,
       invalidPin: false,
+      configurationReads: 0,
       redirectPin: false,
       failRpc: false,
       beforeSend: undefined as (() => Promise<void>) | undefined,
@@ -251,6 +252,7 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(Buffer.from(c));
     if (req.url?.startsWith("/ipfs/")) {
+      state.configurationReads++;
       if (state.redirectPin) { res.writeHead(302, { location: "https://not-selected.invalid/config" }); res.end(); return; }
       const bytes = pins.get(`ipfs://${req.url.slice(6)}`);
       res.writeHead(bytes ? 200 : 404);
@@ -365,10 +367,15 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
         .filter(Boolean)
         .map((s) => db.prepare(s)),
     );
+    const staging = options.stagingApplicationOrigin !== undefined;
+    const prefix = staging ? "pirate-web2-enrollment-staging" : "pirate-hosted-local-fixture";
+    const appOrigin = options.stagingApplicationOrigin ?? "https://community.example";
     const policy: HostedPolicy = {
       schema: "pirate.hosted-enrollment-policy/1",
       pilotId: "fixture",
-      serviceOrigin: "https://hosted.example",
+      serviceOrigin: staging
+        ? "https://pirate-web2-enrollment-staging.piratesocialclub.workers.dev"
+        : "https://hosted.example",
       deployment: {
         schema: "pirate.web2-directory/3",
         chainId: 31337,
@@ -404,8 +411,9 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     };
     const evidenceDirectory = await mkdtemp(join(process.env.MANAGED_SERVICES_EVIDENCE_DIRECTORY ?? tmpdir(), "hosted-fixture-"));
     const evidence = async (label: string, value: unknown) => writeFile(join(evidenceDirectory, label + ".json"), JSON.stringify(value, null, 2), { mode: 0o600 });
-    const packageInput = { identity: { prefix: "pirate-hosted-local-fixture", packageProfile: "hosted-enrollment" as const, planId: publicId(),
-      state: { store: "pirate-encrypted-local" as const, stack: "pirate-hosted-local-fixture" } }, policy, rpcUrl: proxyUrl + "/", configurationGateway: proxyUrl + "/ipfs/" };
+    const packageInput = { identity: { prefix, packageProfile: "hosted-enrollment" as const, planId: publicId(),
+      state: { store: "pirate-encrypted-local" as const, stack: prefix } }, policy, rpcUrl: proxyUrl + "/", configurationGateway: proxyUrl + "/ipfs/",
+      ...(options.stagingApplicationOrigin === undefined ? {} : { stagingApplicationOrigin: options.stagingApplicationOrigin }) };
     const pkg = options.packaged ? await hostedCommunityPackage(packageInput, await ownedManagedPackageDependencies()) : undefined;
     const packageDirectory = pkg ? await mkdtemp(join(tmpdir(), "hosted-worker-package-")) : undefined;
     const cwd = pkg ? await writeHostedCommunityPackage(packageDirectory!, pkg) : undefined;
@@ -426,11 +434,13 @@ export async function hostedFixture(overrides: Partial<HostedPolicy> = {}, optio
     }
     const workerBindings = pkg ? { HOSTED_COMMUNITY_PROFILE: "hosted-enrollment", HOSTED_COMMUNITY_CONFIGURATION_JSON: canonical(pkg.profile.configuration),
       HOSTED_COMMUNITY_CONFIGURATION_SHA256: hashText(canonical(pkg.profile.configuration)),
+      ...(options.stagingApplicationOrigin === undefined ? {} : { HOSTED_STAGING_APPLICATION_ORIGIN: options.stagingApplicationOrigin }),
       HOSTED_REGISTRAR_PRIVATE_KEY: "0x" + "2".padStart(64, "0"), HOSTED_FUNDER_PRIVATE_KEY: "0x" + "3".padStart(64, "0") } : undefined;
     let configurationOverride: Record<string, string> = {};
-    const restart = async (keys?: { registrar?: Hex | null; funder?: Hex | null }) => {
+    const restart = async (keys?: { registrar?: Hex | null; funder?: Hex | null; omitStageOriginBinding?: boolean }) => {
       assert(pkg && cwd && workerBindings && journal);
       const bindings: Record<string, string> = { ...workerBindings, ...configurationOverride };
+      if (keys?.omitStageOriginBinding) delete bindings.HOSTED_STAGING_APPLICATION_ORIGIN;
       if (keys?.registrar === null) delete bindings.HOSTED_REGISTRAR_PRIVATE_KEY;
       else if (keys?.registrar) bindings.HOSTED_REGISTRAR_PRIVATE_KEY = keys.registrar;
       if (keys?.funder === null) delete bindings.HOSTED_FUNDER_PRIVATE_KEY;
@@ -498,12 +508,14 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
       assert(pkg && workerBindings);
       const config = JSON.parse(canonical(pkg.profile.configuration));
       if (fault === "missing-context") delete config.schemaContext;
+      if (fault === "missing-stage-origin") delete config.stagingApplicationOrigin;
       if (fault === "ledger-context") config.schemaContext.migrations[0].hash = "00".repeat(32);
       if (fault === "rpc-origin") config.rpcUrl = "http://not-selected.invalid/";
       const bytes = canonical(config);
       configurationOverride = { HOSTED_COMMUNITY_PROFILE: fault === "profile" ? "other" : "hosted-enrollment",
         HOSTED_COMMUNITY_CONFIGURATION_JSON: bytes, HOSTED_COMMUNITY_CONFIGURATION_SHA256: fault === "configuration-pin" ? publicId() : hashText(bytes) };
-      await restart(); try { await action(); } finally { configurationOverride = {}; await restart(); }
+      await restart({ omitStageOriginBinding: fault === "missing-stage-origin" });
+      try { await action(); } finally { configurationOverride = {}; await restart(); }
     };
     const worker = pkg && cwd ? { context: pkg.profile.configuration.schemaContext, pkg, cwd, restart, repeatMigrations, collectProfile, configurationFault, request: requestWorker, evidence } : undefined;
     const signer = (a: typeof admin): HostedSigner => ({
@@ -585,9 +597,9 @@ crons:resource.Props.crons??[],assets:resource.Props.assets??null,migrations:res
         publisher: lower(opts.publisher ?? publisher.address),
         operatorPayments: zero,
         learningRecords: zero,
-        app: { label: "Hosted fixture", origin: "https://community.example" },
+        app: { label: "Hosted fixture", origin: appOrigin },
         feed: {
-          endpoint: "https://community.example/api/feed",
+          endpoint: appOrigin + "/api/feed",
           signingKeyId: "fixture",
         },
         policies: {

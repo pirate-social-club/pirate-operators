@@ -4,6 +4,11 @@ import { keccak256, parseTransaction } from "viem";
 import { allOperations, assertHostedSchema } from "../packages/community/hosted-enrollment-store.ts";
 import { createHostedEnrollmentService } from "../services/hosted-community-enrollment.ts";
 import { hostedFixture } from "./fixtures/hosted-community-enrollment.ts";
+import { canonical } from "../packages/community/common.ts";
+import { preparePin } from "../packages/community/ipfs.ts";
+import { enrollmentTypedData, parseEnrollment } from "../packages/community/hosted-enrollment.ts";
+import { prepareWeb2Registration } from "../packages/community/web2-registration-chain.ts";
+import { createHostedEnrollmentClient } from "../packages/community-setup/hosted-enrollment-client.ts";
 
 // Integration failure matrix is retained in the admitted composition packet.
 // Existing business tests remain intact; these cover the real packaging boundary.
@@ -25,6 +30,79 @@ test("packaged hosted prepare reaches the real factory and installed Alchemy D1 
     assert.deepEqual((await f.db.prepare("SELECT * FROM __alchemy_migrations ORDER BY id").all()).results, rows.results);
     await f.worker.evidence("early-real-route-migrator", { enrollmentId: prepared.e.id, ledger: rows.results, originalPreserved: true });
   } finally { await f.close(); }
+});
+
+test("staged Worker fences origin and holds the authentic b4 original until armed", async () => {
+  const stagingApplicationOrigin = "https://staging.jazleeuw.club";
+  const f = await hostedFixture({}, { packaged: true, stagingApplicationOrigin });
+  try {
+    const worker = f.worker;
+    assert(worker);
+    const invite = await f.invite();
+    await worker.configurationFault("missing-stage-origin", async () => {
+      const refused = await f.post("/prepare", invite.body);
+      assert.equal(refused.status, 503);
+      assert.equal(refused.body.error, "hosted_configuration_unavailable");
+      assert.equal(f.state.configurationReads, 0);
+      assert.equal(await f.db.prepare("SELECT COUNT(*) AS n FROM hosted_preparations").first("n"), 0);
+    });
+    await worker.restart({ registrar: null, funder: null });
+    const otherOrigin = "https://other-community.example";
+    const config = structuredClone(invite.config);
+    config.app.origin = otherOrigin;
+    config.feed.endpoint = otherOrigin + "/api/feed";
+    const bytes = new TextEncoder().encode(canonical(config));
+    const pin = await preparePin(bytes, "application/json");
+    f.pins.set(pin.uri, bytes);
+
+    const refused = await f.post("/prepare", { ...invite.body, config, uri: pin.uri });
+    assert.equal(refused.status, 403);
+    assert.equal(refused.body.error, "unaccepted_hosted_application_origin");
+    assert.equal(f.state.configurationReads, 0);
+    assert.equal(await f.db.prepare("SELECT COUNT(*) AS n FROM hosted_preparations").first("n"), 0);
+
+    const client = createHostedEnrollmentClient(
+      f.policy,
+      (input, init) => worker.request(new URL(String(input)).pathname, init),
+    );
+    const plan = prepareWeb2Registration(
+      invite.profile,
+      invite.config,
+      invite.body.uri,
+      f.policy.registrar,
+      BigInt(f.policy.registrarRevision),
+    );
+    const prepared = await client.prepare(plan, invite.secret);
+    const enrollment = parseEnrollment(prepared.enrollment);
+    const proof = await f.accounts.controller.signTypedData(enrollmentTypedData(enrollment));
+
+    const assertHeld = async (expectedError: string) => {
+      const refused = await f.post("/redeem", {
+        enrollmentId: prepared.enrollmentId,
+        controllerSignature: proof,
+      });
+      assert.equal(refused.status, 503);
+      assert.equal(refused.body.error, expectedError);
+      assert.equal(await f.db.prepare("SELECT COUNT(*) AS n FROM hosted_enrollments").first("n"), 0);
+      assert.equal(await f.db.prepare("SELECT COUNT(*) AS n FROM spending_reservations").first("n"), 0);
+      assert.deepEqual(await allOperations(f.db, prepared.enrollmentId), []);
+      assert.deepEqual((await client.status(prepared, proof)).operations, []);
+      assert.equal(f.state.sendCount, 0);
+    };
+    await assertHeld("hosted_registrar_disarmed");
+    await worker.restart({ registrar: `0x${"01".repeat(32)}`, funder: null });
+    await assertHeld("hosted_effect_key_mismatch");
+
+    await worker.restart({ funder: null });
+    await client.redeem(prepared, proof);
+    await f.mine();
+    const status = await client.status(prepared, proof);
+    assert.equal(status.operations.length, 1);
+    assert.equal(status.operations[0]!.state, "consumed");
+    assert.equal(f.state.sendCount, 1);
+  } finally {
+    await f.close();
+  }
 });
 
 test("packaged registration and initial topup retain exact originals through key retirement and restart", async () => {

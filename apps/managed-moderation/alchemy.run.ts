@@ -35,7 +35,24 @@ const selectedPackage = fresh || helperOnly || hosted ? (() => {
   if (p.prefix !== prefix || p.packageProfile !== selectedProfile || i.prefix !== prefix || i.packageProfile !== selectedProfile ||
     i.planId !== process.env.MANAGED_WEB2_PLAN_ID || !/^0x[0-9a-f]{64}(?![\s\S])/.test(i.planId) ||
     i.state.store !== "pirate-encrypted-local" || i.state.stack !== prefix) throw new Error("managed_package_stack_changed");
-  if (hosted && (p.schema !== "pirate.hosted-community-package/1" || p.operatorSigning || p.configuration?.schema !== "pirate.hosted-community-runtime/1")) throw new Error("hosted_package_profile_required");
+  if (hosted) {
+    if (p.schema !== "pirate.hosted-community-package/1" || p.operatorSigning ||
+      p.configuration?.schema !== "pirate.hosted-community-runtime/1") throw new Error("hosted_package_profile_required");
+    const scope = p.configuration.stagingApplicationOrigin;
+    const ordinaryStage = prefix === "pirate-web2-enrollment-staging";
+    const stageService = p.configuration.policy?.serviceOrigin === "https://pirate-web2-enrollment-staging.piratesocialclub.workers.dev";
+    if (ordinaryStage ? scope !== "https://staging.jazleeuw.club" || !stageService : scope !== undefined || stageService)
+      throw new Error("hosted_staging_package_scope_changed");
+    if (ordinaryStage) {
+      const hashFile = (path: string) => createHash("sha256").update(readFileSync(new URL(path, import.meta.url))).digest("hex");
+      const migration = p.configuration.schemaContext?.migrations;
+      if (p.configuration.schemaContext?.table !== "__alchemy_migrations" ||
+        !Array.isArray(migration) || migration.length !== 1 || migration[0]?.name !== "0001_hosted_enrollment.sql" ||
+        migration[0].hash !== hashFile("./migrations/0001_hosted_enrollment.sql") ||
+        JSON.stringify(p.migrations) !== JSON.stringify(migration) ||
+        p.bundleSha256 !== "0x" + hashFile("./worker/worker.mjs")) throw new Error("hosted_staging_package_bytes_changed");
+    }
+  }
   return p;
 })() : undefined;
 const signingAssets = selectedPackage?.operatorSigning ? {
@@ -58,6 +75,9 @@ export const selectedManagedResources = Effect.gen(function* () {
         env: { DB: db, HOSTED_COMMUNITY_PROFILE: "hosted-enrollment",
           HOSTED_COMMUNITY_CONFIGURATION_JSON: JSON.stringify(selectedPackage.configuration),
           HOSTED_COMMUNITY_CONFIGURATION_SHA256: "0x" + createHash("sha256").update(JSON.stringify(selectedPackage.configuration)).digest("hex"),
+          ...(selectedPackage.configuration.stagingApplicationOrigin === undefined ? {} : {
+            HOSTED_STAGING_APPLICATION_ORIGIN: selectedPackage.configuration.stagingApplicationOrigin,
+          }),
           ...(Option.isSome(registrar) ? { HOSTED_REGISTRAR_PRIVATE_KEY: registrar.value } : {}),
           ...(Option.isSome(funder) ? { HOSTED_FUNDER_PRIVATE_KEY: funder.value } : {}),
         },
