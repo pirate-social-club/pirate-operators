@@ -48,7 +48,7 @@ export interface Web2DanceActivationOwner {
   }): ReturnType<typeof readObservedInstalledDanceGrants>;
 }
 
-async function readPhysical(path: string, maxBytes: number) {
+export async function readDanceActivationArtifact(path: string, maxBytes: number) {
   const file = await privateFile(path, maxBytes);
   try {
     const before = await file.stat({ bigint: true });
@@ -73,7 +73,7 @@ async function readPhysical(path: string, maxBytes: number) {
   }
 }
 
-export async function readOptionalDanceActivationScope(path: string) {
+export async function readOptionalDanceActivationArtifact(path: string, maxBytes: number) {
   try {
     // Only an absent directory entry disables activation. A dangling symlink,
     // raced rename or failed read of a present entry must refuse.
@@ -82,11 +82,15 @@ export async function readOptionalDanceActivationScope(path: string) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;
   }
-  return readPhysical(path, maxWeb2DanceRetainedScopeBytes);
+  return readDanceActivationArtifact(path, maxBytes);
+}
+
+export function readOptionalDanceActivationScope(path: string) {
+  return readOptionalDanceActivationArtifact(path, maxWeb2DanceRetainedScopeBytes);
 }
 
 export function readDanceActivationPublicationMount(path: string) {
-  return readPhysical(path, 8192);
+  return readDanceActivationArtifact(path, 8192);
 }
 
 async function verify(input: VerifyInput, artifacts: Artifacts) {
@@ -115,20 +119,20 @@ export async function readWeb2DanceActivation(input: VerifyInput) {
   await privateDirectory(paths.directory);
   const scope = await readOptionalDanceActivationScope(paths.scope);
   if (scope === undefined) return undefined;
-  const reward = await readPhysical(paths.reward, maxWeb2DanceRewardBytes);
+  const reward = await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes);
   const artifacts = { scope, reward };
   await verify(input, artifacts);
   return artifacts;
 }
 
-async function retainBytes(path: string, value: string, bound: number) {
+export async function retainDanceActivationArtifact(path: string, value: string, bound: number) {
   assert(Buffer.byteLength(value) <= bound, "web2_dance_activation_artifact_too_large");
   let file;
   try {
     file = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    assert(await readPhysical(path, bound) === value, "web2_dance_activation_original_changed");
+    assert(await readDanceActivationArtifact(path, bound) === value, "web2_dance_activation_original_changed");
     const prior = await privateFile(path, bound);
     try { await prior.sync(); } finally { await prior.close(); }
     return;
@@ -158,7 +162,7 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
   await assertCurrent();
   const selectedScope = await readOwner(selection);
   assert(typeof selectedScope === "string", "web2_dance_activation_approval_required");
-  const artifacts = { scope: selectedScope, reward: await readPhysical(paths.reward, maxWeb2DanceRewardBytes) };
+  const artifacts = { scope: selectedScope, reward: await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) };
   const { scope, rewards } = await verify(input, artifacts);
   const release = parsePublicationRelease(approval.selection.entries.find(item =>
     publicationSelectionHash(item.release) === selection.releaseSelectionHash)?.release);
@@ -202,7 +206,7 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
     participants, verifyPrivateOriginals, afterAwait: assertCurrent,
   });
   const selected = await readOwner(selection);
-  assert(selected === artifacts.scope && await readPhysical(paths.reward, maxWeb2DanceRewardBytes) === artifacts.reward,
+  assert(selected === artifacts.scope && await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) === artifacts.reward,
     "web2_dance_activation_approval_changed");
   const retained = await readOptionalDanceActivationScope(paths.scope);
   assert(retained === undefined || retained === artifacts.scope, "web2_dance_activation_original_changed");
@@ -210,11 +214,11 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
   // The prior Rewards producer owns its original bytes. The only newly
   // staged file is this exact approved scope.
   await verifyPrivateOriginals();
-  await retainBytes(paths.scope, artifacts.scope, maxWeb2DanceRetainedScopeBytes);
+  await retainDanceActivationArtifact(paths.scope, artifacts.scope, maxWeb2DanceRetainedScopeBytes);
   await syncDirectory(paths.directory);
   await assertCurrent();
   assert(await readOptionalDanceActivationScope(paths.scope) === artifacts.scope &&
-    await readPhysical(paths.reward, maxWeb2DanceRewardBytes) === artifacts.reward,
+    await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) === artifacts.reward,
     "web2_dance_activation_original_changed");
   await verifyPrivateOriginals();
   return scopeSha256;

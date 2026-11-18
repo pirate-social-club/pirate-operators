@@ -25,6 +25,12 @@ import { readRetainedWeb2DanceControl, recoverWeb2BindingControlRecords } from "
 import { web2OriginalStartIntent } from "../deploy/linux/web2-trusted-revision-two.ts";
 import { acquireWeb2ServiceControl } from "../deploy/linux/web2-service-lease.ts";
 import type { FullRelease } from "../deploy/linux/installed-release.ts";
+import { retainWeb2DanceBindPrepare, web2DanceIntentFile, web2DancePrepareFile } from "../deploy/linux/web2-dance-bind-prepare.ts";
+import { web2DancePrepareContentType } from "../packages/community/web2-dance-bind-intent.ts";
+import { nativePublicationLookupFetch } from "../services/linux-web2-publication.ts";
+import { publicationAcceptSessionHeader, publicationLookupPath } from "../services/native-publication-reference.ts";
+import { digest as protocolDigest } from "../packages/protocol/index.ts";
+import type { InstalledDanceBindIntent } from "../services/web2-installed-dance-bind-prepare.ts";
 import { nativeBusinessTransition } from "../packages/community/native-business-transition.ts";
 import { nativeMigrationNames } from "./application-native-producer-fixture.ts";
 import { migrateOwnerDatabase } from "./owner-publishing-migration-fixture.ts";
@@ -126,6 +132,123 @@ test("retained Dance owner scope authenticates both exact BindIdentity originals
   await assert.rejects(verify({ ...doc, policy: { ...policy, rules: policy.rules.replace("\r", "") } }), /web2_dance_retained_policy_bytes_changed/);
   await assert.rejects(verifyWeb2DanceRetainedScope({ ...selected, raw: canonical({ ...sign(doc),
     body: { ...doc, releaseSelectionHash: word(55) } }) }), /native_original_signature/);
+
+  await t.test("owner Prepare retains one exact ordered result and never re-prepares it", async t => {
+    const parent = await mkdtemp(join(tmpdir(), "web2-dance-bind-prepare-"));
+    t.after(() => rm(parent, { recursive: true, force: true }));
+    const draftIntent: InstalledDanceBindIntent = {
+      schema: "pirate.installed-dance-bind-intent/1", intentId: word(110),
+      installedBindingSha256: `0x${nativeDigest(original)}`, communityId: domain.communityId,
+      installationId: directoryProfile.installationId, releaseSha256: releaseSelectionHash,
+      configurationSha256: hashJson(config), sourceHash: source.sourceHash,
+      ownerEpoch: owner.epoch, ownerWallet: owner.wallet,
+      grants: [
+        { purpose: "dance-verdict", commandId: word(95), accountId: learner.plan.accountId },
+        { purpose: "dance-review-attribution", commandId: word(96), accountId: reviewer.plan.accountId },
+      ],
+    };
+    const rawIntent = canonical(sign(draftIntent));
+    const intentSha256 = protocolDigest(draftIntent);
+    const plans = draftIntent.grants.map((grant, position) => {
+      const wallet = position === 0 ? learner.plan.wallet : reviewer.plan.wallet;
+      const grantId = word(116 + position), grantReceiptSha256 = word(120 + position);
+      const commandId = protocolDigest({ schema: "pirate.installed-dance-bind-command/1",
+        intentSha256, position, appCommandId: grant.commandId, grantId });
+      const accountCommitment = danceAccountCommitment(domain, grant.accountId, wallet);
+      return {
+        purpose: grant.purpose, appGrantCommandId: grant.commandId, grantId, grantReceiptSha256,
+        plan: { accountId: grant.accountId, wallet, publisher: config.publisher, sourceHash: source.sourceHash,
+          ownerEpoch: "1", configurationRevision: "2", commandId },
+        command: danceCommand(domain, "bindIdentity", config.publisher, commandId, {
+          expectedOwnerEpoch: 1n, expectedConfigurationRevision: 2n, accountCommitment, wallet, expectedIdentityEpoch: 0n,
+          sourceGroupId: zeroHash, sourceBindingGroupEpoch: 0n, sourceCurrentGroupEpoch: 0n,
+          destinationGroupId: danceSingletonId(domain, accountCommitment), destinationGroupEpoch: 0n,
+          createSingleton: true, active: true,
+        }),
+      };
+    });
+    const rawPrepare = canonical({ schema: "pirate.installed-dance-bind-prepare/1", intentSha256, plans });
+    let approved = rawIntent, available = false, ownerReads = 0, requests = 0;
+    const options = {
+      directory: parent, original, source, approved: { releaseSha256: releaseSelectionHash,
+        configurationSha256: hashJson(config), ownerWallet: owner.wallet, publisher: config.publisher, configurationRevision: 2 },
+      owner: { async approvedIntent(selection: {nativeOriginalSha256: string; releaseSelectionHash: unknown}) {
+        ownerReads++;
+        assert.deepEqual(selection, { nativeOriginalSha256: nativeDigest(original), releaseSelectionHash });
+        return approved;
+      } },
+      async assertCurrent() { assert(available, "missing_current_admission"); },
+      async prepare(raw: string) {
+        requests++;
+        assert.equal(raw, rawIntent);
+        assert.equal(await readFile(join(parent, web2DanceIntentFile), "utf8"), rawIntent);
+        return rawPrepare;
+      },
+    };
+    await assert.rejects(retainWeb2DanceBindPrepare(options), /missing_current_admission/);
+    assert.equal(ownerReads, 0);
+    assert.equal(requests, 0);
+    assert.deepEqual(await readdir(parent), []);
+
+    available = true;
+    const first = await retainWeb2DanceBindPrepare(options);
+    assert.deepEqual(first, { intentSha256, prepareSha256: hashText(rawPrepare).slice(2), status: "prepared" });
+    const resultPath = join(parent, web2DancePrepareFile);
+    assert.equal(await readFile(resultPath, "utf8"), rawPrepare);
+    assert.equal(requests, 1);
+    assert.deepEqual(await retainWeb2DanceBindPrepare({
+      ...options, async prepare() { throw Error("already_bound_prefix_must_not_reprepare"); },
+    }), { ...first, status: "retained" });
+    assert.deepEqual(JSON.parse(await readFile(resultPath, "utf8")).plans, JSON.parse(rawPrepare).plans);
+    assert.equal(requests, 1);
+
+    approved = canonical(sign({ ...draftIntent, intentId: word(115) }));
+    await assert.rejects(retainWeb2DanceBindPrepare(options), /web2_dance_bind_prepare_original_changed/);
+    assert.equal(await readFile(resultPath, "utf8"), rawPrepare);
+    approved = rawIntent;
+    await writeFile(resultPath, rawPrepare.slice(0, -3));
+    await assert.rejects(retainWeb2DanceBindPrepare(options), SyntaxError);
+    assert.equal(requests, 1);
+
+    const interrupted = join(parent, "interrupted");
+    await mkdir(interrupted, { mode: 0o700 });
+    await assert.rejects(retainWeb2DanceBindPrepare({
+      ...options, directory: interrupted,
+      async prepare(raw) {
+        assert.equal(raw, rawIntent);
+        assert.equal(await readFile(join(interrupted, web2DanceIntentFile), "utf8"), rawIntent);
+        available = false;
+        return rawPrepare;
+      },
+    }), /missing_current_admission/);
+    assert.deepEqual(await readdir(interrupted), [web2DanceIntentFile]);
+    assert.equal(await readFile(join(interrupted, web2DanceIntentFile), "utf8"), rawIntent);
+  });
+
+  await t.test("private Prepare rejects forward and ambient credentials before touching the app", async () => {
+    const forward = "a".repeat(64), reverse = "b".repeat(64);
+    let dbReads = 0;
+    const env = {
+      PUBLICATION_OPERATOR_HOST_AUTH: forward, PUBLICATION_RETAINED_LOOKUP_AUTH: reverse,
+      COMMUNITY_DEPLOYMENT_PROFILE_JSON: JSON.stringify(draft.deployment),
+      get DB(): D1Database { dbReads++; throw Error("private_d1_must_not_be_opened"); },
+    };
+    const endpoint = draft.origin + publicationLookupPath;
+    const req = (url: string, authorization?: string, extra: Record<string, string> = {}) => new Request(url, {
+      method: "POST", headers: { "content-type": web2DancePrepareContentType,
+        ...(authorization ? { authorization: "Bearer " + authorization } : {}), ...extra },
+      body: "not-an-intent",
+    });
+    for (const request of [req(endpoint), req(endpoint, forward), req(endpoint + "?owner=1", reverse),
+      req(endpoint, reverse, { "X-Pirate-Native-Request": "ambient-native-role" }),
+      req(endpoint, reverse, { [publicationAcceptSessionHeader]: word(111) })]) {
+      assert.equal((await nativePublicationLookupFetch(request, env)).status, 404);
+    }
+    assert.equal(dbReads, 0);
+    // A valid directional credential alone still cannot select an unsigned
+    // original, D1 mount or fallback transport.
+    assert.equal((await nativePublicationLookupFetch(req(endpoint, reverse), env)).status, 503);
+  });
 
   await t.test("grant-free serving then a retained scope boot projection keeps the same signed enrollment and stores", async t => {
     const directory = await mkdtemp(join(tmpdir(), "web2-dance-scope-boot-"));

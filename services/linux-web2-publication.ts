@@ -1,3 +1,4 @@
+import { web2DancePrepareContentType } from "../packages/community/web2-dance-bind-intent.ts";
 import type { Address, PublicClient } from "viem";
 import { canonical, exact, insist, object } from "../packages/community/common.ts";
 import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
@@ -14,6 +15,7 @@ import {
   nativePublicationAuthorized,
   nativePublicationOperatorTransport,
   nativePublicationRetainedLookup,
+  publicationAcceptSessionHeader,
   publicationLookupPath,
 } from "./native-publication-reference.ts";
 import type { PublicationApplicationPorts } from "./publication-app.ts";
@@ -176,8 +178,10 @@ export async function nativePublicationLookupFetch(
 ) {
   const url = new URL(request.url);
   const reverse = env.PUBLICATION_RETAINED_LOOKUP_AUTH;
+  const prepare = request.headers.get("content-type") === web2DancePrepareContentType;
   if (url.pathname !== publicationLookupPath || url.search ||
     request.method !== "POST" || request.headers.has("X-Pirate-Native-Request") ||
+    prepare && request.headers.has(publicationAcceptSessionHeader) ||
     !reverse || !/^[a-f0-9]{64}(?![\s\S])/.test(reverse) ||
     !await nativePublicationAuthorized(request, reverse)) return unavailable(404);
   try {
@@ -187,6 +191,11 @@ export async function nativePublicationLookupFetch(
       env, deployment, megaethReadClient(undefined, deployment.rpcUrl),
     );
     if (env.PUBLICATION_RETAINED_LOOKUP_AUTH !== reverse) return unavailable(404);
+    if (prepare) {
+      const { nativeWeb2DanceBindPrepare } = await import("./linux-web2-dance-bind-prepare.ts");
+      if (env.PUBLICATION_RETAINED_LOOKUP_AUTH !== reverse || request.signal.aborted) return unavailable(404);
+      return await nativeWeb2DanceBindPrepare(request, env, deployment, mount.publication, reverse);
+    }
     return await mount.lookup(request);
   } catch {
     return unavailable(503);

@@ -49,6 +49,7 @@ import { trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
 import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
 import type { Web2DanceActivationOwner } from "./web2-dance-retained-activation.ts";
+import type { Web2DanceBindPrepareOwner } from "./web2-dance-bind-prepare.ts";
 
 export interface Web2LocalInstallationConfiguration {
   schema: "pirate.web2-local-installation/1";
@@ -282,24 +283,31 @@ async function runWeb2TrustedRevisionTwoApproval(configurationFile: string) {
 
 export interface Web2RetainedDanceActivationHostInputs {
   binding: Web2RuntimeBindingInputs;
-  owner: Web2DanceActivationOwner;
+  owner?: Web2DanceActivationOwner;
+  prepareOwner?: Web2DanceBindPrepareOwner;
   closeControl(): Promise<void>;
 }
 
 /** A separate explicit private action under the original installation control.
  * The existing Workerd app must still be serving the primary application. */
-async function runWeb2RetainedDanceStage(configurationFile: string) {
+async function runWeb2RetainedDanceOwnerAction(configurationFile: string, action: "stage" | "prepare") {
   const config = await readPrivateJSON<Web2LocalInstallationConfiguration>(configurationFile, 16 * 1024 ** 2);
   const { runtime, execution, release, selected } = await selectInstalledWeb2Host(config);
   assert(import.meta.url === pathToFileURL(execution.main).href &&
     release.sourceHashes["deploy/linux/web2-dance-retained-activation.ts"],
     "installed_web2_dance_activation_required");
+  if (action === "prepare") {
+    for (const path of [
+      "deploy/linux/web2-dance-bind-prepare.ts", "packages/community/web2-dance-bind-intent.ts",
+      "services/linux-web2-dance-bind-prepare.ts", "services/web2-installed-dance-bind-prepare.ts",
+    ]) assert(Object.hasOwn(release.sourceHashes, path), "installed_web2_dance_bind_prepare_required");
+  }
   const loaded: {
     createWeb2RetainedDanceActivationInputs?(): Promise<Web2RetainedDanceActivationHostInputs>;
   } = await import(pathToFileURL(execution.backend).href);
   assert(typeof loaded.createWeb2RetainedDanceActivationInputs === "function", "web2_dance_activation_owner_unavailable");
   const inputs = await loaded.createWeb2RetainedDanceActivationInputs();
-  let digest: string;
+  let receipt: { scopeSha256: string } | Awaited<ReturnType<Web2InstalledService["prepareRetainedDanceBindings"]>>;
   let installation: Web2InstalledService | undefined;
   async function close() {
     await installation?.shutdownService();
@@ -313,15 +321,23 @@ async function runWeb2RetainedDanceStage(configurationFile: string) {
     const binder = await createWeb2RuntimeBinder(inputs.binding);
     const retained = await binder.retainedForDanceOwnerAction();
     await retained.assertRetained();
-    installation = await createWeb2Installation(retained.host);
-    digest = await installation.stageRetainedDance(inputs.owner, retained.assertRetained);
+    if (action === "stage") {
+      assert(inputs.owner, "web2_dance_activation_owner_unavailable");
+      installation = await createWeb2Installation(retained.host, undefined, retained.assertRetained);
+      receipt = { scopeSha256: await installation.stageRetainedDance(inputs.owner, retained.assertRetained) };
+    } else {
+      assert(inputs.prepareOwner && typeof inputs.prepareOwner.approvedIntent === "function",
+        "web2_dance_bind_prepare_owner_unavailable");
+      installation = await createWeb2Installation(retained.host, undefined, retained.assertRetained);
+      receipt = await installation.prepareRetainedDanceBindings(inputs.prepareOwner, retained.assertRetained);
+    }
   } catch (error) {
     try { await close(); }
     catch (failure) { throw new AggregateError([error, failure], "web2_dance_activation_control_retained"); }
     throw error;
   }
   await close();
-  process.stdout.write(JSON.stringify({ scopeSha256: digest }) + "\n");
+  process.stdout.write(JSON.stringify(receipt) + "\n");
 }
 
 export async function launchWeb2LocalInstallation(
@@ -590,9 +606,9 @@ if (
   if (args[0] === "--approve-trusted-revision-two") {
     assert(args.length === 2 && args[1]?.startsWith("/"), "supply_private_web2_service_configuration");
     await runWeb2TrustedRevisionTwoApproval(args[1]);
-  } else if (args[0] === "--stage-retained-dance") {
+  } else if (args[0] === "--stage-retained-dance" || args[0] === "--prepare-retained-dance-bindings") {
     assert(args.length === 2 && args[1]?.startsWith("/"), "supply_private_web2_service_configuration");
-    await runWeb2RetainedDanceStage(args[1]);
+    await runWeb2RetainedDanceOwnerAction(args[1], args[0] === "--stage-retained-dance" ? "stage" : "prepare");
   } else {
     assert(args.length === 1 && args[0]?.startsWith("/"), "supply_private_web2_service_configuration");
     await runWeb2Service(args[0]);
