@@ -48,6 +48,7 @@ import { selectWeb2PublicationConsent } from "./web2-initialization.ts";
 import { trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
 import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
+import type { Web2DanceActivationOwner } from "./web2-dance-retained-activation.ts";
 
 export interface Web2LocalInstallationConfiguration {
   schema: "pirate.web2-local-installation/1";
@@ -277,6 +278,50 @@ async function runWeb2TrustedRevisionTwoApproval(configurationFile: string) {
   }
   await inputs.closeControl();
   process.stdout.write(JSON.stringify({ approvalSha256: digest }) + "\n");
+}
+
+export interface Web2RetainedDanceActivationHostInputs {
+  binding: Web2RuntimeBindingInputs;
+  owner: Web2DanceActivationOwner;
+  closeControl(): Promise<void>;
+}
+
+/** A separate explicit private action under the original installation control.
+ * The existing Workerd app must still be serving the primary application. */
+async function runWeb2RetainedDanceStage(configurationFile: string) {
+  const config = await readPrivateJSON<Web2LocalInstallationConfiguration>(configurationFile, 16 * 1024 ** 2);
+  const { runtime, execution, release, selected } = await selectInstalledWeb2Host(config);
+  assert(import.meta.url === pathToFileURL(execution.main).href &&
+    release.sourceHashes["deploy/linux/web2-dance-retained-activation.ts"],
+    "installed_web2_dance_activation_required");
+  const loaded: {
+    createWeb2RetainedDanceActivationInputs?(): Promise<Web2RetainedDanceActivationHostInputs>;
+  } = await import(pathToFileURL(execution.backend).href);
+  assert(typeof loaded.createWeb2RetainedDanceActivationInputs === "function", "web2_dance_activation_owner_unavailable");
+  const inputs = await loaded.createWeb2RetainedDanceActivationInputs();
+  let digest: string;
+  let installation: Web2InstalledService | undefined;
+  async function close() {
+    await installation?.shutdownService();
+    await inputs.closeControl();
+  }
+  try {
+    assert(canonicalDigest(inputs.binding.bootstrap) === canonicalDigest(config.release) &&
+      canonicalDigest(inputs.binding.trust) === canonicalDigest(config.trust) &&
+      inputs.binding.lease.installationId === runtime.installationId, "installed_web2_backend_changed");
+    assert.deepEqual(await readPrivateJSON(config.runtimeProfileFile), selected, "web2_launch_selection_changed");
+    const binder = await createWeb2RuntimeBinder(inputs.binding);
+    const retained = await binder.retainedForDanceOwnerAction();
+    await retained.assertRetained();
+    installation = await createWeb2Installation(retained.host);
+    digest = await installation.stageRetainedDance(inputs.owner, retained.assertRetained);
+  } catch (error) {
+    try { await close(); }
+    catch (failure) { throw new AggregateError([error, failure], "web2_dance_activation_control_retained"); }
+    throw error;
+  }
+  await close();
+  process.stdout.write(JSON.stringify({ scopeSha256: digest }) + "\n");
 }
 
 export async function launchWeb2LocalInstallation(
@@ -545,6 +590,9 @@ if (
   if (args[0] === "--approve-trusted-revision-two") {
     assert(args.length === 2 && args[1]?.startsWith("/"), "supply_private_web2_service_configuration");
     await runWeb2TrustedRevisionTwoApproval(args[1]);
+  } else if (args[0] === "--stage-retained-dance") {
+    assert(args.length === 2 && args[1]?.startsWith("/"), "supply_private_web2_service_configuration");
+    await runWeb2RetainedDanceStage(args[1]);
   } else {
     assert(args.length === 1 && args[0]?.startsWith("/"), "supply_private_web2_service_configuration");
     await runWeb2Service(args[0]);

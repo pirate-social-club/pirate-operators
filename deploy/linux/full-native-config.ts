@@ -4,6 +4,7 @@ import { nativePublicationBindingNames, nativePublicationPaths, nativePublicatio
   type Web2NativePublicationGraph } from "./web2-publication-selection.ts";
 import { parseSharedSongFeed, sharedSongFeedBinding } from "../../services/shared-song-feed-settings.ts";
 import type { Web2DanceRewardIntent } from "../../packages/community/web2-dance-reward-attachment.ts";
+import { web2DanceActivationBindings } from "./web2-dance-retained-files.ts";
 export interface NativeBinding {name:string;service?:string;text?:string;file?:string;durable?:{service:string;className:string}}
 export interface NativeGraph {
   installationId:string;durableScope:string;releaseRoot:string;schemaPath:string;stateRoots:Record<string,string>;socket:string;
@@ -39,7 +40,8 @@ const binding=(v:NativeBinding)=>{
 /** Actual native services, not the diagnostic ledger. Unknown selected actors
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
 export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket, requireRetainedWeb2=false,
-  trustedPublication?: Readonly<{ selector: string; initialization: string; expiresAtMs: number }>) {
+  trustedPublication?: Readonly<{ selector: string; initialization: string; expiresAtMs: number }>,
+  danceActivation?: Parameters<typeof web2DanceActivationBindings>[2]) {
   const initialize=mode!=="serve";
   assert(!requireRetainedWeb2 || mode==="initialize" && nativeOriginalFile &&
     g.publicationExpansion==="retained-registry-revision-two/1" && !g.fixtureTransport,
@@ -183,7 +185,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +'(name="COMMUNITY_DEPLOYMENT_PROFILE_JSON",text='+q(g.directoryRuntimeBinding)+'),'
     +(nativeOriginalFile?'(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+'),'
       +'(name="NATIVE_READBACK_KEY",text=embed '+q(g.readbackKeyFile)+'),':'')
-    +[...g.applicationBindings.map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
+    +[...web2DanceActivationBindings(g,mode,danceActivation).map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
       ...publicationApp].join(","),"",undefined,"egress"));
   assert(g.stateRoots.readiness?.startsWith("/"),"persistent_handler_readback_root_required");
   services.push(disk("readback-storage",g.stateRoots.readiness!));

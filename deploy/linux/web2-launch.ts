@@ -51,6 +51,10 @@ import { readApprovedTrustedRevisionTwo, readTrustedRevisionTwoPolicy, trustedRe
 
 import { canonical } from "../../packages/community/common.ts";
 import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
+import { danceActivationPaths, web2DanceScopeFile } from "./web2-dance-retained-files.ts";
+import {
+  readDanceActivationPublicationMount, readOptionalDanceActivationScope, readWeb2DanceActivation,
+} from "./web2-dance-retained-activation.ts";
 
 export interface Web2LaunchConfiguration {
   schema: "pirate.linux-web2-launch/1";
@@ -139,6 +143,7 @@ export async function runWeb2Native(configPath: string) {
   ]);
   const release = await verifyInstalledRelease(config.release, config.trust),
     graph = release.graph;
+  const danceLocator = danceActivationPaths(graph);
   assert(
     release.schema === "pirate.complete-linux-web2-release/1",
     "web2_release_required",
@@ -215,6 +220,8 @@ export async function runWeb2Native(configPath: string) {
     approvalSha256: string | null; publication: TrustedPublication; expiresAtMs: number | null;
   } | undefined;
   let publicationSnapshot: { selector: string; initialization: string; expiresAtMs: number } | undefined;
+  const danceAtBoot: { artifacts?: { scope: string; reward: string } | null } = {};
+  let danceSnapshot: { directory: string; scope: string } | undefined;
   const current = async () => {
     await assertStartAllowed(config.maintenanceDirectory);
     await verifyInstalledRelease(config.release, config.trust);
@@ -282,7 +289,21 @@ export async function runWeb2Native(configPath: string) {
       assert(approved.selectionSha256 === await publicationMount(), "native_expanded_publication_selection_changed");
       const confirmed = await readApprovedExpandedPublication({ graph, original, chain });
       assert(confirmed.selectionSha256 === approved.selectionSha256, "native_expanded_publication_selection_changed");
+      if (danceLocator) {
+        assert(publicationFiles && confirmed.approvalSha256 === approved.approvalSha256,
+          "web2_dance_activation_publication_changed");
+        const observed = await readWeb2DanceActivation({
+          graph, original, approval: confirmed,
+          publicationMount: await readDanceActivationPublicationMount(publicationFiles.selector),
+        }) ?? null;
+        if (danceAtBoot.artifacts === undefined) danceAtBoot.artifacts = observed;
+        assert(danceAtBoot.artifacts?.scope === observed?.scope && danceAtBoot.artifacts?.reward === observed?.reward,
+          "web2_dance_activation_changed_during_boot");
+      }
     } else await authenticateWeb2Enrollment(chain, plan.draft);
+    if (danceSnapshot)
+      assert(await readOptionalDanceActivationScope(danceSnapshot.scope) === danceAtBoot.artifacts?.scope,
+        "web2_dance_activation_boot_snapshot_changed");
     await admission();
   };
   await current();
@@ -304,6 +325,11 @@ export async function runWeb2Native(configPath: string) {
     await writeExclusive(snapshot.selector, canonical(trustedSelection.initialization.selector));
     await writeExclusive(snapshot.initialization, trustedSelection.raw);
     publicationSnapshot = snapshot;
+  }
+  const selectedDance = danceAtBoot.artifacts;
+  if (selectedDance) {
+    danceSnapshot = { directory: scratch, scope: join(scratch, web2DanceScopeFile) };
+    await writeExclusive(danceSnapshot.scope, selectedDance.scope);
   }
   await syncDirectory(scratch);
   const executable = join(release.root, "workerd");
@@ -344,7 +370,8 @@ export async function runWeb2Native(configPath: string) {
     const requireRetainedState = mode === "initialize" && authorityAtBoot?.approvalSha256 != null;
     await writeExclusive(
       file,
-      renderFullNativeConfig(graph, mode, bootId, nativeOriginalFile, socket, requireRetainedState, publicationSnapshot),
+      renderFullNativeConfig(graph, mode, bootId, nativeOriginalFile, socket, requireRetainedState,
+        publicationSnapshot, mode === "serve" ? danceSnapshot : undefined),
     );
     await syncDirectory(scratch);
     await current();

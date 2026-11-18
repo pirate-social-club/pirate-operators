@@ -50,7 +50,7 @@ import type { NativeGraph } from "./full-native-config.ts";
 import { nativePublicationBindingNames } from "./web2-publication-selection.ts";
 import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
 import {
-  assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, trustedRevisionTwoPolicyName,
+  assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, trustedRevisionTwoPolicyName, web2OriginalStartIntent,
 } from "./web2-trusted-revision-two.ts";
 import type { Web2PublicationActivation, Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { postsSelectorPath, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
@@ -60,8 +60,11 @@ import {
   type Web2LocalStudyPolicy,
 } from "./web2-local-study.ts";
 import type { Web2InstallationHostInputs } from "./web2-local-installation.ts";
+import { danceActivationPaths } from "./web2-dance-retained-files.ts";
+import { assertStartAllowed } from "./maintenance-guard.ts";
 import {
   web2ApplicationReleaseBody,
+  web2NativeOriginal,
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
 
@@ -182,6 +185,86 @@ export async function optionalWeb2Record<T>(path: string): Promise<T | null> {
     throw error;
   }
 }
+interface BoundControlRecords {
+  directory: string;
+  bound: BoundRuntime;
+  admission: Parameters<typeof readWeb2HostAdmission>[0];
+}
+
+/** The normal binder can reconcile its own interrupted bind. After
+ * authentication it retains exact bound bytes and the existing admission,
+ * or completes a missing admission from that same original. */
+export async function recoverWeb2BindingControlRecords({ directory, bound, admission }: BoundControlRecords) {
+  await retainWeb2Record(directory, "web2-binding-intent", bound.intent);
+  await retainWeb2Record(directory, "web2-bound-runtime", bound);
+  const current = await optionalWeb2Record<SignedRecord<Web2HostAdmission>>(admission.path) ?? bound.admission;
+  assert(basename(admission.path) === "web2-host-admission.json", "owned_admission_filename_required");
+  await retainWeb2Record(dirname(admission.path), "web2-host-admission", current);
+  return readWeb2HostAdmission(admission);
+}
+
+/** Dance owner commands can only read an already started, selected original.
+ * Every required record has to exist. No retained recovery or sync path is
+ * reachable from this reader, including for a missing current admission. */
+export async function readRetainedWeb2DanceControl(input: BoundControlRecords & {
+  nativeRuntimeDirectory: string;
+  maintenanceDirectory: string;
+  registrationAuthority: Web2InstallPlan["registrationAuthority"];
+  lease: Pick<OperationLease, "assertHeld">;
+  live(): void;
+}) {
+  const { directory, bound, admission, lease, live } = input;
+  live();
+  await lease.assertHeld();
+  await privateDirectory(directory);
+  assert(bound.schema === "pirate.web2-bound-runtime/1" && bound.intent.schema === "pirate.web2-runtime-binding-intent/1" &&
+    basename(admission.path) === "web2-host-admission.json", "web2_stage_binding_scope_changed");
+  const release = verifyRecord(bound.release, admission.trust), graph = release.graph;
+  assert(canonicalDigest(release) === canonicalDigest(bound.intent.release) &&
+    canonicalDigest(verifyRecord(bound.admission, admission.trust)) === canonicalDigest(bound.intent.admission) &&
+    canonicalDigest(verifyRecord(bound.applicationRelease, admission.trust)) ===
+      canonicalDigest(web2ApplicationReleaseBody(release)),
+    "runtime_issuer_changed_body");
+  assert(graph.stateRoots.configuration === directory && graph.publicationExpansion === "registry-revision-two/1" &&
+    graph.fixtureTransport && graph.nativePublication && danceActivationPaths(graph), "web2_dance_activation_unselected");
+
+  const read = <T>(name: string) => readPrivateJSON<T>(join(directory, name + ".json"), 16 * 1024 ** 2);
+  const original = await read<SignedRecord<Web2InstallPlan>>("web2-original");
+  const plan = verifyRecord(original, admission.trust);
+  await web2NativeOriginal(JSON.stringify({
+    schema: "pirate.web2-native-application-original/1", record: original,
+    release: bound.applicationRelease, trust: admission.trust, durableScope: graph.durableScope,
+  } satisfies Web2NativeOriginal));
+  assert(plan.installationId === admission.installationId && plan.hostFingerprint === admission.hostFingerprint &&
+    plan.targetDigest === admission.targetDigest && plan.generation >= admission.minimumGeneration &&
+    plan.releaseArtifactDigest === admission.releaseArtifactDigest &&
+    canonicalDigest(plan.draft) === canonicalDigest(admission.draft) &&
+    canonicalDigest(plan.draft) === canonicalDigest(bound.intent.draft) &&
+    canonicalDigest(plan.registrationAuthority) === canonicalDigest(input.registrationAuthority),
+    "web2_stage_original_changed");
+  const expectedLaunch = {
+    schema: "pirate.linux-web2-launch/1", release: bound.release,
+    applicationRelease: bound.applicationRelease, trust: admission.trust,
+    currentAdmissionFile: admission.path, minimumGeneration: plan.generation,
+    privateRuntimeDirectory: input.nativeRuntimeDirectory, maintenanceDirectory: input.maintenanceDirectory,
+  };
+  const originals = ([
+    ["web2-binding-intent", bound.intent], ["web2-bound-runtime", bound], ["web2-original", original],
+    ["web2-launch", expectedLaunch], ["web2-start-intent", web2OriginalStartIntent(plan)],
+  ] as const).map(([name, value]) => [name, canonicalDigest(value)] as const);
+  const assertRetained = async () => {
+    live();
+    await lease.assertHeld();
+    await assertStartAllowed(input.maintenanceDirectory);
+    for (const [name, digest] of originals)
+      assert(canonicalDigest(await read(name)) === digest, "web2_stage_original_changed");
+    await readWeb2HostAdmission({ ...admission, minimumGeneration: plan.generation, planId: plan.planId });
+    live();
+    await lease.assertHeld();
+  };
+  await assertRetained();
+  return assertRetained;
+}
 export { web2TargetDigest };
 
 export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
@@ -295,13 +378,14 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     );
   }
   type ExpansionRead = () => ReturnType<typeof readApprovedWeb2Transition>;
-  async function authenticate(draft: LinuxWeb2Draft, expanded?: ExpansionRead) {
+  async function authenticate(draft: LinuxWeb2Draft, expanded?: ExpansionRead, assertRetained?: () => Promise<void>) {
     live();
     await lease.assertHeld();
     await verifyWeb2BootstrapRelease(captured.bootstrap, captured.trust);
     assert(draft.origin === policy.origin, "web2_binding_origin_changed");
     if (expanded) await expanded();
     else await authenticateWeb2Enrollment(chain, draft);
+    await assertRetained?.();
     const controller = await createLocalController(policy.target, lease);
     try {
       const host = await controller.inspectHost(AbortSignal.timeout(45000));
@@ -415,8 +499,14 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       revokedPlanIds: [],
     };
   }
+  const hostAdmissionScope = (draft: LinuxWeb2Draft): Parameters<typeof readWeb2HostAdmission>[0] => ({
+    path: policy.currentAdmissionFile, trust: captured.trust, now,
+    installationId: policy.installationId, draft, releaseArtifactDigest: bootstrap.artifactDigest,
+    targetDigest, hostFingerprint: policy.hostFingerprint, minimumGeneration: policy.generation,
+  });
   async function hostInputs(
     bound: BoundRuntime,
+    stageCurrent?: () => Promise<void>,
   ): Promise<Web2InstallationHostInputs> {
     assert(bound.schema === "pirate.web2-bound-runtime/1");
     const draft = validateIntent(bound.intent);
@@ -438,6 +528,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     const graph = bound.intent.release.graph;
     const trusted = graph.publicationExpansion === trustedRevisionTwo;
     const hasApproval = await expandedPublicationApprovalExists(graph);
+    assert(!stageCurrent || hasApproval, "web2_stage_publication_approval_required");
     if (hasApproval) {
       const record = await readPrivateJSON<SignedRecord<Web2InstallPlan>>(join(policy.bindingDirectory, "web2-original.json"));
       assert(canonicalDigest(record.body.draft) === canonicalDigest(draft), "native_expanded_bound_draft_changed");
@@ -453,7 +544,8 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         return approved;
       };
     }
-    await authenticate(draft, expanded);
+    await stageCurrent?.();
+    await authenticate(draft, expanded, stageCurrent);
     async function recheckExpandedAttachment(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>) {
       if (trusted) live();
       const attachment = bound.intent.publishingAttachment;
@@ -470,50 +562,18 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       const retained = await publishing.attachment(draft);
       assert(canonical(retained) === canonical(bound.intent.publishingAttachment), "web2_publishing_attachment_changed");
     }
-    if (draft.privatePractice) await authenticate(draft, expanded);
-    await retainWeb2Record(
-      policy.bindingDirectory,
-      "web2-binding-intent",
-      bound.intent,
-    );
-    await retainWeb2Record(
-      policy.bindingDirectory,
-      "web2-bound-runtime",
-      bound,
-    );
-    // A crash between the combined result and admission persistence completes
-    // the same bytes. A newer valid admission is never overwritten on restart.
-    const admission =
-      (await optionalWeb2Record<SignedRecord<Web2HostAdmission>>(
-        policy.currentAdmissionFile,
-      )) ?? bound.admission;
-    assert(
-      basename(policy.currentAdmissionFile) === "web2-host-admission.json",
-      "owned_admission_filename_required",
-    );
-    // Re-sync the exact current envelope, including a newer signed refresh.
-    // Never replace it with the earlier admission embedded in the bound result.
-    await retainWeb2Record(
-      dirname(policy.currentAdmissionFile),
-      "web2-host-admission",
-      admission,
-    );
-    await readWeb2HostAdmission({
-      path: policy.currentAdmissionFile,
-      trust: captured.trust,
-      now,
-      installationId: policy.installationId,
-      draft,
-      releaseArtifactDigest: bootstrap.artifactDigest,
-      targetDigest,
-      hostFingerprint: policy.hostFingerprint,
-      minimumGeneration: policy.generation,
-    });
-    if (trusted) {
-      assert(hasApproval === await expandedPublicationApprovalExists(graph), "trusted_revision_two_approval_changed");
-      await authenticate(draft, expanded);
-      if (!hasApproval)
-        await retainWeb2Record(policy.bindingDirectory, trustedRevisionTwoPolicyName, captured.policy);
+    if (draft.privatePractice) await authenticate(draft, expanded, stageCurrent);
+    if (stageCurrent) await stageCurrent();
+    else {
+      await recoverWeb2BindingControlRecords({
+        directory: policy.bindingDirectory, bound, admission: hostAdmissionScope(draft),
+      });
+      if (trusted) {
+        assert(hasApproval === await expandedPublicationApprovalExists(graph), "trusted_revision_two_approval_changed");
+        await authenticate(draft, expanded);
+        if (!hasApproval)
+          await retainWeb2Record(policy.bindingDirectory, trustedRevisionTwoPolicyName, captured.policy);
+      }
     }
     return {
       release: bound.release,
@@ -534,6 +594,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       ...(posts ? { posts } : {}),
       ...(trusted ? { recheckTrustedPublishing: recheckExpandedAttachment } : {}),
       signProfile: async (body,generation) => {
+        assert(!stageCurrent, "web2_stage_signing_refused");
         assert(!expanded, "native_expanded_signed_plan_replacement_refused");
         if (bound.intent.publishingAttachment) {
           assert(publishing,"web2_publishing_authority_unavailable");
@@ -553,6 +614,23 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     async retained() {
       const bound = await optionalWeb2Record<BoundRuntime>(boundPath);
       return bound ? hostInputs(bound) : null;
+    },
+    async retainedForDanceOwnerAction() {
+      const bound = await readPrivateJSON<BoundRuntime>(boundPath, 16 * 1024 ** 2);
+      assert(bound.schema === "pirate.web2-bound-runtime/1", "original_runtime_binding_changed");
+      const draft = validateIntent(bound.intent);
+      const assertRetained = await readRetainedWeb2DanceControl({
+        directory: policy.bindingDirectory, bound, admission: hostAdmissionScope(draft),
+        nativeRuntimeDirectory: policy.nativeRuntimeDirectory,
+        maintenanceDirectory: policy.target.maintenanceDirectory,
+        registrationAuthority: {
+          registrar: chain.registrar, registrarRevision: String(chain.registrarRevision),
+          maxSafeBlockAgeSeconds: String(chain.maxSafeBlockAgeSeconds),
+        },
+        lease, live,
+      });
+      const host = await hostInputs(bound, assertRetained);
+      return { host, assertRetained };
     },
     async bind(value: unknown) {
       assert(!busy, "web2_binding_in_progress");
