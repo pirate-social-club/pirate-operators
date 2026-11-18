@@ -23,6 +23,9 @@ import { selectLocalAsr } from "./web2-native-study-asr.ts";
 import { noteStudyAsrStage } from "./web2-study-asr-diagnostics.ts";
 import { publicationHostOrigin, publicationHostPath } from "../../services/native-publication-reference.ts";
 import type { NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
+import { nativeDanceHostPath } from "../../services/native-dance-retained-reference.ts";
+
+const publicationRoute = (path?: string) => path === publicationHostPath || path === nativeDanceHostPath;
 
 const UPLOAD_IDLE_MS = 15_000;
 const PROCESSING_MS = new Map<string, number>([
@@ -55,7 +58,7 @@ function inputRequest(incoming: IncomingMessage, signal: AbortSignal) {
     const value = incoming.headers[key];
     if (typeof value === "string") headers.set(key, value);
   }
-  const base = incoming.url === publicationHostPath ? publicationHostOrigin : "http://local-activity";
+  const base = publicationRoute(incoming.url) ? publicationHostOrigin : "http://local-activity";
   return new Request(base + incoming.url, { method: "POST", headers,
     body: Readable.toWeb(incoming), signal, duplex: "half" } as RequestInit);
 }
@@ -161,7 +164,7 @@ export async function startWeb2NativeActivityHost(options: {
       throw error;
     }
     request.signal.throwIfAborted();
-    if (url.pathname === publicationHostPath && (publication || deferredPublication)) {
+    if (publicationRoute(url.pathname) && (publication || deferredPublication)) {
       const route = publication ?? deferredPublication?.();
       if (!route) return new Response(null, { status: 503 });
       assert(route.lease === lease && route.socket === socket, "native_publication_listener_scope_changed");
@@ -202,7 +205,7 @@ export async function startWeb2NativeActivityHost(options: {
   let active: Promise<void> | undefined, stopping = false;
   const server = createServer({requestTimeout:30000,headersTimeout:5000,maxHeaderSize:8192}, (incoming,outgoing)=>{
     if (stopping || active) {outgoing.writeHead(429,{connection:"close"}).end();return;}
-    const processingMs = incoming.url === publicationHostPath && (publication || deferredPublication)
+    const processingMs = publicationRoute(incoming.url) && (publication || deferredPublication)
       ? 10000 : PROCESSING_MS.get(incoming.url ?? "");
     if (incoming.method !== "POST" || processingMs === undefined) {
       outgoing.writeHead(404, { connection: "close" }).end();

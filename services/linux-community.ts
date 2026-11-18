@@ -1,5 +1,7 @@
 import { nativePublicationLookupFetch } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
+import { nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
+import { installedNativeDanceOriginals, installedNativeDanceReadyFetch } from "./linux-web2-dance-retained-transport.ts";
 import { nativeApplicationOriginal, web2ApplicationOriginal } from "./application-native-readback.ts";
 import {
   communityFetch, communityQueue, communityScheduled, web2PrivateDanceHostPorts,
@@ -25,7 +27,8 @@ export interface LinuxCommunityEnv extends CommunityEnv, NativeKaraokeSocketEnv,
 }
 
 function installedDanceScope(env: LinuxCommunityEnv) {
-  const actionOriginals = env.WEB2_DANCE_V2_ORIGINALS;
+  const actionOriginals = env.WEB2_DANCE_V2_ORIGINALS ??
+    (env.WEB2_DANCE_RETAINED_SCOPE_JSON === undefined ? undefined : installedNativeDanceOriginals(env));
   if (env.WEB2_DANCE_RETAINED_SCOPE_JSON === undefined && !actionOriginals) return undefined;
   return linuxWeb2DanceOwnerScopeReader({
     env, actionOriginals,
@@ -62,8 +65,9 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
 /** Explicit Linux composition. Missing/invalid server inputs never select First Song. */
 export default {
   async fetch(request:Request, env:LinuxCommunityEnv) {
-    if (new URL(request.url).pathname === publicationLookupPath)
-      return nativePublicationLookupFetch(request, env);
+    const path = new URL(request.url).pathname;
+    if (path === publicationLookupPath) return nativePublicationLookupFetch(request, env);
+    if (path === nativeDanceReadyPath) return installedNativeDanceReadyFetch(request, env);
     let deployment: CommunityDeploymentProfile;
     try {
       deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON);

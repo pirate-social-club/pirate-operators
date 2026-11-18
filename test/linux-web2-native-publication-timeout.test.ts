@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
@@ -17,7 +17,14 @@ import { createNativePublicationActivityRoute, type NativePublicationFirstGrant 
 import type { Web2LocalStudyPolicy } from "../deploy/linux/web2-local-study.ts";
 import { hashJson, hashText } from "../packages/community/common.ts";
 import { canonical, digest } from "../packages/protocol/index.ts";
-import type { Hex } from "viem";
+import { consentDigest } from "../packages/protocol/publication-consent.ts";
+import { keccak256, type Hex } from "viem";
+import { danceCommand } from "../packages/dance-chain/v2/wire.ts";
+import { durableJson } from "../harness/private-json.ts";
+import { DanceV2ActionStore, DANCE_V2_ACTIONS_SCHEMA_PROPOSAL } from "../services/dance-v2-action-store.ts";
+import { createNativeDanceRetainedStore } from "../deploy/linux/web2-native-dance-retained-store.ts";
+import { nativeDanceHostPath, nativeDanceReadyPath, type NativeDanceRetainedScope } from "../services/native-dance-retained-reference.ts";
+import { nativeDanceOriginalTransport, nativeDanceReadyResponse } from "../services/linux-web2-dance-retained-transport.ts";
 import {
   nativePublicationRetainedLookup, publicationHostOrigin, publicationHostPath, publicationLookupPath, type PublicationNativeReference,
 } from "../services/native-publication-reference.ts";
@@ -25,13 +32,14 @@ import { publicationSelectionHash, publicationSelectionSource } from "../service
 import { installPublicationSelection } from "../services/publication-installed-selection.ts";
 import { parseCommand } from "../services/publication-command-contract.ts";
 import { readPublicationJob } from "../services/publication-command-operator.ts";
-import { deferred } from "./fixtures/publication-app-http.ts";
+import { deferred, operatorDatabase } from "./fixtures/publication-app-http.ts";
 import { issuer, other, payer, publicationAppFixture } from "./fixtures/publication-app.ts";
 import { availablePort } from "./fixtures/linux-web2-installation.ts";
 
 const execute = promisify(execFile);
 
 const scenarios = [
+  ["dance retained", "reads only exact Dance originals from the installed private Store"],
   ["accepted proof", "checks the exact accepted app grant and live session without dispatch"],
   ["first grant admission", "admits only the fresh owner's exact live app grant reference"],
   ["issuer", "keeps its listener and operator custody through a late issuer"],
@@ -120,20 +128,33 @@ for (const [scenario, description] of scenarios) {
       "-nodes", "-days", "1", "-subj", "/CN=upstream.test", "-addext", "subjectAltName=DNS:upstream.test",
       "-keyout", keyFile, "-out", certFile], {timeout: 5000, maxBuffer: 65536});
     const cert = await readFile(certFile);
-    let lookups = 0;
+    let lookups = 0, danceReadyOpens = 0;
+    const retainedDance = scenario === "dance retained";
+    const danceScope: NativeDanceRetainedScope = {
+      installationId: consentDigest(installation.expected.installationId),
+      releaseSha256: publicationSelectionHash(release),
+      chainId: 6343, communityId: app.context.communityId, publisher: operatorAddress,
+      verifier: other.address.toLowerCase() as typeof other.address, sourceHash: digest("dance source"),
+    };
     const upstream = createServer({key: await readFile(keyFile), cert}, async (incoming, outgoing) => {
       lookups++;
       try {
-        assert.equal(incoming.url, publicationLookupPath);
+        assert(incoming.url === publicationLookupPath || retainedDance && incoming.url === nativeDanceReadyPath);
         const parts: Buffer[] = [];
         for await (const part of incoming) parts.push(Buffer.from(part));
         const headers = new Headers();
         for (const [name, value] of Object.entries(incoming.headers)) {
           if (typeof value === "string") headers.set(name, value);
         }
-        const response = await nativePublicationRetainedLookup(new Request(app.context.origin + incoming.url, {
+        const observedRequest = new Request(app.context.origin + incoming.url, {
           method: incoming.method, headers, body: Buffer.concat(parts).toString("utf8"),
-        }), ports, reverse);
+        });
+        const response = incoming.url === nativeDanceReadyPath
+          ? await nativeDanceReadyResponse(observedRequest, reverse, async () => {
+              danceReadyOpens++;
+              return { db: ports.db, scope: danceScope, assertCurrent: () => installation.check() };
+            })
+          : await nativePublicationRetainedLookup(observedRequest, ports, reverse);
         outgoing.writeHead(response.status, Object.fromEntries(response.headers));
         outgoing.end(Buffer.from(await response.arrayBuffer()));
       } catch { outgoing.writeHead(500).end(); }
@@ -168,7 +189,29 @@ for (const [scenario, description] of scenarios) {
         speech: {keyGeneration: "fixture", dailyUnits: 2, websiteStudyReservedUnits: 1},
       };
       let admittedGrant: NativePublicationFirstGrant | undefined;
-      const publication = await createNativePublicationActivityRoute({lease, socket, ingress,
+      const storePath = join(root, "owner.sqlite"), wrongPath = join(root, "other.sqlite");
+      const selectedStore = retainedDance ? operatorDatabase(storePath, Number(app.now())) : undefined;
+      const wrongStore = retainedDance ? operatorDatabase(wrongPath, Number(app.now())) : undefined;
+      t.after(() => { selectedStore?.close(); wrongStore?.close(); });
+      const journal = join(root, "dance-originals");
+      if (retainedDance) await mkdir(journal, {mode: 0o700});
+      const journalStat = retainedDance ? await stat(journal, {bigint: true}) : undefined;
+      const runId = "test-run", genesisHash = digest("dance-test-genesis");
+      const storeId = digest("same visible journal identity");
+      if (selectedStore && wrongStore) {
+        await Promise.all([chmod(storePath, 0o600), chmod(wrongPath, 0o600)]);
+        const marker = {schema:"pirate.local-publication-operator-journal/1", journalId:storeId, chainId:6343,
+          genesisHash, communityId:danceScope.communityId, installationId:danceScope.installationId, publisher:danceScope.publisher};
+        for (const {store} of [selectedStore, wrongStore]) store.set("publicationOperatorIdentity:v1", marker);
+      }
+      const storeStat = selectedStore ? await stat(storePath, {bigint: true}) : undefined;
+      const custody = storeStat && journalStat ? {
+        storeIdentity: {path:storePath, device:String(storeStat.dev), inode:String(storeStat.ino), journalId:storeId},
+        journalDirectory: journal, directoryIdentity: {device:String(journalStat.dev), inode:String(journalStat.ino)},
+        runId, genesisHash, scope: danceScope, assertCustody: () => lease.assertHeld(),
+      } : undefined;
+      const danceOwner = selectedStore && custody ? await createNativeDanceRetainedStore({ ...custody, store:selectedStore.store }) : undefined;
+      const makePublication = (store = selectedStore?.store ?? app.store()) => createNativePublicationActivityRoute({lease, socket, ingress, retainedDance: danceOwner,
         ...(scenario === "first grant admission" ? { async firstGrant() {
           assert(admittedGrant, "fixture grant admission is missing");
           return admittedGrant;
@@ -181,7 +224,7 @@ for (const [scenario, description] of scenarios) {
           if (scenario === "issuer") { entered.resolve(); await gate.promise; }
           return selectedIssuer.signMessage(input);
         }},
-        operator: {operatorAddress, store: app.store(), clock: () => Number(app.now()), async read(method) {
+        operator: {operatorAddress, store, clock: () => Number(app.now()), async read(method) {
           reads++;
           assert.equal(method, "eth_chainId");
           entered.resolve();
@@ -189,6 +232,7 @@ for (const [scenario, description] of scenarios) {
           throw Error("fixture RPC stopped at the original read");
         }},
       });
+      const publication = await makePublication();
       if (scenario === "first grant admission") {
         const session = await ports.db.prepare(
           "SELECT session_hash FROM community_sessions WHERE account_id=?",
@@ -246,13 +290,15 @@ for (const [scenario, description] of scenarios) {
         await lease.assertHeld();
         return;
       }
+      let selectedRoute = publication;
       host = await startWeb2NativeActivityHost({selected: {schema: "pirate.web2-native-activities/1", socket},
-        stateRoot: root, study, host: {}, ingress, lease, publication});
+        stateRoot: root, study, host: {}, ingress, lease,
+        ...(retainedDance ? {deferredPublication: () => selectedRoute} : {publication})});
 
-      function send(path: string, payload: string) {
+      function send(path: string, payload: string, access = forward) {
         return new Promise<{status: number; body: string}>((resolve, reject) => {
           const client = request({socketPath: socket, path, agent: false, method: "POST",
-            headers: {authorization: "Bearer " + forward, "content-type": "application/json",
+            headers: {authorization: "Bearer " + access, "content-type": "application/json",
               "content-length": Buffer.byteLength(payload)}}, response => {
             let body = "";
             response.setEncoding("utf8");
@@ -264,6 +310,96 @@ for (const [scenario, description] of scenarios) {
           client.setTimeout(14_000, () => client.destroy(Error("fixture_publication_client_timeout")));
           client.end(payload);
         });
+      }
+
+      if (retainedDance) {
+        assert(selectedStore && wrongStore && custody);
+        for (const sql of DANCE_V2_ACTIONS_SCHEMA_PROPOSAL) await ports.db.prepare(sql).run();
+        const actions = new DanceV2ActionStore(ports.db);
+        async function ready(label: string) {
+          const saved = actions.original(danceScope.communityId, digest(label), "verdict", "fixture-account", {verdict:"pass"});
+          const resourceId = digest("submission-" + label);
+          const wire = danceCommand({chainId: 6343n, communityId: danceScope.communityId, verifier: danceScope.verifier},
+            "commitVerdict", danceScope.publisher, saved.command_id, {decision: {
+              submissionId: resourceId, verdict: 1, reviewerAccountCommitment: digest("account"), reviewerWallet: other.address,
+              reviewerPublicationGrantId: digest("grant"), reviewerIdentityEpoch: 1n, reviewerGroupId: digest("group"),
+              reviewerGroupEpoch: 1n, expectedOwnerEpoch: 1n, expectedReviewerRoleEpoch: 1n, expectedMediaEpoch: 1n,
+              intentAcceptedAtMs: 1n, expectedConfigurationRevision: 2n, expectedRulesEpoch: 0n, reviewerConsentHash: digest("consent"),
+            }});
+          await actions.reserve(saved, digest("context")).run();
+          await actions.prepare({command_id: wire.id, source_hash: danceScope.sourceHash, publisher: danceScope.publisher,
+            command_hash: wire.hash, encoded: wire.encoded, calldata: wire.data, resource_id: resourceId}).run();
+          return { wire, original: { chainId: 6343, communityId: danceScope.communityId, verifier: danceScope.verifier,
+            publisher: danceScope.publisher, sourceHash: danceScope.sourceHash, kind: "verdict" as const,
+            commandId: wire.id, commandHash: wire.hash, resourceId } };
+        }
+        const good = await ready("good"), empty = await ready("absent"), oneSided = await ready("one-sided"),
+          mirrorOnly = await ready("mirror-without-index"), fileOnly = await ready("file-without-index");
+        async function signed(input: typeof good, nonce: number) {
+          const raw = await payer.signTransaction({type: "legacy", chainId: 6343, nonce,
+            gas: 200000n, gasPrice: 1n, to: danceScope.verifier, data: input.wire.data, value: 0n});
+          return { commandId: input.wire.id, commandHash: input.wire.hash, target: danceScope.verifier,
+            data: input.wire.data, raw, hash: keccak256(raw), nonce, broadcast: "attempted" };
+        }
+        function index(store: ReturnType<typeof operatorDatabase>["store"], value: Awaited<ReturnType<typeof signed>>) {
+          store.set("local6343PublisherOriginal:" + value.commandId, value);
+          store.set("local6343PublisherNonce:" + String(value.nonce).padStart(10, "0"), value);
+        }
+        const value = await signed(good, 11);
+        index(selectedStore.store, value);
+        index(wrongStore.store, value); // Same visible command and nominal publisher; wrong Store object.
+        index(selectedStore.store, await signed(oneSided, 12));
+        selectedStore.store.set("local6343PublisherNonce:0000000013", await signed(mirrorOnly, 13));
+        async function diskOriginal(attempt: Awaited<ReturnType<typeof signed>>) {
+          const step = "10-original-" + attempt.commandId.slice(2), file = join(journal, step + ".original.json");
+          await durableJson(file, {runId, step, chainId: 6343, genesisHash, sender: danceScope.publisher,
+            to: attempt.target, data: attempt.data, raw: attempt.raw, transactionHash: attempt.hash,
+            nonce: attempt.nonce, value: "0", gas: "200000", gasPrice: "1", commandHash: attempt.commandHash});
+          return file;
+        }
+        const file = await diskOriginal(value), loneFile = await diskOriginal(await signed(fileOnly, 14));
+        const snapshot = async () => Promise.all([file, loneFile, storePath, wrongPath].map(async path => hash(await readFile(path))));
+        const before = await snapshot(), initialNonce = selectedStore.store.get("op:nonce");
+        function lookup(access = forward) {
+          return nativeDanceOriginalTransport(danceScope, access, {
+            async fetch(input) {
+              const request = new Request(input);
+              const response = await send(new URL(request.url).pathname, await request.text(), request.headers.get("authorization")!.slice(7));
+              return new Response(response.body || null, {status: response.status, headers: {"content-type":"application/json"}});
+            },
+          });
+        }
+        await assert.rejects(lookup(reverse).readRetainedAttempt(good.original), /native_dance/);
+        assert.equal(danceReadyOpens, 0);
+        const reverseRequest = new Request(app.context.origin + nativeDanceReadyPath, {method:"POST",
+          headers:{authorization:"Bearer " + forward, "content-type":"application/json"},
+          body: canonical({schema:"pirate.native-dance-retained-reference/1", installationId:danceScope.installationId,
+            releaseSha256:danceScope.releaseSha256, original:good.original})});
+        assert.equal((await nativeDanceReadyResponse(reverseRequest, reverse, async () => {
+          danceReadyOpens++;
+          return {db: ports.db, scope: danceScope, assertCurrent: () => installation.check()};
+        })).status, 404);
+        assert.equal(danceReadyOpens, 0);
+        const got = await lookup().readRetainedAttempt(good.original);
+        assert(got && digest(got) === digest({nonce:value.nonce,hash:value.hash,raw:value.raw}), "retained bytes changed");
+        assert.equal(await lookup().readRetainedAttempt(empty.original), null);
+        await assert.rejects(lookup().readRetainedAttempt(oneSided.original), /native_dance/);
+        await assert.rejects(lookup().readRetainedAttempt(mirrorOnly.original), /native_dance/);
+        await assert.rejects(lookup().readRetainedAttempt(fileOnly.original), /native_dance/);
+        await assert.rejects(lookup().readRetainedAttempt({...good.original, commandHash:digest("altered command")}), /native_dance/);
+        const opens = danceReadyOpens;
+        await assert.rejects(createNativeDanceRetainedStore({ ...custody, store:wrongStore.store }), /native_dance_store_changed/);
+        selectedRoute = await makePublication(wrongStore.store);
+        const wrong = await send(nativeDanceHostPath, canonical({schema:"pirate.native-dance-retained-reference/1",
+          installationId:danceScope.installationId, releaseSha256:danceScope.releaseSha256, original:good.original}));
+        assert.equal(wrong.status, 503);
+        assert(!wrong.body.includes(value.raw), "wrong Store leaked original");
+        assert.equal(danceReadyOpens, opens);
+        assert.deepEqual(await snapshot(), before);
+        assert.equal(selectedStore.store.get("op:nonce"), initialNonce);
+        assert.deepEqual({signs, reads}, {signs:0, reads:0});
+        t.diagnostic("two persistent Stores, authenticated Unix/TLS, D1 ready bindings, no journal or chain effects");
+        return;
       }
 
       const first = send(publicationHostPath, canonical(ref));

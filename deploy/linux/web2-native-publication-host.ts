@@ -19,6 +19,11 @@ import {
   type PublicationNativeReference,
 } from "../../services/native-publication-reference.ts";
 import type { Web2NativePublicationGraph } from "./web2-publication-selection.ts";
+import {
+  nativeDanceHostPath, nativeDanceReadyPath, nativeDanceRaw, nativeDanceReply,
+  nativeDanceResponse, readNativeDanceReference,
+} from "../../services/native-dance-retained-reference.ts";
+import type { NativeDanceRetainedStore } from "./web2-native-dance-retained-store.ts";
 
 type Operator = Parameters<typeof publicationInstalledOperatorFetch>[1];
 
@@ -72,11 +77,12 @@ export async function createNativePublicationActivityRoute(input: {
   /** Selected fixture owner reads its signed pin after ordinary prepare. */
   firstGrant?(signal: AbortSignal): Promise<Readonly<NativePublicationFirstGrant>>;
   operator: Omit<Operator, "catalog">;
+  retainedDance?: NativeDanceRetainedStore;
   issuer: ManagedPublicationIssuer & { readonly capabilityRef: string };
   /** Must verify the real selected lifetime, retained journal and issuer binding. */
   assertCurrent(): Promise<void>;
 }): Promise<NativePublicationActivityRoute> {
-  const { lease, socket, issuer, requestCapabilityFile, lookupCapabilityFile, assertCurrent } = input;
+  const { lease, socket, issuer, requestCapabilityFile, lookupCapabilityFile, assertCurrent, retainedDance } = input;
   const selection = structuredClone(input.selection);
   const { entries, active } = structuredClone(input.retainedSelection);
   const catalog = new PublicationReleaseCatalog(entries.map(entry => entry.release), active);
@@ -124,12 +130,11 @@ export async function createNativePublicationActivityRoute(input: {
     assertIssuer();
     signal.throwIfAborted();
   }
-  async function retained(ref: PublicationNativeReference, signal: AbortSignal, sessionHash?: Hex): Promise<unknown> {
+  async function reverse(path: string, data: string, signal: AbortSignal, sessionHash?: Hex) {
     await current(signal);
-    const data = canonical(ref);
     const bytes = await new Promise<Buffer>((resolve, reject) => {
       const req = httpsRequest({ method: "POST", hostname: "127.0.0.1", port: upstream.port,
-        servername: ingress.upstreamServerName, path: publicationLookupPath, ca, agent: false, signal,
+        servername: ingress.upstreamServerName, path, ca, agent: false, signal,
         headers: { host: new URL(ingress.origin).host, authorization: "Bearer " + lookupAccess,
           ...(sessionHash ? { [publicationAcceptSessionHeader]: sessionHash } : {}),
           "content-type": "application/json", "content-length": Buffer.byteLength(data) },
@@ -155,7 +160,11 @@ export async function createNativePublicationActivityRoute(input: {
       req.end(data);
     });
     await current(signal);
-    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes), result = record(JSON.parse(text));
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+  async function retained(ref: PublicationNativeReference, signal: AbortSignal, sessionHash?: Hex): Promise<unknown> {
+    const data = canonical(ref);
+    const text = await reverse(publicationLookupPath, data, signal, sessionHash), result = record(JSON.parse(text));
     exact(result, ["reference", "body"]);
     assert(text === canonical(result) && canonical(result.reference) === data && digest(result.body) === ref.bodySha256,
       "native_publication_retained_body_changed");
@@ -194,11 +203,27 @@ export async function createNativePublicationActivityRoute(input: {
   const opened = Object.freeze({ lease, socket, ...selection, ingressDigest: canonicalDigest(ingress),
     requestCapabilityFile, lookupCapabilityFile, assertAcceptedAppGrant, async fetch(request: Request) {
     const url = new URL(request.url);
-    if (url.origin !== publicationHostOrigin || url.pathname !== publicationHostPath || url.search || request.method !== "POST" ||
+    if (url.origin !== publicationHostOrigin || (url.pathname !== publicationHostPath && url.pathname !== nativeDanceHostPath) ||
+        url.search || url.hash || request.method !== "POST" ||
         !await nativePublicationAuthorized(request, requestAccess))
       return new Response(null, { status: 404 });
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(9000)]);
     try {
+      if (url.pathname === nativeDanceHostPath) {
+        assert(retainedDance && active, "native_dance_custody_unavailable");
+        const ref = await readNativeDanceReference(request);
+        const release = catalog.get(active);
+        assert(hasOriginalCustody(release) && ref.releaseSha256 === active &&
+          ref.installationId === release.source.installationId &&
+          ref.original.communityId === release.source.communityId &&
+          ref.original.publisher === release.operator, "native_dance_scope_changed");
+        retainedDance.assertOwner(authority.store, ref);
+        const ready = await reverse(nativeDanceReadyPath, canonical(ref), signal);
+        const calldata = nativeDanceRaw(nativeDanceReply(ready, ref));
+        const result = await retainedDance.read(authority.store, ref, calldata, signal);
+        await current(signal);
+        return nativeDanceResponse(ref, result);
+      }
       const ref = await readPublicationNativeReference(request);
       const release = (() => {
         try { return catalog.forOperatorSource(ref.sourceSha256); }
