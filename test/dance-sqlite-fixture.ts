@@ -28,12 +28,10 @@ export class SqliteStatement {
   bind(...values: (string | number | null)[]) {
     return new SqliteStatement(this.db, this.sql, values);
   }
-  async first<T>() {
+  async first<T>(column?: string) {
     await this.db.beforeRead?.(this.sql);
-    return (
-      (this.db.sqlite.prepare(this.sql).get(...this.values) as T | undefined) ??
-      null
-    );
+    const row = this.db.sqlite.prepare(this.sql).get(...this.values);
+    return ((column === undefined ? row : row?.[column]) as T | undefined) ?? null;
   }
   async all<T>() {
     await this.db.beforeRead?.(this.sql);

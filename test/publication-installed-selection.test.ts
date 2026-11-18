@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { hashText } from "../packages/community/common.ts";
 import { canonical, digest } from "../packages/protocol/index.ts";
 import { publicationSelectionHash } from "../services/publication-app-selection.ts";
@@ -11,6 +11,7 @@ import {
   type PublicationInstallationSpec,
 } from "../services/publication-installed-selection.ts";
 import { publicationAppFixture } from "./fixtures/publication-app.ts";
+import { MemorySqliteD1 } from "./dance-sqlite-fixture.ts";
 
 type Fixture = Awaited<ReturnType<typeof publicationAppFixture>>;
 function initial(f: Fixture): PublicationInstallationSpec {
@@ -309,6 +310,33 @@ test("ordinary first consent selection supports both Dance prepares on the same 
 test("ordinary first consent admits only the winner's archive on a competing D1 batch", { timeout: 30000 }, async t => {
   const f = await publicationAppFixture(t, { installSelection: false });
   const a = initial(f), b = structuredClone(a);
+  await t.test("expiry after archive insertion rolls back the whole first selection", async test => {
+    const db = new MemorySqliteD1();
+    test.after(() => db.close());
+    db.sqlite.exec("PRAGMA foreign_keys=ON; CREATE TABLE setup_schema(version INTEGER)");
+    for (const file of ["0002_first_song", "0020_publication_consent", "0021_publication_installed_selection"]) {
+      db.sqlite.exec(await readFile(new URL(`../apps/community-wizard/infra/migrations/${file}.sql`, import.meta.url), "utf8"));
+    }
+    db.sqlite.prepare("INSERT INTO application_identity VALUES(1,?,?)").run(a.communityId, a.origin);
+    const cutoffSeconds = Math.ceil(Date.now() / 1000) + 60;
+    const epochs = [cutoffSeconds - 1, cutoffSeconds - 1, cutoffSeconds];
+    let clockReads = 0, archiveWritten = false;
+    db.sqlite.function("unixepoch", (unit) => {
+      assert.equal(unit, "subsec");
+      const second = epochs[clockReads++];
+      assert.equal(typeof second, "number");
+      return second ?? null;
+    });
+    db.sqlite.function("observe_archive_write", () => { archiveWritten = true; return null; });
+    db.sqlite.exec(`CREATE TEMP TRIGGER observe_archive AFTER INSERT ON publication_v1_release_archive
+      BEGIN SELECT observe_archive_write(); END`);
+    await assert.rejects(installFirstPublicationSelection(db.asD1(), a, cutoffSeconds * 1000), /NOT NULL.*manifest_json/);
+    assert.equal(clockReads, 3);
+    assert.equal(archiveWritten, true);
+    assert.equal(db.count("publication_v1_release_archive"), 0);
+    assert.equal(db.count("publication_v1_installed_selection"), 0);
+    assert.equal(db.count("publication_v1_commands"), 0);
+  });
   b.entries[0]!.release.fee.cap = (BigInt(b.entries[0]!.release.fee.cap) + 1n).toString();
   b.active = publicationSelectionHash(b.entries[0]!.release);
   await assert.rejects(installFirstPublicationSelection(f.ports.db, a, Date.now() - 1), /publication_first_selection_expired/);
