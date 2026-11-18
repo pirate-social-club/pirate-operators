@@ -51,9 +51,12 @@ import { readApprovedTrustedRevisionTwo, readTrustedRevisionTwoPolicy, trustedRe
 
 import { canonical } from "../../packages/community/common.ts";
 import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
-import { danceActivationPaths, web2DanceScopeFile } from "./web2-dance-retained-files.ts";
+import { maxWeb2DanceRewardBytes, web2DanceRewardFile } from "../../packages/community/web2-dance-reward-attachment.ts";
+import { projectTrustedWeb2DanceAuthority } from "./web2-dance-publication-authority.ts";
+import { danceActivationPaths, web2DanceScopeFile, type Web2DanceBootSnapshot } from "./web2-dance-retained-files.ts";
 import {
-  readDanceActivationPublicationMount, readOptionalDanceActivationScope, readWeb2DanceActivation,
+  readDanceActivationPublicationMount, readOptionalDanceActivationScope, readOptionalDanceActivationArtifact,
+  readTrustedPublicDanceArtifacts, readWeb2DanceActivation,
 } from "./web2-dance-retained-activation.ts";
 
 export interface Web2LaunchConfiguration {
@@ -220,8 +223,23 @@ export async function runWeb2Native(configPath: string) {
     approvalSha256: string | null; publication: TrustedPublication; expiresAtMs: number | null;
   } | undefined;
   let publicationSnapshot: { selector: string; initialization: string; expiresAtMs: number } | undefined;
-  const danceAtBoot: { artifacts?: { scope: string; reward: string } | null } = {};
-  let danceSnapshot: { directory: string; scope: string } | undefined;
+  type DanceBootArtifacts = { scope?: string; reward: string; custody?: { recordSha256: string } };
+  const danceAtBoot: { artifacts?: DanceBootArtifacts | null } = {};
+  let danceSnapshot: Web2DanceBootSnapshot | undefined;
+  function pinDanceAtBoot(observed: DanceBootArtifacts | null) {
+    if (danceAtBoot.artifacts === undefined) danceAtBoot.artifacts = observed;
+    assert(danceAtBoot.artifacts?.scope === observed?.scope && danceAtBoot.artifacts?.reward === observed?.reward &&
+      danceAtBoot.artifacts?.custody?.recordSha256 === observed?.custody?.recordSha256,
+      "web2_dance_activation_changed_during_boot");
+  }
+  async function assertDanceSnapshot() {
+    if (danceSnapshot?.scope)
+      assert(await readOptionalDanceActivationScope(danceSnapshot.scope) === danceAtBoot.artifacts?.scope,
+        "web2_dance_activation_boot_snapshot_changed");
+    if (danceSnapshot?.reward)
+      assert(await readOptionalDanceActivationArtifact(danceSnapshot.reward, maxWeb2DanceRewardBytes) === danceAtBoot.artifacts?.reward,
+        "web2_dance_activation_boot_snapshot_changed");
+  }
   const current = async () => {
     await assertStartAllowed(config.maintenanceDirectory);
     await verifyInstalledRelease(config.release, config.trust);
@@ -258,13 +276,19 @@ export async function runWeb2Native(configPath: string) {
         ? await readApprovedTrustedRevisionTwo({ graph, original, chain, now }) : null;
       if (!approved) await authenticateWeb2Enrollment(chain, plan.draft);
       const approvalSha256 = approved?.approvalSha256 ?? null;
+      assert(!authorityAtBoot || authorityAtBoot.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
       const selected = approved && publication
         ? await readTrustedNativePublication({ graph, original, approval: approved }) : undefined;
       if (approved && publication) {
         assert(selected, "trusted_web2_publication_attachment_required");
+        if (danceLocator) {
+          const scope = projectTrustedWeb2DanceAuthority(approved, selected);
+          pinDanceAtBoot(await readTrustedPublicDanceArtifacts({ graph, original, ...scope }) ?? null);
+        }
         const confirmed = await readApprovedTrustedRevisionTwo({ graph, original, chain, now });
         assert(confirmed.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
-      }
+      } else if (danceLocator) pinDanceAtBoot(null);
+      await assertDanceSnapshot();
       if (publicationSnapshot) {
         assert(selected && (await readFile(publicationSnapshot.selector)).equals(Buffer.from(canonical(selected.initialization.selector))) &&
           (await readFile(publicationSnapshot.initialization)).equals(Buffer.from(selected.raw)),
@@ -296,14 +320,10 @@ export async function runWeb2Native(configPath: string) {
           graph, original, approval: confirmed,
           publicationMount: await readDanceActivationPublicationMount(publicationFiles.selector),
         }) ?? null;
-        if (danceAtBoot.artifacts === undefined) danceAtBoot.artifacts = observed;
-        assert(danceAtBoot.artifacts?.scope === observed?.scope && danceAtBoot.artifacts?.reward === observed?.reward,
-          "web2_dance_activation_changed_during_boot");
+        pinDanceAtBoot(observed);
       }
     } else await authenticateWeb2Enrollment(chain, plan.draft);
-    if (danceSnapshot)
-      assert(await readOptionalDanceActivationScope(danceSnapshot.scope) === danceAtBoot.artifacts?.scope,
-        "web2_dance_activation_boot_snapshot_changed");
+    await assertDanceSnapshot();
     await admission();
   };
   await current();
@@ -328,8 +348,16 @@ export async function runWeb2Native(configPath: string) {
   }
   const selectedDance = danceAtBoot.artifacts;
   if (selectedDance) {
-    danceSnapshot = { directory: scratch, scope: join(scratch, web2DanceScopeFile) };
-    await writeExclusive(danceSnapshot.scope, selectedDance.scope);
+    const snapshot: Web2DanceBootSnapshot = { directory: scratch };
+    if (selectedDance.scope !== undefined) {
+      snapshot.scope = join(scratch, web2DanceScopeFile);
+      await writeExclusive(snapshot.scope, selectedDance.scope);
+    }
+    if (trusted) {
+      snapshot.reward = join(scratch, web2DanceRewardFile + ".json");
+      await writeExclusive(snapshot.reward, selectedDance.reward);
+    }
+    danceSnapshot = snapshot;
   }
   await syncDirectory(scratch);
   const executable = join(release.root, "workerd");

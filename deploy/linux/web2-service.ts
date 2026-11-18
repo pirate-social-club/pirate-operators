@@ -48,6 +48,7 @@ import { selectWeb2PublicationConsent } from "./web2-initialization.ts";
 import { trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
 import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
+import type { Web2PublicDanceServeCustody } from "./web2-public-dance-custody.ts";
 import type { Web2DanceActivationOwner } from "./web2-dance-retained-activation.ts";
 import type { Web2DanceBindPrepareOwner } from "./web2-dance-bind-prepare.ts";
 
@@ -318,7 +319,7 @@ async function runWeb2RetainedDanceOwnerAction(configurationFile: string, action
       canonicalDigest(inputs.binding.trust) === canonicalDigest(config.trust) &&
       inputs.binding.lease.installationId === runtime.installationId, "installed_web2_backend_changed");
     assert.deepEqual(await readPrivateJSON(config.runtimeProfileFile), selected, "web2_launch_selection_changed");
-    const binder = await createWeb2RuntimeBinder(inputs.binding);
+    const binder = await createWeb2RuntimeBinder(inputs.binding, "retained-dance-owner");
     const retained = await binder.retainedForDanceOwnerAction();
     await retained.assertRetained();
     if (action === "stage") {
@@ -420,10 +421,12 @@ export async function launchWeb2LocalInstallation(
       let stagedRoute: NativePublicationActivityRoute | undefined;
       let originalActivation: { identity: string; task: Promise<void> } | undefined;
       const opener = openTrusted ?? activate;
-      function openSelectedPublication(input: Web2PublicationActivation) {
+      function openSelectedPublication(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody) {
         assert(opener, "native_publication_host_unavailable");
+        const expectedDance = custody ? structuredClone(custody) : undefined;
+        assert(!expectedDance || openTrusted, "native_dance_custody_unavailable");
         const identity = canonicalDigest({ original: input.original, selection: input.selection,
-          selectionSha256: input.selectionSha256 });
+          selectionSha256: input.selectionSha256, ...(expectedDance ? { dance: expectedDance } : {}) });
         if (originalActivation) {
           assert(originalActivation.identity === identity, "native_expanded_publication_activation_changed");
           return originalActivation.task;
@@ -443,6 +446,10 @@ export async function launchWeb2LocalInstallation(
               "trusted_web2_publication_host_selection_changed");
           }
           await input.assertCurrent();
+          if (expectedDance) {
+            await route.assertRetainedDanceCustody(expectedDance.record.scope, expectedDance.record);
+            await input.assertCurrent();
+          }
           signal?.throwIfAborted();
           stagedRoute = route;
         })();

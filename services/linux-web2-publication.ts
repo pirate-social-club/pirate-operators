@@ -2,6 +2,11 @@ import { web2DancePrepareContentType } from "../packages/community/web2-dance-bi
 import type { Address, PublicClient } from "viem";
 import { canonical, exact, insist, object } from "../packages/community/common.ts";
 import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
+import { hashText } from "../packages/community/common.ts";
+import { web2DanceLiveProofHeader, type Web2DanceLiveProof } from "../packages/community/web2-dance-live-proof.ts";
+import { assertWeb2DanceRewardConfiguration, readWeb2InstalledDanceRewards } from "../packages/community/web2-dance-reward-attachment.ts";
+import { verifyWeb2DanceRetainedScope } from "../packages/community/web2-dance-retained-scope.ts";
+import type { InstalledDanceRewardBindings } from "./web2-installed-dance-rewards.ts";
 import { nativeDigest, verifyNativeRecord } from "../packages/community/native-business-binding.ts";
 import { consentAddress, consentUint64 } from "../packages/protocol/publication-consent.ts";
 import type { SignedRecord } from "../deploy/linux/installed-records.ts";
@@ -205,9 +210,14 @@ export async function nativePublicationLookupFetch(
 
 /** Private live selector readback. The installed gateway authenticates the
  * same readback capability and contributes its own current startup boot ID. */
-export async function nativePublicationSelectionReadback(request: Request, env: NativePublicationApplicationEnv) {
+export async function nativePublicationSelectionReadback(
+  request: Request, env: NativePublicationApplicationEnv & InstalledDanceRewardBindings & { WEB2_DANCE_RETAINED_SCOPE_JSON?: string },
+) {
   const url = new URL(request.url), key = env.NATIVE_READBACK_KEY;
   const supplied = request.headers.get("X-Pirate-Readback-Key");
+  const proofMode = request.headers.get(web2DanceLiveProofHeader);
+  if (proofMode !== null && !["dormant", "reward", "reward-only", "scope"].includes(proofMode))
+    return unavailable(404);
   if (url.pathname !== trustedWeb2PublicationReadbackPath || url.search || url.hash ||
     request.method !== "GET" || !key || !/^[a-f0-9]{64}(?![\s\S])/.test(key) || !supplied ||
     !await nativePublicationAuthorized(new Request(request.url, {
@@ -221,9 +231,43 @@ export async function nativePublicationSelectionReadback(request: Request, env: 
     );
     const installation = publication.installation, active = publication.catalog.active;
     insist(installation && active, "native_publication_mount_unavailable", 503);
+    let dance: Web2DanceLiveProof | undefined, assertDanceBindings: (() => void) | undefined;
+    if (proofMode) {
+      const rewardJson = env.WEB2_DANCE_REWARD_ATTACHMENT_JSON, scopeJson = env.WEB2_DANCE_RETAINED_SCOPE_JSON;
+      const mountJson = env.PUBLICATION_NATIVE_MOUNT_JSON;
+      const original = await web2ApplicationOriginal(env);
+      if (proofMode === "dormant") {
+        insist(original.record.body.danceRewardIntentSha256 && rewardJson === undefined && scopeJson === undefined,
+          "native_dance_scope_changed", 503);
+        dance = { rewardSha256: null, scopeSha256: null };
+      } else {
+        const rewards = await readWeb2InstalledDanceRewards({ original, attachmentJson: rewardJson, publicationMountJson: mountJson });
+        const configuration = publication.catalog.get(active).configuration;
+        insist(rewards && rewards.attachment.selectionSha256 === installation.expected.selectionSha256,
+          "native_dance_scope_unavailable", 503);
+        assertWeb2DanceRewardConfiguration(rewards, configuration);
+        dance = { rewardSha256: rewards.signedSha256 };
+        if (proofMode === "reward-only") {
+          insist(scopeJson === undefined, "native_dance_scope_changed", 503);
+          dance.scopeSha256 = null;
+        }
+        if (proofMode === "scope") {
+          insist(scopeJson, "native_dance_scope_unavailable", 503);
+          await verifyWeb2DanceRetainedScope({ raw: scopeJson, original, rewards, configuration, releaseSelectionHash: active });
+          dance.scopeSha256 = hashText(scopeJson).slice(2);
+        }
+      }
+      assertDanceBindings = () => insist(
+        env.WEB2_DANCE_REWARD_ATTACHMENT_JSON === rewardJson && env.WEB2_DANCE_RETAINED_SCOPE_JSON === scopeJson &&
+        env.PUBLICATION_NATIVE_MOUNT_JSON === mountJson && env.WEB2_DANCE_REWARD_ATTACHMENT_SHA256 === undefined,
+        "native_dance_scope_changed", 503);
+      assertDanceBindings();
+    }
     await reuseNativePublicationApplication(env, deployment, publication);
+    assertDanceBindings?.();
     if (env.NATIVE_READBACK_KEY !== key || request.signal.aborted) return unavailable(404);
-    return Response.json({ mount: installation.expected, active }, { headers: { "cache-control": "no-store" } });
+    return Response.json({ mount: installation.expected, active, ...(dance ? { dance } : {}) },
+      { headers: { "cache-control": "no-store" } });
   } catch {
     return unavailable(503);
   }

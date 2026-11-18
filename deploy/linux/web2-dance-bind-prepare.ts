@@ -21,8 +21,8 @@ import { publicIngressFrom, type PublicIngress } from "./public-ingress.ts";
 import { nativePublicationPaths } from "./web2-publication-selection.ts";
 import {
   readDanceActivationArtifact, readOptionalDanceActivationArtifact, retainDanceActivationArtifact,
-  type Web2DanceActivationNomination,
-} from "./web2-dance-retained-activation.ts";
+} from "./web2-dance-retained-artifacts.ts";
+import type { Web2DanceActivationNomination } from "./web2-dance-retained-activation.ts";
 
 export const web2DanceIntentFile = "web2-dance-bind-intent.json";
 export const web2DancePrepareFile = "web2-dance-bind-prepare.json";
@@ -77,6 +77,33 @@ function readPrepared(raw: string, intent: InstalledDanceBindIntent, selected: P
   return record;
 }
 
+async function readSelectedIntent(raw: string, { original, approved, source }: PrepareSelection) {
+  const intent = await readWeb2DanceBindIntent(raw, original);
+  assert(intent.releaseSha256 === approved.releaseSha256 && intent.configurationSha256 === approved.configurationSha256 &&
+    intent.ownerWallet === approved.ownerWallet && intent.sourceHash === source.sourceHash,
+    "web2_dance_bind_intent_selection_changed");
+  return intent;
+}
+
+/** Stage and scoped reopen can only use the original complete Prepare pair.
+ * This reader never asks the application to prepare another pair. */
+export async function readRetainedWeb2DanceBindPrepare(input: PrepareSelection & { directory: string }) {
+  const intentPath = join(input.directory, web2DanceIntentFile), resultPath = join(input.directory, web2DancePrepareFile);
+  const read = () => Promise.all([
+    readOptionalDanceActivationArtifact(intentPath, maxWeb2DanceBindIntentBytes),
+    readOptionalDanceActivationArtifact(resultPath, maxWeb2DanceBindPrepareBytes),
+  ]);
+  const [intentRaw, resultRaw] = await read();
+  assert(intentRaw !== undefined && resultRaw !== undefined, "web2_public_dance_prepare_required");
+  const intent = await readSelectedIntent(intentRaw, input), prepared = readPrepared(resultRaw, intent, input);
+  async function assertCurrent() {
+    const [intentAgain, resultAgain] = await read();
+    assert(intentAgain === intentRaw && resultAgain === resultRaw, "web2_public_dance_prepare_changed");
+  }
+  await assertCurrent();
+  return { intent, prepared, intentSha256: hash(intentRaw), resultSha256: hash(resultRaw), assertCurrent };
+}
+
 /** Exclusive original owner. A completed response is never reconstructed by
  * asking the chain to prepare empty slots again. */
 export async function retainWeb2DanceBindPrepare(input: PrepareSelection & {
@@ -85,17 +112,14 @@ export async function retainWeb2DanceBindPrepare(input: PrepareSelection & {
   prepare(raw: string): Promise<string>;
   assertCurrent(): Promise<void>;
 }) {
-  const { directory, original, approved, source, owner, assertCurrent, prepare } = input;
+  const { directory, original, approved, owner, assertCurrent, prepare } = input;
   const request = Object.freeze({ nativeOriginalSha256: nativeDigest(original), releaseSelectionHash: approved.releaseSha256 });
   const intentPath = join(directory, web2DanceIntentFile), preparePath = join(directory, web2DancePrepareFile);
   await privateDirectory(directory);
   await assertCurrent();
   const selected = await owner.approvedIntent(request);
   assert(typeof selected === "string", "web2_dance_bind_intent_required");
-  const intent = await readWeb2DanceBindIntent(selected, original);
-  assert(intent.releaseSha256 === approved.releaseSha256 && intent.configurationSha256 === approved.configurationSha256 &&
-    intent.ownerWallet === approved.ownerWallet && intent.sourceHash === source.sourceHash,
-    "web2_dance_bind_intent_selection_changed");
+  const intent = await readSelectedIntent(selected, input);
   const retainedIntent = await readOptionalDanceActivationArtifact(intentPath, maxWeb2DanceBindIntentBytes);
   const existing = await readOptionalDanceActivationArtifact(preparePath, maxWeb2DanceBindPrepareBytes);
   assert(retainedIntent === undefined ? existing === undefined : retainedIntent === selected,

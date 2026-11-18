@@ -14,6 +14,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Miniflare } from "miniflare";
 import { publicationMountFor } from "../deploy/linux/web2-publication-selection.ts";
 import { readTrustedNativePublication } from "../deploy/linux/web2-trusted-publication.ts";
+import { web2DanceLiveProofHeader } from "../packages/community/web2-dance-live-proof.ts";
 import { trustedWeb2PublicationFile, trustedWeb2PublicationReadbackPath, verifyTrustedWeb2Publication,
   type Web2TrustedPublicationAttachment } from "../packages/community/web2-trusted-publication.ts";
 import { publicationSelectionHash, type PublicationAppRelease } from "../services/publication-app-selection.ts";
@@ -561,8 +562,8 @@ test("trusted revision two holds without signed proof and reopens the same initi
         PUBLICATION_OPERATOR_HOST: { fetch: async () => { throw Error("readback_must_not_open_publisher_transport"); } } };
       const url = draft.origin + trustedWeb2PublicationReadbackPath;
       let applicationReads = 0;
-      const prove = (candidate: typeof appEnv, access: string, path = url) => gateway.fetch(
-        new Request(path, { headers: { "X-Pirate-Readback-Key": access } }),
+      const prove = (candidate: typeof appEnv, access: string, path = url, proof?: "dormant" | "reward" | "reward-only" | "scope") => gateway.fetch(
+        new Request(path, { headers: { "X-Pirate-Readback-Key": access, ...(proof ? { [web2DanceLiveProofHeader]: proof } : {}) } }),
         { STARTUP: startup, OBSERVER: observer, READBACK_KEY: key,
           APPLICATION: { fetch(request: Request) { applicationReads++; return app.fetch(request, candidate); } } },
       );
@@ -576,6 +577,12 @@ test("trusted revision two holds without signed proof and reopens the same initi
       assert.equal(serving.status, 200);
       assert.equal(serving.headers.get("X-Pirate-Native-Boot-Id"), bootId);
       assert.deepEqual(await serving.json(), { mount: body.initialization.selector.body.mount, active: selection.active });
+      for (const proof of ["dormant", "reward", "reward-only"] as const)
+        assert.equal((await prove(mounted, key, url, proof)).status, 503);
+      const inactiveScope = await prove(mounted, key, url, "scope");
+      assert.equal(inactiveScope.status, 503);
+      assert.equal(inactiveScope.headers.get("X-Pirate-Native-Boot-Id"), null);
+      assert.equal((await prove(mounted, key)).status, 200);
       assert.equal(await count(db, "publication_v1_commands"), 0);
       const differingRelease = structuredClone(release);
       differingRelease.fee.cap = (BigInt(differingRelease.fee.cap) + 1n).toString();

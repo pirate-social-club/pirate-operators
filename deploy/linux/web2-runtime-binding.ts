@@ -60,6 +60,10 @@ import {
   type Web2LocalStudyPolicy,
 } from "./web2-local-study.ts";
 import type { Web2InstallationHostInputs } from "./web2-local-installation.ts";
+import type { Web2PublicDanceServeCustody } from "./web2-public-dance-custody.ts";
+import { web2DanceRewardBinding } from "../../packages/community/web2-dance-reward-attachment.ts";
+import { web2DanceRewardMount } from "./web2-dance-reward-installation.ts";
+import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
 import { danceActivationPaths } from "./web2-dance-retained-files.ts";
 import { assertStartAllowed } from "./maintenance-guard.ts";
 import {
@@ -101,7 +105,7 @@ export interface Web2RuntimeBindingInputs {
   /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
   publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
   publication?: Web2PublicationInstallationInputs;
-  activateTrustedPublication?(input: Web2PublicationActivation): Promise<void>;
+  activateTrustedPublication?(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody): Promise<void>;
   posts?: Web2PostsInstallationInputs;
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
   signApplicationRelease(
@@ -225,8 +229,7 @@ export async function readRetainedWeb2DanceControl(input: BoundControlRecords & 
     canonicalDigest(verifyRecord(bound.applicationRelease, admission.trust)) ===
       canonicalDigest(web2ApplicationReleaseBody(release)),
     "runtime_issuer_changed_body");
-  assert(graph.stateRoots.configuration === directory && graph.publicationExpansion === "registry-revision-two/1" &&
-    graph.fixtureTransport && graph.nativePublication && danceActivationPaths(graph), "web2_dance_activation_unselected");
+  assert(graph.stateRoots.configuration === directory && danceActivationPaths(graph), "web2_dance_activation_unselected");
 
   const read = <T>(name: string) => readPrivateJSON<T>(join(directory, name + ".json"), 16 * 1024 ** 2);
   const original = await read<SignedRecord<Web2InstallPlan>>("web2-original");
@@ -267,7 +270,11 @@ export async function readRetainedWeb2DanceControl(input: BoundControlRecords & 
 }
 export { web2TargetDigest };
 
-export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
+export async function createWeb2RuntimeBinder(
+  input: Web2RuntimeBindingInputs,
+  mode: "setup" | "retained-dance-owner" = "setup",
+) {
+  const retainedOwner = mode === "retained-dance-owner";
   const {
     lease,
     now,
@@ -306,7 +313,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     "prebound_native_publication_refused");
   const publication = input.publication, activateTrustedPublication = input.activateTrustedPublication?.bind(input);
   const trustedConsent = policy.graph.publicationExpansion === trustedRevisionTwo && Boolean(policy.graph.nativePublication);
-  assert(Boolean(activateTrustedPublication) === trustedConsent &&
+  assert(Boolean(activateTrustedPublication) === (trustedConsent && !retainedOwner) &&
     Boolean(publication) === (!trustedConsent && Boolean(policy.graph.nativePublication)),
     "native_publication_owner_unavailable");
   assert(policy.graph.publicationExpansion === undefined ||
@@ -318,6 +325,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   assertTrustedRevisionTwoTarget(policy.graph, ingress);
   assert(policy.graph.publicationExpansion !== trustedRevisionTwo || input.publishing,
     "trusted_revision_two_owner_publishing_required");
+  const rewardFile = trustedConsent ? web2DanceRewardMount(policy.graph, policy.target, false) : undefined;
   const posts = input.posts;
   assert(Boolean(postsSelectorPath(policy.graph, policy.target)) === Boolean(posts),
     "native_posts_install_owner_unavailable");
@@ -462,6 +470,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         ...structuredClone(policy.graph.applicationBindings),
         { name: "COMMUNITY_NAME", text: draft.name },
         { name: "PLAN_ID", text: draft.deployment.planId },
+        ...(rewardFile ? [{ name: web2DanceRewardBinding, file: rewardFile }] : []),
         ...(attachment ? [
           {name:"OWNER_GRANT_JSON",text:JSON.stringify(attachment.selection.grant)},
           {name:"OWNER_AUTHORIZATION_JSON",text:JSON.stringify(attachment.authorization)},
@@ -478,6 +487,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
         graph.localActivitySocket === policy.nativeActivities.socket,
         "native_publication_requires_selected_activity_socket");
     }
+    if (trustedConsent) danceActivationPaths(graph);
     return graph;
   }
   function admissionFor(
@@ -534,12 +544,20 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       assert(canonicalDigest(record.body.draft) === canonicalDigest(draft), "native_expanded_bound_draft_changed");
       const original: Web2NativeOriginal = { schema: "pirate.web2-native-application-original/1", record,
         release: bound.applicationRelease, trust: captured.trust, durableScope: graph.durableScope };
-      let approvalSha256: string | undefined;
+      let approvalSha256: string | undefined, companionRaw: string | undefined;
       expanded = async () => {
         const approved = await readApprovedWeb2Transition({ graph, original, chain, now });
         if (trusted) {
           approvalSha256 ??= approved.approvalSha256;
           assert(approved.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
+          if (stageCurrent) {
+            assert("approval" in approved, "web2_public_dance_approval_changed");
+            const attachment = await readTrustedNativePublication({ graph, original, approval: approved });
+            assert(attachment, "trusted_web2_publication_attachment_required");
+            companionRaw ??= attachment.raw;
+            assert(companionRaw === attachment.raw, "web2_public_dance_approval_changed");
+            await stageCurrent();
+          }
         }
         return approved;
       };
@@ -612,10 +630,12 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
     trust: captured.trust,
     lease,
     async retained() {
+      assert(!retainedOwner, "web2_dance_owner_setup_refused");
       const bound = await optionalWeb2Record<BoundRuntime>(boundPath);
       return bound ? hostInputs(bound) : null;
     },
     async retainedForDanceOwnerAction() {
+      assert(retainedOwner, "web2_dance_owner_mode_required");
       const bound = await readPrivateJSON<BoundRuntime>(boundPath, 16 * 1024 ** 2);
       assert(bound.schema === "pirate.web2-bound-runtime/1", "original_runtime_binding_changed");
       const draft = validateIntent(bound.intent);
@@ -633,6 +653,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       return { host, assertRetained };
     },
     async bind(value: unknown) {
+      assert(!retainedOwner, "web2_dance_owner_setup_refused");
       assert(!busy, "web2_binding_in_progress");
       busy = true;
       try {

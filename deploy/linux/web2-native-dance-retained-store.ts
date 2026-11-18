@@ -9,21 +9,25 @@ import { exact, record } from "../../services/publication-command-contract.ts";
 import {
   assertNativeDanceScope, nativeDanceAttempt, type NativeDanceRetainedReference, type NativeDanceRetainedScope,
 } from "../../services/native-dance-retained-reference.ts";
-import { privateDirectory, privateFile } from "./backend-state.ts";
+import { privateDirectory, privateFile, type OperationLease } from "./backend-state.ts";
+import { assertPinnedNativeDanceStoreConnection } from "./web2-native-dance-store-connection.ts";
 
 const commandIndex = "local6343PublisherOriginal:";
 const nonceIndex = "local6343PublisherNonce:";
 const nonceKey = (nonce: number) => nonceIndex + String(nonce).padStart(10, "0");
 type ReadStore = Pick<Store, "get" | "page" | "sql">;
+const retainedStores = new WeakMap<object, NativeDancePublisherIdentity>();
 const markerKey = "publicationOperatorIdentity:v1";
-type Inputs = {
+export interface NativeDancePublisherIdentity {
+  readonly storeIdentity: Readonly<{ path: string; device: string; inode: string; journalId: `0x${string}` }>;
+  readonly journalDirectory: string;
+  readonly directoryIdentity: Readonly<{ device: string; inode: string }>;
+  readonly runId: string;
+  readonly genesisHash: `0x${string}`;
+}
+type Inputs = NativeDancePublisherIdentity & {
   /** Already-open exact Store from the installed publisher owner. */
   store: ReadStore;
-  storeIdentity: { path: string; device: string; inode: string; journalId: `0x${string}` };
-  journalDirectory: string;
-  directoryIdentity: { device: string; inode: string };
-  runId: string;
-  genesisHash: `0x${string}`;
   scope: NativeDanceRetainedScope;
   /** Verifies retained private Store identity, launch and original-directory
    * custody, including when the sender's callback has already closed. */
@@ -109,7 +113,11 @@ export async function createNativeDanceRetainedStore(input: Inputs) {
     }
     throw Error("native_dance_absence_unavailable");
   }
-  return Object.freeze({
+  const retained = Object.freeze({
+    async assertScope(selectedStore: object, expected: Readonly<NativeDanceRetainedScope>) {
+      assert(selectedStore === store && canonical(scope) === canonical(expected), "native_dance_store_scope_changed");
+      await current();
+    },
     assertOwner(selectedStore: object, ref: NativeDanceRetainedReference) {
       assert(selectedStore === store, "native_dance_store_changed");
       assertNativeDanceScope(ref, scope);
@@ -158,5 +166,32 @@ export async function createNativeDanceRetainedStore(input: Inputs) {
       return Object.freeze(attempt);
     },
   });
+  retainedStores.set(retained, {
+    storeIdentity: selectedStore, journalDirectory, directoryIdentity: directory, runId, genesisHash,
+  });
+  return retained;
 }
 export type NativeDanceRetainedStore = Awaited<ReturnType<typeof createNativeDanceRetainedStore>>;
+
+
+export async function assertNativeDanceRetainedCustody(
+  retained: NativeDanceRetainedStore, operatorStore: object, expected: Readonly<NativeDanceRetainedScope>,
+) {
+  assert(retainedStores.has(retained), "native_dance_custody_unavailable");
+  await retained.assertScope(operatorStore, expected);
+}
+
+/** Both public Stage and scoped reopen consume the same independently
+ * verified retained owner admission. Compare its physical pin before a
+ * locally valid reader and Store can be used for the scoped action. */
+export async function assertPinnedNativeDanceRetainedCustody(
+  retained: NativeDanceRetainedStore, operatorStore: object, expected: Readonly<NativeDanceRetainedScope>,
+  approvedPublisher: NativeDancePublisherIdentity, lease: OperationLease,
+) {
+  const held = retainedStores.get(retained);
+  assert(held, "native_dance_custody_unavailable");
+  assert(canonical(held) === canonical(approvedPublisher), "native_dance_publisher_identity_changed");
+  await assertPinnedNativeDanceStoreConnection(operatorStore, approvedPublisher.storeIdentity, lease);
+  await retained.assertScope(operatorStore, expected);
+  await assertPinnedNativeDanceStoreConnection(operatorStore, approvedPublisher.storeIdentity, lease);
+}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { constants } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { parseTransaction } from "viem";
+import { digest } from "../../packages/protocol/index.ts";
 import { canonical } from "../../packages/community/common.ts";
 import { nativeDigest } from "../../packages/community/native-business-binding.ts";
 import { parseWeb2ProfileDocument } from "../../packages/community/web2-directory.ts";
@@ -10,17 +10,30 @@ import type { Web2NativeOriginal } from "../../packages/community/web2-native-bu
 import {
   readDanceV2ParticipantBindings, verifyDanceV2BindingOriginal,
 } from "../../services/dance-v2-participant-bindings.ts";
-import { verifyObservedDanceGrant } from "../../services/web2-dance-observed-grant.ts";
+import { verifyObservedDanceGrant, type ObservedDanceGrant } from "../../services/web2-dance-observed-grant.ts";
 import { capturedFee, record } from "../../services/publication-command-contract.ts";
 import { parsePublicationRelease, publicationSelectionHash, publicationSelectionSource } from "../../services/publication-app-selection.ts";
 import type { readObservedInstalledDanceGrants } from "../../services/web2-installed-dance-participants.ts";
-import { hash, privateDirectory, privateFile, syncDirectory } from "./backend-state.ts";
+import { hash, privateDirectory, syncDirectory, type OperationLease } from "./backend-state.ts";
 import type { NativeGraph } from "./full-native-config.ts";
-import type { readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
+import type { Web2DancePublicationApproval } from "./web2-dance-publication-authority.ts";
+import { verifyWeb2DanceRewardForApproval } from "./web2-dance-reward-installation.ts";
 import type { Web2ChainAuthority } from "./web2-profile-authority.ts";
+import type { NativeDanceRetainedScope } from "../../services/native-dance-retained-reference.ts";
+import type { NativeDanceRetainedStore } from "./web2-native-dance-retained-store.ts";
+import { readRetainedWeb2DanceBindPrepare } from "./web2-dance-bind-prepare.ts";
+import {
+  assertPublicDancePublisher, maxWeb2PublicDanceCustodyBytes, readPublicDanceCustody, type Web2PublicDanceServeCustody,
+} from "./web2-public-dance-custody.ts";
+import {
+  readDanceActivationArtifact, readOptionalDanceActivationArtifact, retainDanceActivationArtifact,
+} from "./web2-dance-retained-artifacts.ts";
 import { danceActivationPaths } from "./web2-dance-retained-files.ts";
 
-type Expansion = Awaited<ReturnType<typeof readApprovedExpandedPublication>>;
+export { readDanceActivationArtifact, readOptionalDanceActivationArtifact, retainDanceActivationArtifact }
+  from "./web2-dance-retained-artifacts.ts";
+
+type Expansion = Web2DancePublicationApproval;
 type Artifacts = Readonly<{ scope: string; reward: string }>;
 type VerifyInput = {
   graph: NativeGraph;
@@ -37,6 +50,9 @@ export type Web2DanceActivationNomination = Readonly<{
 }>;
 
 export interface Web2DanceActivationOwner {
+  /** The installed public owner selects the actual publisher Store and its
+   * scoped reader under this same control lease, without opening a signer. */
+  publicCustody?: { lease: OperationLease; operatorStore: object; retainedDance: NativeDanceRetainedStore };
   /** Resolves the independently approved scope envelope for this exact
    * original. The signed Rewards artifact is read from its existing mount. */
   approvedScope(input: Web2DanceActivationNomination): Promise<string | undefined>;
@@ -46,43 +62,6 @@ export interface Web2DanceActivationOwner {
     scopeSha256: string;
     grants: VerifiedScope["grants"];
   }): ReturnType<typeof readObservedInstalledDanceGrants>;
-}
-
-export async function readDanceActivationArtifact(path: string, maxBytes: number) {
-  const file = await privateFile(path, maxBytes);
-  try {
-    const before = await file.stat({ bigint: true });
-    // Read at most the admitted size plus one byte, even if a writer grows it.
-    const bytes = Buffer.alloc(maxBytes + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
-      if (!bytesRead) break;
-      length += bytesRead;
-    }
-    const after = await file.stat({ bigint: true });
-    const named = await lstat(path, { bigint: true });
-    assert(length <= maxBytes && BigInt(length) === before.size && before.size === after.size &&
-      before.mtimeNs === after.mtimeNs && before.ctimeNs === after.ctimeNs &&
-      named.dev === after.dev && named.ino === after.ino && named.nlink === 1n &&
-      named.size === after.size && named.mtimeNs === after.mtimeNs && named.ctimeNs === after.ctimeNs,
-      "web2_dance_activation_file_changed");
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes.subarray(0, length));
-  } finally {
-    await file.close();
-  }
-}
-
-export async function readOptionalDanceActivationArtifact(path: string, maxBytes: number) {
-  try {
-    // Only an absent directory entry disables activation. A dangling symlink,
-    // raced rename or failed read of a present entry must refuse.
-    await lstat(path);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
-  }
-  return readDanceActivationArtifact(path, maxBytes);
 }
 
 export function readOptionalDanceActivationScope(path: string) {
@@ -125,24 +104,92 @@ export async function readWeb2DanceActivation(input: VerifyInput) {
   return artifacts;
 }
 
-export async function retainDanceActivationArtifact(path: string, value: string, bound: number) {
-  assert(Buffer.byteLength(value) <= bound, "web2_dance_activation_artifact_too_large");
-  let file;
-  try {
-    file = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    assert(await readDanceActivationArtifact(path, bound) === value, "web2_dance_activation_original_changed");
-    const prior = await privateFile(path, bound);
-    try { await prior.sync(); } finally { await prior.close(); }
-    return;
+type RetainedPrepare = Awaited<ReturnType<typeof readRetainedWeb2DanceBindPrepare>>;
+
+export function assertPublicDancePreparedBindings(prepared: RetainedPrepare["prepared"], grants: VerifiedScope["grants"]) {
+  assert(prepared.plans.every((item, n) => {
+    const { commandId, original } = grants[n]!;
+    const plan = { ...original.plan, ownerEpoch: String(original.plan.ownerEpoch),
+      configurationRevision: String(original.plan.configurationRevision) };
+    return item.appGrantCommandId === commandId && canonical(item.plan) === canonical(plan) &&
+      item.command.id === plan.commandId && item.command.data === parseTransaction(original.raw).data;
+  }), "web2_public_dance_prepare_binding_changed");
+}
+
+type PreparedGrantEvidence = Pick<ObservedDanceGrant, "receipt"> & {
+  command: Pick<ObservedDanceGrant["command"], "action" | "commandId" | "digest"> & {
+    message: Pick<ObservedDanceGrant["command"]["message"], "purpose">;
+  };
+};
+export function assertPublicDancePreparedGrants(
+  prepared: RetainedPrepare["prepared"], evidence: readonly PreparedGrantEvidence[],
+) {
+  assert(evidence.length === prepared.plans.length && prepared.plans.every((item, n) => {
+    const { command, receipt } = evidence[n]!;
+    return command.action === "grant" && command.commandId === item.appGrantCommandId &&
+      command.message.purpose === item.purpose && command.digest === item.grantId &&
+      receipt.state === "recorded" && digest(receipt) === item.grantReceiptSha256;
+  }), "web2_public_dance_prepare_grant_changed");
+}
+
+async function readPublicDanceStageOriginals(
+  input: VerifyInput & { approval: Expansion }, directory: string, scopeRaw: string,
+  { scope, rewards }: Awaited<ReturnType<typeof verify>>, requireStaged: boolean,
+) {
+  const { original, approval } = input;
+  const active = approval.selection.active;
+  assert(active && approval.publicGenesisHash, "web2_public_dance_approval_changed");
+  const identity: NativeDanceRetainedScope = {
+    chainId: 6343, communityId: rewards.source.domain.communityId, installationId: rewards.attachment.directoryInstallationId,
+    releaseSha256: active, publisher: approval.configuration.publisher,
+    verifier: rewards.source.domain.verifier, sourceHash: rewards.source.sourceHash,
+  };
+  const prepare = await readRetainedWeb2DanceBindPrepare({
+    original, directory, source: rewards.source,
+    approved: { releaseSha256: active, configurationSha256: rewards.attachment.configurationHash,
+      ownerWallet: approval.ownerWallet, publisher: approval.configuration.publisher,
+      configurationRevision: approval.configuration.configurationRevision },
+  });
+  assertPublicDancePreparedBindings(prepare.prepared, scope.grants);
+  const custody = await readPublicDanceCustody({
+    directory, original, genesisHash: approval.publicGenesisHash, requireStaged,
+    expected: { approvalSha256: approval.approvalSha256, selectionSha256: approval.selectionSha256,
+      rewardSha256: rewards.signedSha256, scopeSha256: hash(scopeRaw),
+      prepareIntentSha256: prepare.intentSha256, prepareResultSha256: prepare.resultSha256, scope: identity },
+  });
+  return { prepare, custody };
+}
+
+type TrustedPublicDanceArtifacts = Readonly<{ reward: string; rewardSha256: string }> &
+  ({ scope?: undefined; scopeSha256?: undefined; custody?: undefined } |
+    { scope: string; scopeSha256: string; custody: Web2PublicDanceServeCustody });
+
+/** Rewards alone permits Bind Prepare. Scope requires the retained Prepare
+ * pair and the independently approved physical identity pinned by Stage. */
+export async function readTrustedPublicDanceArtifacts(
+  input: VerifyInput & { approval: Expansion },
+): Promise<TrustedPublicDanceArtifacts | undefined> {
+  const paths = danceActivationPaths(input.graph);
+  if (!paths) return undefined;
+  assert(paths.mode === "trusted-public", "web2_public_dance_reward_authority_required");
+  await privateDirectory(paths.directory);
+  const reward = await readOptionalDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes);
+  const scope = await readOptionalDanceActivationScope(paths.scope);
+  if (reward === undefined) {
+    assert(scope === undefined, "web2_dance_reward_attachment_required");
+    return undefined;
   }
-  try {
-    await file.writeFile(value, "utf8");
-    await file.sync();
-  } finally {
-    await file.close();
-  }
+  const rewards = await verifyWeb2DanceRewardForApproval(input.original, reward, input.approval);
+  if (scope === undefined) return { reward, rewardSha256: rewards.signedSha256 };
+  const checked = await verify(input, { reward, scope });
+  const { prepare, custody } = await readPublicDanceStageOriginals(input, paths.directory, scope, checked, true);
+  await prepare.assertCurrent();
+  await custody.assertCurrent();
+  assert(await readOptionalDanceActivationScope(paths.scope) === scope &&
+    await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) === reward,
+    "web2_dance_activation_original_changed");
+  return { reward, rewardSha256: rewards.signedSha256, scope, scopeSha256: hash(scope),
+    custody: { record: custody.record, recordSha256: custody.recordSha256 } };
 }
 
 /** Host-only stage. This validates approved bytes and existing transactions.
@@ -151,19 +198,45 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
   chain: Web2ChainAuthority;
   approval: Expansion;
   owner: Web2DanceActivationOwner;
+  lease?: OperationLease;
   assertCurrent(): Promise<void>;
 }) {
   const paths = danceActivationPaths(input.graph);
   assert(paths && input.owner, "web2_dance_activation_unselected");
-  const { owner, chain, original, approval, assertCurrent } = input;
+  const { owner, chain, original, approval, lease } = input;
+  const publicOwner = owner.publicCustody;
+  const operatorStore = publicOwner?.operatorStore, retainedDance = publicOwner?.retainedDance;
+  if (paths.mode === "trusted-public") {
+    assert(lease && publicOwner?.lease === lease && operatorStore && retainedDance, "native_dance_custody_unavailable");
+  }
   const readOwner = owner.approvedScope.bind(owner), readGrants = owner.observedAppGrants.bind(owner);
   const selection = Object.freeze({ nativeOriginalSha256: nativeDigest(original), releaseSelectionHash: approval.selection.active });
   await privateDirectory(paths.directory);
-  await assertCurrent();
+  await input.assertCurrent();
   const selectedScope = await readOwner(selection);
   assert(typeof selectedScope === "string", "web2_dance_activation_approval_required");
   const artifacts = { scope: selectedScope, reward: await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) };
-  const { scope, rewards } = await verify(input, artifacts);
+  const checked = await verify(input, artifacts);
+  const { scope, rewards } = checked;
+  const retainedBefore = await readOptionalDanceActivationScope(paths.scope);
+  assert(retainedBefore === undefined || retainedBefore === artifacts.scope, "web2_dance_activation_original_changed");
+  const publicOriginal = paths.mode === "trusted-public"
+    ? await readPublicDanceStageOriginals(input, paths.directory, artifacts.scope, checked, retainedBefore !== undefined)
+    : undefined;
+  async function assertCurrent() {
+    await input.assertCurrent();
+    if (publicOriginal) {
+      assert(lease && publicOwner && owner.publicCustody === publicOwner && publicOwner.lease === lease &&
+        operatorStore && retainedDance && publicOwner.operatorStore === operatorStore &&
+        publicOwner.retainedDance === retainedDance, "native_dance_custody_unavailable");
+      await lease.assertHeld();
+      await publicOriginal.prepare.assertCurrent();
+      await publicOriginal.custody.assertCurrent();
+      await assertPublicDancePublisher(retainedDance, operatorStore, publicOriginal.custody.record, lease);
+      await lease.assertHeld();
+    }
+  }
+  await assertCurrent();
   const release = parsePublicationRelease(approval.selection.entries.find(item =>
     publicationSelectionHash(item.release) === selection.releaseSelectionHash)?.release);
   const admittedSource = canonical(publicationSelectionSource(release)), admittedFee = canonical(release.fee);
@@ -182,6 +255,8 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
       command.digest === member.grantId &&
       member.purpose === (n === 0 ? "dance-verdict" : "dance-review-attribution");
   }), "web2_dance_activation_app_grants_changed");
+
+  if (publicOriginal) assertPublicDancePreparedGrants(publicOriginal.prepare.prepared, observed.evidence);
 
   async function verifyPrivateOriginals() {
     await assertCurrent();
@@ -211,9 +286,14 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
   const retained = await readOptionalDanceActivationScope(paths.scope);
   assert(retained === undefined || retained === artifacts.scope, "web2_dance_activation_original_changed");
 
-  // The prior Rewards producer owns its original bytes. The only newly
-  // staged file is this exact approved scope.
   await verifyPrivateOriginals();
+  if (publicOriginal) {
+    const { custody } = publicOriginal;
+    await retainDanceActivationArtifact(custody.stagedPath, custody.raw, maxWeb2PublicDanceCustodyBytes);
+    await syncDirectory(paths.directory);
+    await custody.assertCurrent(true);
+    await verifyPrivateOriginals();
+  }
   await retainDanceActivationArtifact(paths.scope, artifacts.scope, maxWeb2DanceRetainedScopeBytes);
   await syncDirectory(paths.directory);
   await assertCurrent();
@@ -221,5 +301,6 @@ export async function stageWeb2DanceActivation(input: VerifyInput & {
     await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes) === artifacts.reward,
     "web2_dance_activation_original_changed");
   await verifyPrivateOriginals();
+  await publicOriginal?.custody.assertCurrent(true);
   return scopeSha256;
 }

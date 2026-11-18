@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import type { Web2DanceLiveProof } from "../../packages/community/web2-dance-live-proof.ts";
+import type { Web2PublicDanceServeCustody } from "./web2-public-dance-custody.ts";
+import { web2DanceRewardMount } from "./web2-dance-reward-installation.ts";
+import {
+  projectTrustedWeb2DanceAuthority, readWeb2DancePublicationAuthority,
+} from "./web2-dance-publication-authority.ts";
 import { hashJson } from "../../packages/community/common.ts";
 import { maxWeb2DanceRewardBytes, readWeb2InstalledDanceRewards } from "../../packages/community/web2-dance-reward-attachment.ts";
 import {
@@ -68,7 +74,7 @@ import {
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
 import { stageNativePublication, type Web2PublicationActivation, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
-import { expandedPublicationApprovalExists, readApprovedExpandedPublication, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
+import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
 import {
   assertTrustedRevisionTwoTarget, readTrustedRevisionTwoPolicy, requireTrustedRevisionTwoResources, trustedRevisionTwo, web2OriginalStartIntent,
 } from "./web2-trusted-revision-two.ts";
@@ -77,7 +83,7 @@ import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
 import { nativePublicationPaths } from "./web2-publication-selection.ts";
 import { danceActivationPaths } from "./web2-dance-retained-files.ts";
 import {
-  readDanceActivationArtifact, readDanceActivationPublicationMount, stageWeb2DanceActivation, type Web2DanceActivationOwner,
+  readDanceActivationArtifact, readDanceActivationPublicationMount, readTrustedPublicDanceArtifacts, stageWeb2DanceActivation, type Web2DanceActivationOwner,
 } from "./web2-dance-retained-activation.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 
@@ -97,7 +103,7 @@ export interface Web2InstallationHostInputs {
   nativeRuntimeDirectory: string;
   now: () => number;
   publication?: Web2PublicationInstallationInputs;
-  activateTrustedPublication?(input: Web2PublicationActivation): Promise<void>;
+  activateTrustedPublication?(input: Web2PublicationActivation, custody?: Web2PublicDanceServeCustody): Promise<void>;
   posts?: Web2PostsInstallationInputs;
   recheckTrustedPublishing?(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>): Promise<void>;
   signProfile(
@@ -118,6 +124,7 @@ export async function createWeb2Installation(
   assertRetainedBeforeController?: () => Promise<void>,
 ): Promise<Web2InstalledService> {
   const { lease, signProfile, now } = input;
+  const retainedOwner = assertRetainedBeforeController !== undefined;
   const selected = structuredClone({
     release: input.release,
     applicationRelease: input.applicationRelease,
@@ -142,9 +149,10 @@ export async function createWeb2Installation(
   assert(!trusted || recheckTrustedPublishing, "trusted_revision_two_owner_publishing_required");
   const publication = input.publication, activateTrustedPublication = input.activateTrustedPublication?.bind(input);
   const trustedConsent = trusted && Boolean(graph.nativePublication);
-  assert(Boolean(activateTrustedPublication) === trustedConsent &&
+  assert(Boolean(activateTrustedPublication) === (trustedConsent && !retainedOwner) &&
     Boolean(publication) === (!trustedConsent && Boolean(graph.nativePublication)),
     "native_publication_owner_unavailable");
+  if (trustedConsent) web2DanceRewardMount(graph, selected.target, true);
   const prepareExpansion = publication?.prepareExpansion?.bind(publication);
   assert(!prepareExpansion || (release.graph.publicationExpansion === "registry-revision-two/1" && release.graph.fixtureTransport &&
     ingress.tls.kind === "local-fixture-ca" && publication?.activateAfterStaging), "native_expansion_bootstrap_unadmitted");
@@ -264,6 +272,7 @@ export async function createWeb2Installation(
       ),
       ...(planId ? { planId } : {}),
     });
+  type TrustedDance = Awaited<ReturnType<typeof readTrustedPublicDanceArtifacts>>;
   async function authorize(
     draft: LinuxWeb2Draft,
     planId?: string,
@@ -295,6 +304,7 @@ export async function createWeb2Installation(
     const expanded = useExpansion ? await read() : undefined;
     const evidence = expanded?.authority ?? await authenticateWeb2Enrollment(chain, draft);
     let admission = await host();
+    await assertRetainedBeforeController?.();
     const actual = await controller.inspectHost(AbortSignal.timeout(45000));
     assert(
       actual.supported && actual.fingerprint === selected.hostFingerprint,
@@ -316,10 +326,15 @@ export async function createWeb2Installation(
       await authenticateWeb2Enrollment(chain, draft);
     }
     let trustedPublication: Awaited<ReturnType<typeof readTrustedNativePublication>> = undefined;
+    let trustedDance: TrustedDance = undefined;
     if (trustedConsent && expanded) {
       assert(retained && "approval" in expanded, "trusted_web2_publication_approval_required");
       trustedPublication = await readTrustedNativePublication({ graph, original: nativeOriginal(retained.record), approval: expanded });
       assert(trustedPublication, "trusted_web2_publication_attachment_required");
+      if (danceActivationPaths(graph)) {
+        const selectedDance = projectTrustedWeb2DanceAuthority(expanded, trustedPublication);
+        trustedDance = await readTrustedPublicDanceArtifacts({ graph, original: nativeOriginal(retained.record), ...selectedDance });
+      }
       assert((await read()).approvalSha256 === expanded.approvalSha256, "trusted_revision_two_approval_changed");
     }
     if (trusted) {
@@ -330,7 +345,7 @@ export async function createWeb2Installation(
           "trusted_web2_publication_attachment_changed");
       }
     }
-    return { evidence, admission, expanded, trustedPublication };
+    return { evidence, admission, expanded, trustedPublication, trustedDance };
   }
   async function load(selection: LinuxWeb2PlanSelection) {
     await open();
@@ -387,10 +402,21 @@ export async function createWeb2Installation(
       },
     };
   }
-  function inspectTrustedSelection(selectedPublication: NonNullable<Awaited<ReturnType<typeof readTrustedNativePublication>>>) {
+  const sameTrustedDance = (a: TrustedDance, b: TrustedDance) => a?.reward === b?.reward && a?.scope === b?.scope &&
+    a?.custody?.recordSha256 === b?.custody?.recordSha256;
+  function expectedDanceBoot(dance: TrustedDance): Web2DanceLiveProof | undefined {
+    if (dance) return { rewardSha256: dance.rewardSha256, scopeSha256: dance.scopeSha256 ?? null };
+    if (danceActivationPaths(graph)?.mode === "trusted-public") return { rewardSha256: null, scopeSha256: null };
+    return undefined;
+  }
+  function inspectTrustedSelection(
+    selectedPublication: NonNullable<Awaited<ReturnType<typeof readTrustedNativePublication>>>, dance?: Web2DanceLiveProof,
+  ) {
     const { selector, selection } = selectedPublication.initialization;
     assert(selection.active, "trusted_web2_publication_active_release_required");
-    return inspectTrustedPublicationIngress(ingress, graph.readbackKeyFile, { mount: selector.body.mount, active: selection.active });
+    return inspectTrustedPublicationIngress(ingress, graph.readbackKeyFile, {
+      mount: selector.body.mount, active: selection.active, ...(dance ? { dance } : {}),
+    });
   }
   async function observation(
     selection: LinuxWeb2PlanSelection,
@@ -436,11 +462,13 @@ export async function createWeb2Installation(
       };
       await assertIngress();
       if (trustedConsent) {
-        assert(before.trustedPublication?.raw === after.trustedPublication?.raw, "trusted_web2_publication_attachment_changed");
+        assert(before.trustedPublication?.raw === after.trustedPublication?.raw &&
+          sameTrustedDance(before.trustedDance, after.trustedDance), "trusted_web2_publication_attachment_changed");
         if (after.trustedPublication) {
-          await inspectTrustedSelection(after.trustedPublication);
+          await inspectTrustedSelection(after.trustedPublication, expectedDanceBoot(after.trustedDance));
           const latest = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
-          assert(latest.trustedPublication?.raw === after.trustedPublication.raw, "trusted_web2_publication_attachment_changed");
+          assert(latest.trustedPublication?.raw === after.trustedPublication.raw &&
+            sameTrustedDance(latest.trustedDance, after.trustedDance), "trusted_web2_publication_attachment_changed");
           await assertIngress();
         }
       }
@@ -498,8 +526,14 @@ export async function createWeb2Installation(
     };
     await readStart();
     const mountPath = nativePublicationPaths(transport.directory).selector;
-    const publicationMount = await readDanceActivationPublicationMount(mountPath);
-    const approval = await readApprovedExpandedPublication({ graph, original, chain });
+    const fixtureMount = paths.mode === "fixture" ? await readDanceActivationPublicationMount(mountPath) : undefined;
+    const authority = await readWeb2DancePublicationAuthority({ graph, original, chain, now });
+    const { approval } = authority;
+    const publicationMount = authority.mode === "fixture" ? fixtureMount : authority.publicationMount;
+    assert(publicationMount, "web2_dance_activation_publication_changed");
+    const publicDance = authority.mode === "trusted-public"
+      ? await readTrustedPublicDanceArtifacts({ graph, original, approval, publicationMount }) : undefined;
+    assert(authority.mode === "fixture" || publicDance, "web2_dance_reward_attachment_required");
     await assertRetained();
     const resources = await controller.inspect(AbortSignal.timeout(45000));
     function runningIdentity(state: typeof resources) {
@@ -516,17 +550,25 @@ export async function createWeb2Installation(
       const latest = await load(selection);
       assert(canonicalDigest(latest.record) === canonicalDigest(record), "web2_dance_activation_original_changed");
       const permitted = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
-      assert(permitted.expanded && permitted.expanded.approvalSha256 === approval.approvalSha256 &&
-        permitted.expanded.selectionSha256 === approval.selectionSha256 &&
-        await readDanceActivationPublicationMount(mountPath) === publicationMount,
-        "web2_dance_activation_publication_changed");
+      assert(permitted.expanded?.approvalSha256 === approval.approvalSha256, "web2_dance_activation_publication_changed");
+      if (authority.mode === "fixture") {
+        assert(permitted.expanded.selectionSha256 === approval.selectionSha256 &&
+          await readDanceActivationPublicationMount(mountPath) === publicationMount,
+          "web2_dance_activation_publication_changed");
+      } else {
+        assert(permitted.trustedPublication?.raw === authority.companion && publicDance &&
+          permitted.trustedDance?.reward === publicDance.reward, "web2_dance_activation_publication_changed");
+        // Reentry can inspect Rewards on the current process even after the
+        // scope is staged but before the separately authorized final reopen.
+        await inspectTrustedSelection(permitted.trustedPublication, { rewardSha256: publicDance.rewardSha256 });
+      }
       assert(runningIdentity(await controller.inspect(AbortSignal.timeout(45000))) === resourceDigest,
         "web2_dance_activation_running_original_changed");
       await currentHostAdmission(body.draft, body.planId, body.generation);
       await assertRetained();
       await open();
     };
-    return { graph, original, chain, approval, publicationMount, paths, transport, assertCurrent };
+    return { graph, original, chain, approval, publicationMount, paths, transport, publicDance, assertCurrent };
   }
   const service: Web2InstalledService = {
     verifyExpandedPublishing: (selection, draft) =>
@@ -541,6 +583,7 @@ export async function createWeb2Installation(
       }),
     prepare: (value) =>
       exclusive(async () => {
+        assert(!retainedOwner, "web2_dance_owner_setup_refused");
         const draft = linuxWeb2DraftFrom(value),
           planId = "web2-" + draft.enrollment.enrollmentId.slice(2);
         const old =
@@ -594,6 +637,7 @@ export async function createWeb2Installation(
       }),
     apply: (selection) =>
       exclusive(async () => {
+        assert(!retainedOwner, "web2_dance_owner_setup_refused");
         const owned = structuredClone(selection),
           { body, record } = await load(owned);
         assert(!ingressFailure, "original_ingress_custody_unresolved");
@@ -643,7 +687,8 @@ export async function createWeb2Installation(
           const observed = await authorize(body.draft, body.planId, body.generation, retained);
           assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256 &&
             (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256) &&
-            observed.trustedPublication?.raw === admitted.trustedPublication?.raw,
+            observed.trustedPublication?.raw === admitted.trustedPublication?.raw &&
+            sameTrustedDance(observed.trustedDance, admitted.trustedDance),
             "native_expanded_publication_selection_changed");
         };
         const intent = web2OriginalStartIntent(body);
@@ -669,7 +714,7 @@ export async function createWeb2Installation(
           assert(application?.actual, "trusted_web2_publication_original_resource_required");
           if (application.actual.State.Running) {
             try {
-              await inspectTrustedSelection(admitted.trustedPublication);
+              await inspectTrustedSelection(admitted.trustedPublication, expectedDanceBoot(admitted.trustedDance));
             } catch (cause) {
               throw new Error("trusted_web2_publication_supervised_restart_required", { cause });
             }
@@ -677,7 +722,7 @@ export async function createWeb2Installation(
           await current();
           await activateTrustedPublication({
             original, selection, selectionSha256: selector.body.mount.selectionSha256, assertCurrent: current,
-          });
+          }, admitted.trustedDance?.custody);
           await current();
         }
         if (publication && release.graph.nativePublication) {
@@ -729,7 +774,7 @@ export async function createWeb2Installation(
         );
         await current();
         if (admitted.trustedPublication) {
-          await inspectTrustedSelection(admitted.trustedPublication);
+          await inspectTrustedSelection(admitted.trustedPublication, expectedDanceBoot(admitted.trustedDance));
           await current();
         }
         if (edge) {
@@ -756,11 +801,13 @@ export async function createWeb2Installation(
       : observation(structuredClone(selection)),
     stageRetainedDance: (owner, assertRetained) =>
       exclusive(async () => {
+        assert(retainedOwner, "web2_dance_owner_mode_required");
         const context = await retainedDanceContext(assertRetained);
-        return stageWeb2DanceActivation({ ...context, owner });
+        return stageWeb2DanceActivation({ ...context, owner, lease });
       }),
     prepareRetainedDanceBindings: (owner, assertRetained) =>
       exclusive(async () => {
+        assert(retainedOwner, "web2_dance_owner_mode_required");
         const context = await retainedDanceContext(assertRetained);
         const { original, approval, paths, transport, publicationMount } = context;
         const attachmentJson = await readDanceActivationArtifact(paths.reward, maxWeb2DanceRewardBytes);
@@ -787,6 +834,7 @@ export async function createWeb2Installation(
         });
       }),
     async resumeOriginal() {
+      assert(!retainedOwner, "web2_dance_owner_setup_refused");
       await open();
       const retained =
         await optionalRecord<SignedRecord<Web2InstallPlan>>(originalPath);

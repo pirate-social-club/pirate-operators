@@ -1,15 +1,15 @@
 // Native original setup follows the signed Rewards attachment fixture.
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rm, stat, writeFile, type FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { Miniflare } from "miniflare";
-import { keccak256, zeroHash } from "viem";
+import { keccak256, parseTransaction, zeroHash } from "viem";
 import { canonical, hashJson, hashText } from "../packages/community/common.ts";
 import { nativeCanonical, nativeDigest } from "../packages/community/native-business-binding.ts";
-import { readWeb2InstalledDanceRewards, web2DanceRewardSourceDocument, type Web2DanceRewardAttachment,
+import { readWeb2InstalledDanceRewards, web2DanceRewardBinding, web2DanceRewardFile, web2DanceRewardSourceDocument, type Web2DanceRewardAttachment,
   type Web2DanceRewardIntent } from "../packages/community/web2-dance-reward-attachment.ts";
 import { verifyWeb2DanceRetainedScope, web2DanceRetainedPeer,
   type Web2DanceRetainedScopeDocument } from "../packages/community/web2-dance-retained-scope.ts";
@@ -20,17 +20,30 @@ import { authenticateWeb2Enrollment, type Web2HostAdmission, type Web2InstallPla
 import type { Web2NativePublicationMount } from "../deploy/linux/web2-publication-selection.ts";
 import { renderFullNativeConfig, type NativeGraph } from "../deploy/linux/full-native-config.ts";
 import { danceActivationPaths, web2DanceScopeBinding, web2DanceScopeFile } from "../deploy/linux/web2-dance-retained-files.ts";
-import { readWeb2DanceActivation } from "../deploy/linux/web2-dance-retained-activation.ts";
+import {
+  assertPublicDancePreparedGrants, readTrustedPublicDanceArtifacts, readWeb2DanceActivation, stageWeb2DanceActivation,
+} from "../deploy/linux/web2-dance-retained-activation.ts";
 import { readRetainedWeb2DanceControl, recoverWeb2BindingControlRecords } from "../deploy/linux/web2-runtime-binding.ts";
-import { web2OriginalStartIntent } from "../deploy/linux/web2-trusted-revision-two.ts";
+import { trustedRevisionTwo, web2OriginalStartIntent } from "../deploy/linux/web2-trusted-revision-two.ts";
+import { createNativeDanceRetainedStore } from "../deploy/linux/web2-native-dance-retained-store.ts";
+import { openPinnedNativeDanceOperatorStore } from "../deploy/linux/web2-native-dance-store-connection.ts";
+import { operatorDatabase } from "./fixtures/publication-app-http.ts";
 import { acquireWeb2ServiceControl } from "../deploy/linux/web2-service-lease.ts";
 import type { FullRelease } from "../deploy/linux/installed-release.ts";
-import { retainWeb2DanceBindPrepare, web2DanceIntentFile, web2DancePrepareFile } from "../deploy/linux/web2-dance-bind-prepare.ts";
+import { readRetainedWeb2DanceBindPrepare, retainWeb2DanceBindPrepare, web2DanceIntentFile, web2DancePrepareFile } from "../deploy/linux/web2-dance-bind-prepare.ts";
 import { web2DancePrepareContentType } from "../packages/community/web2-dance-bind-intent.ts";
 import { nativePublicationLookupFetch } from "../services/linux-web2-publication.ts";
 import { publicationAcceptSessionHeader, publicationLookupPath } from "../services/native-publication-reference.ts";
 import { digest as protocolDigest } from "../packages/protocol/index.ts";
+import {
+  web2PublicDanceCustodyFile, web2PublicDanceStagedCustodyFile, type Web2PublicDanceCustody,
+} from "../deploy/linux/web2-public-dance-custody.ts";
+import { readWeb2DanceRewardApproval } from "../deploy/linux/web2-dance-reward-installation.ts";
+import type { ObservedDanceGrant } from "../services/web2-dance-observed-grant.ts";
 import type { InstalledDanceBindIntent } from "../services/web2-installed-dance-bind-prepare.ts";
+import { scriptedPublicationAuthority } from "./fixtures/publication-app-rpc.ts";
+import { publicationSelectionHash, publicationSelectionSource, type PublicationAppRelease } from "../services/publication-app-selection.ts";
+import type { Web2DancePublicationApproval } from "../deploy/linux/web2-dance-publication-authority.ts";
 import { nativeBusinessTransition } from "../packages/community/native-business-transition.ts";
 import { nativeMigrationNames } from "./application-native-producer-fixture.ts";
 import { migrateOwnerDatabase } from "./owner-publishing-migration-fixture.ts";
@@ -90,9 +103,9 @@ test("retained Dance owner scope authenticates both exact BindIdentity originals
   assert(chosen);
   assert.equal(config.publisher, web2Publisher.address.toLowerCase());
   const owner = { epoch: "1", wallet: web2Owner.address.toLowerCase() as `0x${string}` };
-  async function originalBinding(index: number) {
+  async function originalBinding(index: number, commandId = word(90 + index)) {
     const accountId = "00000000-0000-4000-a000-00000000000" + (index + 1);
-    const wallet = address(80 + index), commandId = word(90 + index), nonce = 70 + index;
+    const wallet = address(80 + index), nonce = 70 + index;
     const accountCommitment = danceAccountCommitment(domain, accountId, wallet);
     const groupId = danceSingletonId(domain, accountCommitment);
     const command = danceCommand(domain, "bindIdentity", config.publisher, commandId, {
@@ -318,6 +331,300 @@ test("retained Dance owner scope authenticates both exact BindIdentity originals
     };
     await firstBoot();
     await assert.rejects(readFile(locators.scope), { code: "ENOENT" });
+
+    await t.test("public rev2 can mount signed Rewards alone and final exact scope without fixture authority", async t => {
+      const publicState = await mkdtemp(join(await realpath(tmpdir()), "web2-public-dance-boot-"));
+      let closeControl: (() => Promise<void>) | undefined;
+      let closeStore: (() => Promise<void>) | undefined;
+      t.after(async () => {
+        try {
+          await closeStore?.();
+        } finally {
+          try {
+            await closeControl?.();
+          } finally {
+            await rm(publicState, { recursive: true, force: true });
+          }
+        }
+      });
+      const { fixtureTransport, ...base } = graph;
+      const transport = { ...graph.nativePublication!, directory: join(publicState, "publication-transport"), issuerAddress: address(199) };
+      const publicGraph: NativeGraph = {
+        ...base, nativePublication: transport, publicationExpansion: trustedRevisionTwo, localActivitySocket: "/run/public-dance.sock",
+        stateRoots: { ...graph.stateRoots, configuration: publicState },
+        applicationBindings: [
+          { name: web2DanceRewardBinding, file: join(publicState, "dance-rewards", web2DanceRewardFile + ".json") },
+          { name: web2DanceScopeBinding, file: join(publicState, web2DanceScopeFile) },
+        ],
+      };
+      const paths = danceActivationPaths(publicGraph);
+      assert(paths && paths.mode === "trusted-public");
+      assert.throws(() => danceActivationPaths({ ...publicGraph, fixtureTransport }), /web2_dance_activation_original_mount_required/);
+      assert.throws(() => danceActivationPaths({ ...publicGraph, applicationBindings: publicGraph.applicationBindings.slice(0, 1) }),
+        /web2_public_dance_scope_locator_required/);
+      const file = "/run/public-dance-boot/web2-original.json";
+      const renderedDormant = renderFullNativeConfig(publicGraph, "serve", "1".repeat(64), file);
+      assert.doesNotMatch(renderedDormant, /WEB2_DANCE_REWARD_ATTACHMENT_JSON|WEB2_DANCE_RETAINED_SCOPE_JSON|PUBLICATION_NATIVE_MOUNT_JSON/);
+      const consent = { selector: "/run/public-dance-boot/trusted-publication-mount.json",
+        initialization: "/run/public-dance-boot/trusted-publication-initialization.json", expiresAtMs: Date.now() + 60000 };
+      const snapshot = { directory: "/run/public-dance-boot", reward: "/run/public-dance-boot/" + web2DanceRewardFile + ".json" };
+      assert.throws(() => renderFullNativeConfig(publicGraph, "serve", "1".repeat(64), file,
+        publicGraph.socket, false, undefined, snapshot), /web2_dance_activation_boot_snapshot_required/);
+      const rewardsOnly = renderFullNativeConfig(publicGraph, "serve", "2".repeat(64), file,
+        publicGraph.socket, false, consent, snapshot);
+      assert(rewardsOnly.includes('(name="' + web2DanceRewardBinding + '",text=embed "' + snapshot.reward + '")'));
+      assert(!rewardsOnly.includes(web2DanceScopeBinding));
+      assert(!rewardsOnly.includes(paths.reward));
+      const initialize = renderFullNativeConfig(publicGraph, "initialize", undefined, file, publicGraph.socket, true, consent);
+      assert.doesNotMatch(initialize, /WEB2_DANCE_REWARD_ATTACHMENT_JSON|WEB2_DANCE_RETAINED_SCOPE_JSON/);
+      const scopeSnapshot = { ...snapshot, scope: join(snapshot.directory, web2DanceScopeFile) };
+      assert(renderFullNativeConfig(publicGraph, "serve", "3".repeat(64), file, publicGraph.socket, false, consent, scopeSnapshot)
+        .includes('(name="' + web2DanceScopeBinding + '",text=embed "' + scopeSnapshot.scope + '")'));
+
+      const { release: scripted } = scriptedPublicationAuthority("https://policies.example", authority.now(),
+        { issuer: transport.issuerAddress, operator: config.publisher });
+      const pubRelease: PublicationAppRelease = {
+        ...scripted, profile: directoryProfile, configuration: config,
+        source: { ...scripted.source, chainId: directoryProfile.chainId, communityId: directoryProfile.communityId,
+          installationId: directoryProfile.installationId, directory: directoryProfile.directory,
+          directoryRuntimeHash: directoryProfile.directoryCodeHash, registry: source.pin.consentRegistry,
+          registryRuntimeHash: source.pin.consentRegistryRuntimeHash },
+        fee: { ...scripted.fee, chainId: directoryProfile.chainId },
+        policies: {
+          "dance-verdict": { ...scripted.policies["dance-verdict"]!, target: domain.verifier,
+            runtimeHash: source.pin.runtimeCodeHash, policyHash: source.pin.learnerConsentPolicyHash },
+          "dance-review-attribution": { ...scripted.policies["dance-review-attribution"]!, target: domain.verifier,
+            runtimeHash: source.pin.runtimeCodeHash, policyHash: source.pin.reviewerConsentPolicyHash },
+        },
+      };
+      const selected: Web2DancePublicationApproval["selection"] = {
+        schema: "pirate.publication-installation/1", communityId: config.communityId, installationId: config.installationId,
+        origin: draft.origin, installedBindingSha256: `0x${nativeDigest(original)}`, incarnation: "1", previous: null,
+        active: publicationSelectionHash(pubRelease), entries: [{ release: pubRelease, transportRef: transport.transportRef }],
+      };
+      const approval: Web2DancePublicationApproval = {
+        approvalSha256: attachment.approvalSha256, selectionSha256: protocolDigest(selected), selection: selected,
+        configuration: config, ownerWallet: owner.wallet, publicGenesisHash: word(221),
+      };
+      const publicMount = canonical(sign({ ...mount, issuerAddress: transport.issuerAddress,
+        mount: { ...mount.mount, selectionSha256: approval.selectionSha256 } }));
+      const publicRewards = { ...attachment, selectionSha256: approval.selectionSha256 };
+      const rewardRaw = canonical(sign(publicRewards));
+      const scoped = { ...doc, selectionSha256: approval.selectionSha256, releaseSelectionHash: selected.active,
+        attachmentDigest: `0x${nativeDigest(sign(publicRewards))}` };
+      const crossWiredScope = canonical(sign(scoped));
+      const publicInput = { graph: publicGraph, original, approval, publicationMount: publicMount };
+      const read = (approved = approval) => readTrustedPublicDanceArtifacts({ ...publicInput, approval: approved });
+      assert.equal(await read(), undefined);
+      await writeFile(paths.scope, crossWiredScope, { mode: 0o600 });
+      await assert.rejects(read(), /web2_dance_reward_attachment_required/);
+      await rm(paths.scope);
+      await mkdir(join(publicState, "dance-rewards"), { mode: 0o700 });
+      await writeFile(paths.reward, rewardRaw, { mode: 0o600 });
+      const only = await read();
+      assert(only && only.reward === rewardRaw && only.scope === undefined);
+      const wrong = structuredClone(pubRelease);
+      wrong.policies["dance-review-attribution"]!.policyHash = word(219);
+      await assert.rejects(read({ ...approval, selection: { ...selected, active: publicationSelectionHash(wrong),
+        entries: [{ release: wrong, transportRef: transport.transportRef }] } }), /web2_dance_reward_publication_source_changed/);
+      await assert.rejects(read({ ...approval, approvalSha256: "a".repeat(64) }), /web2_dance_reward_approved_original_changed/);
+      await t.test("public reward read detects invalid UTF-8 and growth after the first FD stat", async t => {
+        const reward = () => readWeb2DanceRewardApproval(publicGraph, original, approval);
+        const expected = nativeDigest(sign(publicRewards));
+        assert.equal(await reward(), expected);
+        await writeFile(paths.reward, Buffer.concat([Buffer.from(rewardRaw), Buffer.from([0xff])]));
+        await assert.rejects(reward(), TypeError);
+        await writeFile(paths.reward, rewardRaw);
+
+        const marker = await open(paths.reward, "r");
+        const filePrototype: FileHandle = Object.getPrototypeOf(marker);
+        const originalRead = filePrototype.read;
+        await marker.close();
+        let grew = false;
+        const spy = t.mock.method(filePrototype, "read", async function (this: FileHandle, ...args: unknown[]) {
+          if (!grew && await readlink("/proc/self/fd/" + this.fd) === paths.reward) {
+            grew = true;
+            await appendFile(paths.reward, Buffer.alloc(256 * 1024, 0x20));
+          }
+          return Reflect.apply(originalRead, this, args);
+        });
+        try {
+          await assert.rejects(reward(), /web2_dance_activation_file_changed/);
+          assert(grew);
+        } finally {
+          spy.mock.restore();
+          await writeFile(paths.reward, rewardRaw);
+        }
+        assert.equal(await reward(), expected);
+      });
+
+      assert(selected.active);
+      const prepareIntent: InstalledDanceBindIntent = {
+        schema: "pirate.installed-dance-bind-intent/1", intentId: word(220),
+        installedBindingSha256: `0x${nativeDigest(original)}`, communityId: domain.communityId,
+        installationId: config.installationId, releaseSha256: selected.active, configurationSha256: hashJson(config),
+        sourceHash: source.sourceHash, ownerEpoch: owner.epoch, ownerWallet: owner.wallet,
+        grants: [
+          { purpose: "dance-verdict", commandId: word(95), accountId: learner.plan.accountId },
+          { purpose: "dance-review-attribution", commandId: word(96), accountId: reviewer.plan.accountId },
+        ],
+      };
+      const intentSha256 = protocolDigest(prepareIntent);
+      const intentRaw = canonical(sign(prepareIntent));
+      const publicationSource = publicationSelectionSource(pubRelease);
+      const grants = await Promise.all(prepareIntent.grants.map(async (item, position) => {
+        const grantId = word(225 + position);
+        const commandId = protocolDigest({ schema: "pirate.installed-dance-bind-command/1", intentSha256,
+          position, appCommandId: item.commandId, grantId });
+        const original = await originalBinding(position, commandId);
+        const { plan } = original;
+        const accountCommitment = danceAccountCommitment(domain, plan.accountId, plan.wallet);
+        const command = danceCommand(domain, "bindIdentity", config.publisher, commandId, {
+          expectedOwnerEpoch: 1n, expectedConfigurationRevision: 2n, accountCommitment, wallet: plan.wallet,
+          expectedIdentityEpoch: 0n, sourceGroupId: zeroHash, sourceBindingGroupEpoch: 0n, sourceCurrentGroupEpoch: 0n,
+          destinationGroupId: danceSingletonId(domain, accountCommitment), destinationGroupEpoch: 0n, createSingleton: true, active: true,
+        });
+        assert.equal(parseTransaction(original.raw).data, command.data);
+        const receipt: ObservedDanceGrant["receipt"] = {
+          schema: "pirate.publication-command-receipt/1", commandId: item.commandId, digest: grantId,
+          action: "grant", purpose: item.purpose, source: publicationSource, state: "recorded",
+          transactionHash: word(227 + position), transactionIndex: position,
+          observed: { blockNumber: "10", blockHash: word(229), timestampS: "120" },
+        };
+        return { original, observed: { command: {
+          action: "grant" as const, commandId: item.commandId, digest: grantId, message: { purpose: item.purpose },
+        }, receipt }, plan: {
+          purpose: item.purpose, appGrantCommandId: item.commandId, grantId, grantReceiptSha256: protocolDigest(receipt),
+          plan: { ...plan, ownerEpoch: String(plan.ownerEpoch), configurationRevision: String(plan.configurationRevision) },
+          command,
+        }};
+      }));
+      const resultRaw = canonical({ schema: "pirate.installed-dance-bind-prepare/1", intentSha256, plans: grants.map(g => g.plan) });
+      const intentPath = join(paths.directory, web2DanceIntentFile), resultPath = join(paths.directory, web2DancePrepareFile);
+      const custodyRoot = join(publicState, "stage-owner"), composerPath = join(publicState, "composer");
+      await mkdir(custodyRoot, { mode: 0o700 });
+      await mkdir(composerPath, { mode: 0o700 });
+      const control = await acquireWeb2ServiceControl(custodyRoot, plan.installationId);
+      closeControl = () => control.closeControl();
+      const storePath = join(publicState, "operator.sqlite");
+      const scopeIdentity: Web2PublicDanceCustody["scope"] = {
+        chainId: 6343, communityId: domain.communityId, installationId: config.installationId,
+        releaseSha256: selected.active, publisher: config.publisher, verifier: domain.verifier, sourceHash: source.sourceHash,
+      };
+      const readIdentity = async (path: string) => {
+        const physical = await stat(path, { bigint: true });
+        return { device: String(physical.dev), inode: String(physical.ino) };
+      };
+      const journalId = word(230), genesisHash = word(221);
+      const seed = operatorDatabase(storePath, Number(authority.now()));
+      try {
+        seed.store.set("publicationOperatorIdentity:v1", { schema: "pirate.local-publication-operator-journal/1",
+          journalId, chainId: 6343, genesisHash, communityId: domain.communityId,
+          installationId: config.installationId, publisher: config.publisher });
+      } finally {
+        seed.close();
+      }
+      await chmod(storePath, 0o600);
+      const storeIdentity = { path: storePath, ...await readIdentity(storePath), journalId };
+      const databaseBeforeStage = await readFile(storePath);
+      const database = await openPinnedNativeDanceOperatorStore({
+        identity: storeIdentity, lease: control.lease, readOnly: true,
+      });
+      closeStore = () => database.close();
+      assert.notEqual(database.store, seed.store);
+      const directoryIdentity = await readIdentity(composerPath);
+      const composerRunId = "retained-run";
+      const composerIntent = canonical({ runId: composerRunId, genesisHash, nativeOriginalSha256: nativeDigest(original),
+        publisher: scopeIdentity.publisher, localOnly: false });
+      await writeFile(join(composerPath, "selection-intent.json"), composerIntent, { mode: 0o600 });
+      const retainedDance = await createNativeDanceRetainedStore({ store: database.store, storeIdentity,
+        journalDirectory: composerPath, directoryIdentity, runId: composerRunId,
+        genesisHash, scope: scopeIdentity, assertCustody: () => control.lease.assertHeld() });
+      const beforeGrantProof = Error("test stopped at the independent application grant proof");
+      let approvals = 0, appReads = 0, stageScope = crossWiredScope;
+      const stage = (lease = control.lease) => stageWeb2DanceActivation({ ...publicInput, chain: authority, lease,
+        assertCurrent: () => lease.assertHeld(), owner: {
+          publicCustody: { lease, operatorStore: database.store, retainedDance },
+          async approvedScope() { approvals++; return stageScope; },
+          async observedAppGrants() { appReads++; throw beforeGrantProof; },
+        },
+      });
+      await assert.rejects(stage(), /web2_public_dance_prepare_required/);
+      assert.equal(approvals, 1);
+      assert.equal(appReads, 0);
+      await assert.rejects(readFile(paths.scope), { code: "ENOENT" });
+      await writeFile(paths.scope, crossWiredScope, { mode: 0o600 });
+      await assert.rejects(read(), /web2_public_dance_prepare_required/);
+      await writeFile(intentPath, intentRaw, { mode: 0o600 });
+      await assert.rejects(read(), /web2_public_dance_prepare_required/);
+      await writeFile(resultPath, resultRaw, { mode: 0o600 });
+      await assert.rejects(stage(), /web2_public_dance_prepare_binding_changed/);
+      assert.equal(appReads, 0);
+      await assert.rejects(read(), /web2_public_dance_prepare_binding_changed/);
+      const prepare = await readRetainedWeb2DanceBindPrepare({ original, source, directory: paths.directory,
+        approved: { releaseSha256: selected.active, configurationSha256: hashJson(config), ownerWallet: owner.wallet,
+          publisher: config.publisher, configurationRevision: config.configurationRevision } });
+      const observed = grants.map(g => g.observed);
+      assertPublicDancePreparedGrants(prepare.prepared, observed);
+      assert.throws(() => assertPublicDancePreparedGrants(prepare.prepared, observed.toReversed()), /web2_public_dance_prepare_grant_changed/);
+      assert.throws(() => assertPublicDancePreparedGrants(prepare.prepared, [
+        { ...observed[0]!, receipt: { ...observed[0]!.receipt, transactionHash: word(235) } }, observed[1]!,
+      ]), /web2_public_dance_prepare_grant_changed/);
+      assert.throws(() => assertPublicDancePreparedGrants(prepare.prepared, [
+        { ...observed[0]!, command: { ...observed[0]!.command, digest: word(236) } }, observed[1]!,
+      ]), /web2_public_dance_prepare_grant_changed/);
+
+      const scopeRaw = canonical(sign({ ...scoped, grants: [
+        web2DanceRetainedPeer("dance-verdict", word(95), grants[0]!.original),
+        web2DanceRetainedPeer("dance-review-attribution", word(96), grants[1]!.original),
+      ] }));
+      await writeFile(paths.scope, scopeRaw);
+      await assert.rejects(read(), /web2_public_dance_custody_required/);
+      const custody: Web2PublicDanceCustody = {
+        schema: "pirate.public-web2-dance-custody/1", nativeOriginalSha256: nativeDigest(original), hostInstallationId: plan.installationId,
+        approvalSha256: approval.approvalSha256, selectionSha256: approval.selectionSha256, rewardSha256: nativeDigest(sign(publicRewards)),
+        scopeSha256: hashText(scopeRaw).slice(2), prepareIntentSha256: hashText(intentRaw).slice(2), prepareResultSha256: hashText(resultRaw).slice(2),
+        scope: scopeIdentity,
+        store: storeIdentity,
+        composer: { path: composerPath, ...directoryIdentity, runId: composerRunId,
+          genesisHash, intentSha256: hashText(composerIntent).slice(2) },
+      };
+      const nominee = join(paths.directory, web2PublicDanceCustodyFile);
+      const staged = join(paths.directory, web2PublicDanceStagedCustodyFile);
+      const custodyRaw = canonical(sign(custody));
+      await writeFile(nominee, custodyRaw, { mode: 0o600 });
+      await assert.rejects(read(), /web2_public_dance_staged_custody_changed/);
+      await rm(paths.scope);
+      stageScope = scopeRaw;
+      const otherControl = await acquireWeb2ServiceControl(await mkdtemp(join(publicState, "other-stage-owner-")),
+        control.lease.installationId);
+      try {
+        assert.notEqual(otherControl.lease, control.lease);
+        assert.equal(otherControl.lease.installationId, control.lease.installationId);
+        await control.lease.assertHeld();
+        await otherControl.lease.assertHeld();
+        await assert.rejects(stage(otherControl.lease), /native_dance_connected_store_lease_changed/);
+        assert.equal(appReads, 0);
+        await assert.rejects(readFile(paths.scope), { code: "ENOENT" });
+        await assert.rejects(readFile(staged), { code: "ENOENT" });
+      } finally {
+        await otherControl.closeControl();
+      }
+      await assert.rejects(stage(), error => error === beforeGrantProof);
+      assert.equal(appReads, 1);
+      assert.deepEqual(await readFile(storePath), databaseBeforeStage);
+      await assert.rejects(readFile(paths.scope), { code: "ENOENT" });
+      await assert.rejects(readFile(staged), { code: "ENOENT" });
+      await writeFile(staged, custodyRaw, { mode: 0o600 });
+      await writeFile(paths.scope, scopeRaw, { mode: 0o600 });
+      const complete = await read();
+      assert(complete?.scope === scopeRaw && complete.custody.record.scope.releaseSha256 === selected.active);
+      assert.equal(complete.scopeSha256, hashText(scopeRaw).slice(2));
+      assert.equal(complete.custody.recordSha256, hashText(custodyRaw).slice(2));
+      await writeFile(nominee, canonical(sign({ ...custody, store: { ...custody.store, inode: "35" } })));
+      await assert.rejects(read(), /web2_public_dance_staged_custody_changed/);
+      assert.equal(await readFile(staged, "utf8"), custodyRaw);
+    });
 
     await t.test("Dance owner intake refuses missing current admission without repairing the bound original", async t => {
       const controlDirectory = join(directory, "owner-control"), maintenanceDirectory = join(directory, "maintenance");

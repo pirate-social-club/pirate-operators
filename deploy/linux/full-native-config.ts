@@ -142,6 +142,9 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     assert(g.localActivitySocket && publication.schema === "pirate.web2-native-publication-transport/1",
       "native_publication_requires_selected_activity_socket");
   }
+  assert(!danceActivation?.reward || trustedPublication && nativeOriginalFile &&
+    danceActivation.directory === nativeOriginalFile.slice(0, nativeOriginalFile.lastIndexOf("/")),
+    "web2_dance_activation_boot_snapshot_required");
   const publicationFiles = publication ? nativePublicationPaths(publication.directory) : undefined;
   assert(!requireRetainedWeb2 || !publication || trustedPublication, "trusted_web2_publication_boot_snapshot_required");
   const publicationSelector = trusted
@@ -185,7 +188,7 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +'(name="COMMUNITY_DEPLOYMENT_PROFILE_JSON",text='+q(g.directoryRuntimeBinding)+'),'
     +(nativeOriginalFile?'(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+'),'
       +'(name="NATIVE_READBACK_KEY",text=embed '+q(g.readbackKeyFile)+'),':'')
-    +[...web2DanceActivationBindings(g,mode,danceActivation).map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
+    +[...web2DanceActivationBindings(g,mode,danceActivation,Boolean(trustedPublication)).map(binding),...g.secretBindings.map(x=>'(name='+q(x.name)+',text=embed '+q(x.path)+')'),
       ...publicationApp].join(","),"",undefined,"egress"));
   assert(g.stateRoots.readiness?.startsWith("/"),"persistent_handler_readback_root_required");
   services.push(disk("readback-storage",g.stateRoots.readiness!));

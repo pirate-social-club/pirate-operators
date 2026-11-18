@@ -9,6 +9,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { httpsOrigin } from "../../packages/community/manifest-core.ts";
 import { canonical, exact, object } from "../../packages/community/common.ts";
 import { trustedWeb2PublicationReadbackPath } from "../../packages/community/web2-trusted-publication.ts";
+import { web2DanceLiveProofHeader, web2DanceLiveProofMode, type Web2DanceLiveProof } from "../../packages/community/web2-dance-live-proof.ts";
 import type { PublicationMountIdentity } from "../../services/publication-installed-selection.ts";
 import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
@@ -466,12 +467,18 @@ export async function inspectTrustedRevisionOneIngress(ingress: PublicIngress, o
   assert(canonical(actual) === canonical(original), "trusted_revision_two_original_served_configuration_changed");
 }
 
+type TrustedPublicationLiveProof = {
+  mount: PublicationMountIdentity;
+  active: string;
+  dance?: Web2DanceLiveProof;
+};
+
 /** Confirm this live, authenticated private Workerd edge loaded the original
  * selection. No proof file, public summary or localhost fallback is enough. */
 export async function inspectTrustedPublicationIngress(
   ingress: PublicIngress,
   readbackKeyFile: string,
-  expected: { mount: PublicationMountIdentity; active: string },
+  expected: TrustedPublicationLiveProof,
 ) {
   assert(ingress.tls.kind === "public-acme", "trusted_web2_publication_private_readback_required");
   const file = await privateFile(readbackKeyFile, 64);
@@ -496,7 +503,7 @@ async function readApplicationIngress(
   path: "/api/public/community" | "/.well-known/pirate-community.json" | typeof trustedWeb2PublicationReadbackPath,
   throughIngress: boolean,
   signal?: AbortSignal,
-  publication?: { key: string; expected: { mount: PublicationMountIdentity; active: string } },
+  publication?: { key: string; expected: TrustedPublicationLiveProof },
 ) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
@@ -530,6 +537,8 @@ async function readApplicationIngress(
         ...(publication ? { agent: false as const } : {}),
         headers: { Host: new URL(ingress.origin).host,
           ...(publication ? { "X-Pirate-Readback-Key": publication.key } : {}),
+          ...(publication?.expected.dance ?
+            { [web2DanceLiveProofHeader]: web2DanceLiveProofMode(publication.expected.dance) } : {}),
         },
         timeout: 5000,
         signal,
