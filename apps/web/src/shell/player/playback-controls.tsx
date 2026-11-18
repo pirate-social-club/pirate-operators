@@ -68,7 +68,9 @@ export function SongPlaybackControls(props: {
           >
             <Show
               when={props.playing}
-              fallback={<IconPlay class="relative z-10 size-5" filled />}
+              fallback={
+                <IconPlay class="relative z-10 size-5" filled={!props.tile} />
+              }
             >
               <IconPause class="relative z-10 size-5" filled />
             </Show>

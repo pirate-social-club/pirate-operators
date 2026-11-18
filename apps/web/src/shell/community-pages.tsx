@@ -275,10 +275,13 @@ export function CommunityPages(props: CommunityPagesProps) {
             }
           >
             {(song) => (
-              <article class="min-w-0" lang={post()?.manifest.language}>
-                <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 border-b border-border-soft pb-5">
-                  <h1 class="sr-only">{song().title}</h1>
+              <article
+                class="flex min-w-0 flex-col gap-5"
+                lang={post()?.manifest.language}
+              >
+                <div class="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 border-b border-border-soft pb-5">
                   <CommunityPostCard
+                    detail
                     flush
                     post={song()}
                     menuActions={[
@@ -296,7 +299,7 @@ export function CommunityPages(props: CommunityPagesProps) {
                   />
                   <nav
                     aria-label="Song activities"
-                    class="grid grid-cols-3 gap-3"
+                    class="grid grid-flow-col auto-cols-fr gap-2 sm:gap-3"
                   >
                     <Show when={props.study}>
                       <a
@@ -341,11 +344,13 @@ export function CommunityPages(props: CommunityPagesProps) {
                       )}
                     </Show>
                   </nav>
-                  {/* The reference activity row follows the card/available
-                    activity slots. Published lyrics are supplemental API data,
-                    kept below those actions rather than delaying them. */}
-                  <Show when={post()?.lyricsText}>
-                    {(lyrics) => (
+                </div>
+                <Show when={post()?.lyricsText}>
+                  {(lyrics) => (
+                    <section class="min-w-0">
+                      <Type as="h2" variant="h3" class="mb-2">
+                        Lyrics
+                      </Type>
                       <Type
                         as="p"
                         variant="body"
@@ -353,46 +358,46 @@ export function CommunityPages(props: CommunityPagesProps) {
                       >
                         {lyrics()}
                       </Type>
+                    </section>
+                  )}
+                </Show>
+                <Show when={props.session && props.rewards && props.offers}>
+                  <For
+                    each={props.offers?.offers.filter(
+                      (offer) => offer.postId === song().id,
                     )}
-                  </Show>
-                  <Show when={props.session && props.rewards && props.offers}>
-                    <For
-                      each={props.offers?.offers.filter(
-                        (offer) => offer.postId === song().id,
-                      )}
-                    >
-                      {(offer) => (
-                        <details>
-                          <summary>
-                            Lottery reward · {offer.ticketCount}{" "}
-                            {offer.ticketCount === 1 ? "ticket" : "tickets"}
-                          </summary>
-                          <p>
-                            Practice rewards have no cash value in this pilot.
-                            Complete Study with at least 70% correct on the
-                            first try, or Karaoke with a score of at least 70%
-                            and at least 90% of lines measured. One entry per
-                            account.
-                          </p>
-                          <p>
-                            Complete and publish your result between{" "}
-                            {new Date(offer.opensAt).toLocaleString()} and{" "}
-                            {new Date(offer.cutoffAt).toLocaleString()}.
-                            Winnings are shared equally among qualifying
-                            accounts. There may be no prize. Any remainder stays
-                            with the operator.
-                          </p>
-                          <p>
-                            Winning shares appear in your wallet. Scan your palm
-                            to claim; payments are approved daily. Unclaimed
-                            shares stay available. If nobody qualifies, winnings
-                            stay with the operator.
-                          </p>
-                        </details>
-                      )}
-                    </For>
-                  </Show>
-                </div>
+                  >
+                    {(offer) => (
+                      <details>
+                        <summary>
+                          Lottery reward · {offer.ticketCount}{" "}
+                          {offer.ticketCount === 1 ? "ticket" : "tickets"}
+                        </summary>
+                        <p>
+                          Practice rewards have no cash value in this pilot.
+                          Complete Study with at least 70% correct on the
+                          first try, or Karaoke with a score of at least 70%
+                          and at least 90% of lines measured. One entry per
+                          account.
+                        </p>
+                        <p>
+                          Complete and publish your result between{" "}
+                          {new Date(offer.opensAt).toLocaleString()} and{" "}
+                          {new Date(offer.cutoffAt).toLocaleString()}.
+                          Winnings are shared equally among qualifying
+                          accounts. There may be no prize. Any remainder stays
+                          with the operator.
+                        </p>
+                        <p>
+                          Winning shares appear in your wallet. Scan your palm
+                          to claim; payments are approved daily. Unclaimed
+                          shares stay available. If nobody qualifies, winnings
+                          stay with the operator.
+                        </p>
+                      </details>
+                    )}
+                  </For>
+                </Show>
               </article>
             )}
           </Show>

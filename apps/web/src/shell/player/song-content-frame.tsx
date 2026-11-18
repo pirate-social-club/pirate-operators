@@ -6,6 +6,7 @@ import type { JSX } from "@solidjs/web";
 import { IconMusicNote, Type } from "../design-system.ts";
 export function SongContentFrame(props: {
   title: string;
+  detail?: boolean;
   artworkSrc?: string;
   artist?: string;
   titleHref?: string;
@@ -36,8 +37,12 @@ export function SongContentFrame(props: {
         <div class="min-w-0">
           <div class="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0 leading-tight">
             <Type
-              as="span"
-              class="max-w-full truncate font-semibold text-foreground"
+              as={props.detail ? "h1" : "span"}
+              class={
+                props.detail
+                  ? "max-w-full break-words font-semibold text-foreground"
+                  : "max-w-full truncate font-semibold text-foreground"
+              }
               variant="body-strong"
             >
               <Show when={props.titleHref} fallback={props.title}>

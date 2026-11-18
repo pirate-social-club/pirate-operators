@@ -18,6 +18,7 @@ function SongPost(props: {
   titleHref?: string;
   nativeNavigation?: boolean;
   isolatePlayback?: boolean;
+  detail?: boolean;
 }) {
   return (
     <SongContentFrame
@@ -26,6 +27,7 @@ function SongPost(props: {
       artist={props.post.mediaArtist}
       titleHref={props.titleHref}
       nativeNavigation={props.nativeNavigation}
+      detail={props.detail}
     >
       <SongPlayer
         compact
@@ -199,11 +201,18 @@ export function CommunityPostCard(props: {
             titleHref={props.titleHref}
             nativeNavigation={props.nativeNavigation}
             isolatePlayback={props.isolatePlayback}
+            detail={props.detail}
           />
         </Show>
       </Show>
       <div
-        class={props.titleHref ? "relative z-10 w-fit max-w-full" : undefined}
+        class={
+          props.titleHref
+            ? "relative z-10 w-fit max-w-full"
+            : props.detail
+              ? "empty:hidden"
+              : undefined
+        }
       >
         <Show when={props.actions}>
           <div

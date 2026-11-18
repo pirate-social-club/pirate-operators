@@ -2,11 +2,13 @@ import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import { expect, fn, within } from "storybook/test";
 import { CommunityAppShell } from "../live/app-shell.tsx";
 import { CommunityPages } from "./community-pages.tsx";
+import { danceUrl } from "./routing.ts";
 import type { CommunityFeed, CommunitySessionView } from "../api-contract.ts";
 
 const postId = "0x" + "12".repeat(32);
 const communityId = "0x" + "34".repeat(32);
 const authorId = "0x" + "56".repeat(32);
+const fixtureLyrics = "A fixture lyric line\nA second fixture lyric line";
 const feed: CommunityFeed = {
   schema: "pirate.community-feed/1",
   communityId,
@@ -21,6 +23,7 @@ const feed: CommunityFeed = {
         rating: "general",
       },
       audioUrl: "/storybook-no-audio",
+      lyricsText: fixtureLyrics,
       postUrl: "/#song-" + postId,
       transactionHash: "0x" + "78".repeat(32),
     },
@@ -43,6 +46,7 @@ function ShellFixture(props: {
   busy: boolean;
   onSignIn: () => void;
   view: "home" | "song";
+  hasPublicAuthor: boolean;
 }) {
   return (
     <CommunityAppShell
@@ -76,11 +80,20 @@ function ShellFixture(props: {
         offers={null}
         integrations={{
           version: 1,
-          postAuthors: {
-            communityId,
-            rows: [{ authorId, displayName: "Publisher" }],
+          postAuthors: props.hasPublicAuthor
+            ? {
+                communityId,
+                rows: [{ authorId, displayName: "Publisher" }],
+              }
+            : undefined,
+          danceNavigation: {
+            postHref: (id) =>
+              danceUrl(new URL("/", location.origin), communityId, {
+                kind: "post",
+                postId: id,
+              }).href,
+            open: fn(),
           },
-          danceNavigation: { postHref: (id) => "/?dance=" + id, open: fn() },
         }}
         context={() => ({
           version: 1,
@@ -107,6 +120,7 @@ const meta = {
     busy: false,
     onSignIn: fn(),
     view: "home",
+    hasPublicAuthor: true,
   },
   render: (args) => <ShellFixture {...args} />,
   parameters: {
@@ -142,8 +156,59 @@ export const Song: Story = {
       canvas.getByRole("button", { name: "Play Sample song" }),
     ).toBeVisible();
     await expect(
-        canvas.queryByRole("link", { name: /^Terms$/ }),
+      canvas.queryByRole("link", { name: /^Terms$/ }),
     ).not.toBeInTheDocument();
+    const post = canvas.getByRole("main");
+    await expect(post.getByText("Publisher", { exact: true })).toBeVisible();
+    await expect(
+      post.getByRole("heading", { level: 1, name: "Sample song" }),
+    ).toBeVisible();
+    await expect(
+      post.getByRole("heading", { level: 2, name: "Lyrics" }),
+    ).toBeVisible();
+    await expect(
+      post.getByText("A fixture lyric line A second fixture lyric line", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      post.getByRole("button", { name: "Post options" }),
+    ).toBeVisible();
+    const activities = post.getByRole("navigation", {
+      name: "Song activities",
+    });
+    for (const [label, query] of [
+      ["Study", "study"],
+      ["Karaoke", "sing"],
+    ]) {
+      await expect(
+        activities.getByRole("link", { name: label }),
+      ).toHaveAttribute("href", "/?" + query + "=" + postId);
+    }
+    const dance = activities.getByRole("link", { name: /^Dance$/u });
+    const danceHref = new URL(
+      dance.getAttribute("href")!,
+      canvasElement.ownerDocument.URL,
+    );
+    const origin = new URL(canvasElement.ownerDocument.URL).origin;
+    await expect(danceHref.origin).toBe(origin);
+    await expect(danceHref.pathname).toBe(
+      "/dance/" + communityId + "/posts/" + postId,
+    );
+    const documentElement = canvasElement.ownerDocument.documentElement;
+    await expect(documentElement.scrollWidth).toBeLessThanOrEqual(
+      documentElement.clientWidth,
+    );
   },
 };
 export const AnonymousSong: Story = { args: { view: "song" } };
+
+export const SongWithoutPublicAuthor: Story = {
+  args: { signedIn: true, view: "song", hasPublicAuthor: false },
+  play: async ({ canvasElement }) => {
+    const post = within(canvasElement).getByRole("main");
+    await expect(post.getByText("Unknown author")).toBeVisible();
+    await expect(post.queryByRole("link", { name: "Unknown author" })).toBeNull();
+    await expect(post.queryByText("Publisher")).toBeNull();
+  },
+};
