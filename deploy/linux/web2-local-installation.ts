@@ -50,6 +50,7 @@ import {
 import {
   IngressStartupFailure,
   inspectCommunityIngress,
+  inspectTrustedRevisionOneIngress,
   publicIngressFrom,
   retainPublicIngress,
   startPublicIngress,
@@ -63,8 +64,9 @@ import {
 import { stageNativePublication, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
 import {
-  assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, web2OriginalStartIntent,
+  assertTrustedRevisionTwoTarget, readTrustedRevisionTwoPolicy, requireTrustedRevisionTwoResources, trustedRevisionTwo, web2OriginalStartIntent,
 } from "./web2-trusted-revision-two.ts";
+import { retainTrustedRevisionOneServingWitness, trustedRevisionOneResourceDigest } from "./web2-trusted-revision-two-producer.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
@@ -361,7 +363,7 @@ export async function createWeb2Installation(
       const intent = await optionalRecord(
         join(selected.planDirectory, "web2-start-intent.json"),
       );
-      await authorize(body.draft, body.planId, body.generation, { record, starting: intent !== null });
+      const before = await authorize(body.draft, body.planId, body.generation, { record, starting: intent !== null });
       const state = await controller.inspect(AbortSignal.timeout(45000));
       if (!intent) {
         assert(
@@ -389,14 +391,42 @@ export async function createWeb2Installation(
         body.draft.enrollment.communityId,
         true,
       );
-      await authorize(body.draft, body.planId, body.generation, { record, starting: true });
-      assert(
-        sameProcess(
-          edge.identity,
-          await processIdentity(edge.identity.hostPid),
-        ),
-        "original_ingress_not_running",
-      );
+      const after = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
+      const identity = edge.identity;
+      const assertIngress = async () => {
+        assert(sameProcess(identity, await processIdentity(identity.hostPid)), "original_ingress_not_running");
+      };
+      await assertIngress();
+      if (trusted && !before.expanded && !after.expanded) {
+        const original = nativeOriginal(record);
+        const policy = await readTrustedRevisionTwoPolicy({
+          graph, original, now, currentAdmissionFile: selected.currentAdmissionFile,
+        });
+        const resourcesSha256 = trustedRevisionOneResourceDigest(selected.target.containers.length, state.resources);
+        await retainTrustedRevisionOneServingWitness({
+          graph, original, policy, resourcesSha256,
+          async assertCurrent() {
+            await assertIngress();
+            await inspectTrustedRevisionOneIngress(ingress, body.draft.configuration);
+            const current = await controller.inspect(AbortSignal.timeout(45000));
+            assert(current.fingerprint === selected.hostFingerprint &&
+              current.resources.every(r => r.actual?.State.Running) &&
+              trustedRevisionOneResourceDigest(selected.target.containers.length, current.resources) === resourcesSha256,
+              "trusted_revision_two_original_serving_resources_changed");
+            const same = await load(selection);
+            assert(canonicalDigest(same.record) === canonicalDigest(record), "trusted_revision_two_original_changed");
+            const confirmed = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
+            assert(!confirmed.expanded && confirmed.evidence.configurationRevision === 1,
+              "trusted_revision_two_original_serving_authority_changed");
+            assert(canonicalDigest(await readTrustedRevisionTwoPolicy({
+              graph, original, now, currentAdmissionFile: selected.currentAdmissionFile,
+            })) === canonicalDigest(policy), "trusted_revision_two_binding_policy_changed");
+            await assertIngress();
+            await open();
+            return confirmed.evidence;
+          },
+        });
+      }
       return { ...base, state: "running" };
     } catch {
       return {
@@ -602,7 +632,9 @@ export async function createWeb2Installation(
         }
         return observation(owned);
       }),
-    status: (selection) => observation(structuredClone(selection)),
+    status: (selection) => trusted
+      ? exclusive(() => observation(structuredClone(selection)))
+      : observation(structuredClone(selection)),
     async resumeOriginal() {
       await open();
       const retained =

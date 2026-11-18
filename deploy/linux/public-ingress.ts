@@ -7,7 +7,8 @@ import { once } from "node:events";
 import { request } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import { httpsOrigin } from "../../packages/community/manifest-core.ts";
-import { exact, object } from "../../packages/community/common.ts";
+import { canonical, exact, object } from "../../packages/community/common.ts";
+import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
   hash,
   privateDirectory,
@@ -444,6 +445,30 @@ export async function inspectCommunityIngress(
   throughIngress = false,
   signal?: AbortSignal,
 ) {
+  const actual = await readApplicationIngress(ingress, "/api/public/community", throughIngress, signal);
+  assert(
+    actual && typeof actual === "object" && "communityId" in actual && actual.communityId === expectedCommunityId,
+    "actual_application_community_changed",
+  );
+}
+
+/** The public summary does not identify the serving configuration. Read the
+ * complete application document through the owned ACME ingress. */
+export async function inspectTrustedRevisionOneIngress(ingress: PublicIngress, original: Web2CommunityConfig) {
+  assert(ingress.tls.kind === "public-acme" && original.configurationRevision === 1,
+    "trusted_revision_two_original_acme_readback_required");
+  const actual = await readApplicationIngress(
+    ingress, "/.well-known/pirate-community.json", true, AbortSignal.timeout(5000),
+  );
+  assert(canonical(actual) === canonical(original), "trusted_revision_two_original_served_configuration_changed");
+}
+
+async function readApplicationIngress(
+  ingress: PublicIngress,
+  path: "/api/public/community" | "/.well-known/pirate-community.json",
+  throughIngress: boolean,
+  signal?: AbortSignal,
+) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
       ? await readFile(
@@ -458,7 +483,8 @@ export async function inspectCommunityIngress(
       : undefined
     : await readFile(ingress.upstreamCaFile);
   const url = new URL(ingress.upstream);
-  return await new Promise<void>((resolve, reject) => {
+  const verifyServedConfig = path === "/.well-known/pirate-community.json";
+  return await new Promise<unknown>((resolve, reject) => {
     const req = request(
       {
         hostname: "127.0.0.1",
@@ -468,32 +494,34 @@ export async function inspectCommunityIngress(
           : ingress.upstreamServerName,
         ca: bytes,
         method: "GET",
-        path: "/api/public/community",
+        path,
+        ...(verifyServedConfig ? { rejectUnauthorized: true } : {}),
         headers: { Host: new URL(ingress.origin).host },
         timeout: 5000,
         signal,
       },
       (res) => {
+        const decoder = new TextDecoder("utf-8", { fatal: verifyServedConfig, ignoreBOM: true });
         let body = "";
-        res.on("data", (chunk) => {
-          body += String(chunk);
-          if (body.length > 65536)
-            req.destroy(new Error("application_readback_limit"));
+        const append = (text: string) => {
+          assert(body.length + text.length <= 65536, "application_readback_limit");
+          body += text;
+        };
+        res.on("data", (chunk: Buffer) => {
+          try {
+            append(decoder.decode(chunk, { stream: true }));
+          } catch (error) {
+            reject(error);
+            req.destroy();
+          }
         });
         res.once("error", reject);
         res.once("end", () => {
           try {
             if (res.statusCode === 503) throw new ApplicationBootPending("application_boot_pending");
             assert(res.statusCode === 200, "application_readback_unavailable");
-            const actual: unknown = JSON.parse(body);
-            assert(
-              actual &&
-                typeof actual === "object" &&
-                "communityId" in actual &&
-                actual.communityId === expectedCommunityId,
-              "actual_application_community_changed",
-            );
-            resolve();
+            append(decoder.decode());
+            resolve(JSON.parse(body) as unknown);
           } catch (error) {
             reject(error);
           }

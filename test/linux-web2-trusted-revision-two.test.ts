@@ -8,16 +8,20 @@ import type { Address } from "viem";
 import type { InstalledTarget } from "../deploy/linux/local-target-controller.ts";
 import type { FullRelease } from "../deploy/linux/installed-release.ts";
 import type { NativeGraph } from "../deploy/linux/full-native-config.ts";
-import { canonicalDigest, signRecord } from "../deploy/linux/installed-records.ts";
+import { canonicalDigest, readPrivateJSON, signRecord } from "../deploy/linux/installed-records.ts";
 import type { PublicIngress } from "../deploy/linux/public-ingress.ts";
 import { expandedPublicationApprovalExists, readApprovedExpandedPublication, readApprovedWeb2Transition } from "../deploy/linux/web2-expanded-publication.ts";
-import { authenticateWeb2Enrollment, web2TargetDigest, type Web2HostAdmission, type Web2InstallPlan } from "../deploy/linux/web2-profile-authority.ts";
+import { authenticateWeb2Enrollment, readWeb2HostAdmission, web2TargetDigest, type Web2HostAdmission, type Web2InstallPlan } from "../deploy/linux/web2-profile-authority.ts";
 import type { Web2RuntimeBindingPolicy } from "../deploy/linux/web2-runtime-binding.ts";
 import {
   assertTrustedRevisionTwoTarget, readApprovedTrustedRevisionTwo, readTrustedRevisionTwoPolicy,
   requireTrustedRevisionTwoResources, trustedRevisionTwo, trustedRevisionTwoPolicyName, web2OriginalStartIntent,
   trustedRevisionTwoApprovalPath, type Web2TrustedRevisionTwoApproval,
 } from "../deploy/linux/web2-trusted-revision-two.ts";
+import { acquireWeb2ServiceControl } from "../deploy/linux/web2-service-lease.ts";
+import {
+  retainTrustedRevisionOneServingWitness, trustedRevisionOneResourceDigest, writeTrustedRevisionTwoApproval,
+} from "../deploy/linux/web2-trusted-revision-two-producer.ts";
 import { canonical, hashJson, hashText } from "../packages/community/common.ts";
 import { nativeDigest } from "../packages/community/native-business-binding.ts";
 import { nativeBusinessTransition } from "../packages/community/native-business-transition.ts";
@@ -109,7 +113,11 @@ test("trusted revision two holds without signed proof and reopens the same initi
     installationId, daemonId: "test", docker: join(root, "docker"), dockerSha256: "c".repeat(64),
     socket: join(root, "docker.sock"), dockerConfig: join(root, "docker-config"), stateRoot: root,
     maintenanceDirectory: join(root, "maintenance"), resourceDirectory: join(root, "resources"),
-    outputDirectory: root, cwd: root, environment: { HOME: root }, containers: [], hostWriters: [],
+    outputDirectory: root, cwd: root, environment: { HOME: root }, hostWriters: [],
+    containers: ["app", "store"].map(key => ({
+      key, name: key, imageId: "fixture-only", configurationDigest: "d".repeat(64), ingress: false,
+      user: "1000", network: "fixture", argv: [], roles: [], mounts: [], ports: [],
+    })),
     allowedReadOnlyRoots: [], allowedWritableRoots: [root],
   };
   const { directoryRuntimeBinding: _unbound, ...policyGraph } = graph;
@@ -196,6 +204,28 @@ test("trusted revision two holds without signed proof and reopens the same initi
   assert.deepEqual(await readTrustedRevisionTwoPolicy({ graph, original, now: nowHost, currentAdmissionFile: policy.currentAdmissionFile }), policy);
   const readFromLiveInstaller = () => readApprovedWeb2Transition({ graph, original, chain: authority, now: nowHost });
 
+  const startPath = join(root, "web2-start-intent.json");
+  const startBytes = JSON.stringify(web2OriginalStartIntent(plan)) + "\n";
+  const witnessPath = join(root, "web2-trusted-revision-one-served.json");
+  const resources = target.containers.map((spec, index) => ({ spec, actual: { Id: String(index + 1).repeat(64) } }));
+  const witnessScope = {
+    graph, original, policy, resourcesSha256: trustedRevisionOneResourceDigest(target.containers.length, resources),
+  };
+  await t.test("serving observation must still prove revision one before the witness is retained", async () => {
+    await writeFile(startPath, startBytes, { mode: 0o600 });
+    // The real installed invocation also requires the actual ACME serve and owned
+    // container checks. This test drives the remaining guard with the real chain.
+    await assert.rejects(retainTrustedRevisionOneServingWitness({
+      ...witnessScope, async assertCurrent() { throw new Error("owned TLS observation unavailable"); },
+    }), /owned TLS observation unavailable/);
+    await assert.rejects(readFile(witnessPath), { code: "ENOENT" });
+  });
+  await retainTrustedRevisionOneServingWitness({
+    ...witnessScope, assertCurrent: () => authenticateWeb2Enrollment(authority, draft),
+  });
+  const witnessBytes = await readFile(witnessPath, "utf8");
+  await rm(witnessPath);
+
   // Requires the exact managed qualification fixture that performs a genuine
   // local Registry deployment and canonical Directory configure transaction.
   const revision = await chain.nextRevision("learning-registry");
@@ -215,6 +245,83 @@ test("trusted revision two holds without signed proof and reopens the same initi
     safeBlock: String(safe.number), safeBlockHash: revision.safe.hash,
     issuedAt: (now - 25) * 1000, expiresAt: (now + 300) * 1000,
   };
+  await t.test("private producer requires the served original and refuses a signer race", async () => {
+    const approvalPath = trustedRevisionTwoApprovalPath(graph);
+    const admissionBytes = JSON.stringify(sign(admission)) + "\n";
+    await writeFile(policy.currentAdmissionFile, admissionBytes, { mode: 0o600 });
+    const controlRoot = join(root, "producer-control");
+    const control = await acquireWeb2ServiceControl(controlRoot, installationId);
+    let openControl = control, inspections = 0, signatures = 0;
+    let actual = resources;
+    const makeHost = () => ({
+      original, release, chain: authority, now: nowHost, lease: openControl.lease,
+      live() { assert(nowHost() < policy.expiresAt); },
+      async assertRetainedOriginal() { await assertOriginals(); },
+      async inspect() { inspections++; return actual; },
+      admission: () => readWeb2HostAdmission({
+        path: policy.currentAdmissionFile, trust, now: nowHost, installationId, draft, planId: plan.planId,
+        releaseArtifactDigest: plan.releaseArtifactDigest, targetDigest: plan.targetDigest,
+        hostFingerprint: plan.hostFingerprint, minimumGeneration: plan.generation,
+      }),
+    });
+    const issue = async (body: Web2TrustedRevisionTwoApproval) => { signatures++; return sign(body); };
+    try {
+      await assert.rejects(writeTrustedRevisionTwoApproval(makeHost(), issue), /trusted_revision_two_original_not_served/);
+      assert.equal(inspections, 0);
+      assert.equal(signatures, 0);
+      await assert.rejects(readFile(approvalPath), { code: "ENOENT" });
+      await writeFile(witnessPath, witnessBytes, { mode: 0o600 });
+      actual = resources.map(row => ({ ...row, actual: { Id: "a".repeat(64) } }));
+      await assert.rejects(writeTrustedRevisionTwoApproval(makeHost(), issue), /trusted_revision_two_original_resource_identity_required/);
+      actual = resources;
+      const witness = JSON.parse(witnessBytes);
+      await writeFile(witnessPath, JSON.stringify({ ...witness, safeBlockHash: hashText("another fork") }));
+      await assert.rejects(writeTrustedRevisionTwoApproval(makeHost(), issue), /trusted_revision_two_serving_anchor_changed/);
+      assert.equal(signatures, 0);
+      await writeFile(witnessPath, witnessBytes);
+      await assert.rejects(writeTrustedRevisionTwoApproval(makeHost(), async body => sign({
+        ...body, registryRuntimeHash: hashText("issuer changed the authenticated configuration"),
+      })), /trusted_revision_two_issuer_changed_body/);
+      await assert.rejects(writeTrustedRevisionTwoApproval(makeHost(), async (body) => {
+        await writeFile(policy.currentAdmissionFile, JSON.stringify(sign({ ...admission, revokedPlanIds: [plan.planId] })));
+        return issue(body);
+      }), /web2_install_plan_revoked/);
+      await assert.rejects(readFile(approvalPath), { code: "ENOENT" });
+      await writeFile(policy.currentAdmissionFile, admissionBytes);
+      let signedSafeBlock: string | undefined;
+      const digest = await writeTrustedRevisionTwoApproval(makeHost(), async body => {
+        signedSafeBlock = body.safeBlock;
+        await chain.rpc("anvil_mine", ["0x4", "0x0"]);
+        return issue(body);
+      });
+      const bytes = await readFile(approvalPath, "utf8");
+      const selected = await readApprovedTrustedRevisionTwo(input);
+      assert.equal(selected.approvalSha256, digest);
+      assert.deepEqual(selected.approval.configuration, configuration);
+      assert.equal(selected.approval.configurationSha256, hashJson(configuration));
+      assert.equal(selected.approval.transitionTransactionHash, transition.transactionHash);
+      assert.equal(selected.approval.registryRuntimeHash, registryRuntimeHash);
+      assert.equal(selected.approval.safeBlock, signedSafeBlock);
+      assert(BigInt(selected.authority.safeBlock) > BigInt(selected.approval.safeBlock));
+      assert.equal(selected.approval.expiresAt, policy.expiresAt);
+      assert.equal(signatures, 2);
+      await openControl.closeControl();
+      openControl = await acquireWeb2ServiceControl(controlRoot, installationId);
+      assert.equal(await writeTrustedRevisionTwoApproval(makeHost(), issue), digest);
+      assert.equal(signatures, 2);
+      assert.equal(await readFile(approvalPath, "utf8"), bytes);
+      assert.equal(await readFile(witnessPath, "utf8"), witnessBytes);
+      assert.deepEqual(await readPrivateJSON(policy.currentAdmissionFile), sign(admission));
+      await assertOriginals();
+    } finally {
+      await openControl.closeControl();
+      await rm(approvalPath, { force: true });
+      await rm(policy.currentAdmissionFile, { force: true });
+      await rm(startPath);
+      await rm(witnessPath, { force: true });
+    }
+  });
+
   // The revision-one policy and reader already exist when a validly signed
   // approval appears. Live Apply/verify and direct boot use this same reader.
   for (const override of [{ issuedAt: policy.issuedAt - 1 }, { expiresAt: policy.expiresAt + 1 }]) {
@@ -223,13 +330,11 @@ test("trusted revision two holds without signed proof and reopens the same initi
     await assert.rejects(readApprovedTrustedRevisionTwo(input), /trusted_revision_two_approval_outside_policy/);
     await assertOriginals();
   }
-  const startPath = join(root, "web2-start-intent.json");
   await writeFile(trustedRevisionTwoApprovalPath(graph), JSON.stringify(sign(approval)));
   await assert.rejects(readFromLiveInstaller(), /trusted_revision_two_original_start_required/);
   await assert.rejects(readFile(startPath), { code: "ENOENT" });
   await writeFile(startPath, JSON.stringify({ ...web2OriginalStartIntent(plan), planDigest: "d".repeat(64) }), { mode: 0o600 });
   await assert.rejects(readFromLiveInstaller(), /original_start_intent_changed/);
-  const startBytes = JSON.stringify(web2OriginalStartIntent(plan)) + "\n";
   await writeFile(startPath, startBytes);
   originalRecords.set(startPath, startBytes);
   await assertOriginals();

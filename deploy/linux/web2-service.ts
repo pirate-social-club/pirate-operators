@@ -43,6 +43,9 @@ import {
   type Web2RuntimeBindingInputs,
 } from "./web2-runtime-binding.ts";
 
+import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
+import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
+
 export interface Web2LocalInstallationConfiguration {
   schema: "pirate.web2-local-installation/1";
   release: SignedRecord<Web2BootstrapRelease>;
@@ -177,10 +180,7 @@ export class Web2ServiceStartupFailure extends AggregateError {
     this.shutdownService = shutdownService;
   }
 }
-export async function launchWeb2LocalInstallation(
-  config: Web2LocalInstallationConfiguration,
-  signal?: AbortSignal,
-) {
+async function selectInstalledWeb2Host(config: Web2LocalInstallationConfiguration) {
   assert(config.schema === "pirate.web2-local-installation/1");
   assert.deepEqual(Object.keys(config).sort(), [
     "release",
@@ -231,6 +231,52 @@ export async function launchWeb2LocalInstallation(
     !process.env.NODE_PATH && !process.env.NODE_OPTIONS,
     "ambient_node_loader_refused",
   );
+  return { runtime, execution, release, selected };
+}
+
+export interface Web2TrustedRevisionTwoApprovalHostInputs {
+  binding: Web2TrustedRevisionTwoBinding;
+  issue: Web2TrustedRevisionTwoIssuer;
+  closeControl(): Promise<void>;
+}
+
+/** Separate owner command. The signed installed backend supplies only the
+ * original host lease and record issuer for this action. It opens no Wizard,
+ * native app, managed Workers or bootstrap/resume path. */
+async function runWeb2TrustedRevisionTwoApproval(configurationFile: string) {
+  const config = await readPrivateJSON<Web2LocalInstallationConfiguration>(configurationFile, 16 * 1024 ** 2);
+  const { runtime, execution, release, selected } = await selectInstalledWeb2Host(config);
+  assert(import.meta.url === pathToFileURL(execution.main).href &&
+    release.sourceHashes["deploy/linux/web2-trusted-revision-two-producer.ts"],
+    "installed_trusted_revision_two_producer_required");
+  const loaded: {
+    createWeb2TrustedRevisionTwoApprovalInputs?(): Promise<Web2TrustedRevisionTwoApprovalHostInputs>;
+  } = await import(pathToFileURL(execution.backend).href);
+  assert(typeof loaded.createWeb2TrustedRevisionTwoApprovalInputs === "function",
+    "trusted_revision_two_host_issuer_unavailable");
+  const inputs = await loaded.createWeb2TrustedRevisionTwoApprovalInputs();
+  let digest: string;
+  try {
+    assert(canonicalDigest(inputs.binding.bootstrap) === canonicalDigest(config.release) &&
+      canonicalDigest(inputs.binding.trust) === canonicalDigest(config.trust) &&
+      inputs.binding.lease.installationId === runtime.installationId && typeof inputs.issue === "function",
+      "trusted_revision_two_backend_changed");
+    assert.deepEqual(await readPrivateJSON(config.runtimeProfileFile), selected, "web2_launch_selection_changed");
+    digest = await produceTrustedRevisionTwoApproval(inputs.binding, inputs.issue.bind(inputs));
+  } catch (error) {
+    try { await inputs.closeControl(); }
+    catch (failure) { throw new AggregateError([error, failure], "trusted_revision_two_control_custody_retained"); }
+    throw error;
+  }
+  await inputs.closeControl();
+  process.stdout.write(JSON.stringify({ approvalSha256: digest }) + "\n");
+}
+
+export async function launchWeb2LocalInstallation(
+  config: Web2LocalInstallationConfiguration,
+  signal?: AbortSignal,
+) {
+  const { runtime, execution, release, selected } = await selectInstalledWeb2Host(config);
   for (const path of [runtime.wizardDirectory, runtime.pairingNonceDirectory])
     await privateDirectory(path);
   const loaded: { createWeb2BootstrapInputs(): Promise<Web2BootstrapInputs> } =
@@ -461,9 +507,12 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  assert(
-    process.argv.length === 3 && process.argv[2]?.startsWith("/"),
-    "supply_private_web2_service_configuration",
-  );
-  await runWeb2Service(process.argv[2]);
+  const args = process.argv.slice(2);
+  if (args[0] === "--approve-trusted-revision-two") {
+    assert(args.length === 2 && args[1]?.startsWith("/"), "supply_private_web2_service_configuration");
+    await runWeb2TrustedRevisionTwoApproval(args[1]);
+  } else {
+    assert(args.length === 1 && args[0]?.startsWith("/"), "supply_private_web2_service_configuration");
+    await runWeb2Service(args[0]);
+  }
 }

@@ -188,9 +188,9 @@ export async function readExpandedPublicationBinding(binding: Web2ExpandedBindin
   return { original, release, approved };
 }
 
-/** Host-only election for the managed producer. It never advances Directory
- * state or writes/supersedes either issuer's original record. */
-export async function readTrustedRevisionTwoBinding(binding: Web2ExpandedBinding & Pick<Web2RuntimeBindingInputs, "now">) {
+export type Web2TrustedRevisionTwoBinding = Web2ExpandedBinding & Pick<Web2RuntimeBindingInputs, "now">;
+
+export async function openTrustedRevisionTwoHostBinding(binding: Web2TrustedRevisionTwoBinding) {
   const { lease, now } = binding;
   const selected = {
     ...structuredClone({ policy: binding.policy, bootstrap: binding.bootstrap, trust: binding.trust }),
@@ -223,21 +223,39 @@ export async function readTrustedRevisionTwoBinding(binding: Web2ExpandedBinding
     targetDigest: plan.targetDigest, hostFingerprint: policy.hostFingerprint,
     minimumGeneration: Math.max(policy.generation, plan.generation), planId: plan.planId,
   });
-  await admission();
+  async function inspect() {
+    const controller = await createLocalController(policy.target, lease);
+    try {
+      const host = await controller.inspectHost(AbortSignal.timeout(45000));
+      assert(host.supported && host.fingerprint === policy.hostFingerprint, "web2_binding_host_changed");
+      requireTrustedRevisionTwoResources(policy.target.containers.length, host.resources);
+      return host.resources;
+    } finally {
+      await controller.dispose();
+    }
+  }
+  async function assertRetainedOriginal() {
+    const current = await readRetainedTransitionBinding(selected);
+    assert(canonicalDigest(current.original) === canonicalDigest(original) &&
+      canonicalDigest(current.retainedRelease) === canonicalDigest(retainedRelease) &&
+      canonicalDigest(current.intent) === canonicalDigest(intent), "trusted_revision_two_original_changed");
+  }
+  return { original, release, chain, now, lease, live, admission, inspect, assertRetainedOriginal };
+}
+
+/** Host-only election for the managed producer. It never advances Directory
+ * state or writes/supersedes either issuer's original record. */
+export async function readTrustedRevisionTwoBinding(binding: Web2TrustedRevisionTwoBinding) {
+  const host = await openTrustedRevisionTwoHostBinding(binding);
+  const { original, release, chain, now, lease } = host;
+  await host.admission();
   const read = () => readApprovedTrustedRevisionTwo({ graph: release.graph, original, chain, now });
   const approved = await read();
-  const controller = await createLocalController(policy.target, lease);
-  try {
-    const host = await controller.inspectHost(AbortSignal.timeout(45000));
-    assert(host.supported && host.fingerprint === policy.hostFingerprint, "web2_binding_host_changed");
-    requireTrustedRevisionTwoResources(policy.target.containers.length, host.resources);
-  } finally {
-    await controller.dispose();
-  }
+  await host.inspect();
   assert((await read()).approvalSha256 === approved.approvalSha256, "trusted_revision_two_approval_changed");
-  await admission();
+  await host.admission();
   await lease.assertHeld();
-  live();
+  host.live();
   return { original, release, approved };
 }
 

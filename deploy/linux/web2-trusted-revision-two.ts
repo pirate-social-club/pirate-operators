@@ -41,7 +41,7 @@ export function web2OriginalStartIntent(plan: Web2InstallPlan) {
     targetDigest: plan.targetDigest, installationId: plan.installationId };
 }
 
-async function requireTrustedRevisionTwoStart(directory: string, plan: Web2InstallPlan) {
+export async function requireTrustedRevisionTwoStart(directory: string, plan: Web2InstallPlan) {
   const actual = await readPrivateJSON(join(directory, "web2-start-intent.json")).catch(error => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT")
       throw new Error("trusted_revision_two_original_start_required", { cause: error });
@@ -152,50 +152,8 @@ interface ApprovedTrustedRevisionTwo {
   selectionSha256?: never;
 }
 
-export async function readApprovedTrustedRevisionTwo(input: {
-  graph: NativeGraph;
-  original: Web2NativeOriginal;
-  chain: Web2ChainAuthority;
-  /** Host binding policy clock in Unix milliseconds. */
-  now: () => number;
-}): Promise<ApprovedTrustedRevisionTwo> {
-  const graph = structuredClone(input.graph), { chain } = input;
-  const path = trustedRevisionTwoApprovalPath(graph);
-  const original = await web2NativeOriginal(JSON.stringify(input.original));
-  const readPolicy = () => readTrustedRevisionTwoPolicy({ graph, original, now: input.now });
-  const policy = await readPolicy();
-  const signed = await readPrivateJSON<SignedRecord<Web2TrustedRevisionTwoApproval>>(path);
-  exact(record(signed), ["schema", "keyId", "body", "signature"]);
-  const approval = verifyRecord(signed, original.trust);
-  exact(record(approval), [
-    "schema", "nativeOriginalSha256", "graphSha256", "ownerWallet", "configuration",
-    "configurationSha256", "registrationTransactionHash", "registrationBlock", "registrationBlockHash",
-    "transitionTransactionHash", "transitionBlock", "transitionBlockHash", "safeBlock", "safeBlockHash",
-    "genesisHash", "registry", "registryRuntimeHash", "issuedAt", "expiresAt",
-  ]);
-  const plan = original.record.body, { draft, enrollment } = plan;
-  const configuration = approval.configuration;
-  const blockNumbers = [approval.registrationBlock, approval.transitionBlock, approval.safeBlock];
-  const hashes = [approval.configurationSha256, approval.registrationTransactionHash, approval.registrationBlockHash,
-    approval.transitionTransactionHash, approval.transitionBlockHash, approval.safeBlockHash, approval.genesisHash,
-    approval.registryRuntimeHash];
-  assert(approval.schema === "pirate.web2-trusted-revision-two-approval/1" &&
-    approval.nativeOriginalSha256 === nativeDigest(original) &&
-    approval.graphSha256 === canonicalDigest(graph) &&
-    canonical(web2ApplicationReleaseBody({ ...original.release.body, graph })) === canonical(original.release.body) &&
-    approval.registrationTransactionHash === enrollment.transactionHash &&
-    approval.registrationBlock === enrollment.registrationBlock &&
-    approval.registrationBlockHash === enrollment.registrationBlockHash &&
-    hashes.every(hash => typeof hash === "string" && /^0x[0-9a-f]{64}$/.test(hash)) &&
-    blockNumbers.every(block => typeof block === "string" && /^[1-9][0-9]{0,19}$/.test(block)) &&
-    BigInt(approval.registrationBlock) < BigInt(approval.transitionBlock) &&
-    BigInt(approval.transitionBlock) <= BigInt(approval.safeBlock) &&
-    BigInt(approval.safeBlock) < (1n << 64n) &&
-    approval.registrationTransactionHash !== approval.transitionTransactionHash &&
-    configuration.configurationRevision === 2 && approval.configurationSha256 === hashJson(configuration) &&
-    approval.registry === configuration.learningRecords && /^0x[0-9a-f]{40}$/.test(approval.registry) &&
-    approval.registry !== "0x0000000000000000000000000000000000000000",
-    "trusted_revision_two_signed_original_changed");
+export function trustedRevisionTwoOriginalPublishing(graph: NativeGraph, original: Web2NativeOriginal) {
+  const plan = original.record.body, { draft } = plan;
   const bindings = graph.applicationBindings.filter(item => item.name === "WEB2_PUBLISHING_ATTACHMENT_JSON");
   const binding = bindings[0]?.text;
   assert(bindings.length === 1 && binding && plan.publishingAttachmentDigest,
@@ -207,30 +165,92 @@ export async function readApprovedTrustedRevisionTwo(input: {
     scope.installationId === draft.enrollment.installationId && scope.communityId === draft.enrollment.communityId &&
     scope.origin === draft.origin && scope.postsContract === draft.configuration.postsContract &&
     scope.deploymentDigest === hashJson(draft.deployment) &&
-    scope.ownerWallet === approval.ownerWallet && scope.controller === draft.configuration.controller &&
+    scope.controller === draft.configuration.controller &&
     scope.publisher === draft.configuration.publisher &&
     new Set([scope.ownerWallet, scope.controller, scope.publisher]).size === 3,
     "trusted_revision_two_original_roles_changed");
-  assert(Number.isSafeInteger(approval.issuedAt) && approval.issuedAt >= 0 &&
-    Number.isSafeInteger(approval.expiresAt), "trusted_revision_two_invalid_window");
-  assert(approval.issuedAt >= policy.issuedAt && approval.expiresAt <= policy.expiresAt,
-    "trusted_revision_two_approval_outside_policy");
-  await requireTrustedRevisionTwoStart(graph.stateRoots.configuration!, plan);
-  const validFrom = Math.max(Math.ceil(approval.issuedAt / 1000), grant.validFrom);
-  const expiresAt = Math.min(Math.floor(approval.expiresAt / 1000), grant.expiresAt);
-  const live = () => BigInt(validFrom) <= chain.now() && chain.now() < BigInt(expiresAt);
-  assert(live(), "trusted_revision_two_approval_expired");
+  return { ownerWallet: scope.ownerWallet, grant };
+}
 
-  const authority = await authenticateWeb2ExpandedEnrollment(chain, draft, {
-    original: enrollment, configuration, configurationHash: approval.transitionTransactionHash,
-    configurationBlock: approval.transitionBlock, configurationBlockHash: approval.transitionBlockHash,
-    admittedSafeBlock: approval.safeBlock, admittedSafeBlockHash: approval.safeBlockHash,
-    genesisHash: approval.genesisHash, registryRuntimeHash: approval.registryRuntimeHash,
-  });
-  await requireTrustedRevisionTwoStart(graph.stateRoots.configuration!, plan);
-  assert(canonicalDigest(await readPolicy()) === canonicalDigest(policy), "trusted_revision_two_binding_policy_changed");
+interface TrustedRevisionTwoApprovalInput {
+  graph: NativeGraph;
+  original: Web2NativeOriginal;
+  chain: Web2ChainAuthority;
+  /** Host binding policy clock in Unix milliseconds. */
+  now: () => number;
+}
+
+export async function prepareTrustedRevisionTwoApprovalCheck(input: TrustedRevisionTwoApprovalInput) {
+  const graph = structuredClone(input.graph), { chain } = input;
+  const path = trustedRevisionTwoApprovalPath(graph);
+  const original = await web2NativeOriginal(JSON.stringify(input.original));
+  const readPolicy = () => readTrustedRevisionTwoPolicy({ graph, original, now: input.now });
+  const policy = await readPolicy();
+
+  async function check(approval: Web2TrustedRevisionTwoApproval) {
+    exact(record(approval), [
+      "schema", "nativeOriginalSha256", "graphSha256", "ownerWallet", "configuration",
+      "configurationSha256", "registrationTransactionHash", "registrationBlock", "registrationBlockHash",
+      "transitionTransactionHash", "transitionBlock", "transitionBlockHash", "safeBlock", "safeBlockHash",
+      "genesisHash", "registry", "registryRuntimeHash", "issuedAt", "expiresAt",
+    ]);
+    const plan = original.record.body, { draft, enrollment } = plan;
+    const configuration = approval.configuration;
+    const blockNumbers = [approval.registrationBlock, approval.transitionBlock, approval.safeBlock];
+    const hashes = [approval.configurationSha256, approval.registrationTransactionHash, approval.registrationBlockHash,
+      approval.transitionTransactionHash, approval.transitionBlockHash, approval.safeBlockHash, approval.genesisHash,
+      approval.registryRuntimeHash];
+    assert(approval.schema === "pirate.web2-trusted-revision-two-approval/1" &&
+      approval.nativeOriginalSha256 === nativeDigest(original) &&
+      approval.graphSha256 === canonicalDigest(graph) &&
+      canonical(web2ApplicationReleaseBody({ ...original.release.body, graph })) === canonical(original.release.body) &&
+      approval.registrationTransactionHash === enrollment.transactionHash &&
+      approval.registrationBlock === enrollment.registrationBlock &&
+      approval.registrationBlockHash === enrollment.registrationBlockHash &&
+      hashes.every(hash => typeof hash === "string" && /^0x[0-9a-f]{64}$/.test(hash)) &&
+      blockNumbers.every(block => typeof block === "string" && /^[1-9][0-9]{0,19}$/.test(block)) &&
+      BigInt(approval.registrationBlock) < BigInt(approval.transitionBlock) &&
+      BigInt(approval.transitionBlock) <= BigInt(approval.safeBlock) &&
+      BigInt(approval.safeBlock) < (1n << 64n) &&
+      approval.registrationTransactionHash !== approval.transitionTransactionHash &&
+      configuration.configurationRevision === 2 && approval.configurationSha256 === hashJson(configuration) &&
+      approval.registry === configuration.learningRecords && /^0x[0-9a-f]{40}$/.test(approval.registry) &&
+      approval.registry !== "0x0000000000000000000000000000000000000000",
+      "trusted_revision_two_signed_original_changed");
+    const { ownerWallet, grant } = trustedRevisionTwoOriginalPublishing(graph, original);
+    assert(approval.ownerWallet === ownerWallet, "trusted_revision_two_original_roles_changed");
+    assert(Number.isSafeInteger(approval.issuedAt) && approval.issuedAt >= 0 &&
+      Number.isSafeInteger(approval.expiresAt), "trusted_revision_two_invalid_window");
+    assert(approval.issuedAt >= policy.issuedAt && approval.expiresAt <= policy.expiresAt,
+      "trusted_revision_two_approval_outside_policy");
+    await requireTrustedRevisionTwoStart(graph.stateRoots.configuration!, plan);
+    const validFrom = Math.max(Math.ceil(approval.issuedAt / 1000), grant.validFrom);
+    const expiresAt = Math.min(Math.floor(approval.expiresAt / 1000), grant.expiresAt);
+    const live = () => BigInt(validFrom) <= chain.now() && chain.now() < BigInt(expiresAt);
+    assert(live(), "trusted_revision_two_approval_expired");
+
+    const authority = await authenticateWeb2ExpandedEnrollment(chain, draft, {
+      original: enrollment, configuration, configurationHash: approval.transitionTransactionHash,
+      configurationBlock: approval.transitionBlock, configurationBlockHash: approval.transitionBlockHash,
+      admittedSafeBlock: approval.safeBlock, admittedSafeBlockHash: approval.safeBlockHash,
+      genesisHash: approval.genesisHash, registryRuntimeHash: approval.registryRuntimeHash,
+    });
+    await requireTrustedRevisionTwoStart(graph.stateRoots.configuration!, plan);
+    assert(canonicalDigest(await readPolicy()) === canonicalDigest(policy), "trusted_revision_two_binding_policy_changed");
+    assert(live(), "trusted_revision_two_approval_expired");
+    return { authority, validFrom, expiresAt, live };
+  }
+  return { policy, path, trust: original.trust, check };
+}
+
+export async function readApprovedTrustedRevisionTwo(input: TrustedRevisionTwoApprovalInput): Promise<ApprovedTrustedRevisionTwo> {
+  const { path, trust, check } = await prepareTrustedRevisionTwoApprovalCheck(input);
+  const signed = await readPrivateJSON<SignedRecord<Web2TrustedRevisionTwoApproval>>(path);
+  exact(record(signed), ["schema", "keyId", "body", "signature"]);
+  const approval = verifyRecord(signed, trust);
+  const { authority, validFrom, expiresAt, live } = await check(approval);
   const approvalSha256 = canonicalDigest(signed);
   assert(live() && canonicalDigest(await readPrivateJSON(path)) === approvalSha256 && live(),
     "trusted_revision_two_approval_changed");
-  return { approval, approvalSha256, configuration, authority, validFrom, expiresAt };
+  return { approval, approvalSha256, configuration: approval.configuration, authority, validFrom, expiresAt };
 }
