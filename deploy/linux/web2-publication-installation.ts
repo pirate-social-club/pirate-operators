@@ -53,7 +53,7 @@ const within = (root: string, path: string) => {
   return !isAbsolute(child) && child !== ".." && !child.startsWith("../");
 };
 
-function nativePublicationHostSelection(policy: Web2RuntimeBindingPolicy) {
+export function nativePublicationHostSelection(policy: Web2RuntimeBindingPolicy) {
   const transport = policy.graph.nativePublication;
   assert(transport && transport.schema === "pirate.web2-native-publication-transport/1" &&
     Object.keys(transport).sort().join(",") === "directory,issuerAddress,issuerCapabilityRef,operatorAddress,schema,transportRef" &&

@@ -50,6 +50,7 @@ import {
 import {
   IngressStartupFailure,
   inspectCommunityIngress,
+  inspectTrustedPublicationIngress,
   inspectTrustedRevisionOneIngress,
   publicIngressFrom,
   retainPublicIngress,
@@ -61,12 +62,13 @@ import {
   web2ApplicationReleaseBody,
   type Web2NativeOriginal,
 } from "../../packages/community/web2-native-business-binding.ts";
-import { stageNativePublication, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
+import { stageNativePublication, type Web2PublicationActivation, type Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from "./web2-expanded-publication.ts";
 import {
   assertTrustedRevisionTwoTarget, readTrustedRevisionTwoPolicy, requireTrustedRevisionTwoResources, trustedRevisionTwo, web2OriginalStartIntent,
 } from "./web2-trusted-revision-two.ts";
 import { retainTrustedRevisionOneServingWitness, trustedRevisionOneResourceDigest } from "./web2-trusted-revision-two-producer.ts";
+import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
 import { postsSelectorPath, stagePostsSelector, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 
 /** Installed host-only inputs. No request can replace these with browser fields. */
@@ -85,6 +87,7 @@ export interface Web2InstallationHostInputs {
   nativeRuntimeDirectory: string;
   now: () => number;
   publication?: Web2PublicationInstallationInputs;
+  activateTrustedPublication?(input: Web2PublicationActivation): Promise<void>;
   posts?: Web2PostsInstallationInputs;
   recheckTrustedPublishing?(readCurrent: () => Promise<LinuxWeb2Draft["configuration"]>): Promise<void>;
   signProfile(
@@ -123,8 +126,10 @@ export async function createWeb2Installation(
   const trusted = graph.publicationExpansion === trustedRevisionTwo;
   const recheckTrustedPublishing = input.recheckTrustedPublishing?.bind(input);
   assert(!trusted || recheckTrustedPublishing, "trusted_revision_two_owner_publishing_required");
-  const publication = input.publication;
-  assert(Boolean(release.graph.nativePublication) === Boolean(publication),
+  const publication = input.publication, activateTrustedPublication = input.activateTrustedPublication?.bind(input);
+  const trustedConsent = trusted && Boolean(graph.nativePublication);
+  assert(Boolean(activateTrustedPublication) === trustedConsent &&
+    Boolean(publication) === (!trustedConsent && Boolean(graph.nativePublication)),
     "native_publication_owner_unavailable");
   const prepareExpansion = publication?.prepareExpansion?.bind(publication);
   assert(!prepareExpansion || (release.graph.publicationExpansion === "registry-revision-two/1" && release.graph.fixtureTransport &&
@@ -295,11 +300,22 @@ export async function createWeb2Installation(
       assert(!await expandedPublicationApprovalExists(graph), "trusted_revision_two_approval_changed");
       await authenticateWeb2Enrollment(chain, draft);
     }
+    let trustedPublication: Awaited<ReturnType<typeof readTrustedNativePublication>> = undefined;
+    if (trustedConsent && expanded) {
+      assert(retained && "approval" in expanded, "trusted_web2_publication_approval_required");
+      trustedPublication = await readTrustedNativePublication({ graph, original: nativeOriginal(retained.record), approval: expanded });
+      assert(trustedPublication, "trusted_web2_publication_attachment_required");
+      assert((await read()).approvalSha256 === expanded.approvalSha256, "trusted_revision_two_approval_changed");
+    }
     if (trusted) {
       admission = await host();
       await open();
+      if (trustedPublication && retained && expanded && "approval" in expanded) {
+        assert((await readTrustedNativePublication({ graph, original: nativeOriginal(retained.record), approval: expanded }))?.raw === trustedPublication.raw,
+          "trusted_web2_publication_attachment_changed");
+      }
     }
-    return { evidence, admission, expanded };
+    return { evidence, admission, expanded, trustedPublication };
   }
   async function load(selection: LinuxWeb2PlanSelection) {
     await open();
@@ -354,6 +370,11 @@ export async function createWeb2Installation(
       },
     };
   }
+  function inspectTrustedSelection(selectedPublication: NonNullable<Awaited<ReturnType<typeof readTrustedNativePublication>>>) {
+    const { selector, selection } = selectedPublication.initialization;
+    assert(selection.active, "trusted_web2_publication_active_release_required");
+    return inspectTrustedPublicationIngress(ingress, graph.readbackKeyFile, { mount: selector.body.mount, active: selection.active });
+  }
   async function observation(
     selection: LinuxWeb2PlanSelection,
   ): Promise<LinuxWeb2Observation> {
@@ -397,6 +418,15 @@ export async function createWeb2Installation(
         assert(sameProcess(identity, await processIdentity(identity.hostPid)), "original_ingress_not_running");
       };
       await assertIngress();
+      if (trustedConsent) {
+        assert(before.trustedPublication?.raw === after.trustedPublication?.raw, "trusted_web2_publication_attachment_changed");
+        if (after.trustedPublication) {
+          await inspectTrustedSelection(after.trustedPublication);
+          const latest = await authorize(body.draft, body.planId, body.generation, { record, starting: true });
+          assert(latest.trustedPublication?.raw === after.trustedPublication.raw, "trusted_web2_publication_attachment_changed");
+          await assertIngress();
+        }
+      }
       if (trusted && !before.expanded && !after.expanded) {
         const original = nativeOriginal(record);
         const policy = await readTrustedRevisionTwoPolicy({
@@ -548,7 +578,8 @@ export async function createWeb2Installation(
         const current = async () => {
           const observed = await authorize(body.draft, body.planId, body.generation, retained);
           assert(observed.expanded?.selectionSha256 === admitted.expanded?.selectionSha256 &&
-            (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256),
+            (!trusted || observed.expanded?.approvalSha256 === admitted.expanded?.approvalSha256) &&
+            observed.trustedPublication?.raw === admitted.trustedPublication?.raw,
             "native_expanded_publication_selection_changed");
         };
         const intent = web2OriginalStartIntent(body);
@@ -564,6 +595,26 @@ export async function createWeb2Installation(
         if (posts) {
           await stagePostsSelector({original, graph: release.graph, target: selected.target,
             owner: posts, startRetained: prior !== null, assertCurrent: current});
+        }
+        if (admitted.trustedPublication) {
+          assert(prior && activateTrustedPublication, "trusted_web2_publication_original_start_required");
+          const { selector, selection } = admitted.trustedPublication.initialization;
+          await current();
+          const actual = await controller.inspect(AbortSignal.timeout(45000));
+          const application = actual.resources.find(row => row.spec.key === "application");
+          assert(application?.actual, "trusted_web2_publication_original_resource_required");
+          if (application.actual.State.Running) {
+            try {
+              await inspectTrustedSelection(admitted.trustedPublication);
+            } catch (cause) {
+              throw new Error("trusted_web2_publication_supervised_restart_required", { cause });
+            }
+          }
+          await current();
+          await activateTrustedPublication({
+            original, selection, selectionSha256: selector.body.mount.selectionSha256, assertCurrent: current,
+          });
+          await current();
         }
         if (publication && release.graph.nativePublication) {
           const staged = await stageNativePublication({
@@ -613,6 +664,10 @@ export async function createWeb2Installation(
           current,
         );
         await current();
+        if (admitted.trustedPublication) {
+          await inspectTrustedSelection(admitted.trustedPublication);
+          await current();
+        }
         if (edge) {
           const actual = await processIdentity(edge.identity.hostPid);
           if (actual === null) edge = undefined;

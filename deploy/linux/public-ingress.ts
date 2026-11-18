@@ -8,10 +8,13 @@ import { request } from "node:https";
 import { setTimeout as delay } from "node:timers/promises";
 import { httpsOrigin } from "../../packages/community/manifest-core.ts";
 import { canonical, exact, object } from "../../packages/community/common.ts";
+import { trustedWeb2PublicationReadbackPath } from "../../packages/community/web2-trusted-publication.ts";
+import type { PublicationMountIdentity } from "../../services/publication-installed-selection.ts";
 import type { Web2CommunityConfig } from "../../packages/community/web2-config-manifest.ts";
 import {
   hash,
   privateDirectory,
+  privateFile,
   processIdentity,
   sameProcess,
   syncDirectory,
@@ -463,11 +466,37 @@ export async function inspectTrustedRevisionOneIngress(ingress: PublicIngress, o
   assert(canonical(actual) === canonical(original), "trusted_revision_two_original_served_configuration_changed");
 }
 
+/** Confirm this live, authenticated private Workerd edge loaded the original
+ * selection. No proof file, public summary or localhost fallback is enough. */
+export async function inspectTrustedPublicationIngress(
+  ingress: PublicIngress,
+  readbackKeyFile: string,
+  expected: { mount: PublicationMountIdentity; active: string },
+) {
+  assert(ingress.tls.kind === "public-acme", "trusted_web2_publication_private_readback_required");
+  const file = await privateFile(readbackKeyFile, 64);
+  let key: string;
+  try {
+    const bytes = Buffer.alloc(65);
+    try {
+      const read = await file.read(bytes, 0, bytes.length, 0);
+      assert(read.bytesRead === 64 && (await file.stat()).size === 64, "trusted_web2_publication_readback_key_changed");
+      key = bytes.subarray(0, 64).toString("latin1");
+      assert(/^[a-f0-9]{64}(?![\s\S])/.test(key), "trusted_web2_publication_readback_key_changed");
+    } finally { bytes.fill(0); }
+  } finally {
+    await file.close();
+  }
+  await readApplicationIngress(ingress, trustedWeb2PublicationReadbackPath, false,
+    AbortSignal.timeout(5000), { key, expected });
+}
+
 async function readApplicationIngress(
   ingress: PublicIngress,
-  path: "/api/public/community" | "/.well-known/pirate-community.json",
+  path: "/api/public/community" | "/.well-known/pirate-community.json" | typeof trustedWeb2PublicationReadbackPath,
   throughIngress: boolean,
   signal?: AbortSignal,
+  publication?: { key: string; expected: { mount: PublicationMountIdentity; active: string } },
 ) {
   const bytes = throughIngress
     ? ingress.tls.kind === "local-fixture-ca"
@@ -484,6 +513,8 @@ async function readApplicationIngress(
     : await readFile(ingress.upstreamCaFile);
   const url = new URL(ingress.upstream);
   const verifyServedConfig = path === "/.well-known/pirate-community.json";
+  if (publication) assert(path === trustedWeb2PublicationReadbackPath && !throughIngress && bytes &&
+    hash(bytes) === ingress.upstreamCaSha256, "trusted_web2_publication_readback_ca_changed");
   return await new Promise<unknown>((resolve, reject) => {
     const req = request(
       {
@@ -495,13 +526,16 @@ async function readApplicationIngress(
         ca: bytes,
         method: "GET",
         path,
-        ...(verifyServedConfig ? { rejectUnauthorized: true } : {}),
-        headers: { Host: new URL(ingress.origin).host },
+        ...(verifyServedConfig || publication ? { rejectUnauthorized: true } : {}),
+        ...(publication ? { agent: false as const } : {}),
+        headers: { Host: new URL(ingress.origin).host,
+          ...(publication ? { "X-Pirate-Readback-Key": publication.key } : {}),
+        },
         timeout: 5000,
         signal,
       },
       (res) => {
-        const decoder = new TextDecoder("utf-8", { fatal: verifyServedConfig, ignoreBOM: true });
+        const decoder = new TextDecoder("utf-8", { fatal: verifyServedConfig || Boolean(publication), ignoreBOM: true });
         let body = "";
         const append = (text: string) => {
           assert(body.length + text.length <= 65536, "application_readback_limit");
@@ -521,7 +555,14 @@ async function readApplicationIngress(
             if (res.statusCode === 503) throw new ApplicationBootPending("application_boot_pending");
             assert(res.statusCode === 200, "application_readback_unavailable");
             append(decoder.decode());
-            resolve(JSON.parse(body) as unknown);
+            const value: unknown = JSON.parse(body);
+            if (publication) {
+              const bootId = res.headers["x-pirate-native-boot-id"];
+              assert(typeof bootId === "string" && /^[a-f0-9]{64}(?![\s\S])/.test(bootId) &&
+                res.headers["content-type"] === "application/json" && canonical(value) === canonical(publication.expected),
+                "trusted_web2_publication_live_selection_changed");
+            }
+            resolve(value);
           } catch (error) {
             reject(error);
           }

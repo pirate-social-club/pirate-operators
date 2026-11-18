@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { readFile, realpath } from "node:fs/promises";
 import { join, relative, isAbsolute } from "node:path";
 import { randomBytes } from "node:crypto";
+import { digest } from "../../packages/protocol/index.ts";
 import {
   canonicalDigest,
   readPrivateJSON,
@@ -20,7 +21,7 @@ import {
 } from "./installed-release.ts";
 import { hash, privateDirectory } from "./backend-state.ts";
 import { isNativePublicationActivityRoute, type NativePublicationActivityRoute } from "./web2-native-publication-host.ts";
-import { assertNativePublicationHost, type Web2PublicationActivation, type Web2PublicationPreparation } from "./web2-publication-installation.ts";
+import { assertNativePublicationHost, nativePublicationHostSelection, type Web2PublicationActivation, type Web2PublicationPreparation } from "./web2-publication-installation.ts";
 import { publicIngressFrom } from "./public-ingress.ts";
 import { startWeb2NativeActivityHost, type Web2NativeActivityHostInputs } from "./web2-native-activity-host.ts";
 import {
@@ -43,6 +44,8 @@ import {
   type Web2RuntimeBindingInputs,
 } from "./web2-runtime-binding.ts";
 
+import { selectWeb2PublicationConsent } from "./web2-initialization.ts";
+import { trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 import type { Web2TrustedRevisionTwoBinding } from "./web2-expanded-publication.ts";
 import { produceTrustedRevisionTwoApproval, type Web2TrustedRevisionTwoIssuer } from "./web2-trusted-revision-two-producer.ts";
 
@@ -63,6 +66,10 @@ export interface Web2BootstrapInputs {
    * expanded plan and selector are staged. It keeps the returned Store alive
    * until the existing closeControl, after the listener drains. */
   openExpandedPublication?(input: Web2PublicationActivation): Promise<NativePublicationActivityRoute>;
+  /** Ordinary public ACME, after the signed retained rev2 approval and companion.
+   * The installed owner opens openWeb2PublicationTransport using the exact
+   * original, selection, lease, issuer capability and operator Store. */
+  openTrustedRevisionTwoPublication?(input: Web2PublicationActivation): Promise<NativePublicationActivityRoute>;
   startExpandedFirstGrant?(): void;
   drainExpandedFirstGrant?(): Promise<void>;
   /** Release only the foreground control lock after its listeners have stopped.
@@ -309,19 +316,25 @@ export async function launchWeb2LocalInstallation(
       const startFirstGrant = inputs.startExpandedFirstGrant?.bind(inputs);
       const drainFirstGrant = inputs.drainExpandedFirstGrant?.bind(inputs);
       const ports = inputs.binding.publication;
-      assert(Boolean(policy.graph.nativePublication) === Boolean(publication || activate) &&
-        Boolean(publication || activate) === Boolean(ports) && !(publication && activate) &&
-        !ports?.prepareExpansion && !ports?.activateAfterStaging && Boolean(prepare) === Boolean(activate) &&
-        Boolean(activate) === Boolean(startFirstGrant) &&
-        Boolean(activate) === Boolean(drainFirstGrant) &&
-        (!activate || policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.fixtureTransport),
+      const openTrusted = inputs.openTrustedRevisionTwoPublication?.bind(inputs);
+      const trusted = policy.graph.publicationExpansion === trustedRevisionTwo;
+      const trustedConsent = trusted && Boolean(policy.graph.nativePublication);
+      assert(!inputs.binding.activateTrustedPublication &&
+        (trusted ? Boolean(openTrusted) === trustedConsent && !publication && !ports &&
+          !prepare && !activate && !startFirstGrant && !drainFirstGrant :
+          !openTrusted && Boolean(policy.graph.nativePublication) === Boolean(publication || activate) &&
+          Boolean(publication || activate) === Boolean(ports) && !(publication && activate) &&
+          !ports?.prepareExpansion && !ports?.activateAfterStaging && Boolean(prepare) === Boolean(activate) &&
+          Boolean(activate) === Boolean(startFirstGrant) && Boolean(activate) === Boolean(drainFirstGrant) &&
+          (!activate || policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.fixtureTransport)),
         "native_publication_host_unavailable");
+      if (trustedConsent) nativePublicationHostSelection(policy);
       function checkRoute(route: NativePublicationActivityRoute) {
         assert(isNativePublicationActivityRoute(route), "native_publication_host_unavailable");
         assertNativePublicationHost(policy, route, inputs.binding.lease);
       }
       if (publication) checkRoute(publication);
-      if (ports) {
+      if (ports || openTrusted) {
         const bytes = await readFile(join(release.root, "migration-plan.json"));
         assert(hash(bytes) === release.files["migration-plan.json"], "native_publication_migrations_changed");
         const plan = JSON.parse(bytes.toString("utf8"));
@@ -329,6 +342,15 @@ export async function launchWeb2LocalInstallation(
         const consent = names.indexOf("0020_publication_consent.sql");
         assert(consent >= 0 && names[consent + 1] === "0021_publication_installed_selection.sql",
           "native_publication_migrations_unavailable");
+        if (trustedConsent) {
+          assert(selectWeb2PublicationConsent(plan.migrations), "native_publication_migrations_unavailable");
+          for (const row of plan.migrations.filter((migration: {name: string}) =>
+            migration.name === "0020_publication_consent.sql" ||
+            migration.name === "0021_publication_installed_selection.sql")) {
+            assert(hash(row.sql) === row.sha256 && row.statements.join("") === row.sql,
+              "native_publication_migrations_changed");
+          }
+        }
         await inputs.binding.lease.assertHeld();
         const now = Date.now();
         assert(Number.isSafeInteger(policy.issuedAt) && Number.isSafeInteger(policy.expiresAt) &&
@@ -336,28 +358,40 @@ export async function launchWeb2LocalInstallation(
       }
       let stagedRoute: NativePublicationActivityRoute | undefined;
       let originalActivation: { identity: string; task: Promise<void> } | undefined;
-      const binding = prepare && activate && ports ? { ...inputs.binding, publication: {
-        ...ports,
-        prepareExpansion: prepare,
-        async activateAfterStaging(input: Web2PublicationActivation) {
-          const identity = canonicalDigest({ original: input.original, selection: input.selection,
-            selectionSha256: input.selectionSha256 });
-          if (originalActivation) {
-            assert(originalActivation.identity === identity, "native_expanded_publication_activation_changed");
-            return originalActivation.task;
+      const opener = openTrusted ?? activate;
+      function openSelectedPublication(input: Web2PublicationActivation) {
+        assert(opener, "native_publication_host_unavailable");
+        const identity = canonicalDigest({ original: input.original, selection: input.selection,
+          selectionSha256: input.selectionSha256 });
+        if (originalActivation) {
+          assert(originalActivation.identity === identity, "native_expanded_publication_activation_changed");
+          return originalActivation.task;
+        }
+        const task = (async () => {
+          await input.assertCurrent();
+          const route = await opener({
+            original: structuredClone(input.original),
+            selection: structuredClone(input.selection),
+            selectionSha256: input.selectionSha256,
+            assertCurrent: input.assertCurrent,
+          });
+          checkRoute(route);
+          if (openTrusted) {
+            const { entries, active } = input.selection;
+            assert(!route.firstGrantSelected && route.retainedSelectionSha256 === digest({ entries, active }),
+              "trusted_web2_publication_host_selection_changed");
           }
-          const task = (async () => {
-            await input.assertCurrent();
-            const route = await activate(input);
-            checkRoute(route);
-            await input.assertCurrent();
-            signal?.throwIfAborted();
-            stagedRoute = route;
-          })();
-          originalActivation = { identity, task };
-          return task;
-        },
-      } } : inputs.binding;
+          await input.assertCurrent();
+          signal?.throwIfAborted();
+          stagedRoute = route;
+        })();
+        originalActivation = { identity, task };
+        return task;
+      }
+      const binding = openTrusted ? { ...inputs.binding, activateTrustedPublication: openSelectedPublication } :
+        prepare && activate && ports ? { ...inputs.binding, publication: {
+          ...ports, prepareExpansion: prepare, activateAfterStaging: openSelectedPublication,
+        } } : inputs.binding;
       if (policy.nativeActivities) {
         assert(policy.privateStudy && inputs.activityHost && policy.installationId === runtime.installationId &&
           policy.target.installationId === runtime.installationId && Date.now() < policy.expiresAt && !signal?.aborted &&
@@ -366,7 +400,7 @@ export async function launchWeb2LocalInstallation(
         nativeActivityHost = await startWeb2NativeActivityHost({selected:policy.nativeActivities,study:policy.privateStudy,
           host:structuredClone(inputs.activityHost), ingress:publicIngressFrom(policy.ingress),
           stateRoot:policy.target.stateRoot,lease:inputs.binding.lease,publication,
-          ...(activate ? { deferredPublication: () => stagedRoute } : {})});
+          ...(opener ? { deferredPublication: () => stagedRoute } : {})});
       } else assert(!inputs.activityHost, "unselected_activity_host_refused");
       return await createWeb2BootstrapInstallation(binding, signal, startFirstGrant);
     } catch (error) {

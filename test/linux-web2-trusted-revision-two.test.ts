@@ -7,7 +7,18 @@ import test from "node:test";
 import type { Address } from "viem";
 import type { InstalledTarget } from "../deploy/linux/local-target-controller.ts";
 import type { FullRelease } from "../deploy/linux/installed-release.ts";
-import type { NativeGraph } from "../deploy/linux/full-native-config.ts";
+import { renderFullNativeConfig, type NativeGraph } from "../deploy/linux/full-native-config.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
+import { Miniflare } from "miniflare";
+import { publicationMountFor } from "../deploy/linux/web2-publication-selection.ts";
+import { readTrustedNativePublication } from "../deploy/linux/web2-trusted-publication.ts";
+import { trustedWeb2PublicationFile, trustedWeb2PublicationReadbackPath, verifyTrustedWeb2Publication,
+  type Web2TrustedPublicationAttachment } from "../packages/community/web2-trusted-publication.ts";
+import { publicationSelectionHash, type PublicationAppRelease } from "../services/publication-app-selection.ts";
+import type { PublicationInstallationSpec } from "../services/publication-installed-selection.ts";
+import { scriptedPublicationAuthority } from "./fixtures/publication-app-rpc.ts";
 import { canonicalDigest, readPrivateJSON, signRecord } from "../deploy/linux/installed-records.ts";
 import type { PublicIngress } from "../deploy/linux/public-ingress.ts";
 import { expandedPublicationApprovalExists, readApprovedExpandedPublication, readApprovedWeb2Transition } from "../deploy/linux/web2-expanded-publication.ts";
@@ -28,7 +39,7 @@ import { nativeBusinessTransition } from "../packages/community/native-business-
 import type { OwnerAuthorization } from "../packages/community/owner-authorization-typed-data.ts";
 import { initializeWeb2NativeOriginal, web2ApplicationReleaseBody, type Web2NativeOriginal } from "../packages/community/web2-native-business-binding.ts";
 import { ownerGrantDigest, validateOwnerGrant } from "../packages/release/owner-grant.ts";
-import { nativeProducerFixture } from "./application-native-producer-fixture.ts";
+import { nativeMigrationNames, nativeProducerFixture } from "./application-native-producer-fixture.ts";
 import { installationAuthorityFixture } from "./fixtures/linux-web2-installation.ts";
 import { web2Controller, web2Owner, web2OwnerAuthorizationData } from "./fixtures/web2-first-song-chain.ts";
 
@@ -75,13 +86,21 @@ test("trusted revision two holds without signed proof and reopens the same initi
     custodyBindingDigest: hashText("fixture scoped publishing"),
   };
   const attachmentDigest = hashJson(attachment);
+  const issuer: Address = "0x000000000000000000000000000000000000abcd";
+  const transport = {
+    schema: "pirate.web2-native-publication-transport/1" as const,
+    directory: join(root, "publication-transport"), transportRef: "public-publication",
+    issuerCapabilityRef: "publication-envelope:fixture", issuerAddress: issuer,
+    operatorAddress: draft.configuration.publisher,
+  };
   const graph: NativeGraph = {
-    publicationExpansion: trustedRevisionTwo, installationId, durableScope: "a".repeat(64),
-    releaseRoot: join(root, "release"), schemaPath: join(root, "workerd.capnp"),
+    publicationExpansion: trustedRevisionTwo, nativePublication: transport, localActivitySocket: "/run/activity.sock",
+    installationId, durableScope: "a".repeat(64),
+    releaseRoot: join(root, "release"), schemaPath: join(root, "release", "workerd.capnp"),
     stateRoots: { configuration: root, database: join(root, "database"), objects: join(root, "objects"),
-      jobs: join(root, "jobs"), scheduler: join(root, "scheduler") },
-    socket: join(root, "native.sock"), actors: [], requiredRoles: [], queueConfiguration: {},
-    maintenanceConfiguration: {}, allowedOrigins: [], directoryRuntimeBinding: JSON.stringify(draft.deployment),
+      jobs: join(root, "jobs"), scheduler: join(root, "scheduler"), readiness: join(root, "readiness") },
+    socket: join(root, "native.sock"), actors: [], requiredRoles: [], queueConfiguration: { scope: "a".repeat(64) },
+    maintenanceConfiguration: { scope: "a".repeat(64) }, allowedOrigins: [], directoryRuntimeBinding: JSON.stringify(draft.deployment),
     applicationBindings: [
       { name: "WEB2_PUBLISHING_ATTACHMENT_JSON", text: JSON.stringify({ ...attachment, digest: attachmentDigest }) },
       { name: "WEB2_PUBLISHING_ATTACHMENT_SHA256", text: attachmentDigest },
@@ -368,6 +387,215 @@ test("trusted revision two holds without signed proof and reopens the same initi
   assert.equal(await initializeWeb2NativeOriginal(directory.db, originalBytes), originalDigest);
   const reopened = await readApprovedTrustedRevisionTwo({ ...input, original: structuredClone(original) });
   assert.equal(reopened.approvalSha256, admitted.approvalSha256);
+
+  await t.test("public rev2 companion unlocks only the exact original consent selection", async () => {
+    assert.notEqual(issuer, configuration.controller);
+    const read = () => readTrustedNativePublication({ graph, original, approval: admitted });
+    const path = join(root, trustedWeb2PublicationFile);
+    assert.equal(await read(), undefined);
+    const source = draft.deployment.directoryProfile;
+    // Fixture descriptors exercise the exact release decoder. Live descriptor
+    // authority is independently verified through the ordinary prepare path.
+    const { release: scripted } = scriptedPublicationAuthority("https://policies.example", BigInt(now), {
+      issuer, operator: configuration.publisher,
+    });
+    const release: PublicationAppRelease = {
+      ...scripted, configuration, profile: source,
+      fee: { ...scripted.fee, chainId: source.chainId },
+      source: {
+        schema: "pirate.publication-source/1", resultsVersion: 5, chainId: source.chainId,
+        directory: source.directory, directoryRuntimeHash: source.directoryCodeHash,
+        communityId: source.communityId, installationId: source.installationId, registry, registryRuntimeHash,
+      },
+      policies: {
+        "dance-verdict": scripted.policies["dance-verdict"]!,
+        "dance-review-attribution": scripted.policies["dance-review-attribution"]!,
+      },
+    };
+    const selection: PublicationInstallationSpec = {
+      schema: "pirate.publication-installation/1", communityId: source.communityId,
+      installationId: source.installationId, origin: draft.origin, incarnation: "1",
+      installedBindingSha256: `0x${nativeDigest(original)}`, previous: null,
+      active: publicationSelectionHash(release), entries: [{ release, transportRef: transport.transportRef }],
+    };
+    const bodyFor = (selected: PublicationInstallationSpec, selectedTransport = transport): Web2TrustedPublicationAttachment => ({
+      schema: "pirate.web2-trusted-revision-two-publication/1", nativeOriginalSha256: nativeDigest(original),
+      graphSha256: canonicalDigest(graph), approvalSha256: admitted.approvalSha256,
+      initialization: { schema: "pirate.web2-native-publication-initialization/1", selection: selected,
+        selector: sign(publicationMountFor(original, selected, selectedTransport)) },
+    });
+    const body = bodyFor(selection), raw = canonical(sign(body));
+    const write = (bytes: string) => writeFile(path, bytes, { mode: 0o600 });
+    await write(raw + "\n");
+    await assert.rejects(read, /trusted_web2_publication_attachment_not_canonical/);
+    const signed = sign(body);
+    await write(canonical({ ...signed, signature: "A".repeat(86) }));
+    await assert.rejects(read, /native_original_signature/);
+    for (const change of [{ nativeOriginalSha256: "1".repeat(64) }, { graphSha256: "1".repeat(64) },
+      { approvalSha256: "1".repeat(64) }]) {
+      await write(canonical(sign({ ...body, ...change })));
+      await assert.rejects(read, /trusted_web2_publication_(original|approval)_changed/);
+    }
+    const singleRelease = structuredClone(release);
+    delete singleRelease.policies["dance-review-attribution"];
+    await write(canonical(sign(bodyFor({ ...selection, active: publicationSelectionHash(singleRelease),
+      entries: [{ release: singleRelease, transportRef: transport.transportRef }] }))));
+    await assert.rejects(read, /trusted_web2_publication_active_release_changed/);
+    for (const occupied of [configuration.controller, configuration.publisher, admitted.approval.ownerWallet]) {
+      const aliasRelease = { ...release, issuer: occupied };
+      const aliasTransport = { ...transport, issuerAddress: occupied };
+      const alias = bodyFor({ ...selection, active: publicationSelectionHash(aliasRelease),
+        entries: [{ release: aliasRelease, transportRef: transport.transportRef }] }, aliasTransport);
+      await assert.rejects(verifyTrustedWeb2Publication(canonical(sign(alias)), original, {
+        graphSha256: alias.graphSha256, approvalSha256: alias.approvalSha256, configuration,
+        registryRuntimeHash, transport: aliasTransport, ownerWallet: admitted.approval.ownerWallet,
+      }), /trusted_web2_publication_(active_release|approval)_changed/);
+    }
+    await write(raw);
+    assert.deepEqual((await read())?.initialization, body.initialization);
+    await rm(path);
+    assert.equal(await read(), undefined);
+    await write(raw);
+    const bootFile = "/run/authorized-boot/web2-original.json";
+    const revOne = renderFullNativeConfig(graph, "serve", "e".repeat(64), bootFile);
+    assert.doesNotMatch(revOne, /PUBLICATION_NATIVE_MOUNT_JSON|PUBLICATION_OPERATOR_HOST|PUBLICATION_RETAINED_LOOKUP_AUTH/);
+    const snapshot = { selector: "/run/authorized-boot/trusted-publication-mount.json",
+      initialization: "/run/authorized-boot/trusted-publication-initialization.json", expiresAtMs: Date.now() + 60000 };
+    assert.throws(() => renderFullNativeConfig(graph, "initialize", undefined, bootFile,
+      graph.socket, false, snapshot), /trusted_web2_publication_boot_snapshot_required/);
+    const revTwo = renderFullNativeConfig(graph, "serve", "e".repeat(64), bootFile,
+      graph.socket, false, snapshot);
+    const initializeRevTwo = renderFullNativeConfig(graph, "initialize", undefined, bootFile,
+      graph.socket, true, snapshot);
+    assert.match(initializeRevTwo, /WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON/);
+    assert.match(initializeRevTwo, /WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS/);
+    assert.doesNotMatch(initializeRevTwo, /PUBLICATION_NATIVE_MOUNT_JSON|PUBLICATION_OPERATOR_HOST_AUTH/);
+    assert.match(revTwo, /PUBLICATION_NATIVE_MOUNT_JSON/);
+    assert.match(revTwo, /PUBLICATION_OPERATOR_HOST_AUTH/);
+    assert.match(revTwo, /PUBLICATION_RETAINED_LOOKUP_AUTH/);
+    assert.doesNotMatch(revTwo, /WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON/);
+
+    const split = async (sourceRoot: string, paths: string[], overlay = false) => JSON.parse(
+      (await promisify(execFile)("/usr/bin/python3", ["-B", "deploy/linux/split-migrations.py",
+        sourceRoot, JSON.stringify(paths), ...(overlay ? ["web2-first-song/1"] : [])], { maxBuffer: 4 * 1024 ** 2 })).stdout);
+    const migrations = await split("apps/community-wizard/infra/migrations",
+      [...nativeMigrationNames, "0020_publication_consent.sql", "0021_publication_installed_selection.sql",
+        "0022_dance_private_practice.sql"]);
+    const overlays = await split(process.cwd(), ["packages/community/catalog-phase-rebuild.sql",
+      "packages/community/catalog-obligation.sql", "packages/community/native-business.sql"], true);
+    const runtime = new Miniflare({
+      modules: true, script: "export default {fetch(){return new Response(null)}}",
+      compatibilityDate: "2026-08-06", d1Databases: ["DB", "ORPHAN"], r2Buckets: ["MEDIA"],
+    });
+    try {
+      const db = await runtime.getD1Database("DB"), orphan = await runtime.getD1Database("ORPHAN");
+      const media = await runtime.getR2Bucket("MEDIA");
+      const env = {
+        DB: db, MEDIA: media, NATIVE_APPLICATION_ORIGINAL_JSON: originalBytes,
+        MIGRATION_PLAN_JSON: JSON.stringify({ schema: "pirate.linux-migration-plan/1", qualificationOnly: true,
+          releaseSha256: artifactDigest.slice(2), migrations, web2Schema: { schema: "pirate.linux-web2-schema/1", overlays } }),
+      };
+      const initialize = (selectedEnv: typeof env & {
+        WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON?: string; WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS?: string;
+        WEB2_REQUIRE_RETAINED_STATE?: "1";
+      }) => boot.fetch(new Request("http://private/initialize", { method: "POST" }), selectedEnv);
+      const count = (d: D1Database, table: string) => d.prepare(`SELECT count(*) AS n FROM ${table}`).first("n");
+      await assert.rejects(initialize({ ...env, WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON: raw }),
+        /Trusted publication requires the retained Web2 original/);
+      assert.equal(await db.prepare("SELECT name FROM sqlite_schema WHERE name='_pirate_linux_migrations'").first(), null);
+      const fresh = await (await initialize(env)).json();
+      assert.equal(fresh.publicationSelectionSha256, undefined);
+      assert.equal(await count(db, "publication_v1_release_archive"), 0);
+      const retained = { ...env, WEB2_REQUIRE_RETAINED_STATE: "1" as const, WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON: raw,
+        WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS: String(Date.now() + 60000) };
+      const originalState = async () => Promise.all(["native_application_original", "application_identity",
+        "_pirate_linux_migrations", "_pirate_web2_schema"].map(async table => (await db.prepare(`SELECT * FROM ${table}`).all()).results));
+      const before = await originalState();
+      await assert.rejects(initialize({ ...retained, WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS: undefined }),
+        /Trusted publication cutoff missing or invalid/);
+      const expires = Date.now() + 150;
+      let delayedOriginalRead = false;
+      const delayedMedia = new Proxy(media, {
+        get(target, property, receiver) {
+          if (property !== "get") return Reflect.get(target, property, receiver);
+          return async (key: string) => {
+            const object = await target.get(key);
+            delayedOriginalRead = true;
+            await delay(Math.max(0, expires - Date.now() + 10));
+            return object;
+          };
+        },
+      });
+      await assert.rejects(initialize({ ...retained, MEDIA: delayedMedia, WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS: String(expires) }),
+        /publication_first_selection_expired/);
+      assert(delayedOriginalRead);
+      assert.equal(await count(db, "publication_v1_installed_selection"), 0);
+      assert.equal(await count(db, "publication_v1_release_archive"), 0);
+      assert.deepEqual(await originalState(), before);
+      const first = await (await initialize(retained)).json();
+      assert.equal(first.publicationSelectionSha256, body.initialization.selector.body.mount.selectionSha256);
+      assert.equal(first.retainedState, true);
+      assert.equal(first.objectEtag, fresh.objectEtag);
+      assert.deepEqual(await originalState(), before);
+      const selected = () => db.prepare("SELECT * FROM publication_v1_installed_selection").first();
+      const archived = () => db.prepare("SELECT * FROM publication_v1_release_archive").first();
+      const both = [await selected(), await archived()];
+      assert((await initialize(retained)).ok);
+      assert.deepEqual([await selected(), await archived()], both);
+      await assert.rejects(initialize({ ...retained, WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS: String(Date.now() - 1) }),
+        /publication_first_selection_expired/);
+      assert.deepEqual([await selected(), await archived()], both);
+      assert.equal(await count(db, "publication_v1_commands"), 0);
+      const gatewayModule: string = "../deploy/linux/full-gateway.worker.mjs";
+      const { default: gateway } = await import(gatewayModule);
+      const { default: app } = await import("../services/linux-community.ts");
+      const bootId = "b".repeat(64), key = "c".repeat(64);
+      const startup = { fetch: async () => Response.json({ initialized: true, bootId }) };
+      const observer = { fetch: async () => { throw Error("unexpected_generic_observer"); } };
+      const appEnv = { ...directory.env, DB: db, MEDIA: media,
+        COMMUNITY_DEPLOYMENT_PROFILE_JSON: JSON.stringify(draft.deployment),
+        NATIVE_APPLICATION_ORIGINAL_JSON: originalBytes, NATIVE_READBACK_KEY: key,
+        WEB2_PUBLISHING_ATTACHMENT_SHA256: attachmentDigest };
+      const mounted = { ...appEnv, PUBLICATION_NATIVE_MOUNT_JSON: canonical(body.initialization.selector),
+        PUBLICATION_OPERATOR_HOST_AUTH: "d".repeat(64), PUBLICATION_RETAINED_LOOKUP_AUTH: "e".repeat(64),
+        PUBLICATION_OPERATOR_HOST: { fetch: async () => { throw Error("readback_must_not_open_publisher_transport"); } } };
+      const url = draft.origin + trustedWeb2PublicationReadbackPath;
+      let applicationReads = 0;
+      const prove = (candidate: typeof appEnv, access: string, path = url) => gateway.fetch(
+        new Request(path, { headers: { "X-Pirate-Readback-Key": access } }),
+        { STARTUP: startup, OBSERVER: observer, READBACK_KEY: key,
+          APPLICATION: { fetch(request: Request) { applicationReads++; return app.fetch(request, candidate); } } },
+      );
+      assert.equal((await prove(mounted, "0".repeat(64))).status, 404);
+      assert.equal(applicationReads, 0);
+      const dormant = await prove(appEnv, key);
+      assert.equal(dormant.status, 503);
+      assert.equal(dormant.headers.get("X-Pirate-Native-Boot-Id"), null);
+      assert.equal((await prove(mounted, key, url + "?unexpected=1")).status, 404);
+      const serving = await prove(mounted, key);
+      assert.equal(serving.status, 200);
+      assert.equal(serving.headers.get("X-Pirate-Native-Boot-Id"), bootId);
+      assert.deepEqual(await serving.json(), { mount: body.initialization.selector.body.mount, active: selection.active });
+      assert.equal(await count(db, "publication_v1_commands"), 0);
+      const differingRelease = structuredClone(release);
+      differingRelease.fee.cap = (BigInt(differingRelease.fee.cap) + 1n).toString();
+      const differing = canonical(sign(bodyFor({ ...selection, active: publicationSelectionHash(differingRelease),
+        entries: [{ release: differingRelease, transportRef: transport.transportRef }] })));
+      await assert.rejects(initialize({ ...retained, WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON: differing }),
+        /publication_installation_changed/);
+      assert.deepEqual([await selected(), await archived()], both);
+      await initialize({ ...env, DB: orphan });
+      await orphan.prepare(`INSERT INTO publication_v1_release_archive
+        (community_id,release_sha256,release_json,transport_ref,admitted_binding_sha256) VALUES(?,?,?,?,?)`)
+        .bind(selection.communityId, selection.active, canonical(release), transport.transportRef, selection.installedBindingSha256).run();
+      await assert.rejects(initialize({ ...retained, DB: orphan }), /NOT NULL|constraint/i);
+      assert.equal(await count(orphan, "publication_v1_installed_selection"), 0);
+      assert.equal(await count(orphan, "publication_v1_release_archive"), 1);
+    } finally {
+      await runtime.dispose();
+      await rm(path, { force: true });
+    }
+  });
 
   fixture.setNow(BigInt(admitted.expiresAt));
   await assert.rejects(readApprovedTrustedRevisionTwo(input), /trusted_revision_two_approval_expired/);

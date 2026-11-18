@@ -38,6 +38,8 @@ export interface NativePublicationFirstGrant {
 export interface NativePublicationActivityRoute {
   readonly lease: OperationLease;
   readonly socket: string;
+  readonly retainedSelectionSha256: Hex;
+  readonly firstGrantSelected: boolean;
   readonly requestCapabilityFile: string;
   readonly lookupCapabilityFile: string;
   readonly ingressDigest: string;
@@ -201,6 +203,7 @@ export async function createNativePublicationActivityRoute(input: {
   }
 
   const opened = Object.freeze({ lease, socket, ...selection, ingressDigest: canonicalDigest(ingress),
+    retainedSelectionSha256: digest({ entries, active }), firstGrantSelected: Boolean(readFirstGrant),
     requestCapabilityFile, lookupCapabilityFile, assertAcceptedAppGrant, async fetch(request: Request) {
     const url = new URL(request.url);
     if (url.origin !== publicationHostOrigin || (url.pathname !== publicationHostPath && url.pathname !== nativeDanceHostPath) ||

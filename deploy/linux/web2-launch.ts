@@ -49,6 +49,9 @@ import { readNativePostsRole } from "./web2-native-posts-role.ts";
 import { expandedPublicationApprovalExists, readApprovedExpandedPublication } from "./web2-expanded-publication.ts";
 import { readApprovedTrustedRevisionTwo, readTrustedRevisionTwoPolicy, trustedRevisionTwo } from "./web2-trusted-revision-two.ts";
 
+import { canonical } from "../../packages/community/common.ts";
+import { readTrustedNativePublication } from "./web2-trusted-publication.ts";
+
 export interface Web2LaunchConfiguration {
   schema: "pirate.linux-web2-launch/1";
   release: SignedRecord<FullRelease>;
@@ -158,6 +161,7 @@ export async function runWeb2Native(configPath: string) {
   await web2NativeOriginal(JSON.stringify(original));
   const plan = original.record.body,
     deployment = plan.draft.deployment;
+  const trusted = graph.publicationExpansion === trustedRevisionTwo;
   const publication = graph.nativePublication;
   const publicationFiles = publication ? nativePublicationPaths(publication.directory) : undefined;
   const postsRole = graph.secretBindings.find(binding => binding.name === "POSTS_CUSTODY_HOST_AUTH");
@@ -175,7 +179,7 @@ export async function runWeb2Native(configPath: string) {
       "native_publication_launch_original_changed");
     return body.mount.selectionSha256;
   }
-  const publicationSha256 = await publicationMount();
+  const fixtureSelectionSha256 = trusted ? undefined : await publicationMount();
   const {
     communityId: _id,
     communityKey: _key,
@@ -206,7 +210,11 @@ export async function runWeb2Native(configPath: string) {
   });
   // Pin the admitted authority for this process. Changing approval while
   // either phase is starting requires a fresh supervised reopen.
-  let authorityAtBoot: { approvalSha256: string | null } | undefined;
+  type TrustedPublication = Awaited<ReturnType<typeof readTrustedNativePublication>>;
+  let authorityAtBoot: {
+    approvalSha256: string | null; publication: TrustedPublication; expiresAtMs: number | null;
+  } | undefined;
+  let publicationSnapshot: { selector: string; initialization: string; expiresAtMs: number } | undefined;
   const current = async () => {
     await assertStartAllowed(config.maintenanceDirectory);
     await verifyInstalledRelease(config.release, config.trust);
@@ -223,7 +231,7 @@ export async function runWeb2Native(configPath: string) {
         minimumGeneration: Math.max(config.minimumGeneration, plan.generation),
         planId: plan.planId,
       });
-    await admission();
+    const startAdmission = await admission();
     const chain: Web2ChainAuthority = {
         client,
         send: communityIpfsTransport(deployment, send),
@@ -236,15 +244,39 @@ export async function runWeb2Native(configPath: string) {
         registrarRevision: BigInt(plan.registrationAuthority.registrarRevision),
     };
     if (postsRole) await readNativePostsRole(postsRole.path, publicationFiles);
-    if (graph.publicationExpansion === trustedRevisionTwo) {
+    if (trusted) {
       const now = Date.now;
-      await readTrustedRevisionTwoPolicy({ graph, original, now, currentAdmissionFile: config.currentAdmissionFile });
+      const policy = await readTrustedRevisionTwoPolicy({ graph, original, now, currentAdmissionFile: config.currentAdmissionFile });
       const approved = await expandedPublicationApprovalExists(graph)
         ? await readApprovedTrustedRevisionTwo({ graph, original, chain, now }) : null;
       if (!approved) await authenticateWeb2Enrollment(chain, plan.draft);
       const approvalSha256 = approved?.approvalSha256 ?? null;
-      authorityAtBoot ??= { approvalSha256 };
-      assert(authorityAtBoot.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
+      const selected = approved && publication
+        ? await readTrustedNativePublication({ graph, original, approval: approved }) : undefined;
+      if (approved && publication) {
+        assert(selected, "trusted_web2_publication_attachment_required");
+        const confirmed = await readApprovedTrustedRevisionTwo({ graph, original, chain, now });
+        assert(confirmed.approvalSha256 === approvalSha256, "trusted_revision_two_approval_changed");
+      }
+      if (publicationSnapshot) {
+        assert(selected && (await readFile(publicationSnapshot.selector)).equals(Buffer.from(canonical(selected.initialization.selector))) &&
+          (await readFile(publicationSnapshot.initialization)).equals(Buffer.from(selected.raw)),
+          "trusted_web2_publication_boot_snapshot_changed");
+      }
+      const currentAdmission = await admission();
+      // The approval already incorporates the owner grant's whole-second
+      // expiry. A refreshed current admission cannot extend this boot.
+      const expiresAtMs = selected && approved ? Math.min(
+        policy.expiresAt, startAdmission.expiresAt, currentAdmission.expiresAt, approved.expiresAt * 1000,
+      ) : null;
+      authorityAtBoot ??= { approvalSha256, publication: selected, expiresAtMs };
+      assert(authorityAtBoot.approvalSha256 === approvalSha256 &&
+        authorityAtBoot.publication?.raw === selected?.raw, "trusted_revision_two_approval_changed");
+      assert(expiresAtMs === null ? authorityAtBoot.expiresAtMs === null :
+        Number.isSafeInteger(expiresAtMs) && authorityAtBoot.expiresAtMs !== null &&
+        now() < authorityAtBoot.expiresAtMs && authorityAtBoot.expiresAtMs <= expiresAtMs,
+        "trusted_web2_publication_boot_window_changed");
+      return;
     } else if (graph.publicationExpansion !== undefined) {
       const approved = await readApprovedExpandedPublication({ graph, original, chain });
       assert(approved.selectionSha256 === await publicationMount(), "native_expanded_publication_selection_changed");
@@ -254,11 +286,25 @@ export async function runWeb2Native(configPath: string) {
     await admission();
   };
   await current();
+  const trustedSelection = authorityAtBoot?.publication, trustedExpiry = authorityAtBoot?.expiresAtMs;
+  const publicationSha256 = trustedSelection?.initialization.selector.body.mount.selectionSha256 ?? fixtureSelectionSha256;
   for (const root of Object.values(graph.stateRoots))
     await privateDirectory(root);
   const scratch = await createBootDirectory(config.privateRuntimeDirectory);
   const nativeOriginalFile = join(scratch, "web2-original.json");
   await writeExclusive(nativeOriginalFile, JSON.stringify(original) + "\n");
+  if (trustedSelection) {
+    assert(trustedExpiry != null, "trusted_web2_publication_boot_window_changed");
+    const snapshot = {
+      selector: join(scratch, "trusted-publication-mount.json"),
+      initialization: join(scratch, "trusted-publication-initialization.json"),
+      expiresAtMs: trustedExpiry,
+    };
+    await current();
+    await writeExclusive(snapshot.selector, canonical(trustedSelection.initialization.selector));
+    await writeExclusive(snapshot.initialization, trustedSelection.raw);
+    publicationSnapshot = snapshot;
+  }
   await syncDirectory(scratch);
   const executable = join(release.root, "workerd");
   assert(
@@ -291,14 +337,14 @@ export async function runWeb2Native(configPath: string) {
   async function phase(mode: "initialize" | "serve") {
     assert(!stopped, "web2_native_cancelled");
     await current();
-    assert(await publicationMount() === publicationSha256, "native_publication_launch_selection_changed");
+    assert(trusted || await publicationMount() === fixtureSelectionSha256, "native_publication_launch_selection_changed");
     const bootId = randomBytes(32).toString("hex"),
       socket = join(scratch, mode + ".sock");
     const file = join(scratch, mode + ".capnp");
     const requireRetainedState = mode === "initialize" && authorityAtBoot?.approvalSha256 != null;
     await writeExclusive(
       file,
-      renderFullNativeConfig(graph, mode, bootId, nativeOriginalFile, socket, requireRetainedState),
+      renderFullNativeConfig(graph, mode, bootId, nativeOriginalFile, socket, requireRetainedState, publicationSnapshot),
     );
     await syncDirectory(scratch);
     await current();
@@ -419,7 +465,7 @@ export async function runWeb2Native(configPath: string) {
         "actual_web2_startup_required",
       );
       await current();
-      assert(await publicationMount() === publicationSha256, "native_publication_launch_selection_changed");
+      assert(trusted || await publicationMount() === fixtureSelectionSha256, "native_publication_launch_selection_changed");
       await writeExclusive(
         join(scratch, mode + "-readback.json"),
         JSON.stringify({

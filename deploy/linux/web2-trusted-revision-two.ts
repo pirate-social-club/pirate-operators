@@ -25,13 +25,13 @@ type ModeGraph = Omit<NativeGraph, "directoryRuntimeBinding">;
 
 export function assertTrustedRevisionTwoTarget(graph: ModeGraph, ingress: PublicIngress) {
   if (graph.publicationExpansion === trustedRevisionTwo)
-    assert(ingress.tls.kind === "public-acme" && !graph.fixtureTransport && !graph.nativePublication,
+    assert(ingress.tls.kind === "public-acme" && !graph.fixtureTransport,
       "trusted_revision_two_public_acme_required");
 }
 
 export function trustedRevisionTwoApprovalPath(graph: ModeGraph) {
   assert(graph.publicationExpansion === trustedRevisionTwo &&
-    !graph.fixtureTransport && !graph.nativePublication && graph.stateRoots.configuration,
+    !graph.fixtureTransport && graph.stateRoots.configuration,
     "trusted_revision_two_public_graph_required");
   return join(graph.stateRoots.configuration, trustedRevisionTwoApprovalName + ".json");
 }

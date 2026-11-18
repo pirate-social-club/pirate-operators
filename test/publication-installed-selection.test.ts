@@ -5,6 +5,7 @@ import { hashText } from "../packages/community/common.ts";
 import { canonical, digest } from "../packages/protocol/index.ts";
 import { publicationSelectionHash } from "../services/publication-app-selection.ts";
 import {
+  installFirstPublicationSelection,
   installPublicationSelection,
   loadPublicationInstallation,
   type PublicationInstallationSpec,
@@ -271,3 +272,53 @@ test(
     }
   },
 );
+
+test("ordinary first consent selection supports both Dance prepares on the same authenticated session", { timeout: 30000 }, async t => {
+  const f = await publicationAppFixture(t, { trustedFirstSelection: true, safeLag: 2n });
+  const caps = await f.call("capabilities");
+  assert.equal(caps.status, 200);
+  assert.equal(caps.value.profile, "publication-consent-v1");
+  assert.equal(caps.value.privatePractice, "independent-admission");
+  const purposes = ["dance-review-attribution", "dance-verdict"] as const;
+  assert.deepEqual(caps.value.purposes, [...purposes]);
+  for (const purpose of purposes) {
+    const pending = await f.prepare("native-first-" + purpose, purpose);
+    assert.equal(pending.status, 503);
+    assert.equal(pending.value.error, "publication_observation_pending");
+    assert.equal(pending.value.walletRequest, undefined);
+  }
+  const originals = await f.rows();
+  assert.equal(originals.length, 2);
+  f.authority.advanceSafe(f.now());
+  for (const purpose of purposes) {
+    const requestId = "native-first-" + purpose;
+    const prepared = await f.prepare(requestId, purpose);
+    assert.equal(prepared.status, 200);
+    assert.ok(prepared.value.walletRequest);
+    const same = await f.prepare(requestId, purpose);
+    assert.equal(same.status, 200);
+    assert.deepEqual(same.value.walletRequest, prepared.value.walletRequest);
+    assert.equal(same.value.commandId, prepared.value.commandId);
+  }
+  const after = await f.rows();
+  assert.deepEqual(after.map(row => row.command_id).sort(), originals.map(row => row.command_id).sort());
+  assert(after.every(row => row.signature === null && row.accepted_json === null));
+  assert.equal(f.operatorCalls.length, 0);
+});
+
+test("ordinary first consent admits only the winner's archive on a competing D1 batch", { timeout: 30000 }, async t => {
+  const f = await publicationAppFixture(t, { installSelection: false });
+  const a = initial(f), b = structuredClone(a);
+  b.entries[0]!.release.fee.cap = (BigInt(b.entries[0]!.release.fee.cap) + 1n).toString();
+  b.active = publicationSelectionHash(b.entries[0]!.release);
+  await assert.rejects(installFirstPublicationSelection(f.ports.db, a, Date.now() - 1), /publication_first_selection_expired/);
+  assert.equal(await f.db.prepare("SELECT COUNT(*) AS n FROM publication_v1_release_archive").first("n"), 0);
+  const before = Date.now() + 60000;
+  const outcomes = await Promise.allSettled([installFirstPublicationSelection(f.ports.db, a, before),
+    installFirstPublicationSelection(f.ports.db, b, before)]);
+  const admitted = outcomes.filter(row => row.status === "fulfilled");
+  assert.equal(admitted.length, 1);
+  const rows = await f.db.prepare("SELECT release_sha256 FROM publication_v1_release_archive").all();
+  assert.deepEqual(rows.results, [{ release_sha256: admitted[0]!.value.catalog.active }]);
+  assert.equal((await f.rows()).length, 0);
+});

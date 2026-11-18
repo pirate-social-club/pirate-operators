@@ -1,3 +1,4 @@
+import { trustedWeb2PublicationExpiryBinding, trustedWeb2PublicationInitializationBinding } from "../../packages/community/web2-trusted-publication.ts";
 import assert from "node:assert/strict";
 import { nativePublicationBindingNames, nativePublicationPaths, nativePublicationService,
   type Web2NativePublicationGraph } from "./web2-publication-selection.ts";
@@ -37,10 +38,11 @@ const binding=(v:NativeBinding)=>{
 };
 /** Actual native services, not the diagnostic ledger. Unknown selected actors
  * or final Directory binding refuse; the caller supplies exact accepted bytes. */
-export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket, requireRetainedWeb2=false) {
+export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"cold-reconcile"="serve",bootId?:string,nativeOriginalFile?:string,runtimeSocket=g.socket, requireRetainedWeb2=false,
+  trustedPublication?: Readonly<{ selector: string; initialization: string; expiresAtMs: number }>) {
   const initialize=mode!=="serve";
   assert(!requireRetainedWeb2 || mode==="initialize" && nativeOriginalFile &&
-    g.publicationExpansion==="retained-registry-revision-two/1" && !g.fixtureTransport && !g.nativePublication,
+    g.publicationExpansion==="retained-registry-revision-two/1" && !g.fixtureTransport,
     "trusted_revision_two_retained_initialization_required");
   assert(runtimeSocket===g.socket || runtimeSocket.startsWith("/run/") && !runtimeSocket.split("/").includes(".."),"private_per_boot_control_socket_required");
   assert(initialize || (typeof bootId==="string" && /^[a-f0-9]{64}$/.test(bootId)),"fresh_actual_process_boot_identity_required");
@@ -123,18 +125,28 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
   const reservedPublication = new Set<string>(nativePublicationBindingNames);
   assert(![...g.applicationBindings, ...g.secretBindings, ...g.actors.flatMap(actor => actor.bindings)]
     .some(binding => reservedPublication.has(binding.name)), "prebound_native_publication_refused");
-  const publication = g.nativePublication;
+  const publication = g.nativePublication, trusted = g.publicationExpansion === "retained-registry-revision-two/1";
+  assert(!trustedPublication || trusted && publication && !g.fixtureTransport &&
+    (mode === "serve" || requireRetainedWeb2) && nativeOriginalFile &&
+    Number.isSafeInteger(trustedPublication.expiresAtMs) && trustedPublication.expiresAtMs > 0 &&
+    trustedPublication.selector === nativeOriginalFile.slice(0, nativeOriginalFile.lastIndexOf("/") + 1) + "trusted-publication-mount.json" &&
+    trustedPublication.initialization === nativeOriginalFile.slice(0, nativeOriginalFile.lastIndexOf("/") + 1) + "trusted-publication-initialization.json",
+    "trusted_web2_publication_boot_snapshot_required");
   assert(g.publicationExpansion === undefined ||
     (g.publicationExpansion === "registry-revision-two/1" && publication && fixture) ||
-    (g.publicationExpansion === "retained-registry-revision-two/1" && !publication && !g.fixtureTransport),
+    (trusted && !g.fixtureTransport),
     "native_expanded_fixture_selection_required");
   if (publication) {
     assert(g.localActivitySocket && publication.schema === "pirate.web2-native-publication-transport/1",
       "native_publication_requires_selected_activity_socket");
   }
   const publicationFiles = publication ? nativePublicationPaths(publication.directory) : undefined;
-  const publicationApp = publicationFiles ? [
-    binding({name:"PUBLICATION_NATIVE_MOUNT_JSON",file:publicationFiles.selector}),
+  assert(!requireRetainedWeb2 || !publication || trustedPublication, "trusted_web2_publication_boot_snapshot_required");
+  const publicationSelector = trusted
+    ? mode === "serve" ? trustedPublication?.selector : undefined
+    : publicationFiles?.selector;
+  const publicationApp = publicationSelector && publicationFiles ? [
+    binding({name:"PUBLICATION_NATIVE_MOUNT_JSON",file:publicationSelector}),
     binding({name:"PUBLICATION_OPERATOR_HOST",service:nativePublicationService}),
     binding({name:"PUBLICATION_OPERATOR_HOST_AUTH",file:publicationFiles.request}),
     binding({name:"PUBLICATION_RETAINED_LOOKUP_AUTH",file:publicationFiles.lookup}),
@@ -199,8 +211,11 @@ export function renderFullNativeConfig(g:NativeGraph,mode:"serve"|"initialize"|"
     +(nativeOriginalFile?',(name="NATIVE_APPLICATION_ORIGINAL_JSON",text=embed '+q(nativeOriginalFile)+')':'')
     +(mode==="initialize" ? postsInit : "")
     +(requireRetainedWeb2 ? ',(name="WEB2_REQUIRE_RETAINED_STATE",text="1")' : '')
-    +(publicationFiles && mode==="initialize" ? ","+binding({name:"WEB2_PUBLICATION_INITIALIZATION_JSON",
-      file:publicationFiles.initialization}) : "")));
+    +(!trusted && publicationFiles && mode==="initialize" ? ","+binding({name:"WEB2_PUBLICATION_INITIALIZATION_JSON",
+      file:publicationFiles.initialization}) : "")
+    +(trustedPublication && mode==="initialize" ? ","+binding({name:trustedWeb2PublicationInitializationBinding,
+      file:trustedPublication.initialization}) + "," + binding({name:trustedWeb2PublicationExpiryBinding,
+      text:String(trustedPublication.expiresAtMs)}) : "")));
   if(mode==="cold-reconcile") {
     assert(typeof g.coldPlanFile==="string" && g.coldPlanFile.startsWith("/"),"explicit_cold_reconciliation_plan_required");
     assert(g.stateRoots.reconciliation?.startsWith("/"),"reconciliation_durable_root_required");

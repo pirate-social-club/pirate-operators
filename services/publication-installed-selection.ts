@@ -233,6 +233,52 @@ function retained(
   if (complete)
     check(rows.length === entries.size, "publication_retained_release_missing");
 }
+/** First ordinary Web2 mount. The existing migrations enforce the archive
+ * FK immediately, so admission inserts the archive first in one D1 batch.
+ * No previously orphaned consent state is eligible for adoption. */
+export async function installFirstPublicationSelection(db: D1Database, input: unknown, expiresAtMs: number) {
+  check(Number.isSafeInteger(expiresAtMs) && expiresAtMs > 0, "publication_first_selection_expiry_invalid");
+  const beforeCutoff = "CAST(ROUND(unixepoch('subsec') * 1000) AS INTEGER) < ?";
+  const assertLive = async () => {
+    check(await db.prepare(`SELECT ${beforeCutoff} AS permitted`).bind(expiresAtMs).first("permitted") === 1,
+      "publication_first_selection_expired");
+  };
+  await assertLive();
+  const spec = installation(input), expected = identity(spec), bytes = canonical(spec);
+  const entry = spec.entries[0];
+  check(spec.previous === null && spec.incarnation === "1" && spec.entries.length === 1 &&
+    entry && spec.active === publicationSelectionHash(entry.release), "publication_first_selection_invalid");
+  const old = await selected(db, spec.communityId);
+  if (!old) {
+    await db.batch([
+      db.prepare(`INSERT INTO publication_v1_release_archive
+        (community_id,release_sha256,release_json,transport_ref,admitted_binding_sha256)
+        SELECT ?,?,?,?,? WHERE ${beforeCutoff} AND
+          NOT EXISTS(SELECT 1 FROM publication_v1_installed_selection) AND
+          NOT EXISTS(SELECT 1 FROM publication_v1_release_archive) AND
+          NOT EXISTS(SELECT 1 FROM publication_v1_heads) AND
+          NOT EXISTS(SELECT 1 FROM publication_v1_commands) AND
+          NOT EXISTS(SELECT 1 FROM publication_v1_observations)`)
+        .bind(spec.communityId, spec.active, canonical(entry.release), entry.transportRef, spec.installedBindingSha256, expiresAtMs),
+      // An existing selector means the batch may only load it. Otherwise the
+      // NOT NULL manifest rejects the entire batch if no archive was admitted
+      // by the preceding insert on this connection or the cutoff was crossed.
+      db.prepare(`INSERT INTO publication_v1_installed_selection
+        (community_id,installation_id,community_origin,incarnation,installed_binding_sha256,selection_sha256,active_release_sha256,manifest_json)
+        SELECT ?,?,?,?,?,?,?,CASE WHEN changes()=1 AND ${beforeCutoff} THEN ? END
+          WHERE NOT EXISTS(SELECT 1 FROM publication_v1_installed_selection)`)
+        .bind(spec.communityId, spec.installationId, spec.origin, generation(spec.incarnation),
+          spec.installedBindingSha256, expected.selectionSha256, spec.active, expiresAtMs, bytes),
+    ]);
+  }
+  const installed = await loadPublicationInstallation(db, expected);
+  const rows = await archive(db, expected.communityId);
+  check(rows.length === 1 && rows[0]?.admitted_binding_sha256 === spec.installedBindingSha256,
+    "publication_first_selection_archive_changed");
+  await installed.check();
+  await assertLive();
+  return installed;
+}
 /** Trusted installer only, after the actual signed runtime binding has been
  * verified. No browser handler exposes this mutation or supplies its bytes. */
 export async function installPublicationSelection(

@@ -1,7 +1,9 @@
+import { trustedWeb2PublicationExpiryBinding, trustedWeb2PublicationInitializationBinding, verifyTrustedWeb2Publication } from "../../packages/community/web2-trusted-publication.ts";
 import type { Hex } from "viem";
 import { check, digest } from "../../packages/protocol/index.ts";
 import { exact, generation, record } from "../../services/publication-command-contract.ts";
 import {
+  installFirstPublicationSelection,
   installPublicationSelection,
   type PublicationInstallationSpec,
   type PublicationMountIdentity,
@@ -43,6 +45,8 @@ export const nativePublicationBindingNames = [
   "PUBLICATION_OPERATOR_HOST_AUTH",
   "PUBLICATION_RETAINED_LOOKUP_AUTH",
   "WEB2_PUBLICATION_INITIALIZATION_JSON",
+  trustedWeb2PublicationInitializationBinding,
+  trustedWeb2PublicationExpiryBinding,
 ] as const;
 
 export function nativePublicationPaths(directory: string) {
@@ -121,6 +125,7 @@ export async function initializeNativePublication(
   db: D1Database,
   original: Web2NativeOriginal,
   initialization: Web2NativePublicationInitialization,
+  trustedExpiresAtMs?: number,
 ) {
   exact(record(initialization), ["schema", "selector", "selection"]);
   check(initialization.schema === "pirate.web2-native-publication-initialization/1",
@@ -129,7 +134,17 @@ export async function initializeNativePublication(
   await verifyNativeRecord(selector, original.trust);
   const expected = publicationMountFor(original, initialization.selection, selector.body);
   check(digest(expected) === digest(selector.body), "native_publication_selector_changed");
-  const binding = await installPublicationSelection(db, initialization.selection);
+  const binding = trustedExpiresAtMs === undefined
+    ? await installPublicationSelection(db, initialization.selection)
+    : await installFirstPublicationSelection(db, initialization.selection, trustedExpiresAtMs);
   check(digest(binding.expected) === digest(expected.mount), "native_publication_d1_mount_changed");
   return expected.mount.selectionSha256;
+}
+
+
+/** Deliberate first consent mount on the already verified retained original.
+ * This performs only the existing installation/archive selection transaction. */
+export async function initializeTrustedNativePublication(db: D1Database, original: Web2NativeOriginal, raw: string, expiresAtMs: number) {
+  const { initialization } = await verifyTrustedWeb2Publication(raw, original);
+  return initializeNativePublication(db, original, initialization, expiresAtMs);
 }

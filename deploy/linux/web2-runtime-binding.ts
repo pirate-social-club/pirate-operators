@@ -52,7 +52,7 @@ import { expandedPublicationApprovalExists, readApprovedWeb2Transition } from ".
 import {
   assertTrustedRevisionTwoTarget, requireTrustedRevisionTwoResources, trustedRevisionTwo, trustedRevisionTwoPolicyName,
 } from "./web2-trusted-revision-two.ts";
-import type { Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
+import type { Web2PublicationActivation, Web2PublicationInstallationInputs } from "./web2-publication-installation.ts";
 import { postsSelectorPath, type Web2PostsInstallationInputs } from "./web2-posts-selector-installation.ts";
 import {
   assertNoBootstrapPractice, assertWeb2LocalStudyInputs,
@@ -98,6 +98,7 @@ export interface Web2RuntimeBindingInputs {
   /** Private sidecar belongs to the paired Wizard. No request supplies its path. */
   publishing?: { directory: string; grants: ManagedOwnerGrantPort; publisher: PublisherProofSigner };
   publication?: Web2PublicationInstallationInputs;
+  activateTrustedPublication?(input: Web2PublicationActivation): Promise<void>;
   posts?: Web2PostsInstallationInputs;
   signRelease(body: FullRelease): Promise<SignedRecord<FullRelease>>;
   signApplicationRelease(
@@ -220,8 +221,11 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
   assert(![...policy.graph.applicationBindings, ...policy.graph.secretBindings,
     ...policy.graph.actors.flatMap(actor => actor.bindings)].some(binding => publicationNames.has(binding.name)),
     "prebound_native_publication_refused");
-  const publication = input.publication;
-  assert(Boolean(policy.graph.nativePublication) === Boolean(publication), "native_publication_owner_unavailable");
+  const publication = input.publication, activateTrustedPublication = input.activateTrustedPublication?.bind(input);
+  const trustedConsent = policy.graph.publicationExpansion === trustedRevisionTwo && Boolean(policy.graph.nativePublication);
+  assert(Boolean(activateTrustedPublication) === trustedConsent &&
+    Boolean(publication) === (!trustedConsent && Boolean(policy.graph.nativePublication)),
+    "native_publication_owner_unavailable");
   assert(policy.graph.publicationExpansion === undefined ||
     policy.graph.publicationExpansion === trustedRevisionTwo ||
     policy.graph.publicationExpansion === "registry-revision-two/1" && policy.graph.nativePublication &&
@@ -526,6 +530,7 @@ export async function createWeb2RuntimeBinder(input: Web2RuntimeBindingInputs) {
       nativeRuntimeDirectory: policy.nativeRuntimeDirectory,
       now,
       ...(publication ? { publication } : {}),
+      ...(activateTrustedPublication ? { activateTrustedPublication } : {}),
       ...(posts ? { posts } : {}),
       ...(trusted ? { recheckTrustedPublishing: recheckExpandedAttachment } : {}),
       signProfile: async (body,generation) => {

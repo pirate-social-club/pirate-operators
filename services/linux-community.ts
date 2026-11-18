@@ -1,4 +1,5 @@
-import { nativePublicationLookupFetch } from "./linux-web2-publication.ts";
+import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
+import { nativePublicationLookupFetch, nativePublicationSelectionReadback } from "./linux-web2-publication.ts";
 import { publicationLookupPath } from "./native-publication-reference.ts";
 import { nativeDanceReadyPath } from "./native-dance-retained-reference.ts";
 import { installedNativeDanceOriginals, installedNativeDanceReadyFetch } from "./linux-web2-dance-retained-transport.ts";
@@ -66,6 +67,7 @@ async function installedOriginal(env:LinuxCommunityEnv,deployment:CommunityDeplo
 export default {
   async fetch(request:Request, env:LinuxCommunityEnv) {
     const path = new URL(request.url).pathname;
+    if (path === trustedWeb2PublicationReadbackPath) return nativePublicationSelectionReadback(request, env);
     if (path === publicationLookupPath) return nativePublicationLookupFetch(request, env);
     if (path === nativeDanceReadyPath) return installedNativeDanceReadyFetch(request, env);
     let deployment: CommunityDeploymentProfile;

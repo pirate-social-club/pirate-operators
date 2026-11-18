@@ -3,7 +3,7 @@ import {initializeWeb2NativeOriginal} from "../../packages/community/web2-native
 import {web2ApplicationOriginal} from "../../services/application-native-readback.ts";
 import {initializeNativePostsCustody} from "../../services/linux-web2-posts-custody.ts";
 import {initializeWeb2Schema, selectWeb2PublicationConsent} from "./web2-initialization.ts";
-import {initializeNativePublication} from "./web2-publication-selection.ts";
+import {initializeNativePublication, initializeTrustedNativePublication} from "./web2-publication-selection.ts";
 /** Private one-shot bootstrap. No user-facing listener or caller-supplied SQL. */
 export default {
   async fetch(request, env) {
@@ -13,6 +13,15 @@ export default {
     if (plan.schema !== 'pirate.linux-migration-plan/1' || plan.qualificationOnly !== true)
       throw new Error('Unqualified migration plan');
     const retained = env.WEB2_REQUIRE_RETAINED_STATE === '1';
+    const trustedPublication = env.WEB2_TRUSTED_PUBLICATION_INITIALIZATION_JSON;
+    const trustedExpiry = env.WEB2_TRUSTED_PUBLICATION_EXPIRES_AT_MS;
+    if (trustedPublication !== undefined || trustedExpiry !== undefined) {
+      if (!retained) throw new Error('Trusted publication requires the retained Web2 original');
+      if (typeof trustedPublication !== 'string' || typeof trustedExpiry !== 'string' ||
+          !/^[1-9][0-9]{0,15}(?![\s\S])/.test(trustedExpiry) ||
+          !Number.isSafeInteger(Number(trustedExpiry)))
+        throw new Error('Trusted publication cutoff missing or invalid');
+    }
     function originalIsWeb2() {
       if (!env.NATIVE_APPLICATION_ORIGINAL_JSON) throw new Error('Native original binding missing');
       return JSON.parse(env.NATIVE_APPLICATION_ORIGINAL_JSON).schema === "pirate.web2-native-application-original/1";
@@ -87,6 +96,12 @@ export default {
     }
     const checks = await env.DB.prepare('PRAGMA foreign_key_check').all();
     if (checks.results.length) throw new Error('Foreign-key violations');
+    if (trustedPublication !== undefined) {
+      if (!selectWeb2PublicationConsent(plan.migrations))
+        throw new Error('Trusted publication migration ledger missing');
+      publicationSelectionSha256 = await initializeTrustedNativePublication(env.DB,
+        await web2ApplicationOriginal(env), trustedPublication, Number(trustedExpiry));
+    }
     // Native R2 binding proof on a fresh, private qualification key, not an app-media claim.
     if (!retained) {
       const objectBytes = new TextEncoder().encode(bytes);

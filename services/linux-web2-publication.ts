@@ -1,5 +1,6 @@
 import type { Address, PublicClient } from "viem";
 import { canonical, exact, insist, object } from "../packages/community/common.ts";
+import { trustedWeb2PublicationReadbackPath } from "../packages/community/web2-trusted-publication.ts";
 import { nativeDigest, verifyNativeRecord } from "../packages/community/native-business-binding.ts";
 import { consentAddress, consentUint64 } from "../packages/protocol/publication-consent.ts";
 import type { SignedRecord } from "../deploy/linux/installed-records.ts";
@@ -187,6 +188,33 @@ export async function nativePublicationLookupFetch(
     );
     if (env.PUBLICATION_RETAINED_LOOKUP_AUTH !== reverse) return unavailable(404);
     return await mount.lookup(request);
+  } catch {
+    return unavailable(503);
+  }
+}
+
+
+/** Private live selector readback. The installed gateway authenticates the
+ * same readback capability and contributes its own current startup boot ID. */
+export async function nativePublicationSelectionReadback(request: Request, env: NativePublicationApplicationEnv) {
+  const url = new URL(request.url), key = env.NATIVE_READBACK_KEY;
+  const supplied = request.headers.get("X-Pirate-Readback-Key");
+  if (url.pathname !== trustedWeb2PublicationReadbackPath || url.search || url.hash ||
+    request.method !== "GET" || !key || !/^[a-f0-9]{64}(?![\s\S])/.test(key) || !supplied ||
+    !await nativePublicationAuthorized(new Request(request.url, {
+      headers: { Authorization: "Bearer " + supplied }, signal: request.signal,
+    }), key)) return unavailable(404);
+  try {
+    const deployment = readCommunityDeploymentProfile(env.COMMUNITY_DEPLOYMENT_PROFILE_JSON ?? "");
+    if (!isWeb2Deployment(deployment) || url.origin !== deployment.origin) return unavailable(404);
+    const { publication } = await openNativePublicationApplication(
+      env, deployment, megaethReadClient(undefined, deployment.rpcUrl),
+    );
+    const installation = publication.installation, active = publication.catalog.active;
+    insist(installation && active, "native_publication_mount_unavailable", 503);
+    await reuseNativePublicationApplication(env, deployment, publication);
+    if (env.NATIVE_READBACK_KEY !== key || request.signal.aborted) return unavailable(404);
+    return Response.json({ mount: installation.expected, active }, { headers: { "cache-control": "no-store" } });
   } catch {
     return unavailable(503);
   }
