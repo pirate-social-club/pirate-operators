@@ -2,7 +2,7 @@ import {initializeNativeOriginal} from "../../packages/community/native-business
 import {initializeWeb2NativeOriginal} from "../../packages/community/web2-native-business-binding.ts";
 import {web2ApplicationOriginal} from "../../services/application-native-readback.ts";
 import {initializeNativePostsCustody} from "../../services/linux-web2-posts-custody.ts";
-import {initializeWeb2Schema} from "./web2-initialization.ts";
+import {initializeWeb2Schema, selectWeb2PublicationConsent} from "./web2-initialization.ts";
 import {initializeNativePublication} from "./web2-publication-selection.ts";
 /** Private one-shot bootstrap. No user-facing listener or caller-supplied SQL. */
 export default {
@@ -41,7 +41,8 @@ export default {
       if (!plan.web2Schema) throw new Error('Explicit fresh Web2 schema plan missing');
       const postsCustody = env.POSTS_CUSTODY_SELECTION_JSON !== undefined ||
         env.POSTS_CUSTODY_HOST_AUTH !== undefined;
-      await initializeWeb2Schema(env.DB, plan.web2Schema, plan.releaseSha256, { postsCustody });
+      const publicationConsent = selectWeb2PublicationConsent(plan.migrations);
+      await initializeWeb2Schema(env.DB, plan.web2Schema, plan.releaseSha256, { postsCustody, publicationConsent });
       await initializeWeb2NativeOriginal(env.DB, env.NATIVE_APPLICATION_ORIGINAL_JSON);
       if (postsCustody) {
         const original = await web2ApplicationOriginal(env);

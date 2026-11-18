@@ -10,6 +10,7 @@ import {
 import { communityMigrations } from "../harness/package-migrations.ts";
 import {
   initializeWeb2Schema,
+  selectWeb2PublicationConsent,
   type Web2SchemaPlan,
 } from "../deploy/linux/web2-initialization.ts";
 
@@ -215,5 +216,76 @@ test(
     const before = await schemaRows(f.db);
     await assert.rejects(initializeWeb2Schema(f.db, await sourcePlan(), "ab".repeat(32)), /catalog_phase_schema_refusal/);
     assert.deepEqual(await schemaRows(f.db), before);
+  },
+);
+
+
+test(
+  "fresh Web2 requires exactly the consent trigger pair selected by verified adjacent migrations",
+  { timeout: 30000 },
+  async (t) => {
+    const f = await nativeProducerFixture(false);
+    t.after(f.dispose);
+    const root = "apps/community-wizard/infra/migrations";
+    const selected = communityMigrations(await readdir(root), {
+      rewards: true, ownerPublishing: true, v4: true, rewardClosure: true,
+      media: true, dance: true, privateDance: true, publicationConsent: true,
+    });
+    const added = selected.slice(nativeMigrationNames.length);
+    assert.deepEqual(selected, [...nativeMigrationNames,
+      "0020_publication_consent.sql", "0021_publication_installed_selection.sql", "0022_dance_private_practice.sql"]);
+    const numbered = await splitSql(added, root);
+    const [consent, mount, practice] = numbered;
+    assert(consent && mount && practice);
+    assert.throws(() => selectWeb2PublicationConsent([consent]), /web2_publication_consent_migrations_changed/);
+    assert.throws(() => selectWeb2PublicationConsent([consent, practice, mount]), /web2_publication_consent_migrations_changed/);
+    assert.throws(() => selectWeb2PublicationConsent([consent, { ...mount, sha256: "00".repeat(32) }]),
+      /web2_publication_consent_migrations_changed/);
+    assert.equal(selectWeb2PublicationConsent([practice]), false);
+    const publicationConsent = selectWeb2PublicationConsent(numbered);
+    assert.equal(publicationConsent, true);
+    const plan = await sourcePlan(), release = "cd".repeat(32);
+    const expectRollback = async (selected: boolean) => {
+      const before = await schemaRows(f.db);
+      await assert.rejects(initializeWeb2Schema(f.db, plan, release, { publicationConsent: selected }),
+        /catalog_phase_schema_refusal/);
+      assert.deepEqual(await schemaRows(f.db), before);
+    };
+    await expectRollback(publicationConsent);
+    for (const row of numbered)
+      await f.db.batch(row.statements.filter(sql => sql.trim()).map(sql => f.db.prepare(sql)));
+    const consentTriggers = async () => (await f.db.prepare(
+      "SELECT name,tbl_name,sql FROM sqlite_schema WHERE type='trigger' AND name GLOB 'publication_v1_*' ORDER BY name",
+    ).all<{ name: string; tbl_name: string; sql: string }>()).results;
+    const before = await consentTriggers();
+    assert.equal(before.length, 19);
+    await expectRollback(false);
+
+    const original = before.find(row => row.name === "publication_v1_archive_delete");
+    assert(original);
+    await f.db.prepare("DROP TRIGGER publication_v1_archive_delete").run();
+    await expectRollback(publicationConsent);
+    await f.db.prepare(
+      "CREATE TRIGGER publication_v1_archive_delete BEFORE DELETE ON publication_v1_release_archive BEGIN SELECT 1; END",
+    ).run();
+    await expectRollback(publicationConsent);
+    await f.db.batch([
+      f.db.prepare("DROP TRIGGER publication_v1_archive_delete"),
+      f.db.prepare(original.sql),
+      f.db.prepare("CREATE TRIGGER publication_v1_unexpected BEFORE DELETE ON publication_v1_release_archive BEGIN SELECT 1; END"),
+    ]);
+    await expectRollback(publicationConsent);
+    await f.db.prepare("DROP TRIGGER publication_v1_unexpected").run();
+
+    const first = await initializeWeb2Schema(f.db, plan, release, { publicationConsent });
+    assert.equal(first.alreadyInitialized, false);
+    assert.deepEqual(await consentTriggers(), before);
+    assert.deepEqual((await f.db.prepare("PRAGMA foreign_key_check").all()).results, []);
+    const reopened = await initializeWeb2Schema(f.db, plan, release, { publicationConsent });
+    assert.equal(reopened.alreadyInitialized, true);
+    assert.equal(reopened.manifestSha256, first.manifestSha256);
+    const installed = await schemaRows(f.db);
+    await assert.rejects(initializeWeb2Schema(f.db, plan, release), /web2_schema_refusal/);
+    assert.deepEqual(await schemaRows(f.db), installed);
   },
 );
